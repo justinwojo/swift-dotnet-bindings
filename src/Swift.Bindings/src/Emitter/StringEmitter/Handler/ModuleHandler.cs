@@ -880,7 +880,12 @@ namespace BindingsGeneration
                 // Skip protocols whose inheritance names a concrete class (e.g.
                 // `protocol P : UIGestureRecognizer`). EveryProtocol is a plain
                 // Swift class and cannot satisfy a class superclass constraint.
-                .Where(p => !EveryProtocolEmitter.HasClassSuperclassRequirement(p, typeDatabase, protocols))
+                // Exception: Entity-rooted protocols (`protocol HasAnchoring : Entity`)
+                // are routed downstream through the EveryEntityProtocol helper class,
+                // so they remain "suitable" here. WillSkipConformance /
+                // EmitProtocolConformance perform the same routing check per-protocol.
+                .Where(p => !EveryProtocolEmitter.HasClassSuperclassRequirement(p, typeDatabase, protocols)
+                            || EveryProtocolEmitter.IsEntityRootedProtocol(p, typeDatabase, protocols))
                 // Skip CaseIterable — requires compiler-synthesized allCases. Transitive check.
                 .Where(p => !EveryProtocolEmitter.InheritsCaseIterable(p, protocols))
                 // Skip protocols that inherit from protocols with associated types or Self requirements.
@@ -1077,8 +1082,12 @@ namespace BindingsGeneration
             var emitter = new EveryProtocolEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
             var dispatchEmitter = new WitnessDispatchEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
 
-            // Emit the EveryProtocol class once
-            emitter.EmitEveryProtocolClass(swiftWriter);
+            // Emit the EveryProtocol class once. Passing suitableProtocols lets the
+            // emitter pre-scan for Entity-rooted protocols (Failure B) and conditionally
+            // emit the EveryEntityProtocol Swift class before the per-protocol
+            // EmitProtocolConformance loop below opens any `extension EveryEntityProtocol: ...`
+            // blocks.
+            emitter.EmitEveryProtocolClass(swiftWriter, suitableProtocols);
 
             // Emit Codable/Error stub conformances on EveryProtocol if any suitable protocol
             // requires them. These stubs let EveryProtocol satisfy the inherited Codable/Error

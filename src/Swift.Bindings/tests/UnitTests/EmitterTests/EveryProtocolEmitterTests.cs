@@ -212,12 +212,15 @@ public class EveryProtocolEmitterTests
     #region SetVtable Function Emission Tests
 
     [Fact]
-    public void EmitSetVtableFunction_GeneratesSilgenName()
+    public void EmitSetVtableFunction_GeneratesCdeclExport()
     {
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         var output = EmitSetVtableFunction(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SetTestProtocol_vtable\")", output);
+        // @_cdecl (not @_silgen_name): the symbol must be a C-exported entry point so it is a
+        // linker root that survives dead-stripping on NativeAOT/device builds. The C# P/Invoke
+        // calls it with CallConvCdecl.
+        Assert.Contains("@_cdecl(\"SetTestProtocol_vtable\")", output);
     }
 
     [Fact]
@@ -454,12 +457,16 @@ public class EveryProtocolEmitterTests
     #region Witness Table Getter Tests
 
     [Fact]
-    public void EmitWitnessTableGetter_GeneratesSilgenName()
+    public void EmitWitnessTableGetter_GeneratesCdeclExport()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitWitnessTableGetter(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"Get_EveryProtocol_TestProtocol_WitnessTable\")", output);
+        // @_cdecl (not @_silgen_name): nothing in the Swift wrapper references this getter — it is
+        // reached only from C# via P/Invoke (CallConvCdecl). As a C-exported entry point it becomes
+        // a linker root and survives dead-stripping on NativeAOT/device builds; an unreferenced
+        // @_silgen_name free function is dropped there.
+        Assert.Contains("@_cdecl(\"Get_EveryProtocol_TestProtocol_WitnessTable\")", output);
     }
 
     [Fact]
@@ -481,14 +488,15 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitTypeMetadataGetter_GeneratesSilgenName()
+    public void EmitTypeMetadataGetter_GeneratesCdeclExport()
     {
         var stringWriter = new StringWriter();
         var writer = new SwiftWriter(stringWriter);
         _emitter.EmitTypeMetadataGetter(writer);
         var output = stringWriter.ToString();
 
-        Assert.Contains("@_silgen_name(\"Get_EveryProtocol_TypeMetadata\")", output);
+        // @_cdecl (not @_silgen_name) for the same dead-strip-survival reason as the witness getters.
+        Assert.Contains("@_cdecl(\"Get_EveryProtocol_TypeMetadata\")", output);
     }
 
     [Fact]
@@ -1432,6 +1440,205 @@ public class EveryProtocolEmitterTests
         // inherits NSObjectProtocol. The protocol name is emitted module-qualified.
         Assert.Contains("extension EveryObjCProtocol: TestModule.STPFormEncodable", output);
         Assert.DoesNotContain("extension EveryProtocol: TestModule.STPFormEncodable", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_EntityRooted_RoutesThroughEveryEntityProtocol()
+    {
+        // Failure B: a protocol whose only class-superclass requirement is
+        // RealityFoundation.Entity (e.g. HasAnchoring) reroutes through the
+        // Entity-rooted EveryEntityProtocol helper class instead of skipping via
+        // HasClassSuperclassRequirement. The emitted extension hangs off
+        // EveryEntityProtocol so Swift's type-checker accepts the conformance.
+        var realityFoundation = new ModuleTypeDatabase("RealityFoundation", "/fake/RealityFoundation.framework/RealityFoundation");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.Entity");
+        realityFoundation.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s17RealityFoundation6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(realityFoundation);
+
+        var protocolDecl = CreateProtocolWithMethod("HasAnchoring", "doSomething");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("RealityFoundation.Entity"));
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocolDecl);
+        var output = stringWriter.ToString();
+
+        // The extension hangs off EveryEntityProtocol (Entity-rooted) so the
+        // synthesized conformance type-checks against a protocol that constrains
+        // Self to be an Entity subclass.
+        Assert.Contains("extension EveryEntityProtocol: TestModule.HasAnchoring", output);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.HasAnchoring", output);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.HasAnchoring", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_NonEntityClassSuperclass_StillSkipsEmission()
+    {
+        // Negative for Failure B: a class-superclass requirement on anything other
+        // than RealityFoundation.Entity (e.g. UIGestureRecognizer) still skips —
+        // the EveryEntityProtocol helper inherits Entity, not arbitrary classes.
+        var uikit = new ModuleTypeDatabase("UIKit", "/fake/UIKit.framework/UIKit");
+        var gestureName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIGestureRecognizer");
+        uikit.RegisterType(gestureName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIGestureRecognizer"),
+            SwiftTypeName = gestureName,
+            MetadataAccessor = "$sSo19UIGestureRecognizerCMa",
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(uikit);
+
+        var protocolDecl = CreateProtocolWithMethod("EntityGestureRecognizer", "doSomething");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("UIKit.UIGestureRecognizer"));
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocolDecl);
+        var output = stringWriter.ToString();
+
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.EntityGestureRecognizer", output);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.EntityGestureRecognizer", output);
+        Assert.DoesNotContain("extension EveryEntityProtocol: TestModule.EntityGestureRecognizer", output);
+    }
+
+    [Fact]
+    public void IsEntityRootedProtocol_RealityFoundationEntity_ReturnsTrue()
+    {
+        // Direct unit test for the new helper: a protocol whose only class-superclass
+        // requirement is RealityFoundation.Entity returns true.
+        var realityFoundation = new ModuleTypeDatabase("RealityFoundation", "/fake/RealityFoundation.framework/RealityFoundation");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.Entity");
+        realityFoundation.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s17RealityFoundation6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(realityFoundation);
+
+        var protocolDecl = CreateProtocolWithMethod("HasAnchoring", "doSomething");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("RealityFoundation.Entity"));
+
+        Assert.True(EveryProtocolEmitter.IsEntityRootedProtocol(protocolDecl, _typeDatabase));
+    }
+
+    [Fact]
+    public void IsEntityRootedProtocol_RealityKitUmbrellaEntity_ReturnsTrue()
+    {
+        // The Entity type can appear in ABI JSON under either the RealityFoundation
+        // declaring module or the RealityKit umbrella spelling depending on how it
+        // is surfaced. Both must be recognized as Entity-rooted.
+        var realityKit = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.framework/RealityKit");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+        realityKit.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityKit", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s10RealityKit6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(realityKit);
+
+        var protocolDecl = CreateProtocolWithMethod("HasAnchoring", "doSomething");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("RealityKit.Entity"));
+
+        Assert.True(EveryProtocolEmitter.IsEntityRootedProtocol(protocolDecl, _typeDatabase));
+    }
+
+    [Fact]
+    public void IsEntityRootedProtocol_NonEntityClass_ReturnsFalse()
+    {
+        // Defensive: a non-Entity class superclass (e.g. UIKit.UIGestureRecognizer)
+        // must NOT be classified as Entity-rooted — the helper only models Entity.
+        var uikit = new ModuleTypeDatabase("UIKit", "/fake/UIKit.framework/UIKit");
+        var gestureName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIGestureRecognizer");
+        uikit.RegisterType(gestureName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIGestureRecognizer"),
+            SwiftTypeName = gestureName,
+            MetadataAccessor = "$sSo19UIGestureRecognizerCMa",
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(uikit);
+
+        var protocolDecl = CreateProtocolWithMethod("EntityGestureRecognizer", "doSomething");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("UIKit.UIGestureRecognizer"));
+
+        Assert.False(EveryProtocolEmitter.IsEntityRootedProtocol(protocolDecl, _typeDatabase));
+    }
+
+    [Fact]
+    public void EmitEveryProtocolClass_WithEntityRootedProtocol_EmitsEveryEntityProtocolClass()
+    {
+        // When EmitEveryProtocolClass is given a protocol list containing an
+        // Entity-rooted protocol AND a non-null ModuleEmissionContext, it emits
+        // the EveryEntityProtocol Swift class + its four @_cdecl wrappers and
+        // records MarkEntityBase so per-protocol routing in EmitProtocolConformance
+        // picks up the right base class.
+        var realityFoundation = new ModuleTypeDatabase("RealityFoundation", "/fake/RealityFoundation.framework/RealityFoundation");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.Entity");
+        realityFoundation.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s17RealityFoundation6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(realityFoundation);
+
+        var protocolDecl = CreateProtocolWithMethod("HasAnchoring", "doSomething");
+        protocolDecl.InheritedProtocols.Add(new NamedTypeSpec("RealityFoundation.Entity"));
+
+        var emissionContext = new ModuleEmissionContext();
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule", emissionContext);
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        emitter.EmitEveryProtocolClass(writer, new[] { protocolDecl });
+        var output = stringWriter.ToString();
+
+        Assert.Contains("public final class EveryEntityProtocol: Entity", output);
+        Assert.Contains("SBW_CreateEveryEntityProtocol", output);
+        Assert.Contains("SBW_ReleaseEveryEntityProtocol", output);
+        Assert.Contains("SBW_GetMetadata_EveryEntityProtocol", output);
+        Assert.Contains("SBW_SetEveryEntityProtocolDeinitCallback", output);
+        Assert.True(emissionContext.AnyEntityBaseUsed);
+        Assert.True(emissionContext.UsesEntityBase("HasAnchoring"));
+    }
+
+    [Fact]
+    public void EmitEveryProtocolClass_WithoutEntityRootedProtocol_OmitsEveryEntityProtocolClass()
+    {
+        // The Entity-rooted class is conditional: a wrapper module whose suitable
+        // protocols include no Entity-rooted protocol must NOT emit EveryEntityProtocol
+        // (Entity lives in RealityFoundation and is not a universal dependency —
+        // emitting the class in a wrapper that does not import RealityFoundation
+        // would fail to compile).
+        var emissionContext = new ModuleEmissionContext();
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule", emissionContext);
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        emitter.EmitEveryProtocolClass(writer, Array.Empty<ProtocolDecl>());
+        var output = stringWriter.ToString();
+
+        Assert.Contains("public final class EveryProtocol", output);
+        Assert.Contains("public final class EveryObjCProtocol", output);
+        Assert.DoesNotContain("EveryEntityProtocol", output);
+        Assert.False(emissionContext.AnyEntityBaseUsed);
     }
 
     [Fact]

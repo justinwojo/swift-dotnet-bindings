@@ -42,6 +42,67 @@ public class CrossModuleTests : TestBase
 
     #endregion
 
+    #region Cross-Module Existential Box (conformance-descriptor / interface split)
+
+    // A Swift type in module A (LocalConformant, SwiftBindingsTestLib) conforms to a protocol
+    // in module B (DependencyProtocol, SwiftBindingsTestLibDependency). The generator must split
+    // the conformance-DESCRIPTOR emission (needed for swift_getWitnessTable to box the value as
+    // `any DependencyProtocol`) from the C# INTERFACE-stub emission (intentionally skipped for a
+    // cross-module protocol with members — emitting `LocalConformant : IDependencyProtocol` would
+    // trip CS0535 because the cross-module member bodies can't be provided). A single
+    // ShouldEmitConformance gate previously dropped BOTH together, so the module-A conformer lost
+    // its descriptor and could not be boxed into the existential at runtime (the real-world
+    // AnchorEntity / Scene.AddAnchor(any HasAnchoring) refusal).
+
+    public void TestLocalConformantBoxesAsCrossModuleExistential()
+    {
+        using var lc = TestLibFunctions.MakeLocalConformant("anchor", 7);
+
+        // Interface stub correctly skipped; conformance descriptor still present.
+        AssertFalse(lc is SwiftBindingsTestLibDependency.IDependencyProtocol,
+            "LocalConformant must NOT implement the cross-module IDependencyProtocol interface (CS0535 stub skipped)");
+        AssertTrue(lc is Swift.Runtime.IExistentialBoxable,
+            "LocalConformant must remain IExistentialBoxable (conformance descriptor emitted despite skipped interface)");
+
+        // C# constructs the `any DependencyProtocol` existential. This calls swift_getWitnessTable
+        // with LocalConformant's cross-module conformance-descriptor symbol; pre-fix the symbol was
+        // absent and this threw SwiftRuntimeException.
+        var boxable = (Swift.Runtime.IExistentialBoxable)lc;
+        var container = boxable.BoxAsExistential1<SwiftBindingsTestLibDependency.IDependencyProtocol>();
+
+        AssertTrue(container[0] != System.IntPtr.Zero,
+            "Witness table handle resolved (non-zero) for the cross-module conformance");
+        AssertTrue(container.ObjectMetadata.Handle != System.IntPtr.Zero,
+            "Existential carries LocalConformant's type metadata");
+    }
+
+    // Companion to the box test: drives Swift's describeAnyDependency(any DependencyProtocol),
+    // which calls describe() on the existential. A C# implementation of the cross-module
+    // IDependencyProtocol is auto-wrapped in DependencyProtocolProxy and passed in; Swift then
+    // dispatches describe() back across the boundary into the C# impl. Exercises the cross-module
+    // existential CONSUMPTION path and the describeAnyDependency entry point end-to-end.
+    public void TestDescribeAnyDependencyDispatchesIntoCSharpConformer()
+    {
+        var impl = new CSharpDependencyConformer("cs-id", "tag9");
+        var result = TestLibFunctions.DescribeAnyDependency(impl);
+        AssertEqual("CS[tag9]: cs-id", result,
+            "Swift dispatched describe() through the cross-module existential back into the C# impl");
+    }
+
+    private sealed class CSharpDependencyConformer : SwiftBindingsTestLibDependency.IDependencyProtocol
+    {
+        private readonly string _tag;
+        public CSharpDependencyConformer(string identifier, string tag)
+        {
+            Identifier = identifier;
+            _tag = tag;
+        }
+        public string Identifier { get; }
+        public string GetDescribe() => $"CS[{_tag}]: {Identifier}";
+    }
+
+    #endregion
+
     #region Cross-Module Type References (Part A)
 
     public void TestTransformDependencyPoint()

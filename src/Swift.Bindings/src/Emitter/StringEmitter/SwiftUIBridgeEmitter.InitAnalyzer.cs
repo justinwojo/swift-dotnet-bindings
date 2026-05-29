@@ -710,7 +710,8 @@ public static partial class SwiftUIBridgeEmitter
     /// <summary>
     /// Maps Binding&lt;T&gt; by unwrapping the inner type and marking the result as a Binding parameter.
     /// The inner type is bridged normally (same ABI), but the Wrapper passes $state.name (Binding projection).
-    /// Supports Binding&lt;Primitive&gt;, Binding&lt;String&gt;, Binding&lt;BoundEnum&gt;.
+    /// Supports Binding&lt;Primitive&gt;, Binding&lt;String&gt;, Binding&lt;BoundEnum&gt;, Binding&lt;Optional&lt;T&gt;&gt;,
+    /// and Binding&lt;CodableStruct&gt; (non-frozen, non-generic struct conforming to Codable).
     /// </summary>
     private static BridgeParameter? MapBindingType(string paramName, NamedTypeSpec namedSpec, BridgeContext? context)
     {
@@ -722,12 +723,27 @@ public static partial class SwiftUIBridgeEmitter
         if (innerParam == null)
             return null;
 
+        // Binding<CodableStruct> for non-frozen, non-generic structs conforming to Codable.
+        // The Create/Update ABI ships the value as JSON UTF-8 (ptr+len); the Swift bridge
+        // decodes via JSONDecoder and stores the real Swift value on @Published state so
+        // SwiftUI's $state.<param> projection works unchanged. A per-view Read<Param>Json
+        // @_cdecl exposes the current value back to C# for two-way observation. C# reuses
+        // the generated EncodeToJson / DecodeFromJson members emitted by CodableJsonEmitter
+        // on the same struct binding — gate must mirror CodableJsonEmitter.ShouldEmit so
+        // both sides exist.
+        if (innerParam.Kind == BridgeParameterKind.BoundStruct
+            && innerParam.StructProjection == StructProjectionKind.NonFrozen
+            && IsCodableStructForBinding(innerNamedSpec, context))
+        {
+            return innerParam with { IsBinding = true, IsBindingCodableStruct = true };
+        }
+
         // Binding<Primitive>, Binding<String>, Binding<BoundEnum>, and Binding<Optional<T>>
         // where T is any supported type. The State stores the inner value; $state.x creates
         // the Binding projection automatically. OptionalWrapped works because the update
         // pipeline already handles all Optional inner type variants.
-        // Binding<BoundType> and Binding<BoundStruct> (non-optional) need more complex
-        // two-way lifetime management — deferred.
+        // Binding<BoundType> and non-Codable Binding<BoundStruct> (non-optional) need more
+        // complex two-way lifetime management — deferred.
         if (innerParam.Kind is not BridgeParameterKind.Primitive
             and not BridgeParameterKind.String
             and not BridgeParameterKind.BoundEnum
@@ -740,6 +756,58 @@ public static partial class SwiftUIBridgeEmitter
             return null;
 
         return innerParam with { IsBinding = true };
+    }
+
+    /// <summary>
+    /// Returns true when the named struct type satisfies the same Codable-emission gate as
+    /// <c>CodableJsonEmitter.ShouldEmit</c>: non-generic, non-frozen, projected as a class
+    /// (ClassWithOpaquePayload), and conforms to both Encodable and Decodable. When true,
+    /// the generated C# binding for the struct carries <c>EncodeToJson()</c> and
+    /// <c>DecodeFromJson(byte[])</c> members which the Binding bridge reuses for C# round-trip.
+    /// </summary>
+    private static bool IsCodableStructForBinding(NamedTypeSpec namedSpec, BridgeContext? context)
+    {
+        if (context?.ModuleDecl is null)
+            return false;
+
+        // CodableJsonEmitter.Emit hard-skips EncodeToJson/DecodeFromJson emission when the
+        // wrapper library name is empty (xcframework-less mode). The bridge would then emit
+        // C# call sites referencing those nonexistent members; mirror the gate here.
+        if (string.IsNullOrEmpty(context.TypeDatabase?.AsyncLibraryName))
+            return false;
+
+        var qualifiedName = namedSpec.Name;
+        var lastDot = qualifiedName.LastIndexOf('.');
+        if (lastDot < 0)
+            return false;
+
+        var moduleName = qualifiedName.Substring(0, lastDot);
+        var simpleName = qualifiedName.Substring(lastDot + 1);
+
+        // Binding<CodableStruct> requires the inner struct's binding to exist in the same
+        // assembly so the bridge's C# call site can reach EncodeToJson/DecodeFromJson without
+        // cross-assembly visibility games. Cross-module Codable structs would still satisfy
+        // CodableJsonEmitter.ShouldEmit in their home assembly, but the SwiftUI bridge is
+        // emitted in this module — defer cross-module routing until a real use case lands.
+        if (!string.Equals(moduleName, context.ModuleDecl.Name, StringComparison.Ordinal))
+            return false;
+
+        foreach (var typeDecl in context.ModuleDecl.Types)
+        {
+            if (typeDecl is not StructDecl structDecl) continue;
+            if (!string.Equals(structDecl.Name, simpleName, StringComparison.Ordinal)) continue;
+
+            // Mirror CodableJsonEmitter.ShouldEmit: skip generic / frozen / module-internal.
+            // Frozen structs lack the _payloadSize + NewFromPayloadCore factory that the
+            // C# DecodeFromJson relies on; module-internal types aren't projected at all.
+            if (structDecl.IsGeneric) return false;
+            if (structDecl.IsFrozen) return false;
+            if (structDecl.IsModuleInternal) return false;
+
+            return CodableJsonEmitter.ConformsToCodable(structDecl);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -868,7 +936,12 @@ public record BridgeParameter(
     /// <summary>Mapped success type for ResultClosure (e.g., BoundType for ScanResult).</summary>
     BridgeParameter? ResultSuccessParam = null,
     /// <summary>Mapped error type for ResultClosure (e.g., BoundType for ScanError).</summary>
-    BridgeParameter? ResultErrorParam = null)
+    BridgeParameter? ResultErrorParam = null,
+    /// <summary>True when the original Swift type is Binding&lt;T&gt; AND the inner T is a non-frozen
+    /// Codable struct. The Create/Update ABI carries the value as JSON UTF-8 bytes (ptr+len),
+    /// the Swift state stores the decoded value, and a per-view Read&lt;Param&gt;Json @_cdecl
+    /// exposes the current state back to C# for two-way observation.</summary>
+    bool IsBindingCodableStruct = false)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).

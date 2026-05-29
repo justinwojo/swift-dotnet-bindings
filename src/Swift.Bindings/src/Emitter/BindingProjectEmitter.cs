@@ -412,6 +412,20 @@ namespace BindingsGeneration
                     <Compile Include="{resolvedNamespace}.cs" />{wrappersCompile}{bridgeCompile}
                   </ItemGroup>
 
+                  <!-- ILLink trimmer descriptor — only emitted when the generator produced at
+                       least one open-generic ISwiftObject in this module. ILC does not auto-
+                       discover descriptors embedded in referenced assemblies, so TrimmerRootDescriptor
+                       roots the file for the local NativeAOT publish; EmbeddedResource keeps the
+                       descriptor in the shipped assembly so trimmer-mode consumers (PublishTrimmed
+                       / IsTrimmable) auto-discover it. Both items are gated on Exists() so they
+                       no-op cleanly when the generator wrote no descriptor. -->
+                  <ItemGroup Condition="Exists('{TrimmerDescriptorEmitter.FileName}')">
+                    <EmbeddedResource Include="{TrimmerDescriptorEmitter.FileName}">
+                      <LogicalName>ILLink.Descriptors.xml</LogicalName>
+                    </EmbeddedResource>
+                    <TrimmerRootDescriptor Include="{TrimmerDescriptorEmitter.FileName}" />
+                  </ItemGroup>
+
                   <!-- NativeReference for local build -->
                   <ItemGroup>{(hasSourceXcfw ? $"""
 

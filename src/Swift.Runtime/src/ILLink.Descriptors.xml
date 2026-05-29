@@ -18,6 +18,7 @@
     <type fullname="Swift.SwiftResult`2" preserve="all" />
     <type fullname="Swift.SwiftDictionary`2" preserve="all" />
     <type fullname="Swift.SwiftSet`1" preserve="all" />
+    <type fullname="Swift.SwiftClosedRange`1" preserve="all" />
     <type fullname="Swift.AnyHashable" preserve="all" />
     <!-- KeyPath class hierarchy — preserve="all" keeps the static explicit
          interface implementations (NewFromPayload, GetTypeMetadata,

@@ -55,15 +55,20 @@ public class OptionalProjection : ITypeProjection
 
     /// <summary>
     /// When this Optional appears as a generic parameter inside another container,
-    /// use the full SwiftOptional type name with P/Invoke-level inner type.
+    /// use the full SwiftOptional type name with the inner's metadata-bearing wrapper type.
     /// Nullable-pointer-ABI inner types (classes, ObjC-bridged, ObjC-rooted) use
     /// bare IntPtr because Swift's Optional&lt;ClassRef&gt; is nil-pointer-optimized:
     /// the container element is an 8-byte pointer (0 = nil), not a SwiftOptional wrapper.
+    /// The inner generic is MarshalFromSwiftType (the wrapper type), matching ContainerTypeName:
+    /// the SwiftOptional element carries the inner value by metadata. MarshalFromSwiftType and
+    /// SwiftContainerGenericType coincide for every inner that reaches this branch EXCEPT
+    /// FrozenWithMemoryProjection, whose SwiftContainerGenericType is the by-value `.Buffer` struct —
+    /// nonexistent for a handle-backed wrapper such as SwiftClosedRange&lt;T&gt;.
     /// </summary>
     public string SwiftContainerGenericType =>
         _innerProjection is ClassProjection or KeyPathProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection
             ? "IntPtr"
-            : $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
+            : $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
 
     /// <summary>
     /// Per-element conversion for when Optional is used as an array/dictionary element.
@@ -95,7 +100,13 @@ public class OptionalProjection : ITypeProjection
         // copies the struct's payload bytes by value. Applying the per-element conversion here
         // (e.g. .Payload.DangerousGetHandle()) would yield SwiftOptional<TStruct>.NewSome(IntPtr),
         // which is a type mismatch.
-        var optType = $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
+        //
+        // The generic is the inner's MarshalFromSwiftType (the metadata-bearing wrapper type), which
+        // matches the SwiftArray<SwiftOptional<...>> element generic emitted by SwiftContainerGenericType
+        // above. The two coincide for every inner reaching here EXCEPT FrozenWithMemoryProjection, whose
+        // SwiftContainerGenericType is the by-value `.Buffer` struct — nonexistent for a handle-backed
+        // wrapper such as SwiftClosedRange<T>.
+        var optType = $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
         var innerConv = _innerProjection.GetParameterElementConversion(patVar);
         var skipInnerConv = innerConv != null
             && _innerProjection.SwiftContainerGenericType == _innerProjection.PublicType;
@@ -231,9 +242,24 @@ public class OptionalProjection : ITypeProjection
             };
         }
 
-        var optTypeParam = OptionalTypeParam;
         var innerParamConv = _innerProjection.GetParameterElementConversion($"{paramName}Value");
         var containerPlan = _innerProjection.GetContainerCreationPlan($"{paramName}Value");
+
+        // The SwiftOptional<T> generic parameter. The container and element-conversion branches
+        // below feed NewSome a P/Invoke-shaped value (a built SwiftArray/SwiftDictionary, or an
+        // element conversion), so they need SwiftContainerGenericType. The passthrough branch
+        // (and the simple-inner inline path) hand NewSome the wrapper value {paramName}Value
+        // directly, which is typed as the inner's public type — so the generic must be the inner's
+        // MarshalFromSwiftType (the metadata-bearing wrapper type), matching the return direction's
+        // returnTypeParam below. These coincide for every projection EXCEPT
+        // FrozenWithMemoryProjection, whose SwiftContainerGenericType is the by-value `.Buffer`
+        // struct: correct for a genuine ClassWithBufferStruct, but nonexistent for a handle-backed
+        // wrapper such as SwiftClosedRange<T>, where SwiftOptional<SwiftClosedRange<T>> round-trips
+        // the value through Swift metadata instead.
+        var optTypeParam = (containerPlan == null && innerParamConv == null)
+            ? _innerProjection.MarshalFromSwiftType
+            : OptionalTypeParam;
+
         var needsComplexInner = innerParamConv != null || containerPlan != null ||
             _innerProjection.PublicType != _innerProjection.PInvokeType;
         var setup = new List<MarshalStatement>();

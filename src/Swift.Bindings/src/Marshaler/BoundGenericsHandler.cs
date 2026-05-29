@@ -13,7 +13,7 @@ public class BoundGenericsHandler
 {
     private static readonly HashSet<string> s_stdlibGenerics = new(StringComparer.Ordinal)
     {
-        "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result",
+        "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result", "Swift.ClosedRange",
     };
 
     private readonly ITypeDatabase _typeDatabase;
@@ -46,7 +46,8 @@ public class BoundGenericsHandler
             { SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "IntPtr" },
             { SwiftTypeName.FromModuleQualifiedName("Swift.Set"), "IntPtr" },
             { SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), "IntPtr" },
-            { SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"), "IntPtr" }
+            { SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"), "IntPtr" },
+            { SwiftTypeName.FromModuleQualifiedName("Swift.ClosedRange"), "IntPtr" }
         };
 
     /// <summary>

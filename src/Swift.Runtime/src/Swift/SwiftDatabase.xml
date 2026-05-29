@@ -79,6 +79,19 @@
         <entity managedNameSpace="Swift" managedTypeName="SwiftOptional">
             <typedeclaration kind="struct" name="Optional" module="Swift" mangledName="$sSq" frozen="true" requiresMemoryManagement="true" />
         </entity>
+        <!--
+            ClosedRange<Bound: Comparable> is a @frozen value-type struct (two-field
+            lowerBound/upperBound, no out-of-line storage). The runtime metadata accessor
+            symbol $sSNMa requires a Comparable witness table for Bound; see
+            ComparableConformanceRegistry for the known-scalar witness lookups and the
+            ISwiftComparable fallback for user-defined Comparable conformers. The wrapper
+            (SwiftClosedRange.cs) implements ISwiftStruct so the existing stdlib-generic
+            cdecl bridge path applies. requiresMemoryManagement="true" so the Bound-payload
+            VWT Destroy runs on dispose for ref-counted Bound types.
+        -->
+        <entity managedNameSpace="Swift" managedTypeName="SwiftClosedRange">
+            <typedeclaration kind="struct" name="ClosedRange" module="Swift" mangledName="$sSN" frozen="true" requiresMemoryManagement="true" />
+        </entity>
         <entity managedNameSpace="Swift" managedTypeName="SwiftResult">
             <typedeclaration kind="enum" name="Result" module="Swift" mangledName="$ss6ResultO" frozen="true" requiresMemoryManagement="true" />
         </entity>

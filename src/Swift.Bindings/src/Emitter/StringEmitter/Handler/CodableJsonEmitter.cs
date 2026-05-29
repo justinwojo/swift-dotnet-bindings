@@ -109,7 +109,7 @@ internal static class CodableJsonEmitter
         EmitCSharpMembers(csWriter, structDecl, typeNameWithGenerics, encodeSymbol, decodeSymbol, wrapperLib);
     }
 
-    private static bool ConformsToCodable(StructDecl structDecl)
+    internal static bool ConformsToCodable(StructDecl structDecl)
     {
         bool encodable = false, decodable = false;
         foreach (var c in structDecl.Conformances)

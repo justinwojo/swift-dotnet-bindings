@@ -334,16 +334,60 @@ public class TypeResolverTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public void PrimitiveAliasStrategy_ResolvesOSStatusToInt32()
+    {
+        // Darwin.OSStatus is a typealias for Int32 in Apple's Darwin overlay. The
+        // swiftinterface scanner never materializes it as a type record, so without
+        // this strategy the closure-parameter gate at ClosureHandler.cs rejects every
+        // signature that names it — eg RealityFoundation's AudioGenerator PlayAudio
+        // render handler. See src/docs/apple-framework-gaps/03-proxy-callback.md
+        // (RC-CLOSURE).
+        var typeDatabase = LoadDatabaseWithPrimitive("Swift.Int32", "Int32", "$ss5Int32V");
+        var strategy = new PrimitiveAliasStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Darwin.OSStatus"),
+            new ResolutionContext(typeDatabase),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.Record);
+        Assert.Equal("Swift.Int32", result.Record!.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("strategy:PrimitiveAlias", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void PrimitiveAliasStrategy_ResolvesAVAudioFrameCountToUInt32()
+    {
+        // AVFAudio.AVAudioFrameCount is a typealias for UInt32. Companion to OSStatus
+        // — both gate the same PlayAudio/PrepareAudio render handler signature.
+        var typeDatabase = LoadDatabaseWithPrimitive("Swift.UInt32", "UInt32", "$ss6UInt32V");
+        var strategy = new PrimitiveAliasStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("AVFAudio.AVAudioFrameCount"),
+            new ResolutionContext(typeDatabase),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.Record);
+        Assert.Equal("Swift.UInt32", result.Record!.SwiftTypeName.ModuleQualifiedName);
+    }
+
     private static TypeDatabase LoadDatabaseWithSwiftDouble()
+        => LoadDatabaseWithPrimitive("Swift.Double", "Double", "$sSd");
+
+    private static TypeDatabase LoadDatabaseWithPrimitive(string swiftQualified, string netName, string metadataAccessor)
     {
         var db = new TypeDatabase();
         var module = new ModuleTypeDatabase("Swift", "/tmp/Swift.dylib");
-        var name = SwiftTypeName.FromModuleQualifiedName("Swift.Double");
+        var name = SwiftTypeName.FromModuleQualifiedName(swiftQualified);
         module.RegisterType(name, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", netName),
             SwiftTypeName = name,
-            MetadataAccessor = "$sSd",
+            MetadataAccessor = metadataAccessor,
             Flags = TypeRecordFlags.Frozen,
             Kind = TypeRecordKind.Struct,
         });

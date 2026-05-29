@@ -176,9 +176,14 @@ public partial class ProtocolProxyEmitter
                 var carrierTypeName = getterConversion != null
                     ? (GetReceiverGetterCarrierType(property.SwiftTypeSpec) ?? publicPropertyTypeName)
                     : publicPropertyTypeName;
+                // For reference-type wrapper carriers (SwiftOptional<U>, SwiftArray<U>, ...)
+                // Unsafe.SizeOf<T> is only a pointer, so a zero-filled buffer of that size would
+                // be smaller than the native Swift value and Swift would read past it. Size the
+                // fallback buffer from the type metadata for those carriers (value types keep
+                // the managed size). Mirrors the success-path MarshalToSwiftBuffer<T>.
                 var nullReturnStr = isStringReturn
                     ? "MarshalStringToUtf8Slice(string.Empty)"
-                    : $"(IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{carrierTypeName}>())";
+                    : BuildReceiverNullFallbackExpr(carrierTypeName);
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
                     writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
@@ -637,9 +642,12 @@ public partial class ProtocolProxyEmitter
                 var subscriptCarrierTypeName = subscriptGetterConv != null
                     ? (GetReceiverGetterCarrierType(subscript.ReturnTypeSpec) ?? subscriptPublicReturnTypeName)
                     : subscriptPublicReturnTypeName;
+                // Reference-type wrapper carriers need a metadata-sized fallback buffer (see the
+                // property getter null-return note above); AllocZeroedSwiftBuffer<T> matches the
+                // success-path MarshalToSwiftBuffer<T> size for both value and reference carriers.
                 var subscriptNullReturnStr = subscriptIsString
                     ? "MarshalStringToUtf8Slice(string.Empty)"
-                    : $"(IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{subscriptCarrierTypeName}>())";
+                    : BuildReceiverNullFallbackExpr(subscriptCarrierTypeName);
 
                 // Unmarshal index parameters once — same indexes used for every sibling lookup.
                 // P0: use ABI types for MarshalFromSwift.
@@ -967,7 +975,12 @@ public partial class ProtocolProxyEmitter
         }
         else
         {
-            methodNullReturnExpr = $"return (IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{methodCarrierTypeName}>());";
+            // SwiftOptional<U> carriers return the canonical .none (not a zeroed buffer, which a
+            // tag-byte payload would decode as .some); plain collection carriers return a valid
+            // empty collection (a zeroed buffer is a null storage pointer); other reference-type
+            // wrapper carriers get a metadata-sized zero buffer matching the success-path
+            // MarshalToSwiftBuffer<T>. See BuildReceiverNullFallbackExpr.
+            methodNullReturnExpr = $"return {BuildReceiverNullFallbackExpr(methodCarrierTypeName)};";
         }
         writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
         writer.Indent++;
@@ -1266,6 +1279,13 @@ public partial class ProtocolProxyEmitter
     {
         var inner = opt.InnerProjection;
         var optType = inner.SwiftContainerGenericType;
+        // Arms that hand the wrapper VALUE straight to NewSome (NonFrozenStruct, blittable/enum,
+        // FrozenWithMemory) need the inner's metadata-bearing wrapper type as the generic. This equals
+        // SwiftContainerGenericType for all of them EXCEPT FrozenWithMemoryProjection, whose
+        // SwiftContainerGenericType is the by-value `.Buffer` struct (nonexistent for a handle-backed
+        // wrapper such as SwiftClosedRange<T>). The handle-passing arms (Class/KeyPath/ObjC) keep
+        // optType, which is the nil-pointer-optimized IntPtr.
+        var passthroughOptType = inner.MarshalFromSwiftType;
         return inner switch
         {
             StringProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(new SwiftString({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
@@ -1298,11 +1318,11 @@ public partial class ProtocolProxyEmitter
             // Lowering the Some-arg to .Payload.DangerousGetHandle() would type-mismatch (passing IntPtr
             // where the typed wrapper is expected) — same ABI-mismatch class as
             // bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-….
-            NonFrozenStructProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val) : SwiftOptional<{optType}>.NewNone())",
+            NonFrozenStructProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{passthroughOptType}>.NewSome({varName}Val) : SwiftOptional<{passthroughOptType}>.NewNone())",
             // Blittable, SimpleEnum, etc. — MarshalToSwiftBuffer writes raw bytes via Unsafe.Write<T>,
             // so C# int? (Nullable<int>) is NOT layout-compatible with SwiftOptional<int> (a class).
             // Must explicitly wrap in SwiftOptional<T>.NewSome/NewNone.
-            _ => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val) : SwiftOptional<{optType}>.NewNone())"
+            _ => $"({varName} is {{}} {varName}Val ? SwiftOptional<{passthroughOptType}>.NewSome({varName}Val) : SwiftOptional<{passthroughOptType}>.NewNone())"
         };
     }
 
@@ -1414,13 +1434,73 @@ public partial class ProtocolProxyEmitter
     /// <para>
     /// This MUST stay in lockstep with <see cref="GetReceiverGetterConversion"/> and
     /// <see cref="GetReceiverExistentialGetterConversion"/> — the dead-impl null path
-    /// uses <c>Unsafe.SizeOf&lt;CarrierType&gt;()</c> to allocate a fallback buffer of
-    /// the SAME size the success path would emit. If the carrier here drifts from the
-    /// success path's carrier, the fallback buffer is the wrong size and Swift reads
-    /// garbage memory across the receiver boundary (Codex P1 #1).
+    /// (<see cref="BuildReceiverNullFallbackExpr"/>) allocates a fallback buffer sized from
+    /// this carrier's type metadata to match what the success path would emit. If the carrier
+    /// here drifts from the success path's carrier, the fallback buffer is the wrong size and
+    /// Swift reads garbage memory across the receiver boundary.
     /// </para>
     /// </summary>
     private string? GetReceiverGetterCarrierType(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null) return null;
+        return GetReceiverGetterCarrierTypeCore(typeSpec);
+    }
+
+    /// <summary>
+    /// Builds the dead-impl fallback return expression for a receiver (proxy unregistered, or
+    /// the user impl GC'd while Swift still holds a strong retain on the proxy). The
+    /// <c>[UnmanagedCallersOnly]</c> boundary must not let an exception escape, so we return a
+    /// default value rather than throwing.
+    /// <para>
+    /// For a <c>SwiftOptional&lt;U&gt;</c> carrier a zero-filled buffer is NOT <c>nil</c>: a
+    /// tag-byte payload (<c>Optional&lt;ClosedRange&lt;Float&gt;&gt;</c>, <c>Optional&lt;Int&gt;</c>,
+    /// any frozen/non-frozen struct inner) stores the discriminator as a trailing byte where
+    /// <c>0 = Some</c>, so an all-zero buffer decodes to <c>.some(zeroed-payload)</c> — a fake
+    /// value handed back to Swift instead of <c>nil</c>. Produce the canonical <c>.none</c> via
+    /// <c>SwiftOptional&lt;U&gt;.NewNone()</c> marshalled through the same
+    /// <c>MarshalToSwiftBuffer</c> path the success branch uses for <c>.some</c>; NewNone already
+    /// encodes every inner representation correctly (tag-byte, bool, simple enum, class
+    /// nil-pointer, and the value-witness fallback).
+    /// </para>
+    /// <para>
+    /// A Swift collection carrier (<c>SwiftArray&lt;U&gt;</c>, <c>SwiftDictionary&lt;K,V&gt;</c>,
+    /// <c>SwiftSet&lt;U&gt;</c>) is a single storage pointer, so a zero-filled buffer is a
+    /// <em>null</em> pointer — not a valid empty collection. A caller that reads it (Count /
+    /// iterate) dereferences null. Construct the canonical empty collection (<c>Array.init</c> /
+    /// the empty-dictionary singleton / <c>Set.init</c>) via the wrapper's public parameterless
+    /// ctor and marshal it through the same <c>MarshalToSwiftBuffer</c> path the success branch
+    /// uses. This ctor shares the success path's construction surface: every collection carrier
+    /// reaching this fallback is paired with a success path in the same receiver that builds the
+    /// same <c>{carrier}</c> via <c>{carrier}.From*</c>, which chains to this same parameterless
+    /// ctor — element <c>TypeMetadata</c>, the Set Hashable witness, the empty-dictionary
+    /// singleton, and the storage allocation are resolved identically on both paths. So
+    /// <c>new {carrier}()</c> cannot fail to resolve element metadata the success path resolves —
+    /// including existential-container element carriers such as
+    /// <c>SwiftDictionary&lt;…, ExistentialContainer0&gt;</c> for <c>[String: Any]</c>. This is
+    /// not a no-throw guarantee: the ctor can still throw (unresolvable metadata/witness, OOM),
+    /// but only for an element type whose <c>From*</c> success path would throw identically — a
+    /// collection member that is non-functional regardless of which branch runs. That throw
+    /// fail-fasts the boundary, which is strictly preferable to the prior null storage pointer
+    /// Swift would dereference.
+    /// </para>
+    /// <para>
+    /// All other non-optional carriers (existential containers, value types, <c>IntPtr</c>) have
+    /// no <c>nil</c>/empty case to construct, so they keep the metadata-sized zero buffer — the
+    /// least-bad default for a vanished impl.
+    /// </para>
+    /// </summary>
+    private static string BuildReceiverNullFallbackExpr(string carrierTypeName)
+    {
+        if (carrierTypeName.StartsWith("SwiftOptional<", System.StringComparison.Ordinal))
+            return $"MarshalToSwiftBuffer({carrierTypeName}.NewNone())";
+        if (carrierTypeName.StartsWith("SwiftArray<", System.StringComparison.Ordinal) ||
+            carrierTypeName.StartsWith("SwiftDictionary<", System.StringComparison.Ordinal) ||
+            carrierTypeName.StartsWith("SwiftSet<", System.StringComparison.Ordinal))
+            return $"MarshalToSwiftBuffer(new {carrierTypeName}())";
+        return $"AllocZeroedSwiftBuffer<{carrierTypeName}>()";
+    }
+
+    private string? GetReceiverGetterCarrierTypeCore(TypeSpec? typeSpec)
     {
         if (typeSpec == null) return null;
 
@@ -1457,7 +1537,11 @@ public partial class ProtocolProxyEmitter
             ArrayProjection arr => $"SwiftArray<{arr.ElementProjection.SwiftContainerGenericType}>",
             DictionaryProjection dict => $"SwiftDictionary<{dict.KeyProjection.SwiftContainerGenericType}, {dict.ValueProjection.SwiftContainerGenericType}>",
             SetProjection set => $"SwiftSet<{set.ElementProjection.SwiftContainerGenericType}>",
-            OptionalProjection opt => $"SwiftOptional<{opt.InnerProjection.SwiftContainerGenericType}>",
+            // FrozenWithMemory inner: SwiftContainerGenericType is the nonexistent by-value `.Buffer`;
+            // use the wrapper type so this carrier matches the SwiftOptional<wrapper> built in the getter
+            // conversion above. Every other inner keeps SwiftContainerGenericType — in particular class
+            // inners stay nil-pointer-optimized (SwiftOptional<IntPtr>).
+            OptionalProjection opt => $"SwiftOptional<{(opt.InnerProjection is FrozenWithMemoryProjection ? opt.InnerProjection.MarshalFromSwiftType : opt.InnerProjection.SwiftContainerGenericType)}>",
             // No conversion → success path uses MarshalToSwiftBuffer(result) with the idiomatic type.
             // Caller falls back to that type for sizing.
             _ => null

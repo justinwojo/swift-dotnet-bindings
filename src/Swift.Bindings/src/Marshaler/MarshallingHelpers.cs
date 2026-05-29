@@ -608,6 +608,27 @@ namespace BindingsGeneration
         public static readonly Dictionary<string, string> TypeAliasToCSPrimitive = new(StringComparer.Ordinal)
         {
             { "Foundation.TimeInterval", "double" },
+            // Apple's C-bridge modules (Darwin, AVFAudio, …) expose typealiases for stdlib
+            // primitives that the swiftinterface scanner doesn't materialize as type
+            // records. Without these entries the closure-parameter gate at
+            // ClosureHandler.IsSupportedClosureParameterType rejects any signature that
+            // names them — eg RealityFoundation's AudioGenerator PlayAudio render
+            // handler `(UnsafeMutablePointer<AudioBufferList>) -> OSStatus`.
+            // Values are C# keywords (not CTS short names) because
+            // TypeProjectionFactory.TryGetPureProjection emits them verbatim
+            // via `new BlittableProjection(aliasCsName)` — the result becomes
+            // the literal C# identifier in generated signatures, so "int32"
+            // would not compile while "int" does. Keep this dict's value
+            // contract identical to the "double" entry above. PrimitiveAliasStrategy
+            // mirrors the same keys when mapping to the underlying Swift type.
+            { "Darwin.OSStatus", "int" },
+            // AVFAudio count aliases. Note the spelling: the AVFoundation
+            // overlay re-exports these under both `AVFAudio.` (the ABI-mangled
+            // module) and `AVFoundation.`; the gate sees the AVFAudio form.
+            { "AVFAudio.AVAudioFrameCount", "uint" },
+            { "AVFAudio.AVAudioChannelCount", "uint" },
+            { "AVFAudio.AVAudioPacketCount", "uint" },
+            { "AVFAudio.AVAudioFramePosition", "long" },
         };
 
         /// <summary>

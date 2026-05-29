@@ -294,19 +294,27 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Records this type for NativeAOT factory registration if it's non-generic.
-        /// Generic types rely on constrained code paths for registration.
+        /// Generic types rely on constrained code paths for registration; the open-generic
+        /// type definition is rooted via <see cref="ModuleEmissionContext.RecordOpenGenericISwiftObjectType"/>
+        /// instead so the trimmer descriptor preserves its reflection metadata.
         /// Also records protocol conformance pairs for NativeAOT pre-registration.
         /// </summary>
         private void RecordTypeIfNonGeneric()
         {
-            if (_emissionCtx != null && !_typeNameWithGenerics.Contains('<'))
+            if (_emissionCtx == null)
+                return;
+
+            if (_structDecl.IsGeneric)
             {
-                _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
-                foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
-                    _structDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
-                {
-                    _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
-                }
+                _emissionCtx.RecordOpenGenericISwiftObjectType(_structDecl.Name, _structDecl.GenericParameters.Count);
+                return;
+            }
+
+            _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
+                _structDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+            {
+                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
             }
         }
 
@@ -447,9 +455,43 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Writes the static constructor for the struct.
+        /// For generic ISwiftObject types, also emits the eager-init pattern that mirrors
+        /// SwiftArray.cs so NativeAOT (ILC) can statically reach SwiftObjectHelper&lt;Self&gt;.
+        /// GetTypeMetadata for each closed instantiation. Without this, ILC's reachability
+        /// analysis can't prove the explicit interface implementations are called and
+        /// trims them, leaving generic wrappers like MeshBuffer&lt;T&gt; failing on device.
         /// </summary>
         private void WriteStaticConstructor()
         {
+            bool isGeneric = _structDecl.IsGeneric;
+            var eagerInitCallLine = isGeneric
+                ? "    if (SwiftRuntimeInfo.IsNativeAotRuntime) { TryEagerInitialize(); }"
+                : "";
+            var eagerInitHelpers = isGeneric
+                ? $$"""
+
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                internal static bool TryEagerInitialize()
+                {
+                    try
+                    {
+                        NativeAotInitialize();
+                        return true;
+                    }
+                    catch (Exception)
+                    {
+                        return false;
+                    }
+                }
+
+                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                private static void NativeAotInitialize()
+                {
+                    _ = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
+                }
+                """
+                : "";
+
             var text = $$"""
             [EditorBrowsable(EditorBrowsableState.Never)]
             private static Dictionary<Type, string> _protocolConformanceSymbols;
@@ -460,7 +502,8 @@ namespace BindingsGeneration
                 {
                     {{GenerateGetProtocolConformanceDictionaryEntries()}}
                 };
-            }
+            {{eagerInitCallLine}}
+            }{{eagerInitHelpers}}
             """;
 
             _writer.WriteLines(text);
@@ -970,7 +1013,7 @@ internal static class ProtocolConformanceHelper
                 if (!canEmitEquatable)
                     continue;
 
-                if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase))
                     continue;
 
                 // Drop IEquatable<T> on generic types whose Equatable conformance can't be proven
@@ -992,8 +1035,17 @@ internal static class ProtocolConformanceHelper
             }
             else
             {
-                // All other protocol conformances: emit if the protocol has a valid TypeRecord
-                if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                // The dictionary gate is broader than the interface gate — it lets
+                // cross-module-with-members conformances through so the descriptor symbol
+                // lands in _protocolConformanceSymbols (required by swift_getWitnessTable
+                // at existential-box time). Track that so IExistentialBoxable is still
+                // appended even when the C# interface side opts out.
+                if (ShouldEmitConformanceDictionary(conformance, typeDatabase))
+                    hasProtocolConformance = true;
+
+                // All other protocol conformances: emit interface only when the stricter
+                // gate accepts it (CS0535 protection for cross-module member stubs).
+                if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase))
                     continue;
 
                 // Validate protocol can be fully implemented if validator is provided
@@ -1004,7 +1056,7 @@ internal static class ProtocolConformanceHelper
 
                     // Cross-module protocols (e.g., Swift.Equatable) return null from FindProtocol
                     // since they're not in moduleDecl.Protocols. These are handled above for Equatable.
-                    // For other cross-module protocols, we trust ShouldEmitConformance already validated.
+                    // For other cross-module protocols, we trust ShouldEmitConformanceInterface already validated.
                     if (protocolDecl != null)
                     {
                         // Check if the protocol interface would actually be generated.
@@ -1052,7 +1104,7 @@ internal static class ProtocolConformanceHelper
         // concrete (e.g. StringLabel: LabelledContainer where Label == String), emit the
         // closed generic interface in the implements list so consumers can pass
         // `new StringLabel(...)` where `ILabelledContainer<SwiftString>` is expected.
-        // ShouldEmitConformance() above filters PATs out of the main loop, so without this
+        // ShouldEmitConformanceInterface() above filters PATs out of the main loop, so without this
         // step the conformer would surface as IExistentialBoxable-only and the typed call
         // site would fail CS0029.
         //
@@ -1228,7 +1280,12 @@ internal static class ProtocolConformanceHelper
 
         foreach (var conformance in conformances)
         {
-            if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+            // Dictionary entries don't need C# stubs — only the conformance descriptor
+            // symbol for swift_getWitnessTable. A cross-module-with-members conformance
+            // (e.g. RealityFoundation.AnchorEntity : RealityFoundation.HasAnchoring whose
+            // mangled name umbrella-encodes the module as RealityKit) must still appear in
+            // _protocolConformanceSymbols so the existential box can resolve at runtime.
+            if (!ShouldEmitConformanceDictionary(conformance, typeDatabase))
                 continue;
 
             // Skip Self-requirement protocols — no proxy, no EveryProtocol, no runtime PWT lookup.
@@ -1297,7 +1354,10 @@ internal static class ProtocolConformanceHelper
         var names = new List<string>();
         foreach (var conformance in conformances)
         {
-            if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+            // Pair with GenerateProtocolConformanceDictionaryEntries — registration uses the
+            // dictionary-level gate so a cross-module-with-members descriptor entry gets a
+            // matching factory pre-registration on NativeAOT.
+            if (!ShouldEmitConformanceDictionary(conformance, typeDatabase))
                 continue;
             // Mirror GenerateProtocolConformanceDictionaryEntries: skip Self-requirement
             // protocols EXCEPT Swift.Hashable. Hashable's witness table is consumed at
@@ -1414,7 +1474,14 @@ internal static class ProtocolConformanceHelper
         return $"{ifaceName.Substring(0, lastDot)}.{parentPrefix}.{ifaceName.Substring(lastDot + 1)}";
     }
 
-    internal static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)
+    /// <summary>
+    /// Shared baseline gate for both the conformance-descriptor dictionary path and the
+    /// C# interface inheritance path. Filters out unknown protocols, PATs, non-protocols,
+    /// and well-known runtime protocols that have direct runtime mappings (Swift.Error → AnyError).
+    /// Does NOT apply the cross-module-with-members skip — that is interface-specific and lives
+    /// in <see cref="ShouldEmitConformanceInterface"/>.
+    /// </summary>
+    internal static bool ShouldEmitConformanceDictionary(TypeConformance conformance, ITypeDatabase typeDatabase)
     {
         // Preserve existing behavior for Equatable/Hashable even when protocol records are unavailable.
         if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
@@ -1439,11 +1506,42 @@ internal static class ProtocolConformanceHelper
         if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
             return false;
 
-        // Cross-module protocols with interface members cannot be safely emitted as
-        // conformances because the generator cannot produce stubs for cross-module
-        // protocol requirements, causing CS0535 at compile time.
-        // Same-module protocols are validated by CanFullyImplementProtocol in the caller.
-        if (conformance.Protocol.Module != moduleName)
+        return true;
+    }
+
+    /// <summary>
+    /// Stricter gate used to decide whether to add a protocol to a concrete type's C# interface
+    /// inheritance list. Layers a cross-module-with-members skip on top of the dictionary gate:
+    /// cross-module protocols with emittable members cannot be safely declared as inheritance
+    /// because the generator cannot produce stubs for cross-module protocol requirements
+    /// (CS0535 at compile time). The dictionary / IExistentialBoxable path is broader — it
+    /// only needs the conformance descriptor symbol, not C# member stubs — so a conformance
+    /// can land in <c>_protocolConformanceSymbols</c> without surfacing as a direct interface.
+    /// Same-module protocols are validated by <c>CanFullyImplementProtocol</c> in the caller.
+    /// </summary>
+    internal static bool ShouldEmitConformanceInterface(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)
+    {
+        if (!ShouldEmitConformanceDictionary(conformance, typeDatabase))
+            return false;
+
+        // Equatable/Hashable always project, even when the record is unavailable — their
+        // dictionary-only behaviour is handled by the caller.
+        if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
+            return true;
+        if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable" || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module)))
+            return true;
+
+        // ShouldEmitConformanceDictionary already filtered missing records; this lookup
+        // is for the cross-module gate that consumes EmittedMemberCount.
+        if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
+            return false;
+
+        // The protocol's mangled name encodes its umbrella module (e.g. RealityKit for
+        // RealityFoundation.HasAnchoring); the type record's CSharpTypeName.Namespace
+        // is the real declaring module. Compare against the resolved module so a
+        // same-module-via-umbrella conformance is not falsely treated as cross-module.
+        var resolvedProtocolModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
+        if (resolvedProtocolModule != moduleName && conformance.Protocol.Module != moduleName)
         {
             // EmittedMemberCount == null means an older database without this field.
             // Conservatively skip to avoid potential CS0535.

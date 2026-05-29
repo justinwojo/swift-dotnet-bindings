@@ -793,6 +793,144 @@ public class ModuleHandlerTests
         Assert.Contains("extension EveryProtocol: TestModule.CounterProtocol", swiftOutput);
     }
 
+    [Fact]
+    public void Emit_EntityRootedProtocol_RoutesThroughEveryEntityProtocolViaModulePipeline()
+    {
+        // Failure B end-to-end through the real ModuleHandler.Emit pipeline:
+        // the class-superclass filter at the LINQ-pipeline gate must let
+        // an Entity-rooted protocol through, the EmitEveryProtocolClass
+        // pre-scan must register the Entity-base flag, EveryEntityProtocol
+        // (+ four @_cdecl wrappers) must be emitted, and the per-protocol
+        // routing must hang the extension off EveryEntityProtocol rather
+        // than skip it via HasClassSuperclassRequirement. The direct-emitter
+        // unit tests in EveryProtocolEmitterTests cover the pre-scan in
+        // isolation; this test exercises the integration so the filter
+        // exception, pre-scan list, and conformance routing stay in sync.
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            customizeModule: module =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "HasAnchoring",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.HasAnchoring"),
+                    MangledName = "$s10TestModule12HasAnchoringP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>
+                    {
+                        new("RealityFoundation.Entity"),
+                    },
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("anchorIdentifier", "Swift.Int", module),
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = module,
+                    ModuleDecl = module,
+                };
+                module.Protocols.Add(protocol);
+                module.Types.Add(protocol);
+            },
+            registerExtraTypes: typeDatabase =>
+            {
+                var realityFoundation = new ModuleTypeDatabase(
+                    "RealityFoundation",
+                    "/fake/RealityFoundation.framework/RealityFoundation");
+                var entityName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.Entity");
+                realityFoundation.RegisterType(entityName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "Entity"),
+                    SwiftTypeName = entityName,
+                    MetadataAccessor = "$s17RealityFoundation6EntityCMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+                typeDatabase.AddModuleDatabase(realityFoundation);
+            });
+
+        // EveryEntityProtocol class definition must be emitted, gated on
+        // AnyEntityBaseUsed in EmitEveryProtocolClass — without the filter
+        // exception, the protocol never reaches suitableProtocols, the
+        // pre-scan finds nothing, and AnyEntityBaseUsed stays false.
+        Assert.Contains("public final class EveryEntityProtocol", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CreateEveryEntityProtocol\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_ReleaseEveryEntityProtocol\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_GetMetadata_EveryEntityProtocol\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_SetEveryEntityProtocolDeinitCallback\")", swiftOutput);
+
+        // The per-protocol conformance extension must hang off
+        // EveryEntityProtocol — not EveryProtocol or EveryObjCProtocol.
+        Assert.Contains("extension EveryEntityProtocol: TestModule.HasAnchoring", swiftOutput);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.HasAnchoring", swiftOutput);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.HasAnchoring", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_NonEntityClassSuperclassProtocol_StillSkippedByModulePipeline()
+    {
+        // Negative counterpart to the Entity test above. A protocol whose
+        // class-superclass requirement is anything other than Entity
+        // (eg UIGestureRecognizer) must still be filtered out by the
+        // suitableProtocols pipeline — the exception added to the filter
+        // is Entity-specific. Without this assertion, a regression that
+        // widens IsEntityRootedProtocol would silently produce extensions
+        // EveryEntityProtocol cannot satisfy at the Swift type-check.
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            customizeModule: module =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "GestureProto",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.GestureProto"),
+                    MangledName = "$s10TestModule12GestureProtoP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>
+                    {
+                        new("UIKit.UIGestureRecognizer"),
+                    },
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("gestureId", "Swift.Int", module),
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = module,
+                    ModuleDecl = module,
+                };
+                module.Protocols.Add(protocol);
+                module.Types.Add(protocol);
+            },
+            registerExtraTypes: typeDatabase =>
+            {
+                var uikit = new ModuleTypeDatabase("UIKit", "/fake/UIKit.framework/UIKit");
+                var gestureName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIGestureRecognizer");
+                uikit.RegisterType(gestureName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIGestureRecognizer"),
+                    SwiftTypeName = gestureName,
+                    MetadataAccessor = "$sSo19UIGestureRecognizerCMa",
+                    Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+                typeDatabase.AddModuleDatabase(uikit);
+            });
+
+        Assert.DoesNotContain("public final class EveryEntityProtocol", swiftOutput);
+        Assert.DoesNotContain("extension EveryEntityProtocol: TestModule.GestureProto", swiftOutput);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.GestureProto", swiftOutput);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.GestureProto", swiftOutput);
+    }
+
     #endregion
 
     #region Protocol Proxy Emission Coupling Tests
@@ -1185,7 +1323,8 @@ public class ModuleHandlerTests
         List<string> dependencies,
         Action<ModuleDecl> customizeModule = null,
         NamespacePatternResolver namespaceResolver = null,
-        Action<ModuleEmissionContext> preEmitHook = null)
+        Action<ModuleEmissionContext> preEmitHook = null,
+        Action<TypeDatabase> registerExtraTypes = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1203,6 +1342,7 @@ public class ModuleHandlerTests
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase(moduleName, "/fake/path");
         typeDatabase.AddModuleDatabase(module);
+        registerExtraTypes?.Invoke(typeDatabase);
 
         var csStringWriter = new StringWriter();
         var swiftStringWriter = new StringWriter();

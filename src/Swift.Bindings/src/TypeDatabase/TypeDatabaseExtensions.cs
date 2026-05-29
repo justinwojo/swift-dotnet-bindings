@@ -17,6 +17,7 @@ public static class TypeDatabaseExtensions
         "SwiftOptional", "Swift.SwiftOptional", "Swift.Runtime.SwiftOptional",
         "SwiftResult", "Swift.SwiftResult", "Swift.Runtime.SwiftResult",
         "SwiftSet", "Swift.SwiftSet", "Swift.Runtime.SwiftSet",
+        "SwiftClosedRange", "Swift.SwiftClosedRange", "Swift.Runtime.SwiftClosedRange",
     };
 
     /// <summary>
@@ -599,8 +600,8 @@ public static class TypeDatabaseExtensions
     /// </summary>
     private static readonly HashSet<string> KnownGenericTypes = new(StringComparer.Ordinal)
     {
-        "Dictionary", "Array", "Set", "Optional", "Result",
-        "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result"
+        "Dictionary", "Array", "Set", "Optional", "Result", "ClosedRange",
+        "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result", "Swift.ClosedRange"
     };
 
     internal static bool IsKnownGenericType(string name) => KnownGenericTypes.Contains(name);

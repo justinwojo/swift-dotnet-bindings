@@ -80,6 +80,29 @@ public func diagonalFloat4x4(_ m: simd_float4x4) -> simd_float4 {
     return simd_float4(m.columns.0.x, m.columns.1.y, m.columns.2.z, m.columns.3.w)
 }
 
+// MARK: - Async + SIMD Fixtures
+//
+// Exercises the WrapperEmitter.Async.cs SIMD bound-generic wedge. PInvokeEmitter
+// routes Swift.SIMD2/3/4<Float> through CdeclFrozenStruct (IntPtr), so the async
+// heap-buffer path MUST emit the matching `{name}Ptr` local — otherwise the
+// generated async wrapper call-site references an undefined identifier.
+
+public func asyncSumFloat3(_ v: simd_float3) async -> Float {
+    return v.x + v.y + v.z
+}
+
+public func asyncEchoFloat3(_ v: simd_float3) async -> simd_float3 {
+    return v
+}
+
+public func asyncEchoFloat4(_ v: simd_float4) async -> simd_float4 {
+    return v
+}
+
+public func asyncEchoFloat4x4(_ m: simd_float4x4) async -> simd_float4x4 {
+    return m
+}
+
 // MARK: - Container / Property Fixtures
 
 /// Class with SIMD-typed stored properties, exercising property getters/setters

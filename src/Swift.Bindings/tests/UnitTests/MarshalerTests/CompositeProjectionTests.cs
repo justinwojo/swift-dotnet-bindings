@@ -540,5 +540,75 @@ public class CompositeProjectionTests
         Assert.DoesNotContain("PayloadBuffer", setupCode);
     }
 
+    [Fact]
+    public void OptionalFrozenWithMemory_Param_UsesWrapperType_NotBufferStruct()
+    {
+        // A handle-backed FrozenWithMemoryProjection inner (e.g. SwiftClosedRange<T>) has no
+        // nested .Buffer struct: its SwiftContainerGenericType is `{Type}.Buffer`, correct for a
+        // genuine by-value ClassWithBufferStruct but nonexistent on the wrapper class. The
+        // Optional<T> parameter must therefore pack as SwiftOptional<{Type}> (metadata-driven,
+        // matching the return direction) and hand the public-typed wrapper value straight to
+        // NewSome — never SwiftOptional<{Type}.Buffer>, which is CS0426 (no `.Buffer` member).
+        var inner = new FrozenWithMemoryProjection("Swift.SwiftClosedRange<float>");
+        var optProj = new OptionalProjection(inner, useDangerousGetHandle: true);
+
+        var plan = optProj.GetParameterPlan("angularLimit");
+        var allCode = FlattenSetup(plan.SetupStatements);
+
+        Assert.Contains("SwiftOptional<Swift.SwiftClosedRange<float>>", allCode);
+        Assert.DoesNotContain("Swift.SwiftClosedRange<float>.Buffer", allCode);
+        // Passthrough hands the public-typed wrapper value to NewSome.
+        Assert.Contains("NewSome(angularLimitValue)", allCode);
+        // Large Optional → pointer to the full Optional buffer, not a PayloadBuffer<.Buffer>.
+        Assert.Contains("DangerousGetHandle()", allCode);
+    }
+
+    [Fact]
+    public void OptionalFrozenWithMemory_AsContainerElement_UsesWrapperType_NotBufferStruct()
+    {
+        // When Optional<ClosedRange<T>> is a container element (e.g. [ClosedRange<Float>?]), TWO
+        // generics name the inner: the SwiftArray<...> element generic (SwiftContainerGenericType)
+        // and the per-element SwiftOptional<...>.NewSome generic (GetParameterElementConversion).
+        // Both must be the handle-backed wrapper, never the nonexistent `{Type}.Buffer` struct.
+        var inner = new FrozenWithMemoryProjection("Swift.SwiftClosedRange<float>");
+        var optProj = new OptionalProjection(inner, useDangerousGetHandle: true);
+
+        // SwiftArray<SwiftOptional<...>> element generic.
+        Assert.Equal("SwiftOptional<Swift.SwiftClosedRange<float>>", optProj.SwiftContainerGenericType);
+        Assert.DoesNotContain(".Buffer", optProj.SwiftContainerGenericType);
+
+        // Per-element NewSome conversion hands the wrapper value to a wrapper-typed SwiftOptional.
+        var elemConv = optProj.GetParameterElementConversion("item");
+        Assert.NotNull(elemConv);
+        Assert.Contains("SwiftOptional<Swift.SwiftClosedRange<float>>.NewSome", elemConv);
+        Assert.DoesNotContain(".Buffer", elemConv!);
+    }
+
+    /// <summary>
+    /// Renders every statement (including the bodies of if/else blocks) into one text blob so a
+    /// test can assert on code emitted inside branches, not just at the top level.
+    /// </summary>
+    private static string FlattenSetup(IEnumerable<MarshalStatement> statements)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var s in statements)
+        {
+            switch (s)
+            {
+                case MarshalStatement.Line l:
+                    sb.AppendLine(l.Code);
+                    break;
+                case MarshalStatement.Using u:
+                    sb.AppendLine($"{u.Type} {u.Name} = {u.InitExpression}");
+                    break;
+                case MarshalStatement.Block b:
+                    sb.AppendLine(b.Header);
+                    sb.Append(FlattenSetup(b.Body));
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
     #endregion
 }

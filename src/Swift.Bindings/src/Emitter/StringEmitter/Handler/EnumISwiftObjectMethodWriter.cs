@@ -52,18 +52,26 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Records this type for NativeAOT factory registration if it's non-generic.
+        /// Generic enums route through <see cref="ModuleEmissionContext.RecordOpenGenericISwiftObjectType"/>
+        /// so the trimmer descriptor preserves their reflection metadata.
         /// Also records protocol conformance pairs for NativeAOT pre-registration.
         /// </summary>
         private void RecordTypeIfNonGeneric()
         {
-            if (_emissionCtx != null && !_typeNameWithGenerics.Contains('<'))
+            if (_emissionCtx == null)
+                return;
+
+            if (_enumDecl.IsGeneric)
             {
-                _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
-                foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
-                    _enumDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
-                {
-                    _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
-                }
+                _emissionCtx.RecordOpenGenericISwiftObjectType(_enumDecl.Name, _enumDecl.GenericParameters.Count);
+                return;
+            }
+
+            _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
+                _enumDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+            {
+                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
             }
         }
 
@@ -332,9 +340,41 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Writes the static constructor for the enum.
+        /// For generic ISwiftObject enums, also emits the eager-init pattern that mirrors
+        /// SwiftArray.cs so NativeAOT (ILC) can statically reach SwiftObjectHelper&lt;Self&gt;.
+        /// GetTypeMetadata for each closed instantiation.
         /// </summary>
         private void WriteStaticConstructor()
         {
+            bool isGeneric = _enumDecl.IsGeneric;
+            var eagerInitCallLine = isGeneric
+                ? "    if (SwiftRuntimeInfo.IsNativeAotRuntime) { TryEagerInitialize(); }"
+                : "";
+            var eagerInitHelpers = isGeneric
+                ? $$"""
+
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                internal static bool TryEagerInitialize()
+                {
+                    try
+                    {
+                        NativeAotInitialize();
+                        return true;
+                    }
+                    catch (Exception)
+                    {
+                        return false;
+                    }
+                }
+
+                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                private static void NativeAotInitialize()
+                {
+                    _ = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
+                }
+                """
+                : "";
+
             var text = $$"""
             [EditorBrowsable(EditorBrowsableState.Never)]
             private static Dictionary<Type, string> _protocolConformanceSymbols;
@@ -345,7 +385,8 @@ namespace BindingsGeneration
                 {
                     {{GenerateGetProtocolConformanceDictionaryEntries()}}
                 };
-            }
+            {{eagerInitCallLine}}
+            }{{eagerInitHelpers}}
             """;
 
             _writer.WriteLines(text);

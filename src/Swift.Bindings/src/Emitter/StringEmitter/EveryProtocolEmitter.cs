@@ -45,11 +45,30 @@ public class EveryProtocolEmitter
     private bool _useObjCBase;
 
     /// <summary>
-    /// Swift identifier of the base class to emit the current protocol's extension
-    /// against — either <c>EveryProtocol</c> (default) or <c>EveryObjCProtocol</c>
-    /// (S-2 NSObjectProtocol-only path).
+    /// True while emitting an Entity-rooted conformance (Failure B): the Swift
+    /// extension must hang off <c>EveryEntityProtocol</c> (RealityFoundation.Entity-
+    /// rooted) rather than the plain Swift <c>EveryProtocol</c>, because the
+    /// protocol declares <c>: Entity</c> as a class-superclass constraint
+    /// (e.g. <c>HasAnchoring</c>, RealityKit gesture protocols). Reset between
+    /// protocols alongside <see cref="_useObjCBase"/>.
     /// </summary>
-    private string BaseClassName => _useObjCBase ? "EveryObjCProtocol" : "EveryProtocol";
+    private bool _useEntityBase;
+
+    /// <summary>
+    /// Swift identifier of the base class to emit the current protocol's extension
+    /// against — <c>EveryEntityProtocol</c> when routing through the Entity-rooted
+    /// helper (Failure B), <c>EveryObjCProtocol</c> for the NSObjectProtocol-only
+    /// path (S-2), otherwise the default <c>EveryProtocol</c>. Mutually exclusive:
+    /// only one of <see cref="_useObjCBase"/> / <see cref="_useEntityBase"/> can be
+    /// true for a given protocol because the routing gates in
+    /// <see cref="EmitProtocolConformance(SwiftWriter, ProtocolDecl, HashSet{string}?, HashSet{string}?, IReadOnlyDictionary{string, PropertyEmissionPlan}?, IReadOnlyDictionary{ValueTuple{string, string}, SubscriptEmissionPlan}?)"/>
+    /// fall through in sequence (class-bound NSObjectProtocol first, then class-
+    /// superclass requirement) and each <c>return</c>s on a skip rather than
+    /// re-evaluating the next gate.
+    /// </summary>
+    private string BaseClassName => _useEntityBase
+        ? "EveryEntityProtocol"
+        : (_useObjCBase ? "EveryObjCProtocol" : "EveryProtocol");
 
     public EveryProtocolEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? emissionContext = null)
     {
@@ -63,8 +82,32 @@ public class EveryProtocolEmitter
     /// Emits the EveryProtocol class definition.
     /// This class is the concrete Swift type behind all protocol proxy objects.
     /// </summary>
-    public void EmitEveryProtocolClass(SwiftWriter writer)
+    /// <param name="writer">Output Swift writer.</param>
+    /// <param name="suitableProtocols">Optional protocol list. When supplied, the emitter
+    /// pre-scans the list with <see cref="IsEntityRootedProtocol"/> and conditionally emits
+    /// the <c>EveryEntityProtocol</c> Swift class + its four @_cdecl wrappers + records
+    /// the Entity-base flag on <see cref="ModuleEmissionContext"/> so per-protocol routing
+    /// in <see cref="EmitProtocolConformance(SwiftWriter, ProtocolDecl, HashSet{string}?, HashSet{string}?, IReadOnlyDictionary{string, PropertyEmissionPlan}?, IReadOnlyDictionary{ValueTuple{string, string}, SubscriptEmissionPlan}?)"/>
+    /// can opt into the Entity-rooted path. When null (unit-test paths that don't carry
+    /// a module protocol list) the Entity-rooted class is not emitted and Entity-rooted
+    /// protocols continue to skip via <c>HasClassSuperclassRequirement</c>.</param>
+    public void EmitEveryProtocolClass(SwiftWriter writer, IReadOnlyList<ProtocolDecl>? suitableProtocols = null)
     {
+        // Pre-scan suitableProtocols (when supplied) so the conditional EveryEntityProtocol
+        // emission below can run with the same Entity-rooted set the per-protocol routing
+        // will later see. Recording the decision on _emissionContext here keeps
+        // EmitProtocolConformance lookups O(1) and lets ProtocolProxyEmitter pick the
+        // right helper symbols via UsesEntityBase.
+        if (suitableProtocols is not null && _emissionContext is not null)
+        {
+            foreach (var p in suitableProtocols)
+            {
+                if (IsEntityRootedProtocol(p, _typeDatabase, suitableProtocols))
+                    _emissionContext.MarkEntityBase(p.Name);
+            }
+        }
+        bool emitEntityBase = _emissionContext?.AnyEntityBaseUsed == true;
+
         // Register the four hardcoded EveryProtocol @_cdecl symbols with the
         // wrapper-symbol contract. The matching P/Invokes live in
         // ProtocolProxyEmitter.SwiftObject and would trip the contract check if
@@ -87,6 +130,22 @@ public class EveryProtocolEmitter
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryObjCProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryObjCProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_SetEveryObjCProtocolDeinitCallback");
+        if (emitEntityBase)
+        {
+            // EveryEntityProtocol mirrors the EveryProtocol / EveryObjCProtocol pattern
+            // for protocols whose only class-superclass requirement is RealityFoundation.Entity
+            // (Failure B): the plain Swift EveryProtocol class cannot satisfy
+            // `protocol HasAnchoring : Entity` because EveryProtocol does not inherit
+            // Entity. The Entity-rooted variant is generated only when at least one
+            // protocol in the module is Entity-rooted (Entity is not a universal
+            // dependency — a wrapper that does not import RealityFoundation must not
+            // emit a class that references Entity), so its wrapper-symbol contract
+            // entries are likewise conditional.
+            _emissionContext?.TryAddMethodWrapperSymbol("SBW_CreateEveryEntityProtocol");
+            _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryEntityProtocol");
+            _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryEntityProtocol");
+            _emissionContext?.TryAddMethodWrapperSymbol("SBW_SetEveryEntityProtocolDeinitCallback");
+        }
 
         writer.WriteLines($$"""
             // EveryProtocol is a Swift class that can conform to any protocol.
@@ -223,6 +282,78 @@ public class EveryProtocolEmitter
             }
 
             """);
+
+        if (emitEntityBase)
+        {
+            // EveryEntityProtocol is the RealityFoundation.Entity-rooted twin of
+            // EveryProtocol (Failure B). Swift forbids `extension EveryProtocol: P`
+            // when `protocol P : Entity` constrains Self to be (a subclass of) Entity
+            // and EveryProtocol does not inherit Entity. This subclass satisfies the
+            // class-superclass requirement so the same vtable-callback pattern used
+            // for EveryProtocol / EveryObjCProtocol covers protocols like
+            // RealityKit.HasAnchoring and the RealityKit gesture .Entity getters.
+            //
+            // Inherits Entity's lifecycle: Swift retain/release via Unmanaged
+            // (matching EveryProtocol's pattern — Entity is a pure Swift class with
+            // Swift ARC, not an ObjC class). Entity's `required public init()`
+            // requires the subclass to provide its own `required init()` that
+            // initializes stored properties and forwards to super.init().
+            writer.WriteLines($$"""
+                // EveryEntityProtocol is the RealityFoundation.Entity-rooted twin of
+                // EveryProtocol. Generated only when at least one protocol in this
+                // module's binding is rooted at Entity (Failure B); a wrapper that
+                // does not import RealityFoundation must not reference Entity.
+                public final class EveryEntityProtocol: Entity, @unchecked Sendable {
+                    public let handle: UnsafeRawPointer?
+                    fileprivate var onDeinit: (@convention(c) (UnsafeRawPointer) -> Void)?
+                    fileprivate var onDeinitCtx: UnsafeRawPointer?
+
+                    public required init() {
+                        self.handle = nil
+                        super.init()
+                    }
+
+                    public init(handle: UnsafeRawPointer) {
+                        self.handle = handle
+                        super.init()
+                    }
+
+                    deinit {
+                        if let cb = onDeinit, let ctx = onDeinitCtx {
+                            cb(ctx)
+                        }
+                    }
+                }
+
+                @_cdecl("SBW_CreateEveryEntityProtocol")
+                public func _sbw_createEveryEntityProtocol() -> UnsafeMutableRawPointer {
+                    let instance = EveryEntityProtocol()
+                    return Unmanaged.passRetained(instance).toOpaque()
+                }
+
+                @_cdecl("SBW_ReleaseEveryEntityProtocol")
+                public func _sbw_releaseEveryEntityProtocol(_ ptr: UnsafeMutableRawPointer) {
+                    Unmanaged<EveryEntityProtocol>.fromOpaque(ptr).release()
+                }
+
+                @_cdecl("SBW_GetMetadata_EveryEntityProtocol")
+                public func _sbw_getEveryEntityProtocolMetadata() -> UnsafeRawPointer {
+                    return unsafeBitCast(EveryEntityProtocol.self, to: UnsafeRawPointer.self)
+                }
+
+                @_cdecl("SBW_SetEveryEntityProtocolDeinitCallback")
+                public func _sbw_setEveryEntityProtocolDeinitCallback(
+                    _ instance: UnsafeMutableRawPointer,
+                    _ callback: @convention(c) (UnsafeRawPointer) -> Void,
+                    _ context: UnsafeRawPointer
+                ) {
+                    let ep = Unmanaged<EveryEntityProtocol>.fromOpaque(instance).takeUnretainedValue()
+                    ep.onDeinit = callback
+                    ep.onDeinitCtx = context
+                }
+
+                """);
+        }
     }
 
     /// <summary>
@@ -1183,8 +1314,11 @@ public class EveryProtocolEmitter
         var baseClass = BaseClassName;
         writer.WriteLines($$"""
             // Returns the protocol witness table pointer for {{baseClass}} conforming to {{protocolDecl.Name}}.
-            // C# calls this via P/Invoke to obtain the witness table for existential container construction.
-            {{availPrefix}}@_silgen_name("{{mangledGetterName}}")
+            // C# calls this via P/Invoke (CallConvCdecl) to obtain the witness table for existential
+            // container construction. Exported as a C entry point (@_cdecl) so the symbol is a linker
+            // root that survives dead-stripping on NativeAOT/device builds — nothing in the Swift
+            // wrapper references it, so an unreferenced free function would otherwise be dropped.
+            {{availPrefix}}@_cdecl("{{mangledGetterName}}")
             public func {{getterFunctionName}}() -> UnsafeRawPointer {
                 let instance = {{baseClass}}()
                 return withExtendedLifetime(instance) {
@@ -1212,8 +1346,10 @@ public class EveryProtocolEmitter
     {
         writer.WriteLines($$"""
             // Returns the type metadata pointer for EveryProtocol.
-            // C# calls this via P/Invoke to construct existential containers.
-            @_silgen_name("Get_EveryProtocol_TypeMetadata")
+            // C# calls this via P/Invoke (CallConvCdecl) to construct existential containers.
+            // Exported as a C entry point (@_cdecl) for the same dead-strip-survival reason as the
+            // witness-table getters above.
+            @_cdecl("Get_EveryProtocol_TypeMetadata")
             public func getEveryProtocolTypeMetadata() -> UnsafeRawPointer {
                 return unsafeBitCast(EveryProtocol.self as Any.Type, to: UnsafeRawPointer.self)
             }
@@ -1235,8 +1371,10 @@ public class EveryProtocolEmitter
         var availPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availAnnotations, "            ");
 
         writer.WriteLines($$"""
-            // Called by C# to register the protocol vtable
-            {{availPrefix}}@_silgen_name("{{mangledSetFunctionName}}")
+            // Called by C# (CallConvCdecl) to register the protocol vtable. Exported as a C entry
+            // point (@_cdecl) so the symbol is a linker root that survives dead-stripping on
+            // NativeAOT/device builds, matching the witness-table getters.
+            {{availPrefix}}@_cdecl("{{mangledSetFunctionName}}")
             public func {{setFunctionName}}(uvt: UnsafeRawPointer) {
                 let vt: UnsafePointer<{{vtableName}}> = uvt.assumingMemoryBound(to: {{vtableName}}.self)
                 {{vtableInstanceName}} = vt.pointee
@@ -1370,7 +1508,14 @@ public class EveryProtocolEmitter
         }
 
         if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase))
-            return true;
+        {
+            // Failure B: protocols rooted at RealityFoundation.Entity reroute through
+            // the EveryEntityProtocol helper class instead of skipping. Any other
+            // concrete class-superclass requirement still skips because the helper
+            // can inherit only one Swift class. See IsEntityRootedProtocol.
+            if (!IsEntityRootedProtocol(protocolDecl, _typeDatabase, _allProtocols))
+                return true;
+        }
 
         if (InheritsCaseIterable(protocolDecl))
             return true;
@@ -1501,8 +1646,11 @@ public class EveryProtocolEmitter
         IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>? subscriptPlans)
     {
         // Reset per-protocol routing state — the NSObjectProtocol-only gate below sets
-        // _useObjCBase=true only for the protocols that need EveryObjCProtocol.
+        // _useObjCBase=true only for the protocols that need EveryObjCProtocol; the
+        // class-superclass gate further down sets _useEntityBase=true only for the
+        // Entity-rooted protocols (Failure B).
         _useObjCBase = false;
+        _useEntityBase = false;
 
         // Helper to record a skip decision and track the protocol for genericSig constraint checks
         void RecordSkip(string reason)
@@ -1620,11 +1768,27 @@ public class EveryProtocolEmitter
         // Such a declaration constrains Self to be a subclass of that class —
         // EveryProtocol is a plain Swift class and inherits no UIKit / AppKit
         // / Foundation classes, so the conformance cannot type-check.
+        //
+        // Failure B exception: protocols whose only class-superclass requirement is
+        // RealityFoundation.Entity (e.g. HasAnchoring) route through the Entity-
+        // rooted EveryEntityProtocol helper class instead of skipping. The
+        // pre-scan in EmitEveryProtocolClass already recorded MarkEntityBase /
+        // ensured the class was emitted; here we flip the per-protocol routing
+        // flag so BaseClassName returns "EveryEntityProtocol" through the rest
+        // of this emission.
         if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase))
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: requires class superclass EveryProtocol cannot inherit");
-            RecordSkip("ClassSuperclassRequired");
-            return;
+            if (IsEntityRootedProtocol(protocolDecl, _typeDatabase, _allProtocols))
+            {
+                _useEntityBase = true;
+                _emissionContext?.MarkEntityBase(protocolDecl.Name);
+            }
+            else
+            {
+                _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: requires class superclass EveryProtocol cannot inherit");
+                RecordSkip("ClassSuperclassRequired");
+                return;
+            }
         }
 
         // Skip protocols whose genericSig constrains Self (τ_0_0) to conform to a protocol
@@ -1804,12 +1968,12 @@ public class EveryProtocolEmitter
             writer.WriteLine("}");
             writer.WriteLine();
         }
-        // The witness-table getter is symbol-named via `@_silgen_name`
+        // The witness-table getter is symbol-named via `@_cdecl`
         // (`Get_EveryProtocol_{Name}_WitnessTable`) without the
         // source-module prefix the vtable setter carries. For cross-module
         // parents the dependency module's wrapper already emits this symbol
         // for the same protocol; re-emitting it here would create a
-        // duplicate `@_silgen_name` and the consumer's P/Invoke would
+        // duplicate `@_cdecl` symbol and the consumer's P/Invoke would
         // resolve to whichever dylib dyld saw first. The consumer-side .cs
         // for cross-module parents reaches the impl through the covariant
         // `IProtocolProxyImpl<TInterface>` lookup, never through the local
@@ -4517,7 +4681,7 @@ public class EveryProtocolEmitter
 
     private string GetSetVtableMangledName(ProtocolDecl protocolDecl)
     {
-        // Use @_silgen_name to control the symbol name that C# will call.
+        // @_cdecl symbol name that C# will call.
         // ProtocolProxyEmitter.GetSetVtablePInvokeName must produce the matching entry point.
         return $"Set{GetCrossModulePrefix(protocolDecl)}{protocolDecl.Name}_vtable";
     }
@@ -4529,7 +4693,7 @@ public class EveryProtocolEmitter
 
     private static string GetWitnessTableGetterMangledName(ProtocolDecl protocolDecl)
     {
-        // Use @_silgen_name to control the symbol name that C# will call
+        // @_cdecl symbol name that C# will call
         return $"Get_EveryProtocol_{protocolDecl.Name}_WitnessTable";
     }
 
@@ -4793,6 +4957,93 @@ public class EveryProtocolEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns true if the protocol's class-superclass requirement is exactly
+    /// RealityFoundation's <c>Entity</c> (or its umbrella spelling
+    /// <c>RealityKit.Entity</c>) and no other concrete class is required. Such
+    /// protocols can be routed through the Entity-rooted <c>EveryEntityProtocol</c>
+    /// helper class instead of being skipped by
+    /// <see cref="HasClassSuperclassRequirement"/>. A protocol that requires both
+    /// Entity and another concrete class is not Entity-rooted (the helper can
+    /// inherit only one superclass).
+    /// </summary>
+    /// <remarks>
+    /// Recognized name shapes (both spellings appear in ABI JSON depending on
+    /// whether the protocol is declared in RealityFoundation directly or surfaced
+    /// through the RealityKit umbrella):
+    /// <list type="bullet">
+    /// <item><c>RealityFoundation.Entity</c></item>
+    /// <item><c>RealityKit.Entity</c></item>
+    /// </list>
+    /// </remarks>
+    internal static bool IsEntityRootedProtocol(
+        ProtocolDecl protocolDecl,
+        ITypeDatabase typeDatabase,
+        IReadOnlyList<ProtocolDecl>? allProtocols = null)
+    {
+        bool sawEntity = false;
+        bool sawOtherClass = false;
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        CollectClassSuperclassKinds(
+            protocolDecl, typeDatabase, allProtocols, visited,
+            ref sawEntity, ref sawOtherClass);
+        return sawEntity && !sawOtherClass;
+    }
+
+    private static void CollectClassSuperclassKinds(
+        ProtocolDecl protocolDecl,
+        ITypeDatabase typeDatabase,
+        IReadOnlyList<ProtocolDecl>? allProtocols,
+        HashSet<string> visited,
+        ref bool sawEntity,
+        ref bool sawOtherClass)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var simpleName = GetSimpleName(inherited.Name);
+
+            if (simpleName is "AnyObject" or "Sendable" or "Escapable" or "Copyable"
+                or "SendableMetatype" or "Error")
+                continue;
+
+            if (typeDatabase.TryGetTypeRecord(inherited, out var record) &&
+                record.Kind == TypeRecordKind.Class)
+            {
+                if (IsRealityFoundationEntityName(inherited.Name, simpleName))
+                    sawEntity = true;
+                else
+                    sawOtherClass = true;
+                continue;
+            }
+
+            if (allProtocols != null)
+            {
+                var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                    p.Name == simpleName || p.Name == inherited.Name ||
+                    p.SwiftTypeName?.ToString() == inherited.Name);
+                if (inheritedDecl != null)
+                {
+                    CollectClassSuperclassKinds(
+                        inheritedDecl, typeDatabase, allProtocols, visited,
+                        ref sawEntity, ref sawOtherClass);
+                }
+            }
+        }
+    }
+
+    private static bool IsRealityFoundationEntityName(string fullName, string simpleName)
+    {
+        if (simpleName != "Entity")
+            return false;
+        return fullName == "RealityFoundation.Entity"
+            || fullName == "RealityKit.Entity"
+            || fullName == "Entity";
     }
 
     /// <summary>

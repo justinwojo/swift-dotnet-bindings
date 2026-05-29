@@ -311,6 +311,30 @@ public func fireURLProcessorDelegate(_ delegate: any URLProcessorDelegate, urlSt
     return result.absoluteString
 }
 
+// MARK: - Optional<ClosedRange> Protocol Getter (proxy receiver)
+
+/// Protocol with an `Optional<ClosedRange<Float>>` property. A C# conformer implements the getter;
+/// Swift reads it back through the protocol-proxy receiver, exercising the receiver getter
+/// conversion (C# `SwiftClosedRange<Float>?` → `SwiftOptional<SwiftClosedRange<Float>>`) for a
+/// handle-backed wrapper. ClosedRange is not a `.Buffer` value type, so the receiver getter and
+/// its sizing carrier must name the wrapper, not a nonexistent nested `.Buffer` struct.
+public protocol RangeBoundsProvider: AnyObject {
+    var allowedRange: ClosedRange<Float>? { get }
+}
+
+/// Reads the provider's optional range and returns its span (upper - lower), or -1 when nil.
+/// Calls back into the C# proxy getter and unpacks the returned Optional — proves the Some payload
+/// survives the receiver pack and that both endpoints are intact.
+public func readProviderRangeSpan(_ provider: any RangeBoundsProvider) -> Float {
+    guard let range = provider.allowedRange else { return -1 }
+    return range.upperBound - range.lowerBound
+}
+
+/// True iff the provider's optional range is nil — proves a C# null getter packs as the None tag.
+public func providerRangeIsNil(_ provider: any RangeBoundsProvider) -> Bool {
+    return provider.allowedRange == nil
+}
+
 // MARK: - Existential Parameter Callback
 
 /// Protocol with a method that takes an existential parameter.

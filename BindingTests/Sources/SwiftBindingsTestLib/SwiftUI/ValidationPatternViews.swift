@@ -191,4 +191,36 @@ public struct ResultWithStructView: View {
         Text("ResultWithStruct")
     }
 }
+
+// MARK: - Binding<Codable Struct> Param (FamilyActivityPicker pattern)
+
+/// Codable struct that the bridge ferries across the boundary as JSON UTF-8.
+/// Non-frozen + Codable + module-public satisfies the CodableJsonEmitter gate.
+public struct CodableProfile: Codable, Equatable {
+    public var name: String
+    public var count: Int32
+
+    public init(name: String, count: Int32) {
+        self.name = name
+        self.count = count
+    }
+}
+
+/// Exercises Binding<CodableStruct> bridge support — mirrors the FamilyActivityPicker
+/// shape from `04-targeted-shims.md` Task 3. The bridge stores the struct in
+/// @Published state and passes $state.profile to the view's init.
+public struct CodableProfileEditorView: View {
+    @Binding var profile: CodableProfile
+
+    public init(profile: Binding<CodableProfile>) {
+        self._profile = profile
+    }
+
+    public var body: some View {
+        VStack {
+            Text(profile.name)
+            Text("\(profile.count)")
+        }
+    }
+}
 #endif

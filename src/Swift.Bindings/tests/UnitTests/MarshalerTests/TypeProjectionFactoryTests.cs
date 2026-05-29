@@ -614,13 +614,17 @@ public class TypeProjectionFactoryTests
     [Fact]
     public void OptionalProjection_FrozenWithMemory_ContainerTypeName()
     {
-        // ContainerTypeName uses MarshalFromSwiftType (public type name) for MarshalFromSwift calls.
-        // SwiftContainerGenericType uses SwiftContainerGenericType (.Buffer) for P/Invoke generic params.
+        // Both ContainerTypeName and SwiftContainerGenericType use the inner's MarshalFromSwiftType
+        // (the bare wrapper type), NOT its `.Buffer` struct. SwiftOptional<T> carries its payload by
+        // metadata through the wrapper class, so SwiftOptional<TStruct> is the correct element type
+        // whether or not TStruct has a nested `.Buffer`. The `.Buffer` form is a hard compile error
+        // for handle-backed FrozenWithMemory wrappers (e.g. SwiftClosedRange<T>), which have no
+        // nested `.Buffer` despite being frozen + memory-managed.
         var inner = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var optional = new OptionalProjection(inner);
 
         Assert.Equal("SwiftOptional<TestModule.ManagedFrozen>", optional.ContainerTypeName);
-        Assert.Equal("SwiftOptional<TestModule.ManagedFrozen.Buffer>", optional.SwiftContainerGenericType);
+        Assert.Equal("SwiftOptional<TestModule.ManagedFrozen>", optional.SwiftContainerGenericType);
     }
 
     #endregion
@@ -788,6 +792,55 @@ public class TypeProjectionFactoryTests
         Assert.NotNull(projection);
         var opt = Assert.IsType<OptionalProjection>(projection);
         Assert.Equal("double?", opt.PublicType);
+    }
+
+    [Fact]
+    public void Project_DarwinOSStatus_ResolvesToInt()
+    {
+        // RC-CLOSURE: Darwin.OSStatus is a typealias to Swift.Int32. The factory
+        // returns BlittableProjection(aliasCsName) using the dictionary value
+        // verbatim as the C# type name, so the dictionary MUST hold C# keywords
+        // ("int", not "int32") or generated signatures (eg the AudioGenerator
+        // PlayAudio render handler) won't compile. Companion to the resolver-level
+        // test at TypeResolverTests.PrimitiveAliasStrategy_ResolvesOSStatusToInt32.
+        var typeSpec = new NamedTypeSpec("Darwin.OSStatus");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<BlittableProjection>(projection);
+        Assert.Equal("int", projection.PublicType);
+    }
+
+    [Fact]
+    public void Project_AVFAudioAVAudioFrameCount_ResolvesToUInt()
+    {
+        // RC-CLOSURE companion to OSStatus above: AVFAudio.AVAudioFrameCount is a
+        // typealias to Swift.UInt32. Same contract — the dictionary value is
+        // emitted verbatim, so "uint" is required (not "uint32").
+        var typeSpec = new NamedTypeSpec("AVFAudio.AVAudioFrameCount");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<BlittableProjection>(projection);
+        Assert.Equal("uint", projection.PublicType);
+    }
+
+    [Fact]
+    public void Project_AVFAudioAVAudioFramePosition_ResolvesToLong()
+    {
+        // Third member of the AVFAudio/Darwin alias batch — Int64 maps to "long".
+        var typeSpec = new NamedTypeSpec("AVFAudio.AVAudioFramePosition");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<BlittableProjection>(projection);
+        Assert.Equal("long", projection.PublicType);
     }
 
     #endregion

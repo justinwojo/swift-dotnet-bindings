@@ -271,6 +271,19 @@ internal static class NativeIntOverloadEmitter
                 return innerResolved.EndsWith('?') ? innerResolved : $"{innerResolved}?";
             }
 
+            // Swift.ClosedRange<Bound> is a registered stdlib generic with no
+            // TypeProjectionFactory branch (the wrapper is consumed directly through
+            // the stdlib-generic cdecl bridge, not via an idiomatic .NET projection).
+            // The fallback below would compose "Swift.AnyType<Bound>" because the bare
+            // "Swift.ClosedRange" identity short-circuits to AnyType via
+            // BareGenericGuardStrategy. Map the bound generic directly to the
+            // SwiftClosedRange wrapper so the int-overload mirrors the primary method.
+            if (namedSpec.Name == "Swift.ClosedRange" && namedSpec.GenericParameters.Count == 1)
+            {
+                var boundResolved = ResolveType(namedSpec.GenericParameters[0], methodEnv, isParameter);
+                return $"Swift.SwiftClosedRange<{boundResolved}>";
+            }
+
             var bareSpec = new NamedTypeSpec(namedSpec.Name);
             string baseName;
             if (methodEnv.TypeDatabase.TryGetTypeRecord(bareSpec, out var rec))

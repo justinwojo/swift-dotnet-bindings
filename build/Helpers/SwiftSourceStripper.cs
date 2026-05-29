@@ -30,6 +30,13 @@ public static class SwiftSourceStripper
         "StatusHandler", "PriorityHandler",
         "URLProcessorDelegate",
         "EventDelegate",
+        // Optional<ClosedRange<Float>> proxy-getter regression: OptionalClosedRangeProviderTests
+        // has a C# conformer whose AllowedRange getter is read back by Swift through the
+        // EveryProtocol proxy receiver. ClosedRange is handle-backed (no nested .Buffer), so the
+        // receiver getter packs the wrapper into SwiftOptional<SwiftClosedRange<Float>>; the
+        // conformance and its witness-table getter must survive stripping for the existential
+        // construction P/Invoke (Get_EveryProtocol_RangeBoundsProvider_WitnessTable) to resolve.
+        "RangeBoundsProvider",
         // Auto-wrap regression for justinwojo/swift-dotnet-bindings#16 (GDPerformanceView).
         // AutoWrappedDelegateTests drives Swift→C# callbacks through the property setter,
         // constructor arg, and method arg emit sites, so the EveryProtocol conformance and
@@ -129,6 +136,24 @@ public static class SwiftSourceStripper
         // the CrossModuleSkippedMethodDelegateTests can drive the round trip.
         "CrossModuleSkippedMethodChildDelegate",
         "CrossModuleSkippedMethodParentDelegate",
+        // Dep-module protocols whose EveryProtocol conformance is fully VALID (it
+        // compiles and its witness-table getter ships in the simulator slice) but
+        // which has no inheritance/sibling reason to already appear above. The
+        // device dependency wrapper is rebuilt from preserved sources through
+        // StripFile, whose Pattern 1 drops every non-preserved `extension
+        // EveryProtocol: <P>`; without that conformance the matching
+        // `Get_EveryProtocol_<P>_WitnessTable` getter loses its `any <P> = instance`
+        // bind, fails to compile, and the device retry strips it — so the symbol is
+        // present on simulator (built via the generator's compile-only retry, which
+        // never pre-strips a conformance that compiles) but missing on device. These
+        // must be preserved to keep that parity. DependencyProtocol backs
+        // CrossModuleTests.TestDescribeAnyDependencyDispatchesIntoCSharpConformer;
+        // the three CrossModule*Parent property shapes back their respective
+        // cross-module property-dispatch tests.
+        "DependencyProtocol",
+        "CrossModuleConflictingPropertyParent",
+        "CrossModuleMemberKindPropertyParent",
+        "CrossModuleInverseMemberKindParent",
         // Sibling-protocol property dispatch regression. A "sibling" group is
         // two or more class-bound protocols declaring the same property
         // name+type with different accessor sets; the EveryProtocolEmitter

@@ -48,23 +48,47 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private bool _useObjCBase;
 
+    /// <summary>
+    /// True when the corresponding EveryProtocol conformance was emitted on the
+    /// RealityFoundation.Entity-rooted <c>EveryEntityProtocol</c> helper class
+    /// (Failure B path). Mutually exclusive with <see cref="_useObjCBase"/>: the
+    /// routing gates in <see cref="EveryProtocolEmitter"/> classify each protocol
+    /// into exactly one base. When true, the proxy's static ctor and existential
+    /// factory call the matching <c>SBW_*EveryEntityProtocol*</c> P/Invokes so
+    /// the payload satisfies the protocol's class-superclass requirement on
+    /// Entity (e.g. HasAnchoring).
+    /// </summary>
+    private bool _useEntityBase;
+
     /// <summary>Name of the C# Swift-side factory P/Invoke used to allocate the helper instance.</summary>
-    private string CreateHelperMethodName => _useObjCBase ? "CreateEveryObjCProtocol" : "CreateEveryProtocol";
+    private string CreateHelperMethodName => _useEntityBase
+        ? "CreateEveryEntityProtocol"
+        : (_useObjCBase ? "CreateEveryObjCProtocol" : "CreateEveryProtocol");
 
     /// <summary>Symbol name of the Swift @_cdecl factory for the helper instance.</summary>
-    private string CreateHelperEntryPoint => _useObjCBase ? "SBW_CreateEveryObjCProtocol" : "SBW_CreateEveryProtocol";
+    private string CreateHelperEntryPoint => _useEntityBase
+        ? "SBW_CreateEveryEntityProtocol"
+        : (_useObjCBase ? "SBW_CreateEveryObjCProtocol" : "SBW_CreateEveryProtocol");
 
     /// <summary>C# method name for the metadata accessor of the helper class.</summary>
-    private string GetMetadataMethodName => _useObjCBase ? "GetEveryObjCProtocolMetadata" : "GetEveryProtocolMetadata";
+    private string GetMetadataMethodName => _useEntityBase
+        ? "GetEveryEntityProtocolMetadata"
+        : (_useObjCBase ? "GetEveryObjCProtocolMetadata" : "GetEveryProtocolMetadata");
 
     /// <summary>Symbol name of the metadata accessor for the helper class.</summary>
-    private string GetMetadataEntryPoint => _useObjCBase ? "SBW_GetMetadata_EveryObjCProtocol" : "SBW_GetMetadata_EveryProtocol";
+    private string GetMetadataEntryPoint => _useEntityBase
+        ? "SBW_GetMetadata_EveryEntityProtocol"
+        : (_useObjCBase ? "SBW_GetMetadata_EveryObjCProtocol" : "SBW_GetMetadata_EveryProtocol");
 
     /// <summary>C# method name for the deinit-callback setter of the helper class.</summary>
-    private string SetDeinitCallbackMethodName => _useObjCBase ? "SetEveryObjCProtocolDeinitCallback" : "SetEveryProtocolDeinitCallback";
+    private string SetDeinitCallbackMethodName => _useEntityBase
+        ? "SetEveryEntityProtocolDeinitCallback"
+        : (_useObjCBase ? "SetEveryObjCProtocolDeinitCallback" : "SetEveryProtocolDeinitCallback");
 
     /// <summary>Symbol name of the deinit-callback setter for the helper class.</summary>
-    private string SetDeinitCallbackEntryPoint => _useObjCBase ? "SBW_SetEveryObjCProtocolDeinitCallback" : "SBW_SetEveryProtocolDeinitCallback";
+    private string SetDeinitCallbackEntryPoint => _useEntityBase
+        ? "SBW_SetEveryEntityProtocolDeinitCallback"
+        : (_useObjCBase ? "SBW_SetEveryObjCProtocolDeinitCallback" : "SBW_SetEveryProtocolDeinitCallback");
 
     public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? ctx = null)
     {
@@ -157,8 +181,14 @@ public partial class ProtocolProxyEmitter
         // S-2: pick the NSObject-rooted helper symbols when EveryProtocolEmitter routed
         // this protocol through EveryObjCProtocol. The proxy P/Invoke names and entry
         // points all switch to the matching SBW_*EveryObjCProtocol* symbols.
+        // Failure B: pick the Entity-rooted helper symbols when EveryProtocolEmitter
+        // routed this protocol through EveryEntityProtocol (mutually exclusive with
+        // the ObjC base — the gates in EveryProtocolEmitter classify each protocol
+        // into exactly one base).
         _useObjCBase = _emissionContext != ModuleEmissionContext.Default
             && _emissionContext.UsesObjCBase(protocolDecl.Name);
+        _useEntityBase = _emissionContext != ModuleEmissionContext.Default
+            && _emissionContext.UsesEntityBase(protocolDecl.Name);
 
         // Inherited protocol requirements are now handled: the proxy emits implementations
         // for inherited interface members (see EmitInheritedInterfaceImplementations).

@@ -840,11 +840,14 @@ public static class WrapperValidation
     /// <summary>
     /// Returns true for collection container types that can be transported through @_cdecl
     /// wrappers via UnsafeRawPointer + .load(as:) / resultPtr.initializeMemory(as:).
+    /// ClosedRange&lt;Bound: Comparable&gt; rides the same UnsafeRawPointer transport — it's an
+    /// in-place frozen struct (no out-of-line storage) whose bytes can be moved across the
+    /// boundary identically to the other collections.
     /// </summary>
     public static bool IsSupportedCollectionType(TypeSpec typeSpec)
     {
         return typeSpec is NamedTypeSpec named &&
-            named.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set";
+            named.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set" or "Swift.ClosedRange";
     }
 
     /// <summary>
@@ -937,7 +940,13 @@ public static class WrapperValidation
             // System/Apple framework frozen structs (CGRect, CGSize, Foundation.Date, etc.)
             // are blittable and safe for @_cdecl by-value passing. Only custom frozen structs
             // from third-party/user libraries need UnsafeRawPointer marshalling.
-            if (spec is NamedTypeSpec namedSpec && CdeclParamMapper.IsSystemFrozenStruct(namedSpec))
+            // SIMD vectors are the exception inside the "system frozen" set: the input-side
+            // ABI mismatch (Swift NEON vector register vs .NET HFA across s0,s1,s2,…) drops
+            // every lane past the first. Treat them as non-primitive so PInvokeEmitter wires
+            // up the CdeclFrozenStruct (stackalloc + IntPtr) marshalling that preserves all
+            // lanes — keeping CdeclParamMapper.Map's SIMD wedge in lockstep on the Swift side.
+            if (spec is NamedTypeSpec namedSpec && CdeclParamMapper.IsSystemFrozenStruct(namedSpec)
+                && !CdeclParamMapper.IsSimdVectorType(namedSpec))
                 return false;
             return true;
         }

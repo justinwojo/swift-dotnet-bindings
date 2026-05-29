@@ -534,13 +534,13 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_OptionalBoolGetter_SizesByCarrier()
+    public void EmitProxyClass_DeadImplPath_OptionalBoolGetter_ReturnsNone()
     {
-        // Codex P1 #1: when the success path uses a converted carrier (e.g.
-        // SwiftOptional<bool> for bool?), the dead-impl fallback buffer MUST be
-        // sized by the carrier — not by the idiomatic interface type. Otherwise
-        // Swift reads a too-small buffer when the impl is GC'd while Swift still
-        // holds a strong retain on the proxy.
+        // When the proxy is unregistered or the user impl is GC'd while Swift still holds a
+        // strong retain, an Optional-returning getter must hand Swift the canonical .none.
+        // A zero-filled buffer is NOT nil: Optional<Bool>'s extra-inhabitant encoding reads
+        // all-zero as Some(false), so the fallback must marshal SwiftOptional<bool>.NewNone()
+        // (the carrier the success path also uses), not AllocZeroedSwiftBuffer.
         var optionalBool = new NamedTypeSpec("Swift.Optional");
         optionalBool.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
         var protocolDecl = CreateProtocolWithProperty("OptBoolDeadProto", "flag", hasGetter: true, hasSetter: false, optionalBool);
@@ -555,19 +555,21 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        // The dead-impl fallback must size by SwiftOptional<bool> (the carrier),
-        // matching the success path's MarshalToSwiftBuffer<SwiftOptional<bool>>(swiftResult).
-        Assert.Contains("Unsafe.SizeOf<SwiftOptional<bool>>()", receiverBody);
-        // It must NOT use Unsafe.SizeOf<bool?> — that's the idiomatic type, which is a
-        // different size from SwiftOptional<bool> and would corrupt the buffer.
-        Assert.DoesNotContain("Unsafe.SizeOf<bool?>()", receiverBody);
+        // The dead-impl fallback marshals the .none of the SAME carrier the success path uses
+        // (SwiftOptional<bool>). The success path marshals a local (MarshalToSwiftBuffer(swiftResult)),
+        // so this NewNone() form is unique to the fallback.
+        Assert.Contains("MarshalToSwiftBuffer(SwiftOptional<bool>.NewNone())", receiverBody);
+        // It must NOT zero-fill (decodes to Some(false)) nor use the idiomatic bool? type.
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftOptional<bool>>()", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<bool?>()", receiverBody);
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_OptionalIntMethod_SizesByCarrier()
+    public void EmitProxyClass_DeadImplPath_OptionalIntMethod_ReturnsNone()
     {
-        // Same Codex P1 #1 fix, exercised on the method-receiver emit site
-        // (separate code path from EmitPropertyReceivers).
+        // Same .none fallback, exercised on the method-receiver emit site (separate code path
+        // from EmitPropertyReceivers). Optional<Int32> uses a trailing tag byte where 0 = Some,
+        // so a zero buffer would decode to Some(0); the fallback must marshal .none.
         RegisterSwiftInt32();
         var optionalInt = new NamedTypeSpec("Swift.Optional");
         optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
@@ -592,26 +594,81 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        // SwiftOptional<int> is the carrier the success path marshals via
-        // MarshalToSwiftBuffer<SwiftOptional<int>>(swiftResult).
-        Assert.Contains("Unsafe.SizeOf<SwiftOptional<int>>()", receiverBody);
-        Assert.DoesNotContain("Unsafe.SizeOf<int?>()", receiverBody);
+        // SwiftOptional<int> is the carrier the success path marshals; the dead-impl path returns
+        // that carrier's .none rather than a zero buffer (which would decode to Some(0)).
+        Assert.Contains("MarshalToSwiftBuffer(SwiftOptional<int>.NewNone())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftOptional<int>>()", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<int?>()", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_OptionalSubscriptGetter_ReturnsNone()
+    {
+        // Third emit site: the subscript getter receiver is a separate code path from
+        // property getters and method returns, so it gets its own .none-fallback test.
+        RegisterSwiftInt32();
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var protocolDecl = CreateSimpleProtocol("OptSubscriptDeadProto");
+        protocolDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s7IndexedP9subscriptSiSgSicig",
+            ReturnTypeSpec = optionalInt,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "index",
+                    PrivateName = "index",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_subscript_0_get(");
+        Assert.True(receiverIdx >= 0, "Receive_subscript_0_get function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        // The subscript dead-impl fallback returns the carrier's .none (the success path marshals a
+        // local, so this NewNone() form is unique to the fallback), never a zero buffer.
+        Assert.Contains("MarshalToSwiftBuffer(SwiftOptional<int>.NewNone())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftOptional<int>>()", receiverBody);
     }
 
     /// <summary>
-    /// Codex P2 hardening: <see cref="GetReceiverGetterCarrierType"/> is a second
-    /// switch that must stay aligned with <see cref="GetReceiverGetterConversion"/>
-    /// and <see cref="GetReceiverExistentialGetterConversion"/>. A future projection
-    /// added to the conversion switch but not the carrier helper would silently
-    /// reintroduce the dead-impl buffer-size mismatch on the very path that is
-    /// supposed to be crash-proof. The tests below pin one example per major
-    /// projection family so any drift fails immediately.
+    /// <c>GetReceiverGetterCarrierType</c> is a second switch that must stay aligned with
+    /// <c>GetReceiverGetterConversion</c> and <c>GetReceiverExistentialGetterConversion</c>. A
+    /// future projection added to the conversion switch but not the carrier helper would silently
+    /// reintroduce the dead-impl buffer-size mismatch on the very path that is supposed to be
+    /// crash-proof. The tests below pin one example per major projection family: every Swift
+    /// collection carrier (including protocol/existential element variants) constructs a valid
+    /// empty collection rather than a null storage pointer. Any drift in the carrier type or the
+    /// empty-collection decision fails immediately.
     /// </summary>
     [Fact]
-    public void EmitProxyClass_DeadImplPath_ArrayGetter_SizesByCarrier()
+    public void EmitProxyClass_DeadImplPath_ArrayGetter_ReturnsEmptyCollection()
     {
         // Array<String> getter — success path: MarshalToSwiftBuffer<SwiftArray<SwiftString>>(swiftResult).
-        // Dead-impl null path must AllocZeroed by SwiftArray<SwiftString>, NOT by IReadOnlyList<string>.
+        // A zero-filled buffer is a null storage pointer, NOT a valid empty array (a caller that
+        // reads Count/iterates dereferences null). The dead-impl path must construct the canonical
+        // empty SwiftArray<SwiftString> (carrier-typed, not IReadOnlyList<string>) and marshal it
+        // through the same MarshalToSwiftBuffer path the success branch uses.
         RegisterSwiftString();
         var arrayString = new NamedTypeSpec("Swift.Array");
         arrayString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
@@ -624,14 +681,16 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        Assert.Contains("Unsafe.SizeOf<SwiftArray<SwiftString>>()", receiverBody);
+        Assert.Contains("MarshalToSwiftBuffer(new SwiftArray<SwiftString>())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftArray<SwiftString>>()", receiverBody);
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_DictionaryGetter_SizesByCarrier()
+    public void EmitProxyClass_DeadImplPath_DictionaryGetter_ReturnsEmptyCollection()
     {
         // Dictionary<String, Int> getter — success path: MarshalToSwiftBuffer<SwiftDictionary<SwiftString, nint>>.
-        // Dead-impl null path must AllocZeroed by the SwiftDictionary carrier.
+        // Dead-impl null path must construct an empty SwiftDictionary carrier (its empty form is the
+        // _swiftEmptyDictionarySingleton, not a null pointer).
         RegisterSwiftString();
         RegisterSwiftInt();
         RegisterSwiftDictionary();
@@ -647,13 +706,15 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        Assert.Contains("Unsafe.SizeOf<SwiftDictionary<SwiftString, nint>>()", receiverBody);
+        Assert.Contains("MarshalToSwiftBuffer(new SwiftDictionary<SwiftString, nint>())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftDictionary<SwiftString, nint>>()", receiverBody);
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_SetGetter_SizesByCarrier()
+    public void EmitProxyClass_DeadImplPath_SetGetter_ReturnsEmptyCollection()
     {
         // Set<Int32> getter — success path: MarshalToSwiftBuffer<SwiftSet<int>>.
+        // Dead-impl null path must construct an empty SwiftSet carrier (Set.init), not a null buffer.
         RegisterSwiftInt32();
         var setType = new NamedTypeSpec("Swift.Set");
         setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
@@ -666,7 +727,32 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        Assert.Contains("Unsafe.SizeOf<SwiftSet<int>>()", receiverBody);
+        Assert.Contains("MarshalToSwiftBuffer(new SwiftSet<int>())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftSet<int>>()", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_ProtocolElementArrayGetter_ReturnsEmptyCollection()
+    {
+        // Array<some-protocol> getter: the carrier is a protocol/existential element collection
+        // (here SwiftArray<TestModule.IDrawable>). Empty construction is still safe — the success
+        // path constructs the same carrier via SwiftArray<…>.FromEnumerable (the same ctor), so
+        // new SwiftArray<…>() resolves no element metadata the success path doesn't. The dead-impl
+        // path must therefore construct the canonical empty collection here too, not a null buffer.
+        RegisterProtocol("Drawable");
+        var arrayOfProto = new NamedTypeSpec("Swift.Array");
+        arrayOfProto.GenericParameters.Add(new NamedTypeSpec("TestModule.Drawable"));
+        var protocolDecl = CreateProtocolWithProperty("ExistentialArrayCarrierProto", "shapes", hasGetter: true, hasSetter: false, arrayOfProto);
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_shapes_get(");
+        Assert.True(receiverIdx >= 0, "Receive_shapes_get function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        Assert.Contains("MarshalToSwiftBuffer(new SwiftArray<TestModule.IDrawable>())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftArray<", receiverBody);
     }
 
     [Fact]
@@ -686,7 +772,7 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        Assert.Contains("Unsafe.SizeOf<IntPtr>()", receiverBody);
+        Assert.Contains("AllocZeroedSwiftBuffer<IntPtr>()", receiverBody);
     }
 
     [Fact]
@@ -705,7 +791,7 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        Assert.Contains("Unsafe.SizeOf<Swift.CustomValue>()", receiverBody);
+        Assert.Contains("AllocZeroedSwiftBuffer<Swift.CustomValue>()", receiverBody);
     }
 
     #endregion

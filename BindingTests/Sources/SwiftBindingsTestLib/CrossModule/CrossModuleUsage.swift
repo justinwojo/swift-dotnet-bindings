@@ -52,6 +52,22 @@ public func describeLocalConformant(_ conformant: some DependencyProtocol) -> St
     return conformant.describe()
 }
 
+/// Accepts `any DependencyProtocol` as an EXISTENTIAL (not the `some`/opaque form
+/// above). Forces the generated binding to box a cross-module conformer into a
+/// Swift existential at the C#→Swift call site, which needs `LocalConformant`'s
+/// `DependencyProtocol` conformance *descriptor* symbol to be present in its
+/// `_protocolConformanceSymbols` map so `swift_getWitnessTable` can resolve the
+/// witness table at box time. `DependencyProtocol` is cross-module (declared in
+/// SwiftBindingsTestLibDependency) and has members, so the C# interface-stub gate
+/// skips emitting `LocalConformant : IDependencyProtocol` — but the descriptor
+/// dictionary gate must still emit the descriptor (the Failure A split between
+/// `ShouldEmitConformanceInterface` and `ShouldEmitConformanceDictionary`).
+/// Pre-fix the descriptor was dropped alongside the interface stub and boxing a
+/// `LocalConformant` here failed at runtime.
+public func describeAnyDependency(_ dep: any DependencyProtocol) -> String {
+    return dep.describe()
+}
+
 // MARK: - Cross-Module Property Type (Part B-1)
 
 /// Struct with a cross-module type as a stored property.

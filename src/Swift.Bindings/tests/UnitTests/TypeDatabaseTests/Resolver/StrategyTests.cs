@@ -276,6 +276,7 @@ public class StrategyTests
     [InlineData("Swift.Optional")]
     [InlineData("Swift.Result")]
     [InlineData("Swift.Set")]
+    [InlineData("Swift.ClosedRange")]
     public void BareGenericGuardStrategy_ResolvesBareGenericsToAnyType(string name)
     {
         var strategy = new BareGenericGuardStrategy();

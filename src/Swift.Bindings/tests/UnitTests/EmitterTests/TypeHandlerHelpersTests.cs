@@ -285,6 +285,64 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void GetImplementedInterfaces_UmbrellaProtocol_ConformerInDeclaringModule_Included()
+    {
+        // RealityKit re-exports RealityFoundation. The Swift ABI mangler stamps
+        // RealityFoundation.HasAnchoring as `$s10RealityKit12HasAnchoringP`, so the
+        // parsed conformance carries `Module="RealityKit"` even though the protocol
+        // is declared (and the conformer AnchorEntity lives) in RealityFoundation.
+        // The interface gate must resolve to the declaring module via
+        // ResolveProtocolEmissionModule so the cross-module-with-members guard does
+        // NOT misfire — otherwise Scene.AddAnchor(IHasAnchoring) refuses to compile
+        // (RC-PROXY Failure A in src/docs/apple-framework-gaps/03-proxy-callback.md).
+        var typeDatabase = CreateTypeDatabaseWithUmbrellaProtocol(
+            umbrellaModule: "RealityKit",
+            declaringModule: "RealityFoundation",
+            name: "HasAnchoring",
+            emittedMemberCount: 4);
+        var moduleDecl = CreateModuleDecl("RealityFoundation");
+        var classDecl = CreateClassDeclWithConformances("AnchorEntity", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("RealityFoundation.AnchorEntity"),
+                SwiftTypeName.FromModuleQualifiedName("RealityKit.HasAnchoring"),
+                "$s16RealityFoundation12AnchorEntityCAA12HasAnchoringAAMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            classDecl, "AnchorEntity", "RealityFoundation", typeDatabase);
+
+        Assert.Contains(interfaces, i => i.Contains("HasAnchoring"));
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_UmbrellaProtocol_ConformerInDeclaringModule_Included()
+    {
+        // Sibling of the interface test above: the descriptor MUST also land in the
+        // dictionary so swift_getWitnessTable resolves at runtime when the C# proxy
+        // wraps an IHasAnchoring for existential boxing. Without the dictionary entry
+        // the interface alone is dead weight (Scene.AddAnchor(IHasAnchoring) would
+        // throw at the marshalling layer).
+        var typeDatabase = CreateTypeDatabaseWithUmbrellaProtocol(
+            umbrellaModule: "RealityKit",
+            declaringModule: "RealityFoundation",
+            name: "HasAnchoring",
+            emittedMemberCount: 4);
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("RealityFoundation.AnchorEntity"),
+                SwiftTypeName.FromModuleQualifiedName("RealityKit.HasAnchoring"),
+                "$s16RealityFoundation12AnchorEntityCAA12HasAnchoringAAMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "RealityFoundation", "AnchorEntity", typeDatabase);
+
+        // Bare IHasAnchoring (no namespace prefix) is correct here — the conformer's
+        // module file is RealityFoundation, same as the resolved declaring namespace.
+        Assert.Contains("typeof(IHasAnchoring)", result);
+        Assert.Contains("\"$s16RealityFoundation12AnchorEntityCAA12HasAnchoringAAMc\"", result);
+    }
+
+    [Fact]
     public void GetImplementedInterfaces_SameModuleProtocol_WithMembers_NotAffectedByGate()
     {
         // Same-module protocols are NOT gated by EmittedMemberCount (validated by CanFullyImplementProtocol)
@@ -894,37 +952,46 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
-    public void ConformanceDescriptor_CrossModuleProtocol_WithMembers_Excluded()
+    public void ConformanceDescriptor_CrossModuleProtocol_WithMembers_Included()
     {
+        // The dictionary gate is intentionally broader than the interface gate. The
+        // C# interface inheritance side still skips cross-module-with-members
+        // conformances (CS0535 protection), but the descriptor symbol must still land
+        // in _protocolConformanceSymbols so swift_getWitnessTable can resolve at runtime
+        // existential boxing — that's the AnchorEntity / HasAnchoring scenario surfaced
+        // by RC-PROXY Failure A in src/docs/apple-framework-gaps/03-proxy-callback.md.
         var typeDatabase = CreateTypeDatabaseWithProtocol("OtherModule", "Drawable", emittedMemberCount: 3);
         var conformances = new[] {
             new TypeConformance(
                 SwiftTypeName.FromModuleQualifiedName("TestModule.Canvas"),
                 SwiftTypeName.FromModuleQualifiedName("OtherModule.Drawable"),
-                "$sMc")
+                "$s10TestModule6CanvasV11OtherModule8DrawableMc")
         };
 
         var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
             conformances, "TestModule", "Canvas", typeDatabase);
 
-        Assert.DoesNotContain("Drawable", result);
+        Assert.Contains("typeof(OtherModule.IDrawable)", result);
+        Assert.Contains("\"$s10TestModule6CanvasV11OtherModule8DrawableMc\"", result);
     }
 
     [Fact]
-    public void ConformanceDescriptor_CrossModuleProtocol_OldDatabase_NullMemberCount_Excluded()
+    public void ConformanceDescriptor_CrossModuleProtocol_OldDatabase_NullMemberCount_Included()
     {
+        // Dictionary gate is unaffected by EmittedMemberCount — the descriptor symbol
+        // emit is independent of whether C# member stubs can be safely produced.
         var typeDatabase = CreateTypeDatabaseWithProtocolNullMemberCount("OtherModule", "Legacy");
         var conformances = new[] {
             new TypeConformance(
                 SwiftTypeName.FromModuleQualifiedName("TestModule.Adapter"),
                 SwiftTypeName.FromModuleQualifiedName("OtherModule.Legacy"),
-                "$sMc")
+                "$s10TestModule7AdapterV11OtherModule6LegacyMc")
         };
 
         var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
             conformances, "TestModule", "Adapter", typeDatabase);
 
-        Assert.DoesNotContain("Legacy", result);
+        Assert.Contains("typeof(OtherModule.ILegacy)", result);
     }
 
     [Fact]
@@ -945,20 +1012,25 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
-    public void ConformanceDescriptor_CrossModuleProtocol_InheritingNonEmptyProtocol_Excluded()
+    public void ConformanceDescriptor_CrossModuleProtocol_InheritingNonEmptyProtocol_Included()
     {
+        // EmittedMemberCount inherited from a non-empty parent does NOT bar the
+        // descriptor — the dictionary entry tracks runtime witness-table resolution,
+        // not C# member-stub viability. The Interface gate still handles the CS0535
+        // case independently. See src/docs/apple-framework-gaps/03-proxy-callback.md
+        // RC-PROXY Failure A.
         var typeDatabase = CreateTypeDatabaseWithInheritingProtocol("OtherModule", "StrictTaggable", parentEmittedMemberCount: 3);
         var conformances = new[] {
             new TypeConformance(
                 SwiftTypeName.FromModuleQualifiedName("TestModule.Item"),
                 SwiftTypeName.FromModuleQualifiedName("OtherModule.StrictTaggable"),
-                "$sMc")
+                "$s10TestModule4ItemV11OtherModule14StrictTaggableMc")
         };
 
         var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
             conformances, "TestModule", "Item", typeDatabase);
 
-        Assert.DoesNotContain("StrictTaggable", result);
+        Assert.Contains("typeof(OtherModule.IStrictTaggable)", result);
     }
 
     [Fact]
@@ -1872,6 +1944,56 @@ public class TypeHandlerHelpersTests
                 EmittedMemberCount = emittedMemberCount
             });
         typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// Mirrors the RealityKit/RealityFoundation umbrella shape: a protocol whose
+    /// mangled-name module spelling is the umbrella's (<paramref name="umbrellaModule"/>)
+    /// but whose generated C# namespace is the declaring module's
+    /// (<paramref name="declaringModule"/>). The TypeRecord is keyed under the
+    /// umbrella spelling — exactly how the parser stores it after walking an
+    /// AnchorEntity / HasAnchoring conformance.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithUmbrellaProtocol(
+        string umbrellaModule,
+        string declaringModule,
+        string name,
+        int emittedMemberCount)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var umbrellaDb = new ModuleTypeDatabase(umbrellaModule, $"/tmp/{umbrellaModule}.dylib");
+        umbrellaDb.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{umbrellaModule}.{name}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(declaringModule, $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{umbrellaModule}.{name}"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol,
+                EmittedMemberCount = emittedMemberCount
+            });
+        typeDatabase.AddModuleDatabase(umbrellaDb);
+
+        // The declaring module is the one whose generator pass actually emits the
+        // interface — register it so dependency walks land somewhere real.
+        var declaringDb = new ModuleTypeDatabase(declaringModule, $"/tmp/{declaringModule}.dylib");
+        typeDatabase.AddModuleDatabase(declaringDb);
+
         return typeDatabase;
     }
 

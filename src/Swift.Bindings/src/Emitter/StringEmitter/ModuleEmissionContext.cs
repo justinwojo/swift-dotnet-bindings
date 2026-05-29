@@ -613,6 +613,48 @@ public sealed class ModuleEmissionContext
         _emittedSwiftObjectTypes.Add(qualifiedName);
     }
 
+    // ==================== Open Generic ISwiftObject Trimmer Roots ====================
+
+    private readonly SortedDictionary<string, int> _openGenericISwiftObjectArities =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Open-generic ISwiftObject type definitions emitted in this module, keyed by the
+    /// nesting-qualified simple C# name (e.g., <c>"BlittableElementBuffer"</c> or
+    /// <c>"Outer.Inner"</c> for a nested open generic) mapped to its arity (1, 2, …).
+    /// Consumed by <see cref="TrimmerDescriptorEmitter"/> to write an
+    /// <c>ILLink.Descriptors.xml</c> sibling rooted in the consumer's csproj via
+    /// <c>TrimmerRootDescriptor</c> — the eager-cctor pattern emitted by the three
+    /// handlers gives ILC a call edge for the closed instantiation it can see, but it
+    /// does NOT preserve reflection metadata for the open generic type definition. The
+    /// descriptor closes that gap (per Codex r1 HIGH finding for RC-AOT). Descriptor
+    /// emission prepends <see cref="ResolvedNamespace"/> to form the fullname attribute.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> EmittedOpenGenericISwiftObjectTypes =>
+        _openGenericISwiftObjectArities;
+
+    /// <summary>
+    /// Records an open-generic ISwiftObject type definition (e.g.,
+    /// <c>BlittableElementBuffer</c> arity 1) for trimmer-root preservation. The handler
+    /// passes the simple C# type name (no generic suffix) and the arity from
+    /// <c>GenericParameters.Count</c>; the namespace and any outer-type nesting are
+    /// resolved here from the current emission state. Idempotent: re-registration of
+    /// the same key replaces the arity (which should match by construction).
+    /// </summary>
+    public void RecordOpenGenericISwiftObjectType(string simpleTypeName, int arity)
+    {
+        if (string.IsNullOrEmpty(simpleTypeName) || arity <= 0)
+            return;
+        // Open generics nested inside another open generic are unrooted in the static-init
+        // context (the outer T parameter is not in scope); the eager-cctor path skips them
+        // for the same reason, and the descriptor here would name a type C# can't reach
+        // without instantiating the outer first.
+        if (HasOpenGenericAncestor())
+            return;
+        var qualifiedName = GetQualifiedTypeName(simpleTypeName);
+        _openGenericISwiftObjectArities[qualifiedName] = arity;
+    }
+
     /// <summary>
     /// Records a closed generic ISwiftObject type (e.g., Pair&lt;CoordinateRef, LabelRef&gt;)
     /// for NativeAOT factory registration. Unlike open generics, closed generics can be
@@ -1347,6 +1389,39 @@ public sealed class ModuleEmissionContext
     /// on the NSObject-rooted <c>EveryObjCProtocol</c> helper class.
     /// </summary>
     public bool UsesObjCBase(string protocolName) => _objCBaseProtocols.Contains(protocolName);
+
+    private readonly HashSet<string> _entityBaseProtocols = new();
+
+    /// <summary>
+    /// Records that the EveryProtocol conformance for the given protocol was routed
+    /// through the RealityFoundation.Entity-rooted <c>EveryEntityProtocol</c> helper
+    /// class instead of the plain Swift <c>EveryProtocol</c>. Set by
+    /// <see cref="EveryProtocolEmitter"/> for protocols whose only class-superclass
+    /// requirement is <c>Entity</c> (Failure B / RealityKit gesture .Entity getters
+    /// and HasAnchoring). Read by <see cref="ProtocolProxyEmitter"/> so the C# proxy's
+    /// static ctor and existential factory call the matching <c>SBW_*EveryEntityProtocol*</c>
+    /// P/Invokes instead of the EveryProtocol equivalents — otherwise the existential
+    /// container's payload would be a plain Swift class and the Entity subclass identity
+    /// would not satisfy the class-superclass requirement.
+    /// </summary>
+    public void MarkEntityBase(string protocolName) => _entityBaseProtocols.Add(protocolName);
+
+    /// <summary>
+    /// Returns true when the given protocol's EveryProtocol conformance was emitted
+    /// on the Entity-rooted <c>EveryEntityProtocol</c> helper class.
+    /// </summary>
+    public bool UsesEntityBase(string protocolName) => _entityBaseProtocols.Contains(protocolName);
+
+    /// <summary>
+    /// True when at least one protocol in the current wrapper module was routed
+    /// through <c>EveryEntityProtocol</c>. Drives conditional emission of the
+    /// <c>EveryEntityProtocol</c> Swift class + its four @_cdecl wrappers from
+    /// <c>EveryProtocolEmitter.EmitEveryProtocolClass</c>. The class is emitted
+    /// only when needed because <c>Entity</c> lives in RealityFoundation and is
+    /// not a universal dependency the way <c>NSObject</c> is; emitting it in a
+    /// wrapper that does not import RealityFoundation would fail to compile.
+    /// </summary>
+    public bool AnyEntityBaseUsed => _entityBaseProtocols.Count > 0;
 
     // ==================== Escaping-Closure Context Owner Token ====================
 

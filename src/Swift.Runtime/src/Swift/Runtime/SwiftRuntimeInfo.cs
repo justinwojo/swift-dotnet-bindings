@@ -32,22 +32,24 @@ namespace Swift.Runtime;
 /// </list>
 /// </para>
 /// </remarks>
-internal static class SwiftRuntimeInfo
+public static class SwiftRuntimeInfo
 {
     /// <summary>
     /// True when running on a non-NativeAOT runtime (Mono, CoreCLR).
     /// Used by <see cref="RuntimeLimitations"/> to gate runtime-specific workarounds.
     /// Note: VWT Destroy from the GC finalizer is safe on all runtimes via the Cdecl trampoline.
     /// </summary>
-    internal static readonly bool IsMonoRuntime = DetectNonNativeAotRuntime();
+    public static readonly bool IsMonoRuntime = DetectNonNativeAotRuntime();
 
     /// <summary>
     /// True when running on NativeAOT (iOS device). False on Mono (iOS simulator)
     /// and CoreCLR (desktop macOS).
     /// Uses <c>RuntimeFeature.IsDynamicCodeSupported</c> (false on both NativeAOT and Mono AOT)
     /// combined with <c>IsMonoRuntime</c> to distinguish NativeAOT from Mono AOT.
+    /// Public so generated binding assemblies can gate eager static-cctor metadata
+    /// caching on NativeAOT (mirrors the SwiftArray eager-init pattern).
     /// </summary>
-    internal static readonly bool IsNativeAotRuntime = !IsMonoRuntime && !RuntimeFeature.IsDynamicCodeSupported;
+    public static readonly bool IsNativeAotRuntime = !IsMonoRuntime && !RuntimeFeature.IsDynamicCodeSupported;
 
     private static bool DetectNonNativeAotRuntime()
     {

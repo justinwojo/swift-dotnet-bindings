@@ -973,19 +973,27 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Records this type for NativeAOT factory registration if it's non-generic.
-        /// Generic types rely on constrained code paths for registration.
+        /// Generic types rely on constrained code paths for registration; the open-generic
+        /// type definition is rooted via <see cref="ModuleEmissionContext.RecordOpenGenericISwiftObjectType"/>
+        /// instead so the trimmer descriptor preserves its reflection metadata.
         /// Also records protocol conformance pairs for NativeAOT pre-registration.
         /// </summary>
         private void RecordTypeIfNonGeneric()
         {
-            if (_emissionCtx != null && !_typeNameWithGenerics.Contains('<'))
+            if (_emissionCtx == null)
+                return;
+
+            if (_classDecl.IsGeneric)
             {
-                _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
-                foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
-                    _classDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
-                {
-                    _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
-                }
+                _emissionCtx.RecordOpenGenericISwiftObjectType(_classDecl.Name, _classDecl.GenericParameters.Count);
+                return;
+            }
+
+            _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
+                _classDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+            {
+                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
             }
         }
 
@@ -1086,9 +1094,41 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Writes the static constructor for the class.
+        /// For generic ISwiftObject types, also emits the eager-init pattern that mirrors
+        /// SwiftArray.cs so NativeAOT (ILC) can statically reach SwiftObjectHelper&lt;Self&gt;.
+        /// GetTypeMetadata for each closed instantiation.
         /// </summary>
         private void WriteStaticConstructor()
         {
+            bool isGeneric = _classDecl.IsGeneric;
+            var eagerInitCallLine = isGeneric
+                ? "    if (SwiftRuntimeInfo.IsNativeAotRuntime) { TryEagerInitialize(); }"
+                : "";
+            var eagerInitHelpers = isGeneric
+                ? $$"""
+
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                internal static bool TryEagerInitialize()
+                {
+                    try
+                    {
+                        NativeAotInitialize();
+                        return true;
+                    }
+                    catch (Exception)
+                    {
+                        return false;
+                    }
+                }
+
+                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                private static void NativeAotInitialize()
+                {
+                    _ = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
+                }
+                """
+                : "";
+
             var text = $$"""
             [EditorBrowsable(EditorBrowsableState.Never)]
             private static Dictionary<Type, string> _protocolConformanceSymbols;
@@ -1099,7 +1139,8 @@ namespace BindingsGeneration
                 {
                     {{GenerateGetProtocolConformanceDictionaryEntries()}}
                 };
-            }
+            {{eagerInitCallLine}}
+            }{{eagerInitHelpers}}
             """;
 
             _writer.WriteLines(text);

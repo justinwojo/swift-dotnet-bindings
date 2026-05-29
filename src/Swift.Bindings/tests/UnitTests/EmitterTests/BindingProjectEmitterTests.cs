@@ -385,6 +385,82 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region B2. Trimmer Descriptor Wiring Tests
+
+    /// <summary>
+    /// The generator emits <c>ILLink.Descriptors.xml</c> alongside the binding sources when
+    /// the module declares any open-generic ISwiftObject types (RC-AOT). The csproj must
+    /// root that file via both <c>EmbeddedResource</c> (so trimmer-mode consumers picking
+    /// up the nupkg auto-discover it from the shipped assembly) and <c>TrimmerRootDescriptor</c>
+    /// (so the local NativeAOT publish actually picks it up — ILC does NOT auto-discover
+    /// descriptors embedded in referenced assemblies). Both items are gated on
+    /// <c>Exists()</c> so the csproj stays clean when the generator produced no descriptor.
+    /// </summary>
+    public class BindingProjectTrimmerDescriptorTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_WritesEmbeddedResourceItemForDescriptor()
+        {
+            var content = EmitAndRead();
+            Assert.Contains("<EmbeddedResource Include=\"ILLink.Descriptors.xml\">", content);
+            Assert.Contains("<LogicalName>ILLink.Descriptors.xml</LogicalName>", content);
+        }
+
+        [Fact]
+        public void Emit_WritesTrimmerRootDescriptorItemForDescriptor()
+        {
+            var content = EmitAndRead();
+            Assert.Contains("<TrimmerRootDescriptor Include=\"ILLink.Descriptors.xml\" />", content);
+        }
+
+        [Fact]
+        public void Emit_DescriptorItemGroup_IsExistsGated()
+        {
+            // The csproj is written even when the generator produced no descriptor (module
+            // had no open generics). Without the Exists() gate, MSBuild would warn about
+            // a missing EmbeddedResource and the trim analyzer would log "descriptor not
+            // found" for every consumer. Gating keeps the csproj happy in either case.
+            var content = EmitAndRead();
+            Assert.Contains(
+                "<ItemGroup Condition=\"Exists('ILLink.Descriptors.xml')\">",
+                content);
+        }
+
+        private static string EmitAndRead()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_trim_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var sourceXcfwPath = Path.Combine(dir, "..", "Nuke.xcframework");
+                Directory.CreateDirectory(sourceXcfwPath);
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    Metadata = new XCFrameworkMetadata
+                    {
+                        LibraryVersion = "12.8.0",
+                        PackageVersion = "12.8.0",
+                        IsVersionPlaceholder = false,
+                        MinimumOSVersion = "15.0",
+                        EffectiveMinimumOSVersion = "15.0",
+                        SdkVersion = null,
+                        ModuleName = "Nuke",
+                        Platforms = new List<string>()
+                    },
+                    SourceXCFrameworkPath = sourceXcfwPath,
+                }, _logger);
+                return File.ReadAllText(Path.Combine(dir, "Nuke.Swift.iOS.csproj"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+    }
+
+    #endregion
+
     #region C. NativeReference and NuGet Layout Tests
 
     public class BindingProjectNativeRefTests

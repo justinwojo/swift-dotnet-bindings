@@ -771,6 +771,13 @@ public static partial class SwiftUIBridgeEmitter
                 initParams.Add($"{param.Name}HasValue: Int32");
                 initParams.Add($"{param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
             }
+            else if (param.IsBindingCodableStruct)
+            {
+                // Binding<CodableStruct>: ABI carries the value as JSON UTF-8 bytes (ptr+len).
+                // The Swift side decodes via JSONDecoder before storing on @Published state.
+                initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
+                initParams.Add($"{param.Name}Len: Int");
+            }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 initParams.Add($"{param.Name}Ptr: {param.SwiftAbiType}");
@@ -910,6 +917,11 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}HasValue: Int32");
                 createParams.Add($"_ {param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
             }
+            else if (param.IsBindingCodableStruct)
+            {
+                createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
+                createParams.Add($"_ {param.Name}Len: Int");
+            }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 createParams.Add($"_ {param.Name}Ptr: {param.SwiftAbiType}");
@@ -962,6 +974,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 sessionArgs.Add($"{param.Name}HasValue: {param.Name}HasValue");
                 sessionArgs.Add($"{param.Name}Value: {param.Name}Value");
+            }
+            else if (param.IsBindingCodableStruct)
+            {
+                sessionArgs.Add($"{param.Name}Ptr: {param.Name}Ptr");
+                sessionArgs.Add($"{param.Name}Len: {param.Name}Len");
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -1044,6 +1061,13 @@ public static partial class SwiftUIBridgeEmitter
         if (hasUpdatableParams)
         {
             EmitSwiftUpdateFunctions(sb, prefix, sessionClass, handlesVar, bridgeParams, emissionContext);
+        }
+
+        // Read functions for Binding<Codable> params (Swift -> C# pull-side observability)
+        var codableBindingParams = bridgeParams.Where(p => p.IsBindingCodableStruct).ToList();
+        if (codableBindingParams.Count > 0)
+        {
+            EmitSwiftReadFunctions(sb, prefix, sessionClass, handlesVar, codableBindingParams, emissionContext);
         }
 
         // Modifier Set functions
@@ -1252,6 +1276,19 @@ public static partial class SwiftUIBridgeEmitter
         {
             sb.AppendLine($"        let {param.Name}Converted = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
         }
+        else if (param.IsBindingCodableStruct)
+        {
+            // Binding<CodableStruct>: decode the incoming JSON UTF-8 buffer with JSONDecoder.
+            // A nil ptr or zero length, or a decode failure, traps — the C# caller is expected
+            // to construct the JSON via the matching EncodeToJson() and so a decode failure
+            // here is a programmer error (corrupted bytes, version skew, etc.) not a runtime
+            // condition the bridge can recover from.
+            sb.AppendLine($"        guard let {param.Name}Ptr = {param.Name}Ptr, {param.Name}Len > 0 else {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: nil/empty JSON buffer\") }}");
+            sb.AppendLine($"        let {param.Name}Data = Data(buffer: UnsafeBufferPointer(start: {param.Name}Ptr, count: {param.Name}Len))");
+            sb.AppendLine($"        let {param.Name}Converted: {param.BridgeTypeName}");
+            sb.AppendLine($"        do {{ {param.Name}Converted = try JSONDecoder().decode({param.BridgeTypeName}.self, from: {param.Name}Data) }}");
+            sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONDecoder failed: \\(error)\") }}");
+        }
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
             sb.AppendLine($"        let {param.Name}Converted = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
@@ -1371,6 +1408,11 @@ public static partial class SwiftUIBridgeEmitter
                 updateParams.Add("_ newValueHasValue: Int32");
                 updateParams.Add($"_ newValueValue: {param.InnerParameter!.SwiftAbiType}");
             }
+            else if (param.IsBindingCodableStruct)
+            {
+                updateParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
+                updateParams.Add("_ newValueLen: Int");
+            }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 updateParams.Add($"_ newValuePtr: {param.SwiftAbiType}");
@@ -1399,6 +1441,58 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
+    /// Emits Swift @_cdecl Read functions and a per-view FreeJsonBuffer for Binding&lt;Codable&gt; params.
+    /// Read encodes the current state to JSON, allocates a UInt8 buffer, returns ptr+len-via-out-param.
+    /// Caller must invoke the matching FreeJsonBuffer once the bytes are copied.
+    /// </summary>
+    private static void EmitSwiftReadFunctions(
+        StringBuilder sb, string prefix, string sessionClass, string handlesVar,
+        List<BridgeParameter> codableBindingParams, ModuleEmissionContext? emissionContext)
+    {
+        foreach (var param in codableBindingParams)
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            var funcName = $"{prefix}_Read{pascalName}Json";
+            emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
+
+            sb.AppendLine($"@_cdecl(\"{funcName}\")");
+            sb.AppendLine($"public func {funcName}(");
+            sb.AppendLine("    _ handle: UnsafeMutableRawPointer?,");
+            sb.AppendLine("    _ outLen: UnsafeMutablePointer<Int>?");
+            sb.AppendLine(") -> UnsafeMutablePointer<UInt8>? {");
+            sb.AppendLine("    return SBW_onMainThread {");
+            sb.AppendLine("        outLen?.pointee = 0");
+            sb.AppendLine($"        guard let handle = handle, {handlesVar}.contains(handle) else {{ return nil }}");
+            sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+            sb.AppendLine("            .fromOpaque(handle).takeUnretainedValue()");
+            sb.AppendLine("        let data: Data");
+            sb.AppendLine($"        do {{ data = try JSONEncoder().encode(session.state.{param.Name}) }}");
+            sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONEncoder failed in Read: \\(error)\") }}");
+            sb.AppendLine("        let len = data.count");
+            sb.AppendLine("        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: len)");
+            sb.AppendLine("        data.withUnsafeBytes { src in");
+            sb.AppendLine("            if let base = src.baseAddress, len > 0 {");
+            sb.AppendLine("                buffer.initialize(from: base.assumingMemoryBound(to: UInt8.self), count: len)");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine("        outLen?.pointee = len");
+            sb.AppendLine("        return buffer");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine();
+        }
+
+        // One shared per-view free function for any JSON buffer allocated by Read*Json above.
+        var freeFuncName = $"{prefix}_FreeJsonBuffer";
+        emissionContext?.TryAddDirectHelperWrapperSymbol(freeFuncName);
+        sb.AppendLine($"@_cdecl(\"{freeFuncName}\")");
+        sb.AppendLine($"public func {freeFuncName}(_ ptr: UnsafeMutablePointer<UInt8>?) {{");
+        sb.AppendLine("    ptr?.deallocate()");
+        sb.AppendLine("}");
+        sb.AppendLine();
+    }
+
+    /// <summary>
     /// Emits the state assignment inside an Update function, with appropriate ABI conversion.
     /// </summary>
     private static void EmitSwiftUpdateConversion(StringBuilder sb, BridgeParameter param)
@@ -1418,6 +1512,16 @@ public static partial class SwiftUIBridgeEmitter
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
             sb.AppendLine($"        session.state.{param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque(newValuePtr).takeUnretainedValue()");
+        }
+        else if (param.IsBindingCodableStruct)
+        {
+            // Binding<CodableStruct> Update: decode JSON UTF-8 buffer and assign.
+            // Same trap-on-failure contract as the Create path — the C# caller must have
+            // produced the buffer via EncodeToJson() so a decode failure is a programmer error.
+            sb.AppendLine($"        guard let newValuePtr = newValuePtr, newValueLen > 0 else {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: nil/empty JSON buffer in Update\") }}");
+            sb.AppendLine($"        let newValueData = Data(buffer: UnsafeBufferPointer(start: newValuePtr, count: newValueLen))");
+            sb.AppendLine($"        do {{ session.state.{param.Name} = try JSONDecoder().decode({param.BridgeTypeName}.self, from: newValueData) }}");
+            sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONDecoder failed in Update: \\(error)\") }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
@@ -1492,6 +1596,11 @@ public static partial class SwiftUIBridgeEmitter
                 pinvokeParams.Add("int newValueHasValue");
                 pinvokeParams.Add($"{param.InnerParameter!.CSharpPInvokeType} newValueValue");
             }
+            else if (param.IsBindingCodableStruct)
+            {
+                pinvokeParams.Add("IntPtr newValuePtr");
+                pinvokeParams.Add("nint newValueLen");
+            }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 pinvokeParams.Add("IntPtr newValue");
@@ -1515,6 +1624,87 @@ public static partial class SwiftUIBridgeEmitter
                 EnforceWrapperContract = true
             }))
                 sb.AppendLine($"        {line}");
+        }
+    }
+
+    /// <summary>
+    /// Emits C# P/Invoke declarations for Binding&lt;Codable&gt; Read functions plus the
+    /// per-view FreeJsonBuffer used to deallocate Swift-allocated JSON buffers.
+    /// </summary>
+    private static void EmitCSharpReadPInvokeDeclarations(
+        StringBuilder sb, string prefix, string bridgeLib, List<BridgeParameter> codableBindingParams,
+        ModuleEmissionContext? emissionContext)
+    {
+        foreach (var param in codableBindingParams)
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            sb.AppendLine();
+            foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+            {
+                LibraryPath = bridgeLib,
+                EntryPoint = $"{prefix}_Read{pascalName}Json",
+                MethodName = $"Read{pascalName}Json",
+                ReturnType = "IntPtr",
+                ParametersString = "IntPtr handle, out nint outLen",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Internal,
+                EmissionContext = emissionContext,
+                EnforceWrapperContract = true
+            }))
+                sb.AppendLine($"        {line}");
+        }
+
+        sb.AppendLine();
+        foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+        {
+            LibraryPath = bridgeLib,
+            EntryPoint = $"{prefix}_FreeJsonBuffer",
+            MethodName = "FreeJsonBuffer",
+            ReturnType = "void",
+            ParametersString = "IntPtr ptr",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
+        }))
+            sb.AppendLine($"        {line}");
+    }
+
+    /// <summary>
+    /// Emits C# Read methods on the Session class for each Binding&lt;Codable&gt; param.
+    /// Calls into Swift, copies the returned buffer, frees it, and decodes via the
+    /// generated DecodeFromJson static.
+    /// </summary>
+    private static void EmitCSharpReadMethods(
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> codableBindingParams)
+    {
+        foreach (var param in codableBindingParams)
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            var factoryType = GetFactoryParamType(param);
+
+            sb.AppendLine($"        public {factoryType} Read{pascalName}()");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var ptr = {info.ViewName}BridgeNativeMethods.Read{pascalName}Json(Handle, out var len);");
+            // The Swift reader allocates the buffer before checking length, so a non-null ptr
+            // with len <= 0 is reachable in principle. Free the allocation inside the finally
+            // so the error path never leaks.
+            sb.AppendLine("            if (ptr == IntPtr.Zero)");
+            sb.AppendLine($"                throw new InvalidOperationException(\"Read{pascalName}: Swift returned null buffer.\");");
+            sb.AppendLine("            try");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (len <= 0)");
+            sb.AppendLine($"                    throw new InvalidOperationException(\"Read{pascalName}: Swift returned empty buffer.\");");
+            sb.AppendLine("                var bytes = new byte[(int)len];");
+            sb.AppendLine("                Marshal.Copy(ptr, bytes, 0, bytes.Length);");
+            sb.AppendLine($"                return {factoryType}.DecodeFromJson(bytes);");
+            sb.AppendLine("            }");
+            sb.AppendLine("            finally");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.FreeJsonBuffer(ptr);");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine();
         }
     }
 
@@ -1557,6 +1747,21 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, ({param.CSharpPInvokeType})newValue);");
                 else
                     sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.RawValue);");
+                sb.AppendLine();
+            }
+            else if (param.IsBindingCodableStruct)
+            {
+                // Binding<CodableStruct>: encode newValue to JSON UTF-8 via the generated
+                // EncodeToJson() member (emitted by CodableJsonEmitter on the same struct),
+                // pin the byte[] for the P/Invoke. Throws ArgumentNullException for a null
+                // value because Binding<NonOptional> cannot hold nil on the Swift side.
+                sb.AppendLine($"        public unsafe void Update{pascalName}({factoryType} newValue)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            ArgumentNullException.ThrowIfNull(newValue);");
+                sb.AppendLine("            var bytes = newValue.EncodeToJson();");
+                sb.AppendLine("            fixed (byte* ptr = bytes)");
+                sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, (IntPtr)ptr, bytes.Length);");
+                sb.AppendLine("        }");
                 sb.AppendLine();
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
@@ -2063,8 +2268,9 @@ public static partial class SwiftUIBridgeEmitter
         var hasClosures = bridgeParams.Any(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure or BridgeParameterKind.ResultClosure);
         var hasStrings = bridgeParams.Any(p => p.Kind == BridgeParameterKind.String ||
             (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String));
+        var hasCodableBindings = bridgeParams.Any(p => p.IsBindingCodableStruct);
         var hasModifiers = modifiers != null && modifiers.Count > 0;
-        var needsUnsafe = hasClosures || hasStrings;
+        var needsUnsafe = hasClosures || hasStrings || hasCodableBindings;
 
         // NativeMethods class
         sb.AppendLine($"    internal static partial class {info.ViewName}BridgeNativeMethods");
@@ -2106,6 +2312,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 createPInvokeParams.Add($"int {param.Name}HasValue");
                 createPInvokeParams.Add($"{param.InnerParameter!.CSharpPInvokeType} {param.Name}Value");
+            }
+            else if (param.IsBindingCodableStruct)
+            {
+                createPInvokeParams.Add($"IntPtr {param.Name}Ptr");
+                createPInvokeParams.Add($"nint {param.Name}Len");
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -2169,6 +2380,11 @@ public static partial class SwiftUIBridgeEmitter
 
         // Update P/Invoke declarations for updatable params
         EmitCSharpUpdatePInvokeDeclarations(sb, prefix, bridgeLib, bridgeParams, emissionContext);
+
+        // Read+Free P/Invoke declarations for Binding<Codable> params
+        var codableBindingParamsDecl = bridgeParams.Where(p => p.IsBindingCodableStruct).ToList();
+        if (codableBindingParamsDecl.Count > 0)
+            EmitCSharpReadPInvokeDeclarations(sb, prefix, bridgeLib, codableBindingParamsDecl, emissionContext);
 
         // Modifier Set P/Invoke declarations
         if (hasModifiers)
@@ -2256,6 +2472,11 @@ public static partial class SwiftUIBridgeEmitter
 
         // Update methods for updatable params
         EmitCSharpUpdateMethods(sb, info, bridgeParams);
+
+        // Read methods for Binding<Codable> params
+        var codableBindingParamsMethods = bridgeParams.Where(p => p.IsBindingCodableStruct).ToList();
+        if (codableBindingParamsMethods.Count > 0)
+            EmitCSharpReadMethods(sb, info, codableBindingParamsMethods);
 
         // Observable binding methods.
         if (hasUpdatableParams)
@@ -2370,6 +2591,7 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
         bool needsUnsafe, bool hasClosures, bool hasStrings)
     {
+        var hasCodableBindings = bridgeParams.Any(p => p.IsBindingCodableStruct);
         // Factory parameter list (idiomatic C# types)
         // C# requires optional parameters after all required parameters.
         var requiredParams = new List<string>();
@@ -2473,8 +2695,14 @@ public static partial class SwiftUIBridgeEmitter
             {
                 sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.Name} != null ? Encoding.UTF8.GetBytes({param.Name}) : null;");
             }
+            // Binding<Codable> JSON encoding
+            foreach (var param in bridgeParams.Where(p => p.IsBindingCodableStruct))
+            {
+                sb.AppendLine($"{indent}ArgumentNullException.ThrowIfNull({param.Name});");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = {param.Name}.EncodeToJson();");
+            }
 
-            // Call with fixed block if strings
+            // Call with fixed block if strings or Codable bindings present
             EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent);
 
             sb.AppendLine("            }");
@@ -2489,7 +2717,7 @@ public static partial class SwiftUIBridgeEmitter
                 EmitCSharpArrayCleanup(sb, bridgeParams, "                ");
             sb.AppendLine("            }");
         }
-        else if (hasStrings)
+        else if (hasStrings || hasCodableBindings)
         {
             var indent = "            ";
             // String encoding (includes Optional<String> params)
@@ -2500,6 +2728,12 @@ public static partial class SwiftUIBridgeEmitter
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String))
             {
                 sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.Name} != null ? Encoding.UTF8.GetBytes({param.Name}) : null;");
+            }
+            // Binding<Codable> JSON encoding
+            foreach (var param in bridgeParams.Where(p => p.IsBindingCodableStruct))
+            {
+                sb.AppendLine($"{indent}ArgumentNullException.ThrowIfNull({param.Name});");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = {param.Name}.EncodeToJson();");
             }
             EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent);
         }
@@ -2597,13 +2831,15 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
         bool hasStrings, bool hasClosures, string indent)
     {
-        var stringParams = bridgeParams.Where(p => p.Kind == BridgeParameterKind.String ||
-            (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String)).ToList();
+        var pinnedParams = bridgeParams.Where(p => p.Kind == BridgeParameterKind.String ||
+            (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String) ||
+            p.IsBindingCodableStruct).ToList();
         var nativeArgs = BuildSimpleNativeCallArgs(bridgeParams);
+        var needsFixed = pinnedParams.Count > 0;
 
-        if (hasStrings)
+        if (needsFixed)
         {
-            var fixedDecls = "byte* " + string.Join(", ", stringParams.Select(p => $"{p.Name}Ptr = {p.Name}Bytes"));
+            var fixedDecls = "byte* " + string.Join(", ", pinnedParams.Select(p => $"{p.Name}Ptr = {p.Name}Bytes"));
             sb.AppendLine($"{indent}fixed ({fixedDecls})");
             sb.AppendLine($"{indent}{{");
             var innerIndent = indent + "    ";
@@ -2662,6 +2898,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 args.Add($"{param.Name} == null ? IntPtr.Zero : (IntPtr){param.Name}Ptr");
                 args.Add($"{param.Name}Bytes?.Length ?? 0");
+            }
+            else if (param.IsBindingCodableStruct)
+            {
+                args.Add($"(IntPtr){param.Name}Ptr");
+                args.Add($"{param.Name}Bytes.Length");
             }
             else if (param.Kind == BridgeParameterKind.BoundEnum)
             {

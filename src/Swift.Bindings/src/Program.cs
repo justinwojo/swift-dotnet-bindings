@@ -537,6 +537,27 @@ namespace BindingsGeneration
                             emissionContext.ContractViolatedPInvokeScopes.Count);
                 }
 
+                // Emit the ILLink trimmer descriptor that roots every open-generic ISwiftObject
+                // type definition emitted in this module. ILC's reachability analysis can prove
+                // a call edge to the closed instantiations the eager-cctor pattern touches, but
+                // it does NOT preserve reflection metadata for the open generic type definition
+                // itself — so other closed instantiations resolved at runtime through
+                // SwiftObjectReflectionHelper are dead-code-eliminated and fail with missing
+                // metadata on device. The runtime ships an equivalent descriptor for
+                // Swift.SwiftArray`1; this is the per-module counterpart. (Codex r1 HIGH for
+                // RC-AOT flagged this as load-bearing alongside the cctor pattern.)
+                //
+                // The assembly fullname must match the produced assembly's short name. The csproj
+                // emitted by BindingProjectEmitter does not set <AssemblyName> explicitly, so the
+                // assembly name defaults to MSBuildProjectName = the packageId. Wildcard fullname
+                // would over-match across the trimmed closed-world; resolving the exact name keeps
+                // the descriptor scoped to this binding's assembly. When no platform was threaded
+                // in (e.g., unit-test paths that don't ship a binding), fall back to iOS so the
+                // descriptor still writes a coherent file rather than silently dropping the gate.
+                var descriptorPlatform = PlatformInfoFactory.Create(platform ?? ApplePlatform.iOS);
+                var descriptorAssemblyName = descriptorPlatform.GetDefaultSwiftPackageId(moduleName);
+                TrimmerDescriptorEmitter.Emit(emissionContext, outputDirectory, descriptorAssemblyName, logger);
+
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
                 EmissionReportEmitter.Emit(emissionContext, moduleName, outputDirectory, logger);
 

@@ -2977,12 +2977,14 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     private class BridgeTestTypeDatabase : ITypeDatabase
     {
         private readonly Dictionary<string, TypeRecord> _types;
+        private readonly string _asyncLibraryName;
 
-        public string AsyncLibraryName => null!;
+        public string AsyncLibraryName => _asyncLibraryName;
 
-        public BridgeTestTypeDatabase(Dictionary<string, TypeRecord> types)
+        public BridgeTestTypeDatabase(Dictionary<string, TypeRecord> types, string asyncLibraryName = "")
         {
             _types = types;
+            _asyncLibraryName = asyncLibraryName;
         }
 
         public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
@@ -8859,6 +8861,154 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal(BridgeParameterKind.OptionalWrapped, result.Kind);
         Assert.True(result.IsBinding);
         Assert.Equal(BridgeParameterKind.BoundEnum, result.InnerParameter!.Kind);
+    }
+
+    // --- Binding<Codable Struct> Tests ---
+
+    [Fact]
+    public void BindingCodableStruct_MapParameterType_FlagsIsBindingCodableStruct()
+    {
+        var module = CreateModuleDecl();
+        module.Types.Add(MakeCodableStructDecl(module, "Profile"));
+
+        var param = new ArgumentDecl
+        {
+            Name = "profile",
+            PrivateName = "profile",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("TestModule.Profile")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var context = new BridgeContext(CreateCodableStructTypeDatabase("Profile"), module);
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        Assert.NotNull(result);
+        Assert.True(result.IsBinding);
+        Assert.True(result.IsBindingCodableStruct);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result.Kind);
+    }
+
+    [Fact]
+    public void BindingNonCodableStruct_MapParameterType_DoesNotFlagCodable()
+    {
+        var module = CreateModuleDecl();
+        // Add a non-Codable struct (no Encodable/Decodable conformance).
+        var plain = MakeCodableStructDecl(module, "Plain");
+        plain.Conformances.Clear();
+        module.Types.Add(plain);
+
+        var param = new ArgumentDecl
+        {
+            Name = "plain",
+            PrivateName = "plain",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("TestModule.Plain")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var context = new BridgeContext(CreateCodableStructTypeDatabase("Plain"), module);
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        // Plain struct without Codable conformance → either returns null (Binding rejected)
+        // or returns the param without IsBindingCodableStruct. Either way, MUST NOT flag Codable.
+        if (result != null)
+            Assert.False(result.IsBindingCodableStruct);
+    }
+
+    [Fact]
+    public void BindingCodableStruct_MapParameterType_RejectsWhenAsyncLibraryNameEmpty()
+    {
+        var module = CreateModuleDecl();
+        module.Types.Add(MakeCodableStructDecl(module, "Profile"));
+
+        var param = new ArgumentDecl
+        {
+            Name = "profile",
+            PrivateName = "profile",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("TestModule.Profile")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        // No wrapper library configured (xcframework-less mode): the bridge gate must
+        // reject so it doesn't emit calls to EncodeToJson / DecodeFromJson members the
+        // CodableJsonEmitter will not have produced.
+        var typeDbNoWrapper = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Profile"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Profile"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Profile"),
+                MetadataAccessor = "$s10TestModule7ProfileVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            },
+        });
+        var context = new BridgeContext(typeDbNoWrapper, module);
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        if (result != null)
+            Assert.False(result.IsBindingCodableStruct);
+    }
+
+    private static ITypeDatabase CreateCodableStructTypeDatabase(string simpleName)
+    {
+        // IsCodableStructForBinding rejects when AsyncLibraryName is empty (mirrors
+        // CodableJsonEmitter's xcframework-less-mode skip), so the helper plants a
+        // non-empty wrapper library name.
+        return new BridgeTestTypeDatabase(
+            new Dictionary<string, TypeRecord>
+            {
+                [$"TestModule.{simpleName}"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", simpleName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{simpleName}"),
+                    MetadataAccessor = $"$s10TestModule{simpleName.Length}{simpleName}VMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Struct,
+                },
+            },
+            asyncLibraryName: "TestModuleSwiftBindings");
+    }
+
+    private static StructDecl MakeCodableStructDecl(ModuleDecl module, string name)
+    {
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}");
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = swiftTypeName,
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(swiftTypeName,
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Encodable"),
+                    $"TestModule{name}EncodableMc"),
+                new(swiftTypeName,
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Decodable"),
+                    $"TestModule{name}DecodableMc"),
+            },
+            IsFrozen = false,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            ParentDecl = module,
+            ModuleDecl = module,
+        };
     }
 
     // --- SwiftUI.Image Tests ---

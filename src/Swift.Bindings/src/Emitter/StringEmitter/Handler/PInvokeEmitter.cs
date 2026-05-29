@@ -426,6 +426,24 @@ namespace BindingsGeneration
 
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
+                    // SIMD bound-generic alias (Swift.SIMD2/3/4<Float> → simd.simd_floatN →
+                    // System.Numerics.Vector{2,3,4}): the alias resolution at this point would
+                    // collapse the bound generic to its managed type and pass it by-value. That
+                    // looks fine for one float but mismatches the Swift @_cdecl ABI on every
+                    // wider lane — Swift expects the full simd_floatN in a single NEON vector
+                    // register, .NET passes Vector3/Vector4 as an HFA across s0,s1,s2,…, and
+                    // only lane 0 lines up. Route SIMD bound-generics through CdeclFrozenStruct
+                    // (stackalloc + IntPtr) so the bytes cross intact, matching the Swift wrapper
+                    // shape produced by CdeclParamMapper.Map for the same input.
+                    if (_env.MethodDecl.UsesCdeclWrapper &&
+                        argument.SwiftTypeSpec is NamedTypeSpec simdBgSpec &&
+                        CdeclParamMapper.IsSimdVectorType(simdBgSpec))
+                    {
+                        var simdCsType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
+                        AddParameter(new MarshalledType.CdeclFrozenStruct(simdCsType), csName);
+                        continue;
+                    }
+
                     var (csTypeParam, csTypeName) = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argument) switch
                     {
                         true => (_env.BoundGenericsHandler.GetBufferType(argument), NameProvider.GetBoundGenericBufferName(csName)),

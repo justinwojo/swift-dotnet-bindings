@@ -582,6 +582,13 @@ public func sbw_simdQuatfGetMetadata() -> UnsafeMutableRawPointer {
     unsafeBitCast(simd_quatf.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
 
+/// Returns the type metadata pointer for simd_float4x4 (System.Numerics.Matrix4x4).
+/// 64 bytes (4 columns × 4 floats × 4 bytes); column-major in Swift.
+@_cdecl("SBW_simd_float4x4_GetMetadata")
+public func sbw_simdFloat4x4GetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(simd_float4x4.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
 // MARK: - Foundation.Measurement Generic Metadata
 //
 // Measurement<UnitType> is a generic struct whose metadata accessor

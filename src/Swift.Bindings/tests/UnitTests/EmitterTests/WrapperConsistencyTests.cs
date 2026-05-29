@@ -648,6 +648,7 @@ public class WrapperConsistencyTests
         Assert.True(WrapperValidation.IsSupportedCollectionType(new NamedTypeSpec("Swift.Array")));
         Assert.True(WrapperValidation.IsSupportedCollectionType(new NamedTypeSpec("Swift.Dictionary")));
         Assert.True(WrapperValidation.IsSupportedCollectionType(new NamedTypeSpec("Swift.Set")));
+        Assert.True(WrapperValidation.IsSupportedCollectionType(new NamedTypeSpec("Swift.ClosedRange")));
     }
 
     [Fact]

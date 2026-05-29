@@ -134,8 +134,15 @@ namespace BindingsGeneration
                     .Where(p => WrapperValidation.IsNonPrimitiveFrozenStructParam(p, _env.TypeDatabase))
                     .Where(p =>
                     {
-                        // Same skip conditions as EmitCdeclFrozenStructMarshalling
-                        if (_env.BoundGenericsHandler.IsBoundGeneric(p)) return false;
+                        // Same skip conditions as EmitCdeclFrozenStructMarshalling.
+                        // SIMD bound-generic aliases (Swift.SIMD2/3/4<Float>) are the
+                        // exception: PInvokeEmitter wires them through CdeclFrozenStruct
+                        // so the param is IntPtr at the call site. Skipping them here
+                        // would leave the async wrapper passing the raw Vector value at a
+                        // slot now typed as IntPtr, producing a CS-side type mismatch.
+                        if (_env.BoundGenericsHandler.IsBoundGeneric(p) &&
+                            !(p.SwiftTypeSpec is NamedTypeSpec simdBgWrap && CdeclParamMapper.IsSimdVectorType(simdBgWrap)))
+                            return false;
                         if (_env.ClosureHandler.IsClosure(p)) return false;
                         if (MarshallingHelpers.IsConvertibleType(p.SwiftTypeSpec)) return false;
                         if (_env.TypeConversionHandler.HasNativeTypeRemapping(p.SwiftTypeSpec)) return false;

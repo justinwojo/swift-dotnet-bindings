@@ -480,7 +480,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         // the metadata accessor for the outer generic can resolve TypeMetadata for the
         // SIMD-typed argument at runtime.
         if (type == typeof(Vector2) || type == typeof(Vector3) ||
-            type == typeof(Vector4) || type == typeof(Quaternion))
+            type == typeof(Vector4) || type == typeof(Quaternion) ||
+            type == typeof(Matrix4x4))
         {
             if (TryGetNumericsMetadata(type, out var numericsMetadata))
             {
@@ -643,6 +644,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
                 metadataPtr = NumericsNativeMethods.SimdFloat4_GetMetadata();
             else if (type == typeof(Quaternion))
                 metadataPtr = NumericsNativeMethods.SimdQuatf_GetMetadata();
+            else if (type == typeof(Matrix4x4))
+                metadataPtr = NumericsNativeMethods.SimdFloat4x4_GetMetadata();
             else
             {
                 result = null;
@@ -666,8 +669,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// P/Invoke declarations for System.Numerics SIMD type metadata accessors
     /// in SwiftBindingsRuntime. Each maps to a Clang-imported Swift simd type:
     /// Vector2 ↔ simd_float2, Vector3 ↔ simd_float3, Vector4 ↔ simd_float4,
-    /// Quaternion ↔ simd_quatf. Layout is bit-compatible (16-byte stride for
-    /// Vector3 matches Swift's simd_float3 4-element padding).
+    /// Quaternion ↔ simd_quatf, Matrix4x4 ↔ simd_float4x4. Layout is bit-compatible
+    /// (16-byte stride for Vector3 matches Swift's simd_float3 4-element padding).
     /// </summary>
     static class NumericsNativeMethods
     {
@@ -688,6 +691,10 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
                    EntryPoint = "SBW_simd_quatf_GetMetadata")]
         public static extern IntPtr SimdQuatf_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_simd_float4x4_GetMetadata")]
+        public static extern IntPtr SimdFloat4x4_GetMetadata();
     }
 
     /// <summary>

@@ -209,12 +209,45 @@ public partial class ProtocolProxyEmitter
 
             private static IntPtr MarshalToSwiftBuffer<T>(T value)
             {
-                // Use direct memory operations for all types
-                // This works for blittable types (value types, structs with blittable fields)
+                // Reference-type wrappers (SwiftOptional<U>, SwiftArray<U>, non-frozen struct
+                // wrappers, ...) are ISwiftObject classes whose C# instance is a handle to a
+                // native Swift buffer, not the value itself. A blittable Unsafe.Write would copy
+                // the managed reference (a pointer) rather than the value's native bytes, and the
+                // native value is usually larger than a pointer (e.g. Optional<ClosedRange<Float>>),
+                // so Swift would also read past the allocation. Marshal the native Swift bytes
+                // through the type's value-witness table into a metadata-sized buffer instead.
+                if (!typeof(T).IsValueType && value is ISwiftObject swiftObj)
+                {
+                    var nativeSize = (int)Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>().Size;
+                    // Zero-sized Swift types never reach this branch (Optional is >= 1, collections
+                    // and existentials are >= one word), but keep the span length in lockstep with the
+                    // allocation's size == 0 ? 1 guard so the view can never outlive a 1-byte buffer.
+                    var allocSize = nativeSize == 0 ? 1 : nativeSize;
+                    var nativePtr = (IntPtr)NativeMemory.AllocZeroed((nuint)allocSize);
+                    var nativeSpan = new Span<byte>((void*)nativePtr, allocSize);
+                    swiftObj.MarshalToSwift(ref nativeSpan);
+                    return nativePtr;
+                }
+                // Blittable types (primitives, frozen structs, simple enums): the C# layout
+                // matches the native Swift layout, so a direct byte copy is correct.
                 var size = Unsafe.SizeOf<T>();
                 var ptr = (IntPtr)NativeMemory.Alloc((nuint)size);
                 Unsafe.Write((void*)ptr, value);
                 return ptr;
+            }
+
+            private static IntPtr AllocZeroedSwiftBuffer<T>()
+            {
+                // Error-path fallback (proxy unregistered / impl already GC'd): hand Swift a
+                // correctly sized, zero-filled buffer instead of crossing the UnmanagedCallersOnly
+                // boundary with a throw. For ISwiftObject reference wrappers the managed size is
+                // only a pointer, smaller than the native Swift value, so size from the type
+                // metadata to match the success path and avoid an out-of-bounds read on the Swift
+                // side. Value-type carriers keep the managed (== native) size.
+                nuint size = typeof(T).IsValueType
+                    ? (nuint)Unsafe.SizeOf<T>()
+                    : Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>().Size;
+                return (IntPtr)NativeMemory.AllocZeroed(size == 0 ? 1 : size);
             }
 
             private static T MarshalFromSwift<T>(IntPtr ptr)

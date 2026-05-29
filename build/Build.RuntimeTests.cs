@@ -3005,33 +3005,77 @@ partial class Build
             }
         }
 
-        var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
+        // Compile with error-based retry (same pattern as the main device wrapper and
+        // RunBuildAsyncWrapper). The static StripFile heuristic cannot know which protocols
+        // EveryProtocol actually conforms to, so witness-table getters for non-conformable
+        // protocols (e.g. CrossModule*Parent shapes) survive into the source and fail to
+        // compile. Letting the compiler report those errors and stripping exactly the
+        // offending functions keeps the good getters (DependencyProtocol etc.) — which must
+        // stay exported for cross-module tests — while dropping only the broken ones. This
+        // mirrors the generator's SwiftWrapperPostProcessor retry that builds the simulator
+        // slice, removing the sim/device asymmetry that left the device dep build single-shot.
+        const int maxRetries = 3;
+        int attempt = 0;
+        bool compiled = false;
 
-        var settings = new SwiftCompilerSettings()
-            .SetEmitLibrary()
-            .SetTarget(deviceTarget)
-            .SetSdk(sdkPath)
-            .AddFrameworkSearchPath(depXcfwSliceDir + "/")
-            .SetModuleName(depWrapperName)
-            .SetStrictConcurrency("minimal")
-            .SetInstallName($"@rpath/{depWrapperName}.framework/{depWrapperName}")
-            .SetOutputPath(outputFwDir / depWrapperName)
-            .AddSourceFiles(allSourceFiles);
+        while (attempt < maxRetries)
+        {
+            attempt++;
+            var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
 
-        // Also need main library search path for cross-module references
-        if (Directory.Exists(xcfwSliceDir))
-            settings.AddFrameworkSearchPath(xcfwSliceDir + "/");
+            var settings = new SwiftCompilerSettings()
+                .SetEmitLibrary()
+                .SetTarget(deviceTarget)
+                .SetSdk(sdkPath)
+                .AddFrameworkSearchPath(depXcfwSliceDir + "/")
+                .SetModuleName(depWrapperName)
+                .SetStrictConcurrency("minimal")
+                .SetInstallName($"@rpath/{depWrapperName}.framework/{depWrapperName}")
+                .SetOutputPath(outputFwDir / depWrapperName)
+                .AddSourceFiles(allSourceFiles);
 
-        var process = SwiftCompiler.Run(settings);
-        process.WaitForExit();
+            // Also need main library search path for cross-module references
+            if (Directory.Exists(xcfwSliceDir))
+                settings.AddFrameworkSearchPath(xcfwSliceDir + "/");
+
+            var process = SwiftCompiler.Run(settings);
+            process.WaitForExit();
+
+            if (process.ExitCode == 0)
+            {
+                Log.Information("Dependency wrapper device compilation succeeded (after {Attempt} attempt(s)).", attempt);
+                compiled = true;
+                break;
+            }
+
+            var compileLog = string.Join("\n", process.Output.Select(o => o.Text));
+
+            if (attempt == maxRetries)
+            {
+                Log.Warning("Dependency wrapper device compilation failed after {Retries} attempts. Cross-module tests will be skipped on device.", maxRetries);
+                CleanupWrapperBuild(cleanedDir);
+                return;
+            }
+
+            Log.Information("Dependency device compilation attempt {Attempt} failed — stripping broken functions...", attempt);
+            var errors = string.Join("\n", compileLog.Split('\n').Where(l => l.Contains("error:")).Take(80));
+            int strippedN = SwiftSourceStripper.StripErrorFunctions(cleanedDir, errors);
+
+            if (strippedN == 0)
+            {
+                Log.Warning("No strippable dependency functions found. Device build error may be structural. Cross-module tests will be skipped on device.");
+                CleanupWrapperBuild(cleanedDir);
+                return;
+            }
+
+            cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
+            Log.Information("Retrying dependency device compilation...");
+        }
 
         CleanupWrapperBuild(cleanedDir);
 
-        if (process.ExitCode != 0)
-        {
-            Log.Warning("Dependency wrapper device compilation failed. Cross-module tests will be skipped on device.");
+        if (!compiled)
             return;
-        }
 
         PlistGenerator.WriteFrameworkPlist(
             outputFwDir / "Info.plist",

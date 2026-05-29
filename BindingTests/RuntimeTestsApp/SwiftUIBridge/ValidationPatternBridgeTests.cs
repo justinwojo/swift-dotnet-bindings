@@ -467,6 +467,42 @@ public class ValidationPatternBridgeTests : TestBase
         BridgeNativeMethods.ResultCompletionView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ResultCompletionView: error callback fire passed");
     }
+
+    // ────────────────────────────────────────────────────────────────
+    // CodableProfileEditorView — Binding<CodableStruct> gate
+    // Exercises the Codable round-trip path: C# encodes via EncodeToJson,
+    // Swift decodes into @Published state, Swift re-encodes on read,
+    // C# decodes via DecodeFromJson. Covers Create, Update, and Read.
+    // ────────────────────────────────────────────────────────────────
+
+    public void TestCodableProfileEditorView_CreateRoundTrip()
+    {
+        var initial = new global::SwiftBindingsTestLib.CodableProfile("alpha", 7);
+        using var session = global::SwiftBindingsTestLib.CodableProfileEditorViewSession.Create(initial);
+        AssertTrue(session.Handle != IntPtr.Zero, "CodableProfileEditorView handle != 0");
+
+        var vcPtr = session.GetViewController();
+        AssertTrue(vcPtr != IntPtr.Zero, "CodableProfileEditorView GetVC != 0");
+
+        var readBack = session.ReadProfile();
+        AssertEqual("alpha", readBack.Name, "ReadProfile().Name preserves initial");
+        AssertEqual(7, readBack.Count, "ReadProfile().Count preserves initial");
+        TestLogger.Info("CodableProfileEditorView: create + read round-trip passed");
+    }
+
+    public void TestCodableProfileEditorView_UpdateRoundTrip()
+    {
+        var initial = new global::SwiftBindingsTestLib.CodableProfile("initial", 1);
+        using var session = global::SwiftBindingsTestLib.CodableProfileEditorViewSession.Create(initial);
+
+        var updated = new global::SwiftBindingsTestLib.CodableProfile("updated", 42);
+        session.UpdateProfile(updated);
+
+        var readBack = session.ReadProfile();
+        AssertEqual("updated", readBack.Name, "ReadProfile().Name reflects Update");
+        AssertEqual(42, readBack.Count, "ReadProfile().Count reflects Update");
+        TestLogger.Info("CodableProfileEditorView: update + read round-trip passed");
+    }
 }
 
 #endif

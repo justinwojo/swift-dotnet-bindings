@@ -1288,7 +1288,7 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsStdlibContainerWithoutISwiftObjectConstraint(string typeName) =>
             typeName is "Swift.Optional" or "Swift.Array" or "Swift.Dictionary"
-                      or "Swift.Set" or "Swift.Result";
+                      or "Swift.Set" or "Swift.Result" or "Swift.ClosedRange";
 
         /// <summary>
         /// Returns true when the TypeSpec itself names an NSObject-rooted ObjC-bridged type

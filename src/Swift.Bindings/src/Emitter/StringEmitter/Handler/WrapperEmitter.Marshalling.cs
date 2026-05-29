@@ -758,7 +758,15 @@ namespace BindingsGeneration
                 // - Closures → EmitClosureMarshalling
                 // - Type conversions (String, URL, Data) → EmitTypeConversions
                 // - Native-remapped types → handled by NativeRemappedFrozen in PInvokeEmitter
-                if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
+                //
+                // SIMD bound-generic aliases (Swift.SIMD2/3/4<Float>) are the exception:
+                // PInvokeEmitter wires them through CdeclFrozenStruct so the param is IntPtr,
+                // which means the wrapper body MUST emit the matching stackalloc/MarshalToSwift
+                // setup here. Skipping them like other bound-generics would leave the wrapper
+                // passing the raw Vector3/Vector4 value at a parameter slot now typed as IntPtr,
+                // producing a CS-side type mismatch.
+                if (_env.BoundGenericsHandler.IsBoundGeneric(argument) &&
+                    !(argument.SwiftTypeSpec is NamedTypeSpec simdBgWrap && CdeclParamMapper.IsSimdVectorType(simdBgWrap)))
                     continue;
                 if (_env.ClosureHandler.IsClosure(argument))
                     continue;

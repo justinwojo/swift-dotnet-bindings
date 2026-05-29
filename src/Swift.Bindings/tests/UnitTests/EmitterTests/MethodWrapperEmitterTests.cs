@@ -4793,4 +4793,74 @@ public class MethodWrapperEmitterTests
     }
 
     #endregion
+
+    #region IsSimdVectorType Helper Tests
+
+    // SIMD vector/matrix types must NOT take the by-value system-frozen-struct branch
+    // in CdeclParamMapper. Swift simd_floatN passes in a single NEON vector register
+    // whereas System.Numerics.VectorN passes as an HFA across separate FPRs, so a
+    // by-value emission would land lanes in the wrong slots. IsSimdVectorType is the
+    // wedge that routes them through the indirect IntPtr (CdeclFrozenStruct) path.
+
+    [Fact]
+    public void IsSimdVectorType_SimdAliasedNames_ReturnsTrue()
+    {
+        // simd.simd_floatN — the canonical post-alias-resolution names that flow into
+        // PInvokeEmitter for free-function parameters.
+        Assert.True(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("simd.simd_float2")));
+        Assert.True(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("simd.simd_float3")));
+        Assert.True(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("simd.simd_float4")));
+        Assert.True(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("simd.simd_float4x4")));
+    }
+
+    [Fact]
+    public void IsSimdVectorType_BoundGenericSimdNFloat_ReturnsTrue()
+    {
+        // Swift.SIMD2/3/4<Float> — the sugar form that appears unresolved in
+        // .swiftinterface output and reaches the IsBoundGeneric branch before any
+        // alias resolution. This is the form that actually trips the bug in
+        // generated bindings for fixtures declaring `simd_float3` params.
+        foreach (var name in new[] { "Swift.SIMD2", "Swift.SIMD3", "Swift.SIMD4" })
+        {
+            var spec = new NamedTypeSpec(name);
+            spec.GenericParameters.Add(new NamedTypeSpec("Swift.Float"));
+            Assert.True(CdeclParamMapper.IsSimdVectorType(spec));
+        }
+    }
+
+    [Fact]
+    public void IsSimdVectorType_BoundGenericSimdNNonFloat_ReturnsFalse()
+    {
+        // Swift.SIMD3<Int32>, Swift.SIMD4<Double> etc. have different storage and
+        // are not projected onto System.Numerics types — they must NOT be wedged.
+        var simd3Int = new NamedTypeSpec("Swift.SIMD3");
+        simd3Int.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        Assert.False(CdeclParamMapper.IsSimdVectorType(simd3Int));
+
+        var simd4Double = new NamedTypeSpec("Swift.SIMD4");
+        simd4Double.GenericParameters.Add(new NamedTypeSpec("Swift.Double"));
+        Assert.False(CdeclParamMapper.IsSimdVectorType(simd4Double));
+    }
+
+    [Fact]
+    public void IsSimdVectorType_NonSimdFrozenStruct_ReturnsFalse()
+    {
+        // Other frozen system structs (CGPoint, CGRect, Foundation.URL etc.) must
+        // continue down the existing by-value path.
+        Assert.False(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("CoreGraphics.CGPoint")));
+        Assert.False(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("CoreGraphics.CGRect")));
+        Assert.False(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("Foundation.URL")));
+        Assert.False(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsSimdVectorType_BareSimdNNoGenericArg_ReturnsFalse()
+    {
+        // Bare Swift.SIMD3 without a generic argument is not a valid use site;
+        // the predicate must not fire on it (would otherwise mis-classify
+        // unresolved parser artifacts).
+        Assert.False(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("Swift.SIMD3")));
+    }
+
+    #endregion
 }

@@ -442,7 +442,14 @@ public static class CdeclParamMapper
                 // System framework frozen structs (CGRect, Date, etc.) are C-representable
                 // and safe for @_cdecl by-value passing. Custom frozen structs from third-party
                 // libraries trigger "Swift structs cannot be represented in Objective-C".
-                if (swiftTypeSpec is NamedTypeSpec frozenNamed && IsSystemFrozenStruct(frozenNamed))
+                // SIMD vectors (simd_floatN, simd_quatf, simd_floatNxN) are excluded: Swift
+                // passes them in a single NEON vector register; .NET projects them onto Vector3/
+                // Vector4/Quaternion/Matrix4x4 which the CLR passes as HFAs across s0,s1,s2,…
+                // Only lane 0 aligns, so by-value loses every lane past the first. Route them
+                // through the indirect (UnsafeRawPointer + stackalloc) path so the bytes cross
+                // intact.
+                if (swiftTypeSpec is NamedTypeSpec frozenNamed && IsSystemFrozenStruct(frozenNamed)
+                    && !IsSimdVectorType(frozenNamed))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
                     return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
@@ -625,9 +632,10 @@ public static class CdeclParamMapper
     }
 
     /// <summary>
-    /// Checks whether a type spec is a generic container type (Optional, Array, Dictionary, Set, Result).
-    /// These Swift generic types are not C-representable in @_cdecl functions and must be
-    /// marshalled as UnsafeRawPointer with .load(as:) reconstruction in the wrapper body.
+    /// Checks whether a type spec is a generic container type (Optional, Array, Dictionary,
+    /// Set, Result, ClosedRange). These Swift generic types are not C-representable in
+    /// @_cdecl functions and must be marshalled as UnsafeRawPointer with .load(as:)
+    /// reconstruction in the wrapper body.
     /// </summary>
     internal static bool IsGenericContainerType(TypeSpec typeSpec)
     {
@@ -635,7 +643,7 @@ public static class CdeclParamMapper
             return false;
 
         return named.Name is "Swift.Optional" or "Swift.Array" or "Swift.Dictionary"
-            or "Swift.Set" or "Swift.Result";
+            or "Swift.Set" or "Swift.Result" or "Swift.ClosedRange";
     }
 
     /// <summary>
@@ -659,6 +667,47 @@ public static class CdeclParamMapper
         var module = SwiftTypeName.FromTypeSpec(typeSpec).Module;
         return module is "CoreGraphics" or "CoreFoundation" or "Darwin" or "simd"
             or "Swift" or "ObjectiveC" or "_Concurrency";
+    }
+
+    /// <summary>
+    /// Returns true for Swift SIMD vector / matrix types whose register-class on the input
+    /// path is incompatible with the C# projection's by-value ABI:
+    /// <list type="bullet">
+    ///   <item>Direct simd module exports — <c>simd.simd_floatN</c>, <c>simd.simd_quatf</c>,
+    ///         <c>simd.simd_floatNxN</c> — Swift passes these in a single NEON vector register
+    ///         (q0). .NET projects them onto <c>System.Numerics.Vector{2,3,4}</c>, <c>Quaternion</c>,
+    ///         <c>Matrix4x4</c>, which the CLR splits into HFA elements across s0,s1,s2,…
+    ///         Only lane 0 lines up; the rest are lost.</item>
+    ///   <item>Bound-generic sugar — <c>Swift.SIMD2/3/4&lt;Swift.Float&gt;</c> — appears in
+    ///         framework swiftinterfaces (RealityKit, RealityFoundation) before
+    ///         <c>BoundGenericSimdAliasStrategy</c> collapses it to <c>simd.simd_floatN</c>.
+    ///         <see cref="IsSystemFrozenStruct"/> sees <c>module=="Swift"</c> and returns true,
+    ///         routing the param down the broken by-value path. Catch the unresolved alias
+    ///         here so gating is correct regardless of which resolution pass has run.</item>
+    /// </list>
+    /// Callers wedge this in front of by-value branches so SIMD params instead go through the
+    /// indirect (UnsafeRawPointer + stackalloc) path, where the full byte payload crosses.
+    /// </summary>
+    internal static bool IsSimdVectorType(NamedTypeSpec typeSpec)
+    {
+        if (typeSpec is null)
+            return false;
+
+        // Direct simd module: all Clang ext_vector_type exports under module "simd" use the
+        // "simd_" prefix (simd_float2/3/4, simd_quatf, simd_float3x3, simd_float4x4).
+        if (typeSpec.Name.StartsWith("simd.simd_", StringComparison.Ordinal))
+            return true;
+
+        // Bound-generic sugar: Swift.SIMD{2,3,4}<Swift.Float>. Mirror the table in
+        // TypeDatabaseExtensions.BoundGenericSimdAliases so the predicate stays in lockstep
+        // with the alias resolver — any addition there needs a matching arm here.
+        if (typeSpec.GenericParameters.Count == 1 &&
+            typeSpec.GenericParameters[0] is NamedTypeSpec elementSpec &&
+            elementSpec.Name == "Swift.Float" &&
+            typeSpec.Name is "Swift.SIMD2" or "Swift.SIMD3" or "Swift.SIMD4")
+            return true;
+
+        return false;
     }
 
     /// <summary>

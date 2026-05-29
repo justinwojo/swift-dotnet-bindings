@@ -966,10 +966,16 @@ public class BoundGenericsHandlerTests
         Assert.Equal("IntPtr", result);
     }
 
-    [Fact]
-    public void IsBareGenericUsage_StdlibGenericWithoutArgs_ReturnsTrue()
+    [Theory]
+    [InlineData("Swift.Dictionary")]
+    [InlineData("Swift.Array")]
+    [InlineData("Swift.Set")]
+    [InlineData("Swift.Optional")]
+    [InlineData("Swift.Result")]
+    [InlineData("Swift.ClosedRange")]
+    public void IsBareGenericUsage_StdlibGenericWithoutArgs_ReturnsTrue(string stdlibName)
     {
-        var isBare = _handler.IsBareGenericUsage(new NamedTypeSpec("Swift.Dictionary"), moduleDecl: null);
+        var isBare = _handler.IsBareGenericUsage(new NamedTypeSpec(stdlibName), moduleDecl: null);
         Assert.True(isBare);
     }
 
