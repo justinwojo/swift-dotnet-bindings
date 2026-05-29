@@ -130,6 +130,79 @@ The crashing trim and the two passing variants share the exact same emission mac
 
 The interpreter workaround (`MtouchInterpreter=all`, auto-applied by the SDK for `RuntimeIdentifier == maccatalyst-x64` consumers) remains the answer for class 2. The upstream filing remains the durable resolution; this section exists so the next reader does not redo the generator-side audit.
 
+## `[SuppressGCTransition]` removal — tested, no effect (suspect #1 ruled out)
+
+The leading "is this our bug?" suspect was Mono LMF emission for the
+`[SuppressGCTransition]` ARC leaf P/Invokes (`swift_retain`,
+`swift_isDeallocating`, `swift_unownedRetain`, `swift_retainCount`,
+`swift_unownedRetainCount` in `Swift.Runtime/.../Arc.cs`) on the Catalyst-x64
+codegen path, cf. [dotnet/runtime#122958](https://github.com/dotnet/runtime/issues/122958).
+The theory: a bad LMF write on one of these constantly-firing leaf calls stomps
+runtime state, and the four crash classes are downstream surfacings of that same
+stomp (which would explain the deterministic per-ordering cascade and class 3's
+`nanov2_guard_corruption_detected` heap-guard trip). This is the one lever fully
+under our control, so it was tested empirically on 2026-05-28.
+
+All five `[SuppressGCTransition]` attributes were stripped from `Arc.cs` and the
+`maccatalyst-x64` **JIT** path was rerun (`nuke binding-tests --catalyst-x64
+--catalyst-x64-jit`, full regen, Rosetta on Apple Silicon). The result was
+**bit-for-bit identical to the baseline**: 914 pass, 0 fail, 0 crash counted,
+`done=False`, SIGSEGV in JITted `SwiftBindingsTestLib.DefaultedAsyncRoster.AppendOrThrowAsync`
+at `DefaultedAsyncTrimOverloadTests.TestDefaultedAsync_AppendOrThrowAsync_TrimDropsBoth_FillsSwiftDefaults`
+— the same crash class 2, same fault site, same position. Removing the attribute
+moved nothing.
+
+This **rules out suspect #1 empirically**: the crashes are not caused by the
+`[SuppressGCTransition]` LMF emission on our leaf calls. The attributes were
+reverted (they are a legitimate perf optimization; removing them regresses
+retain/query throughput on every platform for zero benefit here). Combined with
+the class-2 generator audit above, every generator/runtime lever under our
+control is now exhausted — there is no our-side code change that stabilizes the
+Catalyst-x64 JIT path.
+
+## Full AOT — tested, also crashes (interpreter is the only viable mode)
+
+The interpreter is one of three Mono execution modes; the other two are JIT and
+AOT. To check whether a *non-interpreter* mode could ship (AOT generally beats
+the interpreter on steady-state perf), the `maccatalyst-x64` cell was rerun with
+`RunAOTCompilation=true` and the interpreter off (`SwiftBindingsMacCatalystX64UseJit=true`,
+no `MtouchInterpreter`) on 2026-05-28. AOT was confirmed honored (the build line
+carried `--property:RunAOTCompilation=true`).
+
+**AOT crashed at the identical position** — 914 pass, class 2,
+`DefaultedAsyncTrimOverloadTests.TestDefaultedAsync_AppendOrThrowAsync_TrimDropsBoth_FillsSwiftDefaults`.
+But the fault *site* moved, which is the informative part. Under JIT the SIGSEGV
+is in JITted managed code (`cmp [rax], al`, `rax` ≈ near-null, inside
+`DefaultedAsyncRoster.AppendOrThrowAsync`). Under AOT the SIGSEGV is one frame
+deeper, in the **native reverse-P/Invoke async-callback dispatch** — the
+generated Swift `@_cdecl` wrapper `SBW_…_appendOrThrowAsync_F4F01506_async`
+invoking the C# `[UnmanagedCallersOnly]` completion callback
+(`$s13SwiftBindings…PInvoke_appendOrThrowAsync_D75380D5…XC…` →
+`PInvoke_appendOrThrowAsync_D75380D5`):
+
+```
+mono_sigsegv_signal_handler_debug
+$s13SwiftBindings…PInvoke_appendOrThrowAsync_D75380D5…XC…   (SwiftBindings.framework, native)
+SBW_SwiftBindingsTestLib_DefaultedAsyncRoster_appendOrThrowAsync_F4F01506_async
+  at DefaultedAsyncRoster:<PInvoke_appendOrThrowAsync_D75380D5>g____PInvoke|69_0
+  at DefaultedAsyncRoster:PInvoke_appendOrThrowAsync_D75380D5
+  at DefaultedAsyncRoster:AppendOrThrowAsync
+  at <…TrimDropsBoth_FillsSwiftDefaults>d__6:MoveNext
+```
+
+That the fault *site* shifted (rather than vanishing) confirms AOT codegen was
+applied to this path and still produces broken code. **JIT and AOT share Mono's
+compiled-codegen backend; the interpreter is the only mode that bypasses it** —
+and it is the only mode that passes. This localizes the bug to Mono's compiled
+codegen for the **reverse-P/Invoke async-completion-callback trampoline** on the
+Catalyst-x64 runtime build (the unmanaged→managed `[UnmanagedCallersOnly]` async
+callback shape), shared by JIT and AOT. The same managed IL + same native dylib
+exercise that trampoline cleanly on `osx-x64` under the same Mono x64 workload
+and same Rosetta layer.
+
+Consequence for shipping: AOT is **not** a faster alternative to the interpreter
+on this RID — both non-interpreter modes crash. The interpreter default stands.
+
 ## Next steps for filing
 
 1. **Reduce to a minimal repro** — extract the smallest sequence that triggers the first crash on `maccatalyst-x64` while passing on `osx-x64`. Candidates:
@@ -143,7 +216,7 @@ The interpreter workaround (`MtouchInterpreter=all`, auto-applied by the SDK for
 
 The differential between osx-x64 (passes) and maccatalyst-x64 (crashes) under identical Mono workload + Rosetta isolates the problem to the **Mac Catalyst-specific Mono x64 runtime build** (or its interaction with the iOS-derived Foundation / UIKit runtime that maccatalyst uses but plain osx does not). Possible suspect areas:
 
-- Mono LMF (Last Managed Frame) emission for `[SuppressGCTransition]` P/Invokes on the maccatalyst-x64 codegen path (cf. [dotnet/runtime#122958](https://github.com/dotnet/runtime/issues/122958), which reports a similar shape on a different platform).
+- Mono LMF (Last Managed Frame) emission for `[SuppressGCTransition]` P/Invokes on the maccatalyst-x64 codegen path (cf. [dotnet/runtime#122958](https://github.com/dotnet/runtime/issues/122958), which reports a similar shape on a different platform). **Note:** removing our `[SuppressGCTransition]` attributes had zero effect on the crash (see "`[SuppressGCTransition]` removal — tested" above), so if this component is implicated the trigger is Mono's own internal `[SuppressGCTransition]` usage, not ours.
 - Mono x64 SysV / SwiftCC trampoline state on the maccatalyst codegen path.
 - Mono signal-handler / unwinder interaction with the iOS-derived signal stack on maccatalyst-x64 under Rosetta.
 - Mono metadata-parser heap accounting on the maccatalyst-x64 runtime build (crash class 3's `nanov2_guard_corruption_detected` strongly suggests an out-of-bounds write inside `mono_metadata_parse_type_internal`).

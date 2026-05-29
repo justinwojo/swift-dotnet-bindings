@@ -48,7 +48,6 @@ Specific in-flight workstreams with dedicated docs. Roadmap-categorical items be
 |------|-------|
 | **Performance benchmarks** | Baseline P/Invoke overhead measurement. [`Future/interop-performance-validation-plan.md`](Future/interop-performance-validation-plan.md) |
 | **API snapshot tooling** | Detect API surface drift between versions. [`Future/api-snapshot-tooling.md`](Future/api-snapshot-tooling.md) |
-| **Full Intel Mac (x86_64) support** | Generate x64 slices for Intel sim / osx-x64 deployment. SDK is installable on Intel hosts today; remaining work covers slice routing, x86_64 thunks, system-framework probing. [`Future/intel-mac-x64-support.md`](Future/intel-mac-x64-support.md) |
 | **tvOS device runner** | Requires provisioning profile + physical Apple TV. Generator, SDK, runtime, and build infra already support tvOS; only the `nuke runtime-tests-tvos-device` Nuke target and deployment mechanism are missing. |
 | **UnsupportedClosure remaining shapes** | ~188 skips. Already reduced via setter-only closure properties and the async-closure bridge (throwing 0–3 args with primitive returns plus zero-arg `Foundation.Data` return; non-throwing 0–3 args with primitive returns only). Remaining are generic params, nested closures, and async-closure shapes outside the supported arg/return matrix (e.g., arg-bearing `Data` returns, non-throwing `Data` returns). |
 | **Result<T,E> parameter direction** | Blocked. Needs native payload synthesis for C#-created instances. |
