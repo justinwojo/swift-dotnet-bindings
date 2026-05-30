@@ -340,8 +340,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (!ConcreteSpecializationEngine.IsConformerAllowedForModule(conformer, moduleName))
                 return false;
 
-            // Nested-conformer guard: nested types currently can't be named from
-            // outside their enclosing scope reliably.
+            // Nested-conformer guard. The synchronous CSM path resolves nested-type
+            // conformers (via ClassifyConformerStructurally + ResolveConformerCSharpTypeRef)
+            // and emits them by their post-rename C# name. That relaxation is deliberately
+            // NOT extended to the async path: parent-only async specialization only ever runs
+            // over hint-registered conformers (the HasKnownHintConformers gate above), and no
+            // nested-type hint conformer exists — every shape that drives nested conformers
+            // (HPKE Sender/Recipient inits) is synchronous. Until an async surface needs a
+            // nested hint conformer there is nothing to name here, so this stays a hard reject
+            // rather than duplicating the sync re-resolution with no test coverage.
             if (conformer.SwiftType != null &&
                 conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2)
                 return false;

@@ -1188,7 +1188,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformerObj))
             {
                 var matchedConformer = matchedConformerObj!;
-                var conformerCsType = CanonicalizeConformerCSharpType(matchedConformer.CSharpType);
+                var conformerCsType = ResolveConformerCSharpTypeRef(matchedConformer, typeDatabase);
                 // Generic param → concrete type
                 var category = ClassifyConformerForCSharp(matchedConformer, typeDatabase);
                 switch (category)
@@ -1352,7 +1352,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         else if (!isVoidReturn)
         {
             if (returnsGenericParam)
-                csReturnType = CanonicalizeConformerCSharpType(returnConformer!.CSharpType);
+                csReturnType = ResolveConformerCSharpTypeRef(returnConformer!, typeDatabase);
             else if (isStringReturn)
                 csReturnType = "string";
             else
@@ -1855,8 +1855,16 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ConcreteSpecializationEngine.ConcreteConformer conformer,
         ITypeDatabase typeDatabase)
     {
+        // A nested-type conformer (module-qualified name with >2 dot segments, e.g.
+        // `KeyVault.Agreement.PublicKey` — HPKE's `Curve25519.KeyAgreement.PublicKey` shape)
+        // is emittable iff its C# projection has a resolvable, referenceable name. Nested
+        // types emit as namespace-facade / static-class chains whose fully-qualified C# name
+        // (`KeyVault.Agreement.PublicKey`) is a valid reference from the host method's module
+        // namespace — the generated registration code already names them that way. Only reject
+        // a nested conformer whose type record can't be resolved to a concrete C# name.
         if (conformer.SwiftType != null &&
-            conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2)
+            conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2 &&
+            !typeDatabase.TryGetTypeRecord(conformer.SwiftType, out _))
             return StructuralEmitReject.NestedType;
 
         var category = ClassifyConformerForSwiftParam(conformer, typeDatabase);
@@ -1930,9 +1938,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         out string? rejectReason)
     {
-        // Per-conformer structural gate: no nested-type or ObjC-bridged conformers,
-        // and no Swift enum conformers (their C# binding either lacks ISwiftObject —
-        // simple/raw-value enums — or isn't emitted at all — single-case no-payload).
+        // Per-conformer structural gate: rejects nested-type conformers whose C# name
+        // can't be resolved (resolvable nested types like `KeyVault.Agreement.PublicKey`
+        // ARE admitted), ObjC-bridged conformers, and Swift enum conformers (their C#
+        // binding either lacks ISwiftObject — simple/raw-value enums — or isn't emitted
+        // at all — single-case no-payload).
         foreach (var (_, conformer) in pairing)
         {
             switch (ClassifyConformerStructurally(conformer, typeDatabase))
@@ -2670,7 +2680,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // signatures (after SCREAMING_CASE canonicalization) collide here and
                 // one of them is suppressed. Using the raw hint string would let a
                 // shadow specialization slip through for SHA3_*-style conformers.
-                parts.Add(CanonicalizeConformerCSharpType(matchedConformer!.CSharpType));
+                parts.Add(ResolveConformerCSharpTypeRef(matchedConformer!, typeDatabase));
             }
             else
             {
@@ -2880,7 +2890,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var parentEntries = pairing.Where(p => p.Param.IsParentGeneric).ToList();
         if (parentEntries.Count == 0) return parentTypeDecl.Name;
 
-        var args = parentEntries.Select(p => CanonicalizeConformerCSharpType(p.Conformer.CSharpType));
+        var args = parentEntries.Select(p => ResolveConformerCSharpTypeRef(p.Conformer, typeDatabase));
         return $"{parentTypeDecl.Name}<{string.Join(", ", args)}>";
     }
 
@@ -2909,6 +2919,32 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (!IsBareScreamingCaseIdentifier(csharpType))
             return csharpType;
         return NameProvider.ToPascalCaseForTypeName(csharpType);
+    }
+
+    /// <summary>
+    /// Resolves the C# type-reference name for a conformer as it is actually emitted, accounting
+    /// for nested-type collision renames. <see cref="ConcreteSpecializationEngine.ConcreteConformer.CSharpType"/>
+    /// is captured at conformance-index time (Program.cs), which runs BEFORE the nested-type rename
+    /// pre-pass (<see cref="NameProvider.PrecomputeNestedTypeRenames"/>) mutates the type record's
+    /// <c>CSharpTypeName</c> for sibling-member collisions — e.g. Swift <c>Codec.Encoding</c> becomes
+    /// C# <c>Codec.EncodingType</c> when <c>Codec</c> also exposes an <c>Encoding</c> property. For a
+    /// nested conformer whose type record is live, re-resolve the post-rename fully-qualified name so
+    /// the emitted overload references the type by the name actually declared. Flat conformers and
+    /// hint conformers (<c>byte[]</c>, <c>Foundation.Data</c>) are never collision-renamed in-module,
+    /// so they keep their cached name. The result is still routed through
+    /// <see cref="CanonicalizeConformerCSharpType"/> for SCREAMING_CASE normalization.
+    /// </summary>
+    internal static string ResolveConformerCSharpTypeRef(
+        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        ITypeDatabase typeDatabase)
+    {
+        if (conformer.SwiftType != null &&
+            conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2 &&
+            typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record))
+        {
+            return CanonicalizeConformerCSharpType(record.CSharpTypeName.FullyQualifiedName);
+        }
+        return CanonicalizeConformerCSharpType(conformer.CSharpType);
     }
 
     internal static bool IsBareScreamingCaseIdentifier(string s)

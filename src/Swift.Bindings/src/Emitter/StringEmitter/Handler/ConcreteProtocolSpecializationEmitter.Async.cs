@@ -587,6 +587,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 return false;
             }
 
+            // Nested-conformer guard. Unlike the synchronous CSM path — which resolves
+            // nested-type conformers and emits them by their post-rename C# name — the async
+            // path hard-rejects them. Async CSM specializes only hint-registered conformers,
+            // and no nested-type hint conformer exists; the shapes that drive nested conformers
+            // (HPKE Sender/Recipient inits) are all synchronous. Keeping the reject avoids
+            // duplicating the sync re-resolution on a surface that has nothing to name.
             if (conformer.SwiftType != null &&
                 conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2)
             {

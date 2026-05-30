@@ -161,7 +161,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         ILogger logger)
     {
         var parentCsName = $"global::{moduleName}.{parentTypeDecl.Name}";
-        var conformerCsName = ResolveConformerCSharpFullName(conformer);
+        var conformerCsName = ResolveConformerCSharpFullName(conformer, typeDatabase);
         var receiverCsType = $"{parentCsName}<{conformerCsName}>";
         var parentSwiftQualified = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
         var conformerSwiftQualified = conformer.SwiftLiteral ?? conformer.SwiftQualifiedName;
@@ -670,11 +670,26 @@ internal static class KeyPathBagValueSpecializationEmitter
         return $"global::{string.Join(".", parts)}";
     }
 
-    private static string ResolveConformerCSharpFullName(ConcreteSpecializationEngine.ConcreteConformer conformer)
+    private static string ResolveConformerCSharpFullName(
+        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        ITypeDatabase typeDatabase)
     {
-        // ConcreteConformer.CSharpType is stored as `Module.Type` (no global:: prefix).
-        // Add global:: to defend against the conformer namespace colliding with a using.
+        // ConcreteConformer.CSharpType is stored as `Module.Type` (no global:: prefix) and is
+        // captured at conformance-index time, BEFORE the nested-type rename pre-pass
+        // (NameProvider.PrecomputeNestedTypeRenames) mutates a nested type's C# name for a
+        // sibling-member collision (Swift `Codec.Encoding` → C# `Codec.EncodingType` when
+        // `Codec` also has an `Encoding` property). This name is used below as the closed-
+        // generic receiver type argument, so a renamed nested conformer would otherwise name a
+        // non-existent type. Re-resolve a live nested conformer's post-rename name; flat and
+        // hint conformers (never collision-renamed) keep their cached name unchanged.
         var raw = conformer.CSharpType;
+        if (conformer.SwiftType != null &&
+            conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2 &&
+            typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record))
+        {
+            raw = record.CSharpTypeName.FullyQualifiedName;
+        }
+        // Add global:: to defend against the conformer namespace colliding with a using.
         if (raw.StartsWith("global::", StringComparison.Ordinal)) return raw;
         return $"global::{raw}";
     }

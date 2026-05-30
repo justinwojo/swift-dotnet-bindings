@@ -88,4 +88,35 @@ public class KeyPathRouteCTests : TestBase
         AssertTrue(titleHash != yearHash,
             $"distinct KeyPaths produce distinct hashes (title={titleHash}, year={yearHash})");
     }
+
+    // --- Collision-renamed nested conformer: RouteC_CollisionScope.Catalog collides with the
+    // scope's `catalog` property, so the nested type is renamed to CatalogType. Route C closes its
+    // Sort receiver over the *renamed* conformer (RouteC_GenericRequest<...CatalogType>). The
+    // conformer's C# name was cached as "...Catalog" at conformance-index time, before the rename
+    // pre-pass ran; without the emitter re-resolving the live name at emission, the generated Sort
+    // extension would name the non-existent RouteC_GenericRequest<...Catalog> and fail to bind.
+    // These two tests dispatch on the renamed receiver through both projectable Value overloads —
+    // the only coverage that exercises Route C's post-rename type-reference re-resolution.
+
+    public void TestSort_CollisionRenamedNestedConformer_StringKeyPath()
+    {
+        RouteC_SortTracker.Reset();
+        var req = new RouteC_GenericRequest<SwiftBindingsTestLib.RouteC_CollisionScope.CatalogType>();
+        req.Sort(RouteC_CollisionScope_CatalogSortBagKeyPaths.Name, ascending: true);
+        AssertEqual("asc", RouteC_SortTracker.LastDescription.ToString(),
+            "Sort(Name, ascending=true) dispatches on the renamed nested conformer receiver");
+        AssertTrue((bool)RouteC_SortTracker.LastAscending,
+            "LastAscending true after asc sort on CatalogType");
+    }
+
+    public void TestSort_CollisionRenamedNestedConformer_IntKeyPath()
+    {
+        RouteC_SortTracker.Reset();
+        var req = new RouteC_GenericRequest<SwiftBindingsTestLib.RouteC_CollisionScope.CatalogType>();
+        req.Sort(RouteC_CollisionScope_CatalogSortBagKeyPaths.Rank, ascending: false);
+        AssertEqual("desc", RouteC_SortTracker.LastDescription.ToString(),
+            "Sort(Rank, ascending=false) dispatches through the nint overload on CatalogType");
+        AssertFalse((bool)RouteC_SortTracker.LastAscending,
+            "LastAscending false after desc sort on CatalogType");
+    }
 }
