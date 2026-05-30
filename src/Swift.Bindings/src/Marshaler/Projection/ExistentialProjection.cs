@@ -19,6 +19,7 @@ public class ExistentialProjection : ITypeProjection
     private readonly string _publicType;
     private readonly string? _proxyClassName;
     private readonly bool _isBareAny;
+    private readonly bool _isClassBoundArity1;
 
     /// <summary>
     /// Creates an existential projection.
@@ -27,17 +28,47 @@ public class ExistentialProjection : ITypeProjection
     /// <param name="publicType">The public C# type (e.g., "IImageProcessing", "AnyError", "object").</param>
     /// <param name="proxyClassName">The proxy class name for known protocols, or null for well-known/object.</param>
     /// <param name="isBareAny">True if this represents bare 'Any' (0 protocols), enabling Box/Unbox marshalling.</param>
-    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false)
+    /// <param name="isClassBoundArity1">
+    /// True when the existential is a single class-bound (superclass-/AnyObject-constrained) protocol.
+    /// Such existentials carry the 16-byte <c>ClassExistentialContainer1</c> stride when read out of a
+    /// Swift array; see <see cref="ArrayElementCarrierType"/>. The single-value and parameter paths keep
+    /// <paramref name="containerType"/> (the opaque <c>ExistentialContainer1</c> the proxy implements).
+    /// </param>
+    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false)
     {
         _containerType = containerType;
         _publicType = publicType;
         _proxyClassName = proxyClassName;
         _isBareAny = isBareAny;
+        _isClassBoundArity1 = isClassBoundArity1;
     }
 
     public string PublicType => _publicType;
     public string PInvokeType => _containerType;
     public string? PInvokeAttribute => null;
+
+    // Class-bound existentials are read out of Swift arrays at a 16-byte [classRef][witnessTable]
+    // stride. The opaque ExistentialContainer1 carrier (40 bytes) over-reads and crashes on the first
+    // index, so the SwiftArray<T> element type must be the 16-byte ClassExistentialContainer1. The
+    // single-value and parameter paths stay on _containerType (the interface the proxy implements);
+    // the array wrap lambda new {Proxy}(e) bridges via the implicit ClassExistentialContainer1 →
+    // ExistentialContainer1 conversion.
+    // ExistentialProjection does not override MarshalFromSwiftType, so it resolves to _containerType
+    // (MarshalFromSwiftType → SwiftContainerGenericType → PInvokeType → _containerType); use that
+    // directly here since the interface default member isn't in scope by name.
+    public string ArrayElementCarrierType =>
+        _isClassBoundArity1 && _proxyClassName != null
+            ? "Swift.Runtime.ClassExistentialContainer1"
+            : _containerType;
+
+    /// <summary>
+    /// True when this is a single class-bound (superclass-/AnyObject-constrained) existential with a
+    /// proxy, i.e. one whose array READ carrier (<see cref="ArrayElementCarrierType"/>) is the 16-byte
+    /// <c>ClassExistentialContainer1</c> rather than the 40-byte opaque <c>ExistentialContainer1</c>.
+    /// Accessor return-type selection uses this to route only class-bound existential arrays through the
+    /// projection carrier, leaving every other array accessor on the legacy translation unchanged.
+    /// </summary>
+    public bool IsClassBoundArity1 => _isClassBoundArity1 && _proxyClassName != null;
 
     // The owned-return ctor argument, emitted for both single-protocol (EC1) and composition
     // (EC2+) proxies that expose the ownership-aware ctor. The proxy adopts the +1 and releases

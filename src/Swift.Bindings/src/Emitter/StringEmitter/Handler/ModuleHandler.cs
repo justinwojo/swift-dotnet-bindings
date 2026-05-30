@@ -344,6 +344,8 @@ namespace BindingsGeneration
             var conformances = emissionCtx?.EmittedConformances ?? Array.Empty<(string, string)>();
             var simpleEnumRegistrations = emissionCtx?.SimpleEnumMetadataRegistrations
                 ?? Array.Empty<(string, string, string)>();
+            var classBoundExistentialRegistrations = emissionCtx?.ClassBoundExistentialRegistrations
+                ?? Array.Empty<(string, string)>();
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
@@ -411,6 +413,15 @@ namespace BindingsGeneration
             {
                 var safeName = typeName.Replace(".", "_");
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeName}), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_{safeName}())); }} catch {{ }}");
+            }
+            // Register the shared class-existential value-witness metadata for the
+            // ClassExistentialContainer1 carrier (16-byte [classRef][witnessTable] stride).
+            // Required so SwiftArray<ClassExistentialContainer1> derives the correct element
+            // stride from Swift metadata; the registration is idempotent and protocol-agnostic
+            // for the arity, so the first class-bound protocol's descriptor wins.
+            foreach (var (libraryName, descriptorSymbol) in classBoundExistentialRegistrations)
+            {
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterClassBoundExistentialMetadata(\"{libraryName}\", \"{descriptorSymbol}\"); }} catch {{ }}");
             }
             csWriter.WriteLines($$"""
                     }
@@ -1076,8 +1087,53 @@ namespace BindingsGeneration
                 }
             }
 
+            // Read-only (Swift-vended-only) proxy protocols: superclass-constrained and NOT
+            // Entity-rooted. EveryProtocol / EveryEntityProtocol cannot subclass the required
+            // class, so no conformance is emitted and the HasClassSuperclassRequirement gate
+            // above filtered them out of suitableProtocols. The C# proxy is still emitted so
+            // Swift-vended `any P` returns and `[any P]` array elements can be wrapped and
+            // dispatched through the existential's OWN witness table — the witness-dispatch
+            // accessors reconstruct `any P` via its static type (`load(as: (any P).self)`),
+            // which needs no EveryProtocol conformance. Mirrors the suitableProtocols filter
+            // chain but KEEPS the superclass-constrained (non-Entity-rooted) protocols it drops,
+            // and excludes any that already made it into suitableProtocols.
+            var suitableNames = new HashSet<string>(suitableProtocols.Select(p => p.Name), StringComparer.Ordinal);
+            var readOnlyProxyProtocols = protocols
+                .Where(p => !p.HasSelfRequirement && p.AssociatedTypes.Count == 0)
+                .Where(p => !p.IsModuleInternal)
+                .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name)
+                            || (string.IsNullOrEmpty(p.MangledName)
+                                && p.SwiftTypeName != null
+                                && string.Equals(p.SwiftTypeName.Module, moduleDecl.Name, StringComparison.Ordinal)))
+                .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
+                .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols)
+                            || EveryProtocolEmitter.IsNSObjectProtocolOnly(p, protocols))
+                // The defining trait: a class-superclass requirement that is NOT Entity-rooted.
+                .Where(p => EveryProtocolEmitter.HasClassSuperclassRequirement(p, typeDatabase, protocols)
+                            && !EveryProtocolEmitter.IsEntityRootedProtocol(p, typeDatabase, protocols))
+                .Where(p => !EveryProtocolEmitter.InheritsCaseIterable(p, protocols))
+                .Where(p => !InheritsProtocolWithAssociatedTypes(p, protocols, typeDatabase))
+                .Where(p => !EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(p, protocols))
+                .Where(p => !HasMembersReferencingInternalTypes(p, typeDatabase, moduleDecl.Name))
+                .Where(p => !suitableNames.Contains(p.Name))
+                .ToList();
+            foreach (var p in readOnlyProxyProtocols)
+                emissionCtx?.MarkReadOnlyProxy(p.Name);
+
             if (!suitableProtocols.Any())
+            {
+                // No EveryProtocol-backed conformances — but read-only proxies still need their
+                // Swift witness-dispatch accessors emitted (the C# proxy's read path P/Invokes
+                // into them). The EveryProtocol-class scaffolding is skipped (nothing conforms).
+                if (readOnlyProxyProtocols.Count > 0)
+                {
+                    var readOnlyDispatchEmitter = new WitnessDispatchEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
+                    foreach (var protocolDecl in readOnlyProxyProtocols)
+                        if (!EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
+                            readOnlyDispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
+                }
                 return;
+            }
 
             var emitter = new EveryProtocolEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
             var dispatchEmitter = new WitnessDispatchEmitter(typeDatabase, _logger, moduleDecl.Name, emissionCtx);
@@ -1208,6 +1264,17 @@ namespace BindingsGeneration
                 // Skip witness dispatch for mixed-generic protocols — the type projection
                 // pipeline generates incorrect types when method-level generic parameters
                 // are in scope (e.g., RxTime→Double instead of Date).
+                if (!EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
+                    dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
+            }
+
+            // Read-only proxy protocols: emit ONLY their Swift witness-dispatch accessors (no
+            // EveryProtocol conformance). The C# proxy classes are emitted by ProtocolHandler;
+            // these accessors are the @_cdecl read-path entry points the proxy's NativeMethods
+            // P/Invoke into for `any P` member reads.
+            foreach (var protocolDecl in readOnlyProxyProtocols)
+            {
+                _logger.LogDebug($"Emitting read-only witness dispatch for {protocolDecl.Name} (Swift-vended-only proxy)");
                 if (!EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
                     dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
             }

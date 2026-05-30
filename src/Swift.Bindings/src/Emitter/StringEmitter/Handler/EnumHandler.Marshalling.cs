@@ -310,7 +310,13 @@ namespace BindingsGeneration
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                        // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+                        // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
+                        // container (40 bytes); reading the wider type over-reads past the allocation.
+                        var rawRead = existentialHandler.IsClassBoundArity1Existential(protocolList)
+                            ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(new IntPtr({sourcePtr} + (int){offsetVar}))"
+                            : $"SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}))";
+                        csWriter.WriteLine($"var _{varName}_raw = {rawRead};");
                         csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
                     }
                     else
@@ -473,7 +479,13 @@ namespace BindingsGeneration
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+                        // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
+                        // container (40 bytes); reading the wider type over-reads past the allocation.
+                        var rawRead = existentialHandler.IsClassBoundArity1Existential(protocolList)
+                            ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(new IntPtr({sourcePtr}))"
+                            : $"SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}))";
+                        csWriter.WriteLine($"var _{varName}_raw = {rawRead};");
                         csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
                     }
                     else
@@ -695,7 +707,13 @@ namespace BindingsGeneration
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+                        // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
+                        // container (40 bytes); reading the wider type over-reads past the allocation.
+                        var rawRead = existentialHandler.IsClassBoundArity1Existential(protocolList)
+                            ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(new IntPtr({sourcePtr}))"
+                            : $"SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}))";
+                        csWriter.WriteLine($"var _{varName}_raw = {rawRead};");
                         csWriter.WriteLine($"var {varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
                     }
                     else

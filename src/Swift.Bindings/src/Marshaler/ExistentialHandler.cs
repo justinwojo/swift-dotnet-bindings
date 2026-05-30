@@ -330,6 +330,42 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Returns true when the composition is a single class-bound (superclass- or
+    /// <c>AnyObject</c>-constrained) protocol. Such existentials use the 2-word
+    /// <c>[classRef][witnessTable]</c> class-existential ABI (16-byte stride),
+    /// not the 5-word <see cref="OpaqueExistentialContainer"/> opaque layout.
+    /// Marshalling them through <c>ExistentialContainer1</c> (40-byte stride) over-reads
+    /// array elements and crashes; <c>ClassExistentialContainer1</c> carries the correct
+    /// stride. Only arity 1 is handled — multi-protocol class-bound compositions are
+    /// rejected upstream by <see cref="CompositionHasNonProtocolParticipant"/>.
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <returns><c>true</c> for a single class-bound protocol existential.</returns>
+    public bool IsClassBoundArity1Existential(ProtocolListTypeSpec protocolList)
+    {
+        var nonMarker = GetNonMarkerProtocols(protocolList);
+        if (nonMarker.Count != 1)
+            return false;
+
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromTypeSpec(nonMarker[0]);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) &&
+                typeRecord.Kind == TypeRecordKind.Protocol)
+            {
+                return (typeRecord.Flags & TypeRecordFlags.ClassBound) != 0;
+            }
+        }
+        catch
+        {
+            // Unresolvable type name — treat as non-class-bound and fall through to
+            // the regular opaque container path.
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Gets the P/Invoke type for an existential container.
     /// Uses the appropriate ExistentialContainer struct.
     /// </summary>

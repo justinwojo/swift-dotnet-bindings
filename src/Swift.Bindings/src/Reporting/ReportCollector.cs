@@ -574,6 +574,7 @@ public static class ReportCollector
         var generated = views.Count(v => v.BridgeStatus == "Generated");
         var template = views.Count(v => v.BridgeStatus == "TemplatePending");
         var hintSkipped = views.Count(v => v.BridgeStatus == "HintSkipped");
+        var skipped = views.Count(v => v.BridgeStatus == "Skipped");
         var total = views.Count;
 
         return new BridgeSummary
@@ -582,6 +583,7 @@ public static class ReportCollector
             Generated = generated,
             Template = template,
             HintSkipped = hintSkipped,
+            Skipped = skipped,
             GeneratedPercent = total > 0 ? Math.Round(100.0 * generated / total, 1) : 0,
         };
     }

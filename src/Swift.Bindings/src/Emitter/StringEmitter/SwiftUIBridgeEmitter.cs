@@ -40,10 +40,18 @@ public static partial class SwiftUIBridgeEmitter
         var context = new BridgeContext(typeDatabase, moduleDecl, hints, logger);
         var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName, context)).ToList();
 
-        // Record skipped views in report, then remove them
+        // Record skipped views in report, then remove them. A hint-driven skip is
+        // reported as "HintSkipped"; a structural skip (e.g. no accessible public
+        // initializer) is reported as "Skipped" so the binding report distinguishes
+        // a deliberate opt-out from a view we could not bridge.
         var skippedViews = viewInfos.Where(v => v.Classification == ViewInitClassification.Skipped).ToList();
         foreach (var skipped in skippedViews)
-            ReportCollector.RecordBridgedView(skipped.ViewName, moduleName, "Skipped", "HintSkipped");
+        {
+            var status = hints?.Views?.GetValueOrDefault(skipped.ViewName)?.Skip == true
+                ? "HintSkipped"
+                : "Skipped";
+            ReportCollector.RecordBridgedView(skipped.ViewName, moduleName, "Skipped", status);
+        }
         viewInfos = viewInfos.Where(v => v.Classification != ViewInitClassification.Skipped).ToList();
 
         // If all views were skipped, clean up auto-generated bridge files and return
@@ -308,9 +316,15 @@ public static partial class SwiftUIBridgeEmitter
 
         if (constructors.Count == 0)
         {
-            var noCtorModifiers = AnalyzeModifiers(viewType, moduleName, context);
-            return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Simple,
-                null, constructors, Modifiers: noCtorModifiers);
+            // No public constructor in the ABI means there is no accessible
+            // initializer: Swift's implicit/default init for a public type is
+            // internal, so the view cannot be constructed from the separate
+            // {Module}Bridge module that only sees the framework's public API.
+            // Emitting a functional TypeName() here yields Swift that fails to
+            // compile, so the view is skipped instead.
+            return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.Skipped,
+                "No accessible (public) initializer; view cannot be constructed from the bridge module",
+                constructors);
         }
 
         // Check each constructor's parameters

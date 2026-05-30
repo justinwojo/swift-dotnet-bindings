@@ -263,4 +263,50 @@ public class SimdProjectionTests : TestBase
     }
 
     #endregion
+
+    #region Multi-SIMD constructor (RealityKit.Transform shape — §5a)
+
+    // SimdDefaultCtorStruct is a resilient (non-@frozen) struct → ClassWithOpaquePayload, the same
+    // C# shape the generator gives RealityKit.Transform. Its initializer takes three SIMD parameters
+    // by value (a mix of bound-generic SIMD3<Float> → Vector3 and the C-imported simd_quatf →
+    // Quaternion). Without the indirect (pointer) wrapper these route by register through CallConvSwift
+    // and Mono's JIT throws InvalidProgramException at construction. Reaching the assertions at all
+    // proves the @_cdecl wrapper is in place and the SIMD params crossed correctly.
+
+    public void TestSimdMultiParamCtorConstructsAndRoundTrips()
+    {
+        var scale = new Vector3(2.0f, 3.0f, 4.0f);
+        var rotation = new Quaternion(0.0f, 0.0f, 0.0f, 1.0f); // identity
+        var translation = new Vector3(5.0f, 6.0f, 7.0f);
+
+        using var t = new SimdDefaultCtorStruct(scale, rotation, translation);
+
+        Vector3 s = t.Scale;
+        AssertFloatEqual(2.0f, s.X, "Scale.X survives the multi-SIMD ctor");
+        AssertFloatEqual(3.0f, s.Y, "Scale.Y survives the multi-SIMD ctor");
+        AssertFloatEqual(4.0f, s.Z, "Scale.Z survives the multi-SIMD ctor");
+
+        Vector3 tr = t.Translation;
+        AssertFloatEqual(5.0f, tr.X, "Translation.X survives the multi-SIMD ctor");
+        AssertFloatEqual(6.0f, tr.Y, "Translation.Y survives the multi-SIMD ctor");
+        AssertFloatEqual(7.0f, tr.Z, "Translation.Z survives the multi-SIMD ctor");
+
+        Quaternion r = t.Rotation;
+        AssertFloatEqual(1.0f, r.W, "Rotation.W (identity) survives the multi-SIMD ctor");
+    }
+
+    // Single-SIMD-param control: init(basis:) already wrapped correctly before the fix. Confirms the
+    // indirect path is sound for SIMD ctor params and isolates the multi-param case as the regression.
+    public void TestSimdSingleParamCtorConstructs()
+    {
+        var basis = Matrix4x4.Identity;
+        basis.M11 = 2.0f;
+        basis.M22 = 3.0f;
+        basis.M33 = 4.0f;
+
+        using var t = new SimdDefaultCtorStruct(basis);
+        AssertNotNull(t, "init(basis:) constructs via the single-SIMD indirect wrapper");
+    }
+
+    #endregion
 }

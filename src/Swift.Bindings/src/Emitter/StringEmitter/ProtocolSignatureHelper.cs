@@ -156,13 +156,18 @@ internal static class ProtocolSignatureHelper
     /// <param name="genericContext">Explicit generic context override. When null, auto-computed from protocolContext
     /// (ForProtocolSelf when HasSelfRequirement, otherwise Empty).</param>
     /// <param name="mode">Mode flags controlling resolution behavior. Default is interface context.</param>
+    /// <param name="currentModuleName">Emitting module name. When set, cross-module existential
+    /// projections are namespace-qualified (e.g. <c>RealityFoundation.IHasCollision?</c> when a
+    /// RealityKit proxy/signature references a RealityFoundation existential). Left null by
+    /// gating/dedup callers so overload-identity keys stay module-agnostic and consistent.</param>
     public static string ProjectTypeToCSharp(
         TypeSpec typeSpec,
         ITypeDatabase typeDatabase,
         ProtocolDecl? protocolContext = null,
         bool isParameter = false,
         GenericContext? genericContext = null,
-        TypeResolutionMode mode = TypeResolutionMode.Default)
+        TypeResolutionMode mode = TypeResolutionMode.Default,
+        string? currentModuleName = null)
     {
         bool forAbiMarshalling = mode.HasFlag(TypeResolutionMode.AbiMarshalling);
         bool narrowNativeInt = mode.HasFlag(TypeResolutionMode.NarrowNativeInt);
@@ -190,7 +195,8 @@ internal static class ProtocolSignatureHelper
         {
             TypeDatabase = typeDatabase,
             IsParameter = isParameter,
-            GenericContext = effectiveGenericContext
+            GenericContext = effectiveGenericContext,
+            CurrentModuleName = currentModuleName
         });
         if (projection != null)
         {
@@ -202,7 +208,7 @@ internal static class ProtocolSignatureHelper
         if (typeSpec is ClosureTypeSpec closureType)
         {
             var args = closureType.EachArgument()
-                .Select(a => ProjectTypeToCSharp(a, typeDatabase, protocolContext, isParameter: true, genericContext, recurMode))
+                .Select(a => ProjectTypeToCSharp(a, typeDatabase, protocolContext, isParameter: true, genericContext, recurMode, currentModuleName))
                 .ToList();
             bool hasReturn = !closureType.ReturnType.IsEmptyTuple;
 
@@ -215,7 +221,7 @@ internal static class ProtocolSignatureHelper
             {
                 // Closure return types use isParameter:false (return position) so arrays project
                 // as IReadOnlyList<T>, matching ProtocolHandler.GetClosureCSharpType for interface parity.
-                var retName = ProjectTypeToCSharp(closureType.ReturnType, typeDatabase, protocolContext, isParameter: false, genericContext, recurMode);
+                var retName = ProjectTypeToCSharp(closureType.ReturnType, typeDatabase, protocolContext, isParameter: false, genericContext, recurMode, currentModuleName);
                 closureResult = args.Count == 0 ? $"Func<{retName}>" : $"Func<{string.Join(", ", args)}, {retName}>";
             }
             return MaybeNarrow(closureResult, narrowNativeInt);
@@ -229,7 +235,7 @@ internal static class ProtocolSignatureHelper
             var elements = new List<string>();
             foreach (var element in tupleType.Elements)
             {
-                var typeName = ProjectTypeToCSharp(element, typeDatabase, protocolContext, isParameter, genericContext, recurMode);
+                var typeName = ProjectTypeToCSharp(element, typeDatabase, protocolContext, isParameter, genericContext, recurMode, currentModuleName);
                 if (includeTupleLabels && !string.IsNullOrEmpty(element.TypeLabel))
                     elements.Add($"{typeName} {element.TypeLabel}");
                 else
@@ -242,7 +248,7 @@ internal static class ProtocolSignatureHelper
         // Only used in proxy context where the factory may not cover all existential patterns.
         if (existentialFallback)
         {
-            var existentialHandler = new ExistentialHandler(typeDatabase);
+            var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = currentModuleName };
             if (existentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);

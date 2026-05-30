@@ -155,4 +155,43 @@ public class ConstructorCollectionTests : TestBase
     }
 
     #endregion
+
+    #region Existential Array Property Getter (Nuke ImageRequest.Processors regression)
+    // The `modes` property getter projects Swift's [any ProcessingMode] back to
+    // C# via SwiftArray<ExistentialContainer1>.AsProjected(e => new ProcessingModeProxy(e)) —
+    // the identical shape to Nuke's ImageRequest.Processors (IReadOnlyList<IImageProcessing>).
+    // The constructor tests above only exercise the write side + modeCount(); these pin the
+    // read side: the getter must project usable proxies in order, and an empty backing array
+    // must round-trip as an empty list rather than null or a throw (the exact path a default
+    // Nuke ImageRequest exercises).
+
+    public void TestProcessingPipelineModesGetterProjection()
+    {
+        var input = new IProcessingMode[] { new SimpleMode(), new StrictMode() };
+        using var pipeline = new ProcessingPipeline(input);
+
+        IReadOnlyList<IProcessingMode> modes = pipeline.Modes;
+        AssertTrue(modes is not null, "Modes getter must not return null");
+        AssertEqual(2, modes!.Count, "Modes getter should project 2 elements");
+
+        // Round-trip each projected proxy through the protocol witness — proves the
+        // projection produced live existential proxies, not just a correct count.
+        AssertEqual("simple", modes[0].ModeName, "Modes[0] (SimpleMode) projects modeName");
+        AssertEqual("strict", modes[1].ModeName, "Modes[1] (StrictMode) projects modeName");
+        AssertTrue(modes[1].Validate(500), "StrictMode.validate(500) via projected proxy");
+        AssertTrue(!modes[1].Validate(-1), "StrictMode.validate(-1) via projected proxy");
+        TestLogger.Info("ProcessingPipeline.Modes getter projection passed");
+    }
+
+    public void TestProcessingPipelineModesGetterEmpty()
+    {
+        using var pipeline = new ProcessingPipeline(Array.Empty<IProcessingMode>());
+
+        IReadOnlyList<IProcessingMode> modes = pipeline.Modes;
+        AssertTrue(modes is not null, "Modes getter must not return null for an empty pipeline");
+        AssertEqual(0, modes!.Count, "Modes getter should project an empty list");
+        TestLogger.Info("ProcessingPipeline.Modes empty getter projection passed");
+    }
+
+    #endregion
 }

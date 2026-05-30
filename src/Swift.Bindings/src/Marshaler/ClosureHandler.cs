@@ -1475,6 +1475,18 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// True when <paramref name="typeSpec"/> is a single class-bound existential (one
+    /// AnyObject-/superclass-constrained protocol). Such an existential is a compact 2-word
+    /// <c>[classRef][witnessTable]</c> heap cell (16 bytes), not the 5-word opaque container
+    /// (40 bytes), so closure marshalling must read only 16 bytes to avoid over-reading.
+    /// </summary>
+    public bool IsClassBoundArity1Existential(TypeSpec typeSpec)
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        return protocolList != null && _existentialHandler.IsClassBoundArity1Existential(protocolList);
+    }
+
+    /// <summary>
     /// Translates a TypeSpec to its P/Invoke equivalent type.
     /// For UnmanagedCallersOnly compatibility, only blittable types can be used directly.
     /// Non-blittable types (including those requiring memory management) use void*.

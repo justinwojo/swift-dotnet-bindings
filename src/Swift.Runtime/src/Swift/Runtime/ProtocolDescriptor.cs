@@ -90,18 +90,12 @@ public readonly struct ProtocolDescriptor : IEquatable<ProtocolDescriptor>
 
         try
         {
-            if (!NativeLibrary.TryLoad(libraryName, typeof(ProtocolDescriptor).Assembly, null, out libraryHandle))
+            // Shared resolution with ProtocolConformanceDescriptor.LoadFromSymbol: bare-name
+            // assembly-context probing first, then a framework-name search-path walk that
+            // reaches /System/Library/Frameworks for Apple *system* frameworks on device.
+            if (!SwiftFrameworkResolver.TryLoadWithFrameworkFallback(libraryName, out libraryHandle))
             {
-                // Fallback: try @rpath framework path. On iOS device, the DllImport resolver
-                // that maps library names to framework paths is registered on the binding
-                // assembly, not Swift.Runtime. NativeLibrary.TryLoad with the bare name
-                // won't find it, but the @rpath framework path will. Mirrors the sibling
-                // fallback in ProtocolConformanceDescriptor.LoadFromSymbol.
-                var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
-                if (!NativeLibrary.TryLoad(frameworkPath, out libraryHandle))
-                {
-                    throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
-                }
+                throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
             }
 
             if (NativeLibrary.TryGetExport(libraryHandle, symbolName, out var handle))

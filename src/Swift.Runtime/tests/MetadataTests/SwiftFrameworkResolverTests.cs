@@ -201,4 +201,59 @@ public class SwiftFrameworkResolverTests
                 NativeLibrary.Free(bareHandle);
         }
     }
+
+    [Theory]
+    // Bare module name passes through unchanged.
+    [InlineData("CryptoKit", "CryptoKit")]
+    // The dyld-style framework path the generator embeds for an Apple-framework-target
+    // binding's conformance-descriptor load. Extracting "CryptoKit" lets the system-path
+    // fallback in TryLoadWithFrameworkFallback reach
+    // /System/Library/Frameworks/CryptoKit.framework/CryptoKit on a physical device (§3).
+    [InlineData("@rpath/CryptoKit.framework/CryptoKit", "CryptoKit")]
+    [InlineData("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", "CryptoKit")]
+    [InlineData("@executable_path/StoreKit.framework/StoreKit", "StoreKit")]
+    // Plain dylib paths reduce to the bare name, stripping the lib prefix and .dylib suffix.
+    [InlineData("/usr/lib/libSystem.B.dylib", "System.B")]
+    [InlineData("@rpath/libFoo.dylib", "Foo")]
+    [InlineData("Foo.dylib", "Foo")]
+    public void ExtractFrameworkName_ReducesEmbeddedPathToFrameworkName(string libraryName, string expected)
+    {
+        Assert.Equal(expected, SwiftFrameworkResolver.ExtractFrameworkName(libraryName));
+    }
+
+    [Fact]
+    public void ExtractFrameworkName_FeedsSystemPathFallback()
+    {
+        // The whole point of the extraction: the reduced name, run through the resolver's
+        // ordered search-path list, must include the /System/Library/Frameworks system path
+        // (last, so app-bundled / rpath-resident frameworks still win when present). This
+        // is the device fix for CSM conformance-descriptor loads of Apple system frameworks.
+        var name = SwiftFrameworkResolver.ExtractFrameworkName(
+            "@rpath/CryptoKit.framework/CryptoKit");
+        var paths = SwiftFrameworkResolver.GetSearchPaths(name);
+
+        Assert.Equal("CryptoKit", name);
+        Assert.Contains("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", paths);
+        Assert.Equal("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", paths[^1]);
+    }
+
+    [Fact]
+    public void TryLoadWithFrameworkFallback_ReachesSystemPathForDyldStyleName()
+    {
+        // Regression guard for the descriptor-loader asymmetry (Codex r1 High): BOTH
+        // ProtocolDescriptor.LoadFromSymbol (class-bound existential metadata registration)
+        // and ProtocolConformanceDescriptor.LoadFromSymbol (CSM conformance loads) route
+        // through this one helper, so the upgraded /System/Library/Frameworks fallback can
+        // never apply to only one of them again. An already-dyld-style name must NOT be
+        // double-@rpath-prefixed — the extracted bare name's search list ends at the system
+        // path. (We assert the resolution plan, not an actual dlopen, so the test is
+        // host-portable: CoreFoundation always resolves but isn't a class-bound producer.)
+        var name = SwiftFrameworkResolver.ExtractFrameworkName(
+            "@rpath/RealityFoundation.framework/RealityFoundation");
+        Assert.Equal("RealityFoundation", name);
+
+        var paths = SwiftFrameworkResolver.GetSearchPaths(name);
+        Assert.DoesNotContain(paths, p => p.Contains("@rpath/@rpath", StringComparison.Ordinal));
+        Assert.Equal("/System/Library/Frameworks/RealityFoundation.framework/RealityFoundation", paths[^1]);
+    }
 }

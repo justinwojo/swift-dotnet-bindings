@@ -513,6 +513,48 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         ReportCollector.Reset();
     }
 
+    /// <summary>
+    /// A non-generic SwiftUI View with zero public constructors in the ABI has no
+    /// accessible initializer: Swift's implicit/default init for a public type is
+    /// <c>internal</c>, so it cannot be constructed from the separate
+    /// <c>{Module}Bridge</c> module that only sees the framework's public API.
+    /// Emitting a functional <c>TypeName()</c> for such a view produces Swift that
+    /// fails to compile ("cannot be constructed because it has no accessible
+    /// initializers"). The view must be skipped, not bridged.
+    /// </summary>
+    [Fact]
+    public void EmitSimpleViewBridge_SkipsView_WhenNoPublicConstructor()
+    {
+        ReportCollector.Reset();
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+
+        var views = new List<TypeDecl>
+        {
+            CreateViewStructWithNoConstructor("UnconstructibleView"),
+            CreateViewWithVoidClosureInit("ConstructibleView", "action"),
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+
+        // The constructible view bridges functionally...
+        Assert.Contains("SBW_TestModule_ConstructibleView_Session", swiftContent);
+        // ...but the unconstructible view is skipped entirely — no functional code,
+        // and not even a template stub (there is nothing the consumer could fill in).
+        Assert.DoesNotContain("UnconstructibleView", swiftContent);
+
+        var report = ReportCollector.Complete()!;
+        var skipped = report.BridgedViews.FirstOrDefault(v => v.ViewName == "UnconstructibleView");
+        Assert.NotNull(skipped);
+        Assert.Equal("Skipped", skipped!.InitClassification);
+        Assert.Equal("Skipped", skipped.BridgeStatus);
+
+        ReportCollector.Reset();
+    }
+
     #endregion
 
     #region InitAnalyzer
@@ -1849,7 +1891,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             },
         });
 
-        var view = CreateSimpleViewStruct("AsyncConfigView");
+        var view = CreateViewStructWithNoConstructor("AsyncConfigView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -1885,7 +1927,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             },
         });
 
-        var view = CreateSimpleViewStruct("AsyncConfigView");
+        var view = CreateViewStructWithNoConstructor("AsyncConfigView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -2414,7 +2456,27 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         };
     }
 
+    /// <summary>
+    /// A View struct that bridges as a simple no-argument <c>TypeName()</c>.
+    /// Models a real publicly-constructible view: it carries a public no-arg
+    /// <c>init()</c> so the bridge can call <c>TypeName()</c> from the separate
+    /// <c>{Module}Bridge</c> module. (A view with no public init is
+    /// unconstructible and is skipped — see
+    /// <c>CreateViewStructWithNoConstructor</c>.)
+    /// </summary>
     private static StructDecl CreateSimpleViewStruct(string name)
+    {
+        var view = CreateViewStructWithNoConstructor(name);
+        view.Methods.Add(CreateNoArgConstructor(name));
+        return view;
+    }
+
+    /// <summary>
+    /// A View struct with zero public constructors — i.e. no accessible
+    /// initializer. Used as the base for views that add their own specific
+    /// constructor, and to exercise the "skip unconstructible view" path.
+    /// </summary>
+    private static StructDecl CreateViewStructWithNoConstructor(string name)
     {
         return new StructDecl
         {
@@ -2439,16 +2501,47 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         };
     }
 
+    private static MethodDecl CreateNoArgConstructor(string viewName)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{viewName.Length}{viewName}CACycfc",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type (index 0) — no parameters follow (public init())
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{viewName}"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
     private static StructDecl CreateViewWithVoidClosureInit(string name, string closureParamName)
     {
-        var view = CreateSimpleViewStruct(name);
+        var view = CreateViewStructWithNoConstructor(name);
         view.Methods.Add(CreateConstructorWithVoidClosure(closureParamName));
         return view;
     }
 
     private static StructDecl CreateViewWithUnsupportedParam(string name)
     {
-        var view = CreateSimpleViewStruct(name);
+        var view = CreateViewStructWithNoConstructor(name);
         view.Methods.Add(new MethodDecl
         {
             Name = "init",
@@ -2771,35 +2864,35 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     private static StructDecl CreateViewWithEnumInit(string viewName, string paramName, string enumTypeName)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(CreateConstructorWithNamedType(paramName, enumTypeName));
         return view;
     }
 
     private static StructDecl CreateViewWithOptionalPrimitiveInit(string viewName, string paramName, string innerTypeName)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(CreateConstructorWithOptionalPrimitive(paramName, innerTypeName));
         return view;
     }
 
     private static StructDecl CreateViewWithOptionalEnumInit(string viewName, string paramName, string enumTypeName)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(CreateConstructorWithOptionalPrimitive(paramName, enumTypeName));
         return view;
     }
 
     private static StructDecl CreateViewWithClassInit(string viewName, string paramName, string classTypeName)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(CreateConstructorWithNamedType(paramName, classTypeName));
         return view;
     }
 
     private static StructDecl CreateViewWithOptionalClassInit(string viewName, string paramName, string classTypeName)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(CreateConstructorWithOptionalPrimitive(paramName, classTypeName));
         return view;
     }
@@ -2856,7 +2949,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     private static StructDecl CreateViewWithTypedClosureInit(string viewName, string paramName, TypeSpec args, TypeSpec returnType)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(CreateConstructorWithTypedClosure(paramName, args, returnType));
         return view;
     }
@@ -3022,7 +3115,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         // View with a constructor that takes only a primitive (leaf) — no async deps
         var moduleDecl = CreateInferenceModuleDecl("TestModule");
-        var view = CreateSimpleViewStruct("TestView");
+        var view = CreateViewStructWithNoConstructor("TestView");
         view.Methods.Add(CreateConstructorWithPrimitive("count", "Swift.Int"));
         moduleDecl.Types.Add(view);
 
@@ -3044,7 +3137,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("AsyncServiceView");
+        var view = CreateViewStructWithNoConstructor("AsyncServiceView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3080,7 +3173,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             "mode", "Swift.Int32"));
         moduleDecl.Types.Add(processor);
 
-        var view = CreateSimpleViewStruct("DeepChainView");
+        var view = CreateViewStructWithNoConstructor("DeepChainView");
         view.Methods.Add(CreateCtorWithNamedParam("processor", "TestModule.Processor"));
         moduleDecl.Types.Add(view);
 
@@ -3123,7 +3216,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         level0.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.Level1"));
         moduleDecl.Types.Add(level0);
 
-        var view = CreateSimpleViewStruct("DeepView");
+        var view = CreateViewStructWithNoConstructor("DeepView");
         view.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.Level0"));
         moduleDecl.Types.Add(view);
 
@@ -3146,7 +3239,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         someType.Methods.Add(CreateAsyncThrowsCtor("config", "OtherModule.ComplexType"));
         moduleDecl.Types.Add(someType);
 
-        var view = CreateSimpleViewStruct("TestView");
+        var view = CreateViewStructWithNoConstructor("TestView");
         view.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.SomeType"));
         moduleDecl.Types.Add(view);
 
@@ -3165,7 +3258,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // View takes a cross-module type directly
         var moduleDecl = CreateInferenceModuleDecl("TestModule");
 
-        var view = CreateSimpleViewStruct("TestView");
+        var view = CreateViewStructWithNoConstructor("TestView");
         view.Methods.Add(CreateCtorWithNamedParam("dep", "OtherModule.SomeClass"));
         moduleDecl.Types.Add(view);
 
@@ -3192,7 +3285,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         cycleB.Methods.Add(CreateAsyncThrowsCtor("dep", "TestModule.CycleA"));
         moduleDecl.Types.Add(cycleB);
 
-        var view = CreateSimpleViewStruct("CycleView");
+        var view = CreateViewStructWithNoConstructor("CycleView");
         view.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.CycleA"));
         moduleDecl.Types.Add(view);
 
@@ -3338,7 +3431,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("AsyncServiceView");
+        var view = CreateViewStructWithNoConstructor("AsyncServiceView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3362,7 +3455,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("AsyncServiceView");
+        var view = CreateViewStructWithNoConstructor("AsyncServiceView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3410,7 +3503,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         branchB.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.SharedService"));
         moduleDecl.Types.Add(branchB);
 
-        var view = CreateSimpleViewStruct("DAGView");
+        var view = CreateViewStructWithNoConstructor("DAGView");
         view.Methods.Add(CreateCtorWithTwoParams(
             "a", "TestModule.BranchA",
             "b", "TestModule.BranchB"));
@@ -3481,7 +3574,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("AsyncServiceView");
+        var view = CreateViewStructWithNoConstructor("AsyncServiceView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3528,7 +3621,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             "mode", "Swift.Int32"));
         moduleDecl.Types.Add(processor);
 
-        var view = CreateSimpleViewStruct("DeepChainView");
+        var view = CreateViewStructWithNoConstructor("DeepChainView");
         view.Methods.Add(CreateCtorWithNamedParam("processor", "TestModule.Processor"));
         moduleDecl.Types.Add(view);
 
@@ -3558,7 +3651,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("AsyncServiceView");
+        var view = CreateViewStructWithNoConstructor("AsyncServiceView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3615,7 +3708,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("BoolAsyncView");
+        var view = CreateViewStructWithNoConstructor("BoolAsyncView");
         view.Methods.Add(CreateCtorWithTwoParams(
             "service", "TestModule.AsyncService",
             "enabled", "Swift.Bool"));
@@ -3646,7 +3739,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("MixedAsyncView");
+        var view = CreateViewStructWithNoConstructor("MixedAsyncView");
         view.Methods.Add(CreateCtorWithThreeParams(
             "service", "TestModule.AsyncService",
             "count", "Swift.Int32",
@@ -3686,7 +3779,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             "mode", "Swift.Int32"));
         moduleDecl.Types.Add(processor);
 
-        var view = CreateSimpleViewStruct("DeepChainView");
+        var view = CreateViewStructWithNoConstructor("DeepChainView");
         view.Methods.Add(CreateCtorWithNamedParam("processor", "TestModule.Processor"));
         moduleDecl.Types.Add(view);
 
@@ -3722,7 +3815,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods[0].Throws = true;
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("CrossModuleView");
+        var view = CreateViewStructWithNoConstructor("CrossModuleView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3771,7 +3864,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods[0].Throws = true;
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("CrossModuleView");
+        var view = CreateViewStructWithNoConstructor("CrossModuleView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3799,7 +3892,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("DirectCrossModuleView");
+        var view = CreateViewStructWithNoConstructor("DirectCrossModuleView");
         view.Methods.Add(CreateCtorWithTwoParams(
             "service", "TestModule.AsyncService",
             "sdk", "OtherModule.ExternalSdk"));
@@ -3845,7 +3938,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods[0].Throws = true;
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("ImportTestView");
+        var view = CreateViewStructWithNoConstructor("ImportTestView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3886,7 +3979,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods[0].Throws = true;
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("CrossModuleBridgeView");
+        var view = CreateViewStructWithNoConstructor("CrossModuleBridgeView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -3935,7 +4028,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         asyncService.Methods[0].Throws = true;
         moduleDecl.Types.Add(asyncService);
 
-        var view = CreateSimpleViewStruct("CrossModuleBridgeView");
+        var view = CreateViewStructWithNoConstructor("CrossModuleBridgeView");
         view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
         moduleDecl.Types.Add(view);
 
@@ -4284,7 +4377,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void BridgeHints_PreferredInitHint_SelectsCorrectConstructor()
     {
         // Create a view with 2 constructors: [0] has void closure, [1] has Int
-        var view = CreateSimpleViewStruct("MultiInitView");
+        var view = CreateViewStructWithNoConstructor("MultiInitView");
         view.Methods.Add(CreateConstructorWithVoidClosure("onTap"));
         view.Methods.Add(CreateConstructorWithPrimitive("count", "Swift.Int"));
         var views = new List<TypeDecl> { view };
@@ -4310,7 +4403,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void BridgeHints_PreferredInitHint_OutOfRange_FallsBackWithWarning()
     {
         var testLogger = new TestLogger();
-        var view = CreateSimpleViewStruct("SingleInitView");
+        var view = CreateViewStructWithNoConstructor("SingleInitView");
         view.Methods.Add(CreateConstructorWithPrimitive("count", "Swift.Int"));
         var views = new List<TypeDecl> { view };
         var hintsPath = CreateBridgeHintsFile(_tempDir, """
@@ -6729,7 +6822,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     private static StructDecl CreateViewWithPrimitiveAndStringInit(string viewName, string primName, string primType, string strName)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(new MethodDecl
         {
             Name = "init",
@@ -6781,7 +6874,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     private static StructDecl CreateViewWithMixedUpdatableInit(string viewName)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(new MethodDecl
         {
             Name = "init",
@@ -7165,7 +7258,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void Modifier_ModifiersOnlyView_ForcesStateWrapper()
     {
-        // View with no init params but with modifiers → needs State/Wrapper
+        // View with no init params but with modifiers → needs State/Wrapper.
+        // It still exposes a public no-arg init() (CreateSimpleViewStruct) so the
+        // bridge can construct ModOnlyView() before applying the modifier.
         var view = CreateSimpleViewStruct("ModOnlyView");
         view.Methods.Add(CreateSelfReturningMethod(view, "playing"));
 
@@ -8716,7 +8811,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void BindingBool_Wrapper_UsesBindingProjection()
     {
-        var view = CreateSimpleViewStruct("ToggleView");
+        var view = CreateViewStructWithNoConstructor("ToggleView");
         view.Methods.Add(CreateConstructorWithBindingParam("isOn", "Swift.Bool"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9059,7 +9154,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void SwiftUIImage_Wrapper_ConstructsImageFromSystemName()
     {
-        var view = CreateSimpleViewStruct("MenuView");
+        var view = CreateViewStructWithNoConstructor("MenuView");
         view.Methods.Add(CreateConstructorWithNamedType("icon", "SwiftUI.Image"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9073,7 +9168,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void SwiftUIImage_CSharp_FactoryAcceptsString()
     {
-        var view = CreateSimpleViewStruct("MenuView");
+        var view = CreateViewStructWithNoConstructor("MenuView");
         view.Methods.Add(CreateConstructorWithNamedType("icon", "SwiftUI.Image"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9169,7 +9264,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void ArrayOfInt_Swift_EmitsLetPropertyOnWrapper()
     {
-        var view = CreateSimpleViewStruct("ListView");
+        var view = CreateViewStructWithNoConstructor("ListView");
         view.Methods.Add(CreateConstructorWithArray("items", "Swift.Int"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9185,7 +9280,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void ArrayOfBoundEnum_Swift_EmitsArrayReconstruction()
     {
-        var view = CreateSimpleViewStruct("MenuView");
+        var view = CreateViewStructWithNoConstructor("MenuView");
         view.Methods.Add(CreateConstructorWithArray("formats", "TestModule.AlertStyle"));
 
         var typeDb = CreateEnumTypeDatabase();
@@ -9200,7 +9295,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void ArrayOfInt_CSharp_EmitsArrayFactoryParam()
     {
-        var view = CreateSimpleViewStruct("ListView");
+        var view = CreateViewStructWithNoConstructor("ListView");
         view.Methods.Add(CreateConstructorWithArray("items", "Swift.Int"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9214,7 +9309,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void ArrayOfBoundEnum_CSharp_EmitsRawValueExtraction()
     {
-        var view = CreateSimpleViewStruct("MenuView");
+        var view = CreateViewStructWithNoConstructor("MenuView");
         view.Methods.Add(CreateConstructorWithArray("formats", "TestModule.AlertStyle"));
 
         var typeDb = CreateEnumTypeDatabase();
@@ -9256,7 +9351,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void BindingAndImage_SameView_BothBridged()
     {
-        var view = CreateSimpleViewStruct("RichView");
+        var view = CreateViewStructWithNoConstructor("RichView");
         var ctor = CreateConstructorWithTwoNamedParams("isOn", "SwiftUI.Binding",
             "icon", "SwiftUI.Image");
         view.Methods.Add(ctor);
@@ -9379,7 +9474,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void NonRawValueEnum_Wrapper_UsesAssumingMemoryBound()
     {
         var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
-        var view = CreateSimpleViewStruct("MenuView");
+        var view = CreateViewStructWithNoConstructor("MenuView");
         view.Methods.Add(CreateConstructorWithNamedType("format", "TestModule.DataFormat"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9393,7 +9488,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void NonRawValueEnum_CSharp_UsesPayloadDangerousGetHandle()
     {
         var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
-        var view = CreateSimpleViewStruct("MenuView");
+        var view = CreateViewStructWithNoConstructor("MenuView");
         view.Methods.Add(CreateConstructorWithNamedType("format", "TestModule.DataFormat"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9407,7 +9502,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void NonRawValueEnum_ViewGets_FunctionalBridge()
     {
         var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
-        var view = CreateSimpleViewStruct("ActionButton");
+        var view = CreateViewStructWithNoConstructor("ActionButton");
         view.Methods.Add(CreateConstructorWithNamedType("action", "TestModule.DataFormat"));
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
@@ -9642,7 +9737,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     private static StructDecl CreateViewWithDualStringInit(string viewName, string str1Name, string str2Name)
     {
-        var view = CreateSimpleViewStruct(viewName);
+        var view = CreateViewStructWithNoConstructor(viewName);
         view.Methods.Add(new MethodDecl
         {
             Name = "init",
@@ -10049,7 +10144,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var typeDb = CreateResultClosureTypeDatabase();
         var context = new BridgeContext(typeDb);
-        var view = CreateSimpleViewStruct("ScannerView");
+        var view = CreateViewStructWithNoConstructor("ScannerView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.ScanResult", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };
@@ -10069,7 +10164,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var typeDb = CreateResultClosureTypeDatabase();
         var context = new BridgeContext(typeDb);
-        var view = CreateSimpleViewStruct("ScannerView");
+        var view = CreateViewStructWithNoConstructor("ScannerView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.ScanResult", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };
@@ -10088,7 +10183,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void EmitResultClosure_CSharpHasTwoActionParams()
     {
         var typeDb = CreateResultClosureTypeDatabase();
-        var view = CreateSimpleViewStruct("ScannerView");
+        var view = CreateViewStructWithNoConstructor("ScannerView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.ScanResult", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };
@@ -10105,7 +10200,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void EmitResultClosure_CSharpHasTwoTrampolines()
     {
         var typeDb = CreateResultClosureTypeDatabase();
-        var view = CreateSimpleViewStruct("ScannerView");
+        var view = CreateViewStructWithNoConstructor("ScannerView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.ScanResult", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };
@@ -10123,7 +10218,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     public void EmitResultClosure_WrapperHasResultClosureProperty()
     {
         var typeDb = CreateResultClosureTypeDatabase();
-        var view = CreateSimpleViewStruct("ScannerView");
+        var view = CreateViewStructWithNoConstructor("ScannerView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.ScanResult", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };
@@ -10158,7 +10253,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 Kind = TypeRecordKind.Class,
             },
         });
-        var view = CreateSimpleViewStruct("ObjCResultView");
+        var view = CreateViewStructWithNoConstructor("ObjCResultView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.ObjCResult", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };
@@ -10204,7 +10299,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 Kind = TypeRecordKind.Class,
             },
         });
-        var view = CreateSimpleViewStruct("UrlResultView");
+        var view = CreateViewStructWithNoConstructor("UrlResultView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.URL", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };
@@ -10248,7 +10343,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 RawValueTypeName = null, // Non-raw-value enum → BoundStruct
             },
         });
-        var view = CreateSimpleViewStruct("StructResultView");
+        var view = CreateViewStructWithNoConstructor("StructResultView");
         view.Methods.Add(CreateConstructorWithResultClosure("completion",
             "TestModule.ScanResult", "TestModule.ScanError"));
         var views = new List<TypeDecl> { view };

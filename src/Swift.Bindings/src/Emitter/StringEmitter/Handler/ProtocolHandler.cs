@@ -521,9 +521,18 @@ namespace BindingsGeneration
             // (SetVtable, GetWitnessTable), causing TypeInitializationException at runtime.
             // Method bodies in other types that reference the proxy (e.g., existential return
             // unwrappers) are co-gated by CSharpWrapperCoGater.ProcessSuppressedProxyReferences.
+            //
+            // Read-only (Swift-vended-only) proxies are exempt: a superclass-constrained protocol
+            // has no EveryProtocol conformance, but the proxy IS emitted so Swift-vended `any P`
+            // returns / `[any P]` array elements can be wrapped and dispatched through the
+            // existential's own witness table. The EveryProtocol NativeMethods declarations remain
+            // (they are runtime-resolved [LibraryImport]s, never called on the read path), and the
+            // proxy is NOT recorded as suppressed — its return/property projection lambdas stay
+            // intact rather than being rewritten to throw.
             else if (context.EmissionContext != null &&
                      context.EmissionContext.ConformanceDecisions.Count > 0 &&
-                     !context.EmissionContext.WasConformanceEmitted(protocolDecl.Name))
+                     !context.EmissionContext.WasConformanceEmitted(protocolDecl.Name) &&
+                     !context.EmissionContext.IsReadOnlyProxy(protocolDecl.Name))
             {
                 var proxyClassName = $"{protocolDecl.Name}Proxy";
                 context.EmissionContext.RecordSuppressedProxy(proxyClassName);

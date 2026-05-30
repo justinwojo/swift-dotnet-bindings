@@ -518,6 +518,7 @@ public class TypeProjectionFactory
         var containerType = handler.GetCSharpExistentialType(protocolList);
         var publicType = handler.GetPublicExistentialType(protocolList);
         bool isBareAny = handler.IsBareAny(protocolList);
+        bool isClassBoundArity1 = handler.IsClassBoundArity1Existential(protocolList);
 
         // Determine proxy class name:
         // - well-known protocols (e.g. Swift.Error → AnyError): no proxy
@@ -533,7 +534,7 @@ public class TypeProjectionFactory
             proxyClassName = handler.GetQualifiedProxyClassName(protocolList);
         }
 
-        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny);
+        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1);
     }
 
     /// <summary>

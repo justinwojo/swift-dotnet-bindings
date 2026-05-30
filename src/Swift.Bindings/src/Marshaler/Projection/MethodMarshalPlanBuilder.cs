@@ -812,7 +812,22 @@ internal class MethodMarshalPlanBuilder
                             new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
                                 GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
                                 CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
-                        if (returnProjection is ArrayProjection or DictionaryProjection or SetProjection
+                        if (returnProjection is OptionalProjection
+                            && WrapperValidation.IsOptionalClassBoundExistentialReturn(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                        {
+                            // Class-bound Optional existential return: the wire buffer holds the compact
+                            // 2-word [classRef][witnessTable] cell, and the proxy reads it via
+                            // ClassExistentialContainer1.ReadHeapCell(..., ownsContainer: true) — it ADOPTS
+                            // the classRef +1 and balances it on Dispose/finalize. Running the opaque 5-word
+                            // SwiftOptional<ExistentialContainer1> VWT destroy over this buffer would be a
+                            // double-release of that same classRef; it is a no-op today ONLY because Swift
+                            // leaves the opaque-Optional discriminator region zero in the AllocZeroed buffer.
+                            // Don't lean on that coincidence — the proxy owns the sole release, so just free
+                            // the buffer (mirrors the non-cdecl SwiftIndirectResult path below, which already
+                            // skips the destroy for every Optional existential return).
+                            cleanupCode = "NativeMemory.Free(_cdeclBuf);";
+                        }
+                        else if (returnProjection is ArrayProjection or DictionaryProjection or SetProjection
                             or OptionalProjection or ResultProjection or FrozenWithMemoryProjection)
                         {
                             // Resolve the wire metadata via the cached TryGetTypeMetadata<wireType>

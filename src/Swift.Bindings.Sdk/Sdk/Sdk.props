@@ -57,7 +57,7 @@
          through to both generator invocations via the apple-version option so future Apple train bumps
          need only a single input, instead of being hardcoded across CliOptions, BindingProjectEmitter,
          and XCFrameworkMetadataExtractor. -->
-    <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">26.2.1</SwiftAppleSupplementVersion>
+    <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">26.2.4</SwiftAppleSupplementVersion>
     <!-- Require wrapper compilation to succeed (set to false for libraries with known internal type issues) -->
     <SwiftWrapperRequired Condition="'$(SwiftWrapperRequired)' == ''">true</SwiftWrapperRequired>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->

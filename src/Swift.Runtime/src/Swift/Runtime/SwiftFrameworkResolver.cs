@@ -179,6 +179,86 @@ public static class SwiftFrameworkResolver
         $"/System/Library/Frameworks/{libraryName}.framework/{libraryName}",
     ];
 
+    /// <summary>
+    /// Loads the native library that exports a Swift metadata/descriptor symbol, applying
+    /// the same Apple-framework fallback used by both <see cref="ProtocolDescriptor"/> and
+    /// <see cref="ProtocolConformanceDescriptor"/>. This is the single source of truth for
+    /// that resolution so the two descriptor loaders cannot drift apart again.
+    ///
+    /// First attempt: assembly-context probing (resolves on the simulator and for
+    /// app-bundled frameworks via <c>@rpath</c>). On a physical device the per-binding
+    /// <see cref="NativeLibrary.SetDllImportResolver(Assembly, DllImportResolver)"/> hook is
+    /// registered on the binding assembly, not Swift.Runtime, and explicit
+    /// <see cref="NativeLibrary.TryLoad(string, Assembly, DllImportSearchPath?, out IntPtr)"/>
+    /// does not invoke it — so the bare name can miss. The fallback reduces
+    /// <paramref name="libraryName"/> to its bare framework name and walks the ordered
+    /// <see cref="GetSearchPaths"/> list, whose last entry is
+    /// <c>/System/Library/Frameworks/{name}.framework/{name}</c>, so an Apple *system*
+    /// framework (CryptoKit, RealityKit, …) resolves on device.
+    ///
+    /// Extracting the bare name first is essential: <see cref="GetSearchPaths"/> applied to
+    /// an already-dyld-style <c>"@rpath/Foo.framework/Foo"</c> would produce double-<c>@rpath</c>
+    /// nonsense (<c>@rpath/@rpath/Foo.framework/Foo.framework/...</c>) and never reach the
+    /// system path — the gap that previously made class-bound existential element metadata
+    /// silently fail to register for Apple-framework bindings on device.
+    /// </summary>
+    /// <param name="libraryName">The embedded library name or dyld-style path.</param>
+    /// <param name="handle">The loaded library handle on success; <see cref="IntPtr.Zero"/> otherwise.</param>
+    /// <returns><c>true</c> if the library was loaded.</returns>
+    internal static bool TryLoadWithFrameworkFallback(string libraryName, out IntPtr handle)
+    {
+        if (NativeLibrary.TryLoad(libraryName, typeof(SwiftFrameworkResolver).Assembly, null, out handle))
+            return true;
+
+        var frameworkName = ExtractFrameworkName(libraryName);
+        foreach (var candidate in GetSearchPaths(frameworkName))
+        {
+            if (NativeLibrary.TryLoad(candidate, out handle))
+                return true;
+        }
+
+        handle = IntPtr.Zero;
+        return false;
+    }
+
+    /// <summary>
+    /// Reduces an embedded library path to the bare framework/module name expected by
+    /// <see cref="GetSearchPaths"/>. Handles the three shapes the generator can embed: a
+    /// bare name (<c>"CryptoKit"</c>), a dyld-style framework path
+    /// (<c>"@rpath/CryptoKit.framework/CryptoKit"</c> or
+    /// <c>"/System/Library/Frameworks/CryptoKit.framework/CryptoKit"</c>), and a plain
+    /// dylib path (last path segment, minus a <c>lib</c> prefix / <c>.dylib</c> suffix).
+    /// </summary>
+    internal static string ExtractFrameworkName(string libraryName)
+    {
+        // ".framework/" wins: the framework name is the path segment immediately before it,
+        // independent of any @rpath / @executable_path / absolute-system prefix.
+        var fwIdx = libraryName.IndexOf(".framework/", StringComparison.Ordinal);
+        if (fwIdx > 0)
+        {
+            var start = libraryName.LastIndexOf('/', fwIdx);
+            return libraryName.Substring(start + 1, fwIdx - start - 1);
+        }
+
+        var name = libraryName;
+        var slash = name.LastIndexOf('/');
+        if (slash >= 0)
+        {
+            name = name.Substring(slash + 1);
+        }
+
+        if (name.EndsWith(".dylib", StringComparison.Ordinal))
+        {
+            name = name.Substring(0, name.Length - ".dylib".Length);
+            if (name.StartsWith("lib", StringComparison.Ordinal))
+            {
+                name = name.Substring("lib".Length);
+            }
+        }
+
+        return name;
+    }
+
     internal static IntPtr ResolveSwiftFramework(
         string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {

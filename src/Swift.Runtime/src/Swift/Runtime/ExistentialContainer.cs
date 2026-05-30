@@ -231,6 +231,63 @@ public struct ExistentialContainer1 : IExistentialContainer
 }
 
 /// <summary>
+/// Internal marshalling carrier for a <em>class-bound</em> (superclass- or AnyObject-constrained)
+/// single-protocol Swift existential — <c>any P</c> where <c>P</c> is class-bound. Unlike the
+/// opaque 5-word <see cref="ExistentialContainer1"/>, a class-bound existential is a compact
+/// 2-word value: <c>[classRef][witnessTable]</c> (16-byte stride). Using this carrier as the
+/// <c>SwiftArray&lt;Element&gt;</c> element type makes the array read at the correct 16-byte
+/// stride instead of over-reading each element at the opaque 40-byte stride (which SIGSEGVs).
+///
+/// The carrier converts implicitly to <see cref="ExistentialContainer1"/> (mapping
+/// classRef → Payload0, witnessTable → Payload1) so the generated protocol proxy's existing
+/// <c>(ExistentialContainer1 container, …)</c> constructor — whose class-bound layout path reads
+/// the instance from Payload0 and the witness table from Payload1 — consumes it unchanged.
+///
+/// Metadata for this carrier is registered at module-init via
+/// <see cref="TypeMetadata.RegisterClassBoundExistentialMetadata"/> from the real protocol
+/// descriptor. The class-existential value-witness table (retain word0, copy the witness word
+/// opaquely) and 16-byte stride are protocol-agnostic for a given arity, so any class-bound
+/// arity-1 descriptor yields copy-correct metadata; the real witness table travels in the
+/// element data and is preserved by the protocol-agnostic copy.
+/// Size: 2 machine words (16 bytes on 64-bit).
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
+public struct ClassExistentialContainer1
+{
+    private IntPtr _classRef;
+    private IntPtr _witnessTable0;
+
+    public IntPtr ClassRef { get => _classRef; set => _classRef = value; }
+    public IntPtr WitnessTable0 { get => _witnessTable0; set => _witnessTable0 = value; }
+
+    /// <summary>Number of machine words in the class-bound existential layout.</summary>
+    public const int WordCount = 2;
+
+    /// <summary>
+    /// Widens the compact 2-word class-bound existential into the 5-word
+    /// <see cref="ExistentialContainer1"/> consumed by the generated proxy constructor. The
+    /// class-bound proxy layout reads the instance from Payload0 and the witness table from
+    /// Payload1; the remaining opaque-layout words (Payload2, metadata) stay zero.
+    /// </summary>
+    public static implicit operator ExistentialContainer1(ClassExistentialContainer1 c)
+        => new ExistentialContainer1 { Payload0 = c._classRef, Payload1 = c._witnessTable0 };
+
+    /// <summary>
+    /// Reads a class-bound existential heap cell (the 2-word <c>[classRef][witnessTable]</c>,
+    /// 16 bytes) and widens it to the 5-word <see cref="ExistentialContainer1"/> the proxy and
+    /// marshalling layers store. Use at heap-cell READ sites where Swift allocated exactly
+    /// <c>MemoryLayout&lt;any P&gt;.size</c> (16 bytes for class-bound) — reading the opaque
+    /// <see cref="ExistentialContainer1"/> there (40 bytes) over-reads 24 bytes past the
+    /// allocation. This is read-only: ownership (any retain on the class ref, the cell free)
+    /// stays at the call site, exactly as it does for the opaque container read it replaces.
+    /// </summary>
+    /// <param name="cell">Pointer to the 2-word class-bound existential cell.</param>
+    public static unsafe ExistentialContainer1 ReadHeapCell(IntPtr cell)
+        => Unsafe.Read<ClassExistentialContainer1>((void*)cell);
+}
+
+/// <summary>
 /// Internal marshalling type for Swift existential containers with 2 witness tables.
 /// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
 /// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.

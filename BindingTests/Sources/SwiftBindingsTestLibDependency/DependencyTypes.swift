@@ -108,6 +108,44 @@ public func describeDependency(_ dep: some DependencyProtocol) -> String {
     return dep.describe()
 }
 
+// MARK: - Subclass-Only Existential Conformance (AnchorEntity / HasAnchoring shape)
+//
+// Reproduces RealityKit's `AnchorEntity : Entity, HasAnchoring`: the BASE class
+// conforms to one cross-module member protocol (so it emits its own
+// `IExistentialBoxable` baked with `Create<Base, _>`), and a subclass in another
+// module adds a SECOND cross-module member protocol the base does NOT conform to.
+// Boxing the subclass as that second protocol must dispatch `Create<Subclass, _>`;
+// the inherited `Create<Base, _>` would request the non-existent
+// `Base : DependencyAnchorMarker` witness and throw at box time.
+
+/// Marker protocol the BASE entity conforms to. Cross-module and has a member, so
+/// the C# interface stub is skipped but the conformance descriptor is still emitted —
+/// giving `DependencyMarkedEntity` its own `IExistentialBoxable` implementation.
+public protocol DependencyBaseMarker {
+    func baseMarkerTag() -> Int32
+}
+
+/// Marker protocol that ONLY the subclass conforms to. The base does not. Boxing a
+/// subclass instance as `any DependencyAnchorMarker` is the crux of the AnchorEntity
+/// shape — it must resolve the subclass's own conformance descriptor, not the base's.
+public protocol DependencyAnchorMarker {
+    func anchorMarkerName() -> String
+}
+
+/// Open base entity in the dependency module conforming to `DependencyBaseMarker` only.
+/// A main-module subclass adds `DependencyAnchorMarker` on top of this.
+open class DependencyMarkedEntity: DependencyBaseMarker {
+    public let baseId: Int32
+    public init(baseId: Int32) { self.baseId = baseId }
+    public func baseMarkerTag() -> Int32 { return baseId }
+}
+
+/// Consumes an `any DependencyAnchorMarker` existential and returns its name. Drives
+/// the subclass-only conformance dispatch end-to-end from the Swift consumption side.
+public func describeAnchorMarker(_ marker: any DependencyAnchorMarker) -> String {
+    return marker.anchorMarkerName()
+}
+
 // MARK: - Cross-Module Class Inheritance (Bug #14)
 
 /// Open base class living in the dependency module. The main module defines a subclass —

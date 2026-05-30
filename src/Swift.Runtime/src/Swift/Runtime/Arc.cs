@@ -88,6 +88,86 @@ public static class Arc
     }
 
     /// <summary>
+    /// Retains a class reference that may be a native Swift object OR an Objective-C
+    /// object (a class-bound existential <c>any P</c> carries either, depending on the
+    /// conformer). <c>swift_unknownObjectRetain</c> inspects the isa and dispatches to
+    /// <c>swift_retain</c> or <c>objc_retain</c> accordingly; <c>null</c> is a no-op.
+    /// </summary>
+    /// <param name="p">Pointer to an unmanaged Swift/ObjC object, or null.</param>
+    [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [SuppressGCTransition]
+    static extern void swift_unknownObjectRetain(IntPtr p);
+
+    /// <summary>
+    /// Releases a class reference that may be a native Swift object OR an Objective-C
+    /// object. <c>swift_unknownObjectRelease</c> dispatches to <c>swift_release</c> or
+    /// <c>objc_release</c> by inspecting the isa; <c>null</c> is a no-op.
+    /// </summary>
+    /// <param name="p">Pointer to an unmanaged Swift/ObjC object, or null.</param>
+    [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    static extern void swift_unknownObjectRelease(IntPtr p);
+
+    /// <summary>
+    /// Retains a class-bound existential payload (<c>any P</c> class reference) that may
+    /// be a native Swift or an Objective-C object. Unlike <see cref="Retain"/>
+    /// (<c>swift_retain</c>, native-only), this routes through the runtime's
+    /// kind-dispatching entry point so an ObjC conformer (a protocol refined by
+    /// <c>NSObjectProtocol</c> / a UIKit class) is retained via <c>objc_retain</c>
+    /// rather than corrupting an ObjC refcount through the Swift-native path.
+    /// </summary>
+    /// <param name="p">Pointer to a Swift/ObjC class instance, or null (no-op).</param>
+    /// <returns>The pointer passed in.</returns>
+    public static IntPtr UnknownObjectRetain(IntPtr p)
+    {
+        if (p != IntPtr.Zero)
+            swift_unknownObjectRetain(p);
+        return p;
+    }
+
+    /// <summary>
+    /// Releases a class-bound existential payload (<c>any P</c> class reference) that may
+    /// be a native Swift or an Objective-C object. Unlike <see cref="Release"/>, this does
+    /// NOT pre-check <c>swift_isDeallocating</c> (a native-only probe that would misread an
+    /// ObjC object) — <c>swift_unknownObjectRelease</c> performs its own kind dispatch and
+    /// tolerates null.
+    /// </summary>
+    /// <remarks>
+    /// This is the DIRECT entry point: it calls <c>swift_unknownObjectRelease</c> via a
+    /// <c>[DllImport]</c> into libswiftCore. That is safe from a normal (calling) thread but
+    /// NOT from the .NET GC finalizer thread — a direct runtime-release P/Invoke there
+    /// crashes Mono with the <c>jit-info.c:918 `!ji->async'</c> assertion after CallConvSwift
+    /// JIT contamination. Code reachable from a finalizer (proxy <c>Dispose</c>/<c>~Proxy</c>)
+    /// MUST use <see cref="UnknownObjectReleaseFinalizerSafe"/> instead.
+    /// </remarks>
+    /// <param name="p">Pointer to a Swift/ObjC class instance, or null (no-op).</param>
+    /// <returns>The pointer passed in.</returns>
+    public static IntPtr UnknownObjectRelease(IntPtr p)
+    {
+        if (p != IntPtr.Zero)
+            swift_unknownObjectRelease(p);
+        return p;
+    }
+
+    /// <summary>
+    /// Finalizer-safe release of a class-bound existential payload (<c>any P</c> class
+    /// reference, native Swift OR Objective-C). Routes through the
+    /// <c>SBW_SwiftUnknownObjectRelease</c> <c>@_cdecl</c> trampoline in our own
+    /// <c>SwiftBindingsRuntime.dylib</c>, which performs the actual
+    /// <c>swift_unknownObjectRelease</c> from inside Swift — so the managed caller crosses
+    /// only one Cdecl boundary and avoids the Mono <c>!ji->async</c> assertion that a direct
+    /// runtime-release P/Invoke triggers on the GC finalizer thread. Mirrors how the opaque
+    /// existential proxy routes its finalizer release through <c>SBW_VWTDestroy</c>. Every
+    /// exception path (older bundled dylib without the entry point, native fault) is
+    /// swallowed so a release from <c>Dispose</c>/finalize never throws.
+    /// </summary>
+    /// <param name="p">Pointer to a Swift/ObjC class instance, or null (no-op).</param>
+    public static void UnknownObjectReleaseFinalizerSafe(IntPtr p)
+    {
+        if (p != IntPtr.Zero)
+            SwiftReleaseTrampoline.SafeUnknownObjectReleaseForFinalizer(p);
+    }
+
+    /// <summary>
     /// Retains an 'unowned' heap-allocated Swift object.
     /// </summary>
     /// <param name="p">Pointer to an unmanaged Swift object, must be non-null.</param>
@@ -274,6 +354,17 @@ internal static class SwiftReleaseTrampoline
     internal static extern void ReleaseRaw(IntPtr p);
 
     /// <summary>
+    /// Finalizer-safe release of a class-bound existential class reference (native Swift
+    /// OR Objective-C). Routes through the <c>SBW_SwiftUnknownObjectRelease</c> wrapper,
+    /// which calls <c>swift_unknownObjectRelease</c> from inside Swift so the isa-kind
+    /// dispatch (objc_release vs swift_release) is correct for either payload. The
+    /// <see cref="Release"/> entry point's <c>Unmanaged&lt;AnyObject&gt;.release()</c> would
+    /// instead always take the native path and corrupt an ObjC refcount.
+    /// </summary>
+    [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_SwiftUnknownObjectRelease")]
+    internal static extern void UnknownObjectRelease(IntPtr p);
+
+    /// <summary>
     /// Best-effort release for use from a finalizer thread, swallowing every
     /// exception path (DllNotFoundException for older bundled dylibs, native
     /// faults). Lives on a non-generic static class so the try/catch IL is not
@@ -285,6 +376,22 @@ internal static class SwiftReleaseTrampoline
         try
         {
             ReleaseRaw(p);
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// Best-effort finalizer-safe unknown-object release. Same swallow-all contract and
+    /// non-generic-class rationale as <see cref="SafeReleaseRawForFinalizer"/>; used by
+    /// the class-bound existential proxy's adopted-container release path.
+    /// </summary>
+    internal static void SafeUnknownObjectReleaseForFinalizer(IntPtr p)
+    {
+        try
+        {
+            UnknownObjectRelease(p);
         }
         catch
         {

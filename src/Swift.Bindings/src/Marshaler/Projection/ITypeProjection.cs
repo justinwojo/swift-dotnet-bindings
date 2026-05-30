@@ -116,6 +116,19 @@ public interface ITypeProjection
     string MarshalFromSwiftType => SwiftContainerGenericType;
 
     /// <summary>
+    /// The element carrier type for <c>SwiftArray&lt;T&gt;</c> when this projection is the
+    /// element of a Swift array READ (return) — the stride of the Swift array buffer is derived
+    /// from this type's Swift metadata. Defaults to <see cref="MarshalFromSwiftType"/>. Overridden
+    /// by <see cref="ExistentialProjection"/> for class-bound (superclass-/AnyObject-constrained)
+    /// arity-1 existentials, whose 16-byte <c>ClassExistentialContainer1</c> stride differs from the
+    /// 40-byte opaque <c>ExistentialContainer1</c> used for single-value and parameter marshalling
+    /// (the interface the proxy implements). Reading a class-bound array with the opaque carrier
+    /// over-reads at 40 bytes and crashes; the wrap lambda <c>new {Proxy}(e)</c> still works via the
+    /// implicit <c>ClassExistentialContainer1 → ExistentialContainer1</c> conversion in the proxy ctor.
+    /// </summary>
+    string ArrayElementCarrierType => MarshalFromSwiftType;
+
+    /// <summary>
     /// When true, signals that this projection uses ObjC container bridge semantics.
     /// For element projections (e.g., ObjCBridgeableProjection): tells container projections
     /// to use whole-container ObjC bridge (NSArray/NSDictionary/NSSet) instead of SwiftArray&lt;T&gt; pipeline.

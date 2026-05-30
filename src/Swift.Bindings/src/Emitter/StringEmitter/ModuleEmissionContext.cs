@@ -818,6 +818,35 @@ public sealed class ModuleEmissionContext
         _simpleEnumMetadataRegistrations.Add((qualifiedName, metadataSymbol, wrapperLibName));
     }
 
+    // ==================== Class-Bound Existential Metadata Registration ====================
+
+    private readonly List<(string LibraryName, string ProtocolDescriptorSymbol)> _classBoundExistentialRegistrations = new();
+    private readonly HashSet<string> _classBoundExistentialSymbols = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Class-bound (superclass- or <c>AnyObject</c>-constrained) protocols whose existentials
+    /// are marshalled through <c>ClassExistentialContainer1</c> (16-byte <c>[classRef][witnessTable]</c>
+    /// stride). The module initializer registers the shared class-existential value-witness metadata
+    /// once via <c>TypeMetadata.RegisterClassBoundExistentialMetadata</c> so that
+    /// <c>SwiftArray&lt;ClassExistentialContainer1&gt;</c> computes the correct element stride
+    /// (the opaque <c>ExistentialContainer1</c> metadata would over-read at 40 bytes and crash).
+    /// </summary>
+    public IReadOnlyList<(string LibraryName, string ProtocolDescriptorSymbol)> ClassBoundExistentialRegistrations =>
+        _classBoundExistentialRegistrations;
+
+    /// <summary>
+    /// Records a class-bound protocol's descriptor symbol + exporting library for class-existential
+    /// metadata registration in the module initializer. Deduplicated on the descriptor symbol; the
+    /// carrier metadata is protocol-agnostic for the arity so the first registration wins at runtime.
+    /// </summary>
+    public void RecordClassBoundExistentialRegistration(string libraryName, string protocolDescriptorSymbol)
+    {
+        if (string.IsNullOrEmpty(libraryName) || string.IsNullOrEmpty(protocolDescriptorSymbol))
+            return;
+        if (_classBoundExistentialSymbols.Add(protocolDescriptorSymbol))
+            _classBoundExistentialRegistrations.Add((libraryName, protocolDescriptorSymbol));
+    }
+
     // ==================== Protocol Proxy Sub-Namespace ====================
 
     private readonly List<string> _deferredProxyClasses = new();
@@ -1422,6 +1451,31 @@ public sealed class ModuleEmissionContext
     /// wrapper that does not import RealityFoundation would fail to compile.
     /// </summary>
     public bool AnyEntityBaseUsed => _entityBaseProtocols.Count > 0;
+
+    private readonly HashSet<string> _readOnlyProxyProtocols = new();
+
+    /// <summary>
+    /// Records that the given protocol gets a <i>read-only</i> (Swift-vended-only) proxy:
+    /// a superclass-constrained protocol (e.g. <c>protocol EntityGestureRecognizer :
+    /// UIGestureRecognizer</c>) that is NOT Entity-rooted, so the synthetic
+    /// <c>EveryProtocol</c> / <c>EveryEntityProtocol</c> helper classes cannot subclass
+    /// the required class and no EveryProtocol conformance is emitted. The C# proxy is
+    /// still emitted so Swift-vended <c>any P</c> returns (and <c>[any P]</c> array
+    /// elements) can be wrapped and dispatched through the existential's own witness
+    /// table; only the C#→Swift implementation direction is unavailable. Set by
+    /// <see cref="EveryProtocolEmitter"/> / ModuleHandler before any proxy emission, so
+    /// the suppression gates in <see cref="WitnessDispatchEmitter"/> and
+    /// <c>ProtocolHandler</c> can distinguish "no proxy at all" from "Swift-vended proxy,
+    /// no C# implementation auto-wrap". Such protocols are NOT recorded as suppressed
+    /// proxies — their existential-return projection lambdas stay intact.
+    /// </summary>
+    public void MarkReadOnlyProxy(string protocolName) => _readOnlyProxyProtocols.Add(protocolName);
+
+    /// <summary>
+    /// Returns true when the given protocol gets a read-only (Swift-vended-only) proxy
+    /// rather than a full EveryProtocol-backed proxy. See <see cref="MarkReadOnlyProxy"/>.
+    /// </summary>
+    public bool IsReadOnlyProxy(string protocolName) => _readOnlyProxyProtocols.Contains(protocolName);
 
     // ==================== Escaping-Closure Context Owner Token ====================
 

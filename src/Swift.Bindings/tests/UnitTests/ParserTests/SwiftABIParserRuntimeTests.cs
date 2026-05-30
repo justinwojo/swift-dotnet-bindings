@@ -371,6 +371,39 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
+    public void ParseModule_FuncWithInlinableWithoutAccessControl_PublicInSwiftInterface_SetsIsModuleInternalFalse()
+    {
+        // Some toolchains emit ONLY ["Inlinable"] (no "AccessControl") for an @inlinable
+        // PUBLIC member, so the "Inlinable without AccessControl" guess mis-flags it internal.
+        // When a public swiftinterface is available, it authoritatively resolves the access
+        // level — the guess must NOT pre-empt the negative-space detection that keeps a
+        // swiftinterface-public member public. (Real-world repro: RealityFoundation's
+        // @inlinable public Transform.init(scale:rotation:translation:).)
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "encrypt",
+            printedName: "encrypt()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = null;
+        funcNode.DeclAttributes = new[] { "Final", "Inlinable" };
+
+        // Public swiftinterface lists this free function as public (bare printedName key).
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            PublicMemberNames = new HashSet<string> { "encrypt()" }
+        };
+
+        using var fixture = CreateParserWithFacts(facts, funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.False(method.IsModuleInternal);
+    }
+
+    [Fact]
     public void ParseModule_FuncWithInlinableAndAccessControl_SetsIsModuleInternalFalseWithoutSwiftInterface()
     {
         // @inlinable public methods have both "Inlinable" and "AccessControl" —

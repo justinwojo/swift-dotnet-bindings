@@ -437,7 +437,16 @@ namespace BindingsGeneration
                 {
                     var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
                     var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                    csWriter.WriteLine($"var existentialResult = SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr);");
+                    // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+                    // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
+                    // container (40 bytes); reading the wider type pulls uninitialized bytes into the
+                    // unused container fields. The +1 still transfers via the bitwise copy (the buffer
+                    // free is a plain dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is
+                    // unchanged — only the read width differs.
+                    var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
+                        ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
+                        : $"SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr)";
+                    csWriter.WriteLine($"var existentialResult = {existentialRead};");
 
                     if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
                     var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
@@ -707,7 +716,16 @@ namespace BindingsGeneration
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
                 var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                csWriter.WriteLine($"var existentialResult = SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr);");
+                // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+                // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
+                // container (40 bytes); reading the wider type pulls uninitialized bytes into the
+                // unused container fields. The +1 still transfers via the bitwise copy (the buffer
+                // free is a plain dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is
+                // unchanged — only the read width differs.
+                var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
+                    ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
+                    : $"SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr)";
+                csWriter.WriteLine($"var existentialResult = {existentialRead};");
 
                 // Then wrap in proxy (same logic as non-cdecl path below)
                 if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }

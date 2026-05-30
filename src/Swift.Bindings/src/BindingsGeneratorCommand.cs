@@ -1007,6 +1007,45 @@ public static class BindingsGeneratorCommand
                 directModuleName,
                 m => m.Wrapper = WrapperSection.From(directOutcome, directCoGated),
                 logger);
+
+            // SwiftUI bridge primary slice (Apple direct mode). The xcframework path
+            // builds the bridge via the SDK's --compile-bridge-only target, but Apple
+            // system frameworks compile the wrapper inline here (no source xcframework
+            // to defer against), so the bridge has to be built inline too — otherwise
+            // its @_cdecl trampolines never make it into a dylib and any generated
+            // SwiftUI bridge view throws DllNotFoundException("<Module>Bridge") at
+            // runtime. The SDK's _CompileAppleFrameworkSecondBridgeSlice adds the other
+            // slice (device, or fat x86_64 simulator) post-generate, mirroring the
+            // wrapper's two-phase split. Reuse the shared arch-fanout so the bridge
+            // primary slice carries the identical arch coverage to the wrapper primary
+            // slice (constraints.md "Wrapper CPU-arch decision is shared"). Failure is
+            // non-fatal: the bridge is an additive convenience and must not take down
+            // the main bindings (mirrors the SwiftFramework path's SWIFTBIND052 contract).
+            var directBridgeFiles = SwiftWrapperCompiler.CollectBridgeSwiftFiles(outputDirectory);
+            if (directBridgeFiles.Count > 0)
+            {
+                SwiftWrapperCompilationResult? CompileBridgeForArch(string? requestedArch) =>
+                    SwiftWrapperCompiler.CompileBridgeSlice(
+                        outputDirectory, directModuleName,
+                        frameworkSearchPath!, tbdPath,
+                        string.IsNullOrEmpty(requestedArch) ? directSlice : directSlice.WithArchitecture(requestedArch),
+                        logger);
+
+                try
+                {
+                    BindingsGenerator.CompileWrapperForArchitectures(
+                        directPrimaryArch, directExtraArchs, CompileBridgeForArch, logger);
+                    logger.LogInformation(
+                        "Apple direct: compiled SwiftUI bridge primary slice ({Count} file(s)).",
+                        directBridgeFiles.Count);
+                }
+                catch (Exception bridgeEx)
+                {
+                    logger.LogWarning(
+                        "Apple direct: SwiftUI bridge compilation failed (non-fatal — main bindings unaffected): {Message}",
+                        bridgeEx.Message);
+                }
+            }
         }
 
         // Run mixed framework ObjC pipeline (after Swift bindings generated, before project emission)

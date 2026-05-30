@@ -744,10 +744,15 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// </summary>
     private static class SwiftCoreNativeMethods
     {
+        // First parameter is ProtocolClassConstraint (Class = 0, Any = 1), NOT a metadata
+        // request — it selects the existential layout: Any = opaque inline-buffer (3 words +
+        // metadata, plus one word per witness table); Class = single class reference + witness
+        // tables. Passing the wrong constraint returns a correctly-typed but wrongly-sized
+        // metadata.
         [UnmanagedCallConv(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvSwift)])]
-        [DllImport("libswiftCore", EntryPoint = "swift_getExistentialTypeMetadata")]
+        [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_getExistentialTypeMetadata")]
         public static extern IntPtr GetExistentialTypeMetadata(
-            nint request, IntPtr superclass, nint numProtocols, IntPtr protocols);
+            nint classConstraint, IntPtr superclass, nint numProtocols, IntPtr protocols);
     }
 
     /// <summary>
@@ -776,8 +781,12 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         {
             try
             {
+                // classConstraint = 1 (ProtocolClassConstraint::Any) — the opaque inline-buffer
+                // existential. For numProtocols = 0 this is 'Any' (4-word, 32-byte stride). Passing
+                // 0 (::Class) would instead return 'AnyObject' (1-word, 8-byte stride) and under-size
+                // every boxed 'Any' value slot (e.g. SwiftDictionary<_, ExistentialContainer0> values).
                 var handle = SwiftCoreNativeMethods.GetExistentialTypeMetadata(
-                    0, IntPtr.Zero, 0, IntPtr.Zero);
+                    1, IntPtr.Zero, 0, IntPtr.Zero);
                 if (handle != IntPtr.Zero)
                 {
                     result = new TypeMetadata(handle);
@@ -804,6 +813,45 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         catch (EntryPointNotFoundException) { }
 
         return false;
+    }
+
+    /// <summary>
+    /// Builds and registers the class-existential value-witness metadata for the class-bound
+    /// single-protocol existential carrier <see cref="ClassExistentialContainer1"/>. Called once
+    /// per class-bound protocol from generated module initializers; idempotent (first registration
+    /// wins). The class-existential VWT (retain word0, copy the witness word opaquely) and 16-byte
+    /// stride are protocol-agnostic for a given arity, so any class-bound arity-1 descriptor yields
+    /// copy-correct metadata — the real witness table travels in the element data and is preserved
+    /// by the protocol-agnostic copy. Mirrors the shipped <c>SwiftResult</c> AnyError path
+    /// (real protocol descriptor → <c>swift_getExistentialTypeMetadata</c>).
+    /// </summary>
+    /// <param name="libraryName">Library exporting the protocol descriptor symbol.</param>
+    /// <param name="protocolDescriptorSymbol">The mangled <c>$s…Mp</c> protocol descriptor symbol.</param>
+    public static void RegisterClassBoundExistentialMetadata(string libraryName, string protocolDescriptorSymbol)
+    {
+        // The carrier metadata is shared and protocol-agnostic for the arity; first registration wins.
+        if (cache.TryGet(typeof(ClassExistentialContainer1), out _))
+            return;
+        try
+        {
+            var descriptor = ProtocolDescriptor.LoadFromSymbol(libraryName, protocolDescriptorSymbol);
+            if (!descriptor.IsValid)
+                return;
+            IntPtr descHandle = Unsafe.As<ProtocolDescriptor, IntPtr>(ref descriptor);
+            unsafe
+            {
+                // classConstraint = 0 (ProtocolClassConstraint::Class — selects the 16-byte
+                // class-existential value witnesses that retain word0); superclass = null (layout
+                // and VWT are driven by the class constraint + witness-table count, not the
+                // superclass); numProtocols = 1; protocols = &descriptor.
+                var handle = SwiftCoreNativeMethods.GetExistentialTypeMetadata(
+                    0, IntPtr.Zero, 1, (IntPtr)(&descHandle));
+                if (handle != IntPtr.Zero)
+                    RegisterMetadata(typeof(ClassExistentialContainer1), new TypeMetadata(handle));
+            }
+        }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
     }
 
     /// <summary>

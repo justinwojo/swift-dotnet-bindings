@@ -1142,8 +1142,11 @@ public static partial class ClosureEmitter
             else if (cdeclNeedsResultPtr)
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+                // Protocol existentials need parens before .self: `any P.self` parses as
+                // `any (P.self)` and fails to compile, silently dropping the wrapper symbol.
+                var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
                 swiftWriter.WriteLine($"        let result = {throwCallExpr}");
-                swiftWriter.WriteLine($"        resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+                swiftWriter.WriteLine($"        resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
             }
             else if (hasReturn || methodDecl.IsConstructor)
             {
@@ -1175,8 +1178,11 @@ public static partial class ClosureEmitter
         else if (cdeclNeedsResultPtr)
         {
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+            // Protocol existentials need parens before .self: `any P.self` parses as
+            // `any (P.self)` and fails to compile, silently dropping the wrapper symbol.
+            var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
             swiftWriter.WriteLine($"    let result = {tryPrefix}{callPrefix}{callArgsStr}{callSuffix}");
-            swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
         }
         else if (useCdecl && hasReturn)
         {

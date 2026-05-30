@@ -415,6 +415,39 @@ public func sbw_swiftReleaseRaw(_ ptr: UnsafeMutableRawPointer) {
     _swiftReleaseFn(ptr)
 }
 
+/// Resolved on first use via `dlsym(RTLD_DEFAULT, "swift_unknownObjectRelease")`,
+/// for the same reason `_swiftReleaseFn` is: `@_silgen_name` on a reserved Swift
+/// runtime symbol name warns (and eventually errors). libswiftCore is always
+/// loaded by the time any Swift code runs, so the lookup is guaranteed to succeed.
+private let _swiftUnknownObjectReleaseFn: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2 /* RTLD_DEFAULT */), "swift_unknownObjectRelease") else {
+        fatalError("SwiftBindingsRuntime: failed to resolve swift_unknownObjectRelease via dlsym")
+    }
+    return unsafeBitCast(sym, to: (@convention(c) (UnsafeMutableRawPointer?) -> Void).self)
+}()
+
+/// Releases a class reference held by a class-bound existential (`any P` where
+/// `P` is `AnyObject`- or superclass-constrained) from the .NET GC finalizer
+/// thread. The reference may carry EITHER a Swift-native object OR an
+/// Objective-C object (when `P` is refined by `NSObjectProtocol` / a UIKit
+/// class), so it routes through `swift_unknownObjectRelease`, which dispatches
+/// on the object's `isa` to `objc_release` or `swift_release` as appropriate —
+/// unlike `SBW_SwiftRelease`, whose `Unmanaged<AnyObject>.release()` always
+/// takes the native `swift_release` path and would corrupt an ObjC refcount.
+///
+/// As with `SBW_SwiftRelease`, the actual release happens from inside Swift so
+/// the C# caller crosses only one Cdecl boundary into our own dylib, avoiding
+/// the Mono JIT `!ji->async` assertion that fires when the runtime release
+/// symbol is invoked directly via `[DllImport]` after CallConvSwift JIT
+/// contamination. This is the entry point the class-bound existential proxy's
+/// `Dispose`/finalizer ARC release routes through.
+///
+/// - Parameter ptr: A non-null class reference carrying a +1 retain.
+@_cdecl("SBW_SwiftUnknownObjectRelease")
+public func sbw_swiftUnknownObjectRelease(_ ptr: UnsafeMutableRawPointer) {
+    _swiftUnknownObjectReleaseFn(ptr)
+}
+
 // MARK: - Escaping-Closure Context Owner Token
 //
 // Single root cause for two 0.10.x leaks:
@@ -606,6 +639,39 @@ public func sbw_measurementGetMetadata(_ unitMetadata: UnsafeMutableRawPointer) 
     let result = _swift_getMeasurementMetadata(0, unitMetadata)
     precondition(result != UnsafeMutableRawPointer(bitPattern: 0), "Measurement metadata accessor returned null for unit metadata \(unitMetadata)")
     return result
+}
+
+// Constructs a Foundation.Measurement from a Double value and a unit instance,
+// writing the resulting struct into the caller-provided buffer. The generic
+// initializer $s10Foundation11MeasurementV5value4unitACyxGSd_xtcfC uses
+// CallConvSwift, so C# has no direct construction path; this @_cdecl shim runs
+// the real initializer from Swift and exposes it via the C ABI.
+//
+// The unit arrives as its Objective-C object handle (an NSUnit subclass). Every
+// Measurement<UnitType> shares one layout (class reference at offset 0, Double at
+// offset 8) and one value-witness behavior (retain/release a single class ref +
+// copy the Double), and the struct stores no inline metadata — so constructing a
+// Measurement<Unit> with a concrete unit subclass instance produces bytes that the
+// Measurement<ConcreteUnit> C# projection reads correctly, with the stored unit
+// object's dynamic type preserved. ARC balances the @owned unit hand-off
+// automatically: takeUnretainedValue() yields a +0 managed reference and the
+// compiler inserts the retain the initializer's @owned parameter requires.
+@_cdecl("SBW_Measurement_InitFromValueUnit")
+public func sbw_measurementInitFromValueUnit(
+    _ value: Double,
+    _ unitHandle: UnsafeMutableRawPointer,
+    _ resultPtr: UnsafeMutableRawPointer
+) -> Int8 {
+    // Conditional cast (`as?`), never `as!`: a handle whose dynamic type is not an NSUnit
+    // subclass must surface as a managed ArgumentException at the C# call site, not as an
+    // `as!` trap that aborts the whole process. On mismatch, write nothing and return 0 so
+    // the caller frees the still-uninitialized buffer and throws.
+    guard let unit = Unmanaged<AnyObject>.fromOpaque(unitHandle).takeUnretainedValue() as? Unit else {
+        return 0
+    }
+    let result = Measurement(value: value, unit: unit)
+    resultPtr.initializeMemory(as: Measurement<Unit>.self, repeating: result, count: 1)
+    return 1
 }
 
 // MARK: - ManagedSettings.Token<Kind> Generic Metadata

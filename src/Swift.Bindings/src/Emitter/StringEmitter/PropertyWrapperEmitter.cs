@@ -1041,9 +1041,11 @@ public static class PropertyWrapperEmitter
             var innerSwiftType = propertyReferencesT
                 ? WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(innerSpec, abiToSugaredName)
                 : ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+            // Optional<any P> inner payload needs `(any P).self`, not `any P.self`.
+            var innerMetatype = innerSwiftType.StartsWith("any ") ? $"({innerSwiftType}).self" : $"{innerSwiftType}.self";
             bodyLines.Add($"let result = {propAccess}");
             bodyLines.Add("if let value = result {");
-            bodyLines.Add($"    resultPtr.initializeMemory(as: {innerSwiftType}.self, repeating: value, count: 1)");
+            bodyLines.Add($"    resultPtr.initializeMemory(as: {innerMetatype}, repeating: value, count: 1)");
             bodyLines.Add($"    {OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", true)}");
             bodyLines.Add("} else {");
             bodyLines.Add($"    {OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", false)}");

@@ -55,6 +55,17 @@ public class EveryProtocolEmitter
     private bool _useEntityBase;
 
     /// <summary>
+    /// Transitive closure (by simple name) of the protocols RealityFoundation.Entity
+    /// already conforms to, computed lazily from the Entity TypeRecord's
+    /// <see cref="TypeRecord.ProtocolConformances"/>. The Entity-rooted carrier
+    /// (<c>EveryEntityProtocol</c>) subclasses Entity, so it inherits every one of
+    /// these conformances; re-declaring any of them via <c>extension
+    /// EveryEntityProtocol: P</c> is a redundant-conformance error in swiftc.
+    /// Null until first computed.
+    /// </summary>
+    private HashSet<string>? _entityBaseConformanceClosure;
+
+    /// <summary>
     /// Swift identifier of the base class to emit the current protocol's extension
     /// against — <c>EveryEntityProtocol</c> when routing through the Entity-rooted
     /// helper (Failure B), <c>EveryObjCProtocol</c> for the NSObjectProtocol-only
@@ -1507,7 +1518,7 @@ public class EveryProtocolEmitter
                 return true;
         }
 
-        if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase))
+        if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase, _allProtocols))
         {
             // Failure B: protocols rooted at RealityFoundation.Entity reroute through
             // the EveryEntityProtocol helper class instead of skipping. Any other
@@ -1776,7 +1787,7 @@ public class EveryProtocolEmitter
         // ensured the class was emitted; here we flip the per-protocol routing
         // flag so BaseClassName returns "EveryEntityProtocol" through the rest
         // of this emission.
-        if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase))
+        if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase, _allProtocols))
         {
             if (IsEntityRootedProtocol(protocolDecl, _typeDatabase, _allProtocols))
             {
@@ -1900,7 +1911,29 @@ public class EveryProtocolEmitter
         // so methods like validate(input: String) and validate(input: Int32) from different
         // protocols coexist correctly on EveryProtocol.
 
-        if (hasImplementableMembers)
+        // The Entity-rooted carrier subclasses RealityFoundation.Entity, which already
+        // conforms to a fixed set of base capabilities (HasTransform / HasHierarchy /
+        // HasSynchronization, …). EveryEntityProtocol inherits those conformances, so
+        // re-declaring one via `extension EveryEntityProtocol: P` is a redundant-conformance
+        // error. The subclass-only protocols (HasCollision / HasModel / HasPhysics / …) add
+        // requirements Entity does not satisfy, so they are NOT in this set and still emit
+        // their full vtable-backed extension below.
+        bool entityInheritsConformance = _useEntityBase && EntityBaseConformsTo(protocolDecl);
+
+        if (entityInheritsConformance)
+        {
+            // Emit no extension and no vtable machinery: the inherited conformance already
+            // satisfies the witness-table getter (`var proto: any P = instance`), and the C#
+            // proxy reads a returned existential through the real object's witness table
+            // (forward path). Reverse-dispatch through a pure-C# implementer is meaningless
+            // for a base-Entity capability — no real Entity backing means no valid witnesses —
+            // so we deliberately skip MarkSetVtableEmitted, which makes ProtocolProxyEmitter
+            // emit a forward-only proxy with no SetXxx_vtable reference (see the MusicKit note
+            // in the hasImplementableMembers branch). RecordConformanceDecision(true) below
+            // still emits the C# proxy class.
+            _logger.LogDebug($"EveryEntityProtocol inherits conformance to {protocolDecl.Name} from Entity; skipping redundant extension, emitting forward-only witness getter");
+        }
+        else if (hasImplementableMembers)
         {
             // Dispatchable closure-property getter and closure-returning method materialise
             // a Swift closure from (fnPtr, ctx) by wrapping the context in
@@ -4956,6 +4989,50 @@ public class EveryProtocolEmitter
             }
         }
 
+        // A class-superclass requirement is frequently recorded only in the
+        // protocol's generic signature (`<Self : RealityKit.Entity>`) rather than
+        // InheritedProtocols. Reading genericSig here lets the Entity-rooted routing
+        // in EmitProtocolConformance fire (the gate that flips _useEntityBase is
+        // behind HasClassSuperclassRequirement), and transitive protocol-typed
+        // constraints are followed through allProtocols.
+        if (!string.IsNullOrEmpty(protocolDecl.GenericSignature))
+        {
+            foreach (var constraint in ParseGenericSigConstraints(protocolDecl.GenericSignature))
+            {
+                var constraintSimple = GetSimpleName(constraint);
+
+                if (constraintSimple is "AnyObject" or "Sendable" or "Escapable" or "Copyable"
+                    or "SendableMetatype" or "Error")
+                    continue;
+
+                if (IsRealityFoundationEntityName(constraint, constraintSimple))
+                    return true;
+
+                // Protocol-typed constraints (resolvable in the module protocol list)
+                // are followed transitively; checking allProtocols before the
+                // TypeDatabase class lookup avoids a concreteClassFallback module
+                // synthesizing a spurious Class record for a protocol-typed name.
+                if (allProtocols != null)
+                {
+                    var constraintDecl = allProtocols.FirstOrDefault(p =>
+                        p.Name == constraintSimple || p.Name == constraint ||
+                        p.SwiftTypeName?.ToString() == constraint);
+                    if (constraintDecl != null)
+                    {
+                        if (HasClassSuperclassRequirementRecursive(constraintDecl, typeDatabase, allProtocols, visited))
+                            return true;
+                        continue;
+                    }
+                }
+
+                if (typeDatabase.TryGetTypeRecord(new NamedTypeSpec(constraint), out var constraintRecord) &&
+                    constraintRecord.Kind == TypeRecordKind.Class)
+                {
+                    return true;
+                }
+            }
+        }
+
         return false;
     }
 
@@ -5035,6 +5112,59 @@ public class EveryProtocolEmitter
                 }
             }
         }
+
+        // The ABI records class-superclass and protocol Self-constraints in the
+        // protocol's generic signature (`<Self : RealityKit.Entity>`,
+        // `<Self : RealityKit.HasTransform>`) rather than InheritedProtocols — this
+        // is the real shape for RealityFoundation.HasTransform / HasAnchoring /
+        // HasCollision. Walk genericSig too so the Entity root is found when it is
+        // reachable only through genericSig, directly or transitively via a
+        // protocol-typed constraint.
+        if (!string.IsNullOrEmpty(protocolDecl.GenericSignature))
+        {
+            foreach (var constraint in ParseGenericSigConstraints(protocolDecl.GenericSignature))
+            {
+                var constraintSimple = GetSimpleName(constraint);
+
+                if (constraintSimple is "AnyObject" or "Sendable" or "Escapable" or "Copyable"
+                    or "SendableMetatype" or "Error")
+                    continue;
+
+                // Name-first so an Entity root is recognized even when its
+                // cross-module TypeRecord is not loaded in this wrapper build.
+                if (IsRealityFoundationEntityName(constraint, constraintSimple))
+                {
+                    sawEntity = true;
+                    continue;
+                }
+
+                // A name present in the module's own protocol list is definitively a
+                // protocol — recurse into it. This must precede the TypeDatabase class
+                // check: concreteClassFallback modules (e.g. RealityKit) synthesize a
+                // Class record for any unregistered umbrella-qualified name, which would
+                // otherwise mis-classify a protocol-typed constraint (RealityKit.HasTransform)
+                // as a foreign class superclass and hide the transitive Entity root.
+                if (allProtocols != null)
+                {
+                    var constraintDecl = allProtocols.FirstOrDefault(p =>
+                        p.Name == constraintSimple || p.Name == constraint ||
+                        p.SwiftTypeName?.ToString() == constraint);
+                    if (constraintDecl != null)
+                    {
+                        CollectClassSuperclassKinds(
+                            constraintDecl, typeDatabase, allProtocols, visited,
+                            ref sawEntity, ref sawOtherClass);
+                        continue;
+                    }
+                }
+
+                if (typeDatabase.TryGetTypeRecord(new NamedTypeSpec(constraint), out var constraintRecord) &&
+                    constraintRecord.Kind == TypeRecordKind.Class)
+                {
+                    sawOtherClass = true;
+                }
+            }
+        }
     }
 
     private static bool IsRealityFoundationEntityName(string fullName, string simpleName)
@@ -5044,6 +5174,60 @@ public class EveryProtocolEmitter
         return fullName == "RealityFoundation.Entity"
             || fullName == "RealityKit.Entity"
             || fullName == "Entity";
+    }
+
+    /// <summary>
+    /// True when RealityFoundation.Entity already conforms to <paramref name="protocolDecl"/>,
+    /// meaning the Entity-rooted carrier inherits the conformance and must NOT re-declare it.
+    /// Compared by simple name against Entity's transitive conformance closure.
+    /// </summary>
+    private bool EntityBaseConformsTo(ProtocolDecl protocolDecl)
+    {
+        _entityBaseConformanceClosure ??= ComputeEntityBaseConformanceClosure();
+        var simple = GetSimpleName(protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name);
+        return _entityBaseConformanceClosure.Contains(simple);
+    }
+
+    /// <summary>
+    /// Walks RealityFoundation.Entity's <see cref="TypeRecord.ProtocolConformances"/> graph and
+    /// returns the transitive set of conformed-protocol simple names. The walk expands each
+    /// conformance's own ProtocolConformances so a refinement Entity satisfies transitively
+    /// (e.g. <c>HasTransform : SomeBase</c>) is also treated as inherited. The first Entity
+    /// spelling whose record carries a populated conformance list wins — the real
+    /// RealityFoundation.Entity record, not a <c>concreteClassFallback</c>-synthesized
+    /// RealityKit.Entity stub that has no conformances.
+    /// </summary>
+    private HashSet<string> ComputeEntityBaseConformanceClosure()
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<SwiftTypeName>();
+
+        foreach (var entityName in new[] { "RealityFoundation.Entity", "RealityKit.Entity" })
+        {
+            if (_typeDatabase.TryGetTypeRecord(new NamedTypeSpec(entityName), out var rec) &&
+                rec.ProtocolConformances is { Count: > 0 } confs)
+            {
+                foreach (var c in confs)
+                    queue.Enqueue(c);
+                break;
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            var conformance = queue.Dequeue();
+            var simple = GetSimpleName(conformance.ToString());
+            if (!result.Add(simple))
+                continue;
+            if (_typeDatabase.TryGetTypeRecord(conformance, out var rec) &&
+                rec.ProtocolConformances is { Count: > 0 } refines)
+            {
+                foreach (var r in refines)
+                    queue.Enqueue(r);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -5072,6 +5256,28 @@ public class EveryProtocolEmitter
             // Check unqualified names
             if (trivialProtocols.Contains(constraint))
                 continue;
+
+            var constraintSimple = GetSimpleName(constraint);
+
+            // A class-superclass constraint on RealityFoundation.Entity (umbrella
+            // spelling RealityKit.Entity) is satisfiable through the Entity-rooted
+            // EveryEntityProtocol helper — it is NOT an unsatisfied protocol
+            // constraint. Likewise a protocol-typed constraint that is itself
+            // Entity-rooted (e.g. RealityKit.HasTransform) is satisfied transitively.
+            // Without these continues, the autoBridge / optionalFallback module gate
+            // below would mis-skip every Entity-rooted RealityFoundation protocol
+            // (their genericSig names the root as RealityKit.Entity / RealityKit.*).
+            if (IsRealityFoundationEntityName(constraint, constraintSimple))
+                continue;
+            if (_allProtocols != null)
+            {
+                var constraintDecl = _allProtocols.FirstOrDefault(p =>
+                    p.Name == constraintSimple || p.Name == constraint ||
+                    p.SwiftTypeName?.ToString() == constraint);
+                if (constraintDecl != null &&
+                    IsEntityRootedProtocol(constraintDecl, _typeDatabase, _allProtocols))
+                    continue;
+            }
 
             var dotIdx = constraint.IndexOf('.');
             if (dotIdx < 0)

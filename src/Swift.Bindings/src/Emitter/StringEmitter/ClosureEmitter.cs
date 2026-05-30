@@ -656,7 +656,13 @@ public static partial class ClosureEmitter
         if (useCdecl && (typeSpec is ProtocolListTypeSpec || typeSpec is NamedTypeSpec { IsAny: true }))
         {
             var containerType = closureHandler.GetPInvokeExistentialType(typeSpec);
-            var containerAccess = $"*(global::{containerType}*)arg{argIndex}";
+            // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+            // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque container
+            // (40 bytes); dereferencing the wider type over-reads 24 bytes past the allocation.
+            // This is a borrow (the callback owns the cell), so no extra retain.
+            var containerAccess = closureHandler.IsClassBoundArity1Existential(typeSpec)
+                ? $"global::Swift.Runtime.ClassExistentialContainer1.ReadHeapCell((IntPtr)arg{argIndex})"
+                : $"*(global::{containerType}*)arg{argIndex}";
             if (closureHandler.NeedsWellKnownProtocolWrapping(typeSpec, out var cdeclWrapType))
                 return $"new {cdeclWrapType}({containerAccess})";
             if (closureHandler.NeedsProxyWrapping(typeSpec, out var cdeclProxyName))

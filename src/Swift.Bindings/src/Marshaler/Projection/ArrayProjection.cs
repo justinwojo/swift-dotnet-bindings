@@ -39,7 +39,11 @@ public class ArrayProjection : ITypeProjection
 
     public string SwiftContainerGenericType => $"SwiftArray<{_elementProjection.SwiftContainerGenericType}>";
 
-    public string ContainerTypeName => $"SwiftArray<{_elementProjection.MarshalFromSwiftType}>";
+    // Return/read direction: the SwiftArray<T> element type must match the Swift array's actual
+    // element stride. ArrayElementCarrierType is MarshalFromSwiftType for every projection except a
+    // class-bound existential element, whose 16-byte ClassExistentialContainer1 carrier replaces the
+    // 40-byte opaque ExistentialContainer1 (which would over-read and crash on the first index).
+    public string ContainerTypeName => $"SwiftArray<{_elementProjection.ArrayElementCarrierType}>";
 
     /// <summary>
     /// For MarshalFromSwift in return direction, use MarshalFromSwiftType of inner elements
@@ -179,9 +183,11 @@ public class ArrayProjection : ITypeProjection
             return BuildObjCBridgeReturnPlan(resultName, strategy);
         }
 
-        // Use MarshalFromSwiftType for return — classes/non-frozen structs need the real type name
-        // (not IntPtr) for MarshalFromSwift to construct instances via ISwiftObject.NewFromPayload.
-        var rawElem = _elementProjection.MarshalFromSwiftType;
+        // Use ArrayElementCarrierType for return — classes/non-frozen structs need the real type name
+        // (not IntPtr) for MarshalFromSwift to construct instances via ISwiftObject.NewFromPayload;
+        // class-bound existential elements need the 16-byte ClassExistentialContainer1 stride
+        // (ArrayElementCarrierType defaults to MarshalFromSwiftType for every other projection).
+        var rawElem = _elementProjection.ArrayElementCarrierType;
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
 
         var asProjected = elemConversion != null

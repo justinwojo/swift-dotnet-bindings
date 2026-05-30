@@ -118,3 +118,94 @@ public class TransformHolder {
         self.basis = matrix_identity_float4x4
     }
 }
+
+// MARK: - Multi-SIMD Constructor With Default Arguments (RealityKit.Transform shape)
+//
+// Mirrors RealityKit's `@inlinable public Transform.init(scale:rotation:translation:)`:
+// a type whose initializer takes several SIMD parameters (a mix of bound-generic
+// `SIMD3<Float>` and the C-imported `simd_quatf`) where every parameter carries a Swift
+// default. RealityKit.Transform is a STRUCT, and the faithful `@inlinable` repro lives on
+// `SimdDefaultCtorStruct` below (Swift forbids `@inlinable` designated inits on a class).
+// This class is a positive control: a plain-public multi-SIMD default-arg class init must
+// wrap fine through the indirect (pointer) path the property setters already use.
+public class SimdDefaultCtorHolder {
+    public var scale: simd_float3
+    public var rotation: simd_quatf
+    public var translation: simd_float3
+
+    public init(scale: simd_float3 = simd_float3(1, 1, 1),
+                rotation: simd_quatf = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
+                translation: simd_float3 = simd_float3(0, 0, 0)) {
+        self.scale = scale
+        self.rotation = rotation
+        self.translation = translation
+    }
+
+    public func describe() -> String {
+        return "\(scale.x),\(scale.y),\(scale.z)|\(rotation.imag.x),\(rotation.imag.y),\(rotation.imag.z),\(rotation.real)|\(translation.x),\(translation.y),\(translation.z)"
+    }
+}
+
+// Non-@frozen (resilient, library-evolution) struct — the generator emits it as
+// ClassWithOpaquePayload (a C# class backed by a SafeHandle, returned via SwiftIndirectResult),
+// the same C# shape it gives RealityKit.Transform.
+//
+// This is the §5a repro. The crux is multiple SIMD parameters passed BY VALUE. The single-param
+// `init(basis: simd_float4x4)` ctor marshals its argument through a buffer pointer (`@_cdecl`
+// CallConvCdecl wrapper) and works. But `init(scale:rotation:translation:)` — three SIMD values
+// (a mix of bound-generic `SIMD3<Float>` and the C-imported `simd_quatf`) — binds directly to the
+// real Swift init symbol via `CallConvSwift` with each value passed by register. Mono's JIT lane
+// cannot lower the multi-word SIMD register ABI for this call and throws `InvalidProgramException`.
+// The fix routes these SIMD ctor params through the same indirect (pointer/buffer) path the SIMD
+// property setters and the `init(basis:)` ctor already use.
+public struct SimdDefaultCtorStruct {
+    public var scale: simd_float3
+    public var rotation: simd_quatf
+    public var translation: simd_float3
+
+    // Multiple SIMD params by value — the §5a crash shape (mirrors Transform(scale:rotation:translation:)).
+    public init(scale: simd_float3, rotation: simd_quatf, translation: simd_float3) {
+        self.scale = scale
+        self.rotation = rotation
+        self.translation = translation
+    }
+
+    // Note on the parser half of the §5a fix: the real RealityKit.Transform.init is `@inlinable
+    // public`, which swift-api-digester records (for system frameworks) as declAttributes
+    // ['Inlinable'] with NO AccessControl — the signal that made the parser mis-classify it as
+    // module-internal and drop the @_cdecl wrapper. That exact ABI shape is NOT reproducible from a
+    // fixture here: our own library-evolution build always emits an explicit AccessControl attribute
+    // for public members, so an `@inlinable public init` in this file records as
+    // ['AccessControl', 'Inlinable'] and never trips the heuristic. The parser fix is therefore
+    // covered by the SwiftABIParser unit test (which constructs the no-AccessControl node directly)
+    // and by RealityFoundation consumer validation. This fixture covers the emitter half: a multi-SIMD
+    // ctor on a ClassWithOpaquePayload type must route its params through the indirect (pointer) path.
+
+    // Single SIMD param routed through a buffer pointer — the control that already wraps correctly
+    // (mirrors Transform(matrix:)). Confirms the indirect path is sound for SIMD ctor params.
+    public init(basis: simd_float4x4) {
+        self.scale = simd_float3(basis.columns.0.x, basis.columns.1.y, basis.columns.2.z)
+        self.rotation = simd_quatf(basis)
+        self.translation = simd_float3(basis.columns.3.x, basis.columns.3.y, basis.columns.3.z)
+    }
+
+    public func describe() -> String {
+        return "\(scale.x),\(scale.y),\(scale.z)|\(rotation.real)|\(translation.x),\(translation.y),\(translation.z)"
+    }
+}
+
+// Control: the same multi-SIMD initializer WITHOUT default arguments. Isolates whether
+// the wrapper-bypass is triggered by the SIMD parameter types or by the default args.
+public class SimdNoDefaultCtorHolder {
+    public var scale: simd_float3
+    public var rotation: simd_quatf
+
+    public init(scale: simd_float3, rotation: simd_quatf) {
+        self.scale = scale
+        self.rotation = rotation
+    }
+
+    public func describe() -> String {
+        return "\(scale.x),\(scale.y),\(scale.z)|\(rotation.real)"
+    }
+}

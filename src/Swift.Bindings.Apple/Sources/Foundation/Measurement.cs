@@ -130,10 +130,104 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
         }
     }
 
+    // Measurement carries conditional conformances in Foundation
+    // (`extension Measurement : Comparable/Equatable/Hashable where UnitType : Dimension`).
+    // All WorkoutKit/HealthKit unit types are Dimension subclasses, so these
+    // descriptors instantiate against the concrete unit metadata. Comparable is
+    // what unblocks SwiftClosedRange<Measurement<…>> (range alerts): its metadata
+    // accessor requires the Bound's Comparable witness table.
+    private static readonly Dictionary<Type, string> _protocolConformanceSymbols = new()
+    {
+        { typeof(global::Swift.ISwiftComparable), "$s10Foundation11MeasurementVyxGSLAAMc" },
+        { typeof(global::Swift.ISwiftEquatable),  "$s10Foundation11MeasurementVyxGSQAAMc" },
+        { typeof(global::Swift.ISwiftHashable),   "$s10Foundation11MeasurementVyxGSHAAMc" },
+    };
+
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-        => throw new SwiftRuntimeException($"Protocol conformance not implemented for Measurement<{typeof(T).Name}> and {typeof(TProtocol).Name}");
+    {
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+            throw new SwiftRuntimeException($"Protocol conformance not implemented for Measurement<{typeof(T).Name}> and {typeof(TProtocol).Name}");
+        return ProtocolConformanceDescriptor.LoadFromSymbol(KnownLibraries.SwiftFoundation, symbolName);
+    }
+
+    static Measurement()
+    {
+        // SwiftClosedRange<Measurement<T>> (the WorkoutKit range-alert bound shape)
+        // resolves the Bound's Comparable witness table through the *unconstrained*
+        // ComparableConformanceRegistry — it has no `ISwiftObject` constraint to dispatch
+        // the static-virtual GetProtocolConformanceDescriptor, so on NativeAOT it falls to
+        // MakeGenericMethod, which is unsupported and throws. Pre-register the conformance
+        // here through the constrained static-virtual path (no-op on Mono, where reflection
+        // works) so the registry finds the table without reflection. Best-effort: a
+        // registration that cannot resolve on a given platform must not brick Measurement
+        // construction/reads — the call site then simply falls back to its prior path.
+        TryRegisterConformance<global::Swift.ISwiftComparable>();
+    }
+
+    private static void TryRegisterConformance<TProtocol>() where TProtocol : class
+    {
+        try
+        {
+            global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<Measurement<T>, TProtocol>();
+        }
+        catch (SwiftRuntimeException)
+        {
+            // Descriptor/witness table not resolvable on this platform; leave the table
+            // unregistered so the unconstrained registry falls back at the call site.
+        }
+    }
 
     internal Measurement(IntPtr handle) => _payload = new SwiftSafeHandle<Measurement<T>>(handle);
+
+    /// <summary>
+    /// Constructs a Measurement from a numeric value and a unit instance.
+    /// </summary>
+    /// <param name="value">The numeric magnitude.</param>
+    /// <param name="unit">
+    /// The unit. Must be an Objective-C bridged NSUnit subclass (an
+    /// <see cref="global::ObjCRuntime.INativeObject"/>), e.g. <c>Foundation.NSUnitLength.Meters</c>.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="unit"/> is not an Objective-C bridged type or has a null handle.
+    /// </exception>
+    public unsafe Measurement(double value, T unit)
+    {
+        ArgumentNullException.ThrowIfNull(unit);
+        if (unit is not global::ObjCRuntime.INativeObject native)
+            throw new ArgumentException(
+                $"Measurement unit type '{typeof(T).Name}' must be an Objective-C bridged NSUnit (INativeObject).",
+                nameof(unit));
+        IntPtr unitHandle = (IntPtr)native.Handle;
+        if (unitHandle == IntPtr.Zero)
+            throw new ArgumentException("Unit handle is null.", nameof(unit));
+
+        var metadata = SwiftObjectHelper<Measurement<T>>.GetTypeMetadata();
+        void* buffer = NativeMemory.Alloc((nuint)metadata.Size);
+        bool constructed;
+        try
+        {
+            constructed = MeasurementInterop.InitFromValueUnit(value, unitHandle, (IntPtr)buffer);
+        }
+        catch
+        {
+            NativeMemory.Free(buffer);
+            throw;
+        }
+        if (!constructed)
+        {
+            // INativeObject only proves the handle is an ObjC object, not that its dynamic
+            // type is an NSUnit subclass. The Swift shim reports the conditional-cast result:
+            // a non-NSUnit handle leaves the buffer uninitialized, so free the raw bytes (no
+            // VWT destroy ran) and reject as a managed error rather than an `as!` process trap.
+            NativeMemory.Free(buffer);
+            throw new ArgumentException(
+                $"Measurement unit '{unit.GetType().Name}' is not a Foundation NSUnit subclass.",
+                nameof(unit));
+        }
+        // SwiftSafeHandle takes ownership: on release it runs the VWT destroy
+        // (releasing the retained unit reference) and frees this buffer.
+        _payload = new SwiftSafeHandle<Measurement<T>>((IntPtr)buffer);
+    }
 
     /// <summary>Releases the native Swift storage backing this Measurement.</summary>
     public void Dispose()
@@ -162,4 +256,16 @@ internal static class MeasurementInterop
 
     internal static TypeMetadata GetMeasurementMetadata(TypeMetadata unitMetadata)
         => TypeMetadata.FromHandle(PInvoke_GetMeasurementMetadata(unitMetadata.Handle));
+
+    // Constructs Measurement(value:unit:) via the real Swift initializer and writes
+    // the struct into resultPtr. unitHandle is the ObjC object handle of the NSUnit.
+    // Returns true when the handle's dynamic type is an NSUnit subclass and the struct
+    // was written; false (buffer left uninitialized) when the type does not match.
+    [DllImport("SwiftBindingsRuntime", EntryPoint = "SBW_Measurement_InitFromValueUnit",
+        CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool PInvoke_InitFromValueUnit(double value, IntPtr unitHandle, IntPtr resultPtr);
+
+    internal static bool InitFromValueUnit(double value, IntPtr unitHandle, IntPtr resultPtr)
+        => PInvoke_InitFromValueUnit(value, unitHandle, resultPtr);
 }

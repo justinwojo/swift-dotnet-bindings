@@ -143,7 +143,15 @@ public class WitnessDispatchEmitter
         // (Self requirements, Self-typed members, no implementable members, etc.).
         // Only check when conformance decisions have been recorded (i.e., EveryProtocolEmitter ran
         // with a shared context). When no decisions are recorded, allow emission for backward compat.
-        if (_emissionContext.ConformanceDecisions.Count > 0 && !_emissionContext.WasConformanceEmitted(protocolName))
+        //
+        // Read-only (Swift-vended-only) proxies are the exception: a superclass-constrained
+        // protocol gets no EveryProtocol conformance (EveryProtocol can't subclass the required
+        // class), yet its witness-dispatch accessors ARE emitted — they reconstruct `any P` via
+        // the static type (`containerPtr.load(as: (any P).self)`) and dispatch through the
+        // existential's OWN witness table, which needs no EveryProtocol conformance.
+        if (_emissionContext.ConformanceDecisions.Count > 0
+            && !_emissionContext.WasConformanceEmitted(protocolName)
+            && !_emissionContext.IsReadOnlyProxy(protocolName))
         {
             _logger.LogDebug("Skipping witness dispatch for {Protocol}: conformance was not emitted", protocolName);
             return;
@@ -217,6 +225,11 @@ public class WitnessDispatchEmitter
                     EnsureHeader();
                     EmitClassReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
+                else if (IsPropertyOptionalClassReturn(property))
+                {
+                    EnsureHeader();
+                    EmitOptionalClassReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
+                }
                 else if (IsPropertyStructReturn(property))
                 {
                     EnsureHeader();
@@ -226,6 +239,11 @@ public class WitnessDispatchEmitter
                 {
                     EnsureHeader();
                     EmitCollectionReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
+                }
+                else if (IsPropertyExistentialReturn(property))
+                {
+                    EnsureHeader();
+                    EmitExistentialReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
                 }
             }
         }
@@ -599,8 +617,10 @@ public class WitnessDispatchEmitter
     {
         if (IsTypeDispatchable(property.SwiftTypeSpec)
             || IsPropertyClassReturn(property)
+            || IsPropertyOptionalClassReturn(property)
             || IsPropertyStructReturn(property)
-            || IsPropertyCollectionReturn(property))
+            || IsPropertyCollectionReturn(property)
+            || IsPropertyExistentialReturn(property))
             return null;
 
         return $"property type '{MapForDiagnostic(property.SwiftTypeSpec)}' is not dispatchable via witness table";
@@ -845,6 +865,43 @@ public class WitnessDispatchEmitter
     public bool IsPropertyClassReturn(PropertyDecl property)
     {
         return IsClassReturn(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Checks if a return type is <c>Optional&lt;SwiftClass&gt;</c> (e.g. <c>Entity?</c>).
+    /// Dispatched via the nullable direct-pointer pattern: a nil payload returns a null
+    /// pointer (.none), a non-nil payload returns a +1 retained instance pointer that the
+    /// C# SafeHandle adopts — the ClassReturn pattern plus a nil guard.
+    /// </summary>
+    public bool IsOptionalClassReturn(TypeSpec? returnType)
+    {
+        if (!MarshallingHelpers.IsSwiftOptional(returnType))
+            return false;
+        if (returnType is not NamedTypeSpec namedType || namedType.GenericParameters.Count != 1)
+            return false;
+        return IsSwiftClassType(namedType.GenericParameters[0]);
+    }
+
+    /// <summary>
+    /// Checks if a property getter returns <c>Optional&lt;SwiftClass&gt;</c>.
+    /// </summary>
+    public bool IsPropertyOptionalClassReturn(PropertyDecl property)
+    {
+        return IsOptionalClassReturn(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Checks if a property getter returns a protocol existential (<c>any P</c> or
+    /// <c>(any P)?</c>) that can be dispatched via the heap-cell pattern. Mirrors the
+    /// existential METHOD return path: a typed <c>UnsafeMutablePointer&lt;any P&gt;</c> heap
+    /// cell carries the value across the boundary, the C# side reconstructs the container and
+    /// constructs a proxy, then frees the cell. Class-bound (single superclass-/AnyObject-
+    /// constrained) existentials use the 2-word <c>ClassExistentialContainer1</c> carrier with
+    /// retain-on-read ownership; opaque existentials use the 5-word container.
+    /// </summary>
+    public bool IsPropertyExistentialReturn(PropertyDecl property)
+    {
+        return IsExistentialDispatchable(property.SwiftTypeSpec);
     }
 
     /// <summary>
@@ -2062,6 +2119,109 @@ public class WitnessDispatchEmitter
 
             """);
         // No free function — SafeHandle handles ARC release
+    }
+
+    /// <summary>
+    /// Emits a property getter accessor for <c>Optional&lt;SwiftClass&gt;</c> return types.
+    /// Returns <c>UnsafeMutableRawPointer?</c>: a nil property value returns nil (.none),
+    /// a non-nil value returns a +1 retained instance pointer via <c>Unmanaged.passRetained</c>.
+    /// The C# SafeHandle adopts the +1; no free function is needed.
+    /// </summary>
+    private void EmitOptionalClassReturnPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
+    {
+        var protocolName = protocolDecl.Name;
+        var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
+        bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
+        var avail = _currentAvailabilityPrefix;
+        bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
+        var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
+
+        writer.WriteLines($$"""
+            {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
+            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
+                {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                if let result = {{bindName}}.{{property.Name}} {
+                    return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                }
+                return nil
+            }
+
+            """);
+        // No free function — SafeHandle handles ARC release
+    }
+
+    /// <summary>
+    /// Emits a property getter accessor for protocol-existential return types
+    /// (<c>any P</c> or <c>(any P)?</c>), mirroring the existential METHOD accessor's
+    /// heap-cell pattern: allocate <c>UnsafeMutablePointer&lt;any P&gt;</c>, initialize it
+    /// to the (unwrapped) existential, and return an <c>UnsafeMutableRawPointer</c>
+    /// (nullable for the optional case). A typed free function deinitializes + deallocates
+    /// the cell. The container layout (2-word class-bound vs 5-word opaque) is selected by
+    /// the Swift compiler from the protocol's class-boundedness; the C# side reads the
+    /// matching carrier (see <c>EmitPropertyImplementation</c>).
+    /// </summary>
+    private void EmitExistentialReturnPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
+    {
+        var protocolName = protocolDecl.Name;
+        var swiftExistentialType = GetSwiftExistentialTypeName(property.SwiftTypeSpec);
+        if (swiftExistentialType == null)
+            return; // Should not happen — IsExistentialDispatchable already validated
+        var swiftTypeName = $"any {swiftExistentialType}";
+
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        bool isOptionalReturn = existentialHandler.IsOptionalExistential(property.SwiftTypeSpec);
+
+        var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
+        var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
+        bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
+        var avail = _currentAvailabilityPrefix;
+        bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
+        var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
+
+        var swiftReturnDecl = isOptionalReturn
+            ? " -> UnsafeMutableRawPointer?"
+            : " -> UnsafeMutableRawPointer";
+
+        EmitAvailabilityAttributes(writer);
+        writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
+        writer.WriteLine($"public func {accessorSymbol}(_ containerPtr: UnsafeRawPointer){swiftReturnDecl} {{");
+        writer.Indent++;
+        writer.WriteLine($"{bindKw} {bindName} = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+        if (isOptionalReturn)
+        {
+            writer.WriteLine($"let result: ({swiftTypeName})? = {bindName}.{property.Name}");
+            writer.WriteLine("if let unwrapped = result {");
+            writer.Indent++;
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+            writer.WriteLine("ptr.initialize(to: unwrapped)");
+            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("return nil");
+        }
+        else
+        {
+            writer.WriteLine($"let result: {swiftTypeName} = {bindName}.{property.Name}");
+            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+            writer.WriteLine("ptr.initialize(to: result)");
+            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+
+        // Free function — typed deinitialize for ARC-safe cleanup (only called when non-nil).
+        var freeTypeSelf = $"({swiftTypeName}).self";
+        writer.WriteLines($$"""
+            {{avail}}@_cdecl("{{freeSymbol}}")
+            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                ptr.assumingMemoryBound(to: {{freeTypeSelf}}).deinitialize(count: 1)
+                ptr.deallocate()
+            }
+
+            """);
     }
 
     /// <summary>

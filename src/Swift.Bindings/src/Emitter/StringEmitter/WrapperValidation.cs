@@ -753,6 +753,34 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when <paramref name="typeSpec"/> is an Optional whose payload is a single
+    /// class-bound existential (one <c>AnyObject</c>- or superclass-constrained protocol). Such a
+    /// value is the compact 2-word <c>[classRef][witnessTable]</c> cell, which Swift returns in
+    /// registers (x0:x1), not via an indirect-result pointer in x8. The raw method-dispatch-thunk
+    /// fallback assumes an x8 sret contract, but the <c>...Tj</c> dispatch thunk clobbers x8 to load
+    /// the vtable slot before tailing to the implementation — so the sret buffer is never written and
+    /// C# reads nil even for a present value. Routing the RETURN through an @_cdecl wrapper makes
+    /// Swift capture the register-returned value and write it into a stable result buffer that C#
+    /// reads via <c>ClassExistentialContainer1.ReadHeapCell</c> (offset-0 null-niche check in
+    /// <see cref="OptionalProjection"/>).
+    ///
+    /// Return-position only: the parameter path keeps rejecting <c>Optional&lt;existential&gt;</c>
+    /// (its reconstruction has separate pointer/handle assumptions). Class-bound only: the 5-word
+    /// opaque <c>Optional&lt;any P&gt;</c> is genuinely sret-returned and its dispatch thunk preserves
+    /// x8, so it already works on the raw path and must stay there.
+    /// </summary>
+    public static bool IsOptionalClassBoundExistentialReturn(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } opt)
+            return false;
+        if (!CdeclParamMapper.IsProtocolExistentialType(opt.GenericParameters[0], typeDatabase))
+            return false;
+        var handler = new ExistentialHandler(typeDatabase);
+        var protocolList = handler.ToProtocolListTypeSpec(opt.GenericParameters[0]);
+        return protocolList != null && handler.IsClassBoundArity1Existential(protocolList);
+    }
+
+    /// <summary>
     /// Returns true for Optional&lt;T&gt; where T is a reference-like type (Class, ObjC-bridged, ObjC-rooted).
     /// These use nullable pointer ABI (UnsafeMutableRawPointer?) in @_cdecl wrappers.
     ///

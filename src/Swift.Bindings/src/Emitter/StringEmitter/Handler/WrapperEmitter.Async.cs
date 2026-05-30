@@ -574,11 +574,14 @@ namespace BindingsGeneration
                         var ptrVar = $"_tupleBuf{i}";
                         elementTypes.Add("UnsafeMutableRawPointer");
                         callbackArgParts.Add(ptrVar);
+                        // Protocol existential tuple elements need `(any P).self`, not `any P.self`.
+                        var elementMetatype = swiftTypeName.StartsWith("any ")
+                            ? $"({swiftTypeName}).self" : $"{swiftTypeName}.self";
                         heapAllocLines.Add(
                             $"let {ptrVar} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftTypeName}>.size, alignment: MemoryLayout<{swiftTypeName}>.alignment)\n" +
-                            $"                        {ptrVar}.initializeMemory(as: {swiftTypeName}.self, repeating: {resultVar}.{i}, count: 1)");
+                            $"                        {ptrVar}.initializeMemory(as: {elementMetatype}, repeating: {resultVar}.{i}, count: 1)");
                         heapCleanupLines.Add(
-                            $"{ptrVar}.assumingMemoryBound(to: {swiftTypeName}.self).deinitialize(count: 1)\n" +
+                            $"{ptrVar}.assumingMemoryBound(to: {elementMetatype}).deinitialize(count: 1)\n" +
                             $"                        {ptrVar}.deallocate()");
                     }
                     else
@@ -812,11 +815,16 @@ namespace BindingsGeneration
                     // witness, so the carrier holds its own +1 on internal references.
                     // The C# callback then VWT-InitializeWithCopies into a NativeMemory-owned
                     // buffer and runs VWT Destroy on this carrier before SBW_Free.
+                    // Protocol existential metatypes need parentheses: `(any P).self`, not
+                    // `any P.self` (the latter parses as `any (P.self)` and fails to compile,
+                    // silently stripping the wrapper). Concrete returns keep the bare form.
+                    var structEnumMetatype = swiftReturnType.StartsWith("any ")
+                        ? $"({swiftReturnType}).self" : $"{swiftReturnType}.self";
                     string structEnumCopyCode =
                           $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
                           $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
                           $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
-                          $"                            _rawPtr.initializeMemory(as: {swiftReturnType}.self, repeating: {resultVar}, count: 1)\n";
+                          $"                            _rawPtr.initializeMemory(as: {structEnumMetatype}, repeating: {resultVar}, count: 1)\n";
 
                     stringMarshalCode =
                         $"// Marshal complex type to pointer for C# callback\n" +
@@ -1905,8 +1913,16 @@ namespace BindingsGeneration
                     asyncWrapExpr = $"new {asyncWkIR}(__existentialResult)";
                 else
                     asyncWrapExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(asyncProtocolList)}(__existentialResult{OwnedExistentialCtorArg(asyncContainerType)})";
+                // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+                // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque container
+                // (40 bytes); reading the wider type over-reads 24 bytes past the allocation. The +1
+                // still transfers via the bitwise copy (carrier free is a plain dealloc, no VWT Destroy),
+                // so the proxy's ownsContainer adoption is unchanged — only the read width differs.
+                var asyncExistentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList)
+                    ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
+                    : $"SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr)";
                 marshalResultCode =
-                    $"var __existentialResult = SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr);\n" +
+                    $"var __existentialResult = {asyncExistentialRead};\n" +
                     $"                                var result = {asyncWrapExpr};";
             }
             else if (isObjCBridged)

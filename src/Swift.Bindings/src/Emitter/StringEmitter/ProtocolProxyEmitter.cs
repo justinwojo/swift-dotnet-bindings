@@ -137,6 +137,15 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
+        // Class-bound protocol existentials marshal through the 16-byte ClassExistentialContainer1
+        // carrier (see ExistentialHandler.IsClassBoundArity1Existential). SwiftArray<T> derives its
+        // element stride from the Swift type metadata of T, so the module initializer must register
+        // the shared class-existential value-witness metadata for ClassExistentialContainer1 — the
+        // opaque ExistentialContainer1 metadata would over-read at 40 bytes and crash on the first
+        // array index. Recorded here (the proxy-class chokepoint) because a proxy is emitted exactly
+        // for the protocols whose existentials cross the boundary.
+        RecordClassBoundExistentialMetadata(protocolDecl);
+
         // Determine whether EveryProtocolEmitter emitted a SetXxx_vtable Swift trampoline for
         // this protocol. The signal partitions the protocols that REACH this emitter at all
         // (i.e. ones whose EveryProtocol conformance WAS recorded as emitted — ProtocolHandler

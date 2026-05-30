@@ -151,6 +151,7 @@ public sealed class BridgeSummary
     public int Generated { get; set; }
     public int Template { get; set; }
     public int HintSkipped { get; set; }
+    public int Skipped { get; set; }
     public double GeneratedPercent { get; set; }
 }
 

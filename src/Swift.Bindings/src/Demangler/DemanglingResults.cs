@@ -151,14 +151,34 @@ public class DemanglingResults
     /// </exception>
     public string GetProtocolConformanceDescriptor(SwiftTypeName implementingType, SwiftTypeName protocol)
     {
+        if (!TryGetProtocolConformanceDescriptor(implementingType, protocol, out var symbol))
+        {
+            throw new Exception($"Protocol conformance descriptor not found for type '{implementingType}' and protocol '{protocol}'.");
+        }
+
+        return symbol;
+    }
+
+    /// <summary>
+    /// Non-throwing variant of <see cref="GetProtocolConformanceDescriptor"/>. Returns false
+    /// when the TBD contains no conformance descriptor for the requested (type, protocol) pair.
+    /// Lets callers retry with an alternative implementing-type identity — notably for
+    /// <c>@_originallyDefinedIn</c> umbrella re-exports where the TBD symbol is mangled with the
+    /// type's ORIGINAL module (e.g. RealityKit) while the type decl is attributed to its current
+    /// module (e.g. RealityFoundation) via its USR.
+    /// </summary>
+    public bool TryGetProtocolConformanceDescriptor(SwiftTypeName implementingType, SwiftTypeName protocol, out string symbol)
+    {
         var protocolConformanceDescriptor = ProtocolConformanceDescriptors.FirstOrDefault(
             x => x.ImplementingType.Name == implementingType.ModuleQualifiedName && x.ProtocolType.Name == protocol.ModuleQualifiedName);
 
         if (protocolConformanceDescriptor == null)
         {
-            throw new Exception($"Protocol conformance descriptor not found for type '{implementingType}' and protocol '{protocol}'.");
+            symbol = string.Empty;
+            return false;
         }
 
-        return protocolConformanceDescriptor.Symbol;
+        symbol = protocolConformanceDescriptor.Symbol;
+        return true;
     }
 }

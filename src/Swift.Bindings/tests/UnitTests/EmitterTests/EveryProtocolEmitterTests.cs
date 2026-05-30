@@ -1642,6 +1642,144 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void IsEntityRootedProtocol_EntityInGenericSig_ReturnsTrue()
+    {
+        // The class-superclass root is recorded in the protocol's genericSig
+        // (`<Self : RealityKit.Entity>`), not in InheritedProtocols — this is the
+        // real ABI shape for RealityFoundation.HasTransform / HasAnchoring. Entity
+        // detection must read genericSig, not only the inherited-protocol list.
+        var realityKit = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.framework/RealityKit");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+        realityKit.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityKit", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s10RealityKit6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(realityKit);
+
+        var protocolDecl = CreateProtocolWithMethod("HasTransform", "doSomething");
+        protocolDecl.GenericSignature = "<Self : RealityKit.Entity>";
+
+        Assert.True(EveryProtocolEmitter.IsEntityRootedProtocol(protocolDecl, _typeDatabase));
+    }
+
+    [Fact]
+    public void IsEntityRootedProtocol_TransitiveEntityViaGenericSig_ReturnsTrue()
+    {
+        // ABI transitivity: HasCollision's genericSig constrains Self to HasTransform,
+        // whose own genericSig constrains Self to Entity. The Entity root is reachable
+        // only by following the protocol-typed genericSig constraint transitively
+        // through the supplied module protocol list.
+        var realityKit = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.framework/RealityKit");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+        realityKit.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityKit", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s10RealityKit6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(realityKit);
+
+        var hasTransform = CreateProtocolWithMethod("HasTransform", "doSomething");
+        hasTransform.GenericSignature = "<Self : RealityKit.Entity>";
+
+        var hasCollision = CreateProtocolWithMethod("HasCollision", "collide");
+        hasCollision.GenericSignature = "<Self : RealityKit.HasTransform>";
+
+        var all = new[] { hasCollision, hasTransform };
+        Assert.True(EveryProtocolEmitter.IsEntityRootedProtocol(hasCollision, _typeDatabase, all));
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_EntityRootedViaGenericSig_RoutesThroughEveryEntityProtocol()
+    {
+        // End-to-end emission: a protocol whose only class-superclass requirement
+        // appears in genericSig (`<Self : RealityKit.Entity>`) routes through the
+        // Entity-rooted EveryEntityProtocol helper instead of being dropped as an
+        // unsatisfied genericSig constraint. RealityKit is an autoBridge module, so
+        // the umbrella `RealityKit.Entity` spelling otherwise trips the Apple-module
+        // gate in HasUnsatisfiedProtocolConstraintInGenericSig and skips the proxy.
+        var realityKit = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.framework/RealityKit");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+        realityKit.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityKit", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s10RealityKit6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(realityKit);
+
+        var protocolDecl = CreateProtocolWithMethod("HasTransform", "doSomething");
+        protocolDecl.GenericSignature = "<Self : RealityKit.Entity>";
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocolDecl);
+        var output = stringWriter.ToString();
+
+        Assert.Contains("extension EveryEntityProtocol: TestModule.HasTransform", output);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.HasTransform", output);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.HasTransform", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_EntityInheritedProtocol_SkipsRedundantExtension()
+    {
+        // The Entity-rooted carrier subclasses RealityFoundation.Entity, so it inherits
+        // every protocol Entity itself conforms to (HasTransform / HasHierarchy /
+        // HasSynchronization). Re-declaring `extension EveryEntityProtocol: HasTransform`
+        // is a redundant-conformance error in swiftc. A subclass-only protocol Entity does
+        // NOT conform to (HasModel) adds requirements Entity can't satisfy and must still
+        // emit its full extension. Both protocols are directly Entity-rooted via genericSig;
+        // the ONLY discriminator is membership in Entity's ProtocolConformances.
+        var realityKit = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.framework/RealityKit");
+        var entityName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+        realityKit.RegisterType(entityName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityKit", "Entity"),
+            SwiftTypeName = entityName,
+            MetadataAccessor = "$s10RealityKit6EntityCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            // Entity's direct ABI conformances — HasTransform is here, HasModel is not.
+            ProtocolConformances = new[]
+            {
+                SwiftTypeName.FromModuleQualifiedName("RealityFoundation.HasTransform"),
+            },
+        });
+        _typeDatabase.AddModuleDatabase(realityKit);
+
+        var inherited = CreateProtocolWithMethod("HasTransform", "doSomething");
+        inherited.GenericSignature = "<Self : RealityKit.Entity>";
+
+        var subclassOnly = CreateProtocolWithMethod("HasModel", "doSomething");
+        subclassOnly.GenericSignature = "<Self : RealityKit.Entity>";
+
+        var inheritedWriter = new StringWriter();
+        _emitter.EmitProtocolConformance(new SwiftWriter(inheritedWriter), inherited);
+        var inheritedOutput = inheritedWriter.ToString();
+
+        var subclassWriter = new StringWriter();
+        _emitter.EmitProtocolConformance(new SwiftWriter(subclassWriter), subclassOnly);
+        var subclassOutput = subclassWriter.ToString();
+
+        // Inherited protocol: no redundant extension, but the forward-only witness-table
+        // getter (and the C# proxy it backs) is still emitted via the inherited conformance.
+        Assert.DoesNotContain("extension EveryEntityProtocol: TestModule.HasTransform", inheritedOutput);
+        Assert.Contains("any TestModule.HasTransform", inheritedOutput);
+
+        // Subclass-only protocol: full vtable-backed extension still emitted.
+        Assert.Contains("extension EveryEntityProtocol: TestModule.HasModel", subclassOutput);
+    }
+
+    [Fact]
     public void EmitProtocolConformance_NSCodingInheritor_StillSkipsEmission()
     {
         // S-2 negative: NSCoding (and NSSecureCoding/NSCopying/NSMutableCopying)

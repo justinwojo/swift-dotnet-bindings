@@ -1435,24 +1435,120 @@ public class ExistentialHandlerTests
         Assert.Equal("object", handler.GetPublicExistentialType(protocolList));
     }
 
+    #endregion
+
+    #region IsClassBoundArity1Existential Tests
+
+    // This predicate is the single decision point that routes every class-bound existential
+    // heap-cell READ (array element, scalar/optional method return, property getter, async
+    // return, @convention(c) closure parameter, enum payload) to the compact 2-word
+    // ClassExistentialContainer1 read instead of the 5-word opaque ExistentialContainer1.
+    // A wrong answer here over-reads 24 bytes past a 16-byte allocation (SIGSEGV / heap
+    // corruption), so it is exercised directly here in addition to the end-to-end BindingTests.
+
+    [Fact]
+    public void IsClassBoundArity1Existential_SingleClassBoundProtocol_ReturnsTrue()
+    {
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.BoundProto", TypeRecordKind.Protocol,
+            TypeRecordFlags.Frozen | TypeRecordFlags.ClassBound);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.BoundProto") });
+
+        Assert.True(handler.IsClassBoundArity1Existential(protocolList));
+    }
+
+    [Fact]
+    public void IsClassBoundArity1Existential_SingleOpaqueProtocol_ReturnsFalse()
+    {
+        // Same arity-1 shape but WITHOUT the ClassBound flag: the opaque 5-word path must win.
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.OpaqueProto", TypeRecordKind.Protocol);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.OpaqueProto") });
+
+        Assert.False(handler.IsClassBoundArity1Existential(protocolList));
+    }
+
+    [Fact]
+    public void IsClassBoundArity1Existential_ClassBoundPlusMarker_ReturnsTrue()
+    {
+        // A trailing marker (Sendable) is filtered by GetNonMarkerProtocols, so the
+        // composition is still arity 1 and class-bound — the read width must stay compact.
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.BoundProto", TypeRecordKind.Protocol,
+            TypeRecordFlags.Frozen | TypeRecordFlags.ClassBound);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.BoundProto"),
+            new NamedTypeSpec("Swift.Sendable"),
+        });
+
+        Assert.True(handler.IsClassBoundArity1Existential(protocolList));
+    }
+
+    [Fact]
+    public void IsClassBoundArity1Existential_MultipleNonMarkerProtocols_ReturnsFalse()
+    {
+        // Arity > 1 is never the single class-bound layout (multi-protocol class-bound
+        // compositions are rejected upstream and collapse to object).
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.BoundProto", TypeRecordKind.Protocol,
+            TypeRecordFlags.Frozen | TypeRecordFlags.ClassBound);
+        db.Register("TestModule.OtherProto", TypeRecordKind.Protocol,
+            TypeRecordFlags.Frozen | TypeRecordFlags.ClassBound);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.BoundProto"),
+            new NamedTypeSpec("TestModule.OtherProto"),
+        });
+
+        Assert.False(handler.IsClassBoundArity1Existential(protocolList));
+    }
+
+    [Fact]
+    public void IsClassBoundArity1Existential_UnknownProtocol_ReturnsFalse()
+    {
+        // No TypeRecord → cannot prove class-boundedness → fail closed to the opaque path.
+        var db = new ClassBoundCompositionMockDatabase();
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Unregistered") });
+
+        Assert.False(handler.IsClassBoundArity1Existential(protocolList));
+    }
+
+    [Fact]
+    public void IsClassBoundArity1Existential_EmptyProtocolList_ReturnsFalse()
+    {
+        var handler = new ExistentialHandler(new ClassBoundCompositionMockDatabase());
+
+        Assert.False(handler.IsClassBoundArity1Existential(new ProtocolListTypeSpec()));
+    }
+
+    #endregion
+
+    #region ClassBoundCompositionMockDatabase
+
     /// <summary>
     /// Minimal TypeDatabase that lets tests register arbitrary TypeRecords with a
-    /// specific <see cref="TypeRecordKind"/>, so <c>CompositionHasNonProtocolParticipant</c>
-    /// can be exercised against the Class/Protocol boundary it guards.
+    /// specific <see cref="TypeRecordKind"/> and flags, so <c>CompositionHasNonProtocolParticipant</c>
+    /// and <c>IsClassBoundArity1Existential</c> can be exercised against the boundaries they guard.
     /// </summary>
     private class ClassBoundCompositionMockDatabase : ITypeDatabase
     {
         private readonly Dictionary<string, TypeRecord> _types = new();
         public string AsyncLibraryName => null!;
 
-        public void Register(string moduleQualifiedName, TypeRecordKind kind)
+        public void Register(string moduleQualifiedName, TypeRecordKind kind, TypeRecordFlags flags = TypeRecordFlags.Frozen)
         {
             _types[moduleQualifiedName] = new TypeRecord
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("N", "T"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
                 MetadataAccessor = "",
-                Flags = TypeRecordFlags.Frozen,
+                Flags = flags,
                 Kind = kind,
                 EmittedMemberCount = 0,
             };

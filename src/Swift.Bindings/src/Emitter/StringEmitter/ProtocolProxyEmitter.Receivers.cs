@@ -1174,7 +1174,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
         if (projection is not DictionaryProjection dict) return null;
 
         var keyConv = dict.KeyProjection.GetReturnElementConversion("kvp.Key");
@@ -1207,7 +1207,7 @@ public partial class ProtocolProxyEmitter
         if (existentialConv != null) return existentialConv;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
         return projection switch
@@ -1346,7 +1346,7 @@ public partial class ProtocolProxyEmitter
         if (existentialConv != null) return existentialConv;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
         return projection switch
@@ -1505,7 +1505,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
         // Existential carriers — must mirror GetReceiverExistentialGetterConversion's order.
@@ -1559,7 +1559,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
         // Standalone existential
@@ -1615,7 +1615,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
         // Standalone existential
@@ -1682,6 +1682,46 @@ public partial class ProtocolProxyEmitter
         // the directly-declared bit is available here; transitive class-boundedness
         // requires the parse-time walk's TypeRecord flag.
         return protocolDecl.IsClassBound;
+    }
+
+    /// <summary>
+    /// Records the class-bound protocol's descriptor symbol + exporting library for
+    /// <c>ClassExistentialContainer1</c> metadata registration in the module initializer.
+    /// No-op for opaque protocols and when the descriptor symbol or library can't be resolved
+    /// (cross-module protocols whose defining module isn't in the database). The carrier metadata
+    /// is protocol-agnostic for the arity, so a single successful registration covers every
+    /// class-bound existential in the module.
+    /// </summary>
+    private void RecordClassBoundExistentialMetadata(ProtocolDecl protocolDecl)
+    {
+        if (_emissionContext == ModuleEmissionContext.Default)
+            return;
+        if (!IsProtocolClassBound(protocolDecl))
+            return;
+        if (protocolDecl.SwiftTypeName == null
+            || !_typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var record)
+            || record.Kind != TypeRecordKind.Protocol
+            || string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
+            return;
+
+        var moduleName = protocolDecl.ModuleDecl?.Name ?? protocolDecl.SwiftTypeName.Module;
+        if (string.IsNullOrEmpty(moduleName))
+            return;
+
+        string libraryName;
+        try
+        {
+            libraryName = _typeDatabase.GetLibraryPath(moduleName);
+        }
+        catch
+        {
+            // Defining module not in the database (cross-module protocol vended by a
+            // dependency the binding doesn't own a database for) — skip; registration
+            // is best-effort and one class-bound protocol's descriptor suffices.
+            return;
+        }
+
+        _emissionContext.RecordClassBoundExistentialRegistration(libraryName, record.ProtocolDescriptorSymbol!);
     }
 
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)

@@ -449,8 +449,19 @@ public class ProtocolProxyEmitterTests
 
         // Setter: must use simple nullable cast (Optional already deserialized with public type)
         Assert.Contains("Receive_service_set", output);
-        // Should NOT do redundant MarshalFromSwift on an already-typed value
-        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyService>", output);
+        // The receiver SETTER reads the Optional ABI carrier once (SwiftOptional<MyService>)
+        // and applies a plain nullable cast — it must NOT redundantly marshal the already-
+        // typed inner class. Scope the guard to the setter body (brace-matched): the witness-
+        // dispatch getter, emitted later, does legitimately use MarshalFromSwift<MyService>,
+        // so an unscoped check false-trips.
+        var setterBody = ExtractMethodBody(output, "private static void Receive_service_set(");
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyService>", setterBody);
+        Assert.Contains("(TestModule.MyService?)", setterBody);
+
+        // Witness-dispatch getter (proxy -> Swift): materialises the returned class from
+        // the raw Swift pointer via MarshalFromSwift on the inner public type. This is the
+        // correct shape for an existential/class-bound returning property accessor.
+        Assert.Contains("MarshalFromSwift<TestModule.MyService>", output);
     }
 
     [Fact]
@@ -1241,6 +1252,39 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("public object ValueType", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_CrossModuleExistentialProperty_QualifiesInterfaceAndProxy()
+    {
+        // A proxy emitted in TestModule for a protocol whose property is an Optional
+        // existential `any DepModule.Shape?` must namespace-qualify the cross-module
+        // interface (DepModule.IShape) and proxy class (DepModule.SwiftInterop.ShapeProxy)
+        // in BOTH the property declaration and the receiver get/set conversions. A bare
+        // `IShape` / `ShapeProxy` does not resolve in the TestModule compilation unit
+        // (CS0246) and mismatches the interface member return type (CS0738) — the
+        // RealityKit/RealityFoundation EntityGestureRecognizer.entity (any HasCollision?)
+        // failure surfaced once RealityFoundation began compiling.
+        RegisterCrossModuleProtocol("DepModule", "Shape");
+
+        var optExistential = new NamedTypeSpec("Swift.Optional");
+        optExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("DepModule.Shape") }));
+
+        var protocolDecl = CreateProtocolWithProperty(
+            "ShapeHolder", "shape", hasGetter: true, hasSetter: true, optExistential);
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Property declaration + any emitted reference is namespace-qualified.
+        Assert.Contains("DepModule.IShape", output);
+        // Regression guards: no bare unqualified forms survive. Each would compile-fail
+        // in the consuming module; the qualified forms (DepModule.IShape, ...SwiftInterop.ShapeProxy)
+        // do not contain these substrings.
+        Assert.DoesNotContain("public IShape", output);
+        Assert.DoesNotContain("GetOrCreate<IShape>", output);
+        Assert.DoesNotContain("new ShapeProxy(", output);
+        Assert.DoesNotContain("(IShape?)", output);
     }
 
     [Fact]
@@ -3325,6 +3369,28 @@ public class ProtocolProxyEmitterTests
         });
     }
 
+    /// <summary>
+    /// Registers a protocol that lives in a DIFFERENT module than the emitting one
+    /// (the proxy emitter is constructed for "TestModule"). Used to exercise
+    /// cross-module existential qualification: the protocol's C# namespace is the
+    /// dependency module, so a proxy/signature in TestModule must namespace-qualify
+    /// references to it.
+    /// </summary>
+    private void RegisterCrossModuleProtocol(string module, string name)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+    }
+
     private void RegisterSwiftDictionary()
     {
         _typeDatabase.AddOutOfModuleTypes(new[]
@@ -4581,6 +4647,26 @@ public class ProtocolProxyEmitterTests
         var writer = new CSharpWriter(stringWriter);
         _emitter.EmitProxyClass(writer, protocolDecl);
         return stringWriter.ToString();
+    }
+
+    // Returns the brace-matched body of the method whose signature begins with
+    // <paramref name="signaturePrefix"/>. Boundary-matching on the next attribute is
+    // unreliable because emitted comments can contain the attribute text verbatim
+    // (e.g. "... propagate across the [UnmanagedCallersOnly] boundary ...").
+    private static string ExtractMethodBody(string source, string signaturePrefix)
+    {
+        var start = source.IndexOf(signaturePrefix, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"expected a method matching '{signaturePrefix}'");
+        var open = source.IndexOf('{', start);
+        Assert.True(open >= 0, $"no method body found for '{signaturePrefix}'");
+        var depth = 0;
+        for (var i = open; i < source.Length; i++)
+        {
+            if (source[i] == '{') depth++;
+            else if (source[i] == '}' && --depth == 0)
+                return source.Substring(start, i - start + 1);
+        }
+        throw new Xunit.Sdk.XunitException($"unbalanced braces in method body for '{signaturePrefix}'");
     }
 
     private string EmitProxyClassWithSkips(

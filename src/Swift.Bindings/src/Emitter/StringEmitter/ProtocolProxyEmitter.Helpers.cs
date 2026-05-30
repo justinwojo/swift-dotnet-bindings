@@ -23,7 +23,7 @@ public partial class ProtocolProxyEmitter
 
         return ProtocolSignatureHelper.ProjectTypeToCSharp(
             typeSpec, _typeDatabase, protocolContext: null, isParameter: isParameter,
-            genericContext: GenericContext.Empty, mode: mode);
+            genericContext: GenericContext.Empty, mode: mode, currentModuleName: _moduleName);
     }
 
     /// <summary>
@@ -39,7 +39,8 @@ public partial class ProtocolProxyEmitter
 
         return ProtocolSignatureHelper.ProjectTypeToCSharp(
             property.SwiftTypeSpec, _typeDatabase, protocolContext: null, isParameter: false,
-            genericContext: propGenericContext, mode: TypeResolutionMode.NarrowNativeInt);
+            genericContext: propGenericContext, mode: TypeResolutionMode.NarrowNativeInt,
+            currentModuleName: _moduleName);
     }
 
     /// <summary>

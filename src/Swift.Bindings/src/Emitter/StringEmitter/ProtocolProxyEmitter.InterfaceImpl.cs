@@ -807,7 +807,27 @@ public partial class ProtocolProxyEmitter
             isCollectionReturnGetter = true;
         }
 
-        bool isGetterDispatched = isGetterDispatchable || isClassReturnGetter || isStructReturnGetter || isCollectionReturnGetter;
+        // Optional<class> return getter: nullable direct-pointer (ClassReturn + nil guard).
+        var isOptionalClassReturnGetter = false;
+        if (hasGetter && !isGetterDispatchable && !isClassReturnGetter && !isStructReturnGetter
+            && !isCollectionReturnGetter && dispatchEmitter.IsPropertyOptionalClassReturn(property)
+            && csharpTypeName != "object"
+            && csharpTypeName != TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+        {
+            isOptionalClassReturnGetter = true;
+        }
+
+        // Existential (any P / (any P)?) return getter: heap-cell carrier + proxy construction.
+        var isExistentialReturnGetter = false;
+        if (hasGetter && !isGetterDispatchable && !isClassReturnGetter && !isStructReturnGetter
+            && !isCollectionReturnGetter && !isOptionalClassReturnGetter
+            && dispatchEmitter.IsPropertyExistentialReturn(property))
+        {
+            isExistentialReturnGetter = true;
+        }
+
+        bool isGetterDispatched = isGetterDispatchable || isClassReturnGetter || isStructReturnGetter
+            || isCollectionReturnGetter || isOptionalClassReturnGetter || isExistentialReturnGetter;
         bool isAnyAccessorNonDispatchable =
             (hasGetter && !isGetterDispatched) || (hasSetter && !isSetterDispatchable);
         if (isAnyAccessorNonDispatchable)
@@ -953,6 +973,37 @@ public partial class ProtocolProxyEmitter
                         }
                     }
                     """);
+            }
+            else if (isOptionalClassReturnGetter)
+            {
+                // Optional<class> getter: nil → null pointer → return null; otherwise the
+                // ClassReturn path (Swift returned a +1 instance; the SafeHandle adopts it).
+                var innerClassType = csharpTypeName.EndsWith("?", StringComparison.Ordinal)
+                    ? csharpTypeName[..^1]
+                    : csharpTypeName;
+                writer.WriteLines($$"""
+                    get
+                    {
+                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{propertyName}};
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
+                            if (resultPtr == IntPtr.Zero)
+                                return null;
+                            try
+                            {
+                                return ({{innerClassType}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{innerClassType}}>(resultPtr);
+                            }
+                            catch { Arc.Release(resultPtr); throw; }
+                        }
+                    }
+                    """);
+            }
+            else if (isExistentialReturnGetter)
+            {
+                EmitExistentialReturnPropertyGetterBody(writer, property, propertyName, csharpTypeName, accessorSymbol, freeSymbol);
             }
             else
             {
@@ -1672,6 +1723,65 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
+    /// Emits the C# getter body for a property returning a protocol existential
+    /// (<c>any P</c> or <c>(any P)?</c>). Mirrors <see cref="EmitExistentialReturnMethodBody"/>:
+    /// the Swift accessor returns a heap cell holding the existential value; the C# side reads
+    /// the container, constructs a proxy, and frees the cell. Class-bound (single
+    /// superclass-/AnyObject-constrained) existentials read the 2-word
+    /// <c>ClassExistentialContainer1</c> carrier and take an independent retain-on-read so the
+    /// adopting proxy owns the class reference (released on the proxy's class-bound
+    /// Dispose/finalize). Opaque existentials read the 5-word container and adopt the +1 with
+    /// the same ownership shape as the method path.
+    /// </summary>
+    private void EmitExistentialReturnPropertyGetterBody(
+        CSharpWriter writer, PropertyDecl property, string propertyName,
+        string csharpTypeName, string accessorSymbol, string freeSymbol)
+    {
+        var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
+        bool isOptional = existentialHandler.IsOptionalExistential(property.SwiftTypeSpec);
+        var protocolList = isOptional
+            ? existentialHandler.UnwrapOptionalExistential(property.SwiftTypeSpec)
+            : existentialHandler.ToProtocolListTypeSpec(property.SwiftTypeSpec);
+        bool isClassBound = existentialHandler.IsClassBoundArity1Existential(protocolList!);
+        existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
+        proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
+        var publicType = existentialHandler.GetPublicExistentialType(protocolList!);
+
+        writer.WriteLine("get");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
+        writer.WriteLine("if (_csharpImpl != null)");
+        writer.Indent++;
+        writer.WriteLine($"return _csharpImpl.{propertyName};");
+        writer.Indent--;
+        writer.WriteLine("fixed (ExistentialContainer1* containerPtr = &_swiftContainer)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"IntPtr resultPtr = NativeMethods.{accessorSymbol}((IntPtr)containerPtr);");
+        if (isOptional)
+            writer.WriteLine("if (resultPtr == IntPtr.Zero) return null;");
+        writer.WriteLine("try");
+        writer.WriteLine("{");
+        writer.Indent++;
+        // Same class-bound-aware read as the existential method-return path (shared helper):
+        // class-bound cells read the 2-word ClassExistentialContainer1 + retain, opaque cells
+        // read the full container. Only the surrounding try/finally scaffolding differs.
+        var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
+        var (preamble, expression) =
+            BuildExistentialHeapCellReadAndConstruct(isClassBound, containerType, proxyClassName);
+        writer.WriteLines(preamble);
+        writer.WriteLine($"return ({publicType}){expression};");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine($"finally {{ NativeMethods.{freeSymbol}(resultPtr); }}");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
     /// Emits the C# dispatch body for methods that return protocol existentials.
     /// Uses typed pointer allocation on the Swift side, Unsafe.Read on the C# side to
     /// recover the ExistentialContainer, and constructs a proxy class instance.
@@ -1694,21 +1804,58 @@ public partial class ProtocolProxyEmitter
             ? existentialHandler.UnwrapOptionalExistential(returnType)
             : existentialHandler.ToProtocolListTypeSpec(returnType);
         var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
+        bool isClassBound = existentialHandler.IsClassBoundArity1Existential(protocolList!);
         existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
         proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
 
-        var resultPreamble = $"var container = Unsafe.Read<{containerType}>((void*)resultPtr);";
-        // Owned return: the dispatched Swift method returned the existential at +1, so the
-        // proxy adopts the container and releases it on Dispose. Both single-protocol (EC1) and
-        // composition (EC2+) proxies expose the ownership-aware ctor. Gate on the container type,
-        // not the protocol count (ObjC filtering can diverge them).
-        var ownsContainerArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType)
-            ? ", ownsContainer: true"
-            : string.Empty;
-        var resultExpression = $"new {proxyClassName}(container{ownsContainerArg})";
+        // The returned heap cell holds a class-bound (2-word) or opaque (5-word) existential.
+        // Reading a class-bound cell as the 40-byte opaque container over-reads 24 bytes past
+        // the 16-byte allocation, so the read width must follow class-boundedness — same shape
+        // as the property getter.
+        var (resultPreamble, resultExpression) =
+            BuildExistentialHeapCellReadAndConstruct(isClassBound, containerType, proxyClassName);
         EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
             methodName, argsString, argNames, paramSwiftTypeSpecs,
             accessorSymbol, freeSymbol, resultExpression, resultPreamble, isOptionalReturn: isOptionalExistential);
+    }
+
+    /// <summary>
+    /// Builds the <c>(preamble, expression)</c> pair that reads a returned existential heap cell
+    /// at <c>(void*)resultPtr</c> and constructs the proxy. Class-bound (single
+    /// superclass-/<c>AnyObject</c>-constrained) existentials carry a 2-word
+    /// <c>[classRef][witnessTable]</c> cell, so they read <c>ClassExistentialContainer1</c>
+    /// (16 bytes) and take an independent retain on the class reference — reading the opaque
+    /// 5-word <c>ExistentialContainer{N}</c> (40 bytes) over-reads 24 bytes past the heap
+    /// allocation. Opaque existentials read the full container and adopt the returned +1.
+    /// Single source of truth for the property-getter and method-return existential paths,
+    /// which differ only in their surrounding try/finally scaffolding.
+    /// </summary>
+    private static (string preamble, string expression) BuildExistentialHeapCellReadAndConstruct(
+        bool isClassBound, string containerType, string proxyClassName)
+    {
+        if (isClassBound)
+        {
+            // Read exactly two words, then take an independent +1 so the adopting proxy owns the
+            // class reference for its lifetime (the heap-cell free releases the cell's own +1).
+            // The implicit ClassExistentialContainer1 -> ExistentialContainer1 conversion repackages
+            // [classRef][witnessTable] into the proxy's container fields. A class-bound `any P`
+            // may carry an Objective-C object (a protocol refined by NSObjectProtocol / a UIKit
+            // class), so the retain routes through the kind-dispatching unknown-object entry point
+            // rather than swift_retain (native-only).
+            var preamble =
+                "var container = Unsafe.Read<Swift.Runtime.ClassExistentialContainer1>((void*)resultPtr);\n"
+                + "Arc.UnknownObjectRetain(container.ClassRef);";
+            return (preamble, $"new {proxyClassName}(container, ownsContainer: true)");
+        }
+
+        // Opaque (5-word) existential: the dispatched Swift accessor returned the existential at +1,
+        // so the proxy adopts the container and releases it on Dispose. Gate ownership on the
+        // container type, not the protocol count (ObjC filtering can diverge them).
+        var ownsContainerArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType)
+            ? ", ownsContainer: true"
+            : string.Empty;
+        return ($"var container = Unsafe.Read<{containerType}>((void*)resultPtr);",
+                $"new {proxyClassName}(container{ownsContainerArg})");
     }
 
     /// <summary>

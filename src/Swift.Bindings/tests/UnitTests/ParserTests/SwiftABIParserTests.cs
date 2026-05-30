@@ -1017,6 +1017,40 @@ public class SwiftABIParserTests
 
     #endregion
 
+    #region TryGetModuleFromMangledName Tests
+
+    // Unlike the USR (which records the CURRENT module), the stable mangled name carries the
+    // ORIGINAL module of an @_originallyDefinedIn type — which is what the TBD's
+    // protocol-conformance-descriptor symbols are mangled with. The conformance-descriptor
+    // lookup falls back to this module when the current-module identity misses (e.g. RealityKit's
+    // AnchorEntity re-exported as RealityFoundation.AnchorEntity, descriptor symbol
+    // `$s10RealityKit12AnchorEntityC...Mc`).
+    [Theory]
+    [InlineData("$s10RealityKit12AnchorEntityC", "RealityKit")]                       // class, no underscore
+    [InlineData("_$s10RealityKit12AnchorEntityC", "RealityKit")]                      // class, leading underscore
+    [InlineData("_$s27SwiftBindingsTestLibPhantom15RelocatedEntityC", "SwiftBindingsTestLibPhantom")] // @_originallyDefinedIn phantom module
+    [InlineData("$s10Foundation13LocalizedErrorP", "Foundation")]                     // protocol
+    public void TryGetModuleFromMangledName_LengthPrefixed_ReturnsModule(string mangled, string expected)
+    {
+        Assert.True(SwiftABIParser.TryGetModuleFromMangledName(mangled, out var module));
+        Assert.Equal(expected, module);
+    }
+
+    [Theory]
+    [InlineData("$ss8SendableP")]      // stdlib substitution — no length prefix
+    [InlineData("$sSH")]               // stdlib well-known substitution
+    [InlineData("c:objc(cs)NSObject")] // ObjC mangled — not a Swift stable name
+    [InlineData("")]                   // empty
+    [InlineData("$s")]                 // truncated
+    [InlineData("$s99RealityKit")]     // length overruns string
+    public void TryGetModuleFromMangledName_NonLengthPrefixedOrInvalid_ReturnsFalse(string mangled)
+    {
+        Assert.False(SwiftABIParser.TryGetModuleFromMangledName(mangled, out var module));
+        Assert.Null(module);
+    }
+
+    #endregion
+
     #region HasVariadicElement Tests
 
     [Fact]

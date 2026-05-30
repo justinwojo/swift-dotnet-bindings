@@ -49,9 +49,57 @@ public partial class ProtocolProxyEmitter
         // externally constructed / zeroed containers do NOT own a +1 and must not be
         // destroyed. The class-bound / ObjC 2-word [classRef][witnessTable] layout is a
         // separate release shape and keeps the original no-release Dispose untouched.
-        var disposeOwnsContainer = !useClassBoundContainerLayout;
-        var disposeAndFinalizer = disposeOwnsContainer
-            ? $$"""
+        // The release body differs by container layout, but both layouts share the
+        // Dispose + finalizer skeleton so that an ADOPTED (_ownsContainer) existential is
+        // released exactly once. Non-owning proxies (C#-impl-backed, borrowed wraps,
+        // payload reads, zeroed/synthetic containers) construct with ownsContainer:false,
+        // which makes ReleaseAdoptedSwiftContainer a no-op and (via the ctor)
+        // suppresses finalization — preserving the original no-release behaviour for them.
+        var releaseAdoptedBody = useClassBoundContainerLayout
+            ? """
+                // Class-bound (2-word [classRef][witnessTable]) existential: the adopted +1
+                // lives directly on the class reference in Payload0 — there is no opaque
+                // value-witness table to destroy through, so an ARC release balances it.
+                // The class reference may be an Objective-C object (a protocol refined by
+                // NSObjectProtocol / a UIKit class), so the release routes through the
+                // kind-dispatching unknown-object entry point rather than swift_release.
+                // This body runs from BOTH Dispose and the GC finalizer (~Proxy), so it must
+                // use the finalizer-safe Arc.UnknownObjectReleaseFinalizerSafe — which hops
+                // through the SBW_SwiftUnknownObjectRelease @_cdecl trampoline — rather than a
+                // direct swift_unknownObjectRelease P/Invoke, which crashes Mono with the
+                // !ji->async assertion on the finalizer thread after CallConvSwift JIT
+                // contamination (the same reason the opaque path routes through SBW_VWTDestroy).
+                // The helper swallows every fault path, so no try/catch is needed here.
+                // Gated on _ownsContainer (owned-return paths only); borrowed wraps,
+                // payload reads, C#-impl-backed proxies (anchored by ProxyLifetimeTracker),
+                // and zeroed containers own no +1 and must not be released.
+                if (!_ownsContainer)
+                    return;
+                var classRef = _swiftContainer.Payload0;
+                if (classRef != IntPtr.Zero)
+                {
+                    Arc.UnknownObjectReleaseFinalizerSafe(classRef);
+                }
+            """
+            : """
+                if (!_ownsContainer)
+                    return;
+                try
+                {
+                    fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                    {
+                        var existentialMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(_swiftContainer.Count);
+                        Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)containerPtr, existentialMetadata);
+                    }
+                }
+                catch
+                {
+                    // Existential metadata unavailable (e.g. SwiftBindingsRuntime not
+                    // loaded under unit tests) — skip the destroy rather than throw
+                    // from Dispose/finalize.
+                }
+            """;
+        var disposeAndFinalizer = $$"""
             public void Dispose()
             {
                 if (_disposed) return;
@@ -80,53 +128,15 @@ public partial class ProtocolProxyEmitter
                 ReleaseAdoptedSwiftContainer();
             }
 
-            // Releases the value-witness retains of an ADOPTED Swift-returned existential
-            // container. Gated to proxies that actually own a +1 (_ownsContainer == true,
-            // set only by the owned-return marshalling paths). C#-impl-backed proxies,
-            // borrowed parameter wraps, payload-pointer reads, and externally constructed
-            // or zeroed containers do NOT own a +1 — destroying their (possibly borrowed
-            // or null-metadata) container would be a use-after-free / SIGSEGV. Destroying
-            // through the opaque existential's own VWT releases an inline class reference
-            // or a boxed value payload alike.
+            // Releases an ADOPTED Swift-returned existential container's +1. Gated to
+            // proxies that actually own a +1 (_ownsContainer == true, set only by the
+            // owned-return marshalling paths). C#-impl-backed proxies, borrowed parameter
+            // wraps, payload-pointer reads, and externally constructed or zeroed
+            // containers do NOT own a +1 — releasing their (possibly borrowed or
+            // null-metadata) container would be a use-after-free / SIGSEGV.
             private void ReleaseAdoptedSwiftContainer()
             {
-                if (!_ownsContainer)
-                    return;
-                try
-                {
-                    fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
-                    {
-                        var existentialMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(_swiftContainer.Count);
-                        Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)containerPtr, existentialMetadata);
-                    }
-                }
-                catch
-                {
-                    // Existential metadata unavailable (e.g. SwiftBindingsRuntime not
-                    // loaded under unit tests) — skip the destroy rather than throw
-                    // from Dispose/finalize.
-                }
-            }
-            """
-            : """
-            public void Dispose()
-            {
-                if (_disposed) return;
-                _disposed = true;
-                // No finalizer to suppress — the proxy no longer owns any unmanaged
-                // resources directly. ProxyLifetimeTracker owns the +1 release path
-                // via the impl-keyed ConditionalWeakTable; dropping it here would
-                // deallocate the Swift instance while in-flight Swift code may still
-                // be dispatching into this proxy. Explicit Dispose unregisters the
-                // strong root so further Swift callbacks route to the receivers'
-                // null-impl guard (silent no-op / zeroed-buffer default) — the ARC
-                // release waits for either impl GC (tracker finalizer) or Swift's
-                // last release (deinit callback), whichever comes first. The
-                // null-safe receivers (Codex P0/P1 #3 fix) ensure that an
-                // Unregister'd handle does NOT throw across the
-                // [UnmanagedCallersOnly] boundary if Swift dispatches concurrently.
-                if (_everyProtocolHandle != IntPtr.Zero)
-                    SwiftObjectRegistry.Unregister(_everyProtocolHandle);
+            {{releaseAdoptedBody}}
             }
             """;
         var newFromPayloadBody = useClassBoundContainerLayout
@@ -446,6 +456,25 @@ public partial class ProtocolProxyEmitter
                     Visibility = PInvokeVisibility.Public
                 });
             }
+            else if (hasGetter && dispatchEmitter.IsPropertyOptionalClassReturn(property))
+            {
+                // Optional<class> getter: returns IntPtr (IntPtr.Zero == nil), no free function
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
+                if (!emittedPInvokes.Add(accessorSymbol))
+                    continue;
+
+                writer.WriteLine();
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "IntPtr",
+                    ParametersString = "IntPtr containerPtr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+            }
             else if (hasGetter && dispatchEmitter.IsPropertyStructReturn(property))
             {
                 // StructReturn getter: returns void, has resultBuf param, no free function
@@ -468,6 +497,16 @@ public partial class ProtocolProxyEmitter
             else if (hasGetter && dispatchEmitter.IsPropertyCollectionReturn(property))
             {
                 // BoundGenericReturn getter: same P/Invoke shape as ExistentialReturn
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
+                if (!emittedPInvokes.Add(accessorSymbol))
+                    continue;
+
+                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
+                EmitHeapPointerGetterPInvokePair(writer, accessorSymbol, freeSymbol, wrapperLibPath);
+            }
+            else if (hasGetter && dispatchEmitter.IsPropertyExistentialReturn(property))
+            {
+                // ExistentialReturn getter: heap-cell pointer (IntPtr) + typed free function
                 var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
                 if (!emittedPInvokes.Add(accessorSymbol))
                     continue;

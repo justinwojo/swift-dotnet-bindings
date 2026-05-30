@@ -405,8 +405,10 @@ public static class OptionalPointerWrapperEmitter
             else if (cdeclNeedsResultPtr)
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+                // Protocol existential returns need `(any P).self`, not `any P.self`.
+                var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
                 swiftWriter.WriteLine($"        let result = try {callLine}");
-                swiftWriter.WriteLine($"        resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+                swiftWriter.WriteLine($"        resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
             }
             else if (hasReturn || methodDecl.IsConstructor)
             {
@@ -440,8 +442,10 @@ public static class OptionalPointerWrapperEmitter
         else if (cdeclNeedsResultPtr)
         {
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+            // Protocol existential returns need `(any P).self`, not `any P.self`.
+            var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
             swiftWriter.WriteLine($"    let result = {tryPrefix}{callLine}");
-            swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
         }
         else if (useCdecl && hasReturn)
         {

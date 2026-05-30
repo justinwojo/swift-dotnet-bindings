@@ -812,6 +812,33 @@ done; true"
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_AFW_WrapperSliceCount>@(_AFW_WrapperSliceDir->Count())</_AFW_WrapperSliceCount>
     </PropertyGroup>
+
+    <!-- SwiftUI bridge detection (Apple direct mode). The generator compiles the bridge
+         primary slice inline alongside the wrapper (BindingsGeneratorCommand Apple-direct
+         path), so a <Module>Bridge.xcframework on disk here means generated SwiftUI bridge
+         views are present and their @_cdecl trampolines were built. _SwiftBindingHasBridgeSwift
+         keys off the generated .SwiftUIBridge.swift; _SwiftBindingHasBridgeXCFramework off the
+         compiled xcframework. Both feed the bridge NativeReference / consumer-targets / pack
+         wiring (the SwiftFramework path populates these via the compile-bridge-only flag; Apple mode
+         has no source xcframework, so the SDK probes the filesystem like it does for the
+         wrapper). Slice count is corrected after _CompileAppleFrameworkSecondBridgeSlice. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_AFW_BridgeModule>$(_SwiftAppleFrameworkModule)Bridge</_AFW_BridgeModule>
+      <_AFW_BridgePath>$(_SwiftBindingIntermediateDir)$(_AFW_BridgeModule).xcframework</_AFW_BridgePath>
+      <_AFW_HasBridge Condition="Exists('$(_AFW_BridgePath)')">True</_AFW_HasBridge>
+      <_AFW_HasBridge Condition="!Exists('$(_AFW_BridgePath)')">False</_AFW_HasBridge>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_AFW_BridgeSwiftFile Include="$(_SwiftBindingIntermediateDir)*.SwiftUIBridge.swift" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_AFW_HasBridge)' == 'True'">
+      <_AFW_BridgeSliceDir Include="$([System.IO.Directory]::GetDirectories('$(_AFW_BridgePath)', '*-*'))" />
+    </ItemGroup>
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_AFW_HasBridgeSwift Condition="'@(_AFW_BridgeSwiftFile)' != ''">True</_AFW_HasBridgeSwift>
+      <_AFW_HasBridgeSwift Condition="'@(_AFW_BridgeSwiftFile)' == ''">False</_AFW_HasBridgeSwift>
+      <_AFW_BridgeSliceCount>@(_AFW_BridgeSliceDir->Count())</_AFW_BridgeSliceCount>
+    </PropertyGroup>
     <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_AFW_MetadataLines Include="&lt;Project&gt;" />
       <_AFW_MetadataLines Include="  &lt;PropertyGroup&gt;" />
@@ -827,6 +854,15 @@ done; true"
            Swift, Mixed, and ObjC AppleFramework modes apart without re-probing
            the project for SwiftFrameworkType. Empty == Swift (the default). -->
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingFrameworkType&gt;$(_SwiftAppleFrameworkType)&lt;/_SwiftBindingFrameworkType&gt;" />
+      <!-- SwiftUI bridge wiring (Apple direct mode). Mirrors the wrapper flags above so
+           the bridge NativeReference, consumer-targets fragment, and pack include all
+           activate. HasBridgeSwift reflects generated .SwiftUIBridge.swift; HasBridgeXCFramework
+           reflects the compiled <Module>Bridge.xcframework. The slice count is rewritten by
+           _CompileAppleFrameworkSecondBridgeSlice once the device/fat-sim slice is merged. -->
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingHasBridgeSwift&gt;$(_AFW_HasBridgeSwift)&lt;/_SwiftBindingHasBridgeSwift&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingHasBridgeXCFramework&gt;$(_AFW_HasBridge)&lt;/_SwiftBindingHasBridgeXCFramework&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingBridgeModuleName&gt;$(_AFW_BridgeModule)&lt;/_SwiftBindingBridgeModuleName&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingBridgeSliceCount&gt;$(_AFW_BridgeSliceCount)&lt;/_SwiftBindingBridgeSliceCount&gt;" />
       <_AFW_MetadataLines Include="  &lt;/PropertyGroup&gt;" />
       <_AFW_MetadataLines Include="  &lt;Import Project=&quot;apple-supplement.props&quot; Condition=&quot;Exists('apple-supplement.props')&quot; /&gt;" />
       <_AFW_MetadataLines Include="&lt;/Project&gt;" />
@@ -1084,6 +1120,195 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
          Keeping the resync there — rather than inline here — ensures incremental packs
          that skip this target (gated on _SwiftBindingUpToDate) still see the on-disk slice
          names instead of falling back to stale single-arch property defaults. -->
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2e': Compile second bridge slice for Apple-framework pack        -->
+  <!-- The generator compiles the SwiftUI <Module>Bridge primary slice inline   -->
+  <!-- (same arch coverage as the wrapper primary slice). Like the wrapper,     -->
+  <!-- NuGet pack needs both device + simulator slices, so this target builds    -->
+  <!-- the other slice and re-merges. It is a thunk-free analog of               -->
+  <!-- _CompileAppleFrameworkSecondWrapperSlice: the bridge has no Tj dispatch    -->
+  <!-- thunks or metadata-accessor assembly, so there is no per-arch thunk        -->
+  <!-- rebuild and no -framework <OriginalModule> linker flag — the bridge's      -->
+  <!-- `import SwiftUI` / `import <Framework>` auto-link the system frameworks    -->
+  <!-- via the -sdk default search path (the same reason the wrapper second slice -->
+  <!-- omits -F). It reuses the _AFW_Other* slice params the wrapper second-slice  -->
+  <!-- target persisted this build: bridge presence implies wrapper presence, and  -->
+  <!-- both gate on the same _SwiftBindingUpToDate, so they run in lockstep with    -->
+  <!-- the wrapper computing those first (declared earlier, same AfterTargets).     -->
+  <!-- The '$(_AFW_OtherSdk)' != '' guard degrades the bridge to a primary-only      -->
+  <!-- slice (non-fatal, SWIFTBIND052 contract) if that ever fails to hold.          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_CompileAppleFrameworkSecondBridgeSlice"
+          AfterTargets="_CompileAppleFrameworkSecondWrapperSlice"
+          DependsOnTargets="_GenerateSwiftBindingsAppleFramework">
+
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
+                              AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
+                              AND '$(_SwiftBindingUpToDate)' != 'true'">
+      <_AFB_XCF>$(_AFW_BridgePath)</_AFB_XCF>
+      <_AFB_NeedsSecondSlice>false</_AFB_NeedsSecondSlice>
+      <!-- Only when the bridge xcframework was produced (framework has SwiftUI views)
+           and the wrapper target computed the "other" slice params this build. -->
+      <_AFB_NeedsSecondSlice Condition="Exists('$(_AFB_XCF)') AND '$(_AFW_OtherSdk)' != ''">true</_AFB_NeedsSecondSlice>
+    </PropertyGroup>
+
+    <!-- Glob the bridge Swift sources (no thunk sources exist for the bridge). -->
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+          Command="find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 -name '*.SwiftUIBridge.swift' | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_BridgeSwiftFiles" />
+    </Exec>
+
+    <!-- Stage the second slice's framework dir; original xcframework stays intact
+         until the merge succeeds. -->
+    <MakeDir Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+             Directories="$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework" />
+
+    <!-- Find the first slice's framework dir from the ORIGINAL bridge xcframework. -->
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+          Command="find &quot;$(_AFB_XCF)&quot; -maxdepth 2 -name '$(_AFW_BridgeModule).framework' -type d | head -1"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_FirstSliceFramework" />
+    </Exec>
+
+    <!-- Single-arch compile: emit the framework binary directly (default sim-first
+         flow where the second slice is device-arm64-only, or device-first flow when
+         the user pinned SwiftTargetArchitectures). No thunk objects, no
+         -framework <OriginalModule> — bridge imports auto-link the system frameworks. -->
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' != 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; $(_AFB_BridgeSwiftFiles)"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          ContinueOnError="true" />
+
+    <!-- Fat-sim compile: swiftc per-arch into per-arch staging dylibs, then lipo
+         -create into the framework binary (device-first flow where the second slice
+         is the arm64+x86_64 simulator). Mirrors the wrapper fat-sim fold minus thunks. -->
+    <PropertyGroup Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'">
+      <_AFB_SecondSliceStagingDir>$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/staging</_AFB_SecondSliceStagingDir>
+      <_AFB_SecondSliceArm64Lib>$(_AFB_SecondSliceStagingDir)/$(_AFW_BridgeModule).arm64</_AFB_SecondSliceArm64Lib>
+      <_AFB_SecondSliceX64Lib>$(_AFB_SecondSliceStagingDir)/$(_AFW_BridgeModule).x86_64</_AFB_SecondSliceX64Lib>
+    </PropertyGroup>
+    <MakeDir Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+             Directories="$(_AFB_SecondSliceStagingDir)" />
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_AFB_SecondSliceArm64Lib)&quot; $(_AFB_BridgeSwiftFiles)"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          ContinueOnError="true" />
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_AFB_SecondSliceX64Lib)&quot; $(_AFB_BridgeSwiftFiles)"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          ContinueOnError="true" />
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="lipo -create &quot;$(_AFB_SecondSliceArm64Lib)&quot; &quot;$(_AFB_SecondSliceX64Lib)&quot; -output &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot;"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          ContinueOnError="true" />
+
+    <!-- Write the second slice's embedded Info.plist before xcodebuild merges it.
+         Mirrors SwiftWrapperCompiler.WriteFrameworkPlist; reuses the wrapper target's
+         _AFW_OtherPlatformName / _AFW_OtherMinOsVersion (same "other" slice). -->
+    <ItemGroup Condition="'$(_AFB_NeedsSecondSlice)' == 'true'">
+      <_AFB_SecondSlicePlistLines Include="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;" />
+      <_AFB_SecondSlicePlistLines Include="&lt;!DOCTYPE plist PUBLIC &quot;-//Apple//DTD PLIST 1.0//EN&quot; &quot;http://www.apple.com/DTDs/PropertyList-1.0.dtd&quot;&gt;" />
+      <_AFB_SecondSlicePlistLines Include="&lt;plist version=&quot;1.0&quot;&gt;" />
+      <_AFB_SecondSlicePlistLines Include="&lt;dict&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleIdentifier&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;string&gt;com.swiftbindings.$(_AFW_BridgeModule)&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleName&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;string&gt;$(_AFW_BridgeModule)&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleExecutable&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;string&gt;$(_AFW_BridgeModule)&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;CFBundlePackageType&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;string&gt;FMWK&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleVersion&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;string&gt;1.0&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleShortVersionString&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;string&gt;1.0&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;MinimumOSVersion&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;string&gt;$(_AFW_OtherMinOsVersion)&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleSupportedPlatforms&lt;/key&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;array&gt;" />
+      <_AFB_SecondSlicePlistLines Include="        &lt;string&gt;$(_AFW_OtherPlatformName)&lt;/string&gt;" />
+      <_AFB_SecondSlicePlistLines Include="    &lt;/array&gt;" />
+      <_AFB_SecondSlicePlistLines Include="&lt;/dict&gt;" />
+      <_AFB_SecondSlicePlistLines Include="&lt;/plist&gt;" />
+    </ItemGroup>
+
+    <WriteLinesToFile Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+                      File="$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/Info.plist"
+                      Lines="@(_AFB_SecondSlicePlistLines)"
+                      Overwrite="true" />
+
+    <!-- Merge both slices into a NEW staging xcframework (original still intact). -->
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+          Command="xcodebuild -create-xcframework -framework &quot;$(_AFB_FirstSliceFramework)&quot; -framework &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework&quot; -output &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework&quot;"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          ContinueOnError="true" />
+
+    <!-- Swap into place only if the merge produced a complete xcframework. A
+         ContinueOnError above can leave a partial/missing merge — guard the
+         destructive RemoveDir on the merged result existing so a failed bridge
+         build leaves the working primary-slice xcframework intact (non-fatal). -->
+    <PropertyGroup Condition="'$(_AFB_NeedsSecondSlice)' == 'true'">
+      <_AFB_MergeSucceeded Condition="Exists('$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework')">true</_AFB_MergeSucceeded>
+    </PropertyGroup>
+    <RemoveDir Condition="'$(_AFB_MergeSucceeded)' == 'true'"
+               Directories="$(_AFB_XCF)" />
+    <Exec Condition="'$(_AFB_MergeSucceeded)' == 'true'"
+          Command="mv &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework&quot; &quot;$(_AFB_XCF)&quot;"
+          StandardOutputImportance="low" />
+
+    <!-- Clean up staging directory. -->
+    <RemoveDir Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+               Directories="$(_SwiftBindingIntermediateDir)_bridge_merge_slices" />
+
+    <!-- Update binding-metadata.props with the corrected bridge slice count. -->
+    <Exec Condition="'$(_AFB_MergeSucceeded)' == 'true'"
+          Command="SLICES=`find &quot;$(_AFB_XCF)&quot; -maxdepth 1 -type d -name '*-*' | wc -l | tr -d ' '`; \
+sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSliceCount&gt;%24SLICES|&quot; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot;"
+          StandardOutputImportance="low" />
+
+    <!-- Invariant: on a simulator-bearing platform (iOS/tvOS) a *packaged* bridge MUST
+         carry both the device and simulator slices — NuGet pack and a device/opposite-sim
+         consumer's NativeReference resolution both require them. The generator builds only
+         the primary (simulator) slice inline; this target adds the other. If that second
+         slice never materialized — swiftc/lipo/merge failure (ContinueOnError above), the
+         wrapper target not having computed _AFW_Other* this build, or an interrupted prior
+         build — the bridge xcframework is left primary-only. Shipping a primary-only bridge
+         is WORSE than shipping none: a device consumer would hit a build-time
+         "no matching framework slice" error instead of the intended non-fatal runtime
+         DllNotFound. So enforce the invariant by dropping any incomplete bridge: delete the
+         xcframework and flip the metadata flags off, so every downstream gate (NativeReference,
+         pack, GetNativeManifest, consumer-targets — all keyed on _SwiftBindingHasBridgeXCFramework
+         and/or Exists) cleanly skips it. SwiftUI bridge views then DllNotFound at runtime (the
+         documented SWIFTBIND052 degradation) while the wrapper and main bindings stay intact.
+         Gated on _SwiftBindingHasSimulatorSlice so macOS / Mac Catalyst single-slice bridges
+         (which are complete with one slice) are never dropped. Runs regardless of
+         _AFB_NeedsSecondSlice / _AFB_MergeSucceeded so it also repairs the lockstep-degrade and
+         stale-from-interrupt cases the per-attempt guards can't see. -->
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
+                          AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
+                          AND Exists('$(_AFW_BridgePath)')">
+      <_AFB_FinalSliceDir Include="$([System.IO.Directory]::GetDirectories('$(_AFW_BridgePath)', '*-*'))" />
+    </ItemGroup>
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
+                              AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
+                              AND Exists('$(_AFW_BridgePath)')">
+      <_AFB_FinalSliceCount>@(_AFB_FinalSliceDir->Count())</_AFB_FinalSliceCount>
+      <_AFB_BridgeIncomplete Condition="$(_AFB_FinalSliceCount) &lt; 2">true</_AFB_BridgeIncomplete>
+    </PropertyGroup>
+    <Warning Condition="'$(_AFB_BridgeIncomplete)' == 'true'"
+             Code="SWIFTBIND052"
+             Text="SwiftUI bridge '$(_AFW_BridgeModule)' produced only $(_AFB_FinalSliceCount) slice(s); both device and simulator are required to package it. Dropping the incomplete bridge — SwiftUI bridge views will throw DllNotFoundException at runtime, but the main bindings and wrapper are unaffected." />
+    <RemoveDir Condition="'$(_AFB_BridgeIncomplete)' == 'true'"
+               Directories="$(_AFW_BridgePath)" />
+    <Exec Condition="'$(_AFB_BridgeIncomplete)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')"
+          Command="sed -i '' \
+-e &quot;s|_SwiftBindingHasBridgeXCFramework&gt;[^&lt;]*|_SwiftBindingHasBridgeXCFramework&gt;False|&quot; \
+-e &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSliceCount&gt;0|&quot; \
+&quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot;"
+          StandardOutputImportance="low" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -2060,11 +2285,23 @@ done"
     </ItemGroup>
 
     <!-- Apple-framework mode: no source xcframework (system framework provided by OS),
-         only the wrapper xcframework needs to be bundled. -->
+         the wrapper xcframework and (when SwiftUI views were bridged) the
+         <Module>Bridge.xcframework need to be bundled. The bridge carries the
+         @_cdecl trampolines the generated SwiftUI bridge C# P/Invokes via
+         [LibraryImport("<Module>Bridge")]; without it those calls DllNotFound at
+         runtime. Bridge bundling is gated on _SwiftBindingHasBridgeXCFramework
+         (false for frameworks with no SwiftUI views) and stays independent of the
+         wrapper so a non-fatal bridge build failure can't drop the wrapper. -->
     <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
                        Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
                                   AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">
+        <Kind>Framework</Kind>
+      </NativeReference>
+      <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework"
+                       Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True'
+                                  AND '$(_SwiftBindingBridgeModuleName)' != ''
+                                  AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework')">
         <Kind>Framework</Kind>
       </NativeReference>
     </ItemGroup>
@@ -2231,7 +2468,12 @@ done"
 
     <!-- Use a second heredoc for the WRAPPER fragment to avoid &apos; inside
          single-quoted shell strings (which would terminate the quote early
-         and break the Exists() condition path for NuGet consumers). -->
+         and break the Exists() condition path for NuGet consumers). The BRIDGE
+         fragment mirrors it: when SwiftUI views were bridged, the consumer's
+         $(PackageId).targets must also NativeReference the bundled
+         <Module>Bridge.xcframework so [LibraryImport("<Module>Bridge")] P/Invokes
+         resolve in Direct-mode NuGet consumption. Both fragments carry an Exists()
+         guard, so a per-RID slice without the xcframework is a no-op. -->
     <Exec Command="WRAPPER=&quot;&quot;; \
 if [ &quot;$(_SwiftBindingHasWrapperXCFramework)&quot; = &quot;True&quot; ]; then \
   read -r -d '' WRAPPER &lt;&lt;'WRAPPEREOF'
@@ -2240,6 +2482,15 @@ if [ &quot;$(_SwiftBindingHasWrapperXCFramework)&quot; = &quot;True&quot; ]; the
         &lt;Kind&gt;Framework&lt;/Kind&gt;
       &lt;/NativeReference&gt;
 WRAPPEREOF
+fi; \
+BRIDGE=&quot;&quot;; \
+if [ &quot;$(_SwiftBindingHasBridgeXCFramework)&quot; = &quot;True&quot; ]; then \
+  read -r -d '' BRIDGE &lt;&lt;'BRIDGEEOF'
+      &lt;NativeReference Include=&quot;%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework&quot;
+                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework')&quot;&gt;
+        &lt;Kind&gt;Framework&lt;/Kind&gt;
+      &lt;/NativeReference&gt;
+BRIDGEEOF
 fi; \
 cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt;TARGETSEOF
 &lt;Project&gt;
@@ -2283,6 +2534,7 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
     &lt;/PropertyGroup&gt;
     &lt;ItemGroup&gt;
 %24WRAPPER
+%24BRIDGE
     &lt;/ItemGroup&gt;
   &lt;/Target&gt;
   &lt;ItemGroup&gt;

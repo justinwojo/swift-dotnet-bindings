@@ -1540,7 +1540,13 @@ public static class MethodWrapperEmitter
     private static bool HasUnsupportedGenericContainerParamsOrReturn(MethodEnvironment env)
     {
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (IsUnsupportedGenericContainer(returnSpec, env.TypeDatabase))
+        // Optional<class-bound existential> RETURNS are wrappable even though the shared
+        // generic-container gate rejects Optional<existential>: the @_cdecl wrapper captures the
+        // register-returned 2-word cell and writes it to the result buffer, sidestepping the raw
+        // dispatch thunk's broken x8/sret assumption. Parameters stay rejected (the loop below
+        // is unchanged) — only the return position gets this carve-out.
+        if (IsUnsupportedGenericContainer(returnSpec, env.TypeDatabase)
+            && !WrapperValidation.IsOptionalClassBoundExistentialReturn(returnSpec, env.TypeDatabase))
             return true;
 
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))

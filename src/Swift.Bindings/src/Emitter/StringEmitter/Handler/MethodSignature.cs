@@ -482,6 +482,22 @@ namespace BindingsGeneration
                     ParentTypeDecl = _env.ParentDecl as TypeDecl,
                     CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
                 });
+                // Class-bound existential array accessor: keep the raw SwiftArray<T> carrier
+                // (ShouldSkipProjectionForAccessor is true for arrays) but source the element type from
+                // the projection's ContainerTypeName, not the legacy bound-generic translation below.
+                // For a class-bound (superclass-/AnyObject-constrained) existential element the two differ:
+                // ContainerTypeName yields the 16-byte ClassExistentialContainer1 stride the Swift array is
+                // laid out with, while the legacy translation yields the 40-byte opaque ExistentialContainer1
+                // — a wrong stride that over-reads and crashes on the first index. Restricted to this one case
+                // so every other array accessor stays on the legacy path (identical output). Opaque
+                // existential and ObjC-bridged arrays are unaffected.
+                if (projection is ArrayProjection accessorArrayProj
+                    && _env.MethodDecl.IsAccessor
+                    && accessorArrayProj.ElementProjection is ExistentialProjection { IsClassBoundArity1: true })
+                {
+                    SetReturnType(accessorArrayProj.ContainerTypeName);
+                    return;
+                }
                 if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                 {
                     // Guard: unsupported closure returns must use AnyType to match P/Invoke.

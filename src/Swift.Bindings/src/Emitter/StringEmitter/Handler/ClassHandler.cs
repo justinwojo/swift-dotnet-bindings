@@ -180,8 +180,14 @@ namespace BindingsGeneration
                     {
                         if (iface == "IDisposable")
                             continue;
-                        if (iface == "ISwiftObject")
+                        if (iface == "ISwiftObject" || iface == "Swift.Runtime.IExistentialBoxable")
                         {
+                            // IExistentialBoxable is added to `interfaces` only when this class has
+                            // its OWN boxable conformance (one the base lacks — e.g. AnchorEntity : Entity
+                            // adding HasAnchoring). Re-list it so the subclass re-implements
+                            // BoxAsExistential1<TProtocol> with ITS concrete type — Create<AnchorEntity, …> —
+                            // instead of inheriting the base's Create<Entity, …>, which would ask the
+                            // Swift runtime for a witness table the base type does not have.
                             derivedInterfaces.Add(iface);
                             continue;
                         }
@@ -206,8 +212,11 @@ namespace BindingsGeneration
                     {
                         if (iface == "IDisposable")
                             continue;
-                        if (iface == "ISwiftObject")
+                        if (iface == "ISwiftObject" || iface == "Swift.Runtime.IExistentialBoxable")
                         {
+                            // See same-module branch: a cross-module subclass with its own boxable
+                            // conformance must re-implement BoxAsExistential1 with its concrete type
+                            // rather than inherit the parent's parent-typed implementation.
                             derivedInterfaces.Add(iface);
                             continue;
                         }

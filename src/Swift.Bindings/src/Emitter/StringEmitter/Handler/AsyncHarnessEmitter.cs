@@ -753,8 +753,16 @@ namespace BindingsGeneration
                     asyncWrapExpr = $"new {asyncWkIR}(__existentialResult)";
                 else
                     asyncWrapExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(asyncProtocolList)}(__existentialResult{asyncOwnedArg})";
+                // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+                // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque container
+                // (40 bytes); reading the wider type over-reads 24 bytes past the allocation. The +1
+                // still transfers via the bitwise copy (carrier free is a plain dealloc, no VWT Destroy),
+                // so the proxy's ownsContainer adoption is unchanged — only the read width differs.
+                var asyncExistentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList)
+                    ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
+                    : $"SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr)";
                 marshalResultCode =
-                    $"var __existentialResult = SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr);\n" +
+                    $"var __existentialResult = {asyncExistentialRead};\n" +
                     $"                                var result = {asyncWrapExpr};";
             }
             else if (isObjCBridged)

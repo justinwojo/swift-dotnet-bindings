@@ -101,6 +101,34 @@ public class CrossModuleTests : TestBase
         public string GetDescribe() => $"CS[{_tag}]: {Identifier}";
     }
 
+    // Subclass-only cross-module conformance (RealityKit AnchorEntity : Entity, HasAnchoring shape).
+    // The base DependencyMarkedEntity (dependency module) conforms to DependencyBaseMarker, so it
+    // emits its own IExistentialBoxable baked with Create<DependencyMarkedEntity, _>. AnchoredMarkedEntity
+    // (main module) subclasses it and adds DependencyAnchorMarker — a protocol the base does NOT have.
+    // Boxing the subclass as `any DependencyAnchorMarker` must dispatch the SUBCLASS's own
+    // Create<AnchoredMarkedEntity, _> and resolve the subclass's conformance descriptor; the inherited
+    // Create<DependencyMarkedEntity, _> would request the nonexistent DependencyMarkedEntity :
+    // DependencyAnchorMarker witness and throw. Pre-fix the subclass's IExistentialBoxable was deduped
+    // away (it inherited the base's), so boxing as the subclass-only protocol crashed at runtime.
+    public void TestSubclassOnlyConformanceBoxesAsDerivedType()
+    {
+        using var entity = TestLibFunctions.MakeAnchoredMarkedEntity(7, "front");
+
+        // The subclass keeps its own IExistentialBoxable (not collapsed to the base's).
+        AssertTrue(entity is Swift.Runtime.IExistentialBoxable,
+            "AnchoredMarkedEntity must remain IExistentialBoxable for its own subclass-only conformance");
+
+        // Box as the protocol only the SUBCLASS conforms to. Dispatches Create<AnchoredMarkedEntity,_>;
+        // swift_getWitnessTable resolves the subclass's DependencyAnchorMarker conformance descriptor.
+        var boxable = (Swift.Runtime.IExistentialBoxable)entity;
+        var container = boxable.BoxAsExistential1<SwiftBindingsTestLibDependency.IDependencyAnchorMarker>();
+
+        AssertTrue(container[0] != System.IntPtr.Zero,
+            "Witness table handle resolved (non-zero) for the subclass-only DependencyAnchorMarker conformance");
+        AssertTrue(container.ObjectMetadata.Handle != System.IntPtr.Zero,
+            "Existential carries AnchoredMarkedEntity's type metadata");
+    }
+
     #endregion
 
     #region Cross-Module Type References (Part A)

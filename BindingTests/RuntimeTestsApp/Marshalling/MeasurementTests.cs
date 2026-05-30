@@ -8,10 +8,11 @@ namespace RuntimeTestsApp.Marshalling;
 /// <summary>
 /// Tests Foundation.Measurement&lt;T&gt; non-frozen generic struct projection.
 /// Verifies VWT-backed storage, Value property, and round-trip through P/Invoke.
-/// Most tests require Measurement metadata resolution which crashes on Mono JIT
-/// (upstream Issue 1: !ji->async assertion on generic metadata accessor).
+/// Metadata resolution routes through the <c>SBW_Measurement_GetMetadata</c> @_cdecl
+/// shim, which sidesteps the Mono JIT <c>!ji-&gt;async</c> assertion that fires when
+/// P/Invoking the Foundation generic metadata accessor directly, so these run on both
+/// simulator (Mono) and device (NativeAOT).
 /// </summary>
-[SkipOnSimulator("Mono JIT crashes resolving Measurement<T> generic metadata (upstream Issue 1)")]
 public class MeasurementTests : TestBase
 {
     public MeasurementTests(TestResults results) : base(results) { }

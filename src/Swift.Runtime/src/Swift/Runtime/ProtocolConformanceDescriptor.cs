@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
@@ -192,17 +193,15 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
 
         try
         {
-            if (!NativeLibrary.TryLoad(libraryName, typeof(ProtocolConformanceDescriptor).Assembly, null, out libraryHandle))
+            // Shared resolution with ProtocolDescriptor.LoadFromSymbol: the embedded library
+            // path resolves on the simulator and for app-bundled frameworks, but an Apple
+            // *system* framework on a physical device lives at /System/Library/Frameworks and
+            // is not reachable via @rpath. TryLoadWithFrameworkFallback extracts the bare
+            // framework name and walks the ordered search-path list (ending at the system
+            // path) so CryptoKit/RealityKit/… resolve on device.
+            if (!SwiftFrameworkResolver.TryLoadWithFrameworkFallback(libraryName, out libraryHandle))
             {
-                // Fallback: try @rpath framework path. On iOS device, the DllImport resolver
-                // that maps library names to framework paths is registered on the binding
-                // assembly, not Swift.Runtime. NativeLibrary.TryLoad with the bare name
-                // won't find it, but the @rpath framework path will.
-                var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
-                if (!NativeLibrary.TryLoad(frameworkPath, out libraryHandle))
-                {
-                    throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
-                }
+                throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
             }
 
             if (NativeLibrary.TryGetExport(libraryHandle, symbolName, out var handle))

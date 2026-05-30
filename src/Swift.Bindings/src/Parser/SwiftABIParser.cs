@@ -172,7 +172,7 @@ namespace BindingsGeneration
         /// 5. Supplementary swiftinterface data for @inlinable internal WITH AccessControl
         ///    (handled separately via SwiftInterfaceFacts.InternalMemberKeys)
         /// </summary>
-        private static bool IsNodeModuleInternal(Node node)
+        private bool IsNodeModuleInternal(Node node)
         {
             if (node.IsInternal == true)
                 return true;
@@ -190,8 +190,17 @@ namespace BindingsGeneration
             bool hasInlinable = Array.IndexOf(node.DeclAttributes, "Inlinable") != -1;
             bool hasAccessControl = Array.IndexOf(node.DeclAttributes, "AccessControl") != -1;
 
-            // @inlinable without explicit access control means implicit internal access
-            if (hasInlinable && !hasAccessControl)
+            // @inlinable without an AccessControl attribute is an AMBIGUOUS signal, not a
+            // reliable internal marker. Some toolchains record an explicit `public` keyword as
+            // an AccessControl declAttribute (so "@inlinable & no AccessControl" implied the
+            // default `internal`), but others emit ONLY [Inlinable] for an `@inlinable public`
+            // member — making this heuristic mis-flag public inlinable members (e.g. a
+            // re-exported `@inlinable public init` with all-default SIMD parameters) as internal,
+            // which then drops their @_cdecl wrapper. When a public swiftinterface is available,
+            // IsInternalFromSwiftInterface + negative-space detection (IsInternalFromPublicMemberNames)
+            // resolve the access level authoritatively, so the guess must NOT pre-empt them.
+            // Only fall back to the guess when no swiftinterface is present to consult.
+            if (hasInlinable && !hasAccessControl && _facts.PublicMemberNames.Count == 0)
                 return true;
 
             // @_spi types are only visible to SPI consumers (e.g., other Stripe modules).
@@ -650,13 +659,17 @@ namespace BindingsGeneration
         /// `BackingValue` overload plus four public overloads; the key appears in both sets.
         ///
         /// Disambiguate via the ABI node's own <c>Inlinable</c> DeclAttribute. When the key
-        /// appears in both internal and public swiftinterface sets, any node reaching here
-        /// without <c>Inlinable</c> cannot be <c>@inlinable internal</c> or
-        /// <c>@usableFromInline internal</c> (those are caught earlier by <see cref="IsNodeModuleInternal"/>
-        /// Layers 1 and 2 via <c>UsableFromInline</c> or <c>Inlinable</c> without <c>AccessControl</c>).
-        /// Such a node must be one of the plain-<c>public</c> overloads and is safely marked public.
-        /// A node reaching here WITH <c>Inlinable</c> could be either <c>@inlinable internal</c> or
-        /// <c>@inlinable public</c> — stay conservative and keep it internal.
+        /// appears in both internal and public swiftinterface sets, a node reaching here is an
+        /// <c>@inlinable internal</c> / <c>@usableFromInline internal</c> overload colliding with
+        /// a public overload of the same printed name. A node WITHOUT <c>Inlinable</c> cannot be
+        /// the inlinable-internal one, so it must be the plain-<c>public</c> overload and is safely
+        /// marked public. A node WITH <c>Inlinable</c> could be either the inlinable-internal
+        /// overload or an <c>@inlinable public</c> overload — stay conservative and keep it internal
+        /// (this is the only path where an <c>@inlinable public</c> member is still suppressed; it
+        /// requires a same-named internal overload to land the key in <c>InternalMemberKeys</c>).
+        /// Note: when a public swiftinterface is present this set drives access resolution —
+        /// <see cref="IsNodeModuleInternal"/>'s "@inlinable without AccessControl" guess is gated
+        /// OFF in that case (it is a fallback for the no-swiftinterface path only).
         /// </summary>
         private bool IsInternalFromSwiftInterface(string parentTypeName, string printedName, Node? node)
         {
@@ -668,9 +681,9 @@ namespace BindingsGeneration
                 return false;
 
             // Both internal and public swiftinterface sets contain this key. If the ABI node
-            // itself lacks the Inlinable attribute, it cannot be @inlinable internal or
-            // @usableFromInline internal (those are caught in IsNodeModuleInternal Layers 1/2),
-            // so it must be a plain-public overload — defer to public.
+            // itself lacks the Inlinable attribute, it cannot be the @inlinable internal /
+            // @usableFromInline internal overload, so it must be a plain-public overload — defer
+            // to public.
             if (_facts.PublicMemberNames.Contains(key) && node != null)
             {
                 bool nodeHasInlinable = node.DeclAttributes != null &&
@@ -1226,7 +1239,7 @@ namespace BindingsGeneration
             return decl;
         }
 
-        private TypeConformance HandleConformance(Node node, SwiftTypeName typeName)
+        private TypeConformance HandleConformance(Node node, SwiftTypeName typeName, string? implementingTypeMangledName = null)
         {
             // Demangle the conformance's protocol mangled name. The demangler does not
             // yet recognize every standard library short substitution (notably the
@@ -1254,15 +1267,36 @@ namespace BindingsGeneration
             }
             string protocolConformanceDescriptor = string.Empty;
 
-            try
+            if (!_demangledTbd.TryGetProtocolConformanceDescriptor(typeName, protocolName, out protocolConformanceDescriptor))
             {
-                protocolConformanceDescriptor = _demangledTbd.GetProtocolConformanceDescriptor(typeName, protocolName);
-            }
-            catch (Exception e)
-            {
-                // TODO: Some types conform to protocols inherently, i.e., they are not explicitly declared.
-                // These conformances are specified in the ABI.json but the descriptors are not present in the TBD.
-                _logger.LogWarning($"Error while getting protocol conformance descriptor for '{typeName}' and protocol '{protocolName}': {e.Message}");
+                // @_originallyDefinedIn umbrella re-exports: the type decl is attributed to its
+                // CURRENT module via its USR (e.g. RealityFoundation.AnchorEntity), but the TBD's
+                // conformance-descriptor symbol is mangled with the type's ORIGINAL module
+                // (e.g. RealityKit.AnchorEntity). The protocol identity already comes from the
+                // mangled name, so it matches; only the implementing type's module diverges.
+                // Retry the lookup with the implementing type's original (mangled) module so these
+                // conformances resolve a real descriptor instead of silently emitting an empty one.
+                if (TryGetModuleFromMangledName(implementingTypeMangledName, out var abiModule) &&
+                    !string.Equals(abiModule, typeName.Module, StringComparison.Ordinal))
+                {
+                    var abiParts = typeName.ModuleQualifiedName.Split('.', StringSplitOptions.RemoveEmptyEntries);
+                    // Guard against a degenerate module-qualified name (empty or all-separators):
+                    // with no segment to rewrite there is no original-module identity to retry, so
+                    // leave the descriptor empty and fall through to the graceful no-descriptor path.
+                    if (abiParts.Length > 0)
+                    {
+                        abiParts[0] = abiModule;
+                        var abiTypeName = SwiftTypeName.FromModuleQualifiedName(string.Join('.', abiParts));
+                        _demangledTbd.TryGetProtocolConformanceDescriptor(abiTypeName, protocolName, out protocolConformanceDescriptor);
+                    }
+                }
+
+                if (string.IsNullOrEmpty(protocolConformanceDescriptor))
+                {
+                    // Some types conform to protocols inherently, i.e., they are not explicitly declared.
+                    // These conformances are specified in the ABI.json but the descriptors are not present in the TBD.
+                    _logger.LogWarning($"Protocol conformance descriptor not found for '{typeName}' and protocol '{protocolName}'.");
+                }
             }
 
             var conformance = new TypeConformance(typeName, protocolName, protocolConformanceDescriptor);
@@ -1309,7 +1343,7 @@ namespace BindingsGeneration
             var qualified = swiftTypeName.ModuleQualifiedName;
             foreach (var c in node.Conformances)
             {
-                var conformance = HandleConformance(c, swiftTypeName);
+                var conformance = HandleConformance(c, swiftTypeName, node.MangledName);
                 if (spiSet.Count > 0 &&
                     spiSet.Contains($"{qualified}::{conformance.Protocol.Name}"))
                 {
@@ -1824,6 +1858,41 @@ namespace BindingsGeneration
                 p.Name == "Swift.AnyObject") ||
                 (node.GenericSig != null &&
                  System.Text.RegularExpressions.Regex.IsMatch(node.GenericSig, @"τ_0_0\s*:[^,]*\bAnyObject\b"));
+
+            // A superclass constraint (`protocol P : SomeClass`) is also class-bound: its
+            // existential carries the compact `[classRef][witnessTables]` layout rather than
+            // the opaque value-existential layout, so it must marshal through a class-bound
+            // container. swift-api-digester encodes the superclass constraint ONLY in the
+            // generic signature as a direct-Self requirement (`Self : SomeClass` sugared /
+            // `τ_0_0 : SomeClass` unsugared); unlike inherited *protocols*, the superclass is
+            // NOT listed among the protocol's conformances. So a direct-Self constraint whose
+            // target is neither AnyObject, a marker, nor one of the protocol's own conformances
+            // is a superclass constraint => class-bound. (Protocol-inheritance class-boundness,
+            // e.g. `HasCollision : HasTransform : Entity`, is resolved transitively downstream
+            // by ModuleProcessor.ProtocolIsClassBoundTransitive walking inherited protocols.)
+            if (!isClassBound && node.GenericSig != null)
+            {
+                var conformanceSimpleNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var conformance in node.Conformances)
+                {
+                    if (!string.IsNullOrEmpty(conformance.Name))
+                        conformanceSimpleNames.Add(conformance.Name.Split('.')[^1]);
+                }
+
+                foreach (System.Text.RegularExpressions.Match match in
+                         System.Text.RegularExpressions.Regex.Matches(
+                             node.GenericSig, @"(?:τ_0_0|Self)\s*:\s*([A-Za-z_][\w.]*)"))
+                {
+                    var simpleTarget = match.Groups[1].Value.Split('.')[^1];
+                    if (simpleTarget is "AnyObject" or "Sendable" or "Escapable"
+                        or "Copyable" or "SendableMetatype" or "Any")
+                        continue;
+                    if (conformanceSimpleNames.Contains(simpleTarget))
+                        continue; // inherited protocol, not a superclass
+                    isClassBound = true; // superclass constraint
+                    break;
+                }
+            }
 
             var decl = new ProtocolDecl
             {
@@ -3350,6 +3419,36 @@ namespace BindingsGeneration
             if (i + len > usr.Length)
                 return false;
             module = usr.Substring(i, len);
+            return true;
+        }
+
+        /// <summary>
+        /// Extracts the defining module from a Swift stable mangled name's first
+        /// length-prefixed segment. <c>$s10RealityKit12AnchorEntityC</c> → "RealityKit".
+        /// Unlike the USR (which records a symbol's CURRENT module), the mangled name carries
+        /// the ORIGINAL module of an <c>@_originallyDefinedIn</c> type, which is what the TBD's
+        /// protocol-conformance-descriptor symbols are mangled with. Returns false for stdlib
+        /// short-form substitutions (<c>$ss8SendableP</c>, <c>$sSH</c>) and any non-stable name —
+        /// callers keep their existing (USR-derived) module in those cases.
+        /// </summary>
+        internal static bool TryGetModuleFromMangledName(string? mangled, [NotNullWhen(true)] out string? module)
+        {
+            module = null;
+            if (string.IsNullOrEmpty(mangled))
+                return false;
+            int i;
+            if (mangled.StartsWith("_$s", StringComparison.Ordinal)) i = 3;
+            else if (mangled.StartsWith("$s", StringComparison.Ordinal)) i = 2;
+            else return false;
+            int digitStart = i;
+            while (i < mangled.Length && char.IsDigit(mangled[i])) i++;
+            if (i == digitStart) // stdlib substitution (e.g. "$ss8...", "$sSH") — no length prefix
+                return false;
+            if (!int.TryParse(mangled.AsSpan(digitStart, i - digitStart), out int len) || len <= 0)
+                return false;
+            if (i + len > mangled.Length)
+                return false;
+            module = mangled.Substring(i, len);
             return true;
         }
 

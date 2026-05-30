@@ -74,7 +74,7 @@ public static class ReportEmitter
             {
                 var bs = report.BridgeSummary;
                 logger.LogInformation("  Bridge:   {Generated}/{Total} generated ({Percent:F1}%), {Template} templates, {Skipped} skipped",
-                    bs.Generated, bs.TotalViews, bs.GeneratedPercent, bs.Template, bs.HintSkipped);
+                    bs.Generated, bs.TotalViews, bs.GeneratedPercent, bs.Template, bs.HintSkipped + bs.Skipped);
             }
         }
 

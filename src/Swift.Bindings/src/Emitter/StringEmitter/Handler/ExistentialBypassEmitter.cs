@@ -756,11 +756,21 @@ public static class ExistentialBypassEmitter
         string? containerType = null;
         string? publicReturnType = null;
         string? returnWrapExpr = null;
+        string? existentialReadExpr = null;
         if (isExistentialReturn)
         {
             var protocolList = env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
             containerType = env.ExistentialHandler.GetCSharpExistentialType(protocolList);
             publicReturnType = env.ExistentialHandler.GetPublicExistentialType(protocolList);
+            // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+            // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque container
+            // (40 bytes); reading the wider type pulls uninitialized bytes into the unused container
+            // fields. The +1 still transfers via the bitwise copy (the buffer free is a plain
+            // dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is unchanged — only
+            // the read width differs.
+            existentialReadExpr = env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
+                ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(__resultPtr)"
+                : $"SwiftMarshal.MarshalFromSwift<{containerType}>(__resultPtr)";
             // Mirror WrapperEmitter.Return.cs: well-known (Swift.Error → AnyError), else proxy.
             // Owned return: the proxy adopts the +1 existential and releases it on Dispose.
             // Both single-protocol (EC1) and composition (EC2+) proxies expose the ownership-aware
@@ -885,7 +895,7 @@ public static class ExistentialBypassEmitter
             csWriter.Indent++;
             csWriter.WriteLine($"var __resultPtr = (IntPtr)__resultBuf;");
             csWriter.WriteLine($"{wrapperCall}({callArgs});");
-            csWriter.WriteLine($"var __existentialResult = SwiftMarshal.MarshalFromSwift<{containerType}>(__resultPtr);");
+            csWriter.WriteLine($"var __existentialResult = {existentialReadExpr};");
             csWriter.WriteLine($"return {returnWrapExpr};");
             csWriter.Indent--;
             csWriter.WriteLine("}");

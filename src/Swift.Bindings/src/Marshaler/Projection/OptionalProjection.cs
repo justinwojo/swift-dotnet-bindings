@@ -430,6 +430,30 @@ public class OptionalProjection : ITypeProjection
             // conversion (e.g. `new AnyError(...)` or proxy-class construction).
             if (strategy is ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer)
             {
+                // A class-bound single-protocol Optional<any P> is a compact 2-word
+                // [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque container
+                // (40 bytes). Its None is the null classRef extra-inhabitant at offset 0, NOT the
+                // opaque container's _metadata slot at offset 3 × IntPtr.Size. The sret buffer is
+                // zero-filled and Swift writes only the 2 words, so the opaque offset-24 check
+                // always reads zero and would mis-report a present value as None; the 5-word read
+                // would also pull uninitialized bytes into the unused container fields. Read the
+                // cell at its true width via ReadHeapCell (widened to ExistentialContainer1 for the
+                // proxy's owned ctor) and key None off offset 0. Ownership is unchanged: the +1
+                // transfers through the bitwise read and the proxy adopts it (ownsContainer: true),
+                // mirroring the non-optional class-bound sret return.
+                if (_innerProjection is ExistentialProjection { IsClassBoundArity1: true })
+                {
+                    var classBoundRead = $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({resultName})";
+                    var classBoundConv = elemConversion?.Replace("swiftResult.Some", classBoundRead)
+                                      ?? classBoundRead;
+                    return new MarshalPlan
+                    {
+                        PInvokeExpression =
+                            $"(*(IntPtr*)(byte*){resultName} == IntPtr.Zero ? null : {classBoundConv})",
+                        RequiresUnsafe = true
+                    };
+                }
+
                 var directInnerExpr = $"*({returnTypeParam}*){resultName}";
                 var directConv = elemConversion?.Replace("swiftResult.Some", directInnerExpr)
                               ?? directInnerExpr;
