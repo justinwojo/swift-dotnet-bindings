@@ -22,114 +22,75 @@ This is the whole list. When Tier 1 is green and the verification debts are paid
 gap-fix campaign is done — Tier 2 and Excluded are tracked here precisely so they do *not*
 keep the campaign "open" indefinitely.
 
+## Status legend
+
+- **LANDED** — code shipped, validated end-to-end on its named gated lane.
+- **LANDED (sim) · device owed** — code shipped and sim passes; physical-device confirmation pending.
+- **PARTIAL** — some of the required code shipped; specific sub-pieces still needed.
+- **OPEN** — no code shipped yet; this is the next thing to start on.
+- **VERIFICATION OWED** — code shipped + hermetic fixtures pin it; a real-framework
+  end-to-end pass is still owed.
+
 ## At a glance
 
-| Tier | Item | Framework | Gate |
+| Tier | Item | Framework | Status |
 |---|---|---|---|
-| ~~1~~ | ~~T1.1 `Scene.AddAnchor(IHasAnchoring)`~~ — **landed (sim)**; device owed in Tier-1 batched pass ([05 done ledger](05-residual-gaps.md)) | RealityKit / RealityFoundation | sim ✅ · device owed |
-| **1** | [T1.2](#t12--familyactivitypicker-bridge-packaging) `FamilyActivityPicker` bridge packaging | FamilyControls | sim |
-| ~~1~~ | ~~T1.3 HMAC`<H>` conformance-descriptor load on device~~ — **landed** ([05 done ledger](05-residual-gaps.md#hmac-device)) | CryptoKit | device ✅ |
-| ~~1~~ | ~~T1.4 `Transform(scale,rotation,translation)` ctor~~ — **landed (sim)**; device owed in Tier-1 batched pass ([05 done ledger](05-residual-gaps.md)) | RealityFoundation | sim ✅ · device owed |
-| 2 | [T2.1](#t21--typed-mesh-buffers-on-nativeaot-rc-aot) RC‑AOT typed mesh buffers on NativeAOT | RealityFoundation | device |
-| 2 | [T2.2](#t22--cryptokit-generic-remainders) CryptoKit generic remainders (HPKE construction, Seal/Open, context-string verify) | CryptoKit | sim + device |
-| 2 | [T2.3](#t23--workoutkit-range-alert-measurement-ctor-shim) WorkoutKit range-alert `Measurement<T>` ctor shim | WorkoutKit | sim |
-| 2 | [T2.4](#t24--entity-gesture-device-round-trip-failure-b--parser-genericsig) Entity gesture device round-trip (Failure B) + parser genericSig | RealityKit | device |
-| 2 | [T2.5](#t25--witness-getter-entrypointnotfound-to-notsupported-wrap) Witness-getter `EntryPointNotFound`→`NotSupported` wrap | generator | sim + device |
-| 2 | [T2.6](#t26--sibling-emission-marker-name-keying-hardening) Sibling emission-marker name-keying hardening | generator | sim + device |
+| ~~1~~ | ~~T1.1 `Scene.AddAnchor(IHasAnchoring)`~~ | RealityKit / RealityFoundation | **LANDED** ([ledger](05-residual-gaps.md#class-bound-existential-device)) |
+| ~~1~~ | ~~T1.2 `FamilyActivityPicker` bridge packaging~~ | FamilyControls | **LANDED** ([ledger](05-residual-gaps.md#familyactivitypicker-bridge)) |
+| ~~1~~ | ~~T1.3 HMAC`<H>` conformance-descriptor load on device~~ | CryptoKit | **LANDED** ([ledger](05-residual-gaps.md#hmac-device)) |
+| ~~1~~ | ~~T1.4 `Transform(scale,rotation,translation)` ctor~~ | RealityFoundation | **LANDED** ([ledger](05-residual-gaps.md#transform-three-simd-device)) |
+| 2 | [T2.1](#t21--typed-mesh-buffers-on-nativeaot-rc-aot) RC‑AOT typed mesh buffers on NativeAOT | RealityFoundation | **OPEN** |
+| 2 | [T2.2](#t22--cryptokit-generic-remainders) CryptoKit generic remainders (HPKE construction + Seal/Open reach) | CryptoKit | **PARTIAL** — instance-method side landed; HPKE init still blocked |
+| 2 | [T2.3](#t23--workoutkit-range-alert-measurement-ctor-shim) WorkoutKit range-alert `Measurement<T>` ctor shim | WorkoutKit | **OPEN** |
+| 2 | [T2.4](#t24--entity-gesture-device-round-trip-failure-b) Entity gesture device round-trip (Failure B) | RealityKit | **PARTIAL** — emitter routing + carrier emission landed; device round-trip unverified |
+| 2 | [T2.5](#t25--witness-getter-entrypointnotfound-to-notsupported-wrap-second-shape) Witness-getter `EntryPointNotFound`→`NotSupported` wrap (second shape) | generator | **OPEN** |
+| 2 | [T2.6](#t26--sibling-emission-marker-name-keying-hardening) Sibling emission-marker name-keying hardening | generator | **OPEN** |
 
 ---
 
-# Tier 1 — must close to declare the campaign done
+# Tier 1 — closed
 
-<a id="t11"></a>
+All four Tier-1 items are LANDED on their gated lanes (sim + device). The gap-fix campaign
+reaches the doc's definition of "finishable" — Tier 2 and the verification debts remain, but
+per the [overview](#definition-of-done) those do not keep the campaign open. Full records in
+the [done ledger](05-residual-gaps.md); pointers below.
 
-## T1.1 — `Scene.AddAnchor(IHasAnchoring)` (Failure A) — ✅ LANDED (sim)
-
-Resolved (fix landed in `8099d434`). Both halves of the root cause are fixed and confirmed in the
-**real** RealityFoundation binding (not just a hermetic fixture):
-1. The cross-module/umbrella protocol `HasAnchoring`'s `TypeRecord` now resolves during
-   RealityFoundation generation (umbrella-module alias fallback), so the conformance dictionary is
-   populated — `AnchorEntity._protocolConformanceSymbols` emits the real descriptor symbol
-   `$s10RealityKit12AnchorEntityCAA12HasAnchoringAAMc`.
-2. The subclass re-implements `IExistentialBoxable.BoxAsExistential1<TProtocol>()` with its own
-   concrete type — generated `RealityFoundation.cs` emits
-   `ExistentialContainerFactory.Create<AnchorEntity, TProtocol>(this)` (not the base `Entity`'s),
-   plus NativeAOT pre-registration (`RegisterConformanceFactory<AnchorEntity, IHasAnchoring>` and
-   `RegisterClassBoundExistentialMetadata(...HasAnchoringMp)`).
-
-**Validated (sim).** The per-package tests are real passes (no longer `Skip`):
-RealityFoundation `AnchorEntity boxes as IHasAnchoring existential`, RealityKit
-`Scene.AddAnchor/RemoveAnchor(IHasAnchoring) round-trip`, and `Scene.Anchors traversal +
-AnchorEntity construction` all pass on iOS Simulator. The durable BindingTests fixture
-`TestSubclassOnlyConformanceBoxesAsDerivedType` (subclass-only cross-module conformance —
-`AnchoredMarkedEntity`) is green on sim. **Device owed** in the Tier-1 batched pass.
-
-**Same family — confirm in the device pass:** RoomPlan `RoomCaptureView.Delegate`
-(`RoomPlan.cs:5790`) is the RC‑PROXY secondary site presumed to share this shape; the *session*
-delegate (`RoomCaptureSessionDelegateProxy`, `RoomPlan.cs:11539`) is the supported path and is
-unaffected.
-
-## T1.2 — `FamilyActivityPicker` bridge packaging
-*(was 05 §2)*
-
-**What's blocked.** You can construct/read/persist/apply a `FamilyActivitySelection`, but you
-cannot present the `FamilyActivityPicker` that produces one:
-`FamilyActivityPickerSession.Create(…)` throws `DllNotFoundException("FamilyControlsBridge")`
-(sim). The display-only `FamilyActivityTitleViewSession`/`IconViewSession` share the same import
-and are presumed equally unreachable.
-
-**Root cause.** The generator already emits both halves of the SwiftUI bridge into
-`obj/.../swift-binding/` — C# `FamilyControls.SwiftUIBridge.cs`
-(`[LibraryImport("FamilyControlsBridge", EntryPoint = "SBW_FamilyControls_FamilyActivityPicker_*")]`)
-and Swift `FamilyControls.SwiftUIBridge.swift` (the matching `@_cdecl` trampolines). **But the
-native `FamilyControlsBridge` library is never built or bundled.** `nm` across the built `.app`
-shows the wrapper framework exports the normal `SBW_FamilyControls_*` symbols but **none** of the
-`SBW_FamilyControls_FamilyActivityPicker_*` bridge symbols, and there is no `FamilyControlsBridge`
-dylib/framework anywhere in the bundle: the bridge Swift is not fed to the wrapper's `swiftc`
-invocation, and no separate `FamilyControlsBridge` build target exists. The fix was validated
-only inside swift-bindings' own BindingTests harness (`CodableProfileEditorView`), which compiles
-*all* generated sources into one module, so `@rpath`/library naming lines up there but not in the
-packaged consumer build.
-
-**Fix.** Teach the SDK build/pack pipeline to compile `*.SwiftUIBridge.swift` into a native
-library named exactly `FamilyControlsBridge` (matching the C# `[LibraryImport]` name), bundle it
-as a `NativeReference`.
-
-**Done when.** A per-package end-to-end fixture in `swift-dotnet-packages` (UIHostingController +
-programmatic selection round-trip) presents the picker and round-trips a selection on sim, so the
-packaging path is gated — not just the emitter. The FamilyControls per-package picker test flips
-from `Skip` to a real pass.
-
-## T1.3 — HMAC`<H>` conformance-descriptor load on device — ✅ LANDED
-
-Resolved 2026-05-31. The system-framework `@rpath` load now succeeds on device via a
-`SwiftFrameworkResolver` bare-name fallback (`/System/Library/Frameworks/Name.framework/Name`
-last in the ordered search list) plus a generator change (`ResolveRuntimeLibraryName`) that emits
-the bare framework name for system targets so the NativeAOT DllImport resolver is consulted.
-CryptoKit `HMAC<SHA256/384> incremental == one-shot` runs and asserts on device (NativeAOT) as
-well as sim; the AOT-lane capability skip is removed. Full record:
-[05 done ledger → HMAC on device](05-residual-gaps.md#hmac-device).
-
-<a id="t14"></a>
-
-## T1.4 — `Transform(scale,rotation,translation)` ctor — ✅ LANDED (sim)
-
-Resolved. The three-SIMD-param `Transform(scale:rotation:translation:)` ctor is `@inlinable public`
-in RealityKit; the parser now classifies an `@inlinable` member with no explicit `AccessControl`
-attribute as public when a `.swiftinterface` is present (previously mis-read as module-internal), so
-its `@_cdecl` wrapper `SBW_..._Transform_init_C8B878FF` is emitted and the three SIMD params marshal
-**indirectly** through buffer pointers (`CallConvCdecl`), exactly like `Transform(Matrix4x4)`. The
-`InvalidProgramException` on the JIT lane is gone.
-
-**Validated (sim).** The RealityFoundation `Transform(scale,rotation,translation) constructor` test
-is a real pass (all lanes round-trip) on iOS Simulator. **Device owed** in the Tier-1 batched pass.
+- **T1.1 — `Scene.AddAnchor(IHasAnchoring)` (Failure A).** Class-bound existential boxing for
+  cross-module subclass conformers landed in `8099d434`. Sim and device (iPhone 13 NativeAOT,
+  2026-05-31) pass `Scene.AddAnchor/RemoveAnchor(IHasAnchoring) round-trip`,
+  `Scene.Anchors traversal + AnchorEntity construction`, and
+  `AnchorEntity boxes as IHasAnchoring existential`. The durable BindingTests fixture
+  `TestSubclassOnlyConformanceBoxesAsDerivedType` is green on both lanes. Full record:
+  [05 → class-bound existential](05-residual-gaps.md#class-bound-existential-device). The
+  RoomPlan `RoomCaptureView.Delegate` (`RoomPlan.cs:5790`) RC-PROXY secondary site has no
+  per-package test today; the read-only-proxy CALLBACK fail-clean shape is gated by the
+  portable `EntityRootedExistential` fixture and the *session* delegate (the supported path)
+  is unaffected.
+- **T1.2 — `FamilyActivityPicker` bridge packaging.** The SDK build/pack pipeline already
+  detects `*.SwiftUIBridge.swift`, compiles it into `{Module}Bridge.xcframework` via
+  `_CompileSwiftUIBridge`, injects it as a `NativeReference` (locally via
+  `_ResolveSwiftNativeReferences`, in packed consumers via the synthesized
+  `{PackageId}.targets`), and bundles it under `runtimes/{rid}/native/` at pack time
+  (`3d62df46`). The FamilyControls per-package
+  `FamilyActivityPicker bridge create + selection JSON round-trip` test passes on sim and
+  device (iPhone 13 NativeAOT, 2026-05-31). Full record:
+  [05 → FamilyActivityPicker bridge](05-residual-gaps.md#familyactivitypicker-bridge).
+- **T1.3 — HMAC`<H>` conformance-descriptor load on device.** Resolved 2026-05-31
+  (`ede9a029`) via `SwiftFrameworkResolver` bare-name fallback +
+  `ResolveRuntimeLibraryName` system-target reduction. Full record:
+  [05 → HMAC on device](05-residual-gaps.md#hmac-device).
+- **T1.4 — `Transform(scale,rotation,translation)` ctor.** Parser `@inlinable` access-control
+  fix landed. Sim and device (iPhone 13 NativeAOT, 2026-05-31) pass the RealityFoundation
+  `Transform(scale,rotation,translation) constructor` test. Full record:
+  [05 → Transform three-SIMD on device](05-residual-gaps.md#transform-three-simd-device).
 
 ---
 
 # Tier 2 — fixable, lower impact (after Tier 1)
 
-## T2.1 — typed mesh buffers on NativeAOT (RC-AOT)
-*(was 05 §5)*
+## T2.1 — typed mesh buffers on NativeAOT (RC-AOT) — OPEN
+
+**Status:** OPEN. No code has landed for this item.
 
 **What's blocked.** `MeshBuffer<T>` / `MeshBuffers.Semantic<T>` / `UnsafeForceEffectBuffer<T>`
 generic-specialization metadata resolves on Mono/sim but not on NativeAOT/device — the
@@ -138,39 +99,82 @@ pass (RealityFoundation device 29/0/11 — the 8 buffer entries are among the sk
 RealityFoundation test capability-gates on `IsDynamicCodeSupported` (fail-if-regressed on Mono,
 skip on AOT).
 
-**Fix.** Root the `T : Vector3` generic-specialization metadata on NativeAOT. This is RC‑AOT's
-harder case — it needs more than the `SwiftArray` template pattern Session 01 used.
+**Fix to land.** Root the `T : Vector3` generic-specialization metadata on NativeAOT. This
+is RC‑AOT's harder case — it needs more than the `SwiftArray` template pattern Session 01
+used.
 
 **Done when.** The 8 buffer entries run and assert on device (the AOT-lane skip is removed).
 
-## T2.2 — CryptoKit generic remainders
-*(was 05 §5 + 00-overview deferred #1)*
+## T2.2 — CryptoKit generic remainders — PARTIAL
 
-Three related sub-items; the Ed25519/context-string **sign** mechanism already landed (see
-[05 §5b](05-residual-gaps.md#data-return-csm)
-and Verification debts below).
+**Status:** PARTIAL. The structural CSM gates (NestedType, indirect-`Data` return) have all
+landed and the instance-method side now binds to concrete overloads end-to-end. **HPKE
+construction is the one remaining real blocker** — and its root cause has changed since the
+0.12.0 retrospective. What follows reflects the regen'd `CryptoKit.cs` as of `ff2bafbb`.
 
-1. **HPKE construction (nested-conformer CSM).** All 10 `HPKE.Sender`/`HPKE.Recipient`
-   initializers (`CryptoKit.swiftinterface:632-637`, `:644-649`) and, transitively,
-   `HPKE.Sender.ExportSecret`, are SB0001 generic-only stubs. **Root cause:** every conformer of
-   the key-constraining protocols (`Curve25519.KeyAgreement.PublicKey`,
-   `XWingMLKEM768X25519.PublicKey`, the P256/P384/P521 KeyAgreement keys, …) has a **3+ component
-   `ModuleQualifiedName`**, and the `ClassifyConformerStructurally` NestedType gate
-   (`ConcreteProtocolSpecializationEmitter.cs:1858-1860`, a bare
-   `ModuleQualifiedName.Split('.').Length > 2` check) rejects all of them. A hint-coverage
-   extension does **not** help — this is structural CSM emission. **Fix:** lift the NestedType
-   rejection so the CSM engine emits `From{Conformer}` factories for nested-type conformers
-   (dedicated `src/docs/Future/csm-nested-conformer.md` track). **Done when:** a BindingTest
-   round-trips an HPKE `Sender` once construction is reachable, and a CSM unit test asserts a
-   3-part-`ModuleQualifiedName` conformer emits a factory.
-2. **HPKE `Seal`/`Open`.** Broken alongside construction; `ExportSecret(byte[]/Data)` and KEM
-   `Decapsulate` *do* have working concrete overloads.
-3. **Context-string verify.** P256/etc. `IsValidSignature<S,D,C>` (the verify side) returns
-   `Bool` — a direct return the [05 §5b](05-residual-gaps.md#data-return-csm) indirect-result
-   preflight never gated, so it is a separate item from the sign side that landed in §5b.
+### What shipped (don't redo)
 
-## T2.3 — WorkoutKit range-alert Measurement ctor shim
-*(was 05 §4)*
+- **NestedType structural gate LIFTED** (`3cd6d0f4`). The
+  `ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally` reject for 3+ segment
+  `ModuleQualifiedName`s now passes when the type record resolves. Proven by the regen:
+  `FromCryptoKit_Insecure_SHA1` and `FromCryptoKit_Insecure_MD5` factories (3-segment
+  `ModuleQualifiedName`) emit in `CryptoKit.cs`.
+- **HPKE `Seal` / `Open` / `ExportSecret` instance-method specialization LANDED** (`3cd6d0f4` +
+  `44a6002b`). HPKE.Sender now exposes concrete `Seal(byte[]/Foundation.Data, byte[]/Foundation.Data)`
+  and `ExportSecret(byte[]/Foundation.Data, nint)` overloads (regen'd
+  `CryptoKit.cs:22878-23371`). HPKE.Recipient analogous (`23372-`). These are **unreachable in
+  practice today** because HPKE construction is still blocked — see Open below.
+- **Data-return CSM concrete overloads LANDED** (`44a6002b`). Ed25519 signing and the sign-side
+  of context-string `Signature<D,C>` now bind to concrete `byte[]` via the `InlineSwiftStruct`
+  preflight admit (see [05 §5b](05-residual-gaps.md#data-return-csm)).
+- **Context-string verify (`Bool` return) LANDED.** P256/etc. `IsValidSignature<S,D,C>` has 8
+  concrete 3-PAT cartesian overloads at `CryptoKit.cs:24792-24867`
+  (`(byte[]|Foundation.Data) × (byte[]|Foundation.Data) × (byte[]|Foundation.Data) → bool`).
+  This was originally tracked as a separate Bool-return item; it appears to have shipped
+  alongside the broader CSM work — verify in the next pass and graduate to the ledger.
+
+### What's still open
+
+**HPKE construction (T2.2 #1) — OPEN, with a NEW root cause.**
+
+All 10 `HPKE.Sender` / `HPKE.Recipient` initializers (`CryptoKit.swiftinterface:632-637`,
+`:644-649`) and, transitively, the user-reachable use of `HPKE.Sender.ExportSecret` and
+`Seal`/`Open`, are still SB0001 / dropped stubs. The regen'd `CryptoKit.cs` shows each init
+dropped with:
+
+```
+// Unsupported: method 'init' — parameter or return type not yet supported
+//   (C# does not support generic constructors with method-own type parameters.)
+```
+
+**Old root cause (now stale):** the `ClassifyConformerStructurally` NestedType gate
+(`ConcreteProtocolSpecializationEmitter.cs:1858-1860`). **This is no longer the blocker.**
+
+**New root cause:** the CSM specialization path runs for instance methods (`Seal`, `Open`,
+`ExportSecret` — concrete overloads emit on HPKE.Sender/Recipient), but it does **not**
+run for initializers carrying method-own generic type parameters. Inits fall through the
+"C# does not support generic constructors with method-own type parameters" arm and drop.
+The structural NestedType lift was necessary but not sufficient — what's needed is an
+init-specialization path that emits a non-generic `From{Conformer}` static factory per
+conformer (the same shape `Seal`/`ExportSecret` now use, applied at the constructor site).
+
+**Fix to land.** Extend the CSM specialization engine to emit
+`public static Sender From{Conformer}(...)` factories for method-own-generic inits — per
+conformer of the key-constraining protocols
+(`Curve25519.KeyAgreement.PublicKey`, `XWingMLKEM768X25519.PublicKey`, the P256/P384/P521
+KeyAgreement keys, …). The conformer set is the same one already exercised for HPKE.Sender's
+instance-method specialization, so this is reusing existing conformer enumeration in a new
+context (init), not discovering a new one.
+
+**Done when.** A BindingTest round-trips an HPKE `Sender` end-to-end (construct → Seal →
+Open via a Recipient), and a CSM unit test asserts a 3+-segment-`ModuleQualifiedName`
+conformer emits a *constructor* factory (not just an instance-method factory). At that
+point HPKE.Sender's `Seal` / `ExportSecret` concrete overloads — already emitted — become
+reachable in practice.
+
+## T2.3 — WorkoutKit range-alert Measurement ctor shim — OPEN
+
+**Status:** OPEN. No code has landed for this item.
 
 **What's blocked.** The `HeartRateRangeAlert` / `CadenceRangeAlert` / `PowerRangeAlert` /
 `SpeedRangeAlert` ctors emit as callable signatures (the `SwiftClosedRange<Bound>` fix landed),
@@ -181,99 +185,130 @@ from C# and the alerts are non-constructible end-to-end. (`Measurement<T>` being
 **by design** — see Excluded; this item is the *targeted shim* that makes the alerts usable
 anyway, not a generator change.)
 
-**Fix.** A per-framework `@_cdecl` trampoline that builds `Measurement<Unit>(value:unit:)` from a
-double + unit, mirroring the MusicKit array-shim pattern.
+**Fix to land.** A per-framework `@_cdecl` trampoline that builds
+`Measurement<Unit>(value:unit:)` from a double + unit, mirroring the MusicKit array-shim
+pattern.
 
 **Done when.** The four WorkoutKit range-alert ctors flip from `Skip` to real passes on sim.
 
-## T2.4 — entity gesture device round-trip (Failure B) + parser genericSig
-*(was 05 §5 Failure B + 00-overview deferred #3 — the campaign's one "L" item)*
+<a id="t24--entity-gesture-device-round-trip-failure-b"></a>
 
-**What's blocked.** `EntityTranslationGestureRecognizer` & friends deliver their target entity
-through an `EveryEntityProtocol` existential. The recognizer *type* binds and its metadata
-resolves; installing one and receiving a callback does **not** round-trip on real input. The
-`EveryEntityProtocol : Entity` carrier is now *emitted* (generator unit tests cover emission),
-but it is unreachable on real RealityFoundation input and the device round-trip is unverified.
+## T2.4 — entity gesture device round-trip (Failure B) — PARTIAL
 
-**Root cause.** The routing gate `HasClassSuperclassRequirement` (`EveryProtocolEmitter.cs`)
-reads `ProtocolDecl.InheritedProtocols`, which `SwiftABIParser.cs` `CreateProtocolDecl` populates
-**only from `node.Conformances`**. Real Entity-rooted protocols encode the superclass **solely in
-the generic signature** (`<Self : RealityKit.Entity>`) — `conformances` lists only
-`Escapable`/`Copyable` and `superclassNames` is `None`. So the constraint never reaches
-`InheritedProtocols`, the gate returns false, and `IHasAnchoring` & the 8 Entity-rooted protocols
-fall through to plain interfaces. (Note: `03-proxy-callback.md`'s Failure B claim that these
-"were being skipped via `HasClassSuperclassRequirement`" is **contradicted** by this — they were
-never routed; correct that doc when this lands.)
+**Status:** PARTIAL. The emitter routing + carrier emission landed; the device round-trip
+on real RealityKit input is still unverified.
 
-**Fix.** Extend `CreateProtocolDecl` to extract a `genericSig` class-superclass constraint
-(`<Self : SomeClass>`) into `InheritedProtocols` (or a dedicated superclass field the routing gate
-reads). Then the carrier emits on real input and the round-trip becomes testable.
+### What shipped (don't redo)
 
-**Done when.** The Entity-rooted round-trip BindingTest from `03-proxy-callback.md` ("Failure B")
-ships as a durable gate and the real RealityKit gesture round-trip passes on a **physical device**
-(NativeAOT). Until the parser surfaces the constraint, a hermetic fixture would emit a plain
-interface and assert nothing — so this fix cannot ship a green test before the parser change.
+- **Routing-gate fix LANDED via the emitter side, not the parser** (`8099d434`).
+  `EveryProtocolEmitter.HasClassSuperclassRequirement` (lines 5001-5018) now reads the
+  protocol's `GenericSignature` directly and matches `IsRealityFoundationEntityName`, so
+  `<Self : RealityKit.Entity>` constraints route through the class-bound path even though
+  `node.Conformances` lists only `Escapable`/`Copyable`. (The doc previously proposed
+  extending `SwiftABIParser.CreateProtocolDecl` to populate `InheritedProtocols`; the
+  implementation took the equivalent route of reading `GenericSignature` at the gate.)
+- **`EveryEntityProtocol : Entity` carrier emission covered by generator unit tests.** The
+  carrier emits on real Entity-rooted RealityFoundation input.
+- **Read-only proxy CALLBACK fail-clean LANDED** (`44a6002b`, see
+  [05 §5b](05-residual-gaps.md)). The C#-implements-protocol direction for any class-superclass
+  read-only proxy now throws clean `NotSupportedException` instead of crashing.
 
-## T2.5 — witness-getter EntryPointNotFound to NotSupported wrap
-*(was 05 §5d — pre-existing)*
+### What's still open
 
-**What's blocked.** A second shape the §5/§5b fail-clean change does **not** cover: the generator
-emits the `Get_EveryProtocol_{P}_WitnessTable` accessor optimistically, the Swift wrapper then
-fails to compile it (`value of type 'EveryProtocol' does not conform to specified type 'P'`) and
-the give-up pass drops that `@_cdecl` from the dylib — but because the getter *was* emitted, the
-C# proxy still P/Invokes it, yielding **`EntryPointNotFoundException`** at the CALLBACK boundary
-instead of the clean `NotSupportedException`. Reproduced today by `ProtocolExtOptionalClassParam.swift`
-(`PExtOptChildProtocol`); every gate stays green because nothing exercises that protocol's
-C#-implementation CALLBACK path.
+**Device round-trip verification.** Installing an `EntityTranslationGestureRecognizer` &
+friends on a real RealityKit scene and receiving a callback through the
+`EveryEntityProtocol` existential — on a **physical device (NativeAOT)** — has not been
+exercised. Hermetic fixtures (`EntityRootedExistential.swift` /
+`EntityRootedExistentialTests.cs`) pin the carrier shape but use a pure-Swift `Entity`
+stand-in; real RealityKit gesture input has not been tested.
 
-**Fix (needs a red fixture first).** Wrap the getter P/Invoke in `GetWitnessTableFromSwift()` so
-`EntryPointNotFoundException` rethrows as `NotSupportedException` with a *generic* message ("the
-Swift wrapper exports no witness-table accessor for protocol P …"). **Trade-off:** this also
-catches a getter gone missing from an unrelated generator regression, turning a loud "symbol
-missing" into a designed-limitation message. The build-time `does not conform` error stays loud,
-so the masking risk is bounded but real — decide deliberately, with the `PExtOptChildProtocol`
+**Fix to land.** None expected if the emitter/routing shipped correctly. If the device
+round-trip fails, the failure mode is the work: surface it, root-cause it, and pin it with
+a fixture.
+
+**Done when.** The Entity-rooted round-trip BindingTest from `03-proxy-callback.md`
+("Failure B") ships as a durable gate **and** the real RealityKit gesture round-trip passes
+on a **physical device (NativeAOT)**.
+
+## T2.5 — witness-getter `EntryPointNotFound` to `NotSupported` wrap (second shape) — OPEN
+
+**Status:** OPEN for the *second* shape (see below). The *first* shape (class-superclass,
+generator decides upfront not to emit the getter) shipped in `44a6002b` and is recorded in
+[05 §5b](05-residual-gaps.md) — confirm you're not redoing that work.
+
+**What's still open — the second shape.** The §5/§5b fail-clean change covers the case
+where the generator decides upfront NOT to emit `Get_EveryProtocol_{P}_WitnessTable`. It
+does **not** cover a different, pre-existing failure mode: the generator emits the
+witness-getter optimistically, the Swift wrapper then fails to compile it (`value of type
+'EveryProtocol' does not conform to specified type 'P'`), and the wrapper give-up pass
+drops that one `@_cdecl` from the dylib — but because the getter *was* emitted by the
+generator, its emission marker is set, so the C# proxy still emits the
+`[LibraryImport(... "Get_EveryProtocol_P_WitnessTable")]` and P/Invokes it at runtime,
+yielding **`EntryPointNotFoundException`** at the CALLBACK boundary instead of the clean
+`NotSupportedException`.
+
+**Reproduces today** with `ProtocolExtOptionalClassParam.swift` (`PExtOptChildProtocol`);
+every gate stays green because nothing exercises that protocol's C#-implementation
+CALLBACK path.
+
+**Fix to land (needs a red fixture first).** Wrap the getter P/Invoke in
+`GetWitnessTableFromSwift()` so `EntryPointNotFoundException` rethrows as
+`NotSupportedException` with a *generic* message ("the Swift wrapper exports no
+witness-table accessor for protocol P …"). **Trade-off:** this also catches a getter gone
+missing from an unrelated generator regression, turning a loud "symbol missing" into a
+designed-limitation message. The build-time `does not conform` error stays loud, so the
+masking risk is bounded but real — decide deliberately, with the `PExtOptChildProtocol`
 CALLBACK red fixture in place first.
 
 **Done when.** A red `PExtOptChildProtocol` CALLBACK fixture flips to asserting the clean
 `NotSupportedException`, and unit + `binding-tests` (sim) + `--device` stay green.
 
-## T2.6 — sibling emission-marker name-keying hardening
-*(detail in [`sibling-marker-name-keying.md`](sibling-marker-name-keying.md))*
+## T2.6 — sibling emission-marker name-keying hardening — OPEN
 
-**What's blocked / latent.** The witness-table-getter marker was re-keyed to
-`SwiftTypeName.ModuleQualifiedName`, but its sibling markers — **SetVtable**, **ObjCBase**,
-**EntityBase**, **Conformance** — still key on the simple `.Name`. A local protocol and a
-cross-module parent protocol with the same simple name can collide in the shared marker
-set/dictionary and mis-gate a cross-module proxy. **Not a reproducing bug today** (no known
-same-simple-name collision across the current validation/fixture set; cross-module-parent vtable
-wiring uses a separate module-prefixed path), so it is latent.
+**Status:** OPEN. The witness-table-getter marker was re-keyed to `ModuleQualifiedName` in
+`44a6002b` (see [`sibling-marker-name-keying.md`](sibling-marker-name-keying.md)), but its
+sibling markers — **SetVtable**, **ObjCBase**, **EntityBase**, **Conformance** — still key
+on the simple `.Name`. A local protocol and a cross-module parent protocol with the same
+simple name can collide in the shared marker set/dictionary and mis-gate a cross-module
+proxy. **Not a reproducing bug today** (no known same-simple-name collision across the
+current validation/fixture set; cross-module-parent vtable wiring uses a separate
+module-prefixed path), so it is latent.
 
-**Fix.** Re-key the sibling markers to `ModuleQualifiedName`, per the safe-hardening plan in the
-detail doc: SetVtable/ObjCBase/EntityBase are low-risk single-site re-keys; **Conformance is the
-delicate one** (read at 3 sites incl. a cross-decl ancestor lookup — a naive swap can break
-cross-module-parent proxy emission and reintroduce the MusicKit-class crash the witness-getter
-work fixed).
+**Fix to land.** Re-key the sibling markers to `ModuleQualifiedName`, per the
+safe-hardening plan in the detail doc: SetVtable/ObjCBase/EntityBase are low-risk
+single-site re-keys; **Conformance is the delicate one** (read at 3 sites incl. a
+cross-decl ancestor lookup — a naive swap can break cross-module-parent proxy emission and
+reintroduce the MusicKit-class crash the witness-getter work fixed).
 
-**Done when.** A RED fixture (a dependency-module protocol whose simple name collides with a local
-protocol, with differing setter/conformance emission) reproduces a dangling P/Invoke or wrong
-carrier *before* the change, then goes green; unit + `binding-tests --compile-only` +
-`--skip-regen` + `--device` all green.
+**Done when.** A RED fixture (a dependency-module protocol whose simple name collides with
+a local protocol, with differing setter/conformance emission) reproduces a dangling
+P/Invoke or wrong carrier *before* the change, then goes green; unit +
+`binding-tests --compile-only` + `--skip-regen` + `--device` all green.
 
 ---
 
 # Verification debts (code landed, confirmation owed)
 
-These are *not* new code — the mechanism shipped — but the campaign isn't honestly done until the
-real-framework end-to-end is confirmed.
+These are *not* new code — the mechanism shipped — but the campaign isn't honestly done
+until the real-framework end-to-end is confirmed.
 
-- **Data-return CSM concrete overloads (Ed25519 / context-string sign).** The generator mechanism
-  landed and is pinned by fixtures (`Generics/SigningSpecialization.swift`,
+- **Data-return CSM concrete overloads sweep.** The generator mechanism landed (`44a6002b`)
+  and is pinned by fixtures (`Generics/SigningSpecialization.swift`,
   `SigningSpecializationTests.cs`, `ConcreteSpecializationEngineTests`) — see
-  [05 §5b](05-residual-gaps.md#data-return-csm).
-  **Owed:** a `nuke validate` sweep to confirm which real-CryptoKit `Signature<D>` /
-  context-string `Signature<D,C>` overloads now bind to concrete `byte[]` overloads end-to-end.
-- **`EveryEntityProtocol` carrier emission.** Emission is covered by generator unit tests, but the
-  real device round-trip is unverified — folded into [T2.4](#t24--entity-gesture-device-round-trip-failure-b--parser-genericsig).
+  [05 §5b](05-residual-gaps.md#data-return-csm). **Owed:** a `nuke validate` sweep to confirm
+  which real-CryptoKit `Signature<D>` / context-string `Signature<D,C>` overloads now bind
+  to concrete `byte[]` overloads end-to-end.
+
+- **Context-string verify concrete overloads.** Regen of `CryptoKit.cs` shows the
+  3-PAT cartesian `IsValidSignature(signature, data, context) → bool` overloads now
+  emit (8 overloads at lines 24792-24867). **Owed:** confirm via a real-CryptoKit
+  per-package test that calling these against a fixed signature/data/context tuple
+  returns the expected `true`/`false`, then graduate the item to the 05 ledger and remove
+  it from T2.2's "what shipped" list.
+
+- **`EveryEntityProtocol` carrier on real input.** Emission is covered by generator unit
+  tests and the routing-gate fix landed; the real device round-trip is unverified — folded
+  into [T2.4](#t24--entity-gesture-device-round-trip-failure-b).
 
 ---
 

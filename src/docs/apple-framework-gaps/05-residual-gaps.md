@@ -17,23 +17,25 @@ enough; these tests drive the actual fixed API end-to-end and assert a correct r
 | Fix (session) | Sim | Device | Verdict |
 |---|---|---|---|
 | RC‑SIMD Transform setters + `Transform(Matrix4x4)` (01) | ✅ | ✅ | **Landed** |
-| Class-bound existential boxing — real `AnchorEntity : HasAnchoring` (`Scene.AddAnchor/RemoveAnchor`, `AnchorEntity boxes as IHasAnchoring`) | ✅ | — | **Landed (sim)** — device owed in [06 Tier-1 batched pass](06-remaining-work.md) |
-| RC‑SIMD `Transform(scale,rotation,translation)` ctor (3-SIMD indirect marshal) | ✅ | — | **Landed (sim)** — device owed |
+| Class-bound existential boxing — real `AnchorEntity : HasAnchoring` (`Scene.AddAnchor/RemoveAnchor`, `AnchorEntity boxes as IHasAnchoring`) | ✅ | ✅ | **Landed** (device confirmed — see [class-bound existential on device](#class-bound-existential-device)) |
+| RC‑SIMD `Transform(scale,rotation,translation)` ctor (3-SIMD indirect marshal) | ✅ | ✅ | **Landed** (device confirmed — see [Transform three-SIMD on device](#transform-three-simd-device)) |
 | RealityKit cross-module reads (`CameraTransform`, `Environment.SceneUnderstanding`) (01/03) | ✅ | ✅ | **Landed** |
 | CryptoKit incremental `HMAC<H>` via CSM factories (02) | ✅ | ✅ | **Landed** (device system-framework load fixed — see [HMAC on device](#hmac-device)) |
+| FamilyActivityPicker SwiftUI bridge packaging | ✅ | ✅ | **Landed** (SDK bridge xcframework pipeline — see [FamilyActivityPicker bridge](#familyactivitypicker-bridge)) |
 | ProximityReader `GetErrorDescription` @_cdecl parity (04) | ✅ | — | **Landed** |
 | MusicKit `Create` array-shims + `MusicItemProxy` (04) | ✅ | — | **Landed** (the 0.11.x ancestor-ordering crash is gone) |
 | WorkoutKit `SwiftClosedRange<Bound>` ctors emitted (01) | ✅ | — | **Landed** (callable signatures; usability shim → [06 T2.3](06-remaining-work.md#t23--workoutkit-range-alert-measurement-ctor-shim)) |
 | §5b class-superclass read-only proxy fail-clean CALLBACK | ✅ | ✅ | **Landed** |
 | §5b Data-return CSM concrete overloads (Ed25519 / context-string sign) | ✅ | — | **Landed** (real-CryptoKit confirm owed → [06 Verification debts](06-remaining-work.md#verification-debts-code-landed-confirmation-owed)) |
 
-**Open work moved out.** The `FamilyActivityPicker` packaging gap, RC‑AOT mesh buffers, the CryptoKit
-generic remainders (HPKE construction / Seal/Open, context-string verify), WorkoutKit range-alert
-constructibility, the entity-gesture round-trip (Failure B), and the two generator-hardening items
-(§5d witness-getter wrap, sibling-marker re-keying) are all tracked in
-[`06-remaining-work.md`](06-remaining-work.md) with root cause, fix direction, and a done-criterion
-each. (Failure A `Scene.AddAnchor` and `Transform(scale,rotation,translation)` landed on sim this
-pass; device owed — see “What landed” above.)
+**Tier 1 closed.** With the FamilyActivityPicker bridge packaging confirmed end-to-end and the
+batched device pass green for the existential-boxing and 3-SIMD ctor fixes, every Tier-1 item in
+[`06-remaining-work.md`](06-remaining-work.md) is LANDED on its gated lanes (sim + device, iPhone
+13 NativeAOT, 2026-05-31). The gap-fix campaign reaches the doc's stated "finishable" criterion.
+RC‑AOT mesh buffers, CryptoKit HPKE construction, WorkoutKit range-alert constructibility, the
+entity-gesture *real-RealityKit* round-trip (Failure B), and the two generator-hardening items
+(§5d witness-getter wrap, sibling-marker re-keying) remain in
+[`06`](06-remaining-work.md) as Tier 2.
 
 ## Validated-working surface (real passes recorded)
 
@@ -45,9 +47,10 @@ The positive half of each partially-landed area, confirmed by real per-package p
   existential` ([06 T1.1](06-remaining-work.md#t11), device owed). RC‑SIMD `Transform` setters +
   `Transform(Matrix4x4)` round-trip on sim + device; `Transform(scale,rotation,translation)`
   round-trips on **sim** ([06 T1.4](06-remaining-work.md#t14), device owed).
-- **FamilyControls:** `FamilyActivitySelection` construct / read / persist / apply all pass
-  (presenting the picker that produces one is
-  [06 T1.2](06-remaining-work.md#t12--familyactivitypicker-bridge-packaging)).
+- **FamilyControls:** `FamilyActivitySelection` construct / read / persist / apply all pass on
+  sim and device; the SwiftUI bridge `FamilyActivityPicker bridge create + selection JSON
+  round-trip` test passes on both lanes
+  (see [FamilyActivityPicker bridge](#familyactivitypicker-bridge)).
 - **CryptoKit:** incremental `HMAC<SHA256/384>` is bit-for-bit identical to the one-shot
   `AuthenticationCode` on **sim and device** (`ByteCount` 32/48); the other 40 CryptoKit tests
   (AES.GCM, SHA, key types, …) pass on device.
@@ -137,20 +140,75 @@ DllImport resolver is consulted only for *bare* names, never for dyld-style path
 ios-device PASS` (2026-05-31), the AOT-lane capability skip removed. Unit coverage:
 `ResolveRuntimeLibraryNameTests` (generator) + `SwiftFrameworkResolverTests` (runtime).
 
+<a id="class-bound-existential-device"></a>
+
+## Class-bound existential boxing on device — was 06 T1.1
+
+The cross-module/umbrella-protocol `HasAnchoring` `TypeRecord` resolution and the per-subclass
+`IExistentialBoxable.BoxAsExistential1<TProtocol>()` re-implementation (`8099d434`) were proven on
+sim during the 0.12.0 retrospective. The batched device pass on iPhone 13 (NativeAOT,
+2026-05-31) confirms the same paths under AOT: RealityFoundation
+`AnchorEntity boxes as IHasAnchoring existential` and RealityKit
+`Scene.AddAnchor/RemoveAnchor(IHasAnchoring) round-trip` +
+`Scene.Anchors traversal + AnchorEntity construction` all pass. The portable BindingTests
+fixture `TestSubclassOnlyConformanceBoxesAsDerivedType` remains the durable hermetic gate.
+
+RoomPlan `RoomCaptureView.Delegate` (`RoomPlan.cs:5790`), called out as a presumed RC-PROXY
+secondary site, has no per-package test today; the read-only-proxy CALLBACK fail-clean shape is
+gated by the portable `EntityRootedExistential` fixture (§5b) and the *session* delegate (the
+supported path) is unaffected. No new code emerged from the device pass.
+
+<a id="familyactivitypicker-bridge"></a>
+
+## FamilyActivityPicker SwiftUI bridge packaging — was 06 T1.2
+
+The SDK build/pack pipeline added in `3d62df46` ("SwiftUI bridge SDK integration: auto-compile
+and package bridge framework") already covers what the 06 doc's stale prose called the missing
+piece. The generator emits `*.SwiftUIBridge.swift` + `*.SwiftUIBridge.cs` into
+`obj/.../swift-binding/`; `_CompileSwiftUIBridge` (Sdk.targets) calls the generator's
+`--compile-bridge-only` to produce `{Module}Bridge.xcframework`;
+`_ResolveSwiftNativeReferences` injects it as a `<NativeReference Kind="Framework">` for the
+local build, the synthesized `{PackageId}.targets` injects it the same way for packed
+consumers, and `_ConfigureSwiftBindingPack` bundles it under `runtimes/{rid}/native/` at pack
+time. For FamilyControls the generator emits functional `@_cdecl` bodies (not template stubs)
+and the resulting `FamilyControlsBridge.framework` exports the full
+`SBW_FamilyControls_FamilyActivityPicker_*` symbol set that the C#
+`[LibraryImport("FamilyControlsBridge", …)]` declarations resolve at runtime.
+
+**Validated.** The FamilyControls per-package test
+`FamilyActivityPicker bridge create + selection JSON round-trip` passes on sim (Mono JIT,
+16/0/0) and device (iPhone 13 NativeAOT, 16/0/0) — 2026-05-31. The test exercises the
+end-to-end packaging path: `FamilyActivityPickerSession.Create(selection)` resolves the
+native library (no `DllNotFoundException`), the underlying `UIHostingController` is non-null,
+and `ReadSelection()` round-trips the selection through the Swift bridge's
+`JSONEncoder`/`JSONDecoder`. No SDK or generator change was needed in this pass — the
+implementation was already in place; what was owed was empirical confirmation in a packaged
+consumer.
+
+<a id="transform-three-simd-device"></a>
+
+## Transform three-SIMD ctor on device — was 06 T1.4
+
+The parser `@inlinable` access-control fix that lets the three-SIMD-param
+`Transform(scale:rotation:translation:)` ctor emit a `@_cdecl` wrapper marshaling the SIMD
+params indirectly (`CallConvCdecl`, buffer-pointer ABI) was proven on sim during the 0.12.0
+retrospective. The batched device pass on iPhone 13 (NativeAOT, 2026-05-31) confirms the
+RealityFoundation `Transform(scale,rotation,translation) constructor` test passes under AOT as
+well. No new code emerged from the device pass.
+
 ## Per-package test dispositions applied this pass
 
-The empirical record of how the per-package tests were set during this validation pass. The `Skip`
-reasons now point at the [06](06-remaining-work.md) item that will reopen each one.
+The empirical record of how the per-package tests were set during this validation pass.
 
 | Package / test | Was | Now |
 |---|---|---|
-| RealityKit — `Scene.AddAnchor/RemoveAnchor(IHasAnchoring)` (Failure A) | Fail → fixed | **real pass on sim** → [06 T1.1](06-remaining-work.md#t11) (device owed) |
-| RealityFoundation — `AnchorEntity boxes as IHasAnchoring` (Failure A) | Fail → fixed | **real pass on sim** → [06 T1.1](06-remaining-work.md#t11) (device owed) |
-| FamilyControls — `FamilyActivityPicker bridge … round-trip` | Fail | **Skip** → [06 T1.2](06-remaining-work.md#t12--familyactivitypicker-bridge-packaging) (selection ctor/property tests stay real passes) |
+| RealityKit — `Scene.AddAnchor/RemoveAnchor(IHasAnchoring)` (Failure A) | Fail → fixed | **real pass on sim + device** (see [class-bound existential on device](#class-bound-existential-device)) |
+| RealityFoundation — `AnchorEntity boxes as IHasAnchoring` (Failure A) | Fail → fixed | **real pass on sim + device** (see [class-bound existential on device](#class-bound-existential-device)) |
+| FamilyControls — `FamilyActivityPicker bridge … round-trip` | Skip | **real pass on sim + device** (see [FamilyActivityPicker bridge](#familyactivitypicker-bridge)) |
 | CryptoKit — `HMAC<SHA256/384> incremental == one-shot` | Fail (device) | **pass on sim + device** (system-framework load fixed → [HMAC on device](#hmac-device)) |
-| RealityFoundation — `Transform(scale,rotation,translation)` | Fixed | **real pass on sim** → [06 T1.4](06-remaining-work.md#t14) (device owed) |
+| RealityFoundation — `Transform(scale,rotation,translation)` | Fixed | **real pass on sim + device** (see [Transform three-SIMD on device](#transform-three-simd-device)) |
 | WorkoutKit — `{HeartRate,Cadence,Power,Speed}RangeAlert` ctors | (new) | **Skip** → [06 T2.3](06-remaining-work.md#t23--workoutkit-range-alert-measurement-ctor-shim) |
-| RealityKit — `EntityGestureRecognizer callback` (Failure B) | Skip | **Skip** → [06 T2.4](06-remaining-work.md#t24--entity-gesture-device-round-trip-failure-b--parser-genericsig) |
+| RealityKit — `EntityGestureRecognizer callback` (Failure B) | Skip | **Skip** → [06 T2.4](06-remaining-work.md#t24--entity-gesture-device-round-trip-failure-b) |
 
-All seven packages are green on their gated lanes (sim for all; sim+device for CryptoKit,
-RealityFoundation, RealityKit). No hard failures remain.
+All Tier-1 gates are green on sim + device. The remaining skips track Tier-2 items in
+[`06-remaining-work.md`](06-remaining-work.md). No hard failures.
