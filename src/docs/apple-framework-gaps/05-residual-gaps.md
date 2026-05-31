@@ -29,27 +29,34 @@ enough; these tests drive the actual fixed API end-to-end and assert a correct r
 | §5b class-superclass read-only proxy fail-clean CALLBACK | ✅ | ✅ | **Landed** |
 | §5b Data-return CSM concrete overloads (Ed25519 / context-string sign) | ✅ | — | **Landed** (real-CryptoKit confirm paid this pass — see [Data-return CSM](#data-return-csm)) |
 | MLDSA65/MLDSA87 context-string `IsValidSignature(sig, data, context) → bool` overloads on sim | ✅ | — | **Landed** (was 06 T2.2 verification debt — see [MLDSA context-string verify](#mldsa-context-string-verify-sim)) |
+| RealityKit `EntityTranslationGestureRecognizer.Entity` carrier identity round-trip (Failure B) | ✅ | ✅ | **Landed** (was 06 T2.4 — see [entity-gesture device round-trip](#entity-gesture-device-round-trip)) |
 
 **Tier 1 closed.** With the FamilyActivityPicker bridge packaging confirmed end-to-end and the
 batched device pass green for the existential-boxing and 3-SIMD ctor fixes, every Tier-1 item in
 [`06-remaining-work.md`](06-remaining-work.md) is LANDED on its gated lanes (sim + device, iPhone
 13 NativeAOT, 2026-05-31). The gap-fix campaign reaches the doc's stated "finishable" criterion.
-WorkoutKit range-alert constructibility (was 06 T2.3) graduated to this ledger in the closing
-pass — see [WorkoutKit range-alert ctors](#workoutkit-range-alert-ctors). RC‑AOT mesh buffers,
-CryptoKit HPKE construction, the entity-gesture *real-RealityKit* round-trip (Failure B), and
-the two generator-hardening items (T2.5 witness-getter wrap, T2.6 sibling-marker re-keying)
-remain in [`06`](06-remaining-work.md) as Tier 2.
+WorkoutKit range-alert constructibility (was 06 T2.3) and the entity-gesture real-RealityKit
+identity round-trip on device (was 06 T2.4, Failure B) both graduated to this ledger — see
+[WorkoutKit range-alert ctors](#workoutkit-range-alert-ctors) and
+[entity-gesture device round-trip](#entity-gesture-device-round-trip). **All 0.12.0
+verification debts are paid; the campaign's 0.12.0 work is closed.** RC‑AOT mesh buffers,
+CryptoKit HPKE construction, and the two generator-hardening items (T2.5 witness-getter wrap,
+T2.6 sibling-marker re-keying) remain in [`06`](06-remaining-work.md) as Tier 2 deferred to
+0.13.0.
 
 ## Validated-working surface (real passes recorded)
 
 The positive half of each partially-landed area, confirmed by real per-package passes:
 
 - **RealityKit / RealityFoundation:** `Scene.Anchors` read traversal, `AnchorEntity` construction,
-  **and boxing the anchor *into* the scene graph** now pass on **sim** —
+  **and boxing the anchor *into* the scene graph** pass on **sim + device** —
   `Scene.AddAnchor/RemoveAnchor(IHasAnchoring)` round-trip and `AnchorEntity boxes as IHasAnchoring
-  existential` ([06 T1.1](06-remaining-work.md#t11), device owed). RC‑SIMD `Transform` setters +
-  `Transform(Matrix4x4)` round-trip on sim + device; `Transform(scale,rotation,translation)`
-  round-trips on **sim** ([06 T1.4](06-remaining-work.md#t14), device owed).
+  existential` (see [class-bound existential on device](#class-bound-existential-device)). RC‑SIMD
+  `Transform` setters + `Transform(Matrix4x4)` round-trip on sim + device;
+  `Transform(scale,rotation,translation)` round-trips on **sim + device** (see
+  [Transform three-SIMD on device](#transform-three-simd-device)). Real-RealityKit
+  `EntityTranslationGestureRecognizer.Entity` carrier identity round-trip passes on
+  **sim + device** (see [entity-gesture device round-trip](#entity-gesture-device-round-trip)).
 - **FamilyControls:** `FamilyActivitySelection` construct / read / persist / apply all pass on
   sim and device; the SwiftUI bridge `FamilyActivityPicker bridge create + selection JSON
   round-trip` test passes on both lanes
@@ -89,8 +96,8 @@ BindingTests fixtures pin the behaviour permanently.
   `Entity` stand-in so the gate stays portable across every cell (incl. tvOS, which has no
   RealityKit). Note: this is the *read-only* path; the real RealityFoundation
   `EveryEntityProtocol : Entity` carrier emission is generator-unit-test-covered, and the real
-  RealityKit gesture device round-trip is
-  [06 T2.4](06-remaining-work.md#t24--entity-gesture-device-round-trip-failure-b--parser-genericsig).
+  RealityKit gesture device round-trip is now landed — see
+  [entity-gesture device round-trip](#entity-gesture-device-round-trip).
 
 - **Data-return CSM concrete overloads (Ed25519 / context-string sign).** The concrete-specialization
   engine's indirect-result preflight rejected any non-ISwiftObject return, which dropped
@@ -267,6 +274,32 @@ so the device-lane risk is bounded to a follow-on confirmation, not new code.)
 true → `IsValidSignature(sig, msg, wrongContext)` asserts false. Sim pass, CryptoKit
 per-package run 43/0/0 (Mono JIT, 2026-05-31).
 
+<a id="entity-gesture-device-round-trip"></a>
+
+## Entity gesture device round-trip on sim + device — was 06 T2.4
+
+[Failure B](03-proxy-callback.md) is the class-rooted existential carrier — the boundary a
+real RealityKit gesture callback crosses when it reads back the hit-tested entity. The
+0.12.0 retrospective shipped the carrier emission (`EveryEntityProtocol`,
+`HasCollisionProxy`), routing-gate fix, and a hermetic in-repo fixture under BindingTests
+(`Protocols/EntityRootedExistential*`). The remaining debt was a real-RealityKit
+end-to-end identity round-trip on a physical iPhone running NativeAOT — the lane where
+calling-convention or marshalling regressions in the existential carrier would surface
+that the hermetic fixture (running on Mono/sim) could miss.
+
+**Validated.** New RealityKit per-package test
+(`apple-frameworks/RealityKit/tests/Tests.cs`, `EntityTranslationGestureRecognizer.Entity
+carrier identity round-trip (A → B → null)`): construct two distinct `ModelEntity`
+instances, instantiate `EntityTranslationGestureRecognizer(target: null, action: null)`,
+assign `recognizer.Entity = entityA` (boxes through `HasCollisionProxy` via the
+`EveryHasCollisionProtocol` existential carrier), read the property back, cast to
+`Swift.Runtime.ISwiftObject`, and assert `SwiftHandle` equality against the source
+entity's handle. Repeat with `entityB` and a `null` clear. RealityKit per-package run
+20/0/0 on iPhone 13 NativeAOT (device, 2026-05-31) and 20/0/0 on iOS Simulator (Mono JIT,
+2026-05-31). With both lanes green on real RealityKit, the Failure-B carrier is
+end-to-end validated and graduates out of the verification-debt list. The hermetic
+EntityRootedExistential fixture stays in BindingTests as the durable in-repo gate.
+
 ## Per-package test dispositions applied this pass
 
 The empirical record of how the per-package tests were set during this validation pass.
@@ -280,7 +313,7 @@ The empirical record of how the per-package tests were set during this validatio
 | RealityFoundation — `Transform(scale,rotation,translation)` | Fixed | **real pass on sim + device** (see [Transform three-SIMD on device](#transform-three-simd-device)) |
 | WorkoutKit — `{HeartRate,Cadence,Power,Speed}RangeAlert` ctors | (new) | **real pass on sim** (see [WorkoutKit range-alert ctors](#workoutkit-range-alert-ctors)) |
 | CryptoKit — `MLDSA65 context-string verify round-trip` | (new) | **real pass on sim** (see [MLDSA context-string verify](#mldsa-context-string-verify-sim)) |
-| RealityKit — `EntityGestureRecognizer callback` (Failure B) | Skip | **Skip** → [06 T2.4](06-remaining-work.md#t24--entity-gesture-device-round-trip-failure-b) |
+| RealityKit — `EntityTranslationGestureRecognizer.Entity carrier identity round-trip` (Failure B) | Skip → fixed | **real pass on sim + device** (see [entity-gesture device round-trip](#entity-gesture-device-round-trip)) |
 
 All Tier-1 gates are green on sim + device. The remaining skips track Tier-2 items in
 [`06-remaining-work.md`](06-remaining-work.md). No hard failures.

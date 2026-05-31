@@ -35,8 +35,12 @@ release announcement.
   `Measurement<T>(value, unit)` ctor + existing `SwiftClosedRange<Bound>(lower, upper)`;
   no per-framework shim was needed once the Foundation Measurement projection grew its
   public ctor. See [05 → WorkoutKit range-alert ctors](05-residual-gaps.md#workoutkit-range-alert-ctors).
-- **T2.4** Entity gesture device verification — emitter routing already shipped; this is the
-  device round-trip on real RealityKit gesture input, not new code.
+- ~~**T2.4** Entity gesture device verification~~ — **LANDED (sim + device)**. The real
+  `EntityTranslationGestureRecognizer.Entity` carrier identity round-trip (set ModelEntity A
+  → read back → assert SwiftHandle identity; repeat with B; clear to null) passes on
+  Mono/sim AND NativeAOT/device (iPhone 13, 2026-05-31), proving the
+  `EveryEntityProtocol` existential preserves entity identity in both directions on real
+  RealityKit input. See [05 → entity-gesture device round-trip](05-residual-gaps.md#entity-gesture-device-round-trip).
 - ~~Context-string verify per-package test~~ — **LANDED (sim)**; MLDSA65 round-trip
   (sign → verify-positive → verify-wrong-context) exercises the 3-PAT byte[]/Data
   cartesian on real CryptoKit. See
@@ -75,7 +79,7 @@ release announcement.
 | 2 | [T2.1](#t21--typed-mesh-buffers-on-nativeaot-rc-aot) RC‑AOT typed mesh buffers on NativeAOT | RealityFoundation | **OPEN** | 0.13.0 |
 | 2 | [T2.2](#t22--cryptokit-generic-remainders) CryptoKit generic remainders (HPKE construction + Seal/Open reach) | CryptoKit | **PARTIAL** — instance-method side landed; HPKE init still blocked | 0.13.0 |
 | ~~2~~ | ~~T2.3 WorkoutKit range-alert `Measurement<T>` ctor shim~~ | WorkoutKit | **LANDED (sim)** ([ledger](05-residual-gaps.md#workoutkit-range-alert-ctors)) | 0.12.0 |
-| 2 | [T2.4](#t24--entity-gesture-device-round-trip-failure-b) Entity gesture device round-trip (Failure B) | RealityKit | **PARTIAL** — emitter routing + carrier emission landed; device round-trip unverified | **0.12.0** |
+| ~~2~~ | ~~T2.4 Entity gesture device round-trip (Failure B)~~ | RealityKit | **LANDED (sim + device)** ([ledger](05-residual-gaps.md#entity-gesture-device-round-trip)) | 0.12.0 |
 | 2 | [T2.5](#t25--witness-getter-entrypointnotfound-to-notsupported-wrap-second-shape) Witness-getter `EntryPointNotFound`→`NotSupported` wrap (second shape) | generator | **OPEN** | 0.13.0 |
 | 2 | [T2.6](#t26--sibling-emission-marker-name-keying-hardening) Sibling emission-marker name-keying hardening | generator | **OPEN** | 0.13.0 |
 
@@ -83,10 +87,11 @@ release announcement.
 
 # Tier 1 — closed
 
-All four Tier-1 items are LANDED on their gated lanes (sim + device). The gap-fix campaign
-reaches the doc's definition of "finishable" — Tier 2 and the verification debts remain, but
-per the [overview](#definition-of-done) those do not keep the campaign open. Full records in
-the [done ledger](05-residual-gaps.md); pointers below.
+All four Tier-1 items are LANDED on their gated lanes (sim + device), and the 0.12.0 Tier-2
+items + verification debts have all graduated to the [done ledger](05-residual-gaps.md).
+The gap-fix campaign reaches the doc's definition of "finishable" — the remaining Tier-2
+items (T2.1, T2.2, T2.5, T2.6) defer to 0.13.0 and per the [overview](#definition-of-done)
+do not keep the campaign open. Pointers below.
 
 - **T1.1 — `Scene.AddAnchor(IHasAnchoring)` (Failure A).** Class-bound existential boxing for
   cross-module subclass conformers landed in `8099d434`. Sim and device (iPhone 13 NativeAOT,
@@ -121,6 +126,8 @@ the [done ledger](05-residual-gaps.md); pointers below.
 
 # Tier 2 — fixable, lower impact (after Tier 1)
 
+<a id="t21--typed-mesh-buffers-on-nativeaot-rc-aot"></a>
+
 ## T2.1 — typed mesh buffers on NativeAOT (RC-AOT) — OPEN
 
 **Status:** OPEN. No code has landed for this item.
@@ -140,6 +147,8 @@ is RC‑AOT's harder case — it needs more than the `SwiftArray` template patte
 used.
 
 **Done when.** The 8 buffer entries run and assert on device (the AOT-lane skip is removed).
+
+<a id="t22--cryptokit-generic-remainders"></a>
 
 ## T2.2 — CryptoKit generic remainders — PARTIAL
 
@@ -229,51 +238,29 @@ in `Swift.Bindings.Apple/Sources/Foundation/Measurement.cs`. Combined with the e
 (`HeartRateRangeAlert`, `CadenceRangeAlert`, `PowerRangeAlert`, `SpeedRangeAlert`) are
 constructible end-to-end from C# with no per-framework Swift trampoline. The four
 per-package tests flipped from `Skip` to real passes on sim
-(`apple-frameworks/WorkoutKit/tests/Tests.cs`). Device round-trip still owed.
+(`apple-frameworks/WorkoutKit/tests/Tests.cs`). Device round-trip is not gated for this
+surface (sim is the gated lane for T2.3).
 
 <a id="t24--entity-gesture-device-round-trip-failure-b"></a>
+<a id="entity-gesture-device-round-trip"></a>
 
-## T2.4 — entity gesture device round-trip (Failure B) — PARTIAL
+## T2.4 — entity gesture device round-trip (Failure B) — LANDED (sim + device)
 
-**Status:** PARTIAL. The emitter routing + carrier emission landed; the device round-trip
-on real RealityKit input is still unverified.
+**Status:** LANDED on sim and device. Full record in
+[05 → entity-gesture device round-trip](05-residual-gaps.md#entity-gesture-device-round-trip).
 
-**Release target:** **0.12.0.** Entity gestures are how RealityKit apps wire user
-interaction (drag-to-move, pinch-to-scale, tap-to-place). The remaining work is verification,
-not new code — install a recognizer on a real RealityKit scene on physical device and
-confirm the callback fires through the `EveryEntityProtocol` existential.
+The emitter routing fix (`EveryProtocolEmitter.HasClassSuperclassRequirement` reading
+`GenericSignature` directly for `<Self : RealityKit.Entity>` constraints, `8099d434`), the
+`EveryEntityProtocol : Entity` carrier emission, the read-only-proxy CALLBACK fail-clean
+(`44a6002b`), and the hermetic `EntityRootedExistential` fixture all shipped during prior
+passes. The only thing owed was the real-RealityKit identity round-trip on physical
+device. That gate now ships in `apple-frameworks/RealityKit/tests/Tests.cs` —
+`EntityTranslationGestureRecognizer` constructed from C#, `recognizer.Entity = ModelEntity`
+then read back through the `EveryEntityProtocol` carrier, with SwiftHandle identity
+asserted across two distinct entities and a null clear. Mono/sim 20/0/0 and NativeAOT/device
+20/0/0 on iPhone 13 (2026-05-31). The campaign's Tier-2 work targeted at 0.12.0 is closed.
 
-### What shipped (don't redo)
-
-- **Routing-gate fix LANDED via the emitter side, not the parser** (`8099d434`).
-  `EveryProtocolEmitter.HasClassSuperclassRequirement` (lines 5001-5018) now reads the
-  protocol's `GenericSignature` directly and matches `IsRealityFoundationEntityName`, so
-  `<Self : RealityKit.Entity>` constraints route through the class-bound path even though
-  `node.Conformances` lists only `Escapable`/`Copyable`. (The doc previously proposed
-  extending `SwiftABIParser.CreateProtocolDecl` to populate `InheritedProtocols`; the
-  implementation took the equivalent route of reading `GenericSignature` at the gate.)
-- **`EveryEntityProtocol : Entity` carrier emission covered by generator unit tests.** The
-  carrier emits on real Entity-rooted RealityFoundation input.
-- **Read-only proxy CALLBACK fail-clean LANDED** (`44a6002b`, see
-  [05 §5b](05-residual-gaps.md)). The C#-implements-protocol direction for any class-superclass
-  read-only proxy now throws clean `NotSupportedException` instead of crashing.
-
-### What's still open
-
-**Device round-trip verification.** Installing an `EntityTranslationGestureRecognizer` &
-friends on a real RealityKit scene and receiving a callback through the
-`EveryEntityProtocol` existential — on a **physical device (NativeAOT)** — has not been
-exercised. Hermetic fixtures (`EntityRootedExistential.swift` /
-`EntityRootedExistentialTests.cs`) pin the carrier shape but use a pure-Swift `Entity`
-stand-in; real RealityKit gesture input has not been tested.
-
-**Fix to land.** None expected if the emitter/routing shipped correctly. If the device
-round-trip fails, the failure mode is the work: surface it, root-cause it, and pin it with
-a fixture.
-
-**Done when.** The Entity-rooted round-trip BindingTest from `03-proxy-callback.md`
-("Failure B") ships as a durable gate **and** the real RealityKit gesture round-trip passes
-on a **physical device (NativeAOT)**.
+<a id="t25--witness-getter-entrypointnotfound-to-notsupported-wrap-second-shape"></a>
 
 ## T2.5 — witness-getter `EntryPointNotFound` to `NotSupported` wrap (second shape) — OPEN
 
@@ -313,6 +300,8 @@ CALLBACK red fixture in place first.
 **Done when.** A red `PExtOptChildProtocol` CALLBACK fixture flips to asserting the clean
 `NotSupportedException`, and unit + `binding-tests` (sim) + `--device` stay green.
 
+<a id="t26--sibling-emission-marker-name-keying-hardening"></a>
+
 ## T2.6 — sibling emission-marker name-keying hardening — OPEN
 
 **Status:** OPEN. The witness-table-getter marker was re-keyed to `ModuleQualifiedName` in
@@ -345,14 +334,11 @@ P/Invoke or wrong carrier *before* the change, then goes green; unit +
 These are *not* new code — the mechanism shipped — but the campaign isn't honestly done
 until the real-framework end-to-end is confirmed.
 
-- **`EveryEntityProtocol` carrier on real input.** *(Targeting 0.12.0 — folded into
-  T2.4.)* Emission is covered by generator unit tests and the routing-gate fix landed; the
-  real device round-trip is unverified — see
-  [T2.4](#t24--entity-gesture-device-round-trip-failure-b).
-
-*(Data-return CSM sweep + context-string verify per-package test were paid in this pass
-and graduated to [05 → Data-return CSM](05-residual-gaps.md#data-return-csm) /
-[05 → MLDSA context-string verify](05-residual-gaps.md#mldsa-context-string-verify-sim).)*
+*All 0.12.0 verification debts are paid.* The `EveryEntityProtocol` carrier on real input
+graduated to [05 → entity-gesture device round-trip](05-residual-gaps.md#entity-gesture-device-round-trip)
+(was 06 T2.4); the Data-return CSM sweep + context-string verify per-package test
+graduated earlier to [05 → Data-return CSM](05-residual-gaps.md#data-return-csm) and
+[05 → MLDSA context-string verify](05-residual-gaps.md#mldsa-context-string-verify-sim).
 
 ---
 
