@@ -2083,10 +2083,9 @@ public static class MethodClosureBridge
         Utf8Slice,
         /// <summary>
         /// Swift KeyPath family (AnyKeyPath, PartialKeyPath&lt;Root&gt;, KeyPath&lt;Root,Value&gt;,
-        /// WritableKeyPath, ReferenceWritableKeyPath) — single-pointer @_cdecl ABI per
-        /// <c>keypath-subsystem/00-overview.md</c>. The C# wrapper IS a SafeHandle
-        /// (<see cref="Swift.KeyPath{TRoot,TValue}"/> derives directly from
-        /// SafeHandleZeroOrMinusOneIsInvalid), so the P/Invoke argument is
+        /// WritableKeyPath, ReferenceWritableKeyPath) — single-pointer @_cdecl ABI. The C#
+        /// wrapper IS a SafeHandle (<see cref="Swift.KeyPath{TRoot,TValue}"/> derives directly
+        /// from SafeHandleZeroOrMinusOneIsInvalid), so the P/Invoke argument is
         /// <c>paramName.DangerousGetHandle()</c> — NOT <c>.Payload.DangerousGetHandle()</c>
         /// and NOT <c>((ISwiftObject)x).SwiftHandle</c> (the wrapper does not implement
         /// ISwiftObject — see <see cref="KeyPathProjection"/>). Mirrors

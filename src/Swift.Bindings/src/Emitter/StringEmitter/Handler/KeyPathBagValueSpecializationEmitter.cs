@@ -45,8 +45,6 @@ namespace BindingsGeneration;
 /// numerics, float/double). Anything outside that shape causes the method to be
 /// skipped with a debug log.
 /// </para>
-///
-/// <para>Design doc: <c>src/docs/keypath-subsystem/06c-sort-by-and-existential-keypath-admission.md</c>.</para>
 /// </summary>
 internal static class KeyPathBagValueSpecializationEmitter
 {

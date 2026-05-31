@@ -105,4 +105,4 @@ Unit tests catch logic bugs. **BindingTests** catch ABI mismatches, calling-conv
 
 ## Key References
 
-- `src/docs/roadmap.md` — higher-level prioritized themes, blocked items, and lower-priority ideas. **Not** a complete index of active work: we often work from dedicated docs (top-level `src/docs/*.md`, `src/docs/keypath-subsystem/`, etc.) that are not listed in roadmap at all. When picking next work or proposing direction, check both roadmap *and* recent top-level docs; ask the user when ambiguous rather than assuming roadmap is exhaustive.
+- `src/docs/roadmap.md` — higher-level prioritized themes, blocked items, and lower-priority ideas. **Not** a complete index of active work: we often work from dedicated docs (top-level `src/docs/*.md`, subsystem folders) that are not listed in roadmap at all. When picking next work or proposing direction, check both roadmap *and* recent top-level docs; ask the user when ambiguous rather than assuming roadmap is exhaustive.

@@ -49,8 +49,6 @@ namespace BindingsGeneration;
 /// methods that take those singletons are emitted independently (today: via
 /// concrete-rooted Swift methods in the fixture).
 /// </para>
-///
-/// <para>Design doc: <c>src/docs/keypath-subsystem/04-typed-singleton-emission.md</c>.</para>
 /// </summary>
 internal static class KeyPathSingletonEmitter
 {

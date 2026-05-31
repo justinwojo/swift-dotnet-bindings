@@ -8,8 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// End-to-end coverage for the unified constructor-admissibility predicate
-/// (see <c>src/docs/keypath-subsystem/08b-entityproperty-init-keypath.md</c>).
+/// End-to-end coverage for the unified constructor-admissibility predicate.
 /// The fixture <c>CtorAdmBox&lt;Value: CtorAdmValue&gt;</c> reproduces every init-erasure
 /// facet that independently broke the AppIntents <c>EntityProperty&lt;Value&gt;</c> Swift
 /// wrapper compile. Two complementary layers:

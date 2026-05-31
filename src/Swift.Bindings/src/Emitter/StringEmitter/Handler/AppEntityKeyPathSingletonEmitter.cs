@@ -45,12 +45,9 @@ namespace BindingsGeneration;
 /// The closed <c>EntityProperty</c> <i>construction</i> surface (factory methods that
 /// consume these singletons) is intentionally NOT emitted here — it requires a managed
 /// <c>EntityProperty&lt;TValue&gt;</c> type in the consumer's assembly graph, which is a
-/// separate prerequisite (see the implementation-resolution section of
-/// <c>08b-entityproperty-init-keypath.md</c>). These KeyPath singletons are useful
-/// standalone and are the bulk of the AppEntity KeyPath surface.
+/// separate prerequisite. These KeyPath singletons are useful standalone and are the
+/// bulk of the AppEntity KeyPath surface.
 /// </para>
-///
-/// <para>Design doc: <c>src/docs/keypath-subsystem/08b-entityproperty-init-keypath.md</c>.</para>
 /// </summary>
 internal static class AppEntityKeyPathSingletonEmitter
 {

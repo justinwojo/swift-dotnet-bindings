@@ -37,8 +37,6 @@ namespace BindingsGeneration;
 /// Double / Float). String, Optional, struct, and class-typed properties are
 /// recognised but skipped — observe shims for those need separate ABI design.
 /// </para>
-///
-/// <para>Design doc: <c>src/docs/keypath-subsystem/07-foundation-kvo-attributedstring.md</c>.</para>
 /// </summary>
 internal static class KvoExtensionEmitter
 {

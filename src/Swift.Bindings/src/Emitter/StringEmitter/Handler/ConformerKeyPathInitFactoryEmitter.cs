@@ -45,8 +45,6 @@ namespace BindingsGeneration;
 /// therefore composes with <see cref="AppEntityKeyPathSingletonEmitter"/>: the singletons
 /// are the inputs, these factories are the sinks.
 /// </para>
-///
-/// <para>Design doc: <c>src/docs/keypath-subsystem/08b-entityproperty-init-keypath.md</c>.</para>
 /// </summary>
 internal static class ConformerKeyPathInitFactoryEmitter
 {

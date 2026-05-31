@@ -94,10 +94,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (ownGenericCount != 0) return false;
 
         // CSSignature[0] is the return type. Any further entries are parameters.
-        // Session 5 originally hard-rejected non-empty parameter signatures here
-        // (deliberately narrow scope choice, not a structural invariant — see
-        // `src/docs/keypath-subsystem/05-parent-only-async-csm.md` lines 14–20).
-        // Session 6 relaxes the gate selectively for Swift.String params only:
+        // Parameter signatures are accepted selectively for Swift.String params only:
         // every method parameter must classify as Utf8Slice, otherwise the emitter
         // does not yet have a marshalling path for it and we stay rejected. Other
         // ABI categories continue to fall back to the open-generic surface
@@ -412,13 +409,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //     `CdeclParamMapper.IsBlittablePrimitiveSwiftType`). The Swift wrapper
         //     initializeMemory's the value into the carrier identically; on the C# side
         //     MarshalFromSwift<T> returns a *value copy*, so the success callback MUST free
-        //     the carrier or the buffer leaks. (Session 6 lift — Session 5 originally
-        //     rejected blittable returns conservatively; see L18-area of
-        //     `src/docs/keypath-subsystem/05-parent-only-async-csm.md`.)
+        //     the carrier or the buffer leaks.
         //
         // Anything else (Swift class, frozen-struct-projected-as-class, complex enum) still
-        // rejects here — each needs a different copy/retain/release sequence and is deferred
-        // to a future session that exercises it.
+        // rejects here — each needs a different copy/retain/release sequence.
         if (current is NamedTypeSpec namedReturn)
         {
             if (!IsReturnTypeEmittable(namedReturn, typeDatabase, out returnIsBlittable))
