@@ -70,6 +70,54 @@ public class IsSystemFrameworkTargetTests
 
 #endregion
 
+#region ResolveRuntimeLibraryName
+
+/// <summary>
+/// The library name baked into generated [LibraryImport]/LoadFromSymbol strings must be the
+/// BARE framework name for Apple system-framework targets (so SwiftFrameworkResolver maps it
+/// to /System on a physical device), and unchanged for everything else. A generic system
+/// type's metadata accessor — which has no @_cdecl wrapper primary to fall back from — would
+/// otherwise emit a raw @rpath path that throws DllNotFoundException on a NativeAOT device.
+/// This is the T1.3 apple-framework-gaps fix (CryptoKit HMAC&lt;H&gt; on device).
+/// </summary>
+public class ResolveRuntimeLibraryNameTests
+{
+    [Theory]
+    [InlineData("@rpath/CryptoKit.framework/CryptoKit", "CryptoKit")]
+    [InlineData("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", "CryptoKit")]
+    [InlineData("@rpath/RealityKit.framework/RealityKit", "RealityKit")]
+    public void SystemFramework_ReducesToBareModuleName(string embedded, string moduleName)
+    {
+        var resolved = BindingsGeneratorCommand.ResolveRuntimeLibraryName(
+            embedded, moduleName, isSystemFrameworkTarget: true);
+
+        Assert.Equal(moduleName, resolved);
+        Assert.DoesNotContain(".framework/", resolved);
+        Assert.DoesNotContain("@rpath", resolved);
+    }
+
+    [Theory]
+    [InlineData("@rpath/MyLib.framework/MyLib", "MyLib")]
+    [InlineData("/path/to/libMyLib.dylib", "MyLib")]
+    public void NonSystemFramework_ReturnsEmbeddedNameUnchanged(string embedded, string moduleName)
+    {
+        Assert.Equal(
+            embedded,
+            BindingsGeneratorCommand.ResolveRuntimeLibraryName(embedded, moduleName, isSystemFrameworkTarget: false));
+    }
+
+    [Fact]
+    public void SystemFramework_MissingModuleName_LeavesEmbeddedNameUnchanged()
+    {
+        // Defensive: never collapse to an empty library name when the module name is absent.
+        const string embedded = "@rpath/CryptoKit.framework/CryptoKit";
+        Assert.Equal(embedded, BindingsGeneratorCommand.ResolveRuntimeLibraryName(embedded, "", true));
+        Assert.Equal(embedded, BindingsGeneratorCommand.ResolveRuntimeLibraryName(embedded, null, true));
+    }
+}
+
+#endregion
+
 #region --apple-version forwarding into BindingProjectEmitter
 
 /// <summary>

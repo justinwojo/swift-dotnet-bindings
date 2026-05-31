@@ -210,6 +210,24 @@ public static class SwiftFrameworkResolver
         if (NativeLibrary.TryLoad(libraryName, typeof(SwiftFrameworkResolver).Assembly, null, out handle))
             return true;
 
+        return TryLoadByBareFrameworkName(libraryName, out handle);
+    }
+
+    /// <summary>
+    /// Reduces <paramref name="libraryName"/> to its bare framework/module name via
+    /// <see cref="ExtractFrameworkName"/> and walks the ordered <see cref="GetSearchPaths"/>
+    /// list, whose last entry is <c>/System/Library/Frameworks/{name}.framework/{name}</c>,
+    /// so an Apple *system* framework resolves on a physical device.
+    ///
+    /// Uses the resolver-free <see cref="NativeLibrary.TryLoad(string, out IntPtr)"/> overload
+    /// (no <see cref="Assembly"/> argument) on purpose: <see cref="ResolveSwiftFramework"/> is
+    /// registered as a per-assembly DllImport resolver, so the assembly-aware overload would
+    /// re-enter it and recurse. Extracting the bare name first is essential -- applying
+    /// <see cref="GetSearchPaths"/> to a raw <c>@rpath/Foo.framework/Foo</c> would produce
+    /// double-<c>@rpath</c> nonsense and never reach the system path.
+    /// </summary>
+    internal static bool TryLoadByBareFrameworkName(string libraryName, out IntPtr handle)
+    {
         var frameworkName = ExtractFrameworkName(libraryName);
         foreach (var candidate in GetSearchPaths(frameworkName))
         {
@@ -262,12 +280,7 @@ public static class SwiftFrameworkResolver
     internal static IntPtr ResolveSwiftFramework(
         string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        // If the caller already handed us a dyld-style path, try it verbatim and do
-        // NOT fall through to the prefix-based search. Prefixing @rpath/... with
-        // another @rpath/...framework/... would produce nonsense candidates, and the
-        // .NET default resolver still runs when we return IntPtr.Zero so system
-        // frameworks (already loaded as transitive dependencies of a wrapper dylib)
-        // can still resolve normally.
+        // If the caller already handed us a dyld-style path, try it verbatim first.
         if (IsDyldStylePath(libraryName))
         {
             if (NativeLibrary.TryLoad(libraryName, out var directHandle))
@@ -276,7 +289,33 @@ public static class SwiftFrameworkResolver
                 return directHandle;
             }
 
-            Debug.WriteLine($"[SwiftFrameworkResolver] Direct load failed for dyld-style '{libraryName}'; deferring to default resolution");
+            // The verbatim dyld-style load failed. Restrict the recovery to *framework-style*
+            // paths (@rpath/X.framework/X) -- the exact shape the generator emits for an Apple
+            // SYSTEM framework (CryptoKit, RealityKit, ...), whose real home is
+            // /System/Library/Frameworks and is unreachable via @rpath on a physical device. So
+            // a [LibraryImport("@rpath/X.framework/X")] metadata/witness accessor invoked from a
+            // static initializer throws DllNotFoundException there even though it resolves on
+            // the simulator. Reduce to the bare framework name and walk the ordered search list
+            // (system path LAST), mirroring the fallback that LoadFromSymbol/
+            // TryLoadWithFrameworkFallback already use so the descriptor-load and P/Invoke
+            // resolution paths cannot drift apart.
+            //
+            // App-bundled frameworks are unaffected: their install name IS @rpath/X.framework/X,
+            // so the verbatim load above already succeeded; if it somehow did not, the first
+            // fallback candidate is that same @rpath path (tried again, still fails) and the
+            // system path only wins when the app-bundled framework is genuinely unreachable --
+            // which would have failed under the old defer-to-default path too. There is no
+            // supported config where a shipped framework shadows an Apple system framework name.
+            // Non-framework dyld-style inputs (@executable_path/libFoo.dylib, plain dylib paths)
+            // keep the old behavior exactly: defer to the .NET default resolver.
+            if (libraryName.Contains(".framework/", StringComparison.Ordinal)
+                && TryLoadByBareFrameworkName(libraryName, out var fallbackHandle))
+            {
+                Debug.WriteLine($"[SwiftFrameworkResolver] Loaded dyld-style '{libraryName}' via framework-name fallback");
+                return fallbackHandle;
+            }
+
+            Debug.WriteLine($"[SwiftFrameworkResolver] Direct + fallback load failed for dyld-style '{libraryName}'; deferring to default resolution");
             return IntPtr.Zero;
         }
 
@@ -311,7 +350,23 @@ public static class SwiftFrameworkResolver
             var directLoaded = NativeLibrary.TryLoad(libraryName, out var directHandle);
             sb.AppendLine($"  {(directLoaded ? "OK" : "FAIL")}  {libraryName}  (dyld-style path, tried verbatim)");
             if (directLoaded)
+            {
                 NativeLibrary.Free(directHandle);
+                return sb.ToString().TrimEnd();
+            }
+
+            // Verbatim failed: ResolveSwiftFramework only runs the bare-name fallback for
+            // framework-style paths, so show that walk only when it would actually happen.
+            if (libraryName.Contains(".framework/", StringComparison.Ordinal))
+            {
+                foreach (var path in GetSearchPaths(ExtractFrameworkName(libraryName)))
+                {
+                    var loaded = NativeLibrary.TryLoad(path, out var handle);
+                    sb.AppendLine($"  {(loaded ? "OK" : "FAIL")}  {path}  (framework-name fallback)");
+                    if (loaded)
+                        NativeLibrary.Free(handle);
+                }
+            }
             return sb.ToString().TrimEnd();
         }
 

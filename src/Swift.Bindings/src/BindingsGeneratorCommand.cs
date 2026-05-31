@@ -636,6 +636,14 @@ public static class BindingsGeneratorCommand
 
         // Use the provided library name, or fall back to the dylib path
         var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
+
+        // Apple SYSTEM frameworks: reduce the embedded library name to the bare framework
+        // name (e.g. "CryptoKit") so the per-assembly DllImport resolver maps it to /System
+        // on a physical device (see ResolveRuntimeLibraryName for the full rationale). This
+        // must run before the GenerateBindings call below, which bakes the name into every
+        // emitted [LibraryImport]/LoadFromSymbol string.
+        runtimeLibraryName = ResolveRuntimeLibraryName(
+            runtimeLibraryName, directModuleName, IsSystemFrameworkTarget(hasXcframework, libraryName));
         var effectiveNamespacePattern = BindingsGenerator.ResolveNamespacePattern(namespacePattern, configPath, logger);
 
         // Auto-extract symbol graph for doc comments (xcframework mode only)
@@ -1386,6 +1394,36 @@ public static class BindingsGeneratorCommand
         return libraryName.StartsWith("@rpath/", StringComparison.Ordinal)
             || libraryName.StartsWith("/System/Library/", StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Computes the library name baked into generated <c>[LibraryImport]</c> and
+    /// <c>LoadFromSymbol</c> strings. For an Apple <b>system</b> framework target the embedded
+    /// name is reduced to the bare framework/module name (e.g. <c>"CryptoKit"</c>) rather than
+    /// the <c>@rpath/Name.framework/Name</c> install path. Non-system bindings (user
+    /// xcframeworks, app-bundled dylibs) are returned unchanged — their install name IS
+    /// <c>@rpath/Name.framework/Name</c> and resolves directly on device.
+    ///
+    /// Why bare names for system frameworks: <c>Swift.Runtime.SwiftFrameworkResolver</c> is
+    /// registered for the binding assembly from its <c>[ModuleInitializer]</c> and maps a bare
+    /// name through an ordered search list whose last entry is
+    /// <c>/System/Library/Frameworks/Name.framework/Name</c>, so the framework resolves on a
+    /// physical device. On NativeAOT the per-assembly DllImport resolver is NOT consulted for
+    /// an already dyld-style <i>path</i> name — the runtime hands it straight to dyld — so a
+    /// <c>[LibraryImport("@rpath/Name.framework/Name")]</c> metadata accessor throws
+    /// <see cref="System.DllNotFoundException"/> on device (the system framework is not
+    /// reachable via <c>@rpath</c> there) even though it resolves on the simulator. This bites
+    /// a generic type's <c>$s…Ma</c> accessor in particular: unlike a non-generic type it has
+    /// no <c>@_cdecl</c> wrapper-DLL primary to fall back from, so the raw <c>@rpath</c> import
+    /// is the only path and it fails. Bare names also avoid the macios linker's
+    /// <c>.framework/</c> substring scan that force-adds <c>-framework X</c> (BlastRadius #9).
+    /// This mirrors the Apple supplement's <c>AppleTypesCsEmitter.ResolveLibraryPath</c>, which
+    /// already emits bare system-framework names for the same reasons.
+    /// </summary>
+    internal static string ResolveRuntimeLibraryName(
+        string runtimeLibraryName, string? moduleName, bool isSystemFrameworkTarget)
+        => isSystemFrameworkTarget && !string.IsNullOrEmpty(moduleName)
+            ? moduleName
+            : runtimeLibraryName;
 
     /// <summary>
     /// Validate the <c>--platform-version</c> CLI value against the canonical Apple TPV

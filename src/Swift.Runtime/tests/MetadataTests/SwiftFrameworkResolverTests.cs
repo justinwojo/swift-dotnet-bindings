@@ -62,9 +62,10 @@ public class SwiftFrameworkResolverTests
     public void DiagnoseResolution_DyldStylePath_TriesVerbatimOnly(string libraryName)
     {
         // Regression guard: Apple-framework target bindings emit DllImport entries
-        // whose library name is already a dyld-style path. The resolver must try
-        // that string verbatim and MUST NOT prepend "@rpath/{name}.framework/{name}"
-        // (which would produce nonsense like "@rpath/@rpath/StoreKit.framework/...").
+        // whose library name is already a dyld-style path. The resolver tries that string
+        // verbatim and, on failure, walks the bare-name search list -- but it MUST NOT
+        // prepend "@rpath/{name}.framework/{name}" to the already-dyld-style input (which
+        // would produce nonsense like "@rpath/@rpath/StoreKit.framework/...").
         var result = SwiftFrameworkResolver.DiagnoseResolution(libraryName);
 
         Assert.Contains(libraryName, result);
@@ -93,18 +94,24 @@ public class SwiftFrameworkResolverTests
     }
 
     [Theory]
-    [InlineData("@rpath/StoreKit.framework/StoreKit")]
+    // SYNTHETIC names that resolve nowhere on a test host. A REAL system framework
+    // (e.g. @rpath/StoreKit.framework/StoreKit) must NOT be used here: its verbatim load
+    // fails, then the bare-name fallback walks to /System/Library/Frameworks and
+    // (correctly) returns a non-zero handle -- that is the on-device fix, not a regression.
+    [InlineData("@rpath/NoSuchSwiftBindingsFrameworkXYZ.framework/NoSuchSwiftBindingsFrameworkXYZ")]
     [InlineData("@executable_path/libFoo.dylib")]
     [InlineData("@loader_path/Bar.dylib")]
     [InlineData("/Some/Nonexistent/Absolute/Path/libfoo.dylib")]
     public void ResolveSwiftFramework_DyldStylePath_DoesNotPrefix(string libraryName)
     {
-        // Direct regression guard against the double-prefix bug inside the resolver
-        // hot path (not the diagnostic helper): feed a nonexistent dyld-style path
-        // and assert the method returns IntPtr.Zero (deferring to the default .NET
-        // resolver) rather than attempting the prefix-based candidates and loading
-        // something unintended. Paired with the IsDyldStylePath_* test this pins
-        // down both the detection predicate and the resolver's consumption of it.
+        // Direct regression guard against the double-prefix bug inside the resolver hot path
+        // (not the diagnostic helper): feed a nonexistent dyld-style path and assert the
+        // method returns IntPtr.Zero. The dyld-style branch tries the path verbatim, then
+        // reduces it to its bare framework name and walks the ordered search list --
+        // ExtractFrameworkName strips the existing prefix first, so no "@rpath/@rpath/..."
+        // candidate is ever produced. A name that resolves nowhere must yield IntPtr.Zero so
+        // the .NET default resolver takes over. Paired with the IsDyldStylePath_* test this
+        // pins down both the detection predicate and the resolver's consumption of it.
         var result = SwiftFrameworkResolver.ResolveSwiftFramework(
             libraryName, Assembly.GetExecutingAssembly(), searchPath: null);
         Assert.Equal(IntPtr.Zero, result);
@@ -255,5 +262,48 @@ public class SwiftFrameworkResolverTests
         var paths = SwiftFrameworkResolver.GetSearchPaths(name);
         Assert.DoesNotContain(paths, p => p.Contains("@rpath/@rpath", StringComparison.Ordinal));
         Assert.Equal("/System/Library/Frameworks/RealityFoundation.framework/RealityFoundation", paths[^1]);
+    }
+
+    [Fact]
+    public void ResolveSwiftFramework_DyldStyleSystemFrameworkPath_ResolvesViaFallback()
+    {
+        // The generator embeds @rpath/X.framework/X as the [LibraryImport] library name for
+        // EVERY Apple-system-framework P/Invoke (type-metadata accessors, witness getters, ...).
+        // On a physical device @rpath cannot reach a system framework, so the verbatim load
+        // fails; the resolver must then reduce to the bare name and walk the search list to
+        // /System/Library/Frameworks and resolve it there. Before this fix the dyld-style
+        // branch returned IntPtr.Zero immediately, which surfaced as a
+        // TypeInitializationException -> DllNotFoundException from the static initializer of a
+        // generic Apple type (CryptoKit's HMAC<H> metadata accessor) on device while resolving
+        // fine on the simulator. CoreFoundation stands in for the system framework because it
+        // is reliably loadable on every macOS / simulator unit-test host.
+        var handle = SwiftFrameworkResolver.ResolveSwiftFramework(
+            "@rpath/CoreFoundation.framework/CoreFoundation",
+            typeof(SwiftFrameworkResolverTests).Assembly,
+            searchPath: null);
+        try
+        {
+            Assert.NotEqual(IntPtr.Zero, handle);
+        }
+        finally
+        {
+            if (handle != IntPtr.Zero)
+                NativeLibrary.Free(handle);
+        }
+    }
+
+    [Fact]
+    public void ResolveSwiftFramework_UnresolvableDyldStylePath_DefersToDefault()
+    {
+        // When neither the verbatim dyld-style load nor the bare-name fallback resolves, the
+        // resolver must return IntPtr.Zero so the .NET default native-probing chain still runs
+        // (a regression here would convert "defer to default" into a hard failure). The
+        // fallback walk must not throw for a framework that exists nowhere on the host.
+        var handle = SwiftFrameworkResolver.ResolveSwiftFramework(
+            "@rpath/NoSuchSwiftBindingsFrameworkXYZ.framework/NoSuchSwiftBindingsFrameworkXYZ",
+            typeof(SwiftFrameworkResolverTests).Assembly,
+            searchPath: null);
+
+        Assert.Equal(IntPtr.Zero, handle);
     }
 }

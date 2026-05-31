@@ -1,9 +1,10 @@
 # Sibling emission-marker name keying — latent cross-module collision audit
 
-> Status: **latent hazard, not a reproducing bug.** Documented during the §5 witness-getter
+> Status: **latent hazard, not a reproducing bug.** Documented during the §5b witness-getter
 > review. No fix applied yet — a fix must ship with a reproducing BindingTests fixture
 > (TDD-for-regression-fixes). This doc is the categorical audit so a future focused pass
-> can harden the whole family in one go instead of patching site by site.
+> can harden the whole family in one go instead of patching site by site. Tracked as a
+> remaining-work item: [`06-remaining-work.md` T2.6](06-remaining-work.md#t26--sibling-emission-marker-name-keying-hardening).
 
 ## Background
 
@@ -23,7 +24,7 @@ the simple `.Name`. That change is complete and reviewed:
 The witness-getter marker was the one that produced a real, observed crash
 (`EntryPointNotFoundException` for read-only / cross-module CALLBACK; see
 `bug-0.10.0-proxy-vtable-setters-not-exported.md`), and its same-simple-name reachability is
-live in the nested-type space the §5c work exercises — so it was an in-scope fix.
+live in the nested-type space the §5b Data-return CSM work exercises — so it was an in-scope fix.
 
 ## The sibling markers (still simple-name keyed)
 
@@ -82,6 +83,7 @@ shared HashSet / dictionary.
 
 ## References
 
-- `05-residual-gaps.md` §5 — the witness-getter fix this audit is adjacent to.
+- `05-residual-gaps.md` §5b — the witness-getter fix this audit is adjacent to.
+- `06-remaining-work.md` T2.6 — the remaining-work item this audit backs.
 - `bug-0.10.0-proxy-vtable-setters-not-exported.md` — the original SetVtable / witness-getter
   "assume every protocol has a setter" crash.
