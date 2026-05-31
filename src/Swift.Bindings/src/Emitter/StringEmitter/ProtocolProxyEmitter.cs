@@ -37,6 +37,18 @@ public partial class ProtocolProxyEmitter
     private bool _setVtableEmitted = true;
 
     /// <summary>
+    /// True when EveryProtocolEmitter exported the <c>Get_EveryProtocol_{P}_WitnessTable</c> Swift
+    /// getter for the protocol currently being emitted (or when running outside a
+    /// ModuleEmissionContext, e.g. unit tests). When false, the proxy suppresses the matching
+    /// C# getter P/Invoke and <c>GetWitnessTableFromSwift()</c> throws
+    /// <see cref="NotSupportedException"/> instead of calling a symbol the wrapper never exported —
+    /// the case for read-only (class-superclass-skipped) and cross-module proxies. Only the
+    /// C#-implements-protocol (CALLBACK) direction reaches the getter; Swift-vended RETURN/ACCEPT
+    /// dispatch through the existential's own witness table and are unaffected.
+    /// </summary>
+    private bool _witnessGetterEmitted = true;
+
+    /// <summary>
     /// True when the corresponding EveryProtocol conformance was emitted on the
     /// NSObject-rooted <c>EveryObjCProtocol</c> helper class (S-2 NSObjectProtocol-only
     /// path). The proxy's static ctor and instance ctor must then call the matching
@@ -181,6 +193,10 @@ public partial class ProtocolProxyEmitter
         // — _setVtableEmitted is treated as true so existing tests stay green.
         _setVtableEmitted = _emissionContext == ModuleEmissionContext.Default
             || _emissionContext.WasSetVtableEmitted(protocolDecl.Name);
+        // Keyed on the module-qualified name (matching EveryProtocolEmitter's Mark site) so a
+        // dependency protocol sharing a simple name with a local one cannot mis-gate this proxy.
+        _witnessGetterEmitted = _emissionContext == ModuleEmissionContext.Default
+            || _emissionContext.WasWitnessTableGetterEmitted(protocolDecl.SwiftTypeName.ModuleQualifiedName);
 
         if (!_setVtableEmitted)
         {

@@ -2014,7 +2014,16 @@ public class EveryProtocolEmitter
         // closes the symbol collision.
         var sourceModule = protocolDecl.ModuleDecl?.Name;
         if (string.IsNullOrEmpty(sourceModule) || sourceModule == _moduleName)
+        {
             EmitWitnessTableGetter(writer, protocolDecl);
+            // Record that THIS wrapper exported the getter so ProtocolProxyEmitter can gate the
+            // matching C# P/Invoke. Cross-module parents (and skipped class-superclass conformances
+            // that return before reaching here) do not export it, so their proxies must fail the
+            // CALLBACK direction clean instead of declaring a dangling EntryPoint. Key on the
+            // module-qualified name: a dependency protocol that shares a simple name with a local
+            // one must not flip the local getter's mark onto the cross-module proxy.
+            _emissionContext?.MarkWitnessTableGetterEmitted(protocolDecl.SwiftTypeName.ModuleQualifiedName);
+        }
         _emissionContext?.RecordConformanceDecision(protocolDecl.Name, true, null);
     }
 

@@ -1399,6 +1399,38 @@ public sealed class ModuleEmissionContext
         return _setVtableEmitted.Contains(protocolName);
     }
 
+    private readonly HashSet<string> _witnessTableGetterEmitted = new();
+
+    /// <summary>
+    /// Records that <see cref="EveryProtocolEmitter"/> emitted the
+    /// <c>Get_EveryProtocol_{Protocol}_WitnessTable</c> Swift getter into the wrapper module
+    /// for the given protocol. This is the authoritative "did the wrapper actually export the
+    /// getter symbol?" signal — distinct from <see cref="WasSetVtableEmitted"/> (a
+    /// marker/composition conformance can emit the getter without a vtable setter) and from
+    /// <see cref="WasConformanceEmitted"/> (cross-module conformances are emitted but their
+    /// getter lives in the defining module's wrapper, not this one). Consumed by
+    /// <see cref="ProtocolProxyEmitter"/> to gate the matching C# getter P/Invoke and the
+    /// <c>GetWitnessTableFromSwift()</c> body: when the getter was not exported, the proxy must
+    /// not declare or call it (that would surface <see cref="EntryPointNotFoundException"/> on the
+    /// C#→Swift CALLBACK path); it throws <see cref="NotSupportedException"/> instead. Must be
+    /// called at the same point that emits the Swift getter. <paramref name="protocolKey"/> is the
+    /// <see cref="SwiftTypeName.ModuleQualifiedName"/>, not the simple name, so a dependency
+    /// protocol that shares a simple name with a local one cannot collide in the marker set and
+    /// mis-gate the cross-module proxy. The read side (<see cref="WasWitnessTableGetterEmitted"/>)
+    /// must key identically.
+    /// </summary>
+    public void MarkWitnessTableGetterEmitted(string protocolKey) => _witnessTableGetterEmitted.Add(protocolKey);
+
+    /// <summary>
+    /// Returns true when the wrapper module exported the
+    /// <c>Get_EveryProtocol_{Protocol}_WitnessTable</c> getter for this protocol. False for
+    /// read-only (class-superclass-skipped) and cross-module proxies whose getter symbol is not
+    /// present in this wrapper — the C# proxy then suppresses the getter P/Invoke and fails the
+    /// CALLBACK direction clean. <paramref name="protocolKey"/> must be the module-qualified name
+    /// used by <see cref="MarkWitnessTableGetterEmitted"/>.
+    /// </summary>
+    public bool WasWitnessTableGetterEmitted(string protocolKey) => _witnessTableGetterEmitted.Contains(protocolKey);
+
     private readonly HashSet<string> _objCBaseProtocols = new();
 
     /// <summary>

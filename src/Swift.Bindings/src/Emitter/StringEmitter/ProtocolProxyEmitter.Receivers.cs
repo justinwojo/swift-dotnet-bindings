@@ -1757,8 +1757,8 @@ public partial class ProtocolProxyEmitter
         // EveryObjCProtocol metadata into EveryProtocol.SetTypeMetadata would survive
         // for the process lifetime and corrupt later opaque-layout proxies that read
         // ObjectMetadata back from the cache (construction-order dependent bug).
-        var metadataInitBlock = _useObjCBase
-            ? "// _useObjCBase: class-bound layout doesn't consult ObjectMetadata, and the\n                    // GetEveryObjCProtocolMetadata handle MUST NOT be cached into\n                    // EveryProtocol.SetTypeMetadata — that static slot is owned by the\n                    // pure-Swift EveryProtocol code path."
+        var metadataInitBlock = (_useObjCBase || _useEntityBase)
+            ? "// Class-bound carrier (_useObjCBase / _useEntityBase): the 2-word layout doesn't\n                    // consult ObjectMetadata, and the carrier's own metadata handle\n                    // (GetEveryObjCProtocolMetadata / GetEveryEntityProtocolMetadata) MUST NOT be\n                    // cached into EveryProtocol.SetTypeMetadata — that static slot is owned by the\n                    // pure-Swift EveryProtocol code path, and priming it from a carrier would\n                    // poison later opaque-layout proxies that read ObjectMetadata back from it."
             : $"if (EveryProtocol.GetTypeMetadata().Handle == IntPtr.Zero)\n                        EveryProtocol.SetTypeMetadata(NativeMethods.{GetMetadataMethodName}());";
 
         // Constructor for C# implementation

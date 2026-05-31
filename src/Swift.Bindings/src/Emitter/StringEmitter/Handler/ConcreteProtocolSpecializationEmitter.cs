@@ -1370,6 +1370,30 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
 
+        // Marshal/size type for indirect results defaults to the public return type and
+        // diverges only for inline value structs with an idiomatic projection: the public
+        // surface becomes the idiomatic type (Foundation.Data -> byte[]) while the wire is
+        // sized and marshaled on the ISwiftObject type (Swift.Foundation.Data). This mirrors
+        // DataProjection.PublicType / PInvokeType in the main emitter path -- so a concrete
+        // overload returning Data presents `byte[]` (a drop-in for the generic stub it
+        // shadows) instead of leaking the raw Swift.Foundation.Data value type and losing
+        // overload-resolution compatibility with that stub.
+        string csReturnMarshalType = csReturnType;
+        string returnProjectionSuffix = string.Empty;
+        if (!isVoidReturn && !isConstructor && !returnsGenericParam && !isStringReturn)
+        {
+            var inlineReturnSpec = SubstituteSelfAndPairingGenericsInTypeSpec(
+                method.CSSignature.First().SwiftTypeSpec, parentTypeDecl, pairing);
+            if (inlineReturnSpec is NamedTypeSpec inlineReturnNamed
+                && InlineSwiftStructAllowlist.TryGetValue(inlineReturnNamed.Name, out var inlineReturnInfo)
+                && inlineReturnInfo.IdiomaticPublicType is { } idiomaticReturnType)
+            {
+                csReturnMarshalType = inlineReturnInfo.CSharpType;
+                csReturnType = idiomaticReturnType;
+                returnProjectionSuffix = inlineReturnInfo.MarshalToPublicSuffix ?? string.Empty;
+            }
+        }
+
         string pinvokeReturn;
         if (isConstructor)
         {
@@ -1568,12 +1592,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // context; methods taking only handle/blittable args aren't marked unsafe,
                 // so wrap the alloc in a local unsafe block.
                 csWriter.WriteLine("IntPtr resultPtr;");
-                csWriter.WriteLine($"unsafe {{ resultPtr = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnType}>()); }}");
+                csWriter.WriteLine($"unsafe {{ resultPtr = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>()); }}");
             }
             else
             {
                 // Struct constructor or other alloc+free case.
-                csWriter.WriteLine($"IntPtr resultPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnType}>());");
+                csWriter.WriteLine($"IntPtr resultPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>());");
             }
             if (!needsResultPtrOwnershipTransfer)
             {
@@ -1640,7 +1664,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else
             {
-                // Struct constructor: call writes into resultPtr, then marshal back
+                // Struct constructor: call writes into resultPtr, then marshal back.
+                // Constructors are projection-excluded (the byte[]-projection block above is
+                // !isConstructor-gated), so csReturnType is the ISwiftObject marshal type here
+                // and no .ToByteArray()-style suffix applies -- a Data initializer returns a Data,
+                // not its byte projection. Only the method path below (needsResultPtr) can diverge
+                // public-vs-wire, which is why it uses csReturnMarshalType + returnProjectionSuffix.
                 csWriter.WriteLine($"{pinvokeCall};");
                 if (throws) csWriter.WriteLine(errorCheck);
                 if (needsResultPtrDestroyWireRetains)
@@ -1677,13 +1706,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (needsResultPtrDestroyWireRetains)
             {
                 // Frozen-with-memory return type: see struct-constructor branch above.
-                csWriter.WriteLine($"var _result = SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
-                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>(resultPtr);");
-                csWriter.WriteLine("return _result;");
+                csWriter.WriteLine($"var _result = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>(resultPtr);");
+                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnMarshalType}>(resultPtr);");
+                csWriter.WriteLine($"return _result{returnProjectionSuffix};");
             }
             else
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>(resultPtr){returnProjectionSuffix};");
             }
         }
         else if (returnsGenericParam)
@@ -1774,7 +1803,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
     //                 (e.g. System.Guid) MUST be rejected by the indirect-result gate
     //                 in `CanEmitConcreteOverloadForPairing` even though they are valid
     //                 inline-struct parameter conformers.
-    private readonly record struct InlineSwiftStructInfo(string CSharpType, bool IsISwiftObject);
+    // IdiomaticPublicType: when set, a concrete CSM overload returning this type presents this
+    //                 idiomatic type on its public surface (e.g. Foundation.Data -> byte[])
+    //                 while the wire is still sized/marshaled on CSharpType. null means the
+    //                 public surface is CSharpType (no projection). Mirrors DataProjection.PublicType.
+    // MarshalToPublicSuffix: C# expression suffix converting a marshaled CSharpType value to
+    //                 IdiomaticPublicType (e.g. ".ToByteArray()" for Data -> byte[]).
+    private readonly record struct InlineSwiftStructInfo(string CSharpType, bool IsISwiftObject, string? IdiomaticPublicType = null, string? MarshalToPublicSuffix = null);
 
     /// <summary>
     /// Test-only contract assertion: returns whether the given Swift qualified name is a
@@ -1787,6 +1822,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
         => InlineSwiftStructAllowlist.TryGetValue(swiftQualifiedName, out var info)
             ? (true, info.IsISwiftObject)
             : (false, false);
+
+    /// <summary>
+    /// Test-only contract assertion: returns the idiomatic public-surface projection for a
+    /// known inline-struct conformer's indirect return -- the public type and the marshal-to-public
+    /// suffix (e.g. Foundation.Data -> ("byte[]", ".ToByteArray()")). Returns (null, null) for
+    /// names not in the allowlist or with no distinct projection (e.g. Foundation.UUID).
+    /// </summary>
+    internal static (string? PublicType, string? Suffix) GetInlineSwiftStructReturnProjectionForTesting(string swiftQualifiedName)
+        => InlineSwiftStructAllowlist.TryGetValue(swiftQualifiedName, out var info)
+            ? (info.IdiomaticPublicType, info.MarshalToPublicSuffix)
+            : (null, null);
 
     // Conformers whose C# binding is a blittable value-type (rather than a class with
     // SafeHandle) and therefore gets pin-and-pass marshalling instead of
@@ -1808,7 +1854,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     //     by the indirect-result-is-ISwiftObject gate.
     private static readonly Dictionary<string, InlineSwiftStructInfo> InlineSwiftStructAllowlist = new(StringComparer.Ordinal)
     {
-        ["Foundation.Data"] = new("global::Swift.Foundation.Data", IsISwiftObject: true),
+        ["Foundation.Data"] = new("global::Swift.Foundation.Data", IsISwiftObject: true, IdiomaticPublicType: "byte[]", MarshalToPublicSuffix: ".ToByteArray()"),
         ["Foundation.UUID"] = new("System.Guid", IsISwiftObject: false)
     };
 
@@ -2081,6 +2127,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
                             || (irRecord.Kind == TypeRecordKind.Struct
                                 && (!irRecord.Flags.HasFlag(TypeRecordFlags.Frozen)
                                     || irRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement))));
+                    // A frozen-trivial inline struct (e.g. Foundation.Data) is rejected by the
+                    // TypeRecord check above (frozen, no RequiresMemoryManagement) yet maps to an
+                    // ISwiftObject C# binding (Swift.Foundation.Data) whose GetSwiftTypeSize<T>() is
+                    // valid. Admit it via the allowlist's IsISwiftObject flag. Keyed on
+                    // NamedTypeSpec.Name (module-qualified, e.g. "Foundation.Data") rather than a
+                    // conformer's SwiftQualifiedName because this non-generic-param arm has only the
+                    // raw return TypeSpec -- no conformer object -- and Name matches the allowlist keys.
+                    if (!indirectReturnIsSwiftObject
+                        && returnTypeSpec is NamedTypeSpec inlineNamed
+                        && InlineSwiftStructAllowlist.TryGetValue(inlineNamed.Name, out var inlineRetInfo)
+                        && inlineRetInfo.IsISwiftObject)
+                    {
+                        indirectReturnIsSwiftObject = true;
+                    }
                 }
             }
 

@@ -16,7 +16,7 @@ This doc records the gaps that remain **after** SDK 0.12.0 / Apple 26.2.4 shippe
 | WorkoutKit `SwiftClosedRange<Bound>` ctors emitted (01) | ✅* | — | **Partial** — ctors emit but un-callable (§4) |
 | **RC‑PROXY Failure A — `Scene.AddAnchor(IHasAnchoring)` (03)** | ❌ | ❌ | **Did NOT land** (§1) |
 | **RC‑SWIFTUI — `FamilyActivityPicker` bridge (04)** | ❌ | — | **Did NOT land** (§2) |
-| RC‑PROXY Failure B — gestures (03, the "L" item) | n/a | n/a | **Deferred as planned** (§5) |
+| RC‑PROXY Failure B — gestures (03, the "L" item) | n/a | n/a | **Real-Entity round-trip still deferred; adjacent read-only path hardened + fixture-covered** (§5, §5b) |
 
 \* WorkoutKit metadata + enums + simple ctors all pass; the four range-alert ctors are emitted but cannot be called (§4).
 
@@ -127,15 +127,27 @@ These are not regressions; they're documented here so the per-package skips have
 
 - **RC‑SIMD multi-param ctor — `Transform(scale:rotation:translation:)`.** The indirect/pointer marshalling fix reached the SIMD *setters* and the `Transform(Matrix4x4)` ctor (both validated, sim + device), but **not** the three-SIMD-param `Transform(scale,rotation,translation)` ctor, which still binds to the real Swift symbol via `CallConvSwift` with the params passed **by value** (`init_C8B878FF` in the generated source — no `@_cdecl` wrapper). Runtime: `InvalidProgramException` on the JIT lane. Left as a `Skip` probe in the RealityFoundation test. Fix: route this ctor's SIMD params through the same indirect path the setters use.
 
-- **RC‑PROXY Failure B — entity gesture recognizers.** The campaign's one "L" item, explicitly scoped as deferrable in 03-proxy-callback.md. `EntityTranslationGestureRecognizer` & friends deliver their target entity through an `EveryEntityProtocol` existential that the generator can't synthesize a working proxy for on real (non-nil) input; the recognizer *type* binds and its metadata resolves, but installing one and receiving a callback does not round-trip. Needs a generated `EveryEntityProtocol : Entity` analogous to the existing `EveryObjCProtocol : NSObject`. Left as a `Skip` in the RealityKit test.
+- **RC‑PROXY Failure B — entity gesture recognizers.** The campaign's one "L" item, explicitly scoped as deferrable in 03-proxy-callback.md. `EntityTranslationGestureRecognizer` & friends deliver their target entity through an `EveryEntityProtocol` existential that the generator can't synthesize a working proxy for on real (non-nil) input; the recognizer *type* binds and its metadata resolves, but installing one and receiving a callback does not round-trip. Needs a generated `EveryEntityProtocol : Entity` analogous to the existing `EveryObjCProtocol : NSObject`. Left as a `Skip` in the RealityKit test. **Update:** the class-bound carrier this calls for (`EveryEntityProtocol : Entity`) is now emitted (emission covered by generator unit tests), and the generic class-superclass *read-only* proxy path that any non-RealityFoundation entity-rooted protocol falls into now fails clean on the unsupported C#-implements direction — see §5b. The real RealityKit gesture round-trip on a physical device remains unverified, so the `Skip` stands.
 
 - **RC‑AOT — typed mesh buffers on NativeAOT.** `MeshBuffer<T>` / `MeshBuffers.Semantic<T>` / `UnsafeForceEffectBuffer<T>` generic-specialization metadata resolves on Mono/sim but not on NativeAOT/device (the constraint-relaxation `T : Vector3` instantiation isn't rooted). Documented since 2026-05-02; the RealityFoundation test capability-gates on `IsDynamicCodeSupported` (fail-if-regressed on Mono, skip on AOT). This is RC‑AOT's harder case that Session 01's re-scope trigger anticipated ("needs more than the SwiftArray pattern"). Confirmed still present on device this pass (29/0/11, the 8 buffer entries among the skips).
 
-- **CryptoKit RC‑GENERIC remainders.** Still SB0001 / generic-only stubs with no concrete overload:
+- **CryptoKit RC‑GENERIC remainders.** SB0001 / generic-only stubs in the as-shipped 0.12.0 surface (the indirect-`Data`-return mechanism behind the signing entries is addressed in §5b; which real-CryptoKit overloads now bind is pending a validate sweep):
   - **HPKE `Sender`/`Recipient` initializers** (all 10) and `Sender.ExportSecret` — blocked by the NestedType structural rejection at `ConcreteProtocolSpecializationEmitter.cs:1858-1860` (3+-part `ModuleQualifiedName` conformers like `Curve25519.KeyAgreement.PublicKey`). A separate generator feature, deferred with reason in 02-csm-cryptokit.md. (HPKE `Seal`/`Open` likewise broken; `ExportSecret(byte[]/Data)` and KEM `Decapsulate` *do* have working concrete overloads.)
-  - **Ed25519 signing** — `Curve25519.Signing.PrivateKey.Signature<D>` (`CryptoKit.cs:269`) is generic-only → cannot *produce* Ed25519 signatures (verification via `PublicKey.IsValidSignature(byte[]/Data,…)` works).
-  - **Context-string sign/verify** — P256/etc. `Signature<D,C>` / `IsValidSignature<S,D,C>` have no concrete overload.
+  - **Ed25519 signing** — `Curve25519.Signing.PrivateKey.Signature<D>` (`CryptoKit.cs:269`) is generic-only → cannot *produce* Ed25519 signatures (verification via `PublicKey.IsValidSignature(byte[]/Data,…)` works); generator mechanism addressed in §5b (Ed25519 signatures are raw `Foundation.Data`).
+  - **Context-string sign/verify** — P256/etc. `Signature<D,C>` (sign) / `IsValidSignature<S,D,C>` (verify) have no concrete overload. The sign side shares the indirect-`Data`-return mechanism addressed in §5b (for curves whose context-signature type is `Foundation.Data`); the verify side returns `Bool` — a direct return the §5c preflight never gated — and is a separate item.
   - **Resolved (not a gap):** `MusicItemProxy` — the MusicKit 0.11.x ancestor-ordering crash is gone; MusicKit builds and runs (40/0/0 on sim, incl. the `Create` shims).
+
+---
+
+## §5b — Follow-on pass: class-superclass proxy hardening + Data-return CSM
+
+Work after the 0.12.0 retrospective above. Two generator gaps from §5 are addressed and two portable BindingTests fixtures pin the behaviour permanently; one adjacent latent hazard is documented out of scope.
+
+- **Class-superclass read-only proxy — fail-clean CALLBACK (Failure B-adjacent).** Any protocol whose `Self` is constrained to a Swift class superclass that the synthesized `EveryProtocol` helper cannot subclass is routed through the read-only proxy path, which emits no `Get_EveryProtocol_{P}_WitnessTable` getter. Previously the C# proxy still declared and called that P/Invoke, so the unsupported C#-implements-protocol (CALLBACK) direction crashed with `EntryPointNotFoundException` on the missing symbol. The witness-getter marker is now recorded at the Swift emission site and read by the proxy emitter — both keyed on the conformer's *module-qualified* name — so the proxy suppresses the getter P/Invoke and `GetWitnessTableFromSwift()` throws `NotSupportedException` at the C#→Swift boundary instead. RETURN and ACCEPT (Swift-vended existentials, which dispatch through their own witness table) are unaffected. Pinned by `Protocols/EntityRootedExistential.swift` + `EntityRootedExistentialTests.cs` (RETURN/ACCEPT pass; CALLBACK asserts the clean `NotSupportedException`), using a pure-Swift `Entity` stand-in so the gate stays portable across every cell (incl. tvOS, which has no RealityKit). Note: this is the *read-only* path; the real RealityFoundation `EveryEntityProtocol : Entity` carrier is emission-covered by the generator unit tests, and the real RealityKit gesture device round-trip (§5 Failure B) remains unverified.
+
+- **Data-return CSM concrete overloads (Ed25519 / context-string sign).** The concrete-specialization engine's indirect-result preflight rejected any non-ISwiftObject return, which dropped method-level-generic methods returning `Foundation.Data` (it projects to the C# `byte[]` value type) to generic-only SB0001 stubs — so C# could verify but not *produce* an Ed25519 signature. The preflight now consults the `InlineSwiftStruct` allowlist: a `Foundation.Data` indirect return is admitted (sized/marshaled on the ISwiftObject `Swift.Foundation.Data`) and projected to `byte[]` on the public surface, a drop-in for the generic stub it shadows. This is the generator mechanism behind the **Ed25519 signing** stub in §5's CryptoKit list — Ed25519 signatures are raw `Foundation.Data`, so `signature(for:)` now binds to a concrete `byte[]` overload — and behind any **context-string sign** whose concrete return is likewise `Foundation.Data`. (The context-string *verify* path returns `Bool`, a direct return the indirect-result preflight never blocked, so it is outside this fix's scope.) Pinned by `Generics/SigningSpecialization.swift` + `SigningSpecializationTests.cs` (single-, two-, and three-generic shapes; distinct-seed payload observability) and `ConcreteSpecializationEngineTests`. The fixtures model the shape with module-local stand-ins, so the generator mechanism is proven; real-CryptoKit end-to-end confirmation is pending a `nuke validate` sweep. **Unchanged:** HPKE `Sender`/`Recipient` remain blocked by the separate NestedType conformer rejection (a conformer-side gate, not the return-side one fixed here).
+
+- **Adjacent latent hazard (documented, out of scope).** While hardening the witness-getter marker, a sibling family of emission markers (`SetVtable`, `ObjCBase`, `EntityBase`, `Conformance`) was found to still key on the simple type name rather than the module-qualified name, so a local protocol and a same-named dependency protocol could in principle collide and mis-gate a cross-module proxy. It is **not a reproducing bug** today — no same-simple-name collision is known across the current validation/fixture set (not verified by an exhaustive cross-module name sweep), and cross-module-parent vtable wiring uses a separate prefixed path — so it is left out of scope for this pass. Full categorical audit and a TDD-first hardening plan: [`sibling-marker-name-keying.md`](sibling-marker-name-keying.md).
 
 ---
 
@@ -152,3 +164,37 @@ These are not regressions; they're documented here so the per-package skips have
 | RealityKit — `EntityGestureRecognizer callback` (Failure B) | Skip | **Skip** (unchanged) → §5 |
 
 All seven packages are green on their gated lanes (sim for all; sim+device for CryptoKit, RealityFoundation, RealityKit). No hard failures remain.
+
+## §5d — Witness-getter emitted-but-Swift-rejected → EntryPointNotFound on C# CALLBACK (pre-existing)
+
+The §5/§5b witness-getter fail-clean change makes a C#→Swift CALLBACK throw a clean
+`NotSupportedException` **when the generator decides upfront not to emit the
+`Get_EveryProtocol_{P}_WitnessTable` accessor** (the local class-superclass / cross-module
+case — `EntityRootedProbe` and its siblings). It does **not** cover a second, pre-existing
+shape:
+
+- The generator emits the witness-getter optimistically, but the Swift wrapper then **fails
+  to compile** it (`value of type 'EveryProtocol' does not conform to specified type 'P'`), so
+  the wrapper give-up pass drops that one `@_cdecl` from the dylib.
+- Because the getter **was** emitted by the generator, its emission marker is set, so the C#
+  proxy still emits `[LibraryImport(… "Get_EveryProtocol_P_WitnessTable")]` and
+  `GetWitnessTableFromSwift()` still P/Invokes it. The symbol is absent from the dylib →
+  **`EntryPointNotFoundException`** at the CALLBACK boundary (the pre-fail-clean behaviour),
+  not the clean `NotSupportedException`.
+
+Reproduced today by the tracked fixture `ProtocolExtOptionalClassParam.swift`
+(`PExtOptChildProtocol`): the wrapper build logs the `does not conform` error and drops the
+symbol; the binding still compiles and every gate stays green because nothing exercises that
+protocol's C#-implementation CALLBACK path. This is **pre-existing** — the §5/§5b change is
+additive (it records a marker beside the existing getter emission and only suppresses the C#
+side when the marker is *absent*), so it neither introduced nor widened this case.
+
+**Candidate fix (own pass — needs a red fixture + review):** wrap the getter P/Invoke in
+`GetWitnessTableFromSwift()` so an `EntryPointNotFoundException` is rethrown as the same
+`NotSupportedException`, with a *generic* message ("the Swift wrapper exports no witness-table
+accessor for protocol P, so a C# implementation cannot be bridged back"). **Trade-off:** that
+also catches a getter gone missing from an unrelated generator regression, turning a loud
+"symbol missing" into a designed-limitation message. The build-time `does not conform` error
+stays loud and a CALLBACK test would flip from pass to `NotSupported`, so the masking risk is
+bounded but real — decide deliberately, with the `PExtOptChildProtocol` CALLBACK red fixture
+in place first.

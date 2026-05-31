@@ -638,6 +638,31 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void InlineSwiftStructAllowlist_FoundationData_ProjectsPublicSurfaceToByteArray()
+    {
+        // A concrete CSM overload returning Foundation.Data must present `byte[]` on its public
+        // surface (a drop-in for the generic SB0001 stub it shadows) while the wire is still
+        // sized/marshaled on the ISwiftObject type. The projection metadata supplies the public
+        // type ("byte[]") and the marshal-to-public conversion suffix (".ToByteArray()").
+        var (publicType, suffix) = ConcreteProtocolSpecializationEmitter
+            .GetInlineSwiftStructReturnProjectionForTesting("Foundation.Data");
+        Assert.Equal("byte[]", publicType);
+        Assert.Equal(".ToByteArray()", suffix);
+    }
+
+    [Fact]
+    public void InlineSwiftStructAllowlist_FoundationUUID_HasNoDistinctPublicProjection()
+    {
+        // Foundation.UUID → System.Guid is its own idiomatic public surface; there is no
+        // separate projection type or conversion suffix, so both are null. (UUID is also
+        // ineligible for the indirect-return path per the eligibility test above.)
+        var (publicType, suffix) = ConcreteProtocolSpecializationEmitter
+            .GetInlineSwiftStructReturnProjectionForTesting("Foundation.UUID");
+        Assert.Null(publicType);
+        Assert.Null(suffix);
+    }
+
+    [Fact]
     public void ComputePairingCount_WeatherKitPathology_ExceedsCap()
     {
         // Reproduces the WeatherKit.WeatherService.weather<T1..T6> blow-up where every
