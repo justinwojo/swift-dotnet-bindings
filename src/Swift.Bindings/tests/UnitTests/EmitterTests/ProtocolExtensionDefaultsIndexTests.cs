@@ -45,9 +45,15 @@ public class ProtocolExtensionDefaultsIndexTests
     }
 
     [Fact]
-    public void HasMethodDefault_ConstrainedExtension_ReturnsFalse()
+    public void HasMethodDefault_ConstrainedExtension_IsIndexed()
     {
-        // Constrained extensions (where T: SomeProtocol) are filtered out during construction
+        // Constrained extensions (where T: SomeProtocol) ARE indexed — the Swift runtime
+        // supplies the witness for any concrete type that satisfies the where-clause,
+        // and the generator emits the corresponding C# requirement as a DIM that throws
+        // NotSupportedException so the conformance compiles. Reproduces the GRDB
+        // IndexInfo.Origin shape (DatabaseValueConvertible via the constrained
+        // RawRepresentable extension). The validator's per-conformance-set overload
+        // narrows further when the conformance set actually applies.
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
             ["Lottie.AnyInterpolatable"] = new()
@@ -57,7 +63,65 @@ public class ProtocolExtensionDefaultsIndexTests
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
 
-        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable", "_interpolate(to:amount:)"));
+        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable", "_interpolate(to:amount:)"));
+    }
+
+    [Fact]
+    public void HasPropertyDefault_ConstrainedExtension_DirectProto_AcceptedByNarrowOverload()
+    {
+        // The per-conformance-set narrow overload (HasPropertyDefault with concreteConformances)
+        // returns true for a constrained default declared DIRECTLY on the queried protocol —
+        // the conformance-set filter narrows sub-protocol providers, not direct-protocol entries.
+        // This is what makes the GRDB IndexInfo.Origin path work: the concrete conformer
+        // (Origin) only directly conforms to DatabaseValueConvertible — not to any sub-protocol
+        // that provides the default — so the narrow overload must accept the direct-protocol
+        // constrained default by name match alone. The Swift typechecker has already enforced
+        // the where-clause when accepting Origin: DatabaseValueConvertible; the validator's
+        // job here is to confirm a witness exists, not to re-derive Swift's where-clause logic.
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["GRDB.DatabaseValueConvertible"] = new()
+            {
+                CreateExtensionProperty("databaseValue",
+                    whereConstraints: new() { "Self : RawRepresentable", "Self.RawValue : DatabaseValueConvertible" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+
+        // Conformance set contains ONLY the queried protocol — no sub-protocol detour.
+        var conformances = new HashSet<string> { "GRDB.DatabaseValueConvertible" };
+        Assert.True(index.HasPropertyDefault("GRDB.DatabaseValueConvertible", "databaseValue", conformances));
+    }
+
+    [Fact]
+    public void HasMethodDefault_ConstrainedExtension_OnSubProtocol_RequiresConformance()
+    {
+        // The per-conformance-set narrow overload still requires sub-protocol membership for
+        // INDIRECT defaults — broadening to include constrained extensions does not loosen
+        // the sub-protocol gate. A constrained default that lives on a sub-protocol still
+        // only counts when the concrete type actually conforms to that sub-protocol.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("AnyInterpolatable", "Lottie"),
+            CreateProtocolDecl("Interpolatable", "Lottie", inheritedFrom: "Lottie.AnyInterpolatable")
+        };
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["Lottie.Interpolatable"] = new()
+            {
+                CreateExtensionMethod("_interpolate", "_interpolate(to:amount:)",
+                    whereConstraints: new() { "Self.Value : Comparable" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        // Conforming to the sub-protocol → default is reachable.
+        var withSub = new HashSet<string> { "Lottie.AnyInterpolatable", "Lottie.Interpolatable" };
+        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable", "_interpolate(to:amount:)", withSub));
+
+        // Conforming only to the parent → constrained sub-protocol default does NOT apply.
+        var onlyParent = new HashSet<string> { "Lottie.AnyInterpolatable" };
+        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable", "_interpolate(to:amount:)", onlyParent));
     }
 
     [Fact]
@@ -437,7 +501,8 @@ public class ProtocolExtensionDefaultsIndexTests
         };
     }
 
-    private static ProtocolExtensionMethodDecl CreateExtensionProperty(string propertyName, bool hasSetter = false)
+    private static ProtocolExtensionMethodDecl CreateExtensionProperty(string propertyName, bool hasSetter = false,
+        List<string>? whereConstraints = null)
     {
         return new ProtocolExtensionMethodDecl
         {
@@ -452,7 +517,7 @@ public class ProtocolExtensionDefaultsIndexTests
             HasSetter = hasSetter,
             IsDeprecated = false,
             IsMutating = false,
-            WhereConstraints = new List<string>()
+            WhereConstraints = whereConstraints ?? new List<string>()
         };
     }
 

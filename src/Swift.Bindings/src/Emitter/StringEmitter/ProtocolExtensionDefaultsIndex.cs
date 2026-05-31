@@ -4,13 +4,18 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Index of unconstrained protocol extension default implementations.
+/// Index of protocol extension default implementations (constrained and unconstrained).
 /// Used by ProtocolConformanceValidator to allow conformance when concrete types rely
 /// on protocol extension defaults (e.g., Lottie's Interpolatable providing _interpolate default
-/// that satisfies AnyInterpolatable's requirement).
+/// that satisfies AnyInterpolatable's requirement, or GRDB's `extension DatabaseValueConvertible
+/// where Self: RawRepresentable, Self.RawValue: DatabaseValueConvertible` providing
+/// databaseValue/fromDatabaseValue for inline-conforming RawRepresentable wrappers).
 ///
-/// Only unconstrained extensions (WhereConstraints.Count == 0) are indexed — constrained
-/// extensions may not apply to all conforming types.
+/// Constrained extensions are indexed without evaluating the where-clause: the index is
+/// consulted only for types Swift has already deemed conformers (the witness-table
+/// dictionary entry exists), so the constraints are guaranteed satisfied. DIM bodies emitted
+/// for any matched default just throw NotSupportedException pointing users to the concrete
+/// type, so an over-broad index match is a safe fallback — not a false claim of dispatch.
 /// </summary>
 public class ProtocolExtensionDefaultsIndex
 {
@@ -34,15 +39,22 @@ public class ProtocolExtensionDefaultsIndex
         // Build inheritance graph from protocol declarations
         BuildInheritanceGraph(protocols);
 
-        // Index unconstrained extension defaults
+        // Index BOTH unconstrained and constrained extension defaults.
+        // Rationale: this index feeds CanFullyImplementProtocol, which decides whether a
+        // concrete C# type can claim a Swift protocol conformance. When the conformance is
+        // satisfied through a constrained extension (e.g.
+        //   extension P where Self: Q, Self.RawValue: R { default impl }
+        // ), the Swift runtime supplies the witness for any concrete type that meets the
+        // where-clause — so the corresponding C# requirement must be marked as covered by
+        // a default. The generated C# emits the requirement as a DIM that throws
+        // NotSupportedException at the interface level, with the concrete type relying on
+        // the Swift-side default. Skipping constrained extensions here makes the validator
+        // reject otherwise-valid conformances (e.g. GRDB IndexInfo.Origin via
+        // DatabaseValueConvertible's RawRepresentable extension).
         foreach (var (qualifiedProtoName, methods) in extensionMethods)
         {
             foreach (var method in methods)
             {
-                // Only index unconstrained extensions — constrained ones may not apply to all types
-                if (method.WhereConstraints.Count > 0)
-                    continue;
-
                 if (method.IsProperty)
                 {
                     if (!_propertyDefaults.TryGetValue(qualifiedProtoName, out var propSet))
