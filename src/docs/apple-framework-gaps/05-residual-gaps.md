@@ -17,6 +17,8 @@ enough; these tests drive the actual fixed API end-to-end and assert a correct r
 | Fix (session) | Sim | Device | Verdict |
 |---|---|---|---|
 | RC‑SIMD Transform setters + `Transform(Matrix4x4)` (01) | ✅ | ✅ | **Landed** |
+| Class-bound existential boxing — real `AnchorEntity : HasAnchoring` (`Scene.AddAnchor/RemoveAnchor`, `AnchorEntity boxes as IHasAnchoring`) | ✅ | — | **Landed (sim)** — device owed in [06 Tier-1 batched pass](06-remaining-work.md) |
+| RC‑SIMD `Transform(scale,rotation,translation)` ctor (3-SIMD indirect marshal) | ✅ | — | **Landed (sim)** — device owed |
 | RealityKit cross-module reads (`CameraTransform`, `Environment.SceneUnderstanding`) (01/03) | ✅ | ✅ | **Landed** |
 | CryptoKit incremental `HMAC<H>` via CSM factories (02) | ✅ | ✅ | **Landed** (device system-framework load fixed — see [HMAC on device](#hmac-device)) |
 | ProximityReader `GetErrorDescription` @_cdecl parity (04) | ✅ | — | **Landed** |
@@ -25,22 +27,24 @@ enough; these tests drive the actual fixed API end-to-end and assert a correct r
 | §5b class-superclass read-only proxy fail-clean CALLBACK | ✅ | ✅ | **Landed** |
 | §5b Data-return CSM concrete overloads (Ed25519 / context-string sign) | ✅ | — | **Landed** (real-CryptoKit confirm owed → [06 Verification debts](06-remaining-work.md#verification-debts-code-landed-confirmation-owed)) |
 
-**Open work moved out.** Failure A (`Scene.AddAnchor`), the `FamilyActivityPicker` packaging gap,
-`Transform(scale,rotation,translation)`, RC‑AOT mesh buffers, the CryptoKit
+**Open work moved out.** The `FamilyActivityPicker` packaging gap, RC‑AOT mesh buffers, the CryptoKit
 generic remainders (HPKE construction / Seal/Open, context-string verify), WorkoutKit range-alert
 constructibility, the entity-gesture round-trip (Failure B), and the two generator-hardening items
 (§5d witness-getter wrap, sibling-marker re-keying) are all tracked in
 [`06-remaining-work.md`](06-remaining-work.md) with root cause, fix direction, and a done-criterion
-each.
+each. (Failure A `Scene.AddAnchor` and `Transform(scale,rotation,translation)` landed on sim this
+pass; device owed — see “What landed” above.)
 
 ## Validated-working surface (real passes recorded)
 
 The positive half of each partially-landed area, confirmed by real per-package passes:
 
-- **RealityKit / RealityFoundation:** `Scene.Anchors` read traversal and `AnchorEntity`
-  construction work (boxing the anchor *into* the scene graph is
-  [06 T1.1](06-remaining-work.md#t11--sceneaddanchorihasanchoring-failure-a)). RC‑SIMD `Transform`
-  setters + `Transform(Matrix4x4)` round-trip on sim + device.
+- **RealityKit / RealityFoundation:** `Scene.Anchors` read traversal, `AnchorEntity` construction,
+  **and boxing the anchor *into* the scene graph** now pass on **sim** —
+  `Scene.AddAnchor/RemoveAnchor(IHasAnchoring)` round-trip and `AnchorEntity boxes as IHasAnchoring
+  existential` ([06 T1.1](06-remaining-work.md#t11), device owed). RC‑SIMD `Transform` setters +
+  `Transform(Matrix4x4)` round-trip on sim + device; `Transform(scale,rotation,translation)`
+  round-trips on **sim** ([06 T1.4](06-remaining-work.md#t14), device owed).
 - **FamilyControls:** `FamilyActivitySelection` construct / read / persist / apply all pass
   (presenting the picker that produces one is
   [06 T1.2](06-remaining-work.md#t12--familyactivitypicker-bridge-packaging)).
@@ -140,11 +144,11 @@ reasons now point at the [06](06-remaining-work.md) item that will reopen each o
 
 | Package / test | Was | Now |
 |---|---|---|
-| RealityKit — `Scene.AddAnchor/RemoveAnchor(IHasAnchoring)` (Failure A) | Fail | **Skip** → [06 T1.1](06-remaining-work.md#t11--sceneaddanchorihasanchoring-failure-a) (traversal + ctor stay real passes) |
-| RealityFoundation — `AnchorEntity boxes as IHasAnchoring` (Failure A) | Fail | **Skip** → [06 T1.1](06-remaining-work.md#t11--sceneaddanchorihasanchoring-failure-a) |
+| RealityKit — `Scene.AddAnchor/RemoveAnchor(IHasAnchoring)` (Failure A) | Fail → fixed | **real pass on sim** → [06 T1.1](06-remaining-work.md#t11) (device owed) |
+| RealityFoundation — `AnchorEntity boxes as IHasAnchoring` (Failure A) | Fail → fixed | **real pass on sim** → [06 T1.1](06-remaining-work.md#t11) (device owed) |
 | FamilyControls — `FamilyActivityPicker bridge … round-trip` | Fail | **Skip** → [06 T1.2](06-remaining-work.md#t12--familyactivitypicker-bridge-packaging) (selection ctor/property tests stay real passes) |
 | CryptoKit — `HMAC<SHA256/384> incremental == one-shot` | Fail (device) | **pass on sim + device** (system-framework load fixed → [HMAC on device](#hmac-device)) |
-| RealityFoundation — `Transform(scale,rotation,translation)` | (new) | **Skip** probe → [06 T1.4](06-remaining-work.md#t14--transformscalerotationtranslation-ctor) |
+| RealityFoundation — `Transform(scale,rotation,translation)` | Fixed | **real pass on sim** → [06 T1.4](06-remaining-work.md#t14) (device owed) |
 | WorkoutKit — `{HeartRate,Cadence,Power,Speed}RangeAlert` ctors | (new) | **Skip** → [06 T2.3](06-remaining-work.md#t23--workoutkit-range-alert-measurement-ctor-shim) |
 | RealityKit — `EntityGestureRecognizer callback` (Failure B) | Skip | **Skip** → [06 T2.4](06-remaining-work.md#t24--entity-gesture-device-round-trip-failure-b--parser-genericsig) |
 

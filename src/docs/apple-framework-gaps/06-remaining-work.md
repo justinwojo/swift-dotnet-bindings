@@ -26,10 +26,10 @@ keep the campaign "open" indefinitely.
 
 | Tier | Item | Framework | Gate |
 |---|---|---|---|
-| **1** | [T1.1](#t11--sceneaddanchorihasanchoring-failure-a) `Scene.AddAnchor(IHasAnchoring)` | RealityKit / RealityFoundation | sim + device |
+| ~~1~~ | ~~T1.1 `Scene.AddAnchor(IHasAnchoring)`~~ — **landed (sim)**; device owed in Tier-1 batched pass ([05 done ledger](05-residual-gaps.md)) | RealityKit / RealityFoundation | sim ✅ · device owed |
 | **1** | [T1.2](#t12--familyactivitypicker-bridge-packaging) `FamilyActivityPicker` bridge packaging | FamilyControls | sim |
 | ~~1~~ | ~~T1.3 HMAC`<H>` conformance-descriptor load on device~~ — **landed** ([05 done ledger](05-residual-gaps.md#hmac-device)) | CryptoKit | device ✅ |
-| **1** | [T1.4](#t14--transformscalerotationtranslation-ctor) `Transform(scale,rotation,translation)` ctor | RealityFoundation | sim + device |
+| ~~1~~ | ~~T1.4 `Transform(scale,rotation,translation)` ctor~~ — **landed (sim)**; device owed in Tier-1 batched pass ([05 done ledger](05-residual-gaps.md)) | RealityFoundation | sim ✅ · device owed |
 | 2 | [T2.1](#t21--typed-mesh-buffers-on-nativeaot-rc-aot) RC‑AOT typed mesh buffers on NativeAOT | RealityFoundation | device |
 | 2 | [T2.2](#t22--cryptokit-generic-remainders) CryptoKit generic remainders (HPKE construction, Seal/Open, context-string verify) | CryptoKit | sim + device |
 | 2 | [T2.3](#t23--workoutkit-range-alert-measurement-ctor-shim) WorkoutKit range-alert `Measurement<T>` ctor shim | WorkoutKit | sim |
@@ -41,46 +41,33 @@ keep the campaign "open" indefinitely.
 
 # Tier 1 — must close to declare the campaign done
 
-## T1.1 — `Scene.AddAnchor(IHasAnchoring)` (Failure A)
-*(was 05 §1 — highest-impact finding)*
+<a id="t11"></a>
 
-**What's blocked.** Core AR anchor placement from C#: `Scene.AddAnchor`, `Scene.RemoveAnchor`,
-`AnchorCollection.Append/Remove/ReplaceAll`, and `AnchorCollection`'s indexer setter all box
-`IHasAnchoring` via `ExistentialContainerFactory.GetOrCreate<IHasAnchoring>` and throw
-`TargetInvocationException` (sim **and** device). Reading `Scene.Anchors` and constructing an
-`AnchorEntity` already work — you just can't put the anchor into the scene graph.
+## T1.1 — `Scene.AddAnchor(IHasAnchoring)` (Failure A) — ✅ LANDED (sim)
 
-**Root cause (two compounding).**
-1. **Empty conformance dict.** `ShouldEmitConformanceDictionary`
-   (`TypeHandlerHelpers.cs:1484`) returns `false` for `AnchorEntity : HasAnchoring` because the
-   gate at `:1495` requires `typeDatabase.TryGetTypeRecord(conformance.Protocol, …)` to succeed,
-   and the cross-module/umbrella protocol `HasAnchoring` has **no loaded `TypeRecord`** during
-   RealityFoundation generation (comment at `:1493-1494` describes exactly this path). So
-   `AnchorEntity._protocolConformanceSymbols` emits empty — the Session 03 predicate split
-   changed nothing for the one case it targeted.
-2. **`BoxAsExistential1` uses the wrong concrete type.** `AnchorEntity` does not override
-   `IExistentialBoxable.BoxAsExistential1<TProtocol>()`; it inherits `Entity`'s, hardcoded to
-   `ExistentialContainerFactory.Create<Entity, TProtocol>(this)` (`RealityFoundation.cs:103236`).
-   Even with a descriptor, the witness lookup would be `Entity : HasAnchoring` (doesn't exist)
-   rather than `AnchorEntity : HasAnchoring`.
+Resolved (fix landed in `8099d434`). Both halves of the root cause are fixed and confirmed in the
+**real** RealityFoundation binding (not just a hermetic fixture):
+1. The cross-module/umbrella protocol `HasAnchoring`'s `TypeRecord` now resolves during
+   RealityFoundation generation (umbrella-module alias fallback), so the conformance dictionary is
+   populated — `AnchorEntity._protocolConformanceSymbols` emits the real descriptor symbol
+   `$s10RealityKit12AnchorEntityCAA12HasAnchoringAAMc`.
+2. The subclass re-implements `IExistentialBoxable.BoxAsExistential1<TProtocol>()` with its own
+   concrete type — generated `RealityFoundation.cs` emits
+   `ExistentialContainerFactory.Create<AnchorEntity, TProtocol>(this)` (not the base `Entity`'s),
+   plus NativeAOT pre-registration (`RegisterConformanceFactory<AnchorEntity, IHasAnchoring>` and
+   `RegisterClassBoundExistentialMetadata(...HasAnchoringMp)`).
 
-**Fix.** Both halves are required:
-(a) load the declaring/umbrella module's `TypeRecord` for cross-module protocols so
-`ShouldEmitConformanceDictionary` stops silently skipping, **and**
-(b) make the generated `BoxAsExistential1<TProtocol>()` dispatch on the *runtime* concrete type
-(or override per-subclass so `AnchorEntity` emits `Create<AnchorEntity, TProtocol>`), populating
-`AnchorEntity._protocolConformanceSymbols` with the real `IHasAnchoring` descriptor symbol.
+**Validated (sim).** The per-package tests are real passes (no longer `Skip`):
+RealityFoundation `AnchorEntity boxes as IHasAnchoring existential`, RealityKit
+`Scene.AddAnchor/RemoveAnchor(IHasAnchoring) round-trip`, and `Scene.Anchors traversal +
+AnchorEntity construction` all pass on iOS Simulator. The durable BindingTests fixture
+`TestSubclassOnlyConformanceBoxesAsDerivedType` (subclass-only cross-module conformance —
+`AnchoredMarkedEntity`) is green on sim. **Device owed** in the Tier-1 batched pass.
 
-**Same family — fix or confirm in the same pass:** RoomPlan `RoomCaptureView.Delegate`
-(`RoomPlan.cs:5790`) is the RC‑PROXY secondary site and is presumed to share this shape; the
-*session* delegate (`RoomCaptureSessionDelegateProxy`, `RoomPlan.cs:11539`) is the supported path
-and is unaffected.
-
-**Done when.** A BindingTests fixture that boxes a **subclass-only** cross-module conformance
-(subclass conforms to a protocol the base does not) is green on sim + device, and the
-RealityKit `Scene.AddAnchor/RemoveAnchor(IHasAnchoring)` per-package tests flip from `Skip` to
-real passes on both lanes. The existing fixtures box on the declaring class itself and would not
-have caught this.
+**Same family — confirm in the device pass:** RoomPlan `RoomCaptureView.Delegate`
+(`RoomPlan.cs:5790`) is the RC‑PROXY secondary site presumed to share this shape; the *session*
+delegate (`RoomCaptureSessionDelegateProxy`, `RoomPlan.cs:11539`) is the supported path and is
+unaffected.
 
 ## T1.2 — `FamilyActivityPicker` bridge packaging
 *(was 05 §2)*
@@ -123,19 +110,19 @@ CryptoKit `HMAC<SHA256/384> incremental == one-shot` runs and asserts on device 
 well as sim; the AOT-lane capability skip is removed. Full record:
 [05 done ledger → HMAC on device](05-residual-gaps.md#hmac-device).
 
-## T1.4 — `Transform(scale,rotation,translation)` ctor
-*(was 05 §5, RC‑SIMD multi-param)*
+<a id="t14"></a>
 
-**What's blocked.** The three-SIMD-param `Transform(scale:rotation:translation:)` ctor.
-The indirect/pointer marshalling fix reached the SIMD *setters* and the `Transform(Matrix4x4)`
-ctor (both landed, sim + device) but **not** this ctor, which still binds to the real Swift
-symbol via `CallConvSwift` with the params passed **by value** (`init_C8B878FF` in the generated
-source — no `@_cdecl` wrapper). Runtime: `InvalidProgramException` on the JIT lane.
+## T1.4 — `Transform(scale,rotation,translation)` ctor — ✅ LANDED (sim)
 
-**Fix.** Route this ctor's SIMD params through the same indirect path the setters use.
+Resolved. The three-SIMD-param `Transform(scale:rotation:translation:)` ctor is `@inlinable public`
+in RealityKit; the parser now classifies an `@inlinable` member with no explicit `AccessControl`
+attribute as public when a `.swiftinterface` is present (previously mis-read as module-internal), so
+its `@_cdecl` wrapper `SBW_..._Transform_init_C8B878FF` is emitted and the three SIMD params marshal
+**indirectly** through buffer pointers (`CallConvCdecl`), exactly like `Transform(Matrix4x4)`. The
+`InvalidProgramException` on the JIT lane is gone.
 
-**Done when.** The RealityFoundation `Transform(scale,rotation,translation)` test flips from a
-`Skip` probe to a real pass on sim + device.
+**Validated (sim).** The RealityFoundation `Transform(scale,rotation,translation) constructor` test
+is a real pass (all lanes round-trip) on iOS Simulator. **Device owed** in the Tier-1 batched pass.
 
 ---
 
