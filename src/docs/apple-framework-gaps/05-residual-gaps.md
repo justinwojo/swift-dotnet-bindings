@@ -24,18 +24,21 @@ enough; these tests drive the actual fixed API end-to-end and assert a correct r
 | FamilyActivityPicker SwiftUI bridge packaging | ✅ | ✅ | **Landed** (SDK bridge xcframework pipeline — see [FamilyActivityPicker bridge](#familyactivitypicker-bridge)) |
 | ProximityReader `GetErrorDescription` @_cdecl parity (04) | ✅ | — | **Landed** |
 | MusicKit `Create` array-shims + `MusicItemProxy` (04) | ✅ | — | **Landed** (the 0.11.x ancestor-ordering crash is gone) |
-| WorkoutKit `SwiftClosedRange<Bound>` ctors emitted (01) | ✅ | — | **Landed** (callable signatures; usability shim → [06 T2.3](06-remaining-work.md#t23--workoutkit-range-alert-measurement-ctor-shim)) |
+| WorkoutKit `SwiftClosedRange<Bound>` ctors emitted (01) | ✅ | — | **Landed** (callable signatures) |
+| WorkoutKit `{HeartRate,Cadence,Power,Speed}RangeAlert` ctors via runtime `Measurement<T>(value, unit)` | ✅ | — | **Landed** (was 06 T2.3 — see [WorkoutKit range-alert ctors](#workoutkit-range-alert-ctors)) |
 | §5b class-superclass read-only proxy fail-clean CALLBACK | ✅ | ✅ | **Landed** |
-| §5b Data-return CSM concrete overloads (Ed25519 / context-string sign) | ✅ | — | **Landed** (real-CryptoKit confirm owed → [06 Verification debts](06-remaining-work.md#verification-debts-code-landed-confirmation-owed)) |
+| §5b Data-return CSM concrete overloads (Ed25519 / context-string sign) | ✅ | — | **Landed** (real-CryptoKit confirm paid this pass — see [Data-return CSM](#data-return-csm)) |
+| MLDSA65/MLDSA87 context-string `IsValidSignature(sig, data, context) → bool` overloads on sim | ✅ | — | **Landed** (was 06 T2.2 verification debt — see [MLDSA context-string verify](#mldsa-context-string-verify-sim)) |
 
 **Tier 1 closed.** With the FamilyActivityPicker bridge packaging confirmed end-to-end and the
 batched device pass green for the existential-boxing and 3-SIMD ctor fixes, every Tier-1 item in
 [`06-remaining-work.md`](06-remaining-work.md) is LANDED on its gated lanes (sim + device, iPhone
 13 NativeAOT, 2026-05-31). The gap-fix campaign reaches the doc's stated "finishable" criterion.
-RC‑AOT mesh buffers, CryptoKit HPKE construction, WorkoutKit range-alert constructibility, the
-entity-gesture *real-RealityKit* round-trip (Failure B), and the two generator-hardening items
-(§5d witness-getter wrap, sibling-marker re-keying) remain in
-[`06`](06-remaining-work.md) as Tier 2.
+WorkoutKit range-alert constructibility (was 06 T2.3) graduated to this ledger in the closing
+pass — see [WorkoutKit range-alert ctors](#workoutkit-range-alert-ctors). RC‑AOT mesh buffers,
+CryptoKit HPKE construction, the entity-gesture *real-RealityKit* round-trip (Failure B), and
+the two generator-hardening items (T2.5 witness-getter wrap, T2.6 sibling-marker re-keying)
+remain in [`06`](06-remaining-work.md) as Tier 2.
 
 ## Validated-working surface (real passes recorded)
 
@@ -53,9 +56,15 @@ The positive half of each partially-landed area, confirmed by real per-package p
   (see [FamilyActivityPicker bridge](#familyactivitypicker-bridge)).
 - **CryptoKit:** incremental `HMAC<SHA256/384>` is bit-for-bit identical to the one-shot
   `AuthenticationCode` on **sim and device** (`ByteCount` 32/48); the other 40 CryptoKit tests
-  (AES.GCM, SHA, key types, …) pass on device.
+  (AES.GCM, SHA, key types, …) pass on device. **MLDSA65 context-string verify round-trip**
+  (sign → verify-matching-context true → verify-wrong-context false) passes on **sim**
+  ([MLDSA context-string verify](#mldsa-context-string-verify-sim)).
 - **WorkoutKit:** metadata, enums, and the non-`Measurement` ctors (`WorkoutStep`, `IntervalStep`,
-  `IntervalBlock`) pass; the four range-alert ctors emit as callable signatures.
+  `IntervalBlock`) pass; the four range-alert ctors (`HeartRateRangeAlert`,
+  `CadenceRangeAlert`, `PowerRangeAlert`, `SpeedRangeAlert`) construct end-to-end on **sim**
+  via the runtime-level `Measurement<T>(double value, T unit)` ctor +
+  `SwiftClosedRange<Bound>(lower, upper)` — see
+  [WorkoutKit range-alert ctors](#workoutkit-range-alert-ctors).
 - **MusicKit:** 40/0/0 on sim, incl. the `Create` shims.
 
 <a id="data-return-csm"></a>
@@ -93,15 +102,18 @@ BindingTests fixtures pin the behaviour permanently.
   mechanism behind the **Ed25519 signing** stub (Ed25519 signatures are raw `Foundation.Data`, so
   `signature(for:)` now binds to a concrete `byte[]` overload) and behind any **context-string
   sign** whose concrete return is likewise `Foundation.Data`. (The context-string *verify* path
-  returns `Bool`, a direct return the indirect-result preflight never blocked — it is
-  [06 T2.2](06-remaining-work.md#t22--cryptokit-generic-remainders).) Pinned by
-  `Generics/SigningSpecialization.swift` + `SigningSpecializationTests.cs` (single-, two-, and
-  three-generic shapes; distinct-seed payload observability) and `ConcreteSpecializationEngineTests`.
-  The fixtures model the shape with module-local stand-ins, so the generator mechanism is proven;
-  real-CryptoKit end-to-end confirmation is owed (a `nuke validate` sweep —
-  [06 Verification debts](06-remaining-work.md#verification-debts-code-landed-confirmation-owed)).
-  **Unchanged:** HPKE `Sender`/`Recipient` remain blocked by the separate NestedType conformer
-  rejection ([06 T2.2](06-remaining-work.md#t22--cryptokit-generic-remainders)).
+  returns `Bool`, a direct return the indirect-result preflight never blocked — and now ships
+  end-to-end on sim, see [MLDSA context-string verify](#mldsa-context-string-verify-sim).)
+  Pinned by `Generics/SigningSpecialization.swift` + `SigningSpecializationTests.cs` (single-,
+  two-, and three-generic shapes; distinct-seed payload observability) and
+  `ConcreteSpecializationEngineTests`. **Real-CryptoKit confirmation paid this pass:** filtered
+  `nuke validate --filter CryptoKit` regen survey confirms the cartesian binds end-to-end —
+  Ed25519 signing emits `byte[]` Sign overloads, and `MLDSA65.PrivateKey.Signature(data[,
+  context])` emits 4 sign-side cartesian overloads (`CryptoKit.cs:25307-25417`); the verify
+  side (`MLDSA65.PublicKey.IsValidSignature(sig, data, context) → bool`) emits 8 cartesian
+  overloads (`CryptoKit.cs:24792-24903`). MLDSA87 mirrors. **Unchanged:** HPKE
+  `Sender`/`Recipient` remain blocked by the separate NestedType conformer rejection
+  ([06 T2.2](06-remaining-work.md#t22--cryptokit-generic-remainders)).
 
 - **Adjacent latent hazard.** A sibling family of emission markers (`SetVtable`, `ObjCBase`,
   `EntityBase`, `Conformance`) still keys on the simple type name rather than the module-qualified
@@ -196,6 +208,65 @@ retrospective. The batched device pass on iPhone 13 (NativeAOT, 2026-05-31) conf
 RealityFoundation `Transform(scale,rotation,translation) constructor` test passes under AOT as
 well. No new code emerged from the device pass.
 
+<a id="workoutkit-range-alert-ctors"></a>
+
+## WorkoutKit range-alert ctors on sim — was 06 T2.3
+
+The four range-alert types (`HeartRateRangeAlert`, `CadenceRangeAlert`, `PowerRangeAlert`,
+`SpeedRangeAlert`) take `SwiftClosedRange<Measurement<NSUnit…>>` bounds. Previously the
+Foundation `Measurement<T>` projection was value-only (read-only — `.Value` getter + only
+`internal Measurement(IntPtr)`), so the bounds could not be minted from C# and the alerts
+were non-constructible end-to-end. The 06 doc tracked this as a per-framework `@_cdecl`
+trampoline.
+
+What actually shipped is a **runtime-level** `public unsafe Measurement(double value, T unit)
+where T : class` ctor on the Foundation `Measurement<T>` projection
+(`src/Swift.Bindings.Apple/Sources/Foundation/Measurement.cs:193`), routing through
+`MeasurementInterop.InitFromValueUnit` → the `SBW_Measurement_InitFromValueUnit` shim
+in the Apple supplement xcframework. Combined with the existing
+`SwiftClosedRange<Bound>(Bound lower, Bound upper)` ctor
+(`src/Swift.Runtime/src/Swift/SwiftClosedRange.cs:194`) — which copies the bounds via the
+value-witness-table InitializeWithCopy, so the source `Measurement<T>` values can be safely
+disposed after range construction — the four range-alert types are constructible from C# with
+**no per-framework Swift trampoline**. The Measurement projection's static cctor auto-registers
+the `ISwiftComparable` conformance, satisfying the `SwiftClosedRange<Bound>` Comparable
+requirement.
+
+**Validated.** WorkoutKit per-package sim run (Mono JIT, 2026-05-31): 29/0/0. Each of the four
+range-alert ctor tests flipped from `Skip()` to a real pass — minting two
+`Measurement<NSUnit{Frequency,Power,Speed}>` bounds, wrapping them in
+`SwiftClosedRange<Measurement<…>>`, and constructing the alert (the `SpeedRangeAlert` ctor
+additionally takes a `WorkoutAlertMetric`; `.Current` is used). Test source:
+`apple-frameworks/WorkoutKit/tests/Tests.cs`. Device round-trip is not gated for this surface.
+
+<a id="mldsa-context-string-verify-sim"></a>
+
+## MLDSA context-string verify on sim — was 06 T2.2 verification debt
+
+The `Bool`-return context-string verify overload — `IsValidSignature(signature, data, context)
+→ bool` — is a direct return that the indirect-result preflight described in
+[§5b](#data-return-csm) never blocked. The 0.12.0 retrospective initially tracked the
+emitted overloads under T2.2 as a verification debt awaiting a real-CryptoKit per-package
+round-trip. This pass pays that debt.
+
+Apple's ECDSA surfaces (`P256/P384/P521.Signing.PublicKey`) expose **no** context parameter
+on `IsValidSignature`; the 3-PAT cartesian context-string verify ships on the **ML-DSA
+post-quantum signing** surfaces — `MLDSA65.PublicKey` and `MLDSA87.PublicKey` (FIPS 204,
+iOS 26+). The 8 concrete cartesian overloads
+(`(byte[]|Foundation.Data)³ → bool`) emit at `CryptoKit.cs:24792-24903`. MLDSA65 CSM uses
+direct cdecl entries (`SBW_CSM_..._signature_...`, `SBW_CSM_..._isValidSignature_...`),
+not the `ConcreteSpecializationEngine` static-cctor `@rpath/CryptoKit.framework/CryptoKit`
+load path, so it is unaffected by the historical HMAC`<H>` device-load gap and exercises
+cleanly on Mono/sim. (Device runtime is not gated for this overload set in 0.12.0; the
+generator mechanism is the same that ships HMAC`<H>` on device via the §5b/HMAC fixes,
+so the device-lane risk is bounded to a follow-on confirmation, not new code.)
+
+**Validated.** New CryptoKit per-package sim test (`apple-frameworks/CryptoKit/tests/Tests.cs`,
+`MLDSA65 context-string verify round-trip`): mint `MLDSA65.PrivateKey()` → derive
+`PublicKey` → `Signature(msg, context)` → `IsValidSignature(sig, msg, context)` asserts
+true → `IsValidSignature(sig, msg, wrongContext)` asserts false. Sim pass, CryptoKit
+per-package run 43/0/0 (Mono JIT, 2026-05-31).
+
 ## Per-package test dispositions applied this pass
 
 The empirical record of how the per-package tests were set during this validation pass.
@@ -207,7 +278,8 @@ The empirical record of how the per-package tests were set during this validatio
 | FamilyControls — `FamilyActivityPicker bridge … round-trip` | Skip | **real pass on sim + device** (see [FamilyActivityPicker bridge](#familyactivitypicker-bridge)) |
 | CryptoKit — `HMAC<SHA256/384> incremental == one-shot` | Fail (device) | **pass on sim + device** (system-framework load fixed → [HMAC on device](#hmac-device)) |
 | RealityFoundation — `Transform(scale,rotation,translation)` | Fixed | **real pass on sim + device** (see [Transform three-SIMD on device](#transform-three-simd-device)) |
-| WorkoutKit — `{HeartRate,Cadence,Power,Speed}RangeAlert` ctors | (new) | **Skip** → [06 T2.3](06-remaining-work.md#t23--workoutkit-range-alert-measurement-ctor-shim) |
+| WorkoutKit — `{HeartRate,Cadence,Power,Speed}RangeAlert` ctors | (new) | **real pass on sim** (see [WorkoutKit range-alert ctors](#workoutkit-range-alert-ctors)) |
+| CryptoKit — `MLDSA65 context-string verify round-trip` | (new) | **real pass on sim** (see [MLDSA context-string verify](#mldsa-context-string-verify-sim)) |
 | RealityKit — `EntityGestureRecognizer callback` (Failure B) | Skip | **Skip** → [06 T2.4](06-remaining-work.md#t24--entity-gesture-device-round-trip-failure-b) |
 
 All Tier-1 gates are green on sim + device. The remaining skips track Tier-2 items in

@@ -22,6 +22,39 @@ This is the whole list. When Tier 1 is green and the verification debts are paid
 gap-fix campaign is done — Tier 2 and Excluded are tracked here precisely so they do *not*
 keep the campaign "open" indefinitely.
 
+## Release targeting — 0.12.0 vs 0.13.0
+
+Tier 1 closing makes 0.12.0 shippable. The 0.12.0 release wave additionally pulls in the
+Tier-2 items + verification debts that cover core consumer flows people would actually trip
+on. The remainder defer to 0.13.0 and get a wiki *Known Limitations* note in the 0.12.0
+release announcement.
+
+**Targeting 0.12.0** (core-flow gaps + cheap verifications)
+
+- ~~**T2.3** WorkoutKit range-alert ctor shim~~ — **LANDED (sim)** via the runtime-level
+  `Measurement<T>(value, unit)` ctor + existing `SwiftClosedRange<Bound>(lower, upper)`;
+  no per-framework shim was needed once the Foundation Measurement projection grew its
+  public ctor. See [05 → WorkoutKit range-alert ctors](05-residual-gaps.md#workoutkit-range-alert-ctors).
+- **T2.4** Entity gesture device verification — emitter routing already shipped; this is the
+  device round-trip on real RealityKit gesture input, not new code.
+- ~~Context-string verify per-package test~~ — **LANDED (sim)**; MLDSA65 round-trip
+  (sign → verify-positive → verify-wrong-context) exercises the 3-PAT byte[]/Data
+  cartesian on real CryptoKit. See
+  [05 → MLDSA context-string verify](05-residual-gaps.md#mldsa-context-string-verify-sim).
+- ~~Data-return CSM `nuke validate` sweep~~ — **DONE**; filtered `nuke validate --filter
+  CryptoKit` regen confirms `MLDSA65.PrivateKey.Signature(data[, context])` binds to all
+  byte[]/Data cartesian overloads (4 sign-side + 8 verify-side), and Ed25519 signing
+  binds to `byte[]`. Recorded in
+  [05 → Data-return CSM](05-residual-gaps.md#data-return-csm).
+
+**Deferred to 0.13.0** (advanced / niche / latent / polish)
+
+- **T2.1** RC-AOT typed mesh buffers on device — advanced mesh introspection only; sim works.
+- **T2.2** HPKE construction — niche modern primitive; rest of CryptoKit binds correctly.
+- **T2.5** Witness-getter `EntryPointNotFound`→`NotSupported` wrap (second shape) —
+  error-quality polish; no shipping framework hits the second shape today.
+- **T2.6** Sibling emission-marker name-keying hardening — latent, not reproducing.
+
 ## Status legend
 
 - **LANDED** — code shipped, validated end-to-end on its named gated lane.
@@ -33,18 +66,18 @@ keep the campaign "open" indefinitely.
 
 ## At a glance
 
-| Tier | Item | Framework | Status |
-|---|---|---|---|
-| ~~1~~ | ~~T1.1 `Scene.AddAnchor(IHasAnchoring)`~~ | RealityKit / RealityFoundation | **LANDED** ([ledger](05-residual-gaps.md#class-bound-existential-device)) |
-| ~~1~~ | ~~T1.2 `FamilyActivityPicker` bridge packaging~~ | FamilyControls | **LANDED** ([ledger](05-residual-gaps.md#familyactivitypicker-bridge)) |
-| ~~1~~ | ~~T1.3 HMAC`<H>` conformance-descriptor load on device~~ | CryptoKit | **LANDED** ([ledger](05-residual-gaps.md#hmac-device)) |
-| ~~1~~ | ~~T1.4 `Transform(scale,rotation,translation)` ctor~~ | RealityFoundation | **LANDED** ([ledger](05-residual-gaps.md#transform-three-simd-device)) |
-| 2 | [T2.1](#t21--typed-mesh-buffers-on-nativeaot-rc-aot) RC‑AOT typed mesh buffers on NativeAOT | RealityFoundation | **OPEN** |
-| 2 | [T2.2](#t22--cryptokit-generic-remainders) CryptoKit generic remainders (HPKE construction + Seal/Open reach) | CryptoKit | **PARTIAL** — instance-method side landed; HPKE init still blocked |
-| 2 | [T2.3](#t23--workoutkit-range-alert-measurement-ctor-shim) WorkoutKit range-alert `Measurement<T>` ctor shim | WorkoutKit | **OPEN** |
-| 2 | [T2.4](#t24--entity-gesture-device-round-trip-failure-b) Entity gesture device round-trip (Failure B) | RealityKit | **PARTIAL** — emitter routing + carrier emission landed; device round-trip unverified |
-| 2 | [T2.5](#t25--witness-getter-entrypointnotfound-to-notsupported-wrap-second-shape) Witness-getter `EntryPointNotFound`→`NotSupported` wrap (second shape) | generator | **OPEN** |
-| 2 | [T2.6](#t26--sibling-emission-marker-name-keying-hardening) Sibling emission-marker name-keying hardening | generator | **OPEN** |
+| Tier | Item | Framework | Status | Target |
+|---|---|---|---|---|
+| ~~1~~ | ~~T1.1 `Scene.AddAnchor(IHasAnchoring)`~~ | RealityKit / RealityFoundation | **LANDED** ([ledger](05-residual-gaps.md#class-bound-existential-device)) | 0.12.0 |
+| ~~1~~ | ~~T1.2 `FamilyActivityPicker` bridge packaging~~ | FamilyControls | **LANDED** ([ledger](05-residual-gaps.md#familyactivitypicker-bridge)) | 0.12.0 |
+| ~~1~~ | ~~T1.3 HMAC`<H>` conformance-descriptor load on device~~ | CryptoKit | **LANDED** ([ledger](05-residual-gaps.md#hmac-device)) | 0.12.0 |
+| ~~1~~ | ~~T1.4 `Transform(scale,rotation,translation)` ctor~~ | RealityFoundation | **LANDED** ([ledger](05-residual-gaps.md#transform-three-simd-device)) | 0.12.0 |
+| 2 | [T2.1](#t21--typed-mesh-buffers-on-nativeaot-rc-aot) RC‑AOT typed mesh buffers on NativeAOT | RealityFoundation | **OPEN** | 0.13.0 |
+| 2 | [T2.2](#t22--cryptokit-generic-remainders) CryptoKit generic remainders (HPKE construction + Seal/Open reach) | CryptoKit | **PARTIAL** — instance-method side landed; HPKE init still blocked | 0.13.0 |
+| ~~2~~ | ~~T2.3 WorkoutKit range-alert `Measurement<T>` ctor shim~~ | WorkoutKit | **LANDED (sim)** ([ledger](05-residual-gaps.md#workoutkit-range-alert-ctors)) | 0.12.0 |
+| 2 | [T2.4](#t24--entity-gesture-device-round-trip-failure-b) Entity gesture device round-trip (Failure B) | RealityKit | **PARTIAL** — emitter routing + carrier emission landed; device round-trip unverified | **0.12.0** |
+| 2 | [T2.5](#t25--witness-getter-entrypointnotfound-to-notsupported-wrap-second-shape) Witness-getter `EntryPointNotFound`→`NotSupported` wrap (second shape) | generator | **OPEN** | 0.13.0 |
+| 2 | [T2.6](#t26--sibling-emission-marker-name-keying-hardening) Sibling emission-marker name-keying hardening | generator | **OPEN** | 0.13.0 |
 
 ---
 
@@ -92,6 +125,9 @@ the [done ledger](05-residual-gaps.md); pointers below.
 
 **Status:** OPEN. No code has landed for this item.
 
+**Release target:** **deferred to 0.13.0.** Advanced mesh-buffer introspection only; sim path
+already works. Ships in 0.12.0 with a wiki *Known Limitations* entry.
+
 **What's blocked.** `MeshBuffer<T>` / `MeshBuffers.Semantic<T>` / `UnsafeForceEffectBuffer<T>`
 generic-specialization metadata resolves on Mono/sim but not on NativeAOT/device — the
 constraint-relaxation `T : Vector3` instantiation isn't rooted. Confirmed present on device this
@@ -112,6 +148,10 @@ landed and the instance-method side now binds to concrete overloads end-to-end. 
 construction is the one remaining real blocker** — and its root cause has changed since the
 0.12.0 retrospective. What follows reflects the regen'd `CryptoKit.cs` as of `ff2bafbb`.
 
+**Release target:** **deferred to 0.13.0.** HPKE is a niche modern primitive; the rest of
+CryptoKit (signatures, HMAC, AEAD, KDFs, hashing, key exchange) binds correctly today. Ships
+in 0.12.0 with a wiki *Known Limitations* entry.
+
 ### What shipped (don't redo)
 
 - **NestedType structural gate LIFTED** (`3cd6d0f4`). The
@@ -127,11 +167,13 @@ construction is the one remaining real blocker** — and its root cause has chan
 - **Data-return CSM concrete overloads LANDED** (`44a6002b`). Ed25519 signing and the sign-side
   of context-string `Signature<D,C>` now bind to concrete `byte[]` via the `InlineSwiftStruct`
   preflight admit (see [05 §5b](05-residual-gaps.md#data-return-csm)).
-- **Context-string verify (`Bool` return) LANDED.** P256/etc. `IsValidSignature<S,D,C>` has 8
-  concrete 3-PAT cartesian overloads at `CryptoKit.cs:24792-24867`
-  (`(byte[]|Foundation.Data) × (byte[]|Foundation.Data) × (byte[]|Foundation.Data) → bool`).
-  This was originally tracked as a separate Bool-return item; it appears to have shipped
-  alongside the broader CSM work — verify in the next pass and graduate to the ledger.
+- **Context-string verify (`Bool` return) LANDED + GRADUATED.** The 8 concrete 3-PAT cartesian
+  `IsValidSignature(signature, data, context) → bool` overloads emit on
+  **`MLDSA65.PublicKey`** and `MLDSA87.PublicKey` (not the ECDSA P256/P384/P521 surfaces;
+  Apple's API does not expose a context parameter on ECDSA verify). End-to-end per-package
+  test ships in CryptoKit/tests/Tests.cs (`MLDSA65 context-string verify round-trip` —
+  sign + verify-matching-context + verify-wrong-context, sim PASS). See
+  [05 → MLDSA context-string verify](05-residual-gaps.md#mldsa-context-string-verify-sim).
 
 ### What's still open
 
@@ -172,24 +214,22 @@ conformer emits a *constructor* factory (not just an instance-method factory). A
 point HPKE.Sender's `Seal` / `ExportSecret` concrete overloads — already emitted — become
 reachable in practice.
 
-## T2.3 — WorkoutKit range-alert Measurement ctor shim — OPEN
+<a id="t23--workoutkit-range-alert-measurement-ctor-shim--landed-sim"></a>
 
-**Status:** OPEN. No code has landed for this item.
+## T2.3 — WorkoutKit range-alert Measurement ctor shim — LANDED (sim)
 
-**What's blocked.** The `HeartRateRangeAlert` / `CadenceRangeAlert` / `PowerRangeAlert` /
-`SpeedRangeAlert` ctors emit as callable signatures (the `SwiftClosedRange<Bound>` fix landed),
-but each takes `SwiftClosedRange<Measurement<NSUnit…>>` and the Foundation projection
-`Measurement<T>` is **value-only** — `.Value` getter, only `internal Measurement(IntPtr)`
-(`Swift.Bindings.Apple/Sources/Foundation/Measurement.cs:136`). So the bounds can't be minted
-from C# and the alerts are non-constructible end-to-end. (`Measurement<T>` being value-only is
-**by design** — see Excluded; this item is the *targeted shim* that makes the alerts usable
-anyway, not a generator change.)
+**Status:** LANDED on sim. Full record in
+[05 → WorkoutKit range-alert ctors](05-residual-gaps.md#workoutkit-range-alert-ctors).
 
-**Fix to land.** A per-framework `@_cdecl` trampoline that builds
-`Measurement<Unit>(value:unit:)` from a double + unit, mirroring the MusicKit array-shim
-pattern.
-
-**Done when.** The four WorkoutKit range-alert ctors flip from `Skip` to real passes on sim.
+The premise of this item — that `Measurement<T>` is value-only in the Foundation
+projection and needs a per-framework `@_cdecl` shim — became stale once the runtime-level
+`Measurement<T>(double value, T unit)` ctor + `SBW_Measurement_InitFromValueUnit` shipped
+in `Swift.Bindings.Apple/Sources/Foundation/Measurement.cs`. Combined with the existing
+`SwiftClosedRange<Bound>(lower, upper)` ctor, the four WorkoutKit range-alert types
+(`HeartRateRangeAlert`, `CadenceRangeAlert`, `PowerRangeAlert`, `SpeedRangeAlert`) are
+constructible end-to-end from C# with no per-framework Swift trampoline. The four
+per-package tests flipped from `Skip` to real passes on sim
+(`apple-frameworks/WorkoutKit/tests/Tests.cs`). Device round-trip still owed.
 
 <a id="t24--entity-gesture-device-round-trip-failure-b"></a>
 
@@ -197,6 +237,11 @@ pattern.
 
 **Status:** PARTIAL. The emitter routing + carrier emission landed; the device round-trip
 on real RealityKit input is still unverified.
+
+**Release target:** **0.12.0.** Entity gestures are how RealityKit apps wire user
+interaction (drag-to-move, pinch-to-scale, tap-to-place). The remaining work is verification,
+not new code — install a recognizer on a real RealityKit scene on physical device and
+confirm the callback fires through the `EveryEntityProtocol` existential.
 
 ### What shipped (don't redo)
 
@@ -236,6 +281,11 @@ on a **physical device (NativeAOT)**.
 generator decides upfront not to emit the getter) shipped in `44a6002b` and is recorded in
 [05 §5b](05-residual-gaps.md) — confirm you're not redoing that work.
 
+**Release target:** **deferred to 0.13.0.** Error-quality polish for a fixture-only repro
+(`ProtocolExtOptionalClassParam.swift`); no shipping Apple framework hits the second shape
+today. The masking trade-off (catching unrelated regressions as designed-limitation
+messages) warrants a deliberate pass with a RED fixture, not a pre-release sprint.
+
 **What's still open — the second shape.** The §5/§5b fail-clean change covers the case
 where the generator decides upfront NOT to emit `Get_EveryProtocol_{P}_WitnessTable`. It
 does **not** cover a different, pre-existing failure mode: the generator emits the
@@ -274,6 +324,9 @@ proxy. **Not a reproducing bug today** (no known same-simple-name collision acro
 current validation/fixture set; cross-module-parent vtable wiring uses a separate
 module-prefixed path), so it is latent.
 
+**Release target:** **deferred to 0.13.0.** Latent hazard with no reproducer; pure
+categorical-hardening pass.
+
 **Fix to land.** Re-key the sibling markers to `ModuleQualifiedName`, per the
 safe-hardening plan in the detail doc: SetVtable/ObjCBase/EntityBase are low-risk
 single-site re-keys; **Conformance is the delicate one** (read at 3 sites incl. a
@@ -292,23 +345,14 @@ P/Invoke or wrong carrier *before* the change, then goes green; unit +
 These are *not* new code — the mechanism shipped — but the campaign isn't honestly done
 until the real-framework end-to-end is confirmed.
 
-- **Data-return CSM concrete overloads sweep.** The generator mechanism landed (`44a6002b`)
-  and is pinned by fixtures (`Generics/SigningSpecialization.swift`,
-  `SigningSpecializationTests.cs`, `ConcreteSpecializationEngineTests`) — see
-  [05 §5b](05-residual-gaps.md#data-return-csm). **Owed:** a `nuke validate` sweep to confirm
-  which real-CryptoKit `Signature<D>` / context-string `Signature<D,C>` overloads now bind
-  to concrete `byte[]` overloads end-to-end.
+- **`EveryEntityProtocol` carrier on real input.** *(Targeting 0.12.0 — folded into
+  T2.4.)* Emission is covered by generator unit tests and the routing-gate fix landed; the
+  real device round-trip is unverified — see
+  [T2.4](#t24--entity-gesture-device-round-trip-failure-b).
 
-- **Context-string verify concrete overloads.** Regen of `CryptoKit.cs` shows the
-  3-PAT cartesian `IsValidSignature(signature, data, context) → bool` overloads now
-  emit (8 overloads at lines 24792-24867). **Owed:** confirm via a real-CryptoKit
-  per-package test that calling these against a fixed signature/data/context tuple
-  returns the expected `true`/`false`, then graduate the item to the 05 ledger and remove
-  it from T2.2's "what shipped" list.
-
-- **`EveryEntityProtocol` carrier on real input.** Emission is covered by generator unit
-  tests and the routing-gate fix landed; the real device round-trip is unverified — folded
-  into [T2.4](#t24--entity-gesture-device-round-trip-failure-b).
+*(Data-return CSM sweep + context-string verify per-package test were paid in this pass
+and graduated to [05 → Data-return CSM](05-residual-gaps.md#data-return-csm) /
+[05 → MLDSA context-string verify](05-residual-gaps.md#mldsa-context-string-verify-sim).)*
 
 ---
 
@@ -337,8 +381,9 @@ explicit in one place.
   route bypasses a Swift property observer. Session 03 landed a best-effort preflight guard + doc
   note; nothing more is generator-fixable.
 - **`Measurement<T>` general value-only projection** — Foundation type behavior, not a binding
-  defect. (The WorkoutKit-specific *shim* that works around it for range alerts is the actionable
-  [T2.3](#t23--workoutkit-range-alert-measurement-ctor-shim), not a change to this projection.)
+  defect. (The runtime-level `Measurement<T>(double, T)` ctor that makes WorkoutKit range alerts
+  constructible from C# is a *targeted* surface, not a general round-trippable
+  `Measurement<T>` — see [T2.3](#t23--workoutkit-range-alert-measurement-ctor-shim--landed-sim).)
 
 ## References
 
