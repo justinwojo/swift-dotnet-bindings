@@ -2,14 +2,14 @@
 // Licensed under the MIT License.
 //
 // Apple Supplement probe — minimal @_cdecl symbol whose presence in the
-// `SwiftBindingsAppleSupplement.xcframework` proves three things end-to-end:
+// `SBApple.xcframework` proves three things end-to-end:
 //
 //   1. `nuke build-apple-supplement-xcframework` produced a multi-slice
-//      xcframework with @rpath/SwiftBindingsAppleSupplement.framework/...
+//      xcframework with @rpath/SBApple.framework/...
 //      install names.
 //   2. The framework is reachable via `SwiftFrameworkResolver`'s
 //      `@rpath/{name}.framework/{name}` search path at consumer runtime.
-//   3. The `[LibraryImport("SwiftBindingsAppleSupplement", ...)]` resolver
+//   3. The `[LibraryImport("SBApple", ...)]` resolver
 //      wiring is live for assemblies that depend on the Apple supplement.
 //
 // Subsequent shim files (AttributedStringAttributes.swift, etc.) layer on

@@ -7,18 +7,18 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.AppleSupplement;
 
 /// <summary>
-/// End-to-end smoke for the <c>SwiftBindingsAppleSupplement</c> shim framework.
+/// End-to-end smoke for the <c>SBApple</c> shim framework.
 /// Calls the trivial <c>SBW_AppleSupplement_Probe_AddOne</c> @_cdecl symbol
 /// defined in <c>src/Swift.Bindings.Apple/Shims/AppleSupplementProbe.swift</c>.
 ///
 /// A passing run proves the whole supplement pipeline is wired end-to-end:
 ///   1. <c>nuke build-apple-supplement-xcframework</c> produced a multi-slice
 ///      xcframework with the expected install name
-///      (<c>@rpath/SwiftBindingsAppleSupplement.framework/SwiftBindingsAppleSupplement</c>).
+///      (<c>@rpath/SBApple.framework/SBApple</c>).
 ///   2. The xcframework was bundled into the runtime test app via NativeReference
-///      and shipped into <c>.app/Frameworks/SwiftBindingsAppleSupplement.framework/</c>.
+///      and shipped into <c>.app/Frameworks/SBApple.framework/</c>.
 ///   3. SwiftFrameworkResolver's <c>@rpath/{name}.framework/{name}</c> search rule
-///      resolves the bare <c>SwiftBindingsAppleSupplement</c> library name at
+///      resolves the bare <c>SBApple</c> library name at
 ///      <c>[LibraryImport]</c> time.
 ///   4. The probe symbol is exported and dispatches correctly.
 ///
@@ -31,7 +31,7 @@ public partial class AppleSupplementSmokeTests : TestBase
     public AppleSupplementSmokeTests(TestResults results) : base(results) { }
 
     [LibraryImport(
-        "SwiftBindingsAppleSupplement",
+        "SBApple",
         EntryPoint = "SBW_AppleSupplement_Probe_AddOne")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
     private static partial nint Probe_AddOne(nint value);

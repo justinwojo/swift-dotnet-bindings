@@ -1,21 +1,23 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Build.AppleSupplement.cs — SwiftBindingsAppleSupplement.xcframework producer
+// Build.AppleSupplement.cs — SBApple.xcframework producer
 //
 // Builds the host Swift framework that carries the @_cdecl trampolines used by
 // SwiftBindings.Apple consumers (KVO observe extensions, AttributedString
 // attribute getters/setters, …). The framework ships as a single multi-slice
 // xcframework inside the SwiftBindings.Apple NuGet package so consumers don't
 // need to compile any Swift themselves; SwiftFrameworkResolver routes
-// `[LibraryImport("SwiftBindingsAppleSupplement")]` to the framework via its
+// `[LibraryImport("SBApple")]` to the framework via its
 // `@rpath/{name}.framework/{name}` search path.
+//
+// The module name is intentionally short — see AppleSupplementModuleName below.
 //
 // Sources live next to the managed Apple supplement code at
 // src/Swift.Bindings.Apple/Shims/*.swift. The xcframework output lands at
-// src/Swift.Bindings.Apple/native/SwiftBindingsAppleSupplement.xcframework/
-// (gitignored, rebuilt by `nuke build-apple-supplement-xcframework`) and is
-// then packed by Swift.Bindings.Apple.csproj.
+// src/Swift.Bindings.Apple/native/SBApple.xcframework/ (its .swiftmodule
+// contents are gitignored; rebuilt by `nuke build-apple-supplement-xcframework`)
+// and is then packed by Swift.Bindings.Apple.csproj.
 
 using System.Collections.Generic;
 using System.IO;
@@ -25,7 +27,15 @@ using Serilog;
 
 partial class Build
 {
-    const string AppleSupplementModuleName = "SwiftBindingsAppleSupplement";
+    // Kept deliberately short. This name appears three times in every packed
+    // xcframework path (`{name}.xcframework/{slice}/{name}.framework/Modules/
+    // {name}.swiftmodule/…`); the old 28-char `SwiftBindingsAppleSupplement`
+    // pushed the longest path past Windows' 260-char MAX_PATH on universal
+    // (arm64+x86_64) slices, silently dropping `.abi.json` files during NuGet
+    // restore on Windows hosts (issue #40). Two guards in Build.WindowsPathGuard.cs
+    // keep this from regressing: an early tripwire the moment the xcframework is
+    // built (below) and an authoritative ship gate over every produced nupkg in Pack.
+    const string AppleSupplementModuleName = "SBApple";
 
     AbsolutePath AppleSupplementDir => SourceDir / "Swift.Bindings.Apple";
     AbsolutePath AppleSupplementShimsDir => AppleSupplementDir / "Shims";
@@ -98,6 +108,13 @@ partial class Build
 
         Log.Information("=== {Module}.xcframework built at {Path} ===",
             AppleSupplementModuleName, AppleSupplementXcframeworkDir);
+
+        // Fail fast the moment a path-length regression is introduced (issue #40): this is the
+        // only point the xcframework layout — and the module name that appears 3x in every path —
+        // is created, so a regression can only ENTER here. Gates that re-pack the already-built
+        // xcframework (PackGate, BehaviorTier) re-assert this same check before they pack; `nuke
+        // pack` additionally runs the authoritative per-nupkg ship gate (see Build.WindowsPathGuard.cs).
+        AssertAppleXcframeworkWindowsPathSafe(AppleSupplementXcframeworkDir, AppleSupplementModuleName);
     }
 
     string BuildAppleSupplementSlice(ApplePlatform platform, bool deviceSlice, IReadOnlyList<string> sourceFiles)

@@ -398,7 +398,7 @@ partial class Build
 
         // Find every embedded framework's Mach-O and assert it carries x86_64.
         // The interesting framework varies (X64PackFixture, StoreKitSwiftBindings,
-        // SwiftBindingsAppleSupplement, …), so we walk the whole Frameworks/ dir
+        // SBApple, …), so we walk the whole Frameworks/ dir
         // and let lipo speak. We require at LEAST ONE embedded framework binary
         // and EVERY embedded framework binary to contain x86_64 — a missing
         // x86_64 in any embedded framework would crash at sim launch.

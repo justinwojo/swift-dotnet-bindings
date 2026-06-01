@@ -109,7 +109,7 @@
     </NativeReference>
   </ItemGroup>
 
-  <!-- Include the dev-built SwiftBindingsAppleSupplement xcframework. In a shipped
+  <!-- Include the dev-built SBApple (Apple supplement) xcframework. In a shipped
        NuGet flow this NativeReference is injected for consumers via
        src/Swift.Bindings.Apple/build/SwiftBindings.Apple.targets (packed into
        buildTransitive/); here we point at the in-repo artifact produced by
@@ -118,8 +118,8 @@
        attribute getters, …) that the Apple supplement nupkg will ship. The
        Condition gate makes this opt-in to "the xcframework has been built", so a
        fresh clone that has never run the supplement build still compiles. -->
-  <ItemGroup Condition="Exists('../../src/Swift.Bindings.Apple/native/SwiftBindingsAppleSupplement.xcframework')">
-    <NativeReference Include="../../src/Swift.Bindings.Apple/native/SwiftBindingsAppleSupplement.xcframework">
+  <ItemGroup Condition="Exists('../../src/Swift.Bindings.Apple/native/SBApple.xcframework')">
+    <NativeReference Include="../../src/Swift.Bindings.Apple/native/SBApple.xcframework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

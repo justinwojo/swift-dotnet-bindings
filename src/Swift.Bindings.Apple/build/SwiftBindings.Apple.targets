@@ -1,12 +1,12 @@
 <!-- SwiftBindings.Apple NuGet package: consumer wiring for the
-     SwiftBindingsAppleSupplement.xcframework shim framework.
+     SBApple.xcframework shim framework.
 
      The framework is built by `nuke build-apple-supplement-xcframework`,
-     packed into runtimes/native/SwiftBindingsAppleSupplement.xcframework/
+     packed into runtimes/native/SBApple.xcframework/
      inside this NuGet, and surfaced here as a NativeReference so consumer
      apps get a copy in their .app/Frameworks/ bundle. SwiftFrameworkResolver
      (in SwiftBindings.Runtime) then routes
-     `[LibraryImport("SwiftBindingsAppleSupplement")]` to it via the
+     `[LibraryImport("SBApple")]` to it via the
      `@rpath/{name}.framework/{name}` search path.
 
      The xcframework already encodes per-platform slices internally — the
@@ -18,8 +18,8 @@
      right slice for the consumer's RID at build time. -->
 <Project>
 
-  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../runtimes/native/SwiftBindingsAppleSupplement.xcframework')">
-    <NativeReference Include="$(MSBuildThisFileDirectory)../runtimes/native/SwiftBindingsAppleSupplement.xcframework">
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../runtimes/native/SBApple.xcframework')">
+    <NativeReference Include="$(MSBuildThisFileDirectory)../runtimes/native/SBApple.xcframework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

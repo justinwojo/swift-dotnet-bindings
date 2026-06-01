@@ -83,6 +83,11 @@ partial class Build
             // with "Bad CPU type" on whichever developer host doesn't match.
             AssertUniversal2(stagedBinary);
 
+            // Mark the start of packing so the Windows MAX_PATH ship gate below inspects only the
+            // nupkgs this run produces — outputDir (e.g. /tmp/swift-nuget) is not cleaned between
+            // runs, and a stale unsafe package from an earlier version must not fail this build.
+            var packStartUtc = System.DateTime.UtcNow;
+
             using var scope = new VersionScope(Version!, RootDirectory, appleVersion);
 
             // 1. Runtime
@@ -145,6 +150,14 @@ partial class Build
                     .EnableNoLogo()
                     .SetVerbosity(DotNetVerbosity.quiet));
             }
+
+            // Windows MAX_PATH ship gate (issue #40): authoritative per-entry check over every
+            // nupkg THIS run produced, using each one's real layout + version (stale packages from
+            // prior runs are ignored). Runs even under --skip-apple so Runtime/SDK/Templates are
+            // still gated. The Apple supplement is the only deep-path package today, but guarding
+            // all of them is cheap and catches a long path in any future package. (The Apple
+            // xcframework also gets an earlier tripwire at build time; see Build.WindowsPathGuard.cs.)
+            AssertProducedNupkgsWindowsPathSafe(outputDir, packStartUtc);
 
             // Summary
             var packages = Directory.GetFiles(outputDir, "*.nupkg");

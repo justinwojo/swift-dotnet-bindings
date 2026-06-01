@@ -13,7 +13,7 @@
 //     (languageIdentifier, link, foregroundColor, ...) — that subscript
 //     is a generic key-path overload with no flat symbol.
 //
-// The Apple Supplement framework (SwiftBindingsAppleSupplement.xcframework,
+// The Apple Supplement framework (SBApple.xcframework,
 // built by `nuke build-apple-supplement-xcframework`) carries the
 // SBW_AttributedString_* @_cdecl shims that translate those operations
 // into a calling-convention this partial can speak via [LibraryImport].
@@ -196,13 +196,13 @@ public sealed partial class AttributedString
     /// Cdecl + raw void* — none of these symbols traffic in
     /// CallConvSwift, so Mono and NativeAOT take identical fast paths
     /// through them. The framework ships in this NuGet at
-    /// <c>runtimes/native/SwiftBindingsAppleSupplement.xcframework/</c>
+    /// <c>runtimes/native/SBApple.xcframework/</c>
     /// and is resolved at LoadLibrary time by SwiftFrameworkResolver's
     /// <c>@rpath/{name}.framework/{name}</c> rule.
     /// </summary>
     private static partial class SupplementNative
     {
-        private const string Library = "SwiftBindingsAppleSupplement";
+        private const string Library = "SBApple";
 
         [LibraryImport(Library, EntryPoint = "SBW_AttributedString_InitFromUtf8")]
         [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]

@@ -104,6 +104,13 @@ partial class Build
 
             // 2. Pack the three core packages at the throwaway version.
             Log.Information("  [2/5] Packing Runtime + Sdk + Apple");
+
+            // Issue #40 early tripwire: this gate packs the on-disk SBApple.xcframework directly
+            // (it does not call RunBuildAppleSupplementXcframework), so assert its layout is Windows
+            // MAX_PATH-safe here too. The check budgets a fixed assumed version, so the throwaway
+            // PackGateAppleVersion cannot false-fail it.
+            AssertAppleXcframeworkWindowsPathSafe(AppleSupplementXcframeworkDir, AppleSupplementModuleName);
+
             foreach (var csproj in new[]
             {
                 SourceDir / "Swift.Runtime" / "src" / "Swift.Runtime.csproj",

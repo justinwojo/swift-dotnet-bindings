@@ -12,7 +12,7 @@ namespace RuntimeTestsApp.AppleSupplement;
 /// shell. The generated half supplies storage + ISwiftObject; the
 /// hand-rolled half (Sources/Foundation/AttributedString.cs in
 /// Swift.Bindings.Apple) wraps the SBW_AttributedString_* @_cdecl shims
-/// exported from <c>SwiftBindingsAppleSupplement.xcframework</c> and
+/// exported from <c>SBApple.xcframework</c> and
 /// exposes a public string constructor, an override of ToString(), and
 /// a LanguageIdentifier property that round-trips the
 /// @dynamicMemberLookup-keyed Foundation attribute.

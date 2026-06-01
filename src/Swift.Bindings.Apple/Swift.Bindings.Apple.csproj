@@ -10,16 +10,17 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- NU5123: NuGet warns when a packed file's path exceeds the old Windows
-         MAX_PATH=260 boundary. The shipped SwiftBindingsAppleSupplement.xcframework
-         path
-           runtimes/native/SwiftBindingsAppleSupplement.xcframework/{slice}/SwiftBindingsAppleSupplement.framework/Modules/SwiftBindingsAppleSupplement.swiftmodule/{module-suffix}.swiftsourceinfo
-         exceeds that limit on the longest slices, but this nupkg only ships
-         to .NET Apple TFMs (net10.0-{ios,maccatalyst,tvos,macos}); macOS hosts
-         have no MAX_PATH ceiling. Suppress the warning per-package rather than
-         globally so it would still surface on a hypothetical Windows-targeting
-         supplement that genuinely cares. -->
-    <NoWarn>$(NoWarn);NU5123</NoWarn>
+    <!-- Windows MAX_PATH (260) safety. NuGet restore on a Windows host extracts
+         each packed file to <globalPackagesFolder>\swiftbindings.apple\<ver>\<entry>
+         and the legacy 260-char ceiling silently drops any file whose full path
+         crosses it (issue #40). The packed paths
+           runtimes/native/SBApple.xcframework/{slice}/SBApple.framework/Modules/SBApple.swiftmodule/{suffix}.*
+         must therefore stay short. The native module name is deliberately short
+         (`SBApple`, see Build.AppleSupplement.cs), and a pack-time per-entry
+         length assertion in Build.Pack.cs enforces a budget that leaves room for
+         a long Windows user-profile folder. NU5123 (NuGet's own "packed path
+         exceeds 260" warning) is intentionally NOT suppressed — under
+         TreatWarningsAsErrors it is a second, independent backstop. -->
     <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>SwiftBindings.Apple</AssemblyName>
     <RootNamespace>Swift</RootNamespace>
@@ -84,9 +85,9 @@
     <None Include="../legal/NOTICE.md" Pack="true" PackagePath="" />
     <None Include="../icon.png" Pack="true" PackagePath="" />
 
-    <!-- Pack the SwiftBindingsAppleSupplement.xcframework + consumer .targets.
+    <!-- Pack the SBApple.xcframework + consumer .targets.
          The xcframework is produced by `nuke build-apple-supplement-xcframework`
-         into native/SwiftBindingsAppleSupplement.xcframework/ (gitignored). One
+         into native/SBApple.xcframework/ (gitignored). One
          copy ships at runtimes/native/ inside the nupkg; the .targets file in
          buildTransitive/ adds it as a NativeReference for consumer apps. The
          xcframework already encodes all platform slices internally, so a single
@@ -96,10 +97,10 @@
          otherwise fail with "File not found". The Pack target in the Nuke
          pipeline always builds the xcframework first, so production pack flows
          are unaffected; this gate just protects ad-hoc `dotnet pack` runs. -->
-    <None Include="native/SwiftBindingsAppleSupplement.xcframework/**/*"
-          Condition="Exists('native/SwiftBindingsAppleSupplement.xcframework')"
+    <None Include="native/SBApple.xcframework/**/*"
+          Condition="Exists('native/SBApple.xcframework')"
           Pack="true"
-          PackagePath="runtimes/native/SwiftBindingsAppleSupplement.xcframework/" />
+          PackagePath="runtimes/native/SBApple.xcframework/" />
     <None Include="build/SwiftBindings.Apple.targets"
           Pack="true"
           PackagePath="buildTransitive/" />

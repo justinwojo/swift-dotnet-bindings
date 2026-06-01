@@ -83,6 +83,13 @@ partial class Build
 
             // 2. Pack Runtime + SDK + Apple at the throwaway version.
             Log.Information("  [2/4] Packing Runtime + Sdk + Apple");
+
+            // Issue #40 early tripwire: BehaviorTier packs the on-disk SBApple.xcframework directly
+            // (it does not call RunBuildAppleSupplementXcframework), so assert its layout is Windows
+            // MAX_PATH-safe. The check budgets a fixed assumed version, so the throwaway
+            // BehaviorTierAppleVersion cannot false-fail it.
+            AssertAppleXcframeworkWindowsPathSafe(AppleSupplementXcframeworkDir, AppleSupplementModuleName);
+
             foreach (var csproj in new[]
             {
                 SourceDir / "Swift.Runtime" / "src" / "Swift.Runtime.csproj",

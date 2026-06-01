@@ -4,13 +4,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>SwiftBindingsAppleSupplement</string>
+    <string>SBApple</string>
     <key>CFBundleIdentifier</key>
-    <string>com.swiftbindings.SwiftBindingsAppleSupplement</string>
+    <string>com.swiftbindings.SBApple</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>SwiftBindingsAppleSupplement</string>
+    <string>SBApple</string>
     <key>CFBundlePackageType</key>
     <string>FMWK</string>
     <key>CFBundleVersion</key>
@@ -21,7 +21,7 @@
     <string>15.0</string>
     <key>CFBundleSupportedPlatforms</key>
     <array>
-        <string>AppleTVSimulator</string>
+        <string>iPhoneOS</string>
     </array>
 </dict>
 </plist>
