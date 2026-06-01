@@ -96,10 +96,13 @@ namespace BindingsGeneration
                 """
                 : "";
 
+            // Native-macOS exclusion: the SwiftUI bridge is UIKit-only, so its macOS
+            // slice is an empty Mach-O. Referencing it makes a native-macOS consumer
+            // fail with MT158. Mac Catalyst keeps it — its TFM does not contain "-macos".
             var bridgeNativeRef = options.HasBridgeXCFramework
                 ? $"""
                           <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework')">
+                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework') AND !$(TargetFramework.Contains('-macos'))">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
@@ -215,10 +218,11 @@ namespace BindingsGeneration
                 """
                 : "";
 
+            // Native-macOS exclusion (see Emit): UIKit-only bridge → empty macOS slice → MT158.
             var bridgeNativeRef = options.HasBridgeXCFramework
                 ? $"""
                           <NativeReference Include="$(MSBuildThisFileDirectory){options.ModuleName}Bridge.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory){options.ModuleName}Bridge.xcframework')">
+                                           Condition="Exists('$(MSBuildThisFileDirectory){options.ModuleName}Bridge.xcframework') AND !$(TargetFramework.Contains('-macos'))">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """

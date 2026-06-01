@@ -1424,7 +1424,41 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitAndRead(dir, "Nuke", hasBridgeSwift: true);
                 Assert.Contains("NukeBridge.xcframework", content);
-                Assert.Contains("Condition=\"Exists('NukeBridge.xcframework')\"", content);
+                // Exists() guard (activates after bridge compile) AND native-macOS
+                // exclusion (UIKit-only bridge → empty macOS slice → MT158).
+                Assert.Contains("Exists('NukeBridge.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_BridgeNativeRefAndPack_ExcludedOnNativeMacOS()
+        {
+            // The SwiftUI bridge is UIKit-only: its macOS slice is an empty Mach-O
+            // that fails a native-macOS consumer with Xamarin MT158. Both the bridge
+            // NativeReference and its pack item must carry the !Contains('-macos')
+            // gate (mirroring the .SwiftUIBridge.cs Compile gate). Mac Catalyst keeps
+            // the bridge — net*-maccatalyst does not contain "-macos".
+            var dir = CreateTempDir();
+            try
+            {
+                var bridgePath = Path.Combine(dir, "NukeBridge.xcframework");
+                Directory.CreateDirectory(bridgePath);
+
+                var content = EmitAndRead(dir, "Nuke", bridgePath: bridgePath);
+                // Tie the !-macos gate to each bridge element specifically — a loose
+                // "gate string present somewhere" assert would pass even if the gate
+                // landed on the wrong item. The NativeReference Condition:
+                Assert.Matches(
+                    @"<NativeReference Include=""NukeBridge\.xcframework""\s+Condition=""Exists\('NukeBridge\.xcframework'\) AND !\$\(TargetFramework\.Contains\('-macos'\)\)"">",
+                    content);
+                // The pack <None Pack="true"> item Condition:
+                Assert.Matches(
+                    @"<None Include=""NukeBridge\.xcframework/\*\*"" Pack=""true""\s+Condition=""Exists\('NukeBridge\.xcframework'\) AND !\$\(TargetFramework\.Contains\('-macos'\)\)""",
+                    content);
+                // The two bridge items are the only places the macOS gate attaches to a
+                // .xcframework reference; the wrapper must remain unconditional on macOS.
+                Assert.DoesNotContain("NukeSwiftBindings.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
             }
             finally { Directory.Delete(dir, true); }
         }

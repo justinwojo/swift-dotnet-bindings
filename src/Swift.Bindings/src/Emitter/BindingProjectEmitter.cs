@@ -170,6 +170,10 @@ namespace BindingsGeneration
             // Bridge xcframework items — emitted when bridge .swift source exists,
             // with Exists() conditions in the XML so they activate after bridge compilation.
             // This ensures the .csproj is correct on first-run even before --compile-bridge-only.
+            // The native-macOS exclusion mirrors the .SwiftUIBridge.cs Compile gate below: the
+            // SwiftUI bridge is UIKit-only, so its macOS xcframework slice is an empty Mach-O.
+            // Referencing or packing it makes a native-macOS consumer fail with Xamarin MT158
+            // ("missing/empty Mach-O"). Mac Catalyst keeps the bridge — its TFM lacks "-macos".
             var hasBridge = options.HasBridgeSwift ||
                             (options.BridgeXCFrameworkPath != null && Directory.Exists(options.BridgeXCFrameworkPath));
             var bridgeModuleName = $"{options.ModuleName}Bridge";
@@ -178,7 +182,7 @@ namespace BindingsGeneration
                 ? $"""
 
                     <NativeReference Include="{bridgeModuleName}.xcframework"
-                                     Condition="Exists('{bridgeModuleName}.xcframework')">
+                                     Condition="Exists('{bridgeModuleName}.xcframework') AND !$(TargetFramework.Contains('-macos'))">
                       <Kind>Framework</Kind>
                     </NativeReference>
                 """
@@ -188,7 +192,7 @@ namespace BindingsGeneration
                 ? $"""
 
                     <None Include="{bridgeModuleName}.xcframework/**" Pack="true"
-                          Condition="Exists('{bridgeModuleName}.xcframework')"
+                          Condition="Exists('{bridgeModuleName}.xcframework') AND !$(TargetFramework.Contains('-macos'))"
                           PackagePath="{pi.GetNativePackPath($"{bridgeModuleName}.xcframework")}" />
                 """
                 : "";

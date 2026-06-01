@@ -255,6 +255,17 @@ partial class Build
             Log.Information("PackGate OK — verified {Slices} slice(s) across {Xcfw} xcframework(s) in {Nupkg}",
                 verifiedSlices, ExpectedXcframeworkLayout.Length, Path.GetFileName(nupkgPath));
 
+            // 5b. Bridge macOS-exclusion gate (MT158). TipKit has SwiftUI views, so the
+            //     Apple-framework-direct pack produces a <Module>Bridge.xcframework per
+            //     TFM. The SwiftUI bridge is UIKit-only: its native-macOS slice is an
+            //     empty Mach-O. Shipping it under the osx RID and referencing it from
+            //     the native-macOS consumer .targets makes the consumer fail with
+            //     Xamarin MT158 (missing/empty Mach-O). The wrapper-slice block above
+            //     never inspects the bridge, which is exactly how MT158 shipped. This
+            //     leg asserts the bridge is excluded on native macOS but kept on the
+            //     UIKit RIDs (iOS / tvOS / Mac Catalyst).
+            VerifyBridgeMacOSExclusion(extractDir, $"{PackGateFixtureFramework}Bridge");
+
             // 6-8. Source xcframework slicing assertions. Packs a second fixture
             //    that references a real multi-platform source xcframework (Nuke)
             //    and asserts the per-RID slice subset is exact — no extras
@@ -572,6 +583,83 @@ partial class Build
         new("tvos-arm64",  new[] { "tvos-arm64", "tvos-arm64_x86_64-simulator" }),
         new("osx-arm64",   new[] { "macos-arm64_x86_64" }),
     ];
+
+    // MT158 regression gate. Given the extracted TipKit fixture nupkg and the bridge
+    // module name (e.g. "TipKitBridge"), assert the UIKit-only SwiftUI bridge is
+    // excluded on native macOS but preserved on the UIKit RIDs:
+    //   (a) the osx RID ships NO bridge xcframework (pack item gated on !-macos), so
+    //       a native-macOS consumer cannot restore an empty Mach-O slice;
+    //   (b) at least one UIKit RID DOES ship the bridge (the gate must not over-reach
+    //       and drop the bridge where it is valid); and
+    //   (c) every emitted consumer .targets that references the bridge carries the
+    //       !$(TargetFramework.Contains('-macos')) exclusion on that reference, so a
+    //       native-macOS consumer never NativeReferences it (the Condition is
+    //       evaluated in the consumer build, where TargetFramework is net*-macos).
+    // The exclusion token cannot appear on the wrapper reference, so finding it tied
+    // to the bridge xcframework path is an exact check, not a proximity heuristic.
+    static void VerifyBridgeMacOSExclusion(AbsolutePath extractDir, string bridgeModule)
+    {
+        var failures = new List<string>();
+
+        // (a) native-macOS RID must not carry the empty UIKit-only bridge slice.
+        var macosBridge = extractDir / "runtimes" / "osx-arm64" / "native" / $"{bridgeModule}.xcframework";
+        if (Directory.Exists(macosBridge))
+            failures.Add(
+                $"native-macOS bridge slice was packed (MT158 hazard): " +
+                $"runtimes/osx-arm64/native/{bridgeModule}.xcframework/ — the bridge pack " +
+                $"item must be gated on !$(TargetFramework.Contains('-macos')).");
+
+        // (b) the bridge must still ship on EVERY UIKit RID — guards against the gate
+        //     over-reaching and stripping the bridge where SwiftUI views work. The
+        //     fixture spans all three UIKit TFMs, so the bridge must be present on all
+        //     three RIDs; asserting the exact set (not "at least one") catches a
+        //     regression that drops the bridge from a single UIKit platform.
+        var uikitBridgeRids = new[] { "ios-arm64", "tvos-arm64", "maccatalyst-arm64" };
+        var shippedRids = uikitBridgeRids
+            .Where(rid => Directory.Exists(extractDir / "runtimes" / rid / "native" / $"{bridgeModule}.xcframework"))
+            .ToList();
+        var missingRids = uikitBridgeRids.Except(shippedRids).ToList();
+        if (missingRids.Count > 0)
+            failures.Add(
+                $"bridge xcframework {bridgeModule}.xcframework missing on UIKit RID(s) " +
+                $"[{string.Join(", ", missingRids)}] — the native-macOS exclusion over-reached " +
+                $"(expected the bridge on all of {string.Join(", ", uikitBridgeRids)}).");
+
+        // (c) every consumer .targets that references the bridge must gate that
+        //     reference on !-macos.
+        var buildTransitive = extractDir / "buildTransitive";
+        var bridgeRefMarker = $"{bridgeModule}.xcframework";
+        var gatedBridgeRef = $"{bridgeModule}.xcframework') AND !$(TargetFramework.Contains('-macos'))";
+        var targetsFiles = Directory.Exists(buildTransitive)
+            ? Directory.EnumerateFiles(buildTransitive, "*.targets", SearchOption.AllDirectories).ToList()
+            : new List<string>();
+        var bridgeReferencingTargets = targetsFiles
+            .Where(f => File.ReadAllText(f).Contains(bridgeRefMarker, StringComparison.Ordinal))
+            .ToList();
+        if (bridgeReferencingTargets.Count == 0)
+            failures.Add(
+                "no emitted consumer .targets referenced the bridge xcframework — expected the " +
+                "synthesized NativeReference fragment to be present for UIKit consumers.");
+        foreach (var f in bridgeReferencingTargets)
+        {
+            if (!File.ReadAllText(f).Contains(gatedBridgeRef, StringComparison.Ordinal))
+                failures.Add(
+                    $"{Path.GetRelativePath(extractDir, f)} references {bridgeModule}.xcframework " +
+                    $"without the native-macOS exclusion on that reference (MT158 hazard).");
+        }
+
+        if (failures.Count > 0)
+        {
+            Log.Error("PackGate (bridge-macos-gate) FAILED — {Count} MT158-gate failure(s):", failures.Count);
+            foreach (var x in failures) Log.Error("  {Detail}", x);
+            Assert.Fail($"PackGate (bridge-macos-gate): {failures.Count} MT158-gate failure(s): {string.Join("; ", failures)}");
+        }
+
+        Log.Information(
+            "PackGate (bridge-macos-gate) OK — osx RID ships no bridge slice; bridge present on [{Rids}]; " +
+            "{Count} consumer .targets gate the bridge ref on !-macos",
+            string.Join(", ", shippedRids), bridgeReferencingTargets.Count);
+    }
 
     static void WritePackGateFixture(AbsolutePath fixtureDir, AbsolutePath nupkgDir)
     {

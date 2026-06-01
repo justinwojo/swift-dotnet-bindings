@@ -2271,6 +2271,7 @@ done"
       <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework"
                        Condition="'$(SwiftFrameworkType)' != 'ObjC'
                                   AND '$(_SwiftBindingHasBridgeXCFramework)' == 'True'
+                                  AND !$(TargetFramework.Contains('-macos'))
                                   AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework')">
         <Kind>Framework</Kind>
       </NativeReference>
@@ -2291,7 +2292,11 @@ done"
          [LibraryImport("<Module>Bridge")]; without it those calls DllNotFound at
          runtime. Bridge bundling is gated on _SwiftBindingHasBridgeXCFramework
          (false for frameworks with no SwiftUI views) and stays independent of the
-         wrapper so a non-fatal bridge build failure can't drop the wrapper. -->
+         wrapper so a non-fatal bridge build failure can't drop the wrapper.
+         The native-macOS exclusion (!Contains('-macos')) is required because the
+         SwiftUI bridge is UIKit-only: its macOS slice compiles to an empty Mach-O,
+         and referencing it makes the consumer fail with Xamarin MT158. Mac Catalyst
+         keeps the bridge — its TFM (net*-maccatalyst) does not contain "-macos". -->
     <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
                        Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
@@ -2301,6 +2306,7 @@ done"
       <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework"
                        Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True'
                                   AND '$(_SwiftBindingBridgeModuleName)' != ''
+                                  AND !$(TargetFramework.Contains('-macos'))
                                   AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework')">
         <Kind>Framework</Kind>
       </NativeReference>
@@ -2370,10 +2376,12 @@ done"
         <Kind>Framework</Kind>
       </_SwiftBindingNativeManifest>
 
-      <!-- Bridge xcframework (generated during Build) -->
+      <!-- Bridge xcframework (generated during Build). Excluded on native macOS:
+           the UIKit-only bridge has an empty macOS slice → MT158. Catalyst keeps it. -->
       <_SwiftBindingNativeManifest Include="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_GNM_BridgeModule).xcframework"
                                    Condition="'$(SwiftFrameworkType)' != 'ObjC'
                                               AND '$(_GNM_HasBridge)' == 'True'
+                                              AND !$(TargetFramework.Contains('-macos'))
                                               AND Exists('$(_SwiftBindingIntermediateDir)$(_GNM_BridgeModule).xcframework')">
         <Kind>Framework</Kind>
       </_SwiftBindingNativeManifest>
@@ -2486,8 +2494,12 @@ fi; \
 BRIDGE=&quot;&quot;; \
 if [ &quot;$(_SwiftBindingHasBridgeXCFramework)&quot; = &quot;True&quot; ]; then \
   read -r -d '' BRIDGE &lt;&lt;'BRIDGEEOF'
+      &lt;!-- Native-macOS exclusion: the UIKit-only SwiftUI bridge has an empty macOS
+           slice; referencing it makes a native-macOS consumer fail with MT158. The
+           %24(TargetFramework) check is evaluated in the CONSUMER build. Catalyst
+           keeps the bridge — net*-maccatalyst does not contain &quot;-macos&quot;. --&gt;
       &lt;NativeReference Include=&quot;%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework&quot;
-                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework')&quot;&gt;
+                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework') AND !%24(TargetFramework.Contains('-macos'))&quot;&gt;
         &lt;Kind&gt;Framework&lt;/Kind&gt;
       &lt;/NativeReference&gt;
 BRIDGEEOF
@@ -2712,9 +2724,12 @@ TARGETSEOF"
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
+      <!-- Native-macOS exclusion: don't ship the UIKit-only bridge's empty macOS
+           slice (it would MT158 if a consumer referenced it). Catalyst still packs
+           its bridge — net*-maccatalyst does not contain "-macos". -->
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework/"
-            Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True'" />
+            Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True' AND !$(TargetFramework.Contains('-macos'))" />
       <!-- Module database for cross-module type resolution in downstream binding projects -->
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"

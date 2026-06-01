@@ -544,6 +544,50 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public void Emit_BridgeNativeRef_ExcludedOnNativeMacOS()
+        {
+            // The SwiftUI bridge is UIKit-only: its macOS slice is an empty Mach-O
+            // that fails a native-macOS consumer with Xamarin MT158. The bridge
+            // NativeReference must carry the !Contains('-macos') gate so a native-macOS
+            // consumer never references it. Mac Catalyst keeps it (TFM lacks "-macos").
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0",
+                    hasWrapper: true, hasBridge: true);
+                Assert.Contains("NukeBridge.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
+                // The wrapper carries the real ABI and is required on macOS — it must
+                // NOT inherit the bridge's macOS exclusion.
+                Assert.DoesNotContain("NukeSwiftBindings.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ProjectReferenceTargets_BridgeRefExcludedOnNativeMacOS()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    PackageId = "Nuke.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    HasBridgeXCFramework = true,
+                }, NullLogger.Instance);
+
+                var localContent = File.ReadAllText(
+                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                Assert.Contains("NukeBridge.xcframework') AND !$(TargetFramework.Contains('-macos'))", localContent);
+                Assert.DoesNotContain("NukeSwiftBindings.xcframework') AND !$(TargetFramework.Contains('-macos'))", localContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
 
         private static string EmitAndRead(string dir, string module, string packageId,
