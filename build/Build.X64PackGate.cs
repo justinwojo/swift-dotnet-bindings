@@ -105,6 +105,10 @@ partial class Build
     Target X64PackGate => _ => _
         .DependsOn(Compile)
         .OnlyWhenStatic(() => OperatingSystem.IsMacOS())
+        // Pure ordering edge for Nuke --strict's sink-total-order requirement.
+        // X64ThunkGate, X64PackGate, and X64SimGate are co-equal opt-in sinks;
+        // chaining them linearly is purely cosmetic — none consumes another's output.
+        .After(X64ThunkGate)
         .Executes(() =>
         {
             var scratch = X64PackGateScratch;

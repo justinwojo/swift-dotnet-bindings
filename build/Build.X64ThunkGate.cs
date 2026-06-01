@@ -54,6 +54,11 @@ partial class Build
     Target X64ThunkGate => _ => _
         .DependsOn(Compile)
         .OnlyWhenStatic(() => OperatingSystem.IsMacOS())
+        // Pure ordering edge for Nuke --strict's sink-total-order requirement.
+        // BehaviorTier and the X64*Gate chain are otherwise co-equal sinks; this
+        // edge linearizes the chain after BehaviorTier. X64PackGate / X64SimGate
+        // continue the chain with their own .After() edges.
+        .After(BehaviorTier)
         .Executes(() =>
         {
             var scratch = X64ThunkGateScratch;

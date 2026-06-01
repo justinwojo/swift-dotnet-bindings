@@ -228,12 +228,13 @@ partial class Build
     // Run once when this scaffolding lands; thereafter, bundles edit the file
     // by hand to record their downward deltas in the same commit as the fix.
     //
-    // The .After(BehaviorTier, ValidateBlastRadius, BindingTests) edges
+    // The .After(BehaviorTier, ValidateBlastRadius, BindingTests, X64SimGate) edges
     // satisfy Nuke `--strict`'s requirement of a total peel order over sinks
-    // (BehaviorTier and ValidateBlastRadius are otherwise co-equal sinks);
-    // the body never observes any of them, so the edges are pure ordering.
+    // (BehaviorTier and ValidateBlastRadius are otherwise co-equal sinks, and the
+    // X64*Gate chain terminates at X64SimGate); the body never observes any of
+    // them, so the edges are pure ordering.
     Target SeedSkipSurfaceBaseline => _ => _
-        .After(BindingTests, BehaviorTier, ValidateBlastRadius)
+        .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate)
         .Executes(() =>
         {
             var roots = CollectSkipSurfaceRoots();
