@@ -963,9 +963,9 @@
       "crash": 0
     },
     "macos": {
-      "pass": 1906,
+      "pass": 2001,
       "fail": 0,
-      "skip": 47,
+      "skip": 38,
       "crash": 0
     },
     "macos_x64": {

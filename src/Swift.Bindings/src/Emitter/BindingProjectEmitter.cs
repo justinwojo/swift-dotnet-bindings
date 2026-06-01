@@ -199,10 +199,15 @@ namespace BindingsGeneration
                     <Compile Include="{resolvedNamespace}.Wrappers.cs"
                              Condition="Exists('{resolvedNamespace}.Wrappers.cs')" />
                 """;
-            var bridgeCompile = $"""
+            // SwiftUI bridge body is `#if __IOS__ || __TVOS__ || __MACCATALYST__` gated
+            // so it compiles to nothing on native macOS. Skip the Compile include there
+            // anyway (defense in depth) — keeps the assembly entirely free of the
+            // SwiftUI session API surface on TFMs that can't reach UIKit, matching the
+            // Swift side where the .SwiftUIBridge.swift is `canImport(UIKit)` gated.
+            var bridgeCompile = $$"""
 
-                    <Compile Include="{resolvedNamespace}.SwiftUIBridge.cs"
-                             Condition="Exists('{resolvedNamespace}.SwiftUIBridge.cs')" />
+                    <Compile Include="{{resolvedNamespace}}.SwiftUIBridge.cs"
+                             Condition="Exists('{{resolvedNamespace}}.SwiftUIBridge.cs') AND !$(TargetFramework.Contains('-macos'))" />
                 """;
 
             // Build dependency PackageReference items

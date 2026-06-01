@@ -168,6 +168,80 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("import UIKit", swiftContent);
     }
 
+    // SwiftUI bridge bodies use UIHostingController (UIKit-only). The emitted .swift
+    // file must compile on native macOS, where there is no UIKit — empty TU is OK,
+    // unconditional `import UIKit` is a hard compile error. Gate enforced via
+    // `#if canImport(UIKit)` at the top and a matching `#endif` at the very end.
+    // Regression: prior to this gate, TipKit's macos slice failed to build the
+    // wrapper xcframework because TipView's bridge file imported UIKit unconditionally.
+    [Fact]
+    public void EmitBridgeFiles_FunctionalBridge_IsGatedToUIKitPlatforms()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("#if canImport(UIKit)", swiftContent);
+        Assert.EndsWith("#endif // canImport(UIKit)" + Environment.NewLine, swiftContent);
+        // The UIKit import must sit INSIDE the gate.
+        var ifIdx = swiftContent.IndexOf("#if canImport(UIKit)", StringComparison.Ordinal);
+        var uikitIdx = swiftContent.IndexOf("import UIKit", StringComparison.Ordinal);
+        var endIdx = swiftContent.IndexOf("#endif", StringComparison.Ordinal);
+        Assert.True(ifIdx >= 0 && uikitIdx > ifIdx && endIdx > uikitIdx,
+            "import UIKit must appear after the `#if canImport(UIKit)` gate and before `#endif`");
+    }
+
+    [Fact]
+    public void EmitBridgeFiles_TemplateBridge_IsGatedToUIKitPlatforms()
+    {
+        // Template-only path (no functional bridges) must also be gated — TipKit's TipView
+        // hit exactly this case in the 0.12.0 regression: a single template view with no
+        // functional emission, but the unconditional `import UIKit` still broke macos.
+        var views = new List<TypeDecl> { CreateGenericViewStruct("UnsupportedGenericView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("BRIDGE TEMPLATE", swiftContent); // confirm we're on the template path
+        Assert.Contains("#if canImport(UIKit)", swiftContent);
+        Assert.EndsWith("#endif // canImport(UIKit)" + Environment.NewLine, swiftContent);
+    }
+
+    // The C# .SwiftUIBridge.cs ships to every Apple TFM. Session classes call into
+    // Swift @_cdecl symbols that only exist when the Swift bridge actually compiled
+    // (UIKit platforms). On native macOS the Swift file is an empty translation unit,
+    // so a consumer calling Session.Create would hit DllNotFoundException at runtime
+    // — and unit tests can't catch that. Gate the namespace body with
+    // `#if __IOS__ || __TVOS__ || __MACCATALYST__` so the session API doesn't even
+    // exist for the macOS consumer to call.
+    [Fact]
+    public void EmitBridgeFiles_FunctionalCSharpBridge_IsGatedToUIKitTFMs()
+    {
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("#if __IOS__ || __TVOS__ || __MACCATALYST__", csContent);
+        Assert.Contains("#endif // __IOS__ || __TVOS__ || __MACCATALYST__", csContent);
+
+        // Session class + NativeMethods + post-release helpers must all sit inside the gate.
+        var ifIdx = csContent.IndexOf("#if __IOS__ || __TVOS__ || __MACCATALYST__", StringComparison.Ordinal);
+        var endifIdx = csContent.LastIndexOf("#endif // __IOS__ || __TVOS__ || __MACCATALYST__", StringComparison.Ordinal);
+        var sessionIdx = csContent.IndexOf("public sealed class TestViewSession", StringComparison.Ordinal);
+        var nativeMethodsIdx = csContent.IndexOf("TestViewBridgeNativeMethods", StringComparison.Ordinal);
+        var helpersIdx = csContent.IndexOf("SwiftUIBridgePostReleaseHelpers", StringComparison.Ordinal);
+        Assert.True(ifIdx >= 0 && endifIdx > ifIdx,
+            "TFM gate markers missing or inverted");
+        Assert.InRange(sessionIdx, ifIdx, endifIdx);
+        Assert.InRange(nativeMethodsIdx, ifIdx, endifIdx);
+        Assert.InRange(helpersIdx, ifIdx, endifIdx);
+    }
+
     [Fact]
     public void EmitBridgeFiles_AppliesEmissionContextCollisionRewrite()
     {

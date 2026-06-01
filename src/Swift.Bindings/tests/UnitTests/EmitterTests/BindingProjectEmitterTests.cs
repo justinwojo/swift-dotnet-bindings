@@ -307,7 +307,12 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitAndRead(dir, "Nuke");
                 Assert.Contains("Nuke.SwiftUIBridge.cs", content);
-                Assert.Contains("Condition=\"Exists('Nuke.SwiftUIBridge.cs')\"", content);
+                // Must include Exists() check AND a TFM gate that excludes native macOS
+                // (defense-in-depth alongside the in-source `#if __IOS__ || __TVOS__ ||
+                // __MACCATALYST__` — the bridge session classes call into Swift @_cdecl
+                // symbols that only exist on UIKit-family platforms).
+                Assert.Contains("Exists('Nuke.SwiftUIBridge.cs')", content);
+                Assert.Contains("!$(TargetFramework.Contains('-macos'))", content);
             }
             finally { Directory.Delete(dir, true); }
         }
