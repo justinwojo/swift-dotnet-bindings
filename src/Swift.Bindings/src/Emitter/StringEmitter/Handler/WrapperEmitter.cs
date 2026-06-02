@@ -63,11 +63,9 @@ namespace BindingsGeneration
         /// shadowing on the self-referential P/Invoke call expression.
         /// </summary>
         private string ReturnLocalName => _syncPlan.ReturnLocalName;
+        // The live async C# callback-plumbing path. The Swift @_cdecl half is emitted by
+        // WrapperEmitter.Async.EmitAsync; the C# callback half by _asyncHarness.EmitAsyncWrapper.
         private readonly AsyncHarnessEmitter _asyncHarness;
-        // Legacy fields retained for dead-code in WrapperEmitter.Async.cs until the extraction
-        // cleanup pass removes the duplicated helpers. The live path goes through _asyncHarness.
-        private System.IO.StringWriter? _asyncHelperWriter;
-        private CSharpWriter? _asyncHelperCsWriter;
         // Tracks existential container heap allocation variable names for cleanup in finally block.
         // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
         private readonly List<string> _existentialHeapNames = new();

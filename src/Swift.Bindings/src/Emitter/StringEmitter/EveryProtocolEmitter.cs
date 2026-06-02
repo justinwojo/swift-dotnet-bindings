@@ -1540,6 +1540,19 @@ public class EveryProtocolEmitter
         if (protocolDecl.Methods.Any(m => m.IsConstructor))
             return true;
 
+        // Noncopyable-member gate. The emission ladder (EmitProtocolConformance) skips any
+        // protocol whose method signatures contain ~Copyable parameters or return types,
+        // because the trampoline copies values through `inout` pointers. This prescan MUST
+        // record the same skip: Pass-2 transitive `genericSig` propagation keys off
+        // _skippedProtocols, so if a noncopyable parent is not seeded here, a genericSig-
+        // constrained child declared *before* its parent emits a conformance referencing a
+        // parent conformance that the emission ladder then refuses to produce — a dangling
+        // `extension EveryProtocol: Child` that fails `swiftc` (order-dependent, fail-closed).
+        // Keeping this in lockstep with the EmitProtocolConformance emission-ladder gate (the other
+        // `HasNoncopyableMember(protocolDecl)` call site) is the whole point.
+        if (HasNoncopyableMember(protocolDecl))
+            return true;
+
         var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
                                       protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
                                       protocolDecl.Subscripts.Any(s => !s.IsStatic);
@@ -5411,7 +5424,8 @@ public class EveryProtocolEmitter
     /// classified as un-emittable by <see cref="PreScanProtocols"/> (HasSelfRequirement,
     /// HasMissingRequirements, HasConventionCClosureParameters, HasSuppressedRequiredMember,
     /// HasUnsatisfiedHiddenRequirements, HasMissingTbdMethodDescriptors,
-    /// HasSubscriptLevelGenericDependentMember, or transitive genericSig propagation).
+    /// HasSubscriptLevelGenericDependentMember, HasNoncopyableMember, or transitive genericSig
+    /// propagation).
     /// Sibling-plan input must filter these out: if such a protocol won ownership, the owner
     /// body would never land in the wrapper and the (otherwise emittable) siblings would skip
     /// their own bodies, leaving the entire group with no usable witness.

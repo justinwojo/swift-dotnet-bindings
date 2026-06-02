@@ -1432,4 +1432,133 @@ public static class NameProvider
 
         return name;
     }
+
+    /// <summary>
+    /// Returns a synthetic emitter-local name that does not collide with any reserved in-scope
+    /// identifier.
+    /// <para>
+    /// Emitters hardcode local names in their generated method bodies — <c>tag</c>, <c>result</c>,
+    /// <c>resultPtr</c>, <c>handle</c>, <c>session</c>, <c>userData</c>, and similar. When a user's
+    /// projected parameter or member name happens to spell the same identifier, the emitted C#
+    /// fails to compile: <c>CS0136</c> (a local may not shadow an enclosing local/parameter of the
+    /// same name) or <c>CS0100</c> (duplicate parameter name). This guard resolves the collision by
+    /// escaping the SYNTHETIC name — never the user-facing name, which the consumer sees and must be
+    /// preserved — with a <c>__</c> prefix (the convention already used for derived emitter locals
+    /// such as <c>__{name}Swift</c>), escalating with a numeric suffix if the prefixed form is also
+    /// taken (a user identifier can legitimately spell <c>__result</c>).
+    /// </para>
+    /// <para>
+    /// Comparison is done on the C# verbatim-stripped form (<see cref="StripVerbatimPrefix"/>), so a
+    /// reserved <c>@event</c> and a desired <c>event</c> are treated as the same identifier. The
+    /// returned name is never <c>@</c>-prefixed.
+    /// </para>
+    /// </summary>
+    /// <param name="desiredName">The synthetic local name the emitter wants to use.</param>
+    /// <param name="reservedNames">In-scope identifiers (projected user parameter/member names, and
+    /// any synthetic locals already allocated) that the result must not collide with.</param>
+    /// <returns>The verbatim-stripped <paramref name="desiredName"/> if free, otherwise a
+    /// <c>__</c>-prefixed (and, if needed, numeric-suffixed) variant guaranteed absent from
+    /// <paramref name="reservedNames"/>. The result is never <c>@</c>-prefixed.</returns>
+    public static string MakeNonCollidingSyntheticName(string desiredName, IReadOnlySet<string> reservedNames)
+    {
+        if (string.IsNullOrEmpty(desiredName))
+            throw new ArgumentException("Synthetic name must be non-empty.", nameof(desiredName));
+
+        // Normalize to the verbatim-stripped form up front and return THAT, never the raw
+        // desiredName. The contract is that the result is never "@"-prefixed: synthetic emitter
+        // locals are bare identifiers, and the consumer re-adds "@" only for user-facing keyword
+        // names. Returning the raw desiredName on the free/empty paths would leak a "@" prefix that
+        // the collision path already strips, so every return point uses the bare form.
+        var bare = StripVerbatimPrefix(desiredName);
+        if (string.IsNullOrEmpty(bare))
+            throw new ArgumentException(
+                "Synthetic name must contain an identifier after the verbatim prefix.", nameof(desiredName));
+        if (reservedNames == null || reservedNames.Count == 0)
+            return bare;
+
+        // Normalize the reserved set to verbatim-stripped form once. User names may carry the C#
+        // "@" verbatim prefix (e.g. "@event"); synthetic names never do, so all comparisons happen
+        // on the bare identifier.
+        var reserved = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var r in reservedNames)
+        {
+            if (!string.IsNullOrEmpty(r))
+                reserved.Add(StripVerbatimPrefix(r));
+        }
+
+        if (!reserved.Contains(bare))
+            return bare;
+
+        var prefixed = "__" + bare;
+        if (!reserved.Contains(prefixed))
+            return prefixed;
+
+        int suffix = 2;
+        while (reserved.Contains($"{prefixed}{suffix}"))
+            suffix++;
+        return $"{prefixed}{suffix}";
+    }
+}
+
+/// <summary>
+/// Allocates emitter-local "synthetic" names (e.g. <c>tag</c>, <c>result</c>, <c>resultPtr</c>,
+/// <c>handle</c>, <c>session</c>, <c>userData</c>) that are guaranteed not to collide with any
+/// in-scope user identifier OR with a previously allocated synthetic name in the same scope.
+/// <para>
+/// Emitters hardcode these local names in their generated method bodies. When a user's projected
+/// parameter or member name spells the same identifier, the emitted C# fails to compile (CS0136 /
+/// CS0100). This scope resolves the collision by escaping the SYNTHETIC name — never the
+/// user-facing name — via <see cref="NameProvider.MakeNonCollidingSyntheticName"/>.
+/// </para>
+/// <para>
+/// Seed the scope with the in-scope user identifiers, then call <see cref="Reserve"/> for each
+/// synthetic local. Each reservation is recorded so subsequent reservations also avoid it:
+/// <code>
+///   var names     = new SyntheticNameScope(
+///       method.CSSignature.Skip(1).Select(NameProvider.GetCSharpParameterName));
+///   var result    = names.Reserve("result");     // "result"    if free, else "__result"
+///   var resultPtr = names.Reserve("resultPtr");   // distinct from result AND from user params
+/// </code>
+/// </para>
+/// </summary>
+public sealed class SyntheticNameScope
+{
+    // Stored in verbatim-stripped form so "@event" and "event" collide as one identifier.
+    private readonly HashSet<string> _reserved;
+
+    /// <summary>
+    /// Creates a scope seeded with the in-scope user identifiers the synthetic names must avoid.
+    /// Null or empty entries are ignored; names are normalized via
+    /// <see cref="NameProvider.StripVerbatimPrefix"/>.
+    /// </summary>
+    public SyntheticNameScope(IEnumerable<string>? reservedUserNames = null)
+    {
+        _reserved = new HashSet<string>(StringComparer.Ordinal);
+        if (reservedUserNames != null)
+        {
+            foreach (var name in reservedUserNames)
+            {
+                if (!string.IsNullOrEmpty(name))
+                    _reserved.Add(NameProvider.StripVerbatimPrefix(name));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns a non-colliding name for the requested synthetic local and reserves it so later
+    /// calls in this scope avoid it too.
+    /// </summary>
+    public string Reserve(string desiredName)
+    {
+        var chosen = NameProvider.MakeNonCollidingSyntheticName(desiredName, _reserved);
+        _reserved.Add(NameProvider.StripVerbatimPrefix(chosen));
+        return chosen;
+    }
+
+    /// <summary>
+    /// True if the (verbatim-normalized) name is already reserved in this scope — either seeded as
+    /// a user identifier or previously returned by <see cref="Reserve"/>.
+    /// </summary>
+    public bool IsReserved(string name)
+        => !string.IsNullOrEmpty(name) && _reserved.Contains(NameProvider.StripVerbatimPrefix(name));
 }

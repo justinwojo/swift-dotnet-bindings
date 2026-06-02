@@ -2072,6 +2072,41 @@ public class EveryProtocolEmitterTests
     }
 
     /// <summary>
+    /// Creates a non-generic instance method whose return type is the named type
+    /// (CSSignature[0] is the return slot). Used to give a protocol a member that
+    /// touches a registered noncopyable type so the noncopyable skip gate fires.
+    /// </summary>
+    private static MethodDecl CreateMethodReturning(string name, string returnTypeName)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = new NamedTypeSpec(returnTypeName),
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    /// <summary>
     /// Creates a method with a method-level generic parameter (τ_1_0) in its signature.
     /// This represents methods like resolve&lt;Service&gt;() where the generic is method-level,
     /// not protocol-level (Self).
@@ -2403,6 +2438,55 @@ public class EveryProtocolEmitterTests
         var globalSignatures = new HashSet<string>();
 
         // Child should be skipped even though it appeared first
+        var childOutput = new StringWriter();
+        var childWriter = new SwiftWriter(childOutput);
+        emitter.EmitProtocolConformance(childWriter, childProtocol, globalSignatures);
+        Assert.DoesNotContain("extension EveryProtocol", childOutput.ToString());
+    }
+
+    [Fact]
+    public void PreScan_ChildBeforeNoncopyableParent_StillSkipsChild()
+    {
+        // Order-independence for the noncopyable-member skip gate. The emission ladder
+        // (EmitProtocolConformance) skips a protocol whose member signatures touch a
+        // ~Copyable type because the inout trampoline can't copy the value across the
+        // boundary. The pre-scan's WillSkipConformance MUST record the SAME skip, or
+        // Pass-2 genericSig propagation won't see a noncopyable parent as unsatisfied —
+        // and a genericSig-constrained child declared BEFORE its parent would emit a
+        // dangling `extension EveryProtocol: Child` that references a parent conformance
+        // the ladder then refuses to produce (order-dependent swiftc failure).
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        // A noncopyable value type the parent protocol returns. Only the NonCopyable
+        // flag matters; TryGetTypeRecord routes through the resolver by module-qualified name.
+        var resourceName = SwiftTypeName.FromModuleQualifiedName("TestModule.Resource");
+        module.RegisterType(
+            resourceName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Resource"),
+                SwiftTypeName = resourceName,
+                MetadataAccessor = "$s10TestModule8ResourceVMa",
+                Flags = TypeRecordFlags.NonCopyable,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        // Parent protocol whose ONLY skip cause is a noncopyable return type. Without the
+        // WillSkipConformance noncopyable gate it survives the pre-scan unseeded.
+        var parentProtocol = CreateSimpleProtocol("NoncopyableParent");
+        parentProtocol.Methods.Add(CreateMethodReturning("makeResource", "TestModule.Resource"));
+
+        var childProtocol = CreateProtocolWithMethod("ChildProtocol", "childMethod");
+        childProtocol.GenericSignature = "<τ_0_0 : TestModule.NoncopyableParent>";
+
+        // Child appears BEFORE parent in the list (reverse order).
+        var protocols = new List<ProtocolDecl> { childProtocol, parentProtocol };
+
+        var emitter = new EveryProtocolEmitter(typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(protocols);
+
+        var globalSignatures = new HashSet<string>();
         var childOutput = new StringWriter();
         var childWriter = new SwiftWriter(childOutput);
         emitter.EmitProtocolConformance(childWriter, childProtocol, globalSignatures);

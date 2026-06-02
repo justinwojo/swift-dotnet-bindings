@@ -110,8 +110,18 @@ public static class MethodGenericBridgeEmitter
     }
 
     /// <summary>
-    /// Checks if a method is eligible for the method-generic bridge pattern.
-    /// Used by MemberEmissionValidator to allow eligible methods through the placeholder gate.
+    /// Checks if a method is eligible for the method-generic bridge pattern. Mirrors the gate
+    /// ladder in <see cref="TryEmit"/> so callers can ask "would the bridge emit this?" without
+    /// running emission.
+    /// <para>
+    /// Unlike the sibling bridge predicates (<c>AsyncMethodGenericBridgeEmitter.IsEligible</c>,
+    /// <c>MethodClosureBridge.IsEligible</c>, <c>NestedClosureBridge.IsEligible</c>), this one is
+    /// NOT yet consulted by any production placeholder gate (<c>MemberEmissionValidator</c> /
+    /// <c>MemberValidationPipeline</c>); its only callers are unit tests. Production reachability
+    /// of this emitter is solely via <see cref="TryEmit"/> through the
+    /// <c>MethodHandler._bridgeEmitters</c> dispatch table. Wiring this predicate into the
+    /// validator placeholder gate is tracked as P1-28 (Session 6), not Session 1.
+    /// </para>
     /// </summary>
     public static bool IsEligible(MethodDecl method, ITypeDatabase typeDatabase)
     {
