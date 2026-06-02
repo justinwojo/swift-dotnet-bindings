@@ -263,9 +263,13 @@ namespace BindingsGeneration
                 var copyBufferList = string.Join(", ", allCopyBufferWrappers);
                 var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){NameProvider.GetCSharpParameterName(p)}"));
 
-                // For Swift classes, Arc.Retain the self pointer before async call.
-                // SwiftSelf passes a raw pointer - no ARC semantics. By the time Swift's Task{}
-                // closure runs, 'self' may be deallocated. Retain ensures Swift ARC tracks it.
+                // For Swift classes, retain the self pointer before the async call via the
+                // isa-dispatching UnknownObjectRetain: 'self' may be an @objc:NSObject-rooted class
+                // (objc_retain) or a pure-Swift class (swift_retain), and the kind-agnostic
+                // RetainedSelfPtr cleanup releases it via UnknownObjectRelease — native-only
+                // swift_retain over-releases an @objc self (issue #40 / P1-01). SwiftSelf passes a
+                // raw pointer with no ARC semantics; by the time Swift's Task{} closure runs 'self'
+                // may be deallocated, so the retain ensures Swift ARC tracks it.
                 string selfInHolder;
                 bool isObjCRootedClass = isSwiftClass && _env.ParentDecl is ClassDecl asyncClassDecl && asyncClassDecl.IsObjCRooted;
                 if (isInstanceMethod && isObjCRootedClass)
@@ -273,7 +277,7 @@ namespace BindingsGeneration
                     // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
                     csWriter.WriteLines($$"""
             IntPtr _selfPtr = Handle;
-            Arc.Retain(_selfPtr);
+            Arc.UnknownObjectRetain(_selfPtr);
             """);
                     selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
                 }
@@ -286,7 +290,7 @@ namespace BindingsGeneration
             bool _selfSuccess = false;
             _handle.DangerousAddRef(ref _selfSuccess);
             IntPtr _selfPtr = _handle.DangerousGetHandle();
-            Arc.Retain(_selfPtr);
+            Arc.UnknownObjectRetain(_selfPtr);
             _handle.DangerousRelease();
             """);
                     selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
@@ -334,7 +338,7 @@ namespace BindingsGeneration
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             IntPtr _selfPtr = Handle;
-            Arc.Retain(_selfPtr);
+            Arc.UnknownObjectRetain(_selfPtr);
             """);
                     if (needsDeferredList)
                         csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
@@ -352,7 +356,7 @@ namespace BindingsGeneration
             bool _selfSuccess = false;
             _handle.DangerousAddRef(ref _selfSuccess);
             IntPtr _selfPtr = _handle.DangerousGetHandle();
-            Arc.Retain(_selfPtr);
+            Arc.UnknownObjectRetain(_selfPtr);
             _handle.DangerousRelease();
             """);
                     if (needsDeferredList)
@@ -1144,11 +1148,13 @@ namespace BindingsGeneration
                     return argName;
                 }));
 
-            // For async instance methods on Swift classes, C# calls Arc.Retain on self before
-            // invoking this wrapper, ensuring Swift ARC keeps self alive through the Task closure.
-            // The matching Arc.Release is called in the C# callback after async completion.
+            // For async instance methods on Swift classes, C# calls Arc.UnknownObjectRetain on self
+            // before invoking this wrapper (isa-dispatch: objc_retain for an @objc:NSObject-rooted
+            // self, swift_retain for pure-Swift), ensuring Swift ARC keeps self alive through the
+            // Task closure. The matching Arc.UnknownObjectRelease is called in the C# callback after
+            // async completion (issue #40 / P1-01).
             var selfComment = (isInstanceMethod && isSwiftClass)
-                ? "// selfInstance is safe - C# called Arc.Retain before invoking this method"
+                ? "// selfInstance is safe - C# UnknownObjectRetain'd it before invoking this method"
                 : "";
 
             // Determine how to call the method:
@@ -2820,7 +2826,7 @@ namespace BindingsGeneration
                 {{indent}}for (int __cleanupIdx = 1; __cleanupIdx < {{holderVar}}.Length; __cleanupIdx++)
                 {{indent}}{
                 {{indent}}    if ({{holderVar}}[__cleanupIdx] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                {{indent}}        Arc.Release(retained.Ptr);
+                {{indent}}        Arc.UnknownObjectRelease(retained.Ptr);
                 {{indent}}    else if ({{holderVar}}[__cleanupIdx] is DeferredSafeHandleRelease deferred)
                 {{indent}}        deferred.Handle.DangerousRelease();
                 {{indent}}    else if ({{holderVar}}[__cleanupIdx] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)

@@ -447,16 +447,18 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("DangerousGetHandle()", output);
         Assert.Contains("SwiftOptional<", output);
 
-        // Setter: must use simple nullable cast (Optional already deserialized with public type)
-        Assert.Contains("Receive_service_set", output);
-        // The receiver SETTER reads the Optional ABI carrier once (SwiftOptional<MyService>)
-        // and applies a plain nullable cast — it must NOT redundantly marshal the already-
-        // typed inner class. Scope the guard to the setter body (brace-matched): the witness-
+        // Setter (issue #40): an Optional<class> arrives as a single nil-pointer-optimised
+        // word in the borrowed slot, NOT a managed SwiftOptional<MyService>. The receiver must
+        // read it via the optional copy-out helper (deref slot + ObjC-aware retain +
+        // NewFromPayload), NOT Unsafe.Read<SwiftOptional<MyService>> — a managed class read from
+        // raw Swift memory. Scope the guard to the setter body (brace-matched): the witness-
         // dispatch getter, emitted later, does legitimately use MarshalFromSwift<MyService>,
         // so an unscoped check false-trips.
+        Assert.Contains("Receive_service_set", output);
         var setterBody = ExtractMethodBody(output, "private static void Receive_service_set(");
-        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyService>", setterBody);
-        Assert.Contains("(TestModule.MyService?)", setterBody);
+        Assert.Contains("MarshalBorrowedOptionalClassFromSlot<TestModule.MyService>(valuePtr)", setterBody);
+        Assert.DoesNotContain("MarshalFromSwift<SwiftOptional<TestModule.MyService>>", setterBody);
+        Assert.DoesNotContain("(TestModule.MyService?)", setterBody);
 
         // Witness-dispatch getter (proxy -> Swift): materialises the returned class from
         // the raw Swift pointer via MarshalFromSwift on the inner public type. This is the
@@ -3820,6 +3822,184 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_MethodReceiver_ClassParam_UsesCopyOutNotUnsafeRead()
+    {
+        // Regression for justinwojo/swift-dotnet-bindings#40: when Swift calls back into a
+        // C# impl with a Swift-class parameter, the receiver must reconstruct it via the
+        // runtime copy-out (deref the borrowed slot + ObjC-aware retain + NewFromPayload),
+        // NOT the per-proxy local Unsafe.Read<T> helper. Unsafe.Read<T> reinterprets the
+        // Swift heap-object pointer as a managed reference → SIGSEGV on first use.
+        RegisterClass("MyPayload");
+        var protocol = CreateSimpleProtocol("ClassParamProto");
+        var method = CreateMethodDecl("didReceive");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "payload", PrivateName = "payload",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.MyPayload"),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static void Receive_didReceive_0(");
+
+        // The broken naive read must be gone…
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyPayload>(rawArg0)", body);
+        // …replaced by the runtime copy-out from the borrowed slot.
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.MyPayload>(rawArg0)", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_ObjCRootedClassParam_UsesCopyOut()
+    {
+        // The literal Kidoz shape: an @objc:NSObject class param. Same copy-out routing; the
+        // runtime helper's swift_unknownObjectRetain handles the ObjC-vs-native retain dispatch
+        // (native swift_retain is a no-op / over-release on an NSObject subclass).
+        RegisterObjCRootedClass("KidozError");
+        var protocol = CreateSimpleProtocol("ObjCClassParamProto");
+        var method = CreateMethodDecl("onError");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "kidozError", PrivateName = "kidozError",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.KidozError"),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static void Receive_onError_0(");
+
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.KidozError>(rawArg0)", body);
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.KidozError>(rawArg0)", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_OptionalClassParam_UsesOptionalCopyOut()
+    {
+        // Optional<class> param: the borrowed slot is a single nil-pointer-optimised word, NOT
+        // a managed SwiftOptional<T>. Reading it as Unsafe.Read<SwiftOptional<T>> reinterprets
+        // a heap pointer as a managed object. Must route through the optional copy-out helper.
+        RegisterClass("MyPayload");
+        var protocol = CreateSimpleProtocol("OptClassParamProto");
+        var method = CreateMethodDecl("didReceive");
+        var optionalClass = new NamedTypeSpec("Swift.Optional");
+        optionalClass.GenericParameters.Add(new NamedTypeSpec("TestModule.MyPayload"));
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "payload", PrivateName = "payload",
+            SwiftTypeSpec = optionalClass,
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static void Receive_didReceive_0(");
+
+        Assert.DoesNotContain("MarshalFromSwift<SwiftOptional<TestModule.MyPayload>>(rawArg0)", body);
+        Assert.Contains("MarshalBorrowedOptionalClassFromSlot<TestModule.MyPayload>(rawArg0)", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetterReceiver_ClassValue_UsesCopyOut()
+    {
+        // Issue #40 / P1-01, non-optional class property setter site (the method-param fix at
+        // ProtocolProxyEmitter.Receivers.cs:240). A Swift-class value arrives as the address of a
+        // borrowed slot holding the heap pointer; the setter receiver must copy it out (deref +
+        // ObjC-aware retain) rather than Unsafe.Read-ing the slot word as a managed reference.
+        // ObjC-rooted variant: swift_unknownObjectRetain dispatches the @objc:NSObject retain.
+        RegisterObjCRootedClass("KidozError");
+        var protocol = CreateProtocolWithProperty("ErrorSinkProto", "lastError",
+            hasGetter: false, hasSetter: true, new NamedTypeSpec("TestModule.KidozError"));
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static void Receive_lastError_set(");
+
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.KidozError>(", body);
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.KidozError>(valuePtr)", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SubscriptGetterReceiver_ClassIndex_UsesCopyOut()
+    {
+        // Issue #40 / P1-01, subscript getter index site (Receivers.cs:669). A Swift-class index
+        // arrives as the address of a borrowed slot; the getter receiver must copy it out, not
+        // Unsafe.Read it. ObjC-rooted variant exercises the swift_unknownObjectRetain dispatch.
+        RegisterObjCRootedClass("KidozError");
+        var protocol = CreateSimpleProtocol("ClassKeyedReadProto");
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s10TestModuleP9subscriptClassKeyGet",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "key", PrivateName = "key",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.KidozError"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("subscript_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static IntPtr Receive_subscript_0_get(");
+
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.KidozError>(", body);
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.KidozError>(arg0)", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SubscriptSetterReceiver_ClassValueAndIndex_UsesCopyOut()
+    {
+        // Issue #40 / P1-01, subscript setter value site (Receivers.cs:748) AND index site
+        // (Receivers.cs:775) in one shape: a class element type and a class index type. Both the
+        // set value (valuePtr) and the index (arg0) must copy out from the borrowed slot.
+        RegisterClass("MyPayload");
+        var protocol = CreateSimpleProtocol("ClassKeyedWriteProto");
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s10TestModuleP9subscriptClassKeyVal",
+            ReturnTypeSpec = new NamedTypeSpec("TestModule.MyPayload"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "key", PrivateName = "key",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.MyPayload"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("subscript_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static void Receive_subscript_0_set(");
+
+        // Naive Unsafe.Read of either the value or the index slot must be gone…
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyPayload>(", body);
+        // …and both the set value and the index copy out from their borrowed slots.
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.MyPayload>(valuePtr)", body);
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.MyPayload>(arg0)", body);
+    }
+
+    [Fact]
     public void EmitProxyClass_PropertySetter_ObjCBridgedType_UsesGetNSObjectConversion()
     {
         // ObjC bridged property setter: MarshalFromSwift<IntPtr> + GetNSObject conversion
@@ -4867,6 +5047,21 @@ public class ProtocolProxyEmitterTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
                 MetadataAccessor = "$sMa",
                 Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+    }
+
+    private void RegisterObjCRootedClass(string name)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCRooted,
                 Kind = TypeRecordKind.Class
             })
         });

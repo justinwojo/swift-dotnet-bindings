@@ -1,11 +1,11 @@
 {
-  "git_sha": "b1dad08e",
+  "git_sha": "c026c7d2",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49294,
+        "lines": 49293,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -117,14 +117,14 @@
       "RealityKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8964,
+        "lines": 8962,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 203942,
+        "lines": 203936,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -138,28 +138,28 @@
       "StoreKit2": {
         "compile": "ok",
         "errors": 0,
-        "lines": 38254,
+        "lines": 38252,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33968,
+        "lines": 33966,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 38254,
+        "lines": 38252,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32863,
+        "lines": 32861,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -264,7 +264,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16021,
+        "lines": 16019,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -299,14 +299,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 62761,
+        "lines": 62754,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 36797,
+        "lines": 36794,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -355,7 +355,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13314,
+        "lines": 13311,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -467,7 +467,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 35207,
+        "lines": 35206,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -558,7 +558,7 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15565,
+        "lines": 15564,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -607,7 +607,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2681,
+        "lines": 2680,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -775,7 +775,7 @@
       "FirebaseFunctions": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1875,
+        "lines": 1873,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -859,7 +859,7 @@
       "GTMAppAuth": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4815,
+        "lines": 4814,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -951,15 +951,15 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2535,
+      "pass": 2555,
       "fail": 0,
-      "skip": 43,
+      "skip": 44,
       "crash": 0
     },
     "device": {
-      "pass": 2546,
+      "pass": 2569,
       "fail": 0,
-      "skip": 29,
+      "skip": 30,
       "crash": 0
     },
     "macos": {

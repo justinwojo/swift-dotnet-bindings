@@ -39,7 +39,13 @@ public class AsyncHarnessEmitterCleanupTests
         var code = AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", indent: "    ");
 
         Assert.Contains("RetainedSelfPtr retained", code);
-        Assert.Contains("Arc.Release(retained.Ptr);", code);
+        // The async-self retain is Arc.UnknownObjectRetain (isa-dispatch), so its paired
+        // cleanup release MUST be the matching UnknownObjectRelease — otherwise an
+        // @objc:NSObject-rooted self is objc_retain'd but swift_release'd, corrupting its
+        // refcount (issue #40 / P1-01). UnknownObjectRelease (vs Arc.Release) also skips the
+        // swift_isDeallocating pre-check, which is the safer choice inside a cleanup walk.
+        Assert.Contains("Arc.UnknownObjectRelease(retained.Ptr);", code);
+        Assert.DoesNotContain("Arc.Release(retained.Ptr);", code);
         Assert.Contains("DeferredSafeHandleRelease deferred", code);
         Assert.Contains("deferred.Handle.DangerousRelease();", code);
         Assert.Contains("CopyBufferWithType copyBuffer", code);

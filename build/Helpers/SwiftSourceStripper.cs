@@ -104,6 +104,16 @@ public static class SwiftSourceStripper
         // InheritedDelegateDispatchTests can exercise the cross-proxy delivery path.
         "InheritedParentDelegate",
         "InheritedChildDelegate",
+        // Class-parameter reverse-callback regression (justinwojo/swift-dotnet-bindings#40,
+        // KidozSDK KidozError). Swift calls back into a C# protocol implementation with a
+        // method whose parameter is a Swift *class* instance; the generated proxy receiver
+        // used to reinterpret the heap pointer via Unsafe.Read and crash. ClassParamCallback
+        // .swift exercises both the pure-Swift and `@objc … : NSObject` payload variants and
+        // their Optional<class> overloads through the EveryProtocol proxy receiver, so both
+        // conformances and their witness-table getters must survive stripping for the
+        // existential construction P/Invoke to resolve.
+        "ClassParamReceiver",
+        "ObjCClassParamReceiver",
         // 3-level chain and non-empty-child variants of the same dispatch shape.
         // The grandchild walks the cctor cascade two ancestors deep; the non-empty
         // child verifies a real-world layout (parent inherited + child own method).

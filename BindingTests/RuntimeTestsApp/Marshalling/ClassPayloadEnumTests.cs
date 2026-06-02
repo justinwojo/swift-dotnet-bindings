@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 
@@ -9,7 +10,8 @@ namespace RuntimeTestsApp.Marshalling;
 /// <summary>
 /// Regression coverage for the class-payload deref path in EnumHandler.Marshalling.
 /// A non-generic enum with a concrete Swift class associated value must dereference
-/// the class pointer out of the enum's payload bytes and Arc.Retain for +1 C# ownership.
+/// the class pointer out of the enum's payload bytes and Arc.UnknownObjectRetain for +1
+/// C# ownership (isa-dispatch — swift_retain for pure-Swift, objc_retain for @objc:NSObject).
 /// Wrapping the buffer address directly in SwiftClassHandle&lt;T&gt; would ARC-release a
 /// bogus pointer on dispose. Exercised on Mono JIT (sim) and NativeAOT (device) because
 /// the class-pointer path is a distinct branch from the value-buffer heap-alloc path.
@@ -17,6 +19,22 @@ namespace RuntimeTestsApp.Marshalling;
 public class ClassPayloadEnumTests : TestBase
 {
     public ClassPayloadEnumTests(TestResults results) : base(results) { }
+
+    /// <summary>
+    /// Drain for <c>@objc:NSObject</c> peers whose native <c>dealloc</c> is deferred to the
+    /// main-thread finalization queue (Microsoft.iOS) — a plain GC drain runs the C# finalizer
+    /// but the native dealloc (and <c>recordTrackedDeallocation</c>) only fires on a runloop
+    /// iteration. Mirrors <c>ClassParamCallbackTests.DrainObjCFinalizers</c>.
+    /// </summary>
+    private static void DrainObjCFinalizers()
+    {
+        for (int i = 0; i < 6; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.05));
+        }
+    }
 
     public void TestClassOutcome_Delivered_ExtractsBoxedCounter()
     {
@@ -142,6 +160,98 @@ public class ClassPayloadEnumTests : TestBase
         {
             AssertEqual("c#-built", roundTrip!.Id,
                 "C#-side factory round-trips the labeled class payload");
+        }
+    }
+
+    // ---- @objc:NSObject enum payloads (issue #40 / P1-01 — enum direction) ----
+    //
+    // The pure-Swift tests above route the same extraction sites, but for them swift_retain and
+    // swift_unknownObjectRetain are indistinguishable. These variants carry an @objc:NSObject
+    // payload, where a native-only swift_retain touches the wrong refcount word: the C# wrapper
+    // then objc_releases on dispose, underflowing the object's true ARC count. The extraction
+    // MUST use the isa-dispatching Arc.UnknownObjectRetain. ObjCClassParamPayload feeds the shared
+    // LifetimeTracker counters, so the no-leak tests assert ARC *balance*, not just crash-absence.
+
+    /// <summary>E2 site: concrete @objc:NSObject enum payload via <c>EmitPayloadMarshal</c>.</summary>
+    public void TestObjCClassOutcome_Delivered_ExtractsObjCPayload()
+    {
+        using var outcome = TestLibFunctions.MakeObjCDeliveredOutcome(7, "objc");
+        AssertEqual(ObjCClassOutcome.CaseTag.Delivered, outcome.Tag, "Tag == Delivered");
+
+        AssertTrue(outcome.TryGetDelivered(out var payload), "TryGetDelivered returns true");
+        using (payload)
+        {
+            AssertEqual(7, payload!.Code, "Extracted @objc payload .Code round-trips");
+            AssertEqual("objc", payload!.Label.ToString(), "Extracted @objc payload .Label round-trips");
+        }
+    }
+
+    /// <summary>E1 site: @objc:NSObject element in a tuple payload via <c>EmitPayloadMarshalWithOffset</c>.</summary>
+    public void TestObjCTaggedDelivery_Shipped_ExtractsTupleWithObjCElement()
+    {
+        using var delivery = TestLibFunctions.MakeObjCShippedDelivery(3, 42, "objc");
+        AssertEqual(ObjCTaggedDelivery.CaseTag.Shipped, delivery.Tag, "Tag == Shipped");
+
+        AssertTrue(delivery.TryGetShipped(out var tag, out var payload), "TryGetShipped returns true");
+        using (payload)
+        {
+            AssertEqual(3, tag, "Tuple element 0 (Int32 tag) round-trips");
+            AssertEqual(42, payload!.Code, "Tuple element 1 (@objc payload) .Code round-trips");
+        }
+    }
+
+    /// <summary>E3 site: bare-generic-parameter @objc:NSObject payload via
+    /// <c>EmitGenericTypeParameterPayloadExtraction</c> (<c>Holder&lt;ObjCClassParamPayload&gt;</c>).</summary>
+    public void TestGenericHolder_ObjCPayload_ExtractsWrapped()
+    {
+        using var holder = TestLibFunctions.MakeWrappedObjCPayload(55, "objc");
+
+        AssertTrue(holder.TryGetWrapped(out var payload), "TryGetWrapped returns true");
+        using (payload)
+        {
+            AssertEqual(55, payload!.Code, "Extracted generic @objc payload .Code round-trips");
+        }
+    }
+
+    /// <summary>
+    /// ARC balance for all three @objc enum-payload extraction sites (E1/E2/E3). Each iteration
+    /// allocates one tracked @objc payload Swift-side, extracts an independent +1 copy, then
+    /// disposes both the extracted copy and the enum carrier. With the UnknownObjectRetain fix
+    /// the retains/releases balance to zero; native swift_retain on an NSObject subclass would
+    /// fail to register the copy's +1, so the carrier dispose over-releases and skews the count.
+    /// </summary>
+    public void TestObjCEnumPayloadExtraction_NoLeak()
+    {
+        DrainObjCFinalizers();
+        LifetimeTracker.Reset();
+
+        ExtractObjCEnumPayloads(150);
+        DrainObjCFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("@objc enum-payload extraction (E1/E2/E3) must balance ARC (UnknownObjectRetain)");
+        TestLogger.Info("@objc enum-payload extraction: 150 payloads copied out and released across E1/E2/E3");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ExtractObjCEnumPayloads(int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            using (var outcome = TestLibFunctions.MakeObjCDeliveredOutcome(i, "x"))
+            {
+                if (outcome.TryGetDelivered(out var payload))
+                    payload!.Dispose();
+            }
+            using (var delivery = TestLibFunctions.MakeObjCShippedDelivery(i, i, "x"))
+            {
+                if (delivery.TryGetShipped(out _, out var payload))
+                    payload!.Dispose();
+            }
+            using (var holder = TestLibFunctions.MakeWrappedObjCPayload(i, "x"))
+            {
+                if (holder.TryGetWrapped(out var payload))
+                    payload!.Dispose();
+            }
         }
     }
 }

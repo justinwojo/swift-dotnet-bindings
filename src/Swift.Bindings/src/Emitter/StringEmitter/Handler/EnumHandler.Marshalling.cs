@@ -398,15 +398,22 @@ namespace BindingsGeneration
             }
 
             // Concrete Swift classes: payload bytes ARE a class pointer, not a value buffer.
-            // Deref and Arc.Retain for +1 C# ownership; the enumCopy's own retain dissolves with
-            // the stack frame (mirrors SwiftResult.ExtractPayloadValue). Wrapping the buffer
-            // address via SwiftClassHandle would ARC-release a bogus pointer on dispose.
+            // The enclosing TryGet already made an owned copy of the enum via InitializeWithCopy
+            // (which retains the payload class isa-correctly: objc_retain for an @objc:NSObject
+            // payload, swift_retain for pure-Swift) and then DestructiveProjectEnumData'd it to the
+            // bare payload. That copy is never VWT-destroyed, so its +1 is ours to hand off:
+            // MarshalFromSwift<T> → NewFromPayload ADOPTS one reference (a pure-Swift wrapper stores
+            // the handle in its SafeHandle; an @objc:NSObject peer base-retains then DangerousRelease's
+            // the incoming +1), so the wrapper consumes exactly the copy's retain. Adding a second
+            // Arc retain here would over-retain by +1 per extraction — the object never deallocs even
+            // though every dispose runs (issue #40 / P1-01: the enum-payload over-retain leak; the copy
+            // does NOT "dissolve with the stack frame"). Wrapping the buffer address via SwiftClassHandle
+            // would instead ARC-release a bogus pointer on dispose.
             var fallbackRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
             if (IsSwiftClassPayload(fallbackRecord))
             {
                 var bareNameClassOffset = NameProvider.StripVerbatimPrefix(varName);
                 csWriter.WriteLine($"var _{bareNameClassOffset}_classPtr = *(IntPtr*)({sourcePtr} + (int){offsetVar});");
-                csWriter.WriteLine($"Swift.Runtime.Arc.Retain(_{bareNameClassOffset}_classPtr);");
                 csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareNameClassOffset}_classPtr);");
                 return;
             }
@@ -603,13 +610,16 @@ namespace BindingsGeneration
                 return;
             }
 
-            // See EmitPayloadMarshalWithOffset for rationale.
+            // See EmitPayloadMarshalWithOffset for the full rationale: the enclosing TryGet already
+            // owns an isa-correct +1 from the enum's InitializeWithCopy, and MarshalFromSwift<T> →
+            // NewFromPayload ADOPTS exactly one reference, so the wrapper consumes the copy's retain.
+            // No extra Arc retain — a second retain over-retains by +1 per extraction and the payload
+            // never deallocs (issue #40 / P1-01: enum-payload over-retain leak).
             var marshalRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
             if (IsSwiftClassPayload(marshalRecord))
             {
                 var bareNameClassMarshal = NameProvider.StripVerbatimPrefix(varName);
                 csWriter.WriteLine($"var _{bareNameClassMarshal}_classPtr = *(IntPtr*)({sourcePtr});");
-                csWriter.WriteLine($"Swift.Runtime.Arc.Retain(_{bareNameClassMarshal}_classPtr);");
                 csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareNameClassMarshal}_classPtr);");
                 return;
             }
@@ -791,10 +801,14 @@ namespace BindingsGeneration
         /// a stackalloc enum buffer. Mirrors the concrete-type patterns:
         ///
         /// True Swift classes (metadata Kind == Class, !IsValueType, !ISwiftStruct) — payload
-        /// bytes ARE a class pointer at offset 0. Dereference, then <see cref="Arc.Retain"/>
-        /// for the +1 ownership <c>SwiftClassHandle</c> expects. Without the explicit retain,
-        /// the eventual <c>Arc.Release</c> at dispose time underflows the heap object's
-        /// refcount; the previous emit shape would also have produced this defect.
+        /// bytes ARE a class pointer at offset 0. The enclosing TryGet already owns an isa-correct
+        /// +1 from the enum's <c>InitializeWithCopy</c> (objc_retain for an @objc:NSObject-rooted T,
+        /// swift_retain for pure-Swift), and <c>MarshalFromSwift&lt;T&gt;</c> → NewFromPayload ADOPTS
+        /// exactly one reference (an @objc:NSObject peer base-retains then DangerousRelease's the
+        /// incoming +1; a pure-Swift wrapper stores the handle in its SafeHandle), so the wrapper
+        /// consumes the copy's retain. Do NOT add a second Arc retain — it over-retains by +1 per
+        /// extraction and the payload never deallocs even though every dispose runs (issue #40 / P1-01:
+        /// enum-payload over-retain leak).
         ///
         /// Non-class generic T (ISwiftObject non-class, ISwiftStruct, primitives, value
         /// structs) — heap-allocate a buffer, <c>InitializeWithCopy</c> from the source
@@ -820,11 +834,11 @@ namespace BindingsGeneration
             csWriter.WriteLine($"    && __{varName}_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            // Class T: read the class pointer at sourcePtr and Arc.Retain for SwiftClassHandle's +1
-            // ownership. Mirrors the concrete IsSwiftClassPayload branch (EmitPayloadMarshal /
-            // EmitPayloadMarshalWithOffset) and SwiftResult.ExtractPayloadValue.
+            // Class T: read the class pointer at sourcePtr and hand it to MarshalFromSwift, which
+            // ADOPTS the +1 the enclosing InitializeWithCopy already deposited. No extra Arc retain —
+            // mirrors the concrete IsSwiftClassPayload branch (EmitPayloadMarshal /
+            // EmitPayloadMarshalWithOffset). A redundant retain leaks +1 per extraction (issue #40 / P1-01).
             csWriter.WriteLine($"var __{varName}_classPtr = *(IntPtr*)({sourcePtrExpr});");
-            csWriter.WriteLine($"global::Swift.Runtime.Arc.Retain(__{varName}_classPtr);");
             csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(__{varName}_classPtr);");
             csWriter.Indent--;
             csWriter.WriteLine("}");

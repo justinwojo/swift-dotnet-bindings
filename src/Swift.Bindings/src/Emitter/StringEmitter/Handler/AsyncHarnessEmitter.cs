@@ -1688,7 +1688,7 @@ namespace BindingsGeneration
                 {{indent}}for (int i = 1; i < {{holderVar}}.Length; i++)
                 {{indent}}{
                 {{indent}}    if ({{holderVar}}[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                {{indent}}        Arc.Release(retained.Ptr);
+                {{indent}}        Arc.UnknownObjectRelease(retained.Ptr);
                 {{indent}}    else if ({{holderVar}}[i] is DeferredSafeHandleRelease deferred)
                 {{indent}}        deferred.Handle.DangerousRelease();
                 {{indent}}    else if ({{holderVar}}[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
@@ -1728,7 +1728,7 @@ namespace BindingsGeneration
                 {{indent}}        cancelReg.Registration.Dispose();
                 {{indent}}    }
                 {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                {{indent}}        Arc.Release(retained.Ptr);
+                {{indent}}        Arc.UnknownObjectRelease(retained.Ptr);
                 {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is DeferredSafeHandleRelease deferred)
                 {{indent}}        deferred.Handle.DangerousRelease();
                 {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)

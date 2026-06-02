@@ -689,6 +689,67 @@ public class AsyncMethodGenericBridgeEmitterTests
 
     #endregion
 
+    #region Self-retain ARC family (issue #40 / P1-01)
+
+    [Fact]
+    public void TryEmit_ObjCRootedInstanceSelf_RetainsViaUnknownObjectRetain()
+    {
+        // An async generic-bridge instance method on an @objc:NSObject-rooted self must keep
+        // self alive across the Task continuation by retaining the NSObject peer pointer
+        // (Handle) with the isa-dispatching Arc.UnknownObjectRetain — native swift_retain
+        // touches the wrong refcount word for an @objc subclass, so the self can be freed
+        // under the in-flight continuation. Same fix shape as the receiver / enum-payload /
+        // async-wrapper self sites for issue #40.
+        var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var parent = CreateClassDecl("Processor");
+        parent.IsObjCRooted = true;
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
+
+        var csResult = csOutput.ToString();
+        // @objc-rooted self reads the NSObject peer (Handle) and retains via isa-dispatch.
+        Assert.Contains("IntPtr _selfPtr = Handle;", csResult);
+        Assert.Contains("Arc.UnknownObjectRetain(_selfPtr)", csResult);
+        // MUST NOT use the pure-Swift native retain, nor the SafeHandle AddRef dance.
+        Assert.DoesNotContain("Arc.Retain(_selfPtr)", csResult);
+        Assert.DoesNotContain("_handle.DangerousAddRef", csResult);
+    }
+
+    [Fact]
+    public void TryEmit_PureSwiftInstanceSelf_RetainsThroughSafeHandleViaUnknownObjectRetain()
+    {
+        // Pure-Swift self: SafeHandle AddRef dance + isa-dispatching retain (resolves to
+        // swift_retain for a native object). Asserts the @objc gate does not bleed into the
+        // pure-Swift branch, and that even the native branch uses the unknown-object family
+        // (null-tolerant, isa-correct if a subclass is ever rooted at runtime).
+        var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var parent = CreateClassDecl("Processor"); // not ObjCRooted
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
+
+        var csResult = csOutput.ToString();
+        Assert.Contains("_handle.DangerousAddRef", csResult);
+        Assert.Contains("Arc.UnknownObjectRetain(_selfPtr)", csResult);
+        Assert.DoesNotContain("Arc.Retain(_selfPtr)", csResult);
+        Assert.DoesNotContain("IntPtr _selfPtr = Handle;", csResult);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter) CreateWriters()

@@ -429,10 +429,13 @@ public static class SwiftMarshal
     /// <list type="bullet">
     /// <item><b>True Swift class</b> (<see cref="ISwiftObject"/>, not a value type, not
     /// <see cref="ISwiftStruct"/>, metadata <c>Kind == Class</c>): the payload word at offset 0 <i>is</i>
-    /// the instance pointer. Dereference it, take an independent <see cref="Arc.Retain(System.IntPtr)"/>,
-    /// and marshal the pointer directly — <c>NewFromPayload</c> for a class expects the pointer value,
-    /// not the address holding it. This folds in the hand-rolled class fast path that
-    /// <c>SwiftOptional.Some</c> and <c>SwiftResult.ExtractPayloadValue</c> previously each carried.</item>
+    /// the instance pointer. Dereference it, take an independent ObjC-aware
+    /// <see cref="Arc.UnknownObjectRetain(System.IntPtr)"/> (<c>swift_unknownObjectRetain</c> dispatches by
+    /// isa, so it is correct for both pure-Swift and <c>@objc : NSObject</c>-rooted classes — native-only
+    /// <c>swift_retain</c> no-ops/over-releases on an NSObject subclass; audit P1-01), and marshal the
+    /// pointer directly — <c>NewFromPayload</c> for a class expects the pointer value, not the address
+    /// holding it. This folds in the hand-rolled class fast path that <c>SwiftOptional.Some</c> and
+    /// <c>SwiftResult.ExtractPayloadValue</c> previously each carried.</item>
     /// <item><b>Everything else</b> (value types, <see cref="ISwiftStruct"/> wrappers, bare-<see
     /// cref="ISwiftObject"/> struct wrappers, primitives, existential containers): delegate to
     /// <see cref="MarshalExtractedPayloadValue{T}"/>, which takes a value-witness <c>+1</c> for non-POD
@@ -463,11 +466,60 @@ public static class SwiftMarshal
             && classMd.Value.Kind == TypeMetadataKind.Class)
         {
             IntPtr classPointer = *(IntPtr*)source;
-            Arc.Retain(classPointer);
+            Arc.UnknownObjectRetain(classPointer);
             return MarshalFromSwift<T>(classPointer);
         }
 
         return MarshalExtractedPayloadValue<T>(source, swiftPayloadSize);
+    }
+
+    /// <summary>
+    /// Copies a <b>true Swift class</b> (pure-Swift or <c>@objc : NSObject</c>) out of a
+    /// <b>borrowed</b> slot — <paramref name="slot"/> is the address of a word holding the Swift
+    /// heap-object pointer — into a managed wrapper that owns an <b>independent</b> reference,
+    /// leaving the slot's own reference intact.
+    /// <para>
+    /// This is the copy-out a protocol-proxy reverse-callback receiver must use for a Swift-class
+    /// parameter (justinwojo/swift-dotnet-bindings#40): the generated Swift thunk passes
+    /// <c>&amp;{param}Copy</c>, so the receiver is handed the <i>address</i> of a slot, not the
+    /// instance pointer. The per-proxy local <c>MarshalFromSwift&lt;T&gt;</c> does
+    /// <c>Unsafe.Read&lt;T&gt;</c>, which reinterprets the Swift heap pointer as a managed reference
+    /// and SIGSEGVs on first use. Dereference the slot, take an independent ObjC-aware
+    /// <see cref="Arc.UnknownObjectRetain"/> (<c>swift_unknownObjectRetain</c> dispatches by isa, so
+    /// it is correct for both pure-Swift and NSObject-rooted classes — native-only
+    /// <c>swift_retain</c> is a no-op/over-release on an NSObject subclass; audit P1-01), and build
+    /// the wrapper from the pointer via <see cref="MarshalFromSwift{T}"/> (<c>NewFromPayload</c> for
+    /// a class wants the pointer value, not the address holding it).
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The Swift-class wrapper type.</typeparam>
+    /// <param name="slot">Address of the borrowed slot holding the Swift class pointer.</param>
+    /// <returns>The constructed wrapper, owning an independent reference.</returns>
+    public static unsafe T MarshalBorrowedClassFromSlot<T>(IntPtr slot)
+    {
+        IntPtr classPointer = *(IntPtr*)slot;
+        Arc.UnknownObjectRetain(classPointer);
+        return MarshalFromSwift<T>(classPointer);
+    }
+
+    /// <summary>
+    /// The <c>Optional&lt;class&gt;</c> sibling of <see cref="MarshalBorrowedClassFromSlot{T}"/>. A
+    /// Swift <c>Optional</c> of a class is nil-pointer-optimised: the borrowed slot holds either a
+    /// null word (<c>nil</c> → <c>null</c>) or the class pointer (non-nil → copy out with an
+    /// ObjC-aware retain). Reading it as a managed <c>SwiftOptional&lt;T&gt;</c> via
+    /// <c>Unsafe.Read</c> reinterprets that single word as a managed object and crashes the same way
+    /// the non-optional path does.
+    /// </summary>
+    /// <typeparam name="T">The Swift-class wrapper type.</typeparam>
+    /// <param name="slot">Address of the borrowed slot holding the nil-pointer-optimised payload.</param>
+    /// <returns>The constructed wrapper, or <c>null</c> when the optional is <c>nil</c>.</returns>
+    public static unsafe T? MarshalBorrowedOptionalClassFromSlot<T>(IntPtr slot) where T : class
+    {
+        IntPtr classPointer = *(IntPtr*)slot;
+        if (classPointer == IntPtr.Zero)
+            return null;
+        Arc.UnknownObjectRetain(classPointer);
+        return MarshalFromSwift<T>(classPointer);
     }
 
     /// <summary>
@@ -1439,8 +1491,11 @@ public static class SwiftMarshal
     /// <list type="bullet">
     /// <item><b>True Swift class</b> (not a value type, not <see cref="ISwiftStruct"/>, metadata
     /// <c>Kind == Class</c>): the slot word IS the instance pointer. Dereference it, take an independent
-    /// <see cref="Arc.Retain(System.IntPtr)"/>, and build NewFromPayload from the pointer — a class's
-    /// NewFromPayload wraps the pointer value directly, not the address holding it.</item>
+    /// <see cref="Arc.UnknownObjectRetain(System.IntPtr)"/> (<c>swift_unknownObjectRetain</c> dispatches by
+    /// isa, so it is correct for both pure-Swift and <c>@objc</c>:NSObject-rooted classes; native-only
+    /// <c>swift_retain</c> no-ops / over-releases on an NSObject subclass — audit P1-01), and build
+    /// NewFromPayload from the pointer — a class's NewFromPayload wraps the pointer value directly, not
+    /// the address holding it.</item>
     /// <item><b>Reference-backed non-class</b> (<see cref="ISwiftStruct"/>, bare-<see cref="ISwiftObject"/>
     /// SwiftUI value wrappers, <c>SwiftString</c>/<c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>):
     /// <c>InitializeWithCopy</c> into a temporary to take a fresh <c>+1</c>, then balance ARC across the
@@ -1456,14 +1511,16 @@ public static class SwiftMarshal
         Justification = "elementType comes from ValueTuple generic args which are preserved for tuple marshalling")]
     private static unsafe object? ExtractCopiedElement(IntPtr source, Type elementType, TypeMetadata elementMetadata)
     {
-        // True Swift class: the slot word is the instance pointer; deref + independent retain.
+        // True Swift class: the slot word is the instance pointer; deref + independent ObjC-aware retain.
+        // swift_unknownObjectRetain dispatches by isa, so it is correct for both pure-Swift and
+        // @objc:NSObject-rooted classes; native-only swift_retain no-ops/over-releases on NSObject (P1-01).
         if (!elementType.IsValueType
             && !typeof(ISwiftStruct).IsAssignableFrom(elementType)
             && elementMetadata.IsValid
             && elementMetadata.Kind == TypeMetadataKind.Class)
         {
             IntPtr classPointer = *(IntPtr*)source;
-            Arc.Retain(classPointer);
+            Arc.UnknownObjectRetain(classPointer);
             return NewFromPayloadForType(elementType, classPointer);
         }
 

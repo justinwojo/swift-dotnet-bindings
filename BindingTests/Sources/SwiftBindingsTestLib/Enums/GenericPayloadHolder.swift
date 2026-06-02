@@ -52,6 +52,21 @@ public func makeEmptyIntBox() -> Holder<IntBox> {
     return .empty
 }
 
+/// @objc:NSObject class T fixture: `Holder<ObjCClassParamPayload>` (issue #40 / P1-01).
+/// The bare-generic-parameter class branch in `EmitGenericTypeParameterPayloadExtraction`
+/// (E3) runtime-dispatches on `__value_meta.Kind == Class` and dereferences the inline
+/// class pointer; the retain MUST be the isa-dispatching Arc.UnknownObjectRetain so an
+/// NSObject-rooted T is objc_retain'd, not native swift_retain'd (which would corrupt the
+/// refcount). `ObjCClassParamPayload` feeds the shared LifetimeTracker counters so the C#
+/// test asserts ARC balance, not just crash-absence.
+public func makeWrappedObjCPayload(code: Int32, label: String) -> Holder<ObjCClassParamPayload> {
+    return .wrapped(ObjCClassParamPayload(code: code, label: label))
+}
+
+public func makeEmptyObjCPayload() -> Holder<ObjCClassParamPayload> {
+    return .empty
+}
+
 // Apple-framework-shape sibling fixture. The ABI typespec name for the payload
 // in `verified(SignedType)` resolves to NamedTypeSpec("SignedType") — a
 // multi-character generic parameter name that is NOT in the simple-letter

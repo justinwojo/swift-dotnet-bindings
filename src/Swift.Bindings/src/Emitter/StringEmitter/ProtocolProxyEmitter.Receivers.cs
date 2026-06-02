@@ -233,22 +233,29 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_set";
             if (emittedReceivers.Add(receiverName))
             {
+                // Issue #40 / P1-01: a Swift-class (or Optional<class>) value arrives as the address of a
+                // borrowed slot holding the heap pointer (&valueCopy). The runtime copy-out helper returns
+                // the wrapper (or null) directly, so the marshalled value IS the assignment value — no
+                // idiomatic cast (which would re-wrap and, for the optional, false-trip on Unsafe.Read).
+                var classCopyOut = GetReceiverClassCopyOutExpr("valuePtr", property.SwiftTypeSpec);
+
                 // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
                 // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type.
                 // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
-                var returnConversion = GetReceiverSetterConversion("value", property.SwiftTypeSpec);
+                var returnConversion = classCopyOut != null ? null : GetReceiverSetterConversion("value", property.SwiftTypeSpec);
                 var assignmentExpr = returnConversion ?? "value";
                 // F1: Narrow nint/nuint ABI value to int/uint for property assignment.
                 // Plain nint: value is nint (MarshalFromSwift<nint>) → (int)value.
                 // Optional<nint>: returnConversion is "((nint?)value)" → (int?)((nint?)value).
-                if (NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
+                if (classCopyOut == null && NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
                     assignmentExpr = $"({narrowedType}){assignmentExpr}";
 
                 // String property: local MarshalFromSwift<SwiftString> uses Unsafe.Read which
                 // can't construct a managed SwiftString from raw Swift memory. Use runtime marshaller.
-                var marshalExpr = IsStringTypeSpec(property.SwiftTypeSpec)
-                    ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
-                    : $"MarshalFromSwift<{abiTypeName}>(valuePtr)";
+                var marshalExpr = classCopyOut
+                    ?? (IsStringTypeSpec(property.SwiftTypeSpec)
+                        ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
+                        : $"MarshalFromSwift<{abiTypeName}>(valuePtr)");
 
                 var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
                 if (setterSiblings == null || setterSiblings.Count == 0)
@@ -657,6 +664,10 @@ public partial class ProtocolProxyEmitter
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     if (IsStringTypeSpec(param.SwiftTypeSpec))
                         writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
+                    // Issue #40 / P1-01: a Swift-class index arrives as the address of a borrowed slot;
+                    // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
+                    else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string indexClassCopyOut)
+                        writer.WriteLine($"var index{i} = {indexClassCopyOut};");
                     else
                         writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
@@ -732,6 +743,12 @@ public partial class ProtocolProxyEmitter
                 {
                     writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr).ToString();");
                 }
+                // Issue #40 / P1-01: a Swift-class (or Optional<class>) value arrives as the address of a
+                // borrowed slot; copy it out instead of Unsafe.Read-ing the heap pointer as a managed ref.
+                else if (GetReceiverClassCopyOutExpr("valuePtr", subscript.ReturnTypeSpec) is string valueClassCopyOut)
+                {
+                    writer.WriteLine($"var value = {valueClassCopyOut};");
+                }
                 else
                 {
                     var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
@@ -753,6 +770,10 @@ public partial class ProtocolProxyEmitter
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     if (IsStringTypeSpec(param.SwiftTypeSpec))
                         writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
+                    // Issue #40 / P1-01: a Swift-class index arrives as the address of a borrowed slot;
+                    // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
+                    else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string setterIndexClassCopyOut)
+                        writer.WriteLine($"var index{i} = {setterIndexClassCopyOut};");
                     else
                         writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
@@ -1053,6 +1074,14 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"var {rawArgName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(rawArg{argIndex});");
                 writer.WriteLine($"var {argName} = {rawArgName}.ToString();");
             }
+            // Issue #40 / P1-01: a Swift-class (or Optional<class>) param arrives as the address of a
+            // borrowed slot holding the heap pointer (the Swift thunk passes &{param}Copy). Copy it out
+            // via the runtime helper (deref + ObjC-aware retain + NewFromPayload). The local
+            // Unsafe.Read<T> would reinterpret the heap pointer as a managed reference and SIGSEGV.
+            else if (GetReceiverClassCopyOutExpr($"rawArg{argIndex}", param.SwiftTypeSpec) is string classCopyOut)
+            {
+                writer.WriteLine($"var {argName} = {classCopyOut};");
+            }
             // Dictionaries need special handling in receiver context: the interface declares
             // IDictionary<K,V> (parameter form), but projection produces .AsProjected()
             // which returns IReadOnlyDictionary<K,V> (return form). IReadOnlyDictionary doesn't
@@ -1330,6 +1359,40 @@ public partial class ProtocolProxyEmitter
     {
         if (innerConv == null) return null;
         return $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())";
+    }
+
+    /// <summary>
+    /// Issue #40 / audit P1-01: route a Swift-class (or <c>Optional&lt;class&gt;</c>) reverse-callback
+    /// parameter through the runtime borrowed-slot copy-out instead of the per-proxy local
+    /// <c>MarshalFromSwift&lt;T&gt;</c> (which does <c>Unsafe.Read&lt;T&gt;</c> and reinterprets the Swift
+    /// heap pointer as a managed reference → SIGSEGV on first use). <paramref name="slotExpr"/> is the
+    /// receiver's raw <c>IntPtr</c> argument — the address of the borrowed slot the Swift thunk passed
+    /// via <c>&amp;{param}Copy</c>. Applies to true Swift classes (pure-Swift <see cref="ClassProjection"/>
+    /// and <c>@objc:NSObject</c> <see cref="ObjCRootedClassProjection"/>), whose ObjC-vs-native retain
+    /// dispatch the runtime helper handles via <c>swift_unknownObjectRetain</c>. ObjC-<i>bridged</i> value
+    /// types (<see cref="ObjCBridgedProjection"/>, e.g. NSURLSession) are NOT Swift heap classes and keep
+    /// their existing <c>MarshalFromSwift&lt;IntPtr&gt;</c> + GetNSObject path. Returns the full RHS marshal
+    /// expression, or <c>null</c> for any non-class param (caller keeps its own path).
+    /// </summary>
+    private string? GetReceiverClassCopyOutExpr(string slotExpr, TypeSpec? typeSpec)
+    {
+        if (typeSpec == null) return null;
+
+        var projection = s_projectionFactory.Project(typeSpec,
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
+        if (projection == null) return null;
+
+        const string marshal = "global::Swift.Runtime.InteropServices.SwiftMarshal";
+        return projection switch
+        {
+            ClassProjection cls => $"{marshal}.MarshalBorrowedClassFromSlot<{cls.PublicType}>({slotExpr})",
+            ObjCRootedClassProjection objc => $"{marshal}.MarshalBorrowedClassFromSlot<{objc.PublicType}>({slotExpr})",
+            OptionalProjection { InnerProjection: ClassProjection innerCls } =>
+                $"{marshal}.MarshalBorrowedOptionalClassFromSlot<{innerCls.PublicType}>({slotExpr})",
+            OptionalProjection { InnerProjection: ObjCRootedClassProjection innerObjc } =>
+                $"{marshal}.MarshalBorrowedOptionalClassFromSlot<{innerObjc.PublicType}>({slotExpr})",
+            _ => null
+        };
     }
 
     /// <summary>

@@ -900,20 +900,47 @@ public class AsyncSwiftWrapperTests
         // methods (defers to callback). Without a matching DeferredSafeHandleRelease in the
         // holder, the SafeHandle ref count leaks permanently — each call increments by 1
         // with no decrement. The async holder already contains (object)this (preventing GC)
-        // and RetainedSelfPtr with Arc.Retain (keeping the Swift object alive).
+        // and RetainedSelfPtr with Arc.UnknownObjectRetain (keeping the Swift object alive).
         var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
             returnTypeName: "UIKit.UIImage",
             returnKind: TypeRecordKind.Class,
             isObjCBridged: true);
 
-        // The holder pattern should retain via Arc.Retain, not DangerousAddRef
-        Assert.Contains("Arc.Retain(_selfPtr)", csOutput);
+        // The holder pattern should retain via Arc.UnknownObjectRetain, not DangerousAddRef.
+        // UnknownObjectRetain isa-dispatches (swift_retain for this pure-Swift Pipeline self,
+        // objc_retain for an @objc:NSObject-rooted self); the paired cleanup release uses the
+        // matching UnknownObjectRelease so @objc-rooted self stays balanced (issue #40 / P1-01).
+        Assert.Contains("Arc.UnknownObjectRetain(_selfPtr)", csOutput);
+        Assert.DoesNotContain("Arc.Retain(_selfPtr)", csOutput);
 
         // There should be exactly ONE DangerousAddRef/_selfSuccess pair (for the
-        // safe Arc.Retain window) — not a second leaked one before the P/Invoke.
+        // safe Arc.UnknownObjectRetain window) — not a second leaked one before the P/Invoke.
         // Count occurrences: should be exactly 1
         var addRefCount = csOutput.Split("DangerousAddRef").Length - 1;
         Assert.Equal(1, addRefCount);
+    }
+
+    [Fact]
+    public void AsyncWrapper_ObjCRootedInstanceMethod_SelfRetainUsesUnknownObjectRetain()
+    {
+        // issue #40 / P1-01: when the async instance method lives on an @objc:NSObject-rooted
+        // Swift class, the holder must keep self alive with Arc.UnknownObjectRetain — NOT the
+        // pure-Swift-only Arc.Retain (swift_retain). swift_retain on an NSObject-rooted heap
+        // pointer touches the wrong refcount word; UnknownObjectRetain isa-dispatches to
+        // objc_retain. The rooted self branch sources the pointer from the NSObject peer's
+        // `Handle` (not `_handle.DangerousAddRef`/`DangerousGetHandle()`), so this also locks
+        // that the rooted branch — not the pure-Swift branch — was taken.
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true,
+            selfIsObjCRooted: true);
+
+        // Rooted self branch: pointer comes from the NSObject peer Handle, retained via the
+        // isa-dispatching unknown-object family.
+        Assert.Contains("Arc.UnknownObjectRetain(_selfPtr)", csOutput);
+        // The pure-Swift swift_retain form must NOT appear for a rooted self (the bug shape).
+        Assert.DoesNotContain("Arc.Retain(_selfPtr)", csOutput);
     }
 
     [Fact]
@@ -1509,7 +1536,8 @@ public class AsyncSwiftWrapperTests
         bool isObjCBridged = false,
         TypeRecordFlags? returnFlags = null,
         bool wrapInOptional = false,
-        string nativeTypeName = null)
+        string nativeTypeName = null,
+        bool selfIsObjCRooted = false)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1539,6 +1567,10 @@ public class AsyncSwiftWrapperTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl
         };
+        // When requested, mark the self class as @objc:NSObject-rooted so the async wrapper
+        // takes the IsObjCRooted self branch (`IntPtr _selfPtr = Handle;`) instead of the
+        // pure-Swift `_handle.DangerousAddRef`/`DangerousGetHandle()` branch.
+        parentDecl.IsObjCRooted = selfIsObjCRooted;
         // Add 'shared' property so HasSingletonPattern returns true
         parentDecl.Properties.Add(new PropertyDecl
         {
@@ -1597,7 +1629,8 @@ public class AsyncSwiftWrapperTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
                 SwiftTypeName = parentDecl.SwiftTypeName,
                 MetadataAccessor = "$s10TestModule8PipelineCMa",
-                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Flags = TypeRecordFlags.RequiresMemoryManagement
+                    | (selfIsObjCRooted ? TypeRecordFlags.ObjCRooted : TypeRecordFlags.None),
                 Kind = TypeRecordKind.Class
             });
 

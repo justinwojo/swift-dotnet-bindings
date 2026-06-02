@@ -793,10 +793,14 @@ public class EnumHandlerOutputTests
         // produces. Two correctness invariants:
         //
         //   1. Class T (Kind == Class, !IsValueType, !ISwiftStruct): payload bytes ARE a
-        //      heap class pointer; SwiftClassHandle takes +1 ownership. We dereference
-        //      *(IntPtr*)enumCopy and Arc.Retain so the SafeHandle's Arc.Release is
-        //      balanced — without the explicit retain, the dispose decrement underflows
-        //      the Swift heap object's refcount.
+        //      heap class pointer. The enum-level InitializeWithCopy that filled enumCopy
+        //      already deposited an isa-correct +1 on that payload (swift_retain for a
+        //      pure-Swift T, objc_retain for an @objc:NSObject-rooted T), and enumCopy is
+        //      never VWT-destroyed on the success path — so that +1 is ours to hand off.
+        //      We dereference *(IntPtr*)enumCopy and pass it straight to MarshalFromSwift<T>,
+        //      whose NewFromPayload ADOPTS exactly one reference (consuming the copy's +1).
+        //      An extra explicit retain here would over-retain by +1 per extraction and the
+        //      payload would never reach refcount 0 (issue #40 / P1-01 — the original leak).
         //
         //   2. Non-class T (Kind != Class, includes ISwiftStruct, primitives, value
         //      structs): heap-allocate a buffer, InitializeWithCopy from the stack source,
@@ -825,11 +829,15 @@ public class EnumHandlerOutputTests
         Assert.Contains("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);", csOutput);
         // Hoisted runtime metadata used by both branches.
         Assert.Contains("var __value_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
-        // Class-T branch: metadata kind dispatch + pointer dereference + Arc.Retain
-        // (SwiftClassHandle takes ownership of +1).
+        // Class-T branch: metadata kind dispatch + pointer dereference, then adopt the
+        // enum-copy's existing +1 directly via MarshalFromSwift (no explicit retain).
         Assert.Contains("__value_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
         Assert.Contains("var __value_classPtr = *(IntPtr*)(enumCopy);", csOutput);
-        Assert.Contains("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
+        // No explicit retain: MarshalFromSwift ADOPTS the +1 the enum-level InitializeWithCopy
+        // already deposited on the never-destroyed enumCopy. An extra retain (either family)
+        // over-retains by +1 per extraction and the payload never deallocs (issue #40 / P1-01).
+        Assert.DoesNotContain("global::Swift.Runtime.Arc.UnknownObjectRetain(__value_classPtr);", csOutput);
+        Assert.DoesNotContain("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(__value_classPtr)", csOutput);
         // Non-class fallback: heap-alloc + InitializeWithCopy + ownership-transfer cleanup
         // for non-ISwiftObject T. Must NOT pass the stack buffer pointer directly.
@@ -881,15 +889,17 @@ public class EnumHandlerOutputTests
         // name (TSignedType) — not the AnyType fallback and not the raw "SignedType".
         Assert.Contains("public bool TryGetVerified([MaybeNullWhen(false)] out TSignedType value)", csOutput);
         // The bare-generic-parameter marshalling branch in EnumHandler.Marshalling.cs
-        // must fire: class-T metadata-kind dispatch + dereference + Arc.Retain, vs
-        // non-class heap-alloc + InitializeWithCopy + ownership-transfer cleanup. Without
-        // the marshalling-side gate change (dropping the redundant IsGenericTypeParameter
-        // pre-check), the body would silently fall through to the AnyType branch and emit
-        // MarshalFromSwift<global::Swift.AnyType>.
+        // must fire: class-T metadata-kind dispatch + dereference + adopt-the-copy
+        // MarshalFromSwift (no explicit retain), vs non-class heap-alloc + InitializeWithCopy
+        // + ownership-transfer cleanup. Without the marshalling-side gate change (dropping the
+        // redundant IsGenericTypeParameter pre-check), the body would silently fall through to
+        // the AnyType branch and emit MarshalFromSwift<global::Swift.AnyType>.
         Assert.Contains("var __value_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<TSignedType>();", csOutput);
         Assert.Contains("__value_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
         Assert.Contains("var __value_classPtr = *(IntPtr*)(enumCopy);", csOutput);
-        Assert.Contains("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
+        // No explicit retain — MarshalFromSwift adopts the enum-copy's existing +1 (issue #40 / P1-01).
+        Assert.DoesNotContain("global::Swift.Runtime.Arc.UnknownObjectRetain(__value_classPtr);", csOutput);
+        Assert.DoesNotContain("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(__value_classPtr)", csOutput);
         Assert.Contains("void* __value_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__value_meta.Size);", csOutput);
         Assert.Contains("__value_meta.ValueWitnessTable->InitializeWithCopy(__value_heap, (void*)(enumCopy), __value_meta);", csOutput);
@@ -2279,8 +2289,14 @@ public class EnumHandlerOutputTests
         Assert.Contains("public static unsafe CrossModResult Completed(Dep.ForeignClass payload)", csOutput);
         // Extractor: signature must use the cross-module class type
         Assert.Contains("public bool TryGetCompleted([MaybeNullWhen(false)] out Dep.ForeignClass value)", csOutput);
-        // Class-payload extraction uses Arc.Retain (the Swift class refcounted handle path)
-        Assert.Contains("Swift.Runtime.Arc.Retain(", csOutput);
+        // Class-payload extraction ADOPTS the +1 the enum-level InitializeWithCopy already
+        // deposited on the never-destroyed enum-copy buffer: the class pointer is read and
+        // handed straight to MarshalFromSwift, whose NewFromPayload consumes exactly one
+        // reference. No explicit retain — an extra one (either family) would over-retain an
+        // @objc:NSObject-rooted payload by +1/extraction (issue #40 / P1-01 — the leak).
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<Dep.ForeignClass>(_value_classPtr)", csOutput);
+        Assert.DoesNotContain("Arc.UnknownObjectRetain(", csOutput);
+        Assert.DoesNotContain("Arc.Retain(_value_classPtr)", csOutput);
         // Sibling Failed case still emits via AnyError (well-known proxy)
         Assert.Contains("public bool TryGetFailed([MaybeNullWhen(false)] out Swift.Foundation.AnyError value)", csOutput);
         // Sentinel: the payload must NOT have collapsed to AnyType (that's the bug shape)
