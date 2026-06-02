@@ -27,12 +27,12 @@ The full plan, three-way planner cross-check (Claude/Codex/Grok), and track defi
 | A4 | Closures / optional-closure / reabstraction | ✅ done | `Track-A4_Closures-Reabstraction.md` | 7 (5 P0, 1 P1; **5/5 Critical**) |
 | A5 | Existentials / protocol proxies / witness dispatch | ✅ done | `Track-A5_Existentials-Witness-Dispatch.md` | 9 (2 P0, 7 P1; **5/5 Critical**) |
 | A6 | Concrete specialization / generics / PAT | ✅ done | `Track-A6_Concrete-Specialization-PAT.md` | 5 (2 P0 families) |
-| A7 | Async / throws / error-carrier | 🔄 running (parallel) | `Track-A7_Async-Throws-Error-Carrier.md` | — |
-| A8 | Parser / ABI-ingestion / demangler | ⬜ | `Track-A8_Parser-Demangler-Fidelity.md` | — |
-| C2 | Invariant-drift / dedup / key-consistency | ⬜ | `Track-C2_Invariant-Drift-Dedup.md` | — |
-| M1–M4 | Tier-2 (SwiftUI bridge / wrapper-SDK / TypeDatabase parity / BindingTests coverage matrix) | ⬜ | per-track | — |
+| A7 | Async / throws / error-carrier | ✅ done | `Track-A7_Async-Throws-Error-Carrier.md` | 10 (6 P0, 4 P1; **5/5 Critical**) |
+| A8 | Parser / ABI-ingestion / demangler | ✅ done | `Track-A8_Parser-Demangler-Fidelity.md` | 6 (6 P1; 4 incon, 2 refuted, 36 deferred; risk 3/5) |
+| C2 | Invariant-drift / dedup / key-consistency | ✅ done | `Track-C2_Invariant-Drift-Dedup.md` | 5 (5 P1; 6 refuted, 24 deferred; risk 4/5) |
+| M1–M4 | Tier-2 (SwiftUI bridge / wrapper-SDK / TypeDatabase parity / BindingTests coverage matrix) | ✅ all done | per-track (see README §6) | M4: 8 (1 P0, 7 P1); M1: 5 (2 P0, 3 P1); M3: 7 (7 P1; 5 refuted; risk 4/5); M2: 11 (1 P0, 10 P1; 1 refuted, 25 deferred; risk 5/5) |
 | L1–L3 | Tier-3 (docs drift / ObjC / perf) — lowest priority | ⬜ | per-track | — |
-| — | **Synthesis** → `STATE-OF-THE-CODEBASE.md` (risk heatmap + prioritized backlog + "top-20 files to touch with care") | ⬜ run last | `STATE-OF-THE-CODEBASE.md` | — |
+| — | **Synthesis** → `STATE-OF-THE-CODEBASE.md` (risk heatmap + prioritized backlog + "top-20 files to touch with care") | ✅ done | `STATE-OF-THE-CODEBASE.md` (228 lines) | ~104 across 14 tracks (~22 P0, ~70 P1); ~280+ deferred |
 
 **Recommended next order:** `C1` (headline architecture track — directly serves "help future AI agents not make plausible-but-wrong changes") → `A2` (struct/VWT, the last untouched Tier-1 ABI core) → `A4`→`A5`→`A6`→`A7`→`A8` → `C2` → Tier-2 → Tier-3 → synthesis.
 
