@@ -290,32 +290,32 @@ public class ClassParamCallbackTests : TestBase
 
     /// <summary>
     /// <c>Optional&lt;@objc class&gt;</c> return marshalled inline as
-    /// <c>result == IntPtr.Zero ? null : GetNSObject&lt;T&gt;(result)</c>. Functional coverage: the
-    /// value reads back correctly and nil surfaces as null. This is NOT an <c>ExtractCopiedValue</c>
-    /// probe — see <see cref="TestObjCResultSuccessExtractionBalancesArc"/> for that. The ARC
-    /// balance of THIS path is a separate, pre-existing over-retain ("Fix A"); see
+    /// <c>result == IntPtr.Zero ? null : GetINativeObject&lt;T&gt;(result, true)</c>. Functional
+    /// coverage: the value reads back correctly and nil surfaces as null. This is NOT an
+    /// <c>ExtractCopiedValue</c> probe — see <see cref="TestObjCResultSuccessExtractionBalancesArc"/>
+    /// for that. The ARC balance of THIS path is pinned by
     /// <see cref="TestOptionalObjCPayloadReturnNoLeak_KnownFixA"/>.
     /// </summary>
     public void TestOptionalObjCPayloadReturnReads()
     {
         using var p = TestLibFunctions.MakeOptionalObjCPayload(99, "c");
         AssertNotNull(p, "non-nil Optional<@objc class> return surfaces a wrapper");
-        AssertEqual(99, p!.Code, "read .Code off @objc payload from bare-GetNSObject Optional return");
+        AssertEqual(99, p!.Code, "read .Code off @objc payload from adopting Optional return");
 
         AssertNull(TestLibFunctions.MakeOptionalObjCPayloadNil(), "nil Optional<@objc class> return surfaces as null");
     }
 
     /// <summary>
-    /// Repro for "Fix A": the bare-<c>GetNSObject</c> <c>Optional&lt;@objc class&gt;</c> return path
-    /// OVER-RETAINS. <c>GetNSObject&lt;T&gt;(ptr)</c> adds its own +1 (DangerousRetain) but the Swift
-    /// wrapper already returned a <c>passRetained</c> +1 that is never balanced, so even an explicit
-    /// <c>Dispose</c> leaves one net retain per call and the payloads leak. This is a SEPARATE
-    /// return-direction bug from issue #40 (a leak, not the receiver crash) and is left documented
-    /// here rather than fixed in this change — the fix is cross-cutting across every
-    /// <c>Optional&lt;reference&gt;</c> return and is entangled with the IsOptionalObjCBridged /
-    /// TypeProjectionFactory parity invariant. See src/docs/protocol-proxy-class-param-receiver-fix.md.
+    /// Regression guard for "Fix A": the <c>Optional&lt;@objc class&gt;</c> return path must ADOPT the
+    /// Swift wrapper's <c>passRetained</c> +1, not add a second retain. Before the fix the path emitted
+    /// bare <c>GetNSObject&lt;T&gt;(ptr)</c> (owns:false), which adds its own +1 (DangerousRetain) on top
+    /// of the wrapper's unbalanced +1 — so even an explicit <c>Dispose</c> left one net retain per call
+    /// and the payloads leaked. <c>OptionalProjection</c> now emits
+    /// <c>GetINativeObject&lt;T&gt;(ptr, true)</c> (owns:true), adopting that single +1 so Dispose/finalize
+    /// releases exactly once. This is a SEPARATE return-direction leak from the issue #40 receiver crash;
+    /// allocating N payloads and disposing each must leave zero live. See
+    /// src/docs/protocol-proxy-class-param-receiver-fix.md.
     /// </summary>
-    [Skip("Fix A (out of scope): Optional<@objc-rooted-class> return over-retains via bare GetNSObject (no DangerousRelease / owns:true). Separate return-direction leak from the issue #40 receiver fix; cross-cutting + entangled with the IsOptionalObjCBridged parity invariant. Tracked in src/docs/protocol-proxy-class-param-receiver-fix.md.")]
     public void TestOptionalObjCPayloadReturnNoLeak_KnownFixA()
     {
         DrainFinalizers();
@@ -325,7 +325,7 @@ public class ClassParamCallbackTests : TestBase
         AssertEqual(99, lastCode, "read .Code off @objc payload from Optional return");
 
         DrainFinalizers();
-        LifetimeTracker.AssertNoLeaks("Optional<@objc class> bare-GetNSObject return must balance ARC (Fix A)");
+        LifetimeTracker.AssertNoLeaks("Optional<@objc class> adopting return must balance ARC (Fix A regression guard)");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

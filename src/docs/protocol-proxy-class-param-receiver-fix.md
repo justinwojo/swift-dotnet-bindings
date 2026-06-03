@@ -1,6 +1,6 @@
 # Protocol-Proxy Reverse-Callback: Swift-Class Parameter Marshalling Fix
 
-**Status:** Implemented and fully verified — Tier 1 (sim/Mono + device/NativeAOT, TDD RED/GREEN per site) **and** Tier 2 live Kidoz E2E (sim/Mono **9/0** + device/NativeAOT **9/0**; the literal issue #40 `OnInterstitialAdFailedToLoad(KidozError)` callback fires live and reads back cleanly). The PR was then **expanded** to sweep the same ObjC-rooted ARC defect class beyond the receiver direction — async `self`-retain across the await and enum class-payload extraction — see [Scope expansion](#scope-expansion--objc-rooted-arc-sweep-async-self-retain--enum-payloads). One adjacent return-direction leak ("Fix A") deliberately deferred — see [Implementation outcome](#implementation-outcome) and [Fix A](#fix-a--optionalobjc-rooted-class-return-over-retain-deferred-out-of-scope).
+**Status:** Implemented and fully verified — Tier 1 (sim/Mono + device/NativeAOT, TDD RED/GREEN per site) **and** Tier 2 live Kidoz E2E (sim/Mono **9/0** + device/NativeAOT **9/0**; the literal issue #40 `OnInterstitialAdFailedToLoad(KidozError)` callback fires live and reads back cleanly). The PR was then **expanded** to sweep the same ObjC-rooted ARC defect class beyond the receiver direction — async `self`-retain across the await and enum class-payload extraction — see [Scope expansion](#scope-expansion--objc-rooted-arc-sweep-async-self-retain--enum-payloads). One adjacent return-direction leak ("Fix A") — initially scoped out as deferred — was then **also resolved** in this PR by adopting the owned +1 on the `Optional<@objc>` return path (the *missing-adopt* choice), with its regression test un-skipped on sim/Mono and device/NativeAOT — see [Fix A](#fix-a--optionalobjc-rooted-class-return-over-retain-resolved).
 **Date:** 2026-06-02
 **Origin:** GitHub issue [#40](https://github.com/justinwojo/swift-dotnet-bindings/issues/40) (Kidoz binding), SDK v0.12.1
 **Related audit finding:** Track A3 / **P1-01** (audit doc lives on the `audit-workflows` branch only — see [Relationship to the audit backlog](#relationship-to-the-audit-backlog); facts reproduced inline)
@@ -182,7 +182,9 @@ Also handle **`Optional<class>`** so a nil/non-nil class payload is read via the
 `Unsafe.Read<SwiftOptional<T>>`.
 
 **Out of scope (do not touch):** the return-value / witness-dispatch directions already use the runtime
-marshaller correctly. Confirmed by `ProtocolProxyEmitterTests.cs:~461`.
+marshaller correctly. Confirmed by `ProtocolProxyEmitterTests.cs:~461`. *(One return-direction exception —
+the `Optional<@objc>` return over-retain — surfaced later and was resolved as part of this PR; see
+[Fix A](#fix-a--optionalobjc-rooted-class-return-over-retain-resolved).)*
 
 ## Relationship to the audit backlog
 
@@ -396,8 +398,9 @@ The plan's Tier-1 P1-01 probes were written assuming `makeOptionalObjCPayload`, 
 and `makeObjCPayloadArray` reach `ExtractCopiedValue` / `ExtractCopiedElement`. Verified against the
 generated C#, **they do not**:
 
-- `Optional<@objc>` **return** → emitted inline as `result == IntPtr.Zero ? null : GetNSObject<T>(result)`
-  (the bare-`GetNSObject` path), never `ExtractCopiedValue`. *This is the "Fix A" leak below.*
+- `Optional<@objc>` **return** → **originally** emitted inline as `result == IntPtr.Zero ? null : GetNSObject<T>(result)`
+  (the bare-`GetNSObject` path), never `ExtractCopiedValue`. *This was the "Fix A" leak — now **resolved**: the
+  path adopts the owned +1 via `GetINativeObject<T>(result, true)`; see [Fix A](#fix-a--optionalobjc-rooted-class-return-over-retain-resolved).*
 - non-optional `(@objc, scalar)` tuple → the emitter **unrolls** it per element
   (`_tupleMetaPtr->GetElementOffset` + direct `MarshalFromSwift`), bypassing `MarshalTupleFromSwift`, so it
   never reaches `ExtractCopiedElement`.
@@ -435,8 +438,8 @@ and needs no pump.)
 | Gate | Result |
 |---|---|
 | `nuke binding-tests --compile-only` | Succeeded (generated output reaches the intended marshalling paths) |
-| `nuke binding-tests --skip-regen` (sim/Mono), `--class-filter ClassParamCallbackTests` | **13 pass, 0 fail, 1 skip** (the skip = Fix A) |
-| `nuke binding-tests --device` (NativeAOT), same filter | **13 pass, 0 fail, 1 skip** |
+| `nuke binding-tests --skip-regen` (sim/Mono), `--class-filter ClassParamCallbackTests` | **14 pass, 0 fail, 0 skip** (the former Fix A skip is now an active, passing regression guard) |
+| `nuke binding-tests --device` (NativeAOT), same filter | **14 pass, 0 fail, 0 skip** |
 | `nuke test` → `Swift.Bindings.Unit.Tests` | **12194 pass, 0 fail, 1 skip** (incl. the new emitter unit test) |
 | **Tier 2: live Kidoz E2E, sim/Mono** (regenerated real binding + locally-packed fixed runtime) | **9 pass, 0 fail** — `OnInterstitialAdFailedToLoad(KidozError)` fired live (`ErrorCode=10400`, `Message='Visible ViewController is nil'`) and read back cleanly |
 | **Tier 2: live Kidoz E2E, device/NativeAOT** | **9 pass, 0 fail** — identical: the exact issue #40 callback fired and the `KidozError` class param read back without SIGSEGV |
@@ -537,7 +540,8 @@ sites to the corrections above. The two sites are gated by **different** mechani
   silently-wrong native retain at runtime. (The SwiftUI bridge therefore does not yet *support*
   ObjC-rooted class returns at all — a feature gap, not an ARC defect. If it is ever extended to emit a
   `.Handle`-based ObjC return branch, that new branch must use the `UnknownObjectRetain` family; noted for
-  the deferred return-direction bucket alongside [Fix A](#fix-a--optionalobjc-rooted-class-return-over-retain-deferred-out-of-scope).)
+  whoever extends the SwiftUI bridge to ObjC-rooted returns — the same return-direction ARC concern that
+  [Fix A](#fix-a--optionalobjc-rooted-class-return-over-retain-resolved) addressed for the non-bridge `Optional` return path.)
 
 For completeness the sweep also confirmed the only other emitter site that emits `Arc.Retain` into
 generated code — `WrapperEmitter.Marshalling.cs:595` (`EmitArrayOwnershipRetain`) — is a **`SwiftArray`
@@ -571,49 +575,63 @@ weakening of the assertion:
 | `nuke test` → `Swift.Bindings.Unit.Tests` | **0 fail** (incl. the updated `EnumHandlerOutputTests` adopt-the-copy assertions + async-emitter unit tests) |
 | `nuke validate` (cross-cutting emitter sweep) | _(see commit gate — baseline ≥ prior; version-stamp artifacts reverted, `.validation-baseline.json` kept)_ |
 
-## Fix A — `Optional<@objc-rooted-class>` return over-retain (deferred, out of scope)
+## Fix A — `Optional<@objc-rooted-class>` return over-retain (resolved)
 
-**What it is.** A separate, pre-existing leak in the **return** direction (this fix is the *receiver*
-direction). When a function returns `Optional<@objc … : NSObject>`, the emitter marshals it inline as:
+**What it was.** A separate, pre-existing leak in the **return** direction (the primary fix in this PR is the
+*receiver* direction). When a function returned `Optional<@objc … : NSObject>`, the emitter marshalled it
+inline as:
 
 ```csharp
 return result == IntPtr.Zero ? null : GetNSObject<ObjCClassParamPayload>(result);
 ```
 
 `GetNSObject<T>(ptr)` takes an **owning +1** (`owns:false` semantics — it retains rather than adopts), but
-the Swift free-function copy-out already handed back an **owned +1**. That first +1 is never balanced, so
-each call leaks one NSObject. Functionally the value is correct — `TestOptionalObjCPayloadReturnReads`
-confirms the read returns sane data and nil→null — it is purely a lifetime leak.
+the Swift free-function copy-out already handed back an **owned +1**. That first +1 was never balanced, so
+each call leaked one NSObject. The value itself was always correct — `TestOptionalObjCPayloadReturnReads`
+confirms the read returns sane data and nil→null — it was purely a lifetime leak.
 
-**Why it is deferred and NOT bundled here** (flagging explicitly per the "ask before papering over /
-root-cause-or-ask" rule — this is a conscious scope boundary, not a silently-skipped failure):
+**The fix (missing-adopt).** Of the two candidates originally floated — *mis-route* (push the
+`Optional<reference>` return through the `SwiftOptional<T>` / `TypeProjectionFactory` projection) vs
+*missing-adopt* (keep the inline path but adopt instead of retain) — the **missing-adopt** choice was
+taken. `OptionalProjection.GetReturnPlan` now emits the **adopting** form whenever the inner projection is
+one of the three ObjC kinds (`ObjCRootedClassProjection`, `ObjCBridgedProjection`, `ObjCBridgeableProjection`):
 
-1. **The plan explicitly scoped the return direction out** ("Out of scope (do not touch): the
-   return-value / witness-dispatch directions"). This fix is the receiver/reverse-callback direction.
-2. **Root cause is genuinely ambiguous and entangled.** Two candidate fixes:
-   - *mis-route* — the `Optional<reference>` return should go through the `SwiftOptional<T>` /
-     `TypeProjectionFactory` projection that already balances ARC, instead of the bare-`GetNSObject`
-     ternary; or
-   - *missing-adopt* — keep the inline path but adopt (`GetINativeObject<T>(ptr, owns:true)`) or add a
-     balancing `DangerousRelease`.
-   These are not interchangeable, and `.claude/rules/constraints.md` flags a hard invariant —
-   `IsOptionalObjCBridged` must stay in **exact parity** with `TypeProjectionFactory`, and "ObjCRooted does
-   NOT use IntPtr (uses `SwiftOptional<T>`)". The generated `MakeOptionalObjCPayload` **contradicts** that
-   (it uses `IntPtr` + `GetNSObject`), so picking the right fix means first resolving which side of that
-   invariant is wrong — a cross-cutting decision, not a one-liner.
-3. **Cross-cutting blast radius.** It affects **every** `Optional<reference>` return across the codebase,
-   not just this fixture, so it warrants its own `nuke validate` sweep over the validation libraries — out
-   of proportion to a receiver-direction crash fix.
-4. **Severity.** It is a **leak** (gradual memory growth), strictly lower severity than the issue-#40
-   **SIGSEGV crash** this change fixes, and it is **pre-existing** (not introduced here).
+```csharp
+return result == IntPtr.Zero ? null : GetINativeObject<ObjCClassParamPayload>(result, true);
+```
 
-**What's captured so the deferral is honest, not lost:**
-- `TestOptionalObjCPayloadReturnNoLeak_KnownFixA` is `[Skip(...)]`'d with the full reason pointing back to
-  this section (it is the leak repro — un-skip it to drive the eventual fix red/green).
-- `TestOptionalObjCPayloadReturnReads` (active, green) locks in that the functional read is already
-  correct, so a future Fix A only has to address lifetime.
+`GetINativeObject<T>(ptr, ownsReference: true)` **adopts** the existing +1 rather than taking a second one,
+so Dispose/finalize releases exactly once — net zero. Only the ownership verb flips (`owns:false` retain →
+`owns:true` adopt); the inline nullable-`IntPtr` ABI and the nil guard are unchanged. The indirect-result /
+out-buffer arm reads the slot through `*(IntPtr*)result` under the same guard and sets `RequiresUnsafe`.
 
-**Follow-up shape (whoever picks this up):** decide *mis-route vs missing-adopt* by reconciling
-`IsOptionalObjCBridged` with `TypeProjectionFactory` (constraints.md parity), apply at the
-`Optional<reference>`-return emission site, un-skip `..._KnownFixA`, then `nuke validate` to confirm no
-`Optional<reference>`-return regression across the real-world libs.
+This mirrors the **accessor-getter** path exactly (`OptionalAccessorGetterVisitor` already used `owns:true`)
+and is net-parity with the **non-optional** sibling, which balances via the legacy type-record branch
+(`WrapperEmitter.Return.cs` — `GetNSObject` then `DangerousRelease`, net +0) once `TryEmitReturnViaProjection`
+declines for that case. The fix deliberately did **not** re-route through `SwiftOptional<T>` /
+`TypeProjectionFactory`: adopting on the inline path balances ARC without touching the
+`IsOptionalObjCBridged` ↔ `TypeProjectionFactory` parity that `.claude/rules/constraints.md` governs, and the
+inline `IntPtr` form matches what the accessor-getter already emits. So the original *mis-route-vs-missing-adopt*
+question is settled in favour of the smaller, parity-preserving change.
+
+**Coverage.**
+- `TestOptionalObjCPayloadReturnNoLeak_KnownFixA` is **un-skipped and active** on sim/Mono **and**
+  device/NativeAOT: it loops the `Optional<@objc>` return, disposes each returned peer, and `AssertNoLeaks`
+  — RED before the adopt change, GREEN after. (The `KnownFixA` identifier is retained as the stable name for
+  this fix; the docstring + assert message reframe it as a regression guard.)
+- `TestOptionalObjCPayloadReturnReads` (active) continues to lock in that the functional read is correct.
+- Emitter-layer unit coverage pins the *shape* (adopt vs over-retain) for all three ObjC inner projections,
+  Direct and IndirectResult, in `ClassObjCRootedTests.cs` (the Optional<ObjC reference> return region) and
+  `CompositeProjectionTests.cs`.
+
+**Known coverage edge (not a regression).** The un-skipped runtime no-leak guard exercises the
+`@objc : NSObject` inner only; the bridged / bridgeable inners are pinned at the unit layer (shape) but not
+yet by an ARC-behaviour *runtime* test, because `LifetimeTracker` counts the test lib's own tracked-ref
+instances and cannot count framework peers (`UIImage` / `URL`). A bridged/bridgeable runtime no-leak probe
+would need a countable bridged fixture; left as a low-priority follow-up since the three inners share one
+emission path that is already shape-pinned.
+
+**Tuple-element note (out of scope, already balanced).** An `Optional<@objc>` returned as a *tuple element*
+still flows through the unrolled cdecl-sret path (`WrapperEmitter.Return.cs` tuple-element handling), which
+uses the `GetNSObject(nonNull)` + `?.DangerousRelease()` dance — a different code path from this top-level
+projection, but **already net +0**. Unchanged by this fix.

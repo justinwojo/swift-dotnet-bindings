@@ -341,11 +341,18 @@ public class OptionalProjection : ITypeProjection
 
         // ObjC bridged, ObjC-bridgeable, and ObjC-rooted types use nullable pointer ABI (nil = IntPtr.Zero, Some = ObjC pointer).
         // Bypass SwiftOptional entirely — the IntPtr result IS the payload.
+        // Owned return: the Swift @_cdecl wrapper hands back the Some pointer at +1
+        // (`Unmanaged.passRetained($0 as AnyObject).toOpaque()`). ownsReference:true adopts that +1
+        // (GetINativeObject owns:true) so the wrapper releases exactly once on Dispose/finalize —
+        // a bare GetNSObject (owns:false) would add a SECOND retain that nothing balances, leaking
+        // one object per call. This matches the non-optional sibling (WrapperEmitter.Return.cs:
+        // GetNSObject + DangerousRelease, net +0) and the accessor getter path
+        // (OptionalAccessorGetterVisitor: same ownsReference:true).
         if (_innerProjection is ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
         {
             var innerPublicType = _innerProjection.PublicType;
-            var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, resultName);
-            var indirectBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, $"*(IntPtr*){resultName}");
+            var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, resultName, ownsReference: true);
+            var indirectBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, $"*(IntPtr*){resultName}", ownsReference: true);
             return strategy switch
             {
                 ReturnStrategy.Direct => new MarshalPlan

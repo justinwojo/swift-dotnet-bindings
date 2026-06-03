@@ -668,6 +668,63 @@ public class ClassObjCRootedTests
 
     #endregion
 
+    #region Optional<ObjC reference> return — adopt the owned +1 (Fix A)
+
+    // The Swift @_cdecl wrapper hands back the Some pointer of an Optional<ObjC reference>
+    // return at +1 (`Unmanaged.passRetained($0 as AnyObject).toOpaque()`). The C# side must
+    // ADOPT that +1 — GetINativeObject<T>(ptr, owns: true) — so the managed peer releases
+    // exactly once on Dispose/finalize. A bare GetNSObject<T>(ptr) (owns: false) adds a SECOND
+    // retain that nothing balances → one leaked object per call (issue: Optional<@objc-rooted>
+    // return over-retain). These assert the adopt shape across all three ObjC inner projections
+    // and both return strategies, mirroring the accessor getter path (OptionalAccessorGetterVisitor)
+    // and the non-optional sibling (WrapperEmitter.Return: GetNSObject + DangerousRelease, net +0).
+    //
+    // Scope of THIS layer: the emitted plan expression is the only artifact the projection produces,
+    // so these pin the ownership *shape* (adopt vs over-retain). The ARC no-leak *behavior* is pinned
+    // at the runtime layer by ClassParamCallbackTests.TestOptionalObjCPayloadReturnNoLeak_KnownFixA
+    // (alloc N + Dispose each → AssertNoLeaks), which runs on both Simulator (Mono) and device (NativeAOT).
+
+    public static IEnumerable<object[]> OptionalObjCInnerProjections()
+    {
+        yield return new object[] { new ObjCRootedClassProjection("MyLayer") };
+        yield return new object[] { new ObjCBridgedProjection("UIKit.UIImage") };
+        yield return new object[] { new ObjCBridgeableProjection("Foundation.NSUrl") };
+    }
+
+    [Theory]
+    [MemberData(nameof(OptionalObjCInnerProjections))]
+    public void OptionalObjCReturn_Direct_AdoptsOwnedReference(ITypeProjection inner)
+    {
+        var proj = new OptionalProjection(inner);
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        // Adopt: GetINativeObject<T>(ptr, true) — NOT a bare GetNSObject (which over-retains).
+        Assert.Contains("GetINativeObject", plan.PInvokeExpression);
+        Assert.Contains(", true)", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetNSObject", plan.PInvokeExpression);
+        // nil → null guard preserved.
+        Assert.Contains("result == IntPtr.Zero ? null", plan.PInvokeExpression);
+    }
+
+    [Theory]
+    [MemberData(nameof(OptionalObjCInnerProjections))]
+    public void OptionalObjCReturn_IndirectResult_AdoptsOwnedReference(ITypeProjection inner)
+    {
+        var proj = new OptionalProjection(inner);
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        // Adopt: GetINativeObject<T>(ptr, true) — NOT a bare GetNSObject (which over-retains).
+        Assert.Contains("GetINativeObject", plan.PInvokeExpression);
+        Assert.Contains(", true)", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetNSObject", plan.PInvokeExpression);
+        // Some pointer read through the sret/out buffer, with the nil → null guard preserved.
+        Assert.Contains("*(IntPtr*)result", plan.PInvokeExpression);
+        Assert.Contains("== IntPtr.Zero ? null", plan.PInvokeExpression);
+        Assert.True(plan.RequiresUnsafe);
+    }
+
+    #endregion
+
     #region SwiftSelfKind — ObjCRootedClass
 
     [Fact]

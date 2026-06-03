@@ -387,7 +387,13 @@ public class CompositeProjectionTests
 
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Contains("GetNSObject<UIKit.UIImage>", plan.PInvokeExpression);
+        // Owned return: the Swift @_cdecl wrapper hands back the Some pointer at +1
+        // (passRetained). The wrapper ADOPTS it via GetINativeObject(ptr, owns: true) so it
+        // releases exactly once on Dispose/finalize — a bare GetNSObject (owns: false) would
+        // add a second, unbalanced retain → one leaked object per call (Fix A).
+        Assert.Contains("GetINativeObject<UIKit.UIImage>", plan.PInvokeExpression);
+        Assert.Contains(", true)", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetNSObject", plan.PInvokeExpression);
         Assert.Contains("IntPtr.Zero", plan.PInvokeExpression);
         Assert.DoesNotContain("SwiftOptional", plan.PInvokeExpression);
         Assert.False(plan.RequiresUnsafe);
@@ -401,8 +407,11 @@ public class CompositeProjectionTests
 
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
+        // Same owned-return adoption as the Direct case, reading the Some pointer through sret.
         Assert.Contains("*(IntPtr*)result", plan.PInvokeExpression);
-        Assert.Contains("GetNSObject<UIKit.UIImage>", plan.PInvokeExpression);
+        Assert.Contains("GetINativeObject<UIKit.UIImage>", plan.PInvokeExpression);
+        Assert.Contains(", true)", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetNSObject", plan.PInvokeExpression);
         Assert.DoesNotContain("SwiftOptional", plan.PInvokeExpression);
         Assert.True(plan.RequiresUnsafe);
     }

@@ -145,10 +145,10 @@ public class ObjCClassParamDriver {
 // against the generated C#, do NOT reach `ExtractCopiedValue`/`ExtractCopiedElement`.
 // They are kept as honest independent coverage of the paths they DO exercise:
 //   • `makeOptionalObjCPayload`  → an `Optional<@objc>` return marshalled inline as
-//        `result == IntPtr.Zero ? null : GetNSObject<T>(result)` (the bare-`GetNSObject`
-//        return path). NOTE: this path currently OVER-RETAINS (`GetNSObject` adds its own
-//        +1 that the Swift `passRetained` +1 is never balanced against) — a separate
-//        return-direction leak ("Fix A") distinct from the issue-#40 receiver fix; see
+//        `result == IntPtr.Zero ? null : GetINativeObject<T>(result, true)` (the adopting
+//        return path). This path ADOPTS the Swift `passRetained` +1 via owns:true, so the
+//        managed peer releases exactly once on Dispose/finalize — the "Fix A" over-retain
+//        (bare `GetNSObject`, owns:false, adds an unbalanced second +1) is fixed; see
 //        `src/docs/protocol-proxy-class-param-receiver-fix.md`.
 //   • `makeObjCPayloadCodeTuple` → a *non-optional* `(@objc, scalar)` tuple, which the
 //        emitter UNROLLS per element (`_tupleMetaPtr->GetElementOffset` + direct
@@ -193,8 +193,8 @@ public func clearSharedObjCExtractionRef() {
 }
 
 /// Returns an `Optional<@objc>` marshalled inline as `result == IntPtr.Zero ? null :
-/// GetNSObject<T>(result)` — the bare-`GetNSObject` return path (see the OVER-RETAIN note
-/// above; "Fix A"). Independent coverage that the path compiles and reads a correct value.
+/// GetINativeObject<T>(result, true)` — the adopting return path (see the "Fix A" note above).
+/// Independent coverage that the path compiles, reads a correct value, and balances ARC.
 public func makeOptionalObjCPayload(code: Int32, label: String) -> ObjCClassParamPayload? {
     return ObjCClassParamPayload(code: code, label: label)
 }
