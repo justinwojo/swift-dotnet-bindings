@@ -59,6 +59,94 @@ public static class SwiftErrorMintEmitter
     }
 
     /// <summary>
+    /// Emits the per-module error-mint helper if <paramref name="env"/>'s method (or
+    /// constructor) has any throwing-closure parameter. Call this from the method/constructor
+    /// handler dispatch BEFORE the leaf Swift-wrapper emitters and the C# binding's
+    /// wrapper-symbol contract check.
+    /// <para>
+    /// Why at the handler layer rather than inside each Swift-wrapper emitter: the C# side
+    /// emits a throwing-closure callback whose catch block mints a Swift error via
+    /// <c>SBW_CreateError_{module}</c> for EVERY synchronous throwing-closure parameter
+    /// (<see cref="ClosureEmitter.EmitThrowingClosureCallback"/>, driven by
+    /// WrapperEmitter.Marshalling -> <see cref="EmitPInvokeIfNeeded"/>), independent of which
+    /// Swift-wrapper path renders the parameter. The Swift helper, however, was historically
+    /// registered only by paths that funnel through
+    /// <see cref="ClosureEmitter.GetSwiftClosureAdapterCode"/>. Paths that forward the closure
+    /// to Swift natively — the optional-pointer/_optbuf wrapper, the default-parameter shims,
+    /// the non-optional closure property setter — skipped that funnel, so the C# P/Invoke
+    /// referenced an unregistered wrapper symbol, the in-band contract gate rejected it, and
+    /// <see cref="CSharpWrapperCoGater"/> stripped the callback method, stranding its
+    /// <c>s_&lt;cb&gt; = &amp;&lt;cb&gt;</c> field and call-site → CS0103. Emitting here covers
+    /// every wrapper path (current and future) for a given decl kind in one place. Idempotent
+    /// per module, so paths that already register through the adapter funnel are unaffected.
+    /// </para>
+    /// <para>
+    /// Timing: the Swift wrapper pass for a decl runs before that same decl's C# binding (the
+    /// handler emits Swift wrappers, then the C# binding via WrapperEmitter), so registering
+    /// here is always in time for the contract check. Each decl self-satisfies, so the fix is
+    /// independent of emission order across decls.
+    /// </para>
+    /// </summary>
+    public static void EmitForMethodIfNeeded(SwiftWriter swiftWriter, MethodEnvironment env, ModuleEmissionContext? ctx)
+    {
+        if (ctx is null || ctx.SwiftErrorMintHelperEmitted) return;
+        if (!MethodHasThrowingClosureParam(env)) return;
+        EmitSwiftHelperIfNeeded(swiftWriter, env.MethodDecl.ModuleDecl?.Name ?? "SwiftBindings", ctx);
+    }
+
+    /// <summary>
+    /// Emits the per-module error-mint helper if <paramref name="propertyDecl"/>'s type is a
+    /// throwing closure (optionally wrapped in a single <c>Optional&lt;…&gt;</c> layer). A
+    /// settable throwing-closure property's C# setter callback mints a Swift error via
+    /// <c>SBW_CreateError_{module}</c> exactly like a method parameter, but the setter's Swift
+    /// wrapper (<see cref="PropertyWrapperEmitter"/>'s non-optional closure-setter branch) does
+    /// not funnel through the adapter. Same contract/timing rationale as
+    /// <see cref="EmitForMethodIfNeeded"/>. Idempotent per module.
+    /// </summary>
+    public static void EmitForPropertyIfNeeded(SwiftWriter swiftWriter, PropertyDecl propertyDecl, ModuleEmissionContext? ctx)
+    {
+        if (ctx is null || ctx.SwiftErrorMintHelperEmitted) return;
+        if (!IsThrowingClosureType(propertyDecl.SwiftTypeSpec)) return;
+        EmitSwiftHelperIfNeeded(swiftWriter, propertyDecl.ModuleDecl?.Name ?? "SwiftBindings", ctx);
+    }
+
+    /// <summary>True if any parameter (not the return slot) is a *synchronous* throwing closure.</summary>
+    private static bool MethodHasThrowingClosureParam(MethodEnvironment env)
+    {
+        // Skip(1): CSSignature[0] is the return slot. Only parameters drive the C#
+        // throwing-closure callback; a returned throwing closure marshals through
+        // EmitThrowingClosureReturnMarshalling, which consumes Swift's errorOut and
+        // never mints via SBW_CreateError.
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (!env.ClosureHandler.IsClosure(arg))
+                continue;
+            var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
+            // Only the SYNCHRONOUS throwing-closure callback (ClosureEmitter.EmitThrowingClosureCallback,
+            // the `else if (IsThrowingClosure)` branch in WrapperEmitter.Marshalling.EmitClosureCallbacks)
+            // mints via SBW_CreateError. An async-throwing closure is handled by the async branch first
+            // (continuation-based error propagation, no error mint) — or skipped entirely when non-baseline —
+            // so emitting the helper for it registers a symbol the binding never references.
+            if (closureTypeSpec != null
+                && env.ClosureHandler.IsThrowingClosure(closureTypeSpec)
+                && !env.ClosureHandler.IsAsyncClosure(closureTypeSpec))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>True if <paramref name="typeSpec"/> is a *synchronous* throwing closure, looking through
+    /// a single <c>Optional&lt;…&gt;</c> layer (the Optional&lt;closure&gt; setter shape). Async-throwing
+    /// closures are excluded: they propagate errors via the continuation, never via SBW_CreateError, and
+    /// an Optional async-throwing closure property is skipped from emission entirely.</summary>
+    private static bool IsThrowingClosureType(TypeSpec typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec { Name: "Swift.Optional" } opt && opt.GenericParameters.Count == 1)
+            typeSpec = opt.GenericParameters[0];
+        return typeSpec is ClosureTypeSpec { Throws: true, IsAsync: false };
+    }
+
+    /// <summary>
     /// Emits the C# <c>[DllImport]</c> for <c>SBW_CreateError_{module}</c>. Idempotent
     /// per type-key via <see cref="ModuleEmissionContext.TryAddSwiftErrorMintPInvoke"/>.
     /// </summary>

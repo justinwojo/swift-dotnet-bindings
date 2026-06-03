@@ -115,6 +115,12 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Register the per-module SBW_CreateError_{module} helper if this constructor has a
+            // throwing-closure parameter, BEFORE any leaf Swift-wrapper emitter (constructor
+            // cdecl wrapper or optional-pointer/_optbuf) and the C# binding's contract check.
+            // See SwiftErrorMintEmitter.EmitForMethodIfNeeded for the full rationale.
+            SwiftErrorMintEmitter.EmitForMethodIfNeeded(swiftWriter, methodEnv, context.GetEmissionContext());
+
             // SWIFTBIND022: The synchronous `new T(...)` projection is unreachable for
             // constructors on @<CustomActor>-isolated parent types (e.g., @ImagePipelineActor
             // class ImagePrefetcher). Swift 6 has no synchronous entry into a custom global
@@ -829,6 +835,14 @@ namespace BindingsGeneration
                     "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).");
                 return;
             }
+
+            // Register the per-module SBW_CreateError_{module} helper if this method has a
+            // throwing-closure parameter, BEFORE any leaf Swift-wrapper emitter or the C#
+            // binding's wrapper-symbol contract check. Covers every wrapper path uniformly
+            // (cdecl method wrapper, optional-pointer/_optbuf, closure-cdecl, and the
+            // default-parameter post-processor shims) so the C# throwing-closure callback's
+            // SBW_CreateError reference is always satisfied. See SwiftErrorMintEmitter.EmitForMethodIfNeeded.
+            SwiftErrorMintEmitter.EmitForMethodIfNeeded(swiftWriter, methodEnv, context.GetEmissionContext());
 
             // Phases 3-5 (thunk closure, protocol constraints, bound generic skip gates)
             // are now in MemberValidationPipeline. Only existential type argument

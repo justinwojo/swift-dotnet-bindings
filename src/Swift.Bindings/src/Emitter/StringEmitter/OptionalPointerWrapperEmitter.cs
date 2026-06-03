@@ -58,6 +58,15 @@ public static class OptionalPointerWrapperEmitter
         var methodDecl = env.MethodDecl;
         var wrapperSymbol = NameProvider.GetMangledName(methodDecl);
 
+        // NOTE: a throwing-closure parameter on this _optbuf path is forwarded to Swift
+        // NATIVELY (no `_adapted_` closure adapter), so it never funnels through
+        // ClosureEmitter.GetSwiftClosureAdapterCode where SBW_CreateError_{module} is normally
+        // registered. The C# binding still references that helper from its throwing-closure
+        // callback. Registration is handled at the handler dispatch layer
+        // (SwiftErrorMintEmitter.EmitForMethodIfNeeded, called from MethodHandler.Emit /
+        // ConstructorHandler.Emit — this emitter's only two call sites) so EVERY wrapper path
+        // is covered uniformly rather than per-leaf-emitter.
+
         bool isSetter = methodDecl.IsAccessor && MarshallingHelpers.MethodIsSetter(methodDecl);
         bool isGetter = methodDecl.IsAccessor && !isSetter;
 

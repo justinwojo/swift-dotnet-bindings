@@ -17,6 +17,11 @@ public static partial class ClosureEmitter
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
     /// <param name="useCdecl">When true, emit CallConvCdecl with IntPtr context instead of CallConvSwift with SwiftSelf.</param>
+    /// <param name="useBoxedContext">When true, the context slot holds an <c>_SBClosureCtx</c> box
+    /// pointer (the legacy <c>SwiftClosureData</c> escaping path with no Swift-side unbox), so the
+    /// trampoline must resolve it via <c>GetDelegateFromBoxedContext</c> rather than reading a raw
+    /// <see cref="System.Runtime.InteropServices.GCHandle"/>. Mirrors the non-throwing
+    /// <see cref="EmitEscapingClosureCallback"/> gate exactly.</param>
     public static void EmitThrowingClosureCallback(
         CSharpWriter csWriter,
         string methodName,
@@ -25,7 +30,8 @@ public static partial class ClosureEmitter
         ClosureHandler closureHandler,
         string mangledName,
         string moduleName,
-        bool useCdecl = false)
+        bool useCdecl = false,
+        bool useBoxedContext = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
@@ -82,6 +88,18 @@ public static partial class ClosureEmitter
 
         // Callback never frees the GCHandle — the calling method's finally block handles cleanup.
         // Escaping closures may fire multiple times, so freeing in the callback would crash.
+        //
+        // Box vs raw context: on the legacy SwiftClosureData escaping path the context slot stores
+        // the `_SBClosureCtx` box pointer itself (Swift never unboxes before invoking this
+        // trampoline), so we must resolve it via GetDelegateFromBoxedContext. For the cdecl path the
+        // Swift wrapper unboxes first and a raw GCHandle ptr arrives, so we read it directly. This
+        // gate must stay identical to EmitEscapingClosureCallback — when the setter boxes the
+        // context (WrapperEmitter.Marshalling legacyEscaping) but the trampoline reads it raw, the
+        // box pointer is misinterpreted as a GCHandle and the cast throws InvalidCastException,
+        // which (being outside the try below) escapes the [UnmanagedCallersOnly] boundary and aborts.
+        var extractCall = useBoxedContext
+            ? $"SwiftClosureMarshaller.GetDelegateFromBoxedContext<{delegateType}>({contextExtraction})"
+            : $"SwiftClosureMarshaller.GetDelegateFromContext<{delegateType}>({contextExtraction})";
 
         // Default value returned on BOTH the cooperative-failure and the caught-exception
         // paths. Bool callbacks return the byte 0; void callbacks just return.
@@ -106,7 +124,7 @@ public static partial class ClosureEmitter
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                var del = {{extractCall}};
                 try
                 {
                     var swiftResult = del({{invokeArgsString}});

@@ -76,6 +76,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (context.CompositionCollector != null)
             propertyEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
         var propertyDecl = propertyEnv.PropertyDecl;
+
+        // Register the per-module SBW_CreateError_{module} helper if this property is a
+        // throwing closure (optionally Optional-wrapped), BEFORE the setter's Swift wrapper
+        // and the C# binding's wrapper-symbol contract check. The non-optional closure-setter
+        // branch in PropertyWrapperEmitter forwards the closure natively without funneling
+        // through the adapter, so the C# setter callback's SBW_CreateError reference would
+        // otherwise be unregistered → stripped → CS0103. See SwiftErrorMintEmitter.EmitForPropertyIfNeeded.
+        SwiftErrorMintEmitter.EmitForPropertyIfNeeded(swiftWriter, propertyDecl, context.GetEmissionContext());
+
         void SkipProperty(SkipReason reason, string details)
         {
             // Record for binding-report.json AND emit an `// Unsupported:` tombstone in the

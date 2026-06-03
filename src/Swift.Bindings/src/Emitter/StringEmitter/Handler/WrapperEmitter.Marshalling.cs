@@ -880,6 +880,19 @@ namespace BindingsGeneration
 
                 if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                 {
+                    // Box-vs-raw context gate, shared by all three escaping-callback shapes
+                    // below (non-throwing, throwing, indirect-return). On the non-cdecl legacy
+                    // SwiftClosureData path the setter boxes the GCHandle in an `_SBClosureCtx`
+                    // (legacyEscaping in EmitClosureMarshalling) and the context slot carries the
+                    // box pointer with no Swift-side unbox, so the trampoline must read it via
+                    // GetDelegateFromBoxedContext. A mismatch (box stored, raw read) misreads the
+                    // box pointer as a GCHandle → InvalidCastException escaping the
+                    // [UnmanagedCallersOnly] callback → SIGABRT. Computed ONCE here so the three
+                    // callback shapes cannot drift out of sync — that drift was the original
+                    // defect (throwing + indirect-return read raw while the setter boxed).
+                    bool useBoxedContext = !useCdecl
+                        && WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
+
                     // Async-throwing closures (Session A/B) or baseline async non-throwing
                     // closures (Session C) emit the Start-thunk callback pair. Non-baseline
                     // async-throwing closures fall through with no callback emitted —
@@ -909,22 +922,23 @@ namespace BindingsGeneration
                             ?? _env.TypeDatabase.GetLibraryPath(moduleName);
                         SwiftErrorMintEmitter.EmitPInvokeIfNeeded(csWriter, moduleName, errorMintLib, _env, _emissionContext);
                         ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
-                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, moduleName, useCdecl);
+                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, moduleName, useCdecl, useBoxedContext);
                     }
                     // Check if this closure needs indirect return marshalling
                     else if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
                     {
+                        // A non-cdecl escaping closure with an indirect (bound-generic / non-frozen)
+                        // return reaches this branch with a boxed context (see shared gate above).
                         ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
-                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
+                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl, useBoxedContext);
                     }
                     else
                     {
                         // Legacy SwiftClosureData escaping path: SwiftClosureData.context stores
                         // an `_SBClosureCtx` box pointer (when the runtime dylib is packaged)
                         // so Swift's release of the closure deinits the box and frees the
-                        // wrapped GCHandle. The trampoline must unbox to recover the GCHandle.
-                        bool useBoxedContext = !useCdecl
-                            && WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
+                        // wrapped GCHandle. The trampoline must unbox to recover the GCHandle
+                        // (useBoxedContext from the shared gate above).
                         ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
                         ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl, useBoxedContext);
                     }

@@ -2980,4 +2980,332 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region N. Orphaned Closure-Callback Field Stripping (Step B2)
+
+    public class CoGaterOrphanedCallbackFieldTests
+    {
+        // Models the post-Step-A/B state for an optional throwing-Void closure: an error-mint
+        // P/Invoke targeting a stripped wrapper symbol, the [UnmanagedCallersOnly] callback whose
+        // catch block calls it, the one-line function-pointer field "s_<cb> = &<cb>;", and the
+        // survivor(s) that read the field. The whole chain must strip symmetrically — the field
+        // and its readers are NOT block members of the stripped callback, so before Step B2 they
+        // dangled and produced CS0103. (REMEDIATION-PLAN §6 defect b.)
+
+        [Fact]
+        public void Process_OrphanedCallbackField_StripsFieldReaderAndForwarder()
+        {
+            // Full chain: stripped P/Invoke -> stripped callback -> orphaned field ->
+            // setter-helper reader (Step B2) -> public property forwarder (Step C).
+            var input =
+                "namespace Test {\n" +
+                "public partial class Holder {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_CreateError_Module\")]\n" +
+                "    private static partial IntPtr PInvoke_SBW_CreateError(IntPtr msg);\n" +
+                "\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_modifier_Set_Callback = &modifier_Set_Callback;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void modifier_Set_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { }\n" +
+                "        catch (System.Exception _ex)\n" +
+                "        {\n" +
+                "            *_error = PInvoke_SBW_CreateError(IntPtr.Zero);\n" +
+                "        }\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void Modifier_Set(IntPtr handle, IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_modifier_Set_Callback, value);\n" +
+                "        PInvoke_set_modifier(handle, _data);\n" +
+                "    }\n" +
+                "\n" +
+                "    public SwiftClosure Modifier\n" +
+                "    {\n" +
+                "        set { Modifier_Set(_handle, value); }\n" +
+                "    }\n" +
+                "\n" +
+                "    public int KeepMe => 42;\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_CreateError_Module" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // The stripped P/Invoke, the callback, the orphaned field, the reader, and the
+            // public forwarder must all be gone.
+            Assert.DoesNotContain("PInvoke_SBW_CreateError", result.Content);
+            Assert.DoesNotContain("modifier_Set_Callback", result.Content); // field + callback
+            Assert.DoesNotContain("Modifier_Set", result.Content);
+            Assert.DoesNotContain("public SwiftClosure Modifier", result.Content);
+            // Unrelated member in the same type survives — Step B2 is targeted, not a nuke.
+            Assert.Contains("public int KeepMe", result.Content);
+        }
+
+        [Fact]
+        public void Process_OrphanedCallbackField_PublicMethodReader_Stripped()
+        {
+            // Alamofire shape: the orphaned field is read directly by a public method (no
+            // property forwarder). The method's body can't compile against a missing field,
+            // so the binding is dropped rather than emitted as non-compiling code.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Functions {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_CreateError_Module\")]\n" +
+                "    private static partial IntPtr PInvoke_SBW_CreateError(IntPtr msg);\n" +
+                "\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_upload_modifier_Callback = &upload_modifier_Callback;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void upload_modifier_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { *_error = PInvoke_SBW_CreateError(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    public static bool Upload(int timeout, IntPtr modifier)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_upload_modifier_Callback, modifier);\n" +
+                "        return PInvoke_upload(timeout, _data);\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_CreateError_Module" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("upload_modifier_Callback", result.Content); // field + callback
+            Assert.DoesNotContain("public static bool Upload(", result.Content);
+        }
+
+        [Fact]
+        public void Process_LiveCallbackField_PreservedWhenUnrelatedSymbolStripped()
+        {
+            // The error-mint P/Invoke is NOT stripped, so the callback survives and the field's
+            // address-of target is alive. Stripping an unrelated symbol must leave the closure
+            // field, callback, and reader fully intact (no over-strip).
+            var input =
+                "namespace Test {\n" +
+                "public partial class Holder {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_other\")]\n" +
+                "    private static partial void PInvoke_other(IntPtr p);\n" +
+                "\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_CreateError_Module\")]\n" +
+                "    private static partial IntPtr PInvoke_SBW_CreateError(IntPtr msg);\n" +
+                "\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_modifier_Set_Callback = &modifier_Set_Callback;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void modifier_Set_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { *_error = PInvoke_SBW_CreateError(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void Modifier_Set(IntPtr handle, IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_modifier_Set_Callback, value);\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_other" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("PInvoke_other", result.Content);
+            Assert.Contains("s_modifier_Set_Callback = &modifier_Set_Callback", result.Content);
+            Assert.Contains("private static void modifier_Set_Callback(", result.Content);
+            Assert.Contains("private static void Modifier_Set(", result.Content);
+            Assert.Contains("PInvoke_SBW_CreateError", result.Content);
+        }
+
+        [Fact]
+        public void Process_OrphanedField_WordBoundary_DoesNotStripSimilarlyNamedReader()
+        {
+            // A reader of a DIFFERENT live field whose name has the orphaned field name as a
+            // prefix ("s_a_Callback2" vs orphaned "s_a_Callback") must survive — the field-read
+            // match is whole-identifier, not substring.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Holder {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_dead\")]\n" +
+                "    private static partial IntPtr PInvoke_dead(IntPtr msg);\n" +
+                "\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_a_Callback = &a_Callback;\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_a_Callback2 = &liveHelper;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void a_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { var _e = PInvoke_dead(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void liveHelper(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "    }\n" +
+                "\n" +
+                "    public static IntPtr ReadLive(IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_a_Callback2, value);\n" +
+                "        return (IntPtr)s_a_Callback2;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_dead" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // Orphaned field + its callback gone.
+            Assert.DoesNotContain("s_a_Callback ", result.Content);
+            Assert.DoesNotContain("&a_Callback;", result.Content);
+            // The prefix-colliding live field and its reader survive.
+            Assert.Contains("s_a_Callback2 = &liveHelper", result.Content);
+            Assert.Contains("public static IntPtr ReadLive(IntPtr value)", result.Content);
+        }
+
+        [Fact]
+        public void Process_TwoCallbackFields_OnlyOrphanedChainStripped()
+        {
+            // Two closure fields in one type: one whose callback calls a STRIPPED helper, one
+            // whose callback calls a KEPT helper. Per-field address-of-target gating must strip
+            // only the dead chain and preserve the live one.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Holder {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_CreateError_Module\")]\n" +
+                "    private static partial IntPtr PInvoke_SBW_CreateError(IntPtr msg);\n" +
+                "\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_dead_helper\")]\n" +
+                "    private static partial IntPtr PInvoke_dead(IntPtr msg);\n" +
+                "\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_dead_Callback = &dead_Callback;\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_live_Callback = &live_Callback;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void dead_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { var _e = PInvoke_dead(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void live_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { var _e = PInvoke_SBW_CreateError(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void Dead_Set(IntPtr handle, IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_dead_Callback, value);\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void Live_Set(IntPtr handle, IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_live_Callback, value);\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_dead_helper" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // Dead chain fully stripped.
+            Assert.DoesNotContain("PInvoke_dead", result.Content);
+            Assert.DoesNotContain("dead_Callback", result.Content); // field + callback
+            Assert.DoesNotContain("Dead_Set", result.Content);
+            // Live chain fully preserved.
+            Assert.Contains("s_live_Callback = &live_Callback", result.Content);
+            Assert.Contains("private static void live_Callback(", result.Content);
+            Assert.Contains("private static void Live_Set(", result.Content);
+            Assert.Contains("PInvoke_SBW_CreateError", result.Content);
+        }
+
+        [Fact]
+        public void Process_ContractPreStripPath_OrphanedFieldStripped()
+        {
+            // The actual regression path: the error-mint P/Invoke was rejected by the in-band
+            // wrapper-symbol contract, so its declaration is NEVER written to the file — only its
+            // NAME arrives via the pre-stripped set. Step B strips the callback (which calls the
+            // missing P/Invoke), and Step B2 must still strip the orphaned field + reader keyed off
+            // the removed callback, even though no P/Invoke declaration was ever present to scan.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Holder {\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_modifier_Set_Callback = &modifier_Set_Callback;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void modifier_Set_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { *_error = PInvoke_SBW_CreateError(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void Modifier_Set(IntPtr handle, IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_modifier_Set_Callback, value);\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var preStripped = new HashSet<string> { "PInvoke_SBW_CreateError" };
+            var result = CSharpWrapperCoGater.Process(input, new HashSet<string>(), preStripped);
+
+            Assert.DoesNotContain("modifier_Set_Callback", result.Content); // field + callback
+            Assert.DoesNotContain("Modifier_Set", result.Content);
+        }
+
+        [Fact]
+        public void Process_CrossTypeSameFieldName_DoesNotStripSiblingTypesLiveField()
+        {
+            // Two sibling types each contain an identically-named callback + field
+            // (a synthesized-name hash collision). Only TypeA's callback is orphaned (its body
+            // calls the stripped PInvoke_dead); TypeB's callback calls a live helper. The field
+            // gate and the reader strip must both be type-scoped so TypeB's live field, callback,
+            // and reader survive — scope leakage here is the class of bug every other co-gater
+            // step explicitly avoids.
+            var input =
+                "namespace Test {\n" +
+                "public partial class TypeA {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_dead\")]\n" +
+                "    private static partial IntPtr PInvoke_dead(IntPtr msg);\n" +
+                "\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_same_Callback = &same_Callback;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void same_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { var _e = PInvoke_dead(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void Same_Set(IntPtr handle, IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_same_Callback, value);\n" +
+                "    }\n" +
+                "}\n" +
+                "public partial class TypeB {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_live\")]\n" +
+                "    private static partial IntPtr PInvoke_live(IntPtr msg);\n" +
+                "\n" +
+                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_same_Callback = &same_Callback;\n" +
+                "\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void same_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
+                "    {\n" +
+                "        try { } catch { var _e = PInvoke_live(IntPtr.Zero); }\n" +
+                "    }\n" +
+                "\n" +
+                "    private static void Same_Set(IntPtr handle, IntPtr value)\n" +
+                "    {\n" +
+                "        var _data = new SwiftClosureData((IntPtr)s_same_Callback, value);\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_dead" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // TypeA chain is gone; TypeB's identically-named chain survives intact.
+            Assert.DoesNotContain("PInvoke_dead", result.Content);
+            Assert.Contains("PInvoke_live", result.Content);
+            // TypeB still holds its field, callback, and reader (one of each must remain).
+            Assert.Contains("s_same_Callback = &same_Callback", result.Content);
+            Assert.Contains("private static void Same_Set(", result.Content);
+            // Exactly one of the two identical chains was stripped: the field/reader survive once.
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(result.Content, @"s_same_Callback = &same_Callback"));
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(result.Content, @"private static void Same_Set\("));
+        }
+    }
+
+    #endregion
+
 }

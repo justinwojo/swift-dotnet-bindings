@@ -17,6 +17,11 @@ public static partial class ClosureEmitter
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
     /// <param name="useCdecl">When true, emit CallConvCdecl with IntPtr context instead of CallConvSwift with SwiftSelf.</param>
+    /// <param name="useBoxedContext">When true, the context slot holds an <c>_SBClosureCtx</c> box
+    /// pointer (the legacy <c>SwiftClosureData</c> escaping path with no Swift-side unbox), so the
+    /// trampoline must resolve it via <c>GetDelegateFromBoxedContext</c>. Mirrors the gate in
+    /// <see cref="EmitEscapingClosureCallback"/> so a boxed setter context is never read as a raw
+    /// <see cref="System.Runtime.InteropServices.GCHandle"/> (which throws InvalidCastException).</param>
     public static void EmitIndirectReturnCallback(
         CSharpWriter csWriter,
         string methodName,
@@ -24,7 +29,8 @@ public static partial class ClosureEmitter
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
         string mangledName,
-        bool useCdecl = false)
+        bool useCdecl = false,
+        bool useBoxedContext = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
@@ -84,6 +90,14 @@ public static partial class ClosureEmitter
         var effectiveDelegateType = isArrayString
             ? delegateType.Replace("Swift.SwiftArray<string>", "IReadOnlyList<string>")
             : delegateType;
+
+        // Box vs raw context: identical gate to EmitEscapingClosureCallback. On the non-cdecl legacy
+        // SwiftClosureData escaping path the context slot carries an `_SBClosureCtx` box pointer with
+        // no Swift-side unbox, so resolve via GetDelegateFromBoxedContext; otherwise the box pointer is
+        // misread as a GCHandle and the cast throws (escaping this callback aborts the process).
+        var extractCall = useBoxedContext
+            ? $"SwiftClosureMarshaller.GetDelegateFromBoxedContext<{effectiveDelegateType}>({contextExtraction})"
+            : $"SwiftClosureMarshaller.GetDelegateFromContext<{effectiveDelegateType}>({contextExtraction})";
 
         // Branch-specific marshalling of `result` into the Swift-allocated `indirectResult`
         // buffer. Each block runs inside the shared try below.
@@ -169,7 +183,7 @@ public static partial class ClosureEmitter
             {
                 try
                 {
-                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{effectiveDelegateType}}>({{contextExtraction}});
+                    var del = {{extractCall}};
                     var result = del({{invokeArgsString}});
 
                     {{marshalBlock}}

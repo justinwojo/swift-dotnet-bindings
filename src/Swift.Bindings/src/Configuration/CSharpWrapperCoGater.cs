@@ -52,6 +52,15 @@ namespace BindingsGeneration
             @"LibraryImport\(""(\w*SwiftBindings)""",
             RegexOptions.Compiled);
 
+        // Matches a single-line static function-pointer field initialized with the address of a
+        // method group — "static ... <field> = &<method>;" (e.g. the closure-callback dispatch
+        // field "static ... s_modifier_Set_Callback = &modifier_Set_Callback;"). Greedy ".*"
+        // backtracks to the final "= &", so group 1 is the field name and group 2 the target
+        // method. Used by Step B2 to detect fields orphaned by a stripped callback method.
+        private static readonly Regex AddressOfFieldRegex = new(
+            @"\bstatic\b.*\b(\w+)\s*=\s*&(\w+)\s*;",
+            RegexOptions.Compiled);
+
         /// <summary>
         /// Processes a single C# source file, removing members that reference stripped wrapper symbols.
         /// Uses 3-level transitive closure: P/Invoke → caller → property forwarder.
@@ -193,6 +202,20 @@ namespace BindingsGeneration
                 FindAndMarkCallersInScopes(lines, name, allowedTypes, lineToType, removals,
                     publicDeclLines, strippedCallerNames, callerNameToTypes);
             }
+
+            // Step B2: Strip orphaned closure-callback function-pointer fields and their readers.
+            // When Step B strips an [UnmanagedCallersOnly] callback method (its body calls a
+            // stripped wrapper-symbol P/Invoke such as the unregistered SBW_CreateError error-mint),
+            // the sibling one-line field "static ... s_<cb> = &<cb>;" is NOT a block member, so
+            // FindAndMarkCallers leaves it dangling on the now-missing method. The field name then
+            // dangles in surviving readers ("new SwiftClosureData((IntPtr)s_<cb>, …)"). This closes
+            // the co-gater stripping asymmetry (REMEDIATION-PLAN §6 defect b) — defense-in-depth;
+            // the root cause is fixed by registering the error-mint helper, but symmetric stripping
+            // keeps any future orphaned-field scenario producing compiling output instead of CS0103.
+            // Runs after Step B/B-scope (callbacks already removed) and before Step C so any
+            // property-helper reader it surfaces feeds the transitive forwarder strip below.
+            StripOrphanedClosureCallbackFields(lines, removals, lineToType, publicDeclLines,
+                strippedCallerNames, callerNameToTypes);
 
             // Step C: Find Level 2 forwarders (properties delegating to stripped helpers).
             // SCOPE-AWARE: Only strip callers within the same type scope as the original
@@ -801,7 +824,8 @@ namespace BindingsGeneration
             HashSet<string> foundCallerNames, HashSet<int> removals,
             string?[]? lineToType = null,
             Dictionary<string, HashSet<string>>? callerNameToTypes = null,
-            HashSet<int>? publicDeclLines = null)
+            HashSet<int>? publicDeclLines = null,
+            bool matchAsIdentifier = false)
         {
             int i = 0;
             while (i < lines.Count)
@@ -832,7 +856,13 @@ namespace BindingsGeneration
                     var lineText = lines[j];
                     foreach (var name in targetNames)
                     {
-                        if (ContainsCallTo(lineText, name))
+                        // Default: match "name(" call syntax. Identifier mode (Step B2) matches a
+                        // bare identifier reference — orphaned function-pointer fields are read as
+                        // address values ("(IntPtr)s_<cb>"), never invoked, so there's no "(".
+                        bool hit = matchAsIdentifier
+                            ? ContainsIdentifier(lineText, name)
+                            : ContainsCallTo(lineText, name);
+                        if (hit)
                         {
                             referencesTarget = true;
                             break;
@@ -914,6 +944,31 @@ namespace BindingsGeneration
                     return false;
                 // Check word boundary: preceding char must not be identifier char
                 if (pos == 0 || !IsIdentifierChar(line[pos - 1]))
+                    return true;
+                idx = pos + 1;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a line references the given name as a standalone identifier (whole-word
+        /// match, both sides). Unlike <see cref="ContainsCallTo"/> this does NOT require a
+        /// trailing '(' — used by Step B2 to find reads of an orphaned function-pointer field
+        /// (e.g. "(IntPtr)s_modifier_Set_Callback"), which are address values, not calls.
+        /// Word boundaries on both ends prevent "s_X" from matching "s_X2" or "_s_X".
+        /// </summary>
+        private static bool ContainsIdentifier(string line, string name)
+        {
+            int idx = 0;
+            while (idx < line.Length)
+            {
+                int pos = line.IndexOf(name, idx, StringComparison.Ordinal);
+                if (pos < 0)
+                    return false;
+                bool beforeOk = pos == 0 || !IsIdentifierChar(line[pos - 1]);
+                int after = pos + name.Length;
+                bool afterOk = after >= line.Length || !IsIdentifierChar(line[after]);
+                if (beforeOk && afterOk)
                     return true;
                 idx = pos + 1;
             }
@@ -1144,6 +1199,127 @@ namespace BindingsGeneration
                         break;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Step B2: Strips orphaned closure-callback function-pointer fields and the survivors
+        /// that read them. When an <c>[UnmanagedCallersOnly]</c> callback method is stripped
+        /// (its body calls a stripped wrapper-symbol P/Invoke), the sibling one-line field
+        /// <c>static ... s_&lt;cb&gt; = &amp;&lt;cb&gt;;</c> is not a block member, so
+        /// <see cref="FindAndMarkCallers"/> leaves it dangling. Its name then dangles in
+        /// surviving readers (<c>(IntPtr)s_&lt;cb&gt;</c>), producing CS0103.
+        /// <para>
+        /// Strips the field plus any survivor referencing it by bare identifier. Property-helper
+        /// readers (<c>X_Set</c>) feed <paramref name="callerNameToTypes"/> so the caller's Step C
+        /// transitively strips the public forwarder. Each field is stripped only when its
+        /// address-of target was a member removed FROM THE SAME TYPE, so a healthy build is a no-op,
+        /// a stripped callback never leaves a compiling-but-dangling field behind, and a same-named
+        /// live field in a sibling type (e.g. a synthesized-name hash collision) is preserved.
+        /// </para>
+        /// <para>
+        /// Detection is line-based and assumes the generated field is emitted on a single line
+        /// (<c>WriteLine</c> at every emission site today). This is best-effort defense-in-depth,
+        /// not the primary guard: the root cause is fixed by registering the error-mint helper so
+        /// the callback is never stripped in the first place. A future multi-line field emission
+        /// would fall outside this detector, but the registration fix keeps the field from being
+        /// orphaned at all, so it would not reintroduce CS0103.
+        /// </para>
+        /// </summary>
+        private static void StripOrphanedClosureCallbackFields(
+            List<string> lines, HashSet<int> removals, string?[] lineToType,
+            HashSet<int>? publicDeclLines,
+            HashSet<string> foundCallerNames,
+            Dictionary<string, HashSet<string>> callerNameToTypes)
+        {
+            // Member names declared only on already-removed lines (stripped P/Invokes and their
+            // [UnmanagedCallersOnly] callbacks), keyed by containing type. A function-pointer field
+            // whose address-of target is one of these is dangling. Callback methods are private
+            // static, so a field's "&<target>" always resolves within the field's own type — keying
+            // by type lets the field gate below stay scope-restricted (no cross-type false strip on
+            // a synthesized-name collision), mirroring Step B-scope / Step C. The flat union is the
+            // fallback for the (defensive) case where a line resolves to no type.
+            var strippedByType = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            var strippedUnion = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var idx in removals)
+            {
+                if (idx < 0 || idx >= lines.Count) continue;
+                var name = ExtractMemberName(lines[idx].TrimStart());
+                if (name == null) continue;
+                strippedUnion.Add(name);
+                var t = idx < lineToType.Length ? lineToType[idx] : null;
+                if (t == null) continue;
+                if (!strippedByType.TryGetValue(t, out var set))
+                {
+                    set = new HashSet<string>(StringComparer.Ordinal);
+                    strippedByType[t] = set;
+                }
+                set.Add(name);
+            }
+            if (strippedUnion.Count == 0)
+                return;
+
+            // Surviving one-line "static ... <field> = &<method>;" fields whose target was stripped
+            // from the same type. Track each orphaned field with its containing type so the reader
+            // strip below stays scope-restricted (a sibling type may legitimately have a same-named
+            // live field).
+            var orphanedFieldsByType = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            var orphanedFieldsUnscoped = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (removals.Contains(i)) continue;
+                var trimmed = lines[i].TrimStart();
+                var m = AddressOfFieldRegex.Match(trimmed);
+                if (!m.Success) continue;
+
+                var target = m.Groups[2].Value;
+                var containingType = i < lineToType.Length ? lineToType[i] : null;
+                // Same-type match when the field's type is known; file-wide union only as the
+                // defensive fallback for an unresolved type.
+                bool targetStripped = containingType != null
+                    ? strippedByType.TryGetValue(containingType, out var sameType) && sameType.Contains(target)
+                    : strippedUnion.Contains(target);
+                if (!targetStripped) continue;
+
+                int preambleStart = ScanBackwardForPreamble(lines, i);
+                for (int j = preambleStart; j <= i; j++)
+                    removals.Add(j);
+
+                var fieldName = m.Groups[1].Value;
+                if (containingType != null)
+                {
+                    if (!orphanedFieldsByType.TryGetValue(fieldName, out var types))
+                    {
+                        types = new HashSet<string>(StringComparer.Ordinal);
+                        orphanedFieldsByType[fieldName] = types;
+                    }
+                    types.Add(containingType);
+                }
+                else
+                {
+                    // A field that resolves to no type can't be scoped; fall back to a file-wide
+                    // reader strip so the dangling read can't survive. Generated fields always sit
+                    // inside a type, so this is a defensive path only.
+                    orphanedFieldsUnscoped.Add(fieldName);
+                }
+            }
+            if (orphanedFieldsByType.Count == 0 && orphanedFieldsUnscoped.Count == 0)
+                return;
+
+            // Strip survivors that read an orphaned field by bare identifier (the read site is an
+            // address value, not a call). Scope to the field's own type — the reader is emitted
+            // alongside the field + callback — so a same-named live field in a sibling type and its
+            // reader survive (mirrors Step C's scope-awareness). Property-helper readers route into
+            // callerNameToTypes so Step C strips their public forwarder.
+            foreach (var (fieldName, types) in orphanedFieldsByType)
+            {
+                FindAndMarkCallersInScopes(lines, fieldName, types, lineToType, removals,
+                    publicDeclLines, foundCallerNames, callerNameToTypes, matchAsIdentifier: true);
+            }
+            if (orphanedFieldsUnscoped.Count > 0)
+            {
+                FindAndMarkCallers(lines, orphanedFieldsUnscoped, foundCallerNames, removals,
+                    lineToType, callerNameToTypes, publicDeclLines, matchAsIdentifier: true);
             }
         }
 
@@ -1938,7 +2114,8 @@ namespace BindingsGeneration
             string?[] lineToType, HashSet<int> removals,
             HashSet<int>? publicDeclLines = null,
             HashSet<string>? foundCallerNames = null,
-            Dictionary<string, HashSet<string>>? callerNameToTypes = null)
+            Dictionary<string, HashSet<string>>? callerNameToTypes = null,
+            bool matchAsIdentifier = false)
         {
             int i = 0;
             while (i < lines.Count)
@@ -1963,11 +2140,14 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Check if the block body calls the method
+                // Check if the block body calls (or, in identifier mode, references) the method.
                 bool callsMethod = false;
                 for (int j = i; j <= blockEnd; j++)
                 {
-                    if (ContainsCallTo(lines[j], methodName))
+                    bool hit = matchAsIdentifier
+                        ? ContainsIdentifier(lines[j], methodName)
+                        : ContainsCallTo(lines[j], methodName);
+                    if (hit)
                     {
                         callsMethod = true;
                         break;

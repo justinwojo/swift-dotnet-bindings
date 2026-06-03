@@ -258,6 +258,131 @@ public class ClosureEmitterDirectTests
 
     #endregion
 
+    #region Throwing + indirect-return trampoline box/raw context symmetry
+
+    // The throwing and indirect-return callback emitters must honor the SAME box-vs-raw
+    // context gate as EmitEscapingClosureCallback. A non-optional throwing closure property
+    // setter forwards on the non-cdecl legacy SwiftClosureData path: the setter boxes the
+    // GCHandle in an _SBClosureCtx and stores the box pointer in the context slot, so the
+    // trampoline must read it via GetDelegateFromBoxedContext. Reading it raw misinterprets
+    // the box pointer as a GCHandle → InvalidCastException, which (thrown before/around the
+    // delegate call) escapes the [UnmanagedCallersOnly] boundary and aborts the process —
+    // the device/NativeAOT crash these tests pin down.
+
+    [Fact]
+    public void EmitThrowingClosureCallback_LegacyEscaping_UsesBoxedContextExtraction()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // () throws -> Void — the validator non-optional throwing-void setter shape.
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty) { Throws = true };
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitThrowingClosureCallback(
+            csWriter, "validator", "value", closureTypeSpec, closureHandler,
+            "$s10TestModule9validatoryyKcvs", "TestModule", useCdecl: false, useBoxedContext: true);
+
+        var result = output.ToString();
+        Assert.Contains("CallConvSwift", result);
+        Assert.Contains("GetDelegateFromBoxedContext", result);
+        Assert.DoesNotContain("GetDelegateFromContext<", result);
+        // The throwing catch block still mints the Swift error for the module under test.
+        Assert.Contains("SBW_CreateError_TestModule", result);
+    }
+
+    [Fact]
+    public void EmitThrowingClosureCallback_CdeclEscaping_KeepsRawContextExtraction()
+    {
+        // The cdecl SBW_ wrapper unboxes before invoking the C# trampoline, so a raw GCHandle
+        // ptr arrives and the trampoline must use GetDelegateFromContext.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty) { Throws = true };
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitThrowingClosureCallback(
+            csWriter, "onComplete", "value", closureTypeSpec, closureHandler,
+            "$s10TestModule10onCompleteyyKcvs", "TestModule", useCdecl: true, useBoxedContext: false);
+
+        var result = output.ToString();
+        Assert.Contains("CallConvCdecl", result);
+        Assert.Contains("GetDelegateFromContext<", result);
+        Assert.DoesNotContain("GetDelegateFromBoxedContext", result);
+    }
+
+    [Fact]
+    public void EmitThrowingClosureCallback_DefaultFlag_UsesRawContextExtraction()
+    {
+        // Default useBoxedContext=false preserves the legacy non-box trampoline shape.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty) { Throws = true };
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitThrowingClosureCallback(
+            csWriter, "validator", "value", closureTypeSpec, closureHandler,
+            "$s10TestModule9validatoryyKcvs", "TestModule", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("GetDelegateFromContext<", result);
+        Assert.DoesNotContain("GetDelegateFromBoxedContext", result);
+    }
+
+    [Fact]
+    public void EmitIndirectReturnCallback_LegacyEscaping_UsesBoxedContextExtraction()
+    {
+        // A non-cdecl escaping closure with a bound-generic / memory-managed return reaches the
+        // indirect-return callback with a boxed context; it must unbox just like the others.
+        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // () -> Loader (class return → RequiresMemoryManagement → indirect return marshalling).
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("TestModule.Loader"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitIndirectReturnCallback(
+            csWriter, "provide", "value", closureTypeSpec, closureHandler,
+            "$s10TestModule7provideyyF", useCdecl: false, useBoxedContext: true);
+
+        var result = output.ToString();
+        Assert.Contains("CallConvSwift", result);
+        Assert.Contains("GetDelegateFromBoxedContext", result);
+        Assert.DoesNotContain("GetDelegateFromContext<", result);
+    }
+
+    [Fact]
+    public void EmitIndirectReturnCallback_DefaultFlag_UsesRawContextExtraction()
+    {
+        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("TestModule.Loader"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitIndirectReturnCallback(
+            csWriter, "provide", "value", closureTypeSpec, closureHandler,
+            "$s10TestModule7provideyyF", useCdecl: true);
+
+        var result = output.ToString();
+        Assert.Contains("GetDelegateFromContext<", result);
+        Assert.DoesNotContain("GetDelegateFromBoxedContext", result);
+    }
+
+    #endregion
+
     private static TypeDatabase CreateTypeDatabaseWithSwiftInt()
     {
         var typeDatabase = new TypeDatabase();
