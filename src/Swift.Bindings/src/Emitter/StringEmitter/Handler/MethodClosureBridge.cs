@@ -287,6 +287,66 @@ public static class MethodClosureBridge
 
     // ─── Swift Wrapper ─────────────────────────────────────────────────
 
+    /// <summary>
+    /// The collision-guarded synthetic Swift identifiers used across the @_cdecl wrapper:
+    /// the explicit <c>self</c> pointer param, the <c>selfObj</c> reconstruction local, and
+    /// per-closure <c>cdecl</c> / <c>_box</c> names keyed by closure index.
+    /// </summary>
+    private readonly record struct ClosureBridgeSyntheticNames(
+        string SelfParam,
+        string SelfObj,
+        IReadOnlyDictionary<int, string> Cdecl,
+        IReadOnlyDictionary<int, string> Box,
+        IReadOnlyDictionary<int, string> Adapter);
+
+    /// <summary>
+    /// P1-22 (C1): the @_cdecl wrapper hardcodes synthetic Swift identifiers (<c>self_</c>,
+    /// <c>selfObj</c>, per-closure <c>cdecl</c>/<c>cdecl{N}</c> and <c>_box_{N}</c>). A user
+    /// param spelled the same — e.g. <c>func run(self_: Int, _ cb: …)</c> — would otherwise
+    /// produce an "invalid redeclaration" and the generator would emit broken Swift at
+    /// exit 0. Reserve every synthetic through a <see cref="SyntheticNameScope"/> seeded with
+    /// the user-controlled identifiers in this wrapper's scope (non-closure param names +
+    /// each closure's <c>FuncPtr</c>/<c>Context</c> params): collision-free input yields the
+    /// original names verbatim, collisions get a <c>__</c>-prefixed variant.
+    ///
+    /// This is a PURE function of its inputs so both emission paths (EmitSwiftWrapper and the
+    /// call-body emitter EmitSwiftMultiClosureWithPointerWrapping, which write into the same
+    /// Swift function scope) derive the identical mapping without threading names by param.
+    /// </summary>
+    private static ClosureBridgeSyntheticNames ComputeSyntheticNames(
+        List<ClosureInfo> closures,
+        List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams)
+    {
+        var reserved = new List<string>();
+        foreach (var (_, csName, _, _) in passableNonClosureParams)
+            reserved.Add(NameProvider.StripVerbatimPrefix(csName));
+        foreach (var ci in closures)
+        {
+            var n = NameProvider.StripVerbatimPrefix(ci.ParamName);
+            reserved.Add($"{n}FuncPtr");
+            reserved.Add($"{n}Context");
+        }
+
+        var scope = new SyntheticNameScope(reserved);
+        var selfParam = scope.Reserve("self_");
+        var selfObj = scope.Reserve("selfObj");
+        var cdecl = new Dictionary<int, string>();
+        var box = new Dictionary<int, string>();
+        var adapter = new Dictionary<int, string>();
+        foreach (var ci in closures)
+        {
+            cdecl[ci.Index] = scope.Reserve(closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl");
+            box[ci.Index] = scope.Reserve($"_box_{ci.Index}");
+            // The pointer-wrapping call body declares a `let __adapter{N}` local in this same
+            // scope; reserve it so a user non-closure param spelled `__adapter{N}` forces the
+            // synthetic to a `__`-escaped variant rather than producing an invalid Swift
+            // redeclaration emitted at exit 0.
+            adapter[ci.Index] = scope.Reserve($"__adapter{ci.Index}");
+        }
+
+        return new ClosureBridgeSyntheticNames(selfParam, selfObj, cdecl, box, adapter);
+    }
+
     private static void EmitSwiftWrapper(
         SwiftWriter swiftWriter,
         MethodDecl method,
@@ -350,6 +410,22 @@ public static class MethodClosureBridge
             swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
         }
 
+        // P1-22 (C1): the @_cdecl wrapper hardcodes synthetic Swift identifiers
+        // (`self_`, `selfObj`, per-closure `cdecl`/`cdecl{N}` and `_box_{N}`). A user
+        // param spelled the same (`func run(self_: Int, _ cb: …)`) would produce an
+        // `invalid redeclaration` and the generator would emit broken Swift at exit 0.
+        // ComputeSyntheticNames reserves each synthetic through a scope seeded with the
+        // user-controlled identifiers: collision-free input yields the original names
+        // verbatim, collisions get a `__`-prefixed variant. The call-body emitter
+        // (EmitSwiftMultiClosureWithPointerWrapping) emits into the SAME Swift function
+        // scope, so it derives the identical mapping from the same inputs rather than
+        // taking the names by parameter.
+        var synth = ComputeSyntheticNames(closures, passableNonClosureParams);
+        var selfParamName = synth.SelfParam;
+        var selfObjName = synth.SelfObj;
+        var cdeclNames = synth.Cdecl;
+        var boxNames = synth.Box;
+
         // Build return type — non-primitive returns use UnsafeMutableRawPointer
         var returnSpec = method.CSSignature[0].SwiftTypeSpec;
         bool returnsValue = !returnSpec.IsEmptyTuple;
@@ -382,7 +458,7 @@ public static class MethodClosureBridge
             // Non-generic parent: emit @_cdecl free function with explicit self parameter.
             if (isInstance)
             {
-                swiftParams.Add($"    _ self_: UnsafeMutableRawPointer");
+                swiftParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
             }
             WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor, availability);
             swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
@@ -428,12 +504,12 @@ public static class MethodClosureBridge
             cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // context
             var cdeclReturnType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "UInt8";
             var cdeclType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
-            var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
+            var cdeclVarName = cdeclNames[ci.Index];
             swiftWriter.WriteLine($"    let {cdeclVarName} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
 
             if (ci.IsEffectivelyEscaping)
             {
-                swiftWriter.WriteLine($"    let _box_{ci.Index}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+                swiftWriter.WriteLine($"    let {boxNames[ci.Index]}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
             }
         }
 
@@ -444,9 +520,9 @@ public static class MethodClosureBridge
         {
             bool isClassParent = parentDecl is ClassDecl;
             if (isClassParent)
-                swiftWriter.WriteLine($"    let selfObj = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+                swiftWriter.WriteLine($"    let {selfObjName} = Unmanaged<{typeName}>.fromOpaque({selfParamName}).takeUnretainedValue()");
             else
-                swiftWriter.WriteLine($"    let selfObj = self_.assumingMemoryBound(to: {typeName}.self).pointee");
+                swiftWriter.WriteLine($"    let {selfObjName} = {selfParamName}.assumingMemoryBound(to: {typeName}.self).pointee");
         }
 
         // Build original method call arguments in parameter order
@@ -459,9 +535,9 @@ public static class MethodClosureBridge
         if (isGenericParent && isInstance)
             callTarget = "self"; // Extension method: self is implicit
         else if (isMutatingValueType)
-            callTarget = $"self_.assumingMemoryBound(to: {typeName}.self).pointee";
+            callTarget = $"{selfParamName}.assumingMemoryBound(to: {typeName}.self).pointee";
         else if (isInstance)
-            callTarget = "selfObj";
+            callTarget = selfObjName;
         else
             callTarget = typeName;
 
@@ -576,15 +652,15 @@ public static class MethodClosureBridge
                     }
                     cdeclCallArgs.Add($"{closureCsName}Context");
 
-                    var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
+                    var cdeclVarName = cdeclNames[ci.Index];
                     var cdeclCall = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
                     if (!ci.Spec.ReturnType.IsEmptyTuple)
                         cdeclCall += " != 0";
 
                     // Escaping closures explicitly capture the owner-token box so its lifetime
                     // tracks the stored closure (Bug 1 Cat 3 / Bug 3 Case 2).
-                    var captureList = ci.IsEffectivelyEscaping ? $"[_box_{ci.Index}] " : "";
-                    var observeBox = ci.IsEffectivelyEscaping ? $"_ = _box_{ci.Index}; " : "";
+                    var captureList = ci.IsEffectivelyEscaping ? $"[{boxNames[ci.Index]}] " : "";
+                    var observeBox = ci.IsEffectivelyEscaping ? $"_ = {boxNames[ci.Index]}; " : "";
                     var closureParamStr = string.Join(", ", analysis.paramDecls);
                     var callLabel = GetSwiftArgLabel(ci.Arg);
                     var closureBody = analysis.paramDecls.Count > 0
@@ -637,6 +713,13 @@ public static class MethodClosureBridge
         var closureByArg = closures.ToDictionary(c => c.Arg);
         var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
 
+        // P1-22 (C1): this emits into the SAME Swift function scope as EmitSwiftWrapper, so
+        // it MUST derive the identical synthetic-name mapping. ComputeSyntheticNames is a
+        // pure function of (closures, passableNonClosureParams) — the same inputs both
+        // methods receive — so the `cdecl`/`_box_N` names here match the box declarations
+        // emitted by the caller even when a user param forces a `__`-escaped variant.
+        var synth = ComputeSyntheticNames(closures, passableNonClosureParams);
+
         // For each closure that has pointer-wrap args, we need withUnsafePointer nesting.
         // Strategy: emit each closure adapter as a local closure variable, then call the method.
         // This avoids deeply nested trailing closure syntax which doesn't work with multiple closures.
@@ -644,8 +727,8 @@ public static class MethodClosureBridge
         {
             var analysis = perClosureAnalysis[ci];
             var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
-            var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
-            var adapterName = $"__adapter{ci.Index}";
+            var cdeclVarName = synth.Cdecl[ci.Index];
+            var adapterName = synth.Adapter[ci.Index];
 
             // Build the closure adapter type signature. Existentials (`any Error`) must
             // render with the `any` keyword so Swift 6 accepts the closure signature —
@@ -661,8 +744,8 @@ public static class MethodClosureBridge
             // Escaping closures explicitly capture the owner-token box (Bug 1 Cat 3 / Bug 3 Case 2).
             // Capture list pulls `_box_N` into the stored closure so Swift ARC tracks its lifetime;
             // when Swift releases the closure, the box's deinit upcalls the C# free callback.
-            var captureList = ci.IsEffectivelyEscaping ? $"[_box_{ci.Index}] " : "";
-            var observeBoxLine = ci.IsEffectivelyEscaping ? $"_ = _box_{ci.Index}" : null;
+            var captureList = ci.IsEffectivelyEscaping ? $"[{synth.Box[ci.Index]}] " : "";
+            var observeBoxLine = ci.IsEffectivelyEscaping ? $"_ = {synth.Box[ci.Index]}" : null;
 
             var closureParamStr = string.Join(", ", analysis.paramDecls);
             if (ci.IsOptional)
@@ -684,7 +767,7 @@ public static class MethodClosureBridge
                 {
                     // Pair invariant: when funcPtr is non-nil, context is non-nil (set together
                     // by the C# wrapper). Force-unwrap is safe here.
-                    swiftWriter.WriteLine($"{indent}{indent}let _box_{ci.Index}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+                    swiftWriter.WriteLine($"{indent}{indent}let {synth.Box[ci.Index]}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
                 }
                 string returnPrefixInner;
                 if (analysis.paramDecls.Count > 0)
@@ -879,7 +962,7 @@ public static class MethodClosureBridge
             if (closureByArg.TryGetValue(arg, out var ci))
             {
                 var callLabel = GetSwiftArgLabel(ci.Arg);
-                var adapterName = $"__adapter{ci.Index}";
+                var adapterName = synth.Adapter[ci.Index];
                 allCallArgs.Add($"{callLabel}{adapterName}");
             }
             else if (passableByArg.TryGetValue(arg, out var passable))
@@ -941,19 +1024,27 @@ public static class MethodClosureBridge
         {
             // Bool return → Func<..., bool>
             innerTypeArgs.Add("bool");
-            csWriter.WriteLine($"var callback = (Func<{string.Join(", ", innerTypeArgs)}>)handle.Target!;");
+            // P0-01: resolve the delegate from the GCHandle *inside* the guarded try. A bad or
+            // already-freed handle makes handle.Target throw; if that ran before the try the
+            // exception would unwind out of the [UnmanagedCallersOnly] frame into the Swift
+            // @_cdecl caller → SIGABRT. Inside the try it routes through FailFast instead.
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            csWriter.WriteLine($"var callback = (Func<{string.Join(", ", innerTypeArgs)}>)handle.Target!;");
             var callArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"arg{i}"));
             csWriter.WriteLine($"return (byte)(callback({callArgs}) ? 1 : 0);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine("catch { return 0; }");
+            ClosureEmitter.EmitNonThrowingFailFastCatch(csWriter);
         }
         else
         {
-            // Void return → Action<...>
+            // Void return → Action<...>. P0-01: resolve the delegate inside the try (see the
+            // bool branch) so a bad/freed handle faults via FailFast, not a SIGABRT escape.
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
             if (innerTypeArgs.Count > 0)
             {
                 csWriter.WriteLine($"var callback = (Action<{string.Join(", ", innerTypeArgs)}>)handle.Target!;");
@@ -962,14 +1053,11 @@ public static class MethodClosureBridge
             {
                 csWriter.WriteLine("var callback = (Action)handle.Target!;");
             }
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
             var callArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"arg{i}"));
             csWriter.WriteLine($"callback({callArgs});");
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine("catch { }");
+            ClosureEmitter.EmitNonThrowingFailFastCatch(csWriter);
         }
 
         csWriter.Indent--;
@@ -1050,7 +1138,16 @@ public static class MethodClosureBridge
         bool usesSwiftCallingConvention = isGenericParent && isInstance;
         if (isInstance)
         {
-            pinvokeParams.Add(usesSwiftCallingConvention ? "SwiftSelf self_" : "IntPtr self_");
+            // P1-22 (C1): the trailing self param hardcodes `self_`; a user non-closure param
+            // projected to the same name would be a CS0100 duplicate (the closure pair names
+            // are already `__`-prefixed synthetics, so only a user `self_` can collide). Guard
+            // it against the other P/Invoke param names. Call-site args are positional, so the
+            // renamed param needs no call-site change.
+            var pinvokeReserved = new List<string>();
+            foreach (var (_, csName, _, _) in passableNonClosureParams)
+                pinvokeReserved.Add(csName);
+            var selfPInvokeName = new SyntheticNameScope(pinvokeReserved).Reserve("self_");
+            pinvokeParams.Add(usesSwiftCallingConvention ? $"SwiftSelf {selfPInvokeName}" : $"IntPtr {selfPInvokeName}");
         }
 
         // Return type
@@ -2051,10 +2148,14 @@ public static class MethodClosureBridge
     private static string GetSwiftArgLabel(ArgumentDecl arg)
     {
         var name = arg.Name;
-        if (SwiftBuilder.IsAutoGeneratedArgName(name))
+        // Unlabeled: bare "_", empty, or a synthesized positional name (argN) — Swift renders
+        // these call sites with no argument label.
+        if (string.IsNullOrEmpty(name) || name == "_" || SwiftBuilder.IsAutoGeneratedArgName(name))
             return ""; // Unlabeled
-        if (name.StartsWith("_"))
-            return $"{name.Substring(1)}: "; // Strip leading underscore
+        // Otherwise the ABI printedName carries the genuine external label verbatim — including
+        // labels that legitimately begin with "_" (e.g. "_box_0"). Stripping the underscore
+        // would emit the wrong label and the @_cdecl symbol would fail to link (the function is
+        // silently dropped from the dylib → EntryPointNotFoundException at runtime).
         return $"{name}: ";
     }
 

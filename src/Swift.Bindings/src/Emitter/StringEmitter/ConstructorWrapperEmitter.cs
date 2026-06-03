@@ -444,7 +444,8 @@ public static class ConstructorWrapperEmitter
                                 ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
                             closureAdapterLines.AddRange(
                                 ClosureEmitter.GetSwiftClosureAdapterCode(
-                                    csName, closureTypeSpec, env.ClosureHandler, isOptional, isEscaping));
+                                    csName, closureTypeSpec, env.ClosureHandler, isOptional, isEscaping,
+                                    swiftWriter, ctx, methodDecl.ModuleDecl?.Name ?? "SwiftBindings"));
 
                             var adapterName = $"_adapted_{csName}";
                             var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);

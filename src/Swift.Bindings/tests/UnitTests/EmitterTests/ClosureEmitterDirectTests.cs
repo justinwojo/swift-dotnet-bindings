@@ -1155,7 +1155,7 @@ public class ClosureEmitterDirectTests
 
         ClosureEmitter.EmitThrowingClosureCallback(
             csWriter, "doWork", "callback", closureTypeSpec, closureHandler,
-            "$s10TestModule6doWorkyyF", useCdecl: false);
+            "$s10TestModule6doWorkyyF", "TestModule", useCdecl: false);
 
         var result = output.ToString();
         Assert.DoesNotContain("GCHandle.FromIntPtr(", result);

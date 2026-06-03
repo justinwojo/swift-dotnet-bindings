@@ -378,6 +378,128 @@ public class GenericClosureBridgeEmitterTests
 
     #endregion
 
+    #region P1-22 (C1): synthetic-name guard wiring
+
+    // The GenericClosureBridge @_silgen_name wrapper hardcodes synthetic Swift identifiers in the
+    // same scope as the user's non-closure params: the `cdecl` func-ptr rebind local, the self
+    // pointer param + its reconstruction local, the result-buffer param, and the thrown-error
+    // locals. A user non-closure param spelled the same identifier used to produce an "invalid
+    // redeclaration" emitted at swiftc time (silently stripped at exit 0). The emitter now seeds a
+    // SyntheticNameScope with the user param names (and the closure's FuncPtr/Context params) and
+    // reserves each synthetic through it, renaming a collision to its `__`-prefixed form. These
+    // assert the wiring at the emitter layer — the layer where the guard's behavior is observable
+    // independent of the runtime path (the runtime round-trip is separately blocked by a pre-existing
+    // GenericClosureBridge self-register ABI defect; see GenericClosureBridgeTests + REMEDIATION-PLAN §6).
+
+    [Fact]
+    public void TryEmit_UserParamNamedCdecl_RenamesFuncPtrSynthetic()
+    {
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0")) { Throws = true };
+        var closureArg = CreateArg("block", closureSpec, moduleDecl);
+        // User non-closure class param spelled `cdecl` — collides with the synthetic func-ptr local.
+        var cdeclArg = CreateArg("cdecl", new NamedTypeSpec("TestModule.Database"), moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "readWithCdecl",
+            MangledName = "$s4GRDB8Database13readWithCdeclyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                closureArg,
+                cdeclArg
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl, new ModuleEmissionContext());
+
+        var swift = swiftOutput.ToString();
+        // The synthetic func-ptr rebind escaped to `__cdecl`; the user param `cdecl` survives as-is.
+        Assert.Contains("let __cdecl = unsafeBitCast", swift);
+        Assert.Contains("__cdecl(", swift); // invoked under the renamed identifier
+        // No bare-`cdecl` redeclaration (the "invalid redeclaration" the guard exists to prevent).
+        Assert.DoesNotContain("let cdecl = unsafeBitCast", swift);
+    }
+
+    [Fact]
+    public void TryEmit_UserParamNamedUnderscoreSelf_RenamesSelfPointerTransitively()
+    {
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0")) { Throws = true };
+        var closureArg = CreateArg("block", closureSpec, moduleDecl);
+        // User non-closure class param spelled `_self` — collides with the synthetic self-pointer
+        // param, forcing a transitive rename (`_self`→`___self`; the `__self` reconstruction local
+        // is then free).
+        var selfArg = CreateArg("_self", new NamedTypeSpec("TestModule.Database"), moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "readWithSelf",
+            MangledName = "$s4GRDB8Database12readWithSelfyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                closureArg,
+                selfArg
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl, new ModuleEmissionContext());
+
+        var swift = swiftOutput.ToString();
+        // The self-pointer param escaped to `___self`; the reconstruction local reads from it.
+        Assert.Contains("___self: UnsafeMutableRawPointer", swift);
+        Assert.Contains("unsafeBitCast(OpaquePointer(___self)", swift);
+        // The user param `_self` survives as a distinct, label-less wrapper parameter (`_ _self:`),
+        // so the synthetic (`___self`) and the user identifier never collide into an "invalid
+        // redeclaration". `_ _self:` is not a substring of `_ ___self:`, so this uniquely matches
+        // the user param regardless of how its type renders in this fixture.
+        Assert.Contains("_ _self:", swift);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter) CreateWriters()

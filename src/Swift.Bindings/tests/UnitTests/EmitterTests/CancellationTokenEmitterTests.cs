@@ -180,16 +180,17 @@ public class CancellationTokenEmitterTests
     public void AsyncWrapper_StoresEntryInDictionary()
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
-        // Uses helper function instead of direct lock/unlock (Swift 6 async safety)
-        Assert.Contains("_sbwRegisterTask(_sbwTask, _entry)", swiftOutput);
+        // Registry key is the monotonic _sbwCancelKey, NOT the recyclable GCHandle
+        // context (_sbwTask). See P1-17 region below for the rationale.
+        Assert.Contains("_sbwRegisterTask(_sbwCancelKey, _entry)", swiftOutput);
     }
 
     [Fact]
     public void AsyncWrapper_DefersRemovalFromDictionary()
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
-        // Uses helper function instead of direct lock/unlock (Swift 6 async safety)
-        Assert.Contains("_sbwUnregisterTask(_sbwTask)", swiftOutput);
+        // Unregister keyed by the same monotonic _sbwCancelKey used to register.
+        Assert.Contains("_sbwUnregisterTask(_sbwCancelKey)", swiftOutput);
         Assert.Contains("defer {", swiftOutput);
     }
 
@@ -262,14 +263,20 @@ public class CancellationTokenEmitterTests
     public void AsyncWrapper_ErrorCallbackDisposesRegistrationOnError()
     {
         var (csOutput, _) = GenerateAsyncMethod();
-        Assert.Contains("cancelReg.Registration.Dispose()", csOutput);
+        // The registration is freed via holder cleanup (which disposes it — proven by
+        // SwiftAsyncCallHolderTests.Cleanup_DisposesCancellationRegistration), and that cleanup
+        // runs before the error callback faults the Task.
+        AssertHolderCleanupPrecedes(csOutput, "holderTcs.TrySetException(exception)");
     }
 
     [Fact]
     public void AsyncWrapper_SuccessCallbackDisposesRegistration()
     {
         var (csOutput, _) = GenerateAsyncMethod();
-        Assert.Contains("CancellationRegistrationHolder cancelReg", csOutput);
+        // The registration is stored in the holder so cleanup can find and dispose it...
+        Assert.Contains("new CancellationRegistrationHolder(_cancelRegistration, cancellationToken)", csOutput);
+        // ...and the success path runs holder cleanup before completing the Task with the result.
+        AssertHolderCleanupPrecedes(csOutput, "holderTcs.TrySetResult");
     }
 
     #endregion
@@ -316,18 +323,20 @@ public class CancellationTokenEmitterTests
     public void AsyncStringReturn_SuccessCallbackDisposesRegistration()
     {
         var (csOutput, _) = GenerateAsyncStringMethod();
-        // String return uses EmitAsyncWrapperForString — verify registration disposal in success callback
-        Assert.Contains("CancellationRegistrationHolder cancelReg", csOutput);
-        Assert.Contains("cancelReg.Registration.Dispose()", csOutput);
+        // String return uses EmitAsyncWrapperForString — its success path must also wire holder
+        // cleanup (which disposes the registration) so this separate emitter cannot drift and leak.
+        Assert.Contains("new CancellationRegistrationHolder(_cancelRegistration, cancellationToken)", csOutput);
+        AssertHolderCleanupPrecedes(csOutput, "TrySetResult");
     }
 
     [Fact]
     public void AsyncComplexReturn_SuccessCallbackDisposesRegistration()
     {
         var (csOutput, _) = GenerateAsyncComplexReturnMethod();
-        // Non-frozen return uses EmitAsyncWrapperForComplexType — verify registration disposal in success callback
-        Assert.Contains("CancellationRegistrationHolder cancelReg", csOutput);
-        Assert.Contains("cancelReg.Registration.Dispose()", csOutput);
+        // Non-frozen return uses EmitAsyncWrapperForComplexType — same separate-emitter drift guard:
+        // its success path runs holder cleanup (disposes the registration) before completing.
+        Assert.Contains("new CancellationRegistrationHolder(_cancelRegistration, cancellationToken)", csOutput);
+        AssertHolderCleanupPrecedes(csOutput, "TrySetResult");
     }
 
     #endregion
@@ -457,7 +466,101 @@ public class CancellationTokenEmitterTests
 
     #endregion
 
+    #region Cancellation Key Recycle Fix (P1-17)
+
+    // The Swift cancellation registry (_sbwActiveTasks) must be keyed by a value that is
+    // NEVER reused while an entry is live. Previously the key was the GCHandle pointer
+    // value (also reused as the callback context), but GCHandle cookies are recycled after
+    // Free() — a completing task's deferred unregister could then evict a newer task that
+    // reused the cookie, and a racing cancellation could cancel unrelated work. The fix
+    // separates the registry key (a process-wide monotonic _sbwCancelKey) from the callback
+    // context (the GCHandle, still recovered via GCHandle.FromIntPtr).
+
+    [Fact]
+    public void AsyncWrapper_RegistersWithMonotonicCancelKeyNotContext()
+    {
+        var (_, swiftOutput) = GenerateAsyncMethod();
+        Assert.Contains("_sbwRegisterTask(_sbwCancelKey, _entry)", swiftOutput);
+        Assert.Contains("_sbwUnregisterTask(_sbwCancelKey)", swiftOutput);
+        // The recyclable context must NOT be used as the registry key.
+        Assert.DoesNotContain("_sbwRegisterTask(_sbwTask", swiftOutput);
+        Assert.DoesNotContain("_sbwUnregisterTask(_sbwTask)", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_SwiftSignatureDeclaresSeparateCancelKeyParam()
+    {
+        var (_, swiftOutput) = GenerateAsyncMethod();
+        // Both values cross the boundary: _sbwTask (context) and _sbwCancelKey (registry key).
+        Assert.Contains("_sbwCancelKey: Int64", swiftOutput);
+        Assert.Contains("_sbwTask: Int64", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_CallbackContextStillUsesSbwTaskNotCancelKey()
+    {
+        var (_, swiftOutput) = GenerateAsyncMethod();
+        // The success/error callbacks recover the GCHandle holder, so they must forward the
+        // context (_sbwTask) — never the registry key — back to C#.
+        Assert.Contains("_sbwTask)", swiftOutput);
+        Assert.DoesNotContain("callback(_sbwCancelKey)", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncMethod_ComputesMonotonicCancelKeyDistinctFromHandle()
+    {
+        var (csOutput, _) = GenerateAsyncMethod();
+        // The registry key comes from a process-wide monotonic counter...
+        Assert.Contains("SwiftAsyncCancellation.NextCancelKey()", csOutput);
+        // ...NOT from the recyclable GCHandle pointer value.
+        Assert.DoesNotContain("(long)(IntPtr)handle", csOutput);
+        // The GCHandle is still passed as the opaque callback context.
+        Assert.Contains("GCHandle.ToIntPtr(handle)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncMethod_CancelRegistrationCapturesMonotonicKey()
+    {
+        var (csOutput, _) = GenerateAsyncMethod();
+        // The cancellation registration must cancel by the monotonic key.
+        Assert.Contains("cancellationToken, _sbwCancelKey)", csOutput);
+        Assert.Contains("SBW_CancelTask(id)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncMethod_LaunchPInvokeForwardsCancelKey()
+    {
+        var (csOutput, _) = GenerateAsyncMethod();
+        // The launch P/Invoke declares the context (IntPtr handle) followed by the
+        // monotonic cancel key (long _sbwCancelKey); the call site passes the key.
+        // Collapse runs of spaces: empty-modifier params render with a leading space
+        // (see ParameterSignatureTests), so the join emits a double space before `long`.
+        var normalized = System.Text.RegularExpressions.Regex.Replace(csOutput, " +", " ");
+        Assert.Contains("IntPtr handle, long _sbwCancelKey", normalized);
+        Assert.Contains("long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey()", csOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
+
+    /// <summary>
+    /// Asserts that holder cleanup runs on the termination path that reaches
+    /// <paramref name="completionCall"/> — i.e. a <c>SwiftAsyncCallHolder.Cleanup(...)</c> call
+    /// textually precedes it. The cleanup helper is what disposes the cancellation registration
+    /// (proven exactly-once by <c>SwiftAsyncCallHolderTests.Cleanup_DisposesCancellationRegistration</c>),
+    /// so this is the faithful per-return-shape "registration is freed on this path" check after
+    /// the disposal was extracted out of the inline callback bodies.
+    /// </summary>
+    private static void AssertHolderCleanupPrecedes(string csOutput, string completionCall)
+    {
+        const string cleanup = "global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(";
+        int completionIdx = csOutput.IndexOf(completionCall, StringComparison.Ordinal);
+        Assert.True(completionIdx >= 0, $"expected completion call '{completionCall}' in generated output");
+        int cleanupIdx = csOutput.LastIndexOf(cleanup, completionIdx, StringComparison.Ordinal);
+        Assert.True(cleanupIdx >= 0,
+            $"holder cleanup (disposes the cancellation registration) must run before '{completionCall}'");
+    }
 
     private static ModuleDecl CreateModuleDecl()
     {

@@ -261,6 +261,49 @@ public class MethodClosureBridgeTests
         Assert.Contains("UnsafeMutableRawPointer(mutating:", swift);
     }
 
+    // ─── P0-01: non-throwing closure callbacks fail fast, never swallow ──
+
+    [Fact]
+    public void TryEmit_VoidReturnClosure_CallbackFailsFastOnManagedException()
+    {
+        // The void-return UCO callback invokes the managed delegate. A non-throwing Swift closure
+        // has no error channel, so a managed exception escaping the delegate must route to the
+        // fail-fast contract, not be swallowed by a bare `catch { }` (which would let Swift
+        // proceed as if the callback succeeded).
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var cs = csOutput.ToString();
+        Assert.Contains("catch (global::System.Exception", cs);
+        Assert.Contains("FailFastUnhandledClosureException", cs);
+        Assert.DoesNotContain("catch { }", cs);
+    }
+
+    [Fact]
+    public void TryEmit_BoolReturnClosure_CallbackFailsFastOnManagedException()
+    {
+        // The bool-return callback must NOT fabricate `return 0;` on a managed fault — that hands
+        // Swift a bogus `false`. It must fail fast.
+        var (method, typeDatabase, env) = CreateMethodWithBoolReturnClosure();
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var cs = csOutput.ToString();
+        Assert.Contains("catch (global::System.Exception", cs);
+        Assert.Contains("FailFastUnhandledClosureException", cs);
+        Assert.DoesNotContain("catch { return 0; }", cs);
+    }
+
     [Fact]
     public void TryEmit_AnyErrorClosureArg_EmitsExistentialContainerMarshal()
     {

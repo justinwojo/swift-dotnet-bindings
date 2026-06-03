@@ -953,13 +953,13 @@
     "simulator": {
       "pass": 2556,
       "fail": 0,
-      "skip": 43,
+      "skip": 48,
       "crash": 0
     },
     "device": {
       "pass": 2570,
       "fail": 0,
-      "skip": 29,
+      "skip": 33,
       "crash": 0
     },
     "macos": {

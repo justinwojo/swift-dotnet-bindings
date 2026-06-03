@@ -78,121 +78,109 @@ public static partial class ClosureEmitter
         bool isObjCBridged = closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType);
         bool isClassReturn = closureHandler.IsClassType(closureTypeSpec.ReturnType);
 
+        // Array<String> delegate type: GetCSharpDelegateType returns SwiftArray<string> but
+        // the public API uses IReadOnlyList<string>. The GCHandle stores the public API type,
+        // so the callback must recover using the same type.
+        var effectiveDelegateType = isArrayString
+            ? delegateType.Replace("Swift.SwiftArray<string>", "IReadOnlyList<string>")
+            : delegateType;
+
+        // Branch-specific marshalling of `result` into the Swift-allocated `indirectResult`
+        // buffer. Each block runs inside the shared try below.
+        string marshalBlock;
         if (isPlainString)
         {
-            csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-                private static unsafe void {{callbackName}}({{parametersString}})
-                {
-                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                    var result = del({{invokeArgsString}});
-
-                    // Convert string → SwiftString (System.String has no Swift metadata)
-                    using var _swiftStr = new Swift.SwiftString(result);
-                    var metadata = Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata();
-                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
-                    ((Swift.Runtime.ISwiftObject)_swiftStr).MarshalToSwift(ref resultSpan);
-                }
-                """);
+            marshalBlock = """
+                // Convert string → SwiftString (System.String has no Swift metadata)
+                using var _swiftStr = new Swift.SwiftString(result);
+                var metadata = Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata();
+                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                ((Swift.Runtime.ISwiftObject)_swiftStr).MarshalToSwift(ref resultSpan);
+                """;
         }
         else if (isOptionalString)
         {
-            csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-                private static unsafe void {{callbackName}}({{parametersString}})
-                {
-                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                    var result = del({{invokeArgsString}});
-
-                    // Convert string? → SwiftOptional<SwiftString> (System.String has no Swift metadata)
-                    using var _swiftStr = result != null ? new Swift.SwiftString(result) : null;
-                    using var _swiftOpt = _swiftStr != null
-                        ? SwiftOptional<Swift.SwiftString>.NewSome(_swiftStr)
-                        : SwiftOptional<Swift.SwiftString>.NewNone();
-                    var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<Swift.SwiftString>>();
-                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
-                    SwiftMarshal.MarshalToSwift(_swiftOpt, ref resultSpan);
-                }
-                """);
+            marshalBlock = """
+                // Convert string? → SwiftOptional<SwiftString> (System.String has no Swift metadata)
+                using var _swiftStr = result != null ? new Swift.SwiftString(result) : null;
+                using var _swiftOpt = _swiftStr != null
+                    ? SwiftOptional<Swift.SwiftString>.NewSome(_swiftStr)
+                    : SwiftOptional<Swift.SwiftString>.NewNone();
+                var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<Swift.SwiftString>>();
+                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                SwiftMarshal.MarshalToSwift(_swiftOpt, ref resultSpan);
+                """;
         }
         else if (isArrayString)
         {
-            // Array<String> delegate type: GetCSharpDelegateType returns SwiftArray<string> but
-            // the public API uses IReadOnlyList<string>. The GCHandle stores the public API type,
-            // so the callback must recover using the same type.
-            var arrayDelegateType = delegateType.Replace("Swift.SwiftArray<string>", "IReadOnlyList<string>");
-
-            csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-                private static unsafe void {{callbackName}}({{parametersString}})
+            marshalBlock = """
+                // Convert IReadOnlyList<string> → SwiftArray<SwiftString> (System.String has no Swift metadata)
+                using var _swiftArray = new Swift.SwiftArray<Swift.SwiftString>();
+                foreach (var _item in result)
                 {
-                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{arrayDelegateType}}>({{contextExtraction}});
-                    var result = del({{invokeArgsString}});
-
-                    // Convert IReadOnlyList<string> → SwiftArray<SwiftString> (System.String has no Swift metadata)
-                    using var _swiftArray = new Swift.SwiftArray<Swift.SwiftString>();
-                    foreach (var _item in result)
-                    {
-                        using var _str = new Swift.SwiftString(_item);
-                        _swiftArray.Append(_str);
-                    }
-                    var metadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftArray<Swift.SwiftString>>();
-                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
-                    SwiftMarshal.MarshalToSwift(_swiftArray, ref resultSpan);
+                    using var _str = new Swift.SwiftString(_item);
+                    _swiftArray.Append(_str);
                 }
-                """);
+                var metadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftArray<Swift.SwiftString>>();
+                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                SwiftMarshal.MarshalToSwift(_swiftArray, ref resultSpan);
+                """;
         }
         else if (isObjCBridged)
         {
-            csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-                private static unsafe void {{callbackName}}({{parametersString}})
-                {
-                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                    var result = del({{invokeArgsString}});
-
-                    // ObjC-bridged type: write the handle pointer to the result buffer.
-                    // The Swift struct wraps an ObjC reference — the handle IS the ABI representation.
-                    *(IntPtr*)indirectResult = result.Handle;
-                }
-                """);
+            marshalBlock = """
+                // ObjC-bridged type: write the handle pointer to the result buffer.
+                // The Swift struct wraps an ObjC reference — the handle IS the ABI representation.
+                *(IntPtr*)indirectResult = result.Handle;
+                """;
         }
         else if (isClassReturn)
         {
-            csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-                private static unsafe void {{callbackName}}({{parametersString}})
-                {
-                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                    var result = del({{invokeArgsString}});
-
-                    // Class type: retain the pointer before writing to the result buffer.
-                    // Swift's wrapper will .move() this value and eventually passRetained it —
-                    // the expression release consumes the original +1, so the buffer must carry
-                    // its own +1 to prevent over-release when both the C# wrapper and the
-                    // Swift-returned wrapper are finalized.
-                    var __ptr = result.Payload.DangerousGetHandle();
-                    Swift.Runtime.Arc.Retain(__ptr);
-                    *(IntPtr*)indirectResult = __ptr;
-                }
-                """);
+            marshalBlock = """
+                // Class type: retain the pointer before writing to the result buffer.
+                // Swift's wrapper will .move() this value and eventually passRetained it —
+                // the expression release consumes the original +1, so the buffer must carry
+                // its own +1 to prevent over-release when both the C# wrapper and the
+                // Swift-returned wrapper are finalized.
+                var __ptr = result.Payload.DangerousGetHandle();
+                Swift.Runtime.Arc.Retain(__ptr);
+                *(IntPtr*)indirectResult = __ptr;
+                """;
         }
         else
         {
-            csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-                private static unsafe void {{callbackName}}({{parametersString}})
+            marshalBlock = $$"""
+                // Marshal the result to the indirect result buffer
+                var metadata = TypeMetadata.GetTypeMetadataOrThrow<{{returnCSharpType}}>();
+                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                SwiftMarshal.MarshalToSwift(result, ref resultSpan);
+                """;
+        }
+
+        // Non-throwing indirect-return closure: there is no error channel back to Swift, and
+        // the Swift adapter unconditionally .move()s the buffer this callback fills. If `del`
+        // (or the marshalling) throws, the buffer is never written and Swift would .move()
+        // uninitialized storage. A managed exception escaping into native Swift also aborts
+        // the process. Wrap the body so any unhandled exception becomes a controlled FailFast
+        // BEFORE Swift touches the buffer.
+        csWriter.WriteLines($$"""
+            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+            private static unsafe void {{callbackName}}({{parametersString}})
+            {
+                try
                 {
-                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{effectiveDelegateType}}>({{contextExtraction}});
                     var result = del({{invokeArgsString}});
 
-                    // Marshal the result to the indirect result buffer
-                    var metadata = TypeMetadata.GetTypeMetadataOrThrow<{{returnCSharpType}}>();
-                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
-                    SwiftMarshal.MarshalToSwift(result, ref resultSpan);
+                    {{marshalBlock}}
                 }
-                """);
-        }
+                catch (global::System.Exception __ex)
+                {
+                    SwiftClosureMarshaller.FailFastUnhandledClosureException(__ex);
+                    throw;
+                }
+            }
+            """);
     }
 
     /// <summary>

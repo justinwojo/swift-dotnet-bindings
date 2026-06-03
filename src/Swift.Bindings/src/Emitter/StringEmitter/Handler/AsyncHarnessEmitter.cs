@@ -433,6 +433,7 @@ namespace BindingsGeneration
                                     directTcs.TrySetResult({{(voidReturn ? "" : "result")}});
                                 }
                             }
+                {{BuildAsyncCallbackFaultCatch(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>", "            ")}}
                             finally
                             {
                                 handle.Free();
@@ -517,6 +518,7 @@ namespace BindingsGeneration
                                     directTcs.TrySetResult(result);
                                 }
                             }
+                {{BuildAsyncCallbackFaultCatch($"<{_wrapperSignature.ReturnType}>", "            ")}}
                             finally
                             {
                                 handle.Free();
@@ -568,6 +570,7 @@ namespace BindingsGeneration
                                     directTcs.TrySetResult(result);
                                 }
                             }
+                {{BuildAsyncCallbackFaultCatch($"<{_wrapperSignature.ReturnType}>", "            ")}}
                             finally
                             {
                                 // Always free Swift-allocated memory (even empty strings allocate 1 byte)
@@ -684,6 +687,7 @@ namespace BindingsGeneration
                                         directTcs.TrySetResult(result!);
                                 }
                             }
+                {{BuildAsyncCallbackFaultCatch($"<{_wrapperSignature.ReturnType}>", "            ")}}
                             finally
                             {
                                 // Always free Swift-allocated memory (even empty arrays allocate 1 byte)
@@ -930,6 +934,7 @@ namespace BindingsGeneration
                                     directTcs.TrySetResult(result);
                                 }
                             }
+                {{BuildAsyncCallbackFaultCatch($"<{_wrapperSignature.ReturnType}>", "            ")}}
                             finally
                             {{{freeCode}}
                                 handle.Free();
@@ -1207,6 +1212,7 @@ namespace BindingsGeneration
                                     directTcs.TrySetResult(result);
                                 }
                             }
+                {{BuildAsyncCallbackFaultCatch($"<{_wrapperSignature.ReturnType}>", "            ")}}
                             finally
                             {
                                 // Free Swift-allocated memory
@@ -1218,6 +1224,41 @@ namespace BindingsGeneration
                         {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, $"<{_wrapperSignature.ReturnType}>")}}
                 """;
             csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Builds the catch block that guards an async [UnmanagedCallersOnly] callback against
+        /// a managed exception unwinding into native Swift. The async callbacks run on a Swift
+        /// thread that re-enters managed code via a C function pointer; an exception escaping
+        /// that boundary aborts the process (SIGABRT). Worse, if the throw happens before the
+        /// TaskCompletionSource is resolved, the awaiting Task never completes and the caller
+        /// hangs forever. This catch resolves the TCS from the still-live GCHandle target and
+        /// faults it, turning an abort into an observable async exception. <c>TrySetException</c>
+        /// is a no-op if the result was already set, so it is safe even when the throw occurs
+        /// after the success path partially ran. <c>handle.Free()</c> stays in the callback's
+        /// own <c>finally</c> and runs after this catch.
+        /// </summary>
+        /// <param name="tcsType">Generic suffix for the TCS type (e.g. <c>&lt;int&gt;</c>, or empty for void).</param>
+        /// <param name="indent">Leading indentation applied to every emitted line.</param>
+        private static string BuildAsyncCallbackFaultCatch(string tcsType, string indent)
+        {
+            return
+                $"{indent}catch (global::System.Exception __ex)\n" +
+                $"{indent}{{\n" +
+                $"{indent}    // Never let a managed exception unwind into native Swift (SIGABRT); fault the\n" +
+                $"{indent}    // awaiting Task instead so the failure is observable and the awaiter cannot hang.\n" +
+                $"{indent}    // The fault is reachable from result marshalling, which runs BEFORE the normal\n" +
+                $"{indent}    // success-branch cleanup, so the holder's native resources (retained self, copy\n" +
+                $"{indent}    // buffers, existential heap, deferred containers, cancellation registration) are\n" +
+                $"{indent}    // still live and must be freed here too — finally only releases the GCHandle.\n" +
+                $"{indent}    if (handle.Target is object[] __holder && __holder[0] is TaskCompletionSource{tcsType} __holderTcs)\n" +
+                $"{indent}    {{\n" +
+                $"{BuildHolderCleanupCode("__holder", indent + "        ")}\n" +
+                $"{indent}        __holderTcs.TrySetException(__ex);\n" +
+                $"{indent}    }}\n" +
+                $"{indent}    else if (handle.Target is TaskCompletionSource{tcsType} __directTcs)\n" +
+                $"{indent}        __directTcs.TrySetException(__ex);\n" +
+                $"{indent}}}";
         }
 
         /// <summary>
@@ -1247,11 +1288,12 @@ namespace BindingsGeneration
             var cancellationBlock = $$"""
                                     if (isCancellation != 0)
                                     {
-                                        // Swift reported CancellationError — find token and cancel the Task.
-                                        // Loop body shared via BuildCancellationCleanupLoop so this hand-rolled
-                                        // block cannot drift from WrapperEmitter.Async's equivalent block.
+                                        // Swift reported CancellationError — capture the token and cancel the Task.
+                                        // Cleanup is delegated to the exception-safe, idempotent runtime helper
+                                        // (SwiftAsyncCallHolder) so the cancellation, success, and fault paths
+                                        // share one slot-walk and cannot drift apart.
                                         global::System.Threading.CancellationToken cancelToken = default;
-                {{BuildCancellationCleanupLoop("holder", "i", "                                        ")}}{{freeErrorInCancellation}}
+                {{BuildCancellationCleanupLoop("holder", "                                        ")}}{{freeErrorInCancellation}}
                                         holderTcs.TrySetCanceled(cancelToken);
                                     }
                 """;
@@ -1305,7 +1347,7 @@ namespace BindingsGeneration
                                         {{asyncErrorFreeBlock}}
                                         var exception = new SwiftException<{{_typedThrowsCSharpErrorType}}>(typedError, errorMessage);
                                         // Free copy buffer memory for non-frozen params and release retained self
-                {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
+                {{BuildHolderCleanupCode("holder", "                        ")}}
                                         holderTcs.TrySetException(exception);
                 """;
                 directErrorBody = $$"""
@@ -1338,7 +1380,7 @@ namespace BindingsGeneration
                                         var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                                         var exception = {{helperRef}}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage);
                                         // Free copy buffer memory for non-frozen params and release retained self
-                {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
+                {{BuildHolderCleanupCode("holder", "                        ")}}
                                         holderTcs.TrySetException(exception);
                 """;
                 directErrorBody = $$"""
@@ -1352,7 +1394,7 @@ namespace BindingsGeneration
                                         var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                                         var exception = new SwiftException(errorMessage);
                                         // Free copy buffer memory for non-frozen params and release retained self
-                {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
+                {{BuildHolderCleanupCode("holder", "                        ")}}
                                         holderTcs.TrySetException(exception);
                 """;
                 directErrorBody = $$"""
@@ -1399,6 +1441,7 @@ namespace BindingsGeneration
                 {{directErrorBody}}
                                 }
                             }
+                {{BuildAsyncCallbackFaultCatch(tcsType, "            ")}}
                             finally
                             {
                                 handle.Free();
@@ -1434,88 +1477,33 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the holder cleanup loop code for freeing async call resources.
-        /// Handles RetainedSelfPtr, DeferredSafeHandleRelease, CopyBufferWithType, and CancellationRegistrationHolder.
+        /// Emits the holder-cleanup call for freeing async call resources. Delegates to the
+        /// runtime helper <c>global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup</c>, which walks
+        /// every owned slot (RetainedSelfPtr, DeferredSafeHandleRelease, CopyBufferWithType,
+        /// ExistentialContainerHeap, AsyncDeferredDisposeList, CancellationRegistrationHolder).
+        ///
+        /// The helper is exception-safe and idempotent, so this single line is correct on every
+        /// async termination path — including the [UnmanagedCallersOnly] fault <c>catch</c>, where
+        /// an inlined slot walk could throw into native Swift (SIGABRT) or double-free slots the
+        /// success path had already released. Centralizing the slot set in the runtime also removes
+        /// the old three-way mirror (this helper, WrapperEmitter.Async, BuildCancellationCleanupLoop)
+        /// that previously had to be kept in lockstep by hand.
         /// </summary>
         /// <param name="holderVar">The variable name for the holder array (e.g., "holder" or "_asyncCallHolder").</param>
-        /// <param name="indent">The whitespace indent prefix for each line.</param>
-        /// <param name="includeCancellationReg">Whether to include CancellationRegistrationHolder cleanup.</param>
-        /// <param name="cancelRegVarName">Variable name for the CancellationRegistrationHolder (to avoid shadowing).</param>
-        // MIRROR with WrapperEmitter.Async.BuildHolderCleanupCode. Any new holder
-        // slot type (RetainedSelfPtr, ExistentialContainerHeap, ...) must be added
-        // here AND in WrapperEmitter.Async.BuildHolderCleanupCode AND in
-        // BuildCancellationCleanupLoop (used by both BuildErrorCallbackBlock helpers)
-        // or the slot will leak on success / exception / cancellation paths.
-        public static string BuildHolderCleanupCode(string holderVar, string indent, bool includeCancellationReg = true, string cancelRegVarName = "cancelReg")
-        {
-            var cancelRegLine = includeCancellationReg
-                ? $"\n{indent}    else if ({holderVar}[i] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
-                : "";
-            // AsyncDeferredDisposeList holds SwiftArray/Set/Dictionary containers whose
-            // 'using var' was hoisted into the holder by EmitAsync. Disposed here on every
-            // callback path (success / exception / cancellation) so the buffer is freed
-            // exactly once after the Swift continuation has read it.
-            return $$"""
-                {{indent}}for (int i = 1; i < {{holderVar}}.Length; i++)
-                {{indent}}{
-                {{indent}}    if ({{holderVar}}[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                {{indent}}        Arc.UnknownObjectRelease(retained.Ptr);
-                {{indent}}    else if ({{holderVar}}[i] is DeferredSafeHandleRelease deferred)
-                {{indent}}        deferred.Handle.DangerousRelease();
-                {{indent}}    else if ({{holderVar}}[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                {{indent}}    {
-                {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
-                {{indent}}    }
-                {{indent}}    else if ({{holderVar}}[i] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
-                {{indent}}        NativeMemory.Free((void*)existentialHeap.Ptr);
-                {{indent}}    else if ({{holderVar}}[i] is AsyncDeferredDisposeList __deferredList)
-                {{indent}}    {
-                {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
-                {{indent}}    }{{cancelRegLine}}
-                {{indent}}}
-                """;
-        }
+        /// <param name="indent">The whitespace indent prefix for the emitted line.</param>
+        public static string BuildHolderCleanupCode(string holderVar, string indent)
+            => $"{indent}global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup({holderVar});";
 
         /// <summary>
-        /// Builds the cancellation-path holder cleanup loop emitted inside
-        /// <c>BuildErrorCallbackBlock</c> when Swift reports CancellationError.
-        /// Identical slot-walk to <see cref="BuildHolderCleanupCode"/>, but with
-        /// <c>CancellationRegistrationHolder</c> as the FIRST branch so the loop
-        /// can capture <c>cancelToken</c> before disposing the registration.
-        /// Shared between this file and <c>WrapperEmitter.Async</c> so the two
-        /// hand-rolled cancellation blocks cannot drift apart.
+        /// Emits the cancellation-path cleanup for <c>BuildErrorCallbackBlock</c> when Swift reports
+        /// CancellationError. Captures the registered <c>cancelToken</c> (read-only, before any
+        /// disposal) via <c>CaptureCancellationToken</c>, then runs the same exception-safe,
+        /// idempotent <c>Cleanup</c>. Assigns to a pre-declared <c>cancelToken</c> local at the call
+        /// site (does not declare it).
         /// </summary>
-        // MIRROR with BuildHolderCleanupCode and WrapperEmitter.Async.BuildHolderCleanupCode.
-        // Any new holder slot type must also appear in those two helpers.
-        internal static string BuildCancellationCleanupLoop(string holderVar, string loopVarName, string indent)
-        {
-            return $$"""
-                {{indent}}for (int {{loopVarName}} = 1; {{loopVarName}} < {{holderVar}}.Length; {{loopVarName}}++)
-                {{indent}}{
-                {{indent}}    if ({{holderVar}}[{{loopVarName}}] is CancellationRegistrationHolder cancelReg)
-                {{indent}}    {
-                {{indent}}        cancelToken = cancelReg.Token;
-                {{indent}}        cancelReg.Registration.Dispose();
-                {{indent}}    }
-                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                {{indent}}        Arc.UnknownObjectRelease(retained.Ptr);
-                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is DeferredSafeHandleRelease deferred)
-                {{indent}}        deferred.Handle.DangerousRelease();
-                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                {{indent}}    {
-                {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
-                {{indent}}    }
-                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
-                {{indent}}        NativeMemory.Free((void*)existentialHeap.Ptr);
-                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is AsyncDeferredDisposeList __deferredList)
-                {{indent}}    {
-                {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
-                {{indent}}    }
-                {{indent}}}
-                """;
-        }
+        internal static string BuildCancellationCleanupLoop(string holderVar, string indent)
+            => $"{indent}cancelToken = global::Swift.Runtime.SwiftAsyncCallHolder.CaptureCancellationToken({holderVar});\n" +
+               $"{indent}global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup({holderVar});";
 
         /// <summary>
         /// Determines if a TypeSpec represents Swift.Array&lt;Swift.String&gt;.

@@ -102,4 +102,18 @@ public class AsyncGenericProduct {
             optionCount: Int32(options.count),
             succeeded: true)
     }
+
+    /// Loop-index collision fixture (S2 UCO-escape hardening): a class-bound async
+    /// generic method whose trailing non-generic parameter is named `i`. The bridge
+    /// inlines a holder-cleanup loop into the generated public `...Async` method body
+    /// (pre-cancel check + foreground catch); before the SyntheticNameScope guard that
+    /// loop hard-coded `for (int i = 1; …)`, so a Swift parameter projected to `i`
+    /// self-shadowed the loop index (CS0136) and the whole binding failed to compile.
+    /// This method is the durable compile gate for the guard — the generated binding
+    /// must compile — and `ReserveAsync` below confirms the primitive `i` argument
+    /// still round-trips alongside the opened class-bound existential at runtime.
+    public func reserve<S: AsyncGenericPresenter>(confirmIn scene: S, i: Int) async -> Int64 {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return Int64(scene.presenterId.count) &+ Int64(i)
+    }
 }

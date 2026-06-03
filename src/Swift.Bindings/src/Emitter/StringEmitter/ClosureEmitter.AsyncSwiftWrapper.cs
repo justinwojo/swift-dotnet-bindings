@@ -39,14 +39,26 @@ public static partial class ClosureEmitter
             // Sendable shim for the (contextPtr, startFuncPtr) pair that C# passes in
             // place of an async closure. UnsafeMutableRawPointer is non-Sendable in
             // Swift 6, so we ferry the pair across Task {} via this @unchecked
-            // Sendable struct. Safe because: (a) the context pointer is owned by
-            // C# for the lifetime of the outer call, (b) the start function is a
-            // stable @_cdecl symbol with no mutable captured state.
+            // Sendable struct. Safe because: (a) the context pointer's lifetime is
+            // owned by the `ctxOwner` box below (Swift ARC), held as long as any
+            // copy of this handoff (and thus the adapter closure) is alive, (b) the
+            // start function is a stable @_cdecl symbol with no mutable captured state.
             // startFuncPtr is opaque — each adapter site unsafeBitCasts it to its
             // own per-arity @convention(c) signature.
+            //
+            // ctxOwner is an `_SBClosureCtx` box wrapping `contextPtr` (the C#
+            // GCHandle pointer). Held for the lifetime of every adapter closure that
+            // captures this handoff; when Swift ARC releases the last reference —
+            // after the final `await closure()` for an inline-await callee, or when a
+            // stored escaping closure is dropped — the box deinits and upcalls the C#
+            // free trampoline, releasing the GCHandle exactly once. Degrades to a
+            // no-deinit fallback (the prior per-call leak) when
+            // libSwiftBindingsRuntime is absent. Fixes the per-call async-closure
+            // GCHandle leak (audit A7 #9 / P1-18); mirrors the sync escaping path.
             private struct _SBW_AsyncClosureHandoff: @unchecked Sendable {
                 let contextPtr: UnsafeMutableRawPointer
                 let startFuncPtr: UnsafeMutableRawPointer
+                let ctxOwner: AnyObject
             }
 
             """);
@@ -237,7 +249,15 @@ public static partial class ClosureEmitter
         // The typed @convention(c) startFunc arrives with a per-arity signature. Erase
         // it to a raw pointer here so the Sendable shim has a single shape across all
         // call sites; each adapter casts back to its own signature.
-        return $"let {handoffVar} = _SBW_AsyncClosureHandoff(contextPtr: {paramName}ContextPtr, startFuncPtr: unsafeBitCast({paramName}StartFunc, to: UnsafeMutableRawPointer.self))";
+        //
+        // ctxOwner wraps contextPtr in an ARC-owned `_SBClosureCtx` box so the C#
+        // GCHandle is freed when Swift releases the adapter (P1-18). The raw
+        // contextPtr is still what flows to typedStart — the box only governs the
+        // free, so C#-side recovery (GCHandle.FromIntPtr) is unchanged.
+        return $"let {handoffVar} = _SBW_AsyncClosureHandoff("
+             + $"contextPtr: {paramName}ContextPtr, "
+             + $"startFuncPtr: unsafeBitCast({paramName}StartFunc, to: UnsafeMutableRawPointer.self), "
+             + $"ctxOwner: {ClosureContextHelperEmitter.WrapFunctionName}({paramName}ContextPtr))";
     }
 
     /// <summary>

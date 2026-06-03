@@ -39,6 +39,7 @@ namespace BindingsGeneration
                 MarshalledType.AsyncErrorCallbackType => "void*",
                 MarshalledType.AsyncContextType => "void*",
                 MarshalledType.AsyncTaskType => "IntPtr",
+                MarshalledType.AsyncCancelKeyType => "long",
                 MarshalledType.NonFrozenIntPtrType => "IntPtr",
                 MarshalledType.EnumSafeHandleType => "IntPtr",
                 MarshalledType.NativeRemappedNonFrozenType => "SafeHandle",
@@ -78,6 +79,8 @@ namespace BindingsGeneration
             MarshalledType.AsyncErrorCallbackType => $"{modifier} void* {Name}",
             MarshalledType.AsyncContextType => $"{modifier} void* {Name}",
             MarshalledType.AsyncTaskType => $"{modifier} IntPtr {Name}",
+            // Async cancellation registry key — monotonic Int64, distinct from the GCHandle context.
+            MarshalledType.AsyncCancelKeyType => $"{modifier} long {Name}",
             MarshalledType.NonFrozenIntPtrType => $"{modifier} IntPtr {Name}",
             // ObjC bridged types use IntPtr in P/Invoke
             MarshalledType.ObjCBridged => $"{modifier} IntPtr {Name}",
@@ -210,6 +213,8 @@ namespace BindingsGeneration
                 { Type: MarshalledType.AsyncErrorCallbackType } => parameter.CallExpression ?? parameter.Name,
                 { Type: MarshalledType.AsyncContextType } => "null",
                 { Type: MarshalledType.AsyncTaskType } => $"GCHandle.ToIntPtr({parameter.Name})",
+                // Async cancellation key: pass the monotonic key local directly (no GCHandle conversion).
+                { Type: MarshalledType.AsyncCancelKeyType } => parameter.Name,
                 { modifier: "out" } => $"out var {parameter.Name}",
                 { modifier: "ref" } => $"ref {parameter.Name}",
                 // Handle escaping closures: parameter is SwiftClosureData, variable is {name}Closure

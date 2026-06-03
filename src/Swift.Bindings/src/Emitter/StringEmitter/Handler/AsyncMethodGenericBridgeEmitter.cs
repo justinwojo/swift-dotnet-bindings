@@ -520,6 +520,9 @@ public static class AsyncMethodGenericBridgeEmitter
         }
 
         swiftParams.Add("_ _sbwTask: Int64");
+        // Monotonic cancellation-registry key, distinct from the GCHandle context (_sbwTask).
+        // See SwiftAsyncCancellation / P1-17.
+        swiftParams.Add("_ _sbwCancelKey: Int64");
 
         // Regular parameters (with existential opening for the generic param).
         var callArgs = new List<string>();
@@ -592,11 +595,11 @@ public static class AsyncMethodGenericBridgeEmitter
             swiftWriter.WriteLine($"    {reconstruction}");
 
         swiftWriter.WriteLine($"    let _entry = _SBWTaskEntry()");
-        swiftWriter.WriteLine($"    _sbwRegisterTask(_sbwTask, _entry)");
+        swiftWriter.WriteLine($"    _sbwRegisterTask(_sbwCancelKey, _entry)");
         var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
         swiftWriter.WriteLine($"    _entry.task = {taskOpen}");
         swiftWriter.WriteLine($"        defer {{");
-        swiftWriter.WriteLine($"            _sbwUnregisterTask(_sbwTask)");
+        swiftWriter.WriteLine($"            _sbwUnregisterTask(_sbwCancelKey)");
         swiftWriter.WriteLine($"        }}");
 
         if (throws)
@@ -821,6 +824,41 @@ public static class AsyncMethodGenericBridgeEmitter
         return projection?.PublicType;
     }
 
+    /// <summary>
+    /// Emits a catch block guarding a generic-bridge async [UnmanagedCallersOnly] callback.
+    /// A managed exception escaping into native Swift aborts the process (SIGABRT); worse, if
+    /// it escapes before the TaskCompletionSource is resolved the awaiting Task never completes
+    /// and the caller hangs. Re-resolve the TCS from the still-live GCHandle target and fault it
+    /// — <c>TrySetException</c> is a no-op if the result was already set, so this is safe even
+    /// when the throw happens after the success path partially ran. The holder's native
+    /// resources are freed here too: the fault is reachable from result marshalling (before the
+    /// success path's cleanup), and the loop is not idempotent, so this catch is the only place
+    /// the slots get freed on the throw path. <c>handle.Free()</c> stays in the callback's own
+    /// <c>finally</c> and runs after this catch.
+    /// </summary>
+    /// <param name="tcsTypeParam">Generic suffix for the TCS type (e.g. <c>&lt;int&gt;</c>, or empty for void).</param>
+    private static void EmitAsyncCallbackFaultCatch(CSharpWriter csWriter, string tcsTypeParam)
+    {
+        csWriter.WriteLine("catch (global::System.Exception __ex)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("// Never let a managed exception unwind into native Swift (SIGABRT); fault the");
+        csWriter.WriteLine("// awaiting Task instead so the failure is observable and the awaiter cannot hang.");
+        csWriter.WriteLine($"if (handle.Target is object[] __holder && __holder[0] is TaskCompletionSource{tcsTypeParam} __faultTcs)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        // The fault is reachable from result marshalling, which runs BEFORE the success path's
+        // holder cleanup (frees retained self, copy buffers, existential heap, deferred
+        // containers, cancellation registration), so those native resources are still live and
+        // must be freed here too — the callback's finally only frees the carrier and GCHandle.
+        csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("__holder", "    "));
+        csWriter.WriteLine("__faultTcs.TrySetException(__ex);");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+    }
+
     private static void EmitCallbackBody(
         CSharpWriter csWriter, AsyncReturnKind returnKind, string csReturnType, TypeRecord? returnTypeRecord)
     {
@@ -910,6 +948,7 @@ public static class AsyncMethodGenericBridgeEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
+        EmitAsyncCallbackFaultCatch(csWriter, csReturnType == "void" ? "" : $"<{csReturnType}>");
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -942,14 +981,11 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.WriteLine("if (isCancellation != 0)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        // Find cancellation token in holder for proper TrySetCanceled propagation.
-        csWriter.WriteLine("global::System.Threading.CancellationToken cancelToken = default;");
-        csWriter.WriteLine("for (int i = 1; i < holder.Length; i++)");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("if (holder[i] is CancellationRegistrationHolder cr) { cancelToken = cr.Token; break; }");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
+        // Capture the cancellation token (read-only) for TrySetCanceled propagation BEFORE
+        // running cleanup, which disposes the registration. Both steps delegate to the
+        // exception-safe, idempotent runtime helper so the cancel/success/fault paths share
+        // one slot-walk and cannot drift.
+        csWriter.WriteLine("global::System.Threading.CancellationToken cancelToken = global::Swift.Runtime.SwiftAsyncCallHolder.CaptureCancellationToken(holder);");
         csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("holder", "    "));
         // Cascade dispatcher and untyped fallback both pass errorPtr=nil on cancellation,
         // so no carrier free is needed here. For the success-with-throw path, the dispatcher
@@ -974,6 +1010,7 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.WriteLine("}");
         csWriter.Indent--;
         csWriter.WriteLine("}");
+        EmitAsyncCallbackFaultCatch(csWriter, tcsTypeParam);
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -993,6 +1030,10 @@ public static class AsyncMethodGenericBridgeEmitter
         };
         if (throws) pinvokeParams.Add("void* errorCallback");
         pinvokeParams.Add("long taskId");
+        // Monotonic cancellation-registry key (P1-17), threaded right after the GCHandle
+        // context so the C# declaration stays positionally aligned with the Swift @_cdecl
+        // wrapper's `_ _sbwCancelKey: Int64`.
+        pinvokeParams.Add("long cancelKey");
 
         foreach (var arg in keptArgs)
         {
@@ -1119,6 +1160,10 @@ public static class AsyncMethodGenericBridgeEmitter
         }
         publicParams.Add("global::System.Threading.CancellationToken cancellationToken = default");
 
+        // Holder cleanup is delegated to the runtime helper (a single method call, no inlined
+        // loop), so no loop-index reservation is needed in this public method body. The only
+        // emitted loops here are over `count` / synthetic `__{name}` locals, none of which can
+        // collide with a user parameter. See SwiftAsyncCallHolder.Cleanup.
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
         var staticStr = methodDecl.MethodType == MethodType.Static ? "static " : "";
         csWriter.WriteLine($"public {staticStr}unsafe {taskReturnType} {methodName}Async({string.Join(", ", publicParams)})");
@@ -1229,7 +1274,7 @@ public static class AsyncMethodGenericBridgeEmitter
             if (cancellationToken.IsCancellationRequested)
             {
             """);
-        csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", "    ", includeCancellationReg: false));
+        csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", "    "));
         csWriter.WriteLines($$"""
                 handle.Free();
                 return {{(csReturnType == "void"
@@ -1239,9 +1284,9 @@ public static class AsyncMethodGenericBridgeEmitter
             """);
 
         csWriter.WriteLines($$"""
+            long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();
             if (cancellationToken.CanBeCanceled)
             {
-                long taskId = (long)(IntPtr)handle;
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
@@ -1249,7 +1294,7 @@ public static class AsyncMethodGenericBridgeEmitter
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (_tcs, cancellationToken, taskId));
+                    (_tcs, cancellationToken, _sbwCancelKey));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             """);
@@ -1266,6 +1311,9 @@ public static class AsyncMethodGenericBridgeEmitter
         };
         if (throws) callArgs.Add($"(void*){errorCallbackFieldName}");
         callArgs.Add("(long)(IntPtr)handle");
+        // Monotonic cancellation key (P1-17) — registry key, distinct from the GCHandle
+        // context above. Defined as a local before the CanBeCanceled block.
+        callArgs.Add("_sbwCancelKey");
 
         // Track Utf8Slice (Swift.String) params so we can emit the byte[] prelude +
         // `fixed (...)` pin around ONLY the synchronous P/Invoke call below. The Swift

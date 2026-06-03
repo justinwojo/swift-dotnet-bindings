@@ -101,6 +101,24 @@ public class AsyncMethodGenericDefaultsTests : TestBase
         }
     }
 
+    public async Task TestReserve_UserParamNamedI_RoundTripsAlongsideExistential()
+    {
+        // Loop-index collision regression (S2): `reserve<S>(confirmIn:, i: Int)` has a
+        // trailing parameter named `i`. The bridge inlines a holder-cleanup loop into the
+        // public ReserveAsync body; before the SyntheticNameScope guard its index hard-coded
+        // `i`, self-shadowing the parameter (CS0136) so the binding would not compile. Reaching
+        // this assertion at runtime already proves it compiled; the value check confirms the
+        // primitive `i` argument is marshalled correctly alongside the opened existential.
+        using var product = new AsyncGenericProduct(title: "TestProduct");
+        using var presenter = new AsyncGenericPresenterImpl(presenterId: "ABC");
+
+        var result = await product.ReserveAsync(presenter, 5);
+
+        // presenterId "ABC".count (3) + i (5) = 8
+        AssertEqual(8L, (long)result,
+            "reserve — primitive `i` must round-trip alongside the opened existential");
+    }
+
     public async Task TestPrimary_Cancellation_Cancels()
     {
         // Pre-cancel before the async call — the harness should immediately

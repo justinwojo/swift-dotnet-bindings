@@ -604,7 +604,9 @@ public static class PropertyWrapperEmitter
 
                         ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
                         var adapterLines = ClosureEmitter.GetSwiftClosureAdapterCode(
-                            "newValue", closureSpec, env.ClosureHandler, isOptional: true, isEscaping: true);
+                            "newValue", closureSpec, env.ClosureHandler, isOptional: true, isEscaping: true,
+                            swiftWriter: swiftWriter, ctx: ctx,
+                            moduleName: propertyDecl.ModuleDecl?.Name ?? "SwiftBindings");
                         reconstructionLines.AddRange(adapterLines);
                         cdeclCallArgValueExpr = "_adapted_newValue";
                     }

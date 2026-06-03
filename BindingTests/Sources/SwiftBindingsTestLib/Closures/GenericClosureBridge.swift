@@ -66,6 +66,26 @@ public class DatabaseReader {
     public func read<T>(from source: DatabaseReader, _ block: (DatabaseReader) throws -> T) rethrows -> T {
         return try block(source)
     }
+
+    // P1-22 (C1): the GenericClosureBridge @_cdecl wrapper hardcodes synthetic Swift locals —
+    // `cdecl` (the `unsafeBitCast` func-ptr local) and `_self`/`__self` (the self pointer param
+    // and its reconstruction local). A user non-closure param spelled the same name collided with
+    // the wrapper local and produced an "invalid redeclaration" at swiftc time (generator already
+    // exited 0). The synthetic-name guard reserves every synthetic through a `SyntheticNameScope`
+    // seeded with the user param names, renaming a colliding synthetic to a `__`-prefixed variant.
+
+    /// User param `cdecl` collides with the synthetic func-ptr local. Routes through the
+    /// GenericClosureBridge (method-generic, noescape, throwing closure with a generic return).
+    public func readWithCdecl<T>(cdecl: DatabaseReader, _ block: (DatabaseReader) throws -> T) rethrows -> T {
+        return try block(cdecl)
+    }
+
+    /// User param `_self` collides with the synthetic self-pointer param name — the guard must
+    /// rename it transitively (`_self` is taken by the user, so the synthetic falls through to
+    /// `__self`, which is also reserved, to `___self`).
+    public func readWithSelf<T>(_self: DatabaseReader, _ block: (DatabaseReader) throws -> T) rethrows -> T {
+        return try block(_self)
+    }
 }
 
 // MARK: - Swift.String as MCB non-closure param (Stripe pattern)

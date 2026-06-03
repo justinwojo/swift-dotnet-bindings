@@ -376,7 +376,7 @@ namespace BindingsGeneration
             // Pre-cancel check: if token is already cancelled, clean up and return immediately
             var tcsTypeParam = isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>";
             var cancelTaskPrefix = AsyncCallbackPrefix;
-            var preCancelCleanup = BuildHolderCleanupCode("_asyncCallHolder", "    ", includeCancellationReg: false);
+            var preCancelCleanup = BuildHolderCleanupCode("_asyncCallHolder", "    ");
             csWriter.WriteLines($$"""
             if (cancellationToken.IsCancellationRequested)
             {
@@ -387,9 +387,9 @@ namespace BindingsGeneration
                 handle.Free();
                 return global::System.Threading.Tasks.Task.FromCanceled{{tcsTypeParam}}(cancellationToken);
             }
+            long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();
             if (cancellationToken.CanBeCanceled)
             {
-                long taskId = (long)(IntPtr)handle;
                 var _cancelRegistration = cancellationToken.Register(
                     static state =>
                     {
@@ -397,7 +397,7 @@ namespace BindingsGeneration
                         {{cancelTaskPrefix}}SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (_tcs, cancellationToken, taskId));
+                    (_tcs, cancellationToken, _sbwCancelKey));
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             """);
@@ -882,13 +882,15 @@ namespace BindingsGeneration
                 {
                     $"_ callback: @convention(c) ({callbackParams}Int64) -> Void",
                     cdeclErrorCallback,
-                    "_ _sbwTask: Int64"
+                    "_ _sbwTask: Int64",
+                    "_ _sbwCancelKey: Int64"
                 }
                 : new[]
                 {
                     $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
                     errorCallbackSwiftParam,
-                    "_sbwTask: Int64"
+                    "_sbwTask: Int64",
+                    "_sbwCancelKey: Int64"
                 };
 
             // Reconstruction code for @_cdecl converted params (emitted before Task {})
@@ -1227,6 +1229,12 @@ namespace BindingsGeneration
                 var adapterIndent = "            ";
                 var moduleName = _env.MethodDecl.ModuleDecl!.Name;
                 ClosureEmitter.EmitAsyncClosureBridgePreambleIfNeeded(swiftWriter, _emissionContext);
+                // The async wrapper bypasses MethodWrapperEmitter (see the
+                // TryAddMethodWrapperSymbol note below), so the _sbWrapClosureContext
+                // helper that the handoff init references is not emitted on this path
+                // unless we emit it here. Required for the P1-18 owner-token box;
+                // idempotent per module.
+                ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, _emissionContext);
                 var adapterParts = new List<string>();
                 foreach (var bp in baselineAsyncClosureParams)
                 {
@@ -1519,10 +1527,10 @@ namespace BindingsGeneration
             {{availabilityLines}}{{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
-            {{i}}    _sbwRegisterTask(_sbwTask, _entry)
+            {{i}}    _sbwRegisterTask(_sbwCancelKey, _entry)
             {{i}}    _entry.task = {{taskOpen}}
             {{i}}        defer {
-            {{i}}            _sbwUnregisterTask(_sbwTask)
+            {{i}}            _sbwUnregisterTask(_sbwCancelKey)
             {{i}}        }
             {{i}}        do {
             {{adapterSetupCode}}{{i}}            {{resultAssign}}{{awaitKeyword}} {{callExpression}}
@@ -1541,10 +1549,10 @@ namespace BindingsGeneration
             {{availabilityLines}}{{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
-            {{i}}    _sbwRegisterTask(_sbwTask, _entry)
+            {{i}}    _sbwRegisterTask(_sbwCancelKey, _entry)
             {{i}}    _entry.task = {{taskOpen}}
             {{i}}        defer {
-            {{i}}            _sbwUnregisterTask(_sbwTask)
+            {{i}}            _sbwUnregisterTask(_sbwCancelKey)
             {{i}}        }
             {{adapterSetupCode}}{{i}}        {{resultAssign}}{{awaitKeyword}} {{callExpression}}
             {{i}}        {{stringMarshalCode}}
@@ -1600,62 +1608,18 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the holder cleanup loop code for freeing async call resources.
-        /// Handles RetainedSelfPtr, DeferredSafeHandleRelease, CopyBufferWithType, and CancellationRegistrationHolder.
+        /// Emits the holder-cleanup call for freeing async call resources. Thin delegate to
+        /// <see cref="AsyncHarnessEmitter.BuildHolderCleanupCode"/> — both async emission paths
+        /// (this wrapper and the harness callbacks) now share the single runtime helper
+        /// <c>global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup</c>, which owns the slot walk and
+        /// is exception-safe + idempotent. Retained as a named method (rather than calling the
+        /// harness helper directly at the call sites) so the unit suite can still assert the two
+        /// async paths emit identical cleanup.
         /// </summary>
         /// <param name="holderVar">The variable name for the holder array (e.g., "holder" or "_asyncCallHolder").</param>
-        /// <param name="indent">The whitespace indent prefix for each line.</param>
-        /// <param name="includeCancellationReg">Whether to include CancellationRegistrationHolder cleanup.</param>
-        /// <param name="cancelRegVarName">Variable name for the CancellationRegistrationHolder (to avoid shadowing).</param>
-        /// <remarks>
-        /// Loop variable is named <c>__cleanupIdx</c> rather than <c>i</c> because this
-        /// snippet is inlined into the user-facing async method body (see preCancelCleanup),
-        /// where the user's Swift parameter list may itself include a parameter named
-        /// <c>i</c> (a common convention in stdlib-style methods such as
-        /// <c>insert(contentsOf:before i: Int)</c>). C# CS0136 forbids shadowing an
-        /// enclosing parameter with a local of the same name.
-        /// </remarks>
-        // MIRROR with AsyncHarnessEmitter.BuildHolderCleanupCode — the two helpers
-        // emit the same holder-walk shape (one uses `i`, this one uses `__cleanupIdx`
-        // to avoid shadowing user parameters in inlined contexts). Any new holder
-        // slot type (RetainedSelfPtr, ExistentialContainerHeap, ...) must be added
-        // to BOTH helpers AND to AsyncHarnessEmitter.BuildCancellationCleanupLoop
-        // (the shared cancellation-path walk used by both BuildErrorCallbackBlock
-        // helpers), or the slot will leak on cancellation / exception paths.
-        // Accessibility note: kept `internal` (not `private`) so unit tests can assert
-        // both this variant AND the public AsyncHarnessEmitter.BuildHolderCleanupCode
-        // emit the same set of branches — the gap between them is exactly what allowed
-        // the S-5 ExistentialContainerHeap leak to slip past the test suite originally.
-        internal static string BuildHolderCleanupCode(string holderVar, string indent, bool includeCancellationReg = true, string cancelRegVarName = "cancelReg")
-        {
-            var cancelRegLine = includeCancellationReg
-                ? $"\n{indent}    else if ({holderVar}[__cleanupIdx] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
-                : "";
-            // AsyncDeferredDisposeList holds SwiftArray/Set/Dictionary containers whose
-            // 'using var' was hoisted into the holder by EmitAsync. Disposed here on every
-            // cleanup path (success / exception / cancellation / pre-cancel) so the buffer
-            // is freed exactly once after the Swift continuation has read it.
-            return $$"""
-                {{indent}}for (int __cleanupIdx = 1; __cleanupIdx < {{holderVar}}.Length; __cleanupIdx++)
-                {{indent}}{
-                {{indent}}    if ({{holderVar}}[__cleanupIdx] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                {{indent}}        Arc.UnknownObjectRelease(retained.Ptr);
-                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is DeferredSafeHandleRelease deferred)
-                {{indent}}        deferred.Handle.DangerousRelease();
-                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                {{indent}}    {
-                {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
-                {{indent}}    }
-                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
-                {{indent}}        NativeMemory.Free((void*)existentialHeap.Ptr);
-                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is AsyncDeferredDisposeList __deferredList)
-                {{indent}}    {
-                {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
-                {{indent}}    }{{cancelRegLine}}
-                {{indent}}}
-                """;
-        }
+        /// <param name="indent">The whitespace indent prefix for the emitted line.</param>
+        internal static string BuildHolderCleanupCode(string holderVar, string indent)
+            => AsyncHarnessEmitter.BuildHolderCleanupCode(holderVar, indent);
 
         /// <summary>
         /// Determines if a TypeSpec represents Swift.Array&lt;Swift.String&gt;.

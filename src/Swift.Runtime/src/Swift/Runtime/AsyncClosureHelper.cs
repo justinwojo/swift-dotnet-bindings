@@ -18,18 +18,22 @@ public static class AsyncClosureHelper
     /// Marshals the result to a native buffer and calls the success callback.
     /// </summary>
     /// <typeparam name="T">The return type of the async operation.</typeparam>
-    /// <param name="handle">The GCHandle to the closure state. Intentionally leaked — see remarks.</param>
+    /// <param name="handle">The GCHandle to the closure state. NOT freed here — owned by the Swift-side box, see remarks.</param>
     /// <param name="state">The closure state containing the async function.</param>
     /// <param name="continuationBoxPtr">Pointer to Swift's continuation box.</param>
     /// <param name="successAction">Callback to invoke on success with (boxPtr, resultPtr).</param>
     /// <param name="errorAction">Callback to invoke on error with (boxPtr, errorMsgPtr).</param>
     /// <remarks>
-    /// The GCHandle is intentionally NOT freed. Async closures share the escaping-closure
-    /// leak semantics documented at <c>WrapperEmitter.Marshalling.cs</c>: Swift may retain
-    /// the closure context and invoke it more than once (e.g. retry, fan-out), so freeing
-    /// after a single invocation would leave Swift with a dangling GCHandle.
-    /// A leak-free model via an explicit Swift-side release callback is tracked as a
-    /// post-1.0 improvement.
+    /// This helper deliberately does NOT free <paramref name="handle"/>: it runs once per
+    /// Swift invocation of the closure, and Swift may invoke the same context more than
+    /// once (e.g. two sequential <c>await closure()</c> legs), so a per-invocation free
+    /// would dangle a later leg. Ownership of the handle instead rides on the Swift-side
+    /// <c>_SBClosureCtx</c> owner-token box wrapping the context pointer (emitted into the
+    /// async wrapper's <c>_SBW_AsyncClosureHandoff.ctxOwner</c>): when Swift ARC releases
+    /// the adapter closure, the box's deinit upcalls <see cref="SwiftClosureContext"/>'s
+    /// free trampoline and releases the handle exactly once (P1-18). When
+    /// libSwiftBindingsRuntime is absent the box degrades to a no-deinit fallback and the
+    /// handle leaks as it did before — matching the sync escaping-closure contract.
     /// </remarks>
     public static void RunAsync<T>(
         GCHandle handle,
@@ -56,7 +60,7 @@ public static class AsyncClosureHelper
     /// Runs an async closure that returns void (Task).
     /// Calls the success callback when complete or error callback on failure.
     /// </summary>
-    /// <param name="handle">The GCHandle to the closure state. Intentionally leaked — see <see cref="RunAsync{T}"/> remarks.</param>
+    /// <param name="handle">The GCHandle to the closure state. NOT freed here — owned by the Swift-side box, see <see cref="RunAsync{T}"/> remarks.</param>
     /// <param name="state">The closure state containing the async function.</param>
     /// <param name="continuationBoxPtr">Pointer to Swift's continuation box.</param>
     /// <param name="successAction">Callback to invoke on success with (boxPtr).</param>

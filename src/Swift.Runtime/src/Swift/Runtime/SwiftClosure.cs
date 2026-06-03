@@ -154,6 +154,23 @@ public static class SwiftClosureMarshaller
     }
 
     /// <summary>
+    /// Terminates the process with a diagnostic when a managed exception escapes a
+    /// <b>non-throwing</b> Swift closure callback. Such a callback has no error channel
+    /// back to Swift, so letting the exception unwind into native Swift frames would
+    /// abort the process anyway (SIGABRT) — but uncontrolled, with no actionable message
+    /// and a corrupted stack. Calling this first converts that into a controlled
+    /// <see cref="Environment.FailFast(string, Exception)"/> with the original exception
+    /// attached. Mirrors <c>AsyncClosureHelper.FailFastNonThrowing</c> for the async path.
+    /// </summary>
+    /// <param name="ex">The unhandled exception from the user's closure delegate.</param>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    public static void FailFastUnhandledClosureException(Exception ex)
+    {
+        Environment.FailFast(
+            $"Unhandled managed exception in non-throwing Swift closure callback: {ex}", ex);
+    }
+
+    /// <summary>
     /// Extracts the delegate from an escaping closure's context.
     /// </summary>
     /// <typeparam name="TDelegate">The expected delegate type.</typeparam>

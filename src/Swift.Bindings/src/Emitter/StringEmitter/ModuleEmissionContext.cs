@@ -540,18 +540,23 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public bool ErrorRegistryHelperEmittedCSharp { get; set; }
 
-    // ==================== Generic Closure Bridge ====================
+    // ==================== Swift Error Mint Helper ====================
+    // Shared by the generic-closure bridge and the standard throwing-closure callback
+    // path: both emit the same per-module SBW_CreateError_{module} symbol (see
+    // SwiftErrorMintEmitter). Dedup state lives here so the Swift helper is emitted
+    // once per module and its C# P/Invoke once per type-key, regardless of which path
+    // triggers it first.
 
-    private readonly HashSet<string> _genericClosureBridgeTypes = new();
+    private readonly HashSet<string> _swiftErrorMintPInvokeTypes = new();
 
-    /// <summary>Whether the generic closure bridge CreateError helper has been emitted.</summary>
-    public bool GenericClosureBridgeCreateErrorEmitted { get; set; }
+    /// <summary>Whether the SBW_CreateError Swift helper has been emitted for this module.</summary>
+    public bool SwiftErrorMintHelperEmitted { get; set; }
 
-    /// <summary>Checks if a generic closure bridge error P/Invoke has been emitted for a type.</summary>
-    public bool HasGenericClosureBridgeErrorPInvoke(string typeKey) => _genericClosureBridgeTypes.Contains(typeKey);
+    /// <summary>Checks if the SBW_CreateError C# P/Invoke has been emitted for a type.</summary>
+    public bool HasSwiftErrorMintPInvoke(string typeKey) => _swiftErrorMintPInvokeTypes.Contains(typeKey);
 
-    /// <summary>Marks a generic closure bridge error P/Invoke as emitted. Returns true if newly added.</summary>
-    public bool TryAddGenericClosureBridgeErrorPInvoke(string typeKey) => _genericClosureBridgeTypes.Add(typeKey);
+    /// <summary>Marks the SBW_CreateError C# P/Invoke as emitted. Returns true if newly added.</summary>
+    public bool TryAddSwiftErrorMintPInvoke(string typeKey) => _swiftErrorMintPInvokeTypes.Add(typeKey);
 
     // ==================== Async Closure Swift Wrapper ====================
 

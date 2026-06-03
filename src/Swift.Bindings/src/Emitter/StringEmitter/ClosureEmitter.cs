@@ -129,12 +129,30 @@ public static partial class ClosureEmitter
         var extractCall = useBoxedContext
             ? $"SwiftClosureMarshaller.GetDelegateFromBoxedContext<{delegateType}>({contextExtraction})"
             : $"SwiftClosureMarshaller.GetDelegateFromContext<{delegateType}>({contextExtraction})";
+        // Non-throwing closure: there is no error channel back to Swift, so a managed
+        // exception escaping this [UnmanagedCallersOnly] callback would unwind into native
+        // Swift and abort the process (SIGABRT). Wrap the body so any unhandled exception
+        // becomes a controlled FailFast with the original exception attached. FailFast is
+        // [DoesNotReturn], but C#'s end-point-reachability analysis (CS0161) does NOT honor
+        // [DoesNotReturn] — only nullable/definite-assignment flow does — so a value-returning
+        // callback whose catch ends in the FailFast call still trips "not all code paths
+        // return a value". The trailing `throw;` gives the catch a definite terminator; it is
+        // unreachable at runtime (FailFast already aborted) and type-agnostic, so it works for
+        // both void and value-returning callbacks.
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
-                var del = {{extractCall}};
-                {{returnStatement}}
+                try
+                {
+                    var del = {{extractCall}};
+                    {{returnStatement}}
+                }
+                catch (global::System.Exception __ex)
+                {
+                    SwiftClosureMarshaller.FailFastUnhandledClosureException(__ex);
+                    throw;
+                }
             }
             """);
     }

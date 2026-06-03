@@ -20,6 +20,17 @@ extension PExtClosureProtocol {
     public func runEscapingVoid(_ callback: @escaping () -> Void) {
         callback()
     }
+
+    // Non-escaping sibling of `runEscapingVoid` for the PExtCB non-escaping GCHandle-free
+    // regression (Theme C). The callback fires synchronously inside the call and Swift never
+    // assumes ownership, so the wrapper must free the per-call GCHandle in `finally`. Pre-fix
+    // the try/finally was gated on `IsEscaping`, so the non-escaping branch emitted no finally
+    // and leaked the handle (rooting the managed delegate and its captured graph) for the
+    // process lifetime. Freed in pure C# (no `_SBClosureCtx` deinit), so this verifies on the
+    // simulator too — unlike the escaping/async leak probes which are device-only.
+    public func runNonEscapingVoid(_ callback: () -> Void) {
+        callback()
+    }
 }
 
 public final class PExtClosureSeed: PExtClosureProtocol {

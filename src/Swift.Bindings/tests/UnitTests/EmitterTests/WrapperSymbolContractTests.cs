@@ -840,8 +840,8 @@ public class WrapperSymbolContractTests
     [Fact]
     public void DirectHelper_GenericClosure_CreateError_Symbol_Visible_To_Contract()
     {
-        // GenericClosureBridgeEmitter registers exactly one SBW_CreateError_{module}
-        // direct helper per module (deduped via TryAddGenericClosureBridgeErrorPInvoke).
+        // SwiftErrorMintEmitter registers exactly one SBW_CreateError_{module}
+        // direct helper per module (deduped via TryAddSwiftErrorMintPInvoke).
         // The contract check must see it through the unified registry.
         var ctx = new ModuleEmissionContext();
         Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_CreateError_TestModule"));

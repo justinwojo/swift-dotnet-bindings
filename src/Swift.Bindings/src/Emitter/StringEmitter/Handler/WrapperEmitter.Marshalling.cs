@@ -888,9 +888,16 @@ namespace BindingsGeneration
                     // Check if this is a throwing closure (but not async+throwing)
                     else if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                     {
-                        // Throwing closures need special callback that handles SwiftError
+                        // Throwing closures need a special callback that handles SwiftError. A
+                        // non-cooperative managed exception is converted to a Swift error via
+                        // SBW_CreateError_{module}; emit its C# P/Invoke here (the Swift @_cdecl
+                        // helper is emitted alongside the closure adapter in the wrapper lib).
+                        var moduleName = _env.MethodDecl.ModuleDecl?.Name ?? "SwiftBindings";
+                        var errorMintLib = _env.TypeDatabase.AsyncLibraryName
+                            ?? _env.TypeDatabase.GetLibraryPath(moduleName);
+                        SwiftErrorMintEmitter.EmitPInvokeIfNeeded(csWriter, moduleName, errorMintLib, _env, _emissionContext);
                         ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
-                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
+                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, moduleName, useCdecl);
                     }
                     // Check if this closure needs indirect return marshalling
                     else if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
@@ -981,8 +988,24 @@ namespace BindingsGeneration
             {
                 var pinvokeType = _env.ClosureHandler.TranslateTypeSpecToPInvokeType(elem);
                 paramDecls.Add($"{pinvokeType} arg{argIdx}");
-                // @convention(c) closures use primitive types — P/Invoke type matches delegate type
-                paramCalls.Add($"arg{argIdx}");
+                // The callback parameter carries the P/Invoke type (byte for Bool, the underlying
+                // integer for a simple enum) but the delegate declares the idiomatic C# type
+                // (bool / the enum). Forwarding the raw arg produces CS1503. Convert here to match
+                // GetCSharpDelegateType's idiomatic projection — same bridge GetInvokeArgExpression
+                // performs for the escaping/cdecl callbacks.
+                if (MarshallingHelpers.IsBoolType(elem))
+                {
+                    paramCalls.Add($"arg{argIdx} != 0");
+                }
+                else if (_env.ClosureHandler.IsSimpleEnum(elem))
+                {
+                    var enumType = _env.ClosureHandler.TranslateTypeSpecToCSharp(elem);
+                    paramCalls.Add($"({enumType})arg{argIdx}");
+                }
+                else
+                {
+                    paramCalls.Add($"arg{argIdx}");
+                }
                 argIdx++;
             }
 
@@ -999,9 +1022,20 @@ namespace BindingsGeneration
             csWriter.WriteLine($"[ThreadStatic] private static {delegateType}? {baseName}_del;");
             csWriter.WriteLine();
 
-            // Emit [UnmanagedCallersOnly] callback
+            // Emit [UnmanagedCallersOnly] callback.
+            // @convention(c) closures are non-throwing and have no error channel back to Swift,
+            // and this callback is invoked synchronously from native Swift. A managed exception
+            // unwinding out of the UnmanagedCallersOnly boundary into native frames aborts the
+            // process (SIGABRT). Wrap the body so an unhandled exception becomes a controlled
+            // FailFast instead. FailFast is [DoesNotReturn], but C#'s end-point-reachability
+            // analysis (CS0161) does NOT honor [DoesNotReturn], so the catch needs a definite
+            // terminator on value-returning callbacks; the trailing `throw;` provides one
+            // (unreachable at runtime, type-agnostic for void and value-returning shapes).
             csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"private static unsafe {callbackReturnType} {baseName}_impl({callbackParams})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             if (returnsVoid)
@@ -1016,6 +1050,15 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"return ({callbackReturnType}){baseName}_del!({callArgs});");
             }
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("catch (global::System.Exception __ex)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("SwiftClosureMarshaller.FailFastUnhandledClosureException(__ex);");
+            csWriter.WriteLine("throw;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();

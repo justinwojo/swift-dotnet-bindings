@@ -105,6 +105,10 @@ public abstract record MarshalledType
     /// <summary>Async task IntPtr parameter.</summary>
     public sealed record AsyncTaskType : MarshalledType { public static readonly AsyncTaskType Instance = new(); }
 
+    /// <summary>Async cancellation-registry key — a monotonic Int64 distinct from the
+    /// recyclable GCHandle context (see SwiftAsyncCancellation).</summary>
+    public sealed record AsyncCancelKeyType : MarshalledType { public static readonly AsyncCancelKeyType Instance = new(); }
+
     /// <summary>Non-frozen struct/class as IntPtr (async path).</summary>
     public sealed record NonFrozenIntPtrType : MarshalledType { public static readonly NonFrozenIntPtrType Instance = new(); }
 
@@ -137,6 +141,7 @@ public abstract record MarshalledType
     public static readonly MarshalledType AsyncErrorCallback = AsyncErrorCallbackType.Instance;
     public static readonly MarshalledType AsyncContext = AsyncContextType.Instance;
     public static readonly MarshalledType AsyncTask = AsyncTaskType.Instance;
+    public static readonly MarshalledType AsyncCancelKey = AsyncCancelKeyType.Instance;
     public static readonly MarshalledType NonFrozenIntPtr = NonFrozenIntPtrType.Instance;
     public static readonly MarshalledType EnumSafeHandle = EnumSafeHandleType.Instance;
     public static readonly MarshalledType NativeRemappedNonFrozen = NativeRemappedNonFrozenType.Instance;

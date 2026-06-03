@@ -51,10 +51,12 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Invoke the baseline bridge repeatedly to validate GCHandle lifetime —
-    /// AsyncClosureHelper.RunAsync intentionally leaks the context handle
-    /// (matches sync escaping-closure semantics). A leak-induced crash would
-    /// show up as double-free / wrong-handle-target errors on the Nth call.
+    /// Invoke the baseline bridge repeatedly to validate GCHandle lifetime.
+    /// The context handle is owned by the Swift-side <c>_SBClosureCtx</c> box
+    /// (P1-18) and freed when Swift releases the adapter; this test guards the
+    /// happy path — a premature free or wrong-handle-target would surface as a
+    /// crash / wrong result on the Nth call. The collectible-after-call
+    /// assertion lives in <c>AsyncClosureContextLifetimeTests</c> (device-only).
     /// </summary>
     public async Task TestBaselineAsyncClosureMultipleInvocations()
     {

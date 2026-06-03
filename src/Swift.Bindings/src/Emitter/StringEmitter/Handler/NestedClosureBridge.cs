@@ -276,6 +276,61 @@ public static class NestedClosureBridge
 
     // ─── Swift Wrapper ─────────────────────────────────────────────────
 
+    /// <summary>
+    /// The collision-guarded synthetic Swift identifiers used across the @_cdecl wrapper:
+    /// the explicit <c>self</c> pointer param, the <c>__self</c> reconstruction local, and
+    /// per-outer-closure <c>cdecl</c> / <c>_box</c> names keyed by outer-closure index.
+    /// </summary>
+    private readonly record struct ClosureBridgeSyntheticNames(
+        string SelfParam,
+        string SelfLocal,
+        IReadOnlyDictionary<int, string> Cdecl,
+        IReadOnlyDictionary<int, string> Box);
+
+    /// <summary>
+    /// P1-22 (C1): the @_cdecl wrapper hardcodes synthetic Swift identifiers (<c>self_</c>,
+    /// <c>__self</c>, per-outer-closure <c>cdecl</c>/<c>cdecl{N}</c> and <c>_box_{N}</c>). A
+    /// user param spelled the same — e.g. <c>func run(self_: Int, outer: …)</c> — would
+    /// otherwise produce an "invalid redeclaration" and the generator would emit broken Swift
+    /// at exit 0. Reserve every synthetic through a <see cref="SyntheticNameScope"/> seeded
+    /// with the user-controlled identifiers in the wrapper's scope (non-closure param names +
+    /// each outer closure's <c>FuncPtr</c>/<c>Context</c> params): collision-free input yields
+    /// the original names verbatim, collisions get a <c>__</c>-prefixed variant.
+    ///
+    /// The computed struct is threaded down to the call-emitting helpers
+    /// (EmitSingleOuterMethodCall / EmitMultiOuterMethodCall / EmitOuterAdapterBody) which
+    /// write into the same Swift function scope — those helpers don't all receive the seed
+    /// inputs, so passing the resolved names is simpler than recomputing.
+    /// </summary>
+    private static ClosureBridgeSyntheticNames ComputeSyntheticNames(
+        List<NestedClosureInfo> nestedClosures,
+        List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams)
+    {
+        var reserved = new List<string>();
+        foreach (var (_, csName, _, _) in passableNonClosureParams)
+            reserved.Add(NameProvider.StripVerbatimPrefix(csName));
+        foreach (var nc in nestedClosures)
+        {
+            var n = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
+            reserved.Add($"{n}FuncPtr");
+            reserved.Add($"{n}Context");
+        }
+
+        var scope = new SyntheticNameScope(reserved);
+        var selfParam = scope.Reserve("self_");
+        var selfLocal = scope.Reserve("__self");
+        var cdecl = new Dictionary<int, string>();
+        var box = new Dictionary<int, string>();
+        bool multiOuter = nestedClosures.Count > 1;
+        foreach (var nc in nestedClosures)
+        {
+            cdecl[nc.Index] = scope.Reserve(multiOuter ? $"cdecl{nc.Index}" : "cdecl");
+            box[nc.Index] = scope.Reserve($"_box_{nc.Index}");
+        }
+
+        return new ClosureBridgeSyntheticNames(selfParam, selfLocal, cdecl, box);
+    }
+
     private static void EmitSwiftWrapper(
         SwiftWriter swiftWriter,
         MethodDecl method,
@@ -296,6 +351,11 @@ public static class NestedClosureBridge
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
         bool multiOuter = nestedClosures.Count > 1;
         bool parentIsClass = parentDecl is ClassDecl;
+
+        // P1-22 (C1): collision-guard the wrapper's synthetic Swift identifiers against
+        // user-controlled param/closure names. Computed once here and threaded into the
+        // call-emitting helpers so every emission site uses the identical resolved name.
+        var synth = ComputeSyntheticNames(nestedClosures, passableNonClosureParams);
 
         // Wrapper symbol is always keyed off the first outer closure's callback base name
         // (_0-indexed per Session 2 naming). For single-outer methods this produces byte-identical
@@ -323,7 +383,7 @@ public static class NestedClosureBridge
         // (which appends SwiftSelf self_) and the CallConvCdecl convention on both sides.
         if (isInstance)
         {
-            swiftParams.Add($"    _ self_: UnsafeMutableRawPointer");
+            swiftParams.Add($"    _ {synth.SelfParam}: UnsafeMutableRawPointer");
         }
 
         // Method return type. `@_cdecl` requires ObjC-representable result types, so class
@@ -362,9 +422,9 @@ public static class NestedClosureBridge
         if (isInstance)
         {
             if (parentIsClass)
-                swiftWriter.WriteLine($"    let __self = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+                swiftWriter.WriteLine($"    let {synth.SelfLocal} = Unmanaged<{typeName}>.fromOpaque({synth.SelfParam}).takeUnretainedValue()");
             else
-                swiftWriter.WriteLine($"    let __self = self_.assumingMemoryBound(to: {typeName}.self).pointee");
+                swiftWriter.WriteLine($"    let {synth.SelfLocal} = {synth.SelfParam}.assumingMemoryBound(to: {typeName}.self).pointee");
         }
 
         // Emit inner trampolines for each outer closure. For single-outer, naming matches the
@@ -384,12 +444,12 @@ public static class NestedClosureBridge
         {
             var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
             var cdeclType = BuildOuterCdeclType(nc, env);
-            var cdeclVar = multiOuter ? $"cdecl{nc.Index}" : "cdecl";
+            var cdeclVar = synth.Cdecl[nc.Index];
             swiftWriter.WriteLine($"    let {cdeclVar} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
 
             if (nc.IsEffectivelyEscaping)
             {
-                swiftWriter.WriteLine($"    let _box_{nc.Index}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+                swiftWriter.WriteLine($"    let {synth.Box[nc.Index]}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
             }
         }
         swiftWriter.WriteLine();
@@ -403,18 +463,18 @@ public static class NestedClosureBridge
             ? (returnsReference ? "return Unmanaged.passRetained(" : "return ")
             : "";
         var returnSuffix = returnsReference ? ").toOpaque()" : "";
-        var callTarget = isInstance ? "__self" : typeName;
+        var callTarget = isInstance ? synth.SelfLocal : typeName;
         var methodSwiftName = NameProvider.ParserNameToSwift(method);
 
         if (!multiOuter)
         {
             EmitSingleOuterMethodCall(swiftWriter, nestedClosures[0], passableNonClosureParams,
-                returnPrefix, returnSuffix, callTarget, methodSwiftName, multiOuter: false, env: env);
+                returnPrefix, returnSuffix, callTarget, methodSwiftName, multiOuter: false, env: env, synth: synth);
         }
         else
         {
             EmitMultiOuterMethodCall(swiftWriter, method, nestedClosures, passableNonClosureParams,
-                returnPrefix, returnSuffix, callTarget, methodSwiftName, env);
+                returnPrefix, returnSuffix, callTarget, methodSwiftName, env, synth);
         }
 
         swiftWriter.WriteLine("}");
@@ -480,9 +540,11 @@ public static class NestedClosureBridge
 
             swiftWriter.WriteLine($"    let {trampolineName}: {innerTrampolineType} = {{ {string.Join(", ", innerTrampolineParams.Select(p => p.Split(' ')[1].TrimEnd(':')))} in");
 
-            // Uses takeUnretainedValue (no retain change) — the passRetained(+1) in the adapter
-            // is intentionally NOT balanced here, creating a bounded leak (one AnyObject per invocation).
-            // This is safe for multi-call inner closures.
+            // Uses takeUnretainedValue (no retain change) — the box keeps the inner closure alive
+            // via the adapter's passRetained(+1), so a borrow here is safe across multiple inner
+            // calls during the outer invocation. The adapter balances that +1 with a release after
+            // cdecl() returns for non-escaping inner closures (P1-16); escaping inner closures keep
+            // the box leaked because the borrow may outlive the outer call.
             swiftWriter.WriteLine($"        let innerClosure = Unmanaged<AnyObject>.fromOpaque(__closureBox{boxSuffix}).takeUnretainedValue() as! {innerClosureSwiftType}");
 
             var innerInvocationArgs = new List<string>();
@@ -544,7 +606,8 @@ public static class NestedClosureBridge
         string callTarget,
         string methodSwiftName,
         bool multiOuter,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        ClosureBridgeSyntheticNames synth)
     {
         var callLabel = GetSwiftArgLabel(nc.Arg);
 
@@ -570,9 +633,9 @@ public static class NestedClosureBridge
         // Escaping outer closures explicitly capture their `_box_N` owner-token (Bug 1 Cat 3 /
         // Bug 3 Case 2). The capture pulls the box into the stored closure so Swift ARC tracks its
         // lifetime — when Swift releases the closure, the box's deinit upcalls the C# free callback.
-        var captureList = nc.IsEffectivelyEscaping ? $"[_box_{nc.Index}] " : "";
+        var captureList = nc.IsEffectivelyEscaping ? $"[{synth.Box[nc.Index]}] " : "";
         swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{methodSwiftName}({prefixStr}{callLabel}{{ {captureList}{outerParamStr} in");
-        EmitOuterAdapterBody(swiftWriter, nc, multiOuter, indent: "        ", env);
+        EmitOuterAdapterBody(swiftWriter, nc, multiOuter, indent: "        ", env, synth);
         swiftWriter.WriteLine($"    }}){returnSuffix}");
     }
 
@@ -589,7 +652,8 @@ public static class NestedClosureBridge
         string returnSuffix,
         string callTarget,
         string methodSwiftName,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        ClosureBridgeSyntheticNames synth)
     {
         var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
         var nestedByArg = nestedClosures.ToDictionary(n => n.Arg);
@@ -619,9 +683,9 @@ public static class NestedClosureBridge
                 var outerParamStr = string.Join(", ", outerParamDecls);
 
                 // Escaping outer: capture `_box_N` to track its lifetime via Swift ARC.
-                var captureList = nc.IsEffectivelyEscaping ? $"[_box_{nc.Index}] " : "";
+                var captureList = nc.IsEffectivelyEscaping ? $"[{synth.Box[nc.Index]}] " : "";
                 swiftWriter.WriteLine($"        {label}{{ {captureList}{outerParamStr} in");
-                EmitOuterAdapterBody(swiftWriter, nc, multiOuter: true, indent: "            ", env);
+                EmitOuterAdapterBody(swiftWriter, nc, multiOuter: true, indent: "            ", env, synth);
                 swiftWriter.WriteLine($"        }}{trailingComma}");
             }
             else
@@ -644,10 +708,11 @@ public static class NestedClosureBridge
         NestedClosureInfo nc,
         bool multiOuter,
         string indent,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        ClosureBridgeSyntheticNames synth)
     {
         bool multiInner = nc.InnerClosures.Count > 1;
-        var cdeclVar = multiOuter ? $"cdecl{nc.Index}" : "cdecl";
+        var cdeclVar = synth.Cdecl[nc.Index];
         var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
         var contextVar = $"{closureCsName}Context";
 
@@ -655,9 +720,10 @@ public static class NestedClosureBridge
         // this, the capture-list-only reference can be dropped, breaking the lifetime
         // contract that drives the deinit upcall (Bug 1 Cat 3 / Bug 3 Case 2).
         if (nc.IsEffectivelyEscaping)
-            swiftWriter.WriteLine($"{indent}_ = _box_{nc.Index}");
+            swiftWriter.WriteLine($"{indent}_ = {synth.Box[nc.Index]}");
 
         var cdeclCallArgs = new List<string>();
+        var innerBoxesToRelease = new List<string>();
         for (int i = 0; i < nc.OuterArgs.Count; i++)
         {
             var innerMatch = nc.InnerClosures.FindIndex(ic => ic.OuterArgIndex == i);
@@ -669,6 +735,15 @@ public static class NestedClosureBridge
                 swiftWriter.WriteLine($"{indent}let __innerFuncPtr{suffix} = unsafeBitCast({trampolineName}, to: UnsafeMutableRawPointer?.self)");
                 cdeclCallArgs.Add($"__innerFuncPtr{suffix}");
                 cdeclCallArgs.Add($"__innerBox{suffix}");
+                // A non-escaping inner closure is valid only for the duration of this outer-closure
+                // invocation, so the +1 box retain (passRetained above) must be balanced once cdecl()
+                // returns — closing the per-invocation AnyObject leak (P1-16). The inner trampoline
+                // borrows the box via takeUnretainedValue, so the box stays alive across however many
+                // times the inner closure is called during the outer call; we only drop our +1 after.
+                // Escaping inner closures must outlive the call, so their box intentionally stays
+                // leaked — there is no safe release point on this synchronous path.
+                if (!nc.InnerClosures[innerMatch].Spec.IsEscaping)
+                    innerBoxesToRelease.Add($"__innerBox{suffix}");
             }
             else
             {
@@ -678,6 +753,8 @@ public static class NestedClosureBridge
         cdeclCallArgs.Add(contextVar); // outer context
 
         swiftWriter.WriteLine($"{indent}{cdeclVar}({string.Join(", ", cdeclCallArgs)})");
+        foreach (var box in innerBoxesToRelease)
+            swiftWriter.WriteLine($"{indent}Unmanaged<AnyObject>.fromOpaque({box}).release()");
     }
 
     private static string InnerTrampolineName(bool multiOuter, bool multiInner, int outerIndex, int innerIndex)
@@ -749,11 +826,13 @@ public static class NestedClosureBridge
             ? $"Action<{string.Join(", ", outerDelegateTypeArgs)}>"
             : "Action";
 
-        csWriter.WriteLine($"var callback = ({outerDelegateType})handle.Target!;");
-
+        // P0-01: resolve the outer delegate from the GCHandle inside the guarded try so a
+        // bad/freed handle (handle.Target throwing) faults via FailFast rather than unwinding
+        // out of the [UnmanagedCallersOnly] frame into the Swift @_cdecl caller → SIGABRT.
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        csWriter.WriteLine($"var callback = ({outerDelegateType})handle.Target!;");
 
         // Marshal outer non-closure args
         var invokeArgs = new List<string>();
@@ -834,7 +913,7 @@ public static class NestedClosureBridge
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine("catch { }");
+        ClosureEmitter.EmitNonThrowingFailFastCatch(csWriter);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -919,7 +998,15 @@ public static class NestedClosureBridge
         bool isInstance = method.MethodType != MethodType.Static;
         if (isInstance)
         {
-            pinvokeParams.Add("SwiftSelf self_");
+            // P1-22 (C1): the trailing self param hardcodes `self_`; a user non-closure param
+            // projected to the same name would be a CS0100 duplicate. Guard it against the
+            // other P/Invoke param names. Call-site args are positional, so the renamed param
+            // needs no call-site change.
+            var pinvokeReserved = new List<string>();
+            foreach (var (_, csName, _, _) in passableNonClosureParams)
+                pinvokeReserved.Add(csName);
+            var selfPInvokeName = new SyntheticNameScope(pinvokeReserved).Reserve("self_");
+            pinvokeParams.Add($"SwiftSelf {selfPInvokeName}");
         }
 
         // Return type
@@ -1043,8 +1130,13 @@ public static class NestedClosureBridge
             }
         }
 
-        bool anyEscaping = nestedClosures.Any(nc => nc.IsEffectivelyEscaping);
-        if (anyEscaping)
+        // Always wrap the alloc + P/Invoke in try/finally so EVERY outer closure's GCHandle is
+        // released — escaping handles transferred to Swift's `_SBClosureCtx` box are left alive
+        // by the `!__transferred` gate, while non-escaping handles (invoked synchronously inside
+        // the call, never owned by Swift) are freed unconditionally on return. Gating the
+        // finally on `anyEscaping` previously leaked the GCHandle for every non-escaping outer.
+        bool hasClosures = nestedClosures.Count > 0;
+        if (hasClosures)
         {
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
@@ -1115,7 +1207,7 @@ public static class NestedClosureBridge
             EmitClosureOwnershipTransferred(csWriter, nestedClosures);
         }
 
-        if (anyEscaping)
+        if (hasClosures)
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -1124,8 +1216,10 @@ public static class NestedClosureBridge
             csWriter.Indent++;
             foreach (var nc in nestedClosures)
             {
-                if (!nc.IsEffectivelyEscaping) continue;
-                csWriter.WriteLine($"if (!__transferred_{nc.Index} && __gcHandle_{nc.Index}.IsAllocated) __gcHandle_{nc.Index}.Free();");
+                if (nc.IsEffectivelyEscaping)
+                    csWriter.WriteLine($"if (!__transferred_{nc.Index} && __gcHandle_{nc.Index}.IsAllocated) __gcHandle_{nc.Index}.Free();");
+                else
+                    csWriter.WriteLine($"if (__gcHandle_{nc.Index}.IsAllocated) __gcHandle_{nc.Index}.Free();");
             }
             csWriter.Indent--;
             csWriter.WriteLine("}");

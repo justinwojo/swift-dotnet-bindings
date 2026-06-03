@@ -262,6 +262,54 @@ public class ClosureEdgeCaseTests : TestBase
 
     #endregion
 
+    #region Throwing Closures — Graceful Fault (C# delegate throws)
+
+    // These cover the previously-untested direction: a C# delegate that does NOT
+    // cooperatively return SwiftResult.FromFailure but instead *throws* a managed
+    // exception. The throwing-closure callback must catch it at the [UnmanagedCallersOnly]
+    // boundary and convert it into a Swift error (*errorOut = SBW_CreateError(...)) rather
+    // than letting it unwind into native Swift (SIGABRT). The Swift adapter rethrows on the
+    // Swift side, where the outer test function's do/catch turns it into a sentinel — so the
+    // round trip is observable from C# with no process abort (P0-01).
+
+    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — primitive-return callback with SwiftError* triggers !ji->async assertion; runs under NativeAOT")]
+    public void TestThrowingClosure_DelegateThrows_GracefulFault()
+    {
+        // () throws -> Int32 — C# delegate throws instead of returning a SwiftResult.
+        var result = TestLibFunctions.CallThrowingClosure(
+            () => throw new InvalidOperationException("cs-boom-int"));
+        AssertEqual(-1, result,
+            "Throwing C# delegate must surface as a Swift error → Swift catch → sentinel -1, never SIGABRT");
+        TestLogger.Info($"CallThrowingClosure(delegate throws) = {result}");
+    }
+
+    public void TestThrowingWithParam_DelegateThrows_GracefulFault()
+    {
+        // (Int32) throws -> String — non-primitive (String) return, C# delegate throws.
+        var result = TestLibFunctions.CallThrowingWithParam(
+            _ => throw new InvalidOperationException("cs-boom-string"));
+        AssertEqual("error", result,
+            "Throwing C# delegate (non-primitive String return) must surface as Swift error → sentinel \"error\", never SIGABRT");
+        TestLogger.Info($"CallThrowingWithParam(delegate throws) = {result}");
+    }
+
+    public void TestThrowingNonFrozenReturn_DelegateThrows_GracefulFault()
+    {
+        // () throws -> NonFrozenPoint — indirect-return + error-out combined. The throwing
+        // delegate must produce a Swift error so the adapter rethrows BEFORE .move()-ing the
+        // never-written indirect result buffer (no SIGSEGV on uninitialized storage), and the
+        // Swift catch returns the sentinel (-1, -1).
+        var result = TestLibFunctions.CallThrowingNonFrozenReturn(
+            () => throw new InvalidOperationException("cs-boom-nonfrozen"));
+        AssertEqual(-1.0, result.X,
+            "Throwing C# delegate (indirect non-frozen return) must surface as Swift error → sentinel (-1,-1).X");
+        AssertEqual(-1.0, result.Y,
+            "Throwing C# delegate (indirect non-frozen return) sentinel (-1,-1).Y");
+        TestLogger.Info($"CallThrowingNonFrozenReturn(delegate throws) = ({result.X}, {result.Y})");
+    }
+
+    #endregion
+
     #region MCB Function Name Dedup
     public void TestMCBOverload_DataProcessorProcess()
     {

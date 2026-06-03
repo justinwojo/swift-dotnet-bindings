@@ -105,6 +105,52 @@ namespace Swift.Runtime
     }
 
     /// <summary>
+    /// Supplies process-wide monotonic keys that identify in-flight async Swift tasks in
+    /// the per-module Swift cancellation registry (<c>_sbwActiveTasks</c>).
+    ///
+    /// The cancellation key MUST be distinct from the GCHandle-derived callback context.
+    /// A <see cref="GCHandle"/> cookie value is recycled after <see cref="GCHandle.Free"/>,
+    /// so a later <see cref="GCHandle.Alloc(object)"/> can hand back the same numeric value.
+    /// Using that recyclable value as the registry key lets a just-completed task's
+    /// <c>defer { _sbwUnregisterTask }</c> evict a newer task that happened to reuse the
+    /// cookie, and lets a racing cancellation cancel unrelated in-flight work. A strictly
+    /// increasing counter never reuses a key that is still live (64-bit wraparound is not
+    /// reachable in practice), so the registry key is collision-free regardless of how the
+    /// GCHandle context is allocated or freed.
+    ///
+    /// The counter is process-wide rather than per-module. Per-module uniqueness is all the
+    /// Swift registry needs, and a single global counter is trivially unique within every
+    /// module's dictionary while requiring no per-module state on the C# side.
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static class SwiftAsyncCancellation
+    {
+        private static long s_nextCancelKey;
+
+        /// <summary>
+        /// Returns the next process-wide unique cancellation key. Keys start at 1 (0 is
+        /// never returned, leaving it free as a sentinel). Safe to call from any thread.
+        /// </summary>
+        /// <remarks>
+        /// 64-bit wraparound is not reachable in practice, but should the counter ever wrap
+        /// past <see cref="long.MaxValue"/> it passes through 0 — the documented sentinel
+        /// value. The increment is atomic, so only the single caller whose increment lands on
+        /// 0 retries (advancing to 1); every other caller still receives a distinct value, so
+        /// the 0-is-never-returned guarantee holds without sacrificing thread-safety.
+        /// </remarks>
+        public static long NextCancelKey()
+        {
+            long key;
+            do
+            {
+                key = System.Threading.Interlocked.Increment(ref s_nextCancelKey);
+            }
+            while (key == 0);
+            return key;
+        }
+    }
+
+    /// <summary>
     /// Wraps a CancellationTokenRegistration for disposal in async callbacks.
     /// Stored in the async holder array so the callback can dispose the registration
     /// after completion, cancellation, or error.
@@ -118,6 +164,110 @@ namespace Swift.Runtime
         {
             Registration = registration;
             Token = token;
+        }
+    }
+
+    /// <summary>
+    /// Exception-safe, idempotent cleanup of the async-call holder array shared by every
+    /// async <c>[UnmanagedCallersOnly]</c> callback (success / fault / error / cancellation)
+    /// and the foreground launch paths (pre-cancel / launch-catch).
+    ///
+    /// The holder's slots own native resources that must be released exactly once after the
+    /// Swift continuation finishes reading them: a retained self pointer, a deferred SafeHandle
+    /// release, non-frozen-parameter copy buffers, an existential-container heap buffer,
+    /// deferred <see cref="IDisposable"/> containers, and the cancellation registration. Slot 0
+    /// is always the <c>TaskCompletionSource</c> and is never freed here.
+    ///
+    /// Centralizing the slot walk in one runtime helper — instead of inlining the loop at every
+    /// emission site — gives it two properties the inlined loop lacked:
+    ///
+    /// <list type="number">
+    /// <item><b>Exception-safe.</b> The success path runs cleanup inside the callback <c>try</c>;
+    /// the fault path runs it again inside the guarding <c>catch</c>. A throw escaping a
+    /// <c>[UnmanagedCallersOnly]</c> callback unwinds into the native Swift caller and aborts the
+    /// process (SIGABRT) — the exact failure the async UCO hardening exists to prevent. Each
+    /// slot's release is wrapped so one faulting release (for example a user
+    /// <see cref="IDisposable.Dispose"/> in a deferred list) can neither abort the process nor
+    /// skip the remaining slots.</item>
+    /// <item><b>Idempotent.</b> Each processed slot is cleared to <c>null</c>, so a second pass —
+    /// the fault <c>catch</c> re-running after the success path freed some slots and then threw —
+    /// cannot double <see cref="Arc.Release"/>, <c>DangerousRelease</c>,
+    /// <c>NativeMemory.Free</c>, or dispose.</item>
+    /// </list>
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static class SwiftAsyncCallHolder
+    {
+        /// <summary>
+        /// Releases every owned slot in <paramref name="holder"/> from
+        /// <paramref name="startIndex"/> onward. Safe to call more than once on the same array
+        /// (processed slots are nulled) and never throws (per-slot releases are best-effort).
+        /// </summary>
+        /// <param name="holder">The GCHandle-rooted holder array; slot 0 is the TaskCompletionSource.</param>
+        /// <param name="startIndex">First slot to clean. 1 by default — slot 0 (the TCS) is never freed here.</param>
+        public static unsafe void Cleanup(object[] holder, int startIndex = 1)
+        {
+            for (int i = startIndex; i < holder.Length; i++)
+            {
+                try
+                {
+                    if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                        Arc.Release(retained.Ptr);
+                    else if (holder[i] is DeferredSafeHandleRelease deferred)
+                        deferred.Handle.DangerousRelease();
+                    else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                    {
+                        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                        NativeMemory.Free((void*)copyBuffer.Buffer);
+                    }
+                    else if (holder[i] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
+                        NativeMemory.Free((void*)existentialHeap.Ptr);
+                    else if (holder[i] is AsyncDeferredDisposeList deferredList)
+                    {
+                        foreach (var item in deferredList.Items)
+                        {
+                            try { item.Dispose(); }
+                            catch
+                            {
+                                // Best-effort: a faulting user Dispose must not abort the
+                                // [UnmanagedCallersOnly] callback or skip its sibling frees.
+                            }
+                        }
+                    }
+                    else if (holder[i] is CancellationRegistrationHolder cancelReg)
+                        cancelReg.Registration.Dispose();
+                }
+                catch
+                {
+                    // Best-effort: cleanup runs on the callback thread that re-enters from native
+                    // Swift. A throw escaping here unwinds into native and aborts the process
+                    // (SIGABRT). Swallow per-slot so one faulting release can neither abort the
+                    // process nor skip the remaining slots.
+                }
+                finally
+                {
+                    // Idempotent: clear the slot so a second cleanup pass (the fault catch
+                    // re-running after a partially-completed success path) cannot double-free.
+                    holder[i] = null!;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns the <see cref="System.Threading.CancellationToken"/> captured at registration
+        /// time from the holder's <see cref="CancellationRegistrationHolder"/> slot (or
+        /// <c>default</c> if none). Read-only — does NOT free or clear any slot — so it is safe
+        /// to call before <see cref="Cleanup"/> on the Swift-reported cancellation path, where the
+        /// token is needed for <c>TrySetCanceled</c>.
+        /// </summary>
+        public static System.Threading.CancellationToken CaptureCancellationToken(object[] holder, int startIndex = 1)
+        {
+            for (int i = startIndex; i < holder.Length; i++)
+            {
+                if (holder[i] is CancellationRegistrationHolder cancelReg)
+                    return cancelReg.Token;
+            }
+            return default;
         }
     }
 }

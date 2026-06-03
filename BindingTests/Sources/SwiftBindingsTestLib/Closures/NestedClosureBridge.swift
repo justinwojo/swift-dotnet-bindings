@@ -17,6 +17,18 @@ public class NestedClosureHost {
         }
     }
 
+    // Non-escaping OUTER closure (drop the outer `@escaping`; the inner completion stays
+    // `@escaping`). Exercises the NCB non-escaping-outer GCHandle-free regression (Theme C):
+    // the outer delegate's GCHandle must be freed in `finally` even though the outer isn't
+    // escaping. Pre-fix the try/finally was gated on `anyEscaping`, so a method whose only
+    // outer closure is non-escaping emitted no finally and leaked the handle. The handle is
+    // freed synchronously in C# (no owner-token box), so this verifies on the simulator too.
+    public func runNonEscapingOuter(handler: (Int32, @escaping (Int32) -> Void) -> Void) {
+        handler(7) { inner in
+            _ = inner
+        }
+    }
+
     // Two outer closures, each with its own nested completion — exercises multi-outer support.
     // Each outer fires its nested completion with a distinct value so the test can verify
     // both paths reach the managed side, with the correct arguments, in the correct order.

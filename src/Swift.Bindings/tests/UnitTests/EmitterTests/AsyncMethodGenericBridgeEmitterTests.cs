@@ -513,6 +513,81 @@ public class AsyncMethodGenericBridgeEmitterTests
 
     #endregion
 
+    #region Cancellation Key Recycle Fix (P1-17)
+
+    [Fact]
+    public void TryEmit_SwiftWrapper_RegistersWithMonotonicCancelKeyNotContext()
+    {
+        var (csWriter, swiftWriter, _, swiftOutput) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
+
+        var swiftResult = swiftOutput.ToString();
+        // The registry is keyed by the monotonic cancel key, not the recyclable GCHandle context.
+        Assert.Contains("_sbwRegisterTask(_sbwCancelKey, _entry)", swiftResult);
+        Assert.Contains("_sbwUnregisterTask(_sbwCancelKey)", swiftResult);
+        Assert.DoesNotContain("_sbwRegisterTask(_sbwTask", swiftResult);
+        Assert.DoesNotContain("_sbwUnregisterTask(_sbwTask)", swiftResult);
+        // The callback context is still the GCHandle-derived _sbwTask (unchanged).
+        Assert.Contains("callback(_sbwTask)", swiftResult);
+    }
+
+    [Fact]
+    public void TryEmit_SwiftWrapper_DeclaresSeparateContextAndCancelKeyParams()
+    {
+        var (csWriter, swiftWriter, _, swiftOutput) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
+
+        var swiftResult = swiftOutput.ToString();
+        // Both the GCHandle context and the monotonic cancel key are declared as @_cdecl params.
+        Assert.Contains("_ _sbwTask: Int64", swiftResult);
+        Assert.Contains("_ _sbwCancelKey: Int64", swiftResult);
+    }
+
+    [Fact]
+    public void TryEmit_CSharpHarness_DeclaresAndForwardsCancelKey()
+    {
+        var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
+
+        var csResult = csOutput.ToString();
+        // P/Invoke declares the GCHandle context (taskId) followed by the monotonic key (cancelKey).
+        Assert.Contains("long taskId, long cancelKey", csResult);
+        // The harness computes the monotonic key and cancels by it (not the GCHandle cookie).
+        Assert.Contains("long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();", csResult);
+        Assert.Contains("cancellationToken, _sbwCancelKey)", csResult);
+        // The GCHandle cookie is still forwarded as the opaque callback context.
+        Assert.Contains("(long)(IntPtr)handle", csResult);
+    }
+
+    #endregion
+
     #region TryEmit: throws path
 
     [Fact]
@@ -573,7 +648,13 @@ public class AsyncMethodGenericBridgeEmitterTests
 
         var csResult = csOutput.ToString();
         Assert.DoesNotContain("errorCallback", csResult);
-        Assert.DoesNotContain("TrySetException", csResult);
+        // No-throws → no Swift error-callback exception reporting on the real TCS.
+        Assert.DoesNotContain("_tcs.TrySetException", csResult);
+        // P0-02: the graceful-fault catch wraps EVERY async UCO callback body (throwing or
+        // not), so a managed exception in the callback faults the Task instead of unwinding
+        // into Swift (SIGABRT). That path's `__faultTcs.TrySetException(__ex)` is expected
+        // here and is distinct from the throws-only error-callback reporting guarded above.
+        Assert.Contains("__faultTcs.TrySetException(__ex)", csResult);
     }
 
     #endregion
@@ -689,22 +770,49 @@ public class AsyncMethodGenericBridgeEmitterTests
 
     #endregion
 
-    #region Self-retain ARC family (issue #40 / P1-01)
+    #region UCO-escape hardening: holder cleanup via runtime helper (S2 round-3)
 
     [Fact]
-    public void TryEmit_ObjCRootedInstanceSelf_RetainsViaUnknownObjectRetain()
+    public void TryEmit_UserParamNamedI_NoCS0136_BecauseCleanupIsHelperCall()
     {
-        // An async generic-bridge instance method on an @objc:NSObject-rooted self must keep
-        // self alive across the Task continuation by retaining the NSObject peer pointer
-        // (Handle) with the isa-dispatching Arc.UnknownObjectRetain — native swift_retain
-        // touches the wrong refcount word for an @objc subclass, so the self can be freed
-        // under the in-flight continuation. Same fix shape as the receiver / enum-payload /
-        // async-wrapper self sites for issue #40.
+        // Holder cleanup is delegated to the runtime helper
+        // (global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup), so the public ...Async method body
+        // no longer inlines a cleanup `for` loop. A Swift parameter projected to `i` therefore
+        // cannot shadow a loop index — there is no inlined index to collide with — so CS0136 is
+        // structurally impossible without any per-method name reservation. The user parameter must
+        // still survive verbatim in the public signature.
+        var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithExtraPrimitiveParam("i");
+        var parent = (ClassDecl)method.ParentDecl!;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        Assert.True(AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx));
+
+        var csResult = csOutput.ToString();
+        var sigLine = csResult.Split('\n').First(l => l.Contains("ProcessAsync("));
+        // The user parameter `i` survives verbatim in the public signature (not dropped/renamed).
+        Assert.Contains(" i,", sigLine);
+        // The public method frees the holder via the runtime helper call...
+        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(_asyncCallHolder);", csResult);
+        // ...and emits no inlined holder-cleanup loop over the holder array (which is what would
+        // have shadowed the `i` parameter and required the old SyntheticNameScope rename).
+        Assert.DoesNotContain("< _asyncCallHolder.Length;", csResult);
+        Assert.DoesNotContain("for (int __i = 1;", csResult);
+    }
+
+    [Fact]
+    public void TryEmit_HolderCleanup_EmittedAsRuntimeHelperCallInBothPublicAndCallbackScopes()
+    {
+        // The extraction wires the runtime helper through both site classes: the public ...Async
+        // method body (holder var `_asyncCallHolder`) and the [UnmanagedCallersOnly] callbacks
+        // (holder var `holder` / `__holder`). None of them inline the slot-walk loop anymore.
         var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
         var method = CreateMethodDeclWithGenericParam();
         method.IsAsync = true;
         var parent = CreateClassDecl("Processor");
-        parent.IsObjCRooted = true;
         method.ParentDecl = parent;
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestBindings";
@@ -714,25 +822,27 @@ public class AsyncMethodGenericBridgeEmitterTests
         AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
 
         var csResult = csOutput.ToString();
-        // @objc-rooted self reads the NSObject peer (Handle) and retains via isa-dispatch.
-        Assert.Contains("IntPtr _selfPtr = Handle;", csResult);
-        Assert.Contains("Arc.UnknownObjectRetain(_selfPtr)", csResult);
-        // MUST NOT use the pure-Swift native retain, nor the SafeHandle AddRef dance.
-        Assert.DoesNotContain("Arc.Retain(_selfPtr)", csResult);
-        Assert.DoesNotContain("_handle.DangerousAddRef", csResult);
+        // Public-method scope (pre-cancel + launch catch) and callback scope both delegate.
+        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(_asyncCallHolder);", csResult);
+        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(holder);", csResult);
+        // The inline slot-walk loop is gone from every scope (no RetainedSelfPtr pattern inlined).
+        Assert.DoesNotContain("is RetainedSelfPtr retained", csResult);
     }
 
     [Fact]
-    public void TryEmit_PureSwiftInstanceSelf_RetainsThroughSafeHandleViaUnknownObjectRetain()
+    public void TryEmit_AsyncUCOFaultCatch_RunsHolderCleanupBeforeFaultingTcs()
     {
-        // Pure-Swift self: SafeHandle AddRef dance + isa-dispatching retain (resolves to
-        // swift_retain for a native object). Asserts the @objc gate does not bleed into the
-        // pure-Swift branch, and that even the native branch uses the unknown-object family
-        // (null-tolerant, isa-correct if a subclass is ever rooted at runtime).
+        // P0-02 + S2-r3: the UCO fault catch (EmitAsyncCallbackFaultCatch) is reachable from
+        // result marshalling BEFORE the success path's holder cleanup runs, so the catch must free
+        // the holder's native resources itself before faulting the TCS — otherwise retained self /
+        // copy buffers / existential heap / deferred containers / cancellation registrations leak
+        // whenever marshalling throws. Cleanup is now the exception-safe, idempotent runtime helper
+        // call (so re-running it after a partially-completed success path cannot double-free, and a
+        // throwing release cannot escape the [UnmanagedCallersOnly] callback into native Swift).
         var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
         var method = CreateMethodDeclWithGenericParam();
         method.IsAsync = true;
-        var parent = CreateClassDecl("Processor"); // not ObjCRooted
+        var parent = CreateClassDecl("Processor");
         method.ParentDecl = parent;
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestBindings";
@@ -742,10 +852,13 @@ public class AsyncMethodGenericBridgeEmitterTests
         AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
 
         var csResult = csOutput.ToString();
-        Assert.Contains("_handle.DangerousAddRef", csResult);
-        Assert.Contains("Arc.UnknownObjectRetain(_selfPtr)", csResult);
-        Assert.DoesNotContain("Arc.Retain(_selfPtr)", csResult);
-        Assert.DoesNotContain("IntPtr _selfPtr = Handle;", csResult);
+        var faultBindIdx = csResult.IndexOf("__holder[0] is TaskCompletionSource", System.StringComparison.Ordinal);
+        var faultSetIdx = csResult.IndexOf("__faultTcs.TrySetException(__ex)", System.StringComparison.Ordinal);
+        Assert.True(faultBindIdx >= 0, "UCO fault catch holder bind not found");
+        Assert.True(faultSetIdx > faultBindIdx, "TrySetException must follow the holder bind");
+        var faultBlock = csResult.Substring(faultBindIdx, faultSetIdx - faultBindIdx);
+        // Holder cleanup runs inside the catch (via the runtime helper), before the fault is set.
+        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(__holder);", faultBlock);
     }
 
     #endregion
@@ -872,6 +985,28 @@ public class AsyncMethodGenericBridgeEmitterTests
             ModuleDecl = moduleDecl,
             Visibility = Visibility.Public
         };
+    }
+
+    /// <summary>
+    /// Variant of <see cref="CreateMethodDeclWithGenericParam"/> with an extra non-generic
+    /// primitive (Swift.Int) parameter whose projected C# name is <paramref name="userParamName"/>.
+    /// Used to exercise holder-cleanup loop-index collisions (e.g. a Swift parameter named `i`).
+    /// </summary>
+    private static MethodDecl CreateMethodDeclWithExtraPrimitiveParam(string userParamName)
+    {
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "_",
+            PrivateName = userParamName,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = method.ModuleDecl
+        });
+        return method;
     }
 
     private static ArgumentDecl CreateArg(string name, TypeSpec typeSpec, ModuleDecl moduleDecl)

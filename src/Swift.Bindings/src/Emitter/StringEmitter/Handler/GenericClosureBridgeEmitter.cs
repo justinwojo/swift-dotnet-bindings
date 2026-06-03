@@ -148,27 +148,10 @@ public static class GenericClosureBridgeEmitter
     // ─── SBW_CreateError Helper ───────────────────────────────────────
 
     private static void EmitCreateErrorHelperIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext ctx)
-    {
-        if (ctx.GenericClosureBridgeCreateErrorEmitted) return;
-
-        var symbol = $"SBW_CreateError_{moduleName}";
-        swiftWriter.WriteLines($$"""
-            // Create a Swift Error from a C string message (generic closure bridge error propagation).
-            @_cdecl("{{symbol}}")
-            public func SBW_CreateError(_ message: UnsafePointer<CChar>) -> UnsafeMutableRawPointer {
-                let msg = String(cString: message)
-                let error = NSError(domain: "SwiftBindings", code: -1, userInfo: [NSLocalizedDescriptionKey: msg])
-                return Unmanaged.passRetained(error as AnyObject).toOpaque()
-            }
-
-            """);
-        // S5 audited (Tier C): generic-closure bridge create-error helper in `_direct_helper` bucket. Per-bridge `symbol` is unique per closure shape; the `GenericClosureBridgeCreateErrorEmitted` flag below also gates re-emission within a module pass.
-        // Register the helper so the wrapper-symbol registry reflects every SBW_…
-        // symbol we actually emit. Closes a registry hole that would false-trip the
-        // contract gate if direct-helper enforcement is widened.
-        ctx.TryAddDirectHelperWrapperSymbol(symbol);
-        ctx.GenericClosureBridgeCreateErrorEmitted = true;
-    }
+        // S5 audited (Tier C): create-error helper lands in the `_direct_helper` bucket; the
+        // SwiftErrorMintHelperEmitted flag gates re-emission within a module pass. Shared with the
+        // standard throwing-closure callback path via SwiftErrorMintEmitter.
+        => SwiftErrorMintEmitter.EmitSwiftHelperIfNeeded(swiftWriter, moduleName, ctx);
 
     // ─── Swift Wrapper Generation ─────────────────────────────────────
 
@@ -187,16 +170,6 @@ public static class GenericClosureBridgeEmitter
         bool isClass = parentDecl is ClassDecl;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
 
-        string selfConversion = "";
-        if (isInstance)
-        {
-            selfConversion = isClass
-                ? $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)"
-                : $"let __self = _self.assumingMemoryBound(to: {typeName}.self).pointee";
-        }
-
-        string callTarget = isInstance ? "__self" : typeName;
-
         // Get argument label for the closure parameter
         string closureLabel = GetSwiftArgLabel(closureArg);
 
@@ -210,6 +183,34 @@ public static class GenericClosureBridgeEmitter
             var label = GetSwiftArgLabel(arg);
             nonClosureParams.Add((arg, name, type, label));
         }
+
+        // P1-22 (C1): the @_silgen_name wrapper hardcodes synthetic Swift identifiers in the
+        // same scope as the user's non-closure params — the cdecl rebind local, the self
+        // pointer param + its bound local, the result buffer param, and the thrown-error
+        // locals. A user param spelled the same would produce an "invalid redeclaration"
+        // emitted at exit 0. Reserve each synthetic against the user param names (and the
+        // closure's own FuncPtr/Context params); collision-free input yields the names
+        // verbatim, collisions get a `__`-prefixed variant.
+        var synthReserved = nonClosureParams.Select(p => p.swiftName).ToList();
+        synthReserved.Add($"{csClosureName}FuncPtr");
+        synthReserved.Add($"{csClosureName}Context");
+        var nameScope = new SyntheticNameScope(synthReserved);
+        var selfParamName = nameScope.Reserve("_self");
+        var selfLocalName = nameScope.Reserve("__self");
+        var resultBufName = nameScope.Reserve("_resultBuf");
+        var cdeclName = nameScope.Reserve("cdecl");
+        var innerErrorName = nameScope.Reserve("innerError");
+        var errName = nameScope.Reserve("err");
+
+        string selfConversion = "";
+        if (isInstance)
+        {
+            selfConversion = isClass
+                ? $"let {selfLocalName} = unsafeBitCast(OpaquePointer({selfParamName}), to: {typeName}.self)"
+                : $"let {selfLocalName} = {selfParamName}.assumingMemoryBound(to: {typeName}.self).pointee";
+        }
+
+        string callTarget = isInstance ? selfLocalName : typeName;
 
         // Build closure parameter declarations — the wrapper specializes T = UnsafeMutableRawPointer,
         // so generic type parameters become UnsafeMutableRawPointer in the closure signature.
@@ -253,11 +254,11 @@ public static class GenericClosureBridgeEmitter
             var swiftParams = new List<string>();
             swiftParams.Add($"_ {csClosureName}FuncPtr: UnsafeMutableRawPointer?");
             swiftParams.Add($"_ {csClosureName}Context: UnsafeMutableRawPointer?");
-            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+            swiftParams.Add($"_ {resultBufName}: UnsafeMutableRawPointer");
             foreach (var p in nonClosureParams)
                 swiftParams.Add($"_ {p.swiftName}: {p.swiftType}");
             if (isInstance)
-                swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+                swiftParams.Add($"_ {selfParamName}: UnsafeMutableRawPointer");
 
             // Build cdecl callback type: (closureArgs..., resultBuf, errorOut, context) -> Void
             var cdeclTypeArgs = new List<string>();
@@ -272,8 +273,8 @@ public static class GenericClosureBridgeEmitter
 
             // Build cdecl call args: (closure args..., resultBuf, &innerError, context)
             var cdeclCallArgsFull = new List<string>(cdeclPassArgs);
-            cdeclCallArgsFull.Add("_resultBuf");
-            cdeclCallArgsFull.Add("&innerError");
+            cdeclCallArgsFull.Add(resultBufName);
+            cdeclCallArgsFull.Add($"&{innerErrorName}");
             cdeclCallArgsFull.Add($"{csClosureName}Context");
 
             if (needsMainActor)
@@ -286,7 +287,7 @@ public static class GenericClosureBridgeEmitter
             if (!string.IsNullOrEmpty(selfConversion))
                 swiftWriter.WriteLine($"    {selfConversion}");
 
-            swiftWriter.WriteLine($"    let cdecl = unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
+            swiftWriter.WriteLine($"    let {cdeclName} = unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
 
             // Emit the call with inline closure.
             // Replace __CLOSURE__ with the closure opening — the closure body spans multiple lines,
@@ -294,12 +295,12 @@ public static class GenericClosureBridgeEmitter
             var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> UnsafeMutableRawPointer in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
             swiftWriter.WriteLine($"    let _: UnsafeMutableRawPointer = {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
-            swiftWriter.WriteLine($"        var innerError: UnsafeMutableRawPointer? = nil");
-            swiftWriter.WriteLine($"        cdecl({string.Join(", ", cdeclCallArgsFull)})");
-            swiftWriter.WriteLine($"        if let err = innerError {{");
-            swiftWriter.WriteLine($"            throw unsafeBitCast(err, to: Swift.Error.self)");
+            swiftWriter.WriteLine($"        var {innerErrorName}: UnsafeMutableRawPointer? = nil");
+            swiftWriter.WriteLine($"        {cdeclName}({string.Join(", ", cdeclCallArgsFull)})");
+            swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
+            swiftWriter.WriteLine($"            throw unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
-            swiftWriter.WriteLine($"        return _resultBuf");
+            swiftWriter.WriteLine($"        return {resultBufName}");
             swiftWriter.WriteLine($"    }})");
 
             swiftWriter.WriteLine("}");
@@ -314,7 +315,7 @@ public static class GenericClosureBridgeEmitter
             foreach (var p in nonClosureParams)
                 swiftParams.Add($"_ {p.swiftName}: {p.swiftType}");
             if (isInstance)
-                swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+                swiftParams.Add($"_ {selfParamName}: UnsafeMutableRawPointer");
 
             // Build cdecl callback type (no resultBuf for void)
             var cdeclTypeArgs = new List<string>();
@@ -328,7 +329,7 @@ public static class GenericClosureBridgeEmitter
 
             // Cdecl args for void (no resultBuf)
             var cdeclCallArgsFull = new List<string>(cdeclPassArgs);
-            cdeclCallArgsFull.Add("&innerError");
+            cdeclCallArgsFull.Add($"&{innerErrorName}");
             cdeclCallArgsFull.Add($"{csClosureName}Context");
 
             if (needsMainActor)
@@ -341,15 +342,15 @@ public static class GenericClosureBridgeEmitter
             if (!string.IsNullOrEmpty(selfConversion))
                 swiftWriter.WriteLine($"    {selfConversion}");
 
-            swiftWriter.WriteLine($"    let cdecl = unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
+            swiftWriter.WriteLine($"    let {cdeclName} = unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
 
             var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> Void in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
             swiftWriter.WriteLine($"    {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
-            swiftWriter.WriteLine($"        var innerError: UnsafeMutableRawPointer? = nil");
-            swiftWriter.WriteLine($"        cdecl({string.Join(", ", cdeclCallArgsFull)})");
-            swiftWriter.WriteLine($"        if let err = innerError {{");
-            swiftWriter.WriteLine($"            throw unsafeBitCast(err, to: Swift.Error.self)");
+            swiftWriter.WriteLine($"        var {innerErrorName}: UnsafeMutableRawPointer? = nil");
+            swiftWriter.WriteLine($"        {cdeclName}({string.Join(", ", cdeclCallArgsFull)})");
+            swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
+            swiftWriter.WriteLine($"            throw unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
             swiftWriter.WriteLine($"    }})");
 
@@ -558,24 +559,7 @@ public static class GenericClosureBridgeEmitter
 
     private static void EmitCreateErrorPInvoke(CSharpWriter csWriter, string moduleName, string asyncLibName,
         MethodEnvironment env, ModuleEmissionContext ctx)
-    {
-        var typeKey = (env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleName;
-        if (!ctx.TryAddGenericClosureBridgeErrorPInvoke(typeKey)) return;
-
-        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
-        {
-            LibraryPath = asyncLibName,
-            EntryPoint = $"SBW_CreateError_{moduleName}",
-            MethodName = $"SBW_CreateError_{moduleName}",
-            ReturnType = "IntPtr",
-            ParametersString = "[MarshalAs(UnmanagedType.LPUTF8Str)] string message",
-            CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal,
-            EmissionContext = ctx,
-            EnforceWrapperContract = true
-        });
-        csWriter.WriteLine();
-    }
+        => SwiftErrorMintEmitter.EmitPInvokeIfNeeded(csWriter, moduleName, asyncLibName, env, ctx);
 
     private static void EmitErrorHelperPInvokes(CSharpWriter csWriter, string moduleName, string asyncLibName,
         MethodEnvironment env, ModuleEmissionContext ctx)

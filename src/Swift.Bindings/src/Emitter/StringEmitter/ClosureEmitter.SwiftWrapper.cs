@@ -114,16 +114,48 @@ public static partial class ClosureEmitter
     /// callback on Swift release — bridges Bug 1 Cat 3 / Bug 3 Case 2. When false,
     /// the original behaviour stands (C# wrapper frees the GCHandle in <c>finally</c>).
     /// </param>
+    /// <param name="swiftWriter">
+    /// Writer for top-level wrapper-lib declarations. When non-null and the closure
+    /// throws, the per-module <c>SBW_CreateError_{module}</c> @_cdecl helper is
+    /// emitted here (idempotent) so the adapter's rethrow has a Swift error to
+    /// bit-cast. Pass null only from contexts that cannot emit top-level Swift.
+    /// </param>
+    /// <param name="ctx">Module emission context used to deduplicate the error-mint
+    /// helper and register its wrapper symbol. Null disables dedup/registration
+    /// (mirrors <see cref="SwiftErrorMintEmitter.EmitSwiftHelperIfNeeded"/>).</param>
+    /// <param name="moduleName">Module the closure belongs to; selects the
+    /// <c>SBW_CreateError_{module}</c> symbol. Must match the C#-side module used by
+    /// <see cref="SwiftErrorMintEmitter.EmitPInvokeIfNeeded"/> or the symbols desync.</param>
     /// <returns>Lines of Swift code to create the adapter closure.</returns>
     public static List<string> GetSwiftClosureAdapterCode(
         string paramName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
         bool isOptional,
-        bool isEscaping = false)
+        bool isEscaping = false,
+        SwiftWriter? swiftWriter = null,
+        ModuleEmissionContext? ctx = null,
+        string? moduleName = null)
     {
         var lines = new List<string>();
         var isThrowing = closureTypeSpec.Throws;
+
+        // Throwing closures: the C# callback converts a non-cooperative managed
+        // exception into a Swift error via SBW_CreateError_{module}. Emit that
+        // @_cdecl helper (idempotent per module) HERE — the single point every adapter
+        // call site funnels through (method / constructor / property setter /
+        // free-function wrapper / closure-cdecl wrapper) — so the adapter's rethrow
+        // always has an error to bit-cast regardless of which wrapper path generated
+        // it, and so the C#-side SBW_CreateError P/Invoke (WrapperEmitter.Marshalling
+        // -> SwiftErrorMintEmitter.EmitPInvokeIfNeeded) never references an
+        // unregistered wrapper symbol. The Swift wrapper pass runs before the C#
+        // binding's wrapper-symbol contract check (MethodHandler emits the Swift
+        // wrapper at EmitSwiftMethodWrapper, then the C# binding at EmitMethod), so
+        // this registration is always in time. Previously this was emitted only at
+        // the EmitClosureCdeclSwiftWrapper call site, so free functions routed
+        // through MethodWrapperEmitter stripped their first throwing closure.
+        if (isThrowing && swiftWriter != null)
+            SwiftErrorMintEmitter.EmitSwiftHelperIfNeeded(swiftWriter, moduleName ?? "SwiftBindings", ctx);
         var isIndirectReturn = closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !isThrowing;
         var closureSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec);
         var conventionCType = GetSwiftConventionCType(closureTypeSpec, closureHandler);
@@ -480,7 +512,6 @@ public static partial class ClosureEmitter
         }
         else if (isThrowing)
         {
-            var returnSwiftType = hasReturn ? ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType) : "Void";
             lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}) throws{returnTypeStr} in");
             if (!string.IsNullOrEmpty(observability))
                 lines.Add(observability.TrimEnd('\n'));
@@ -489,21 +520,25 @@ public static partial class ClosureEmitter
 
             if (hasReturn)
             {
-                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})", closureHandler);
-                lines.Add($"{indent}    let rawResult = {returnConversion}");
+                // Capture the raw cdecl result WITHOUT converting it yet, then check errorPtr
+                // BEFORE the conversion. The conversion dereferences the result pointer
+                // (.move() / Unmanaged.fromOpaque), but on the error path the C# callback
+                // returns null/sentinel — it never allocated a carrier — so converting first
+                // would deref a null/uninitialized buffer. Rethrowing first also means there
+                // is nothing to free on the error path.
+                lines.Add($"{indent}    let __rawCdeclResult = {cdeclVarName}({cdeclArgsStr})");
+                lines.Add($"{indent}    if let error = errorPtr {{");
+                lines.Add($"{indent}        throw unsafeBitCast(error, to: Swift.Error.self)");
+                lines.Add($"{indent}    }}");
+                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__rawCdeclResult", closureHandler);
+                lines.Add($"{indent}    return {returnConversion}");
             }
             else
             {
                 lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
-            }
-
-            lines.Add($"{indent}    if let error = errorPtr {{");
-            lines.Add($"{indent}        throw unsafeBitCast(error, to: Swift.Error.self)");
-            lines.Add($"{indent}    }}");
-
-            if (hasReturn)
-            {
-                lines.Add($"{indent}    return rawResult");
+                lines.Add($"{indent}    if let error = errorPtr {{");
+                lines.Add($"{indent}        throw unsafeBitCast(error, to: Swift.Error.self)");
+                lines.Add($"{indent}    }}");
             }
 
             lines.Add($"{indent}}}");
@@ -945,11 +980,15 @@ public static partial class ClosureEmitter
                 bool isEscaping = WrapperValidation.IsEffectivelyEscaping(
                     closureTypeSpec, arg.SwiftTypeSpec, closureHandler);
 
-                // Generate adapter code
+                // Generate adapter code. GetSwiftClosureAdapterCode emits the per-module
+                // SBW_CreateError_{module} @_cdecl helper itself when the closure throws
+                // (single source of truth across every adapter call site), so the rethrow
+                // always has a Swift error to bit-cast.
                 if (isEscaping)
                     ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, emissionContext);
                 adapterCode.AddRange(GetSwiftClosureAdapterCode(
-                    csName, closureTypeSpec, closureHandler, isOptional, isEscaping));
+                    csName, closureTypeSpec, closureHandler, isOptional, isEscaping,
+                    swiftWriter, emissionContext, methodDecl.ModuleDecl?.Name ?? "SwiftBindings"));
 
                 // Use adapter in call args
                 var adapterName = $"_adapted_{csName}";

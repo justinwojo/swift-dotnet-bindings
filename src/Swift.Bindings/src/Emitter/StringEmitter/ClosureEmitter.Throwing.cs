@@ -24,6 +24,7 @@ public static partial class ClosureEmitter
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
         string mangledName,
+        string moduleName,
         bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
@@ -81,58 +82,52 @@ public static partial class ClosureEmitter
 
         // Callback never frees the GCHandle — the calling method's finally block handles cleanup.
         // Escaping closures may fire multiple times, so freeing in the callback would crash.
-        var indent = "            ";
 
+        // Default value returned on BOTH the cooperative-failure and the caught-exception
+        // paths. Bool callbacks return the byte 0; void callbacks just return.
+        var defaultReturnStmt = !hasReturn
+            ? "return;"
+            : (returnIsBool ? "return 0;" : "return default;");
+
+        // Success return statement (shared conversion logic — same cases as
+        // EmitEscapingClosureCallback). Empty for void: control falls off the end of the
+        // try block and the callback returns void.
+        var successReturnStmt = hasReturn
+            ? BuildCallbackReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, returnType)
+            : "";
+
+        // The delegate invocation AND the success marshalling run inside try/catch: a
+        // managed exception (a non-cooperative throw from the user delegate, or a failure
+        // while marshalling the success value) must never unwind into native Swift — that
+        // aborts the process (SIGABRT). Convert it into a Swift error in *errorOut; the
+        // Swift adapter rethrows it on the Swift side. The cooperative IsFailure path is
+        // unchanged.
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
                 var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                var swiftResult = del({{invokeArgsString}});
-
-                if (swiftResult.IsFailure)
+                try
                 {
-                    // Set the error out parameter
-                    *errorOut = swiftResult.Failure;
-            """);
+                    var swiftResult = del({{invokeArgsString}});
+                    if (swiftResult.IsFailure)
+                    {
+                        // Cooperative failure: the delegate produced a SwiftError.
+                        *errorOut = swiftResult.Failure;
+                        {{defaultReturnStmt}}
+                    }
 
-        if (hasReturn)
-        {
-            if (returnIsBool)
-            {
-                csWriter.WriteLine($"{indent}    return 0; // Return default value on error");
+                    // Success case - no error.
+                    *errorOut = default;
+                    {{successReturnStmt}}
+                }
+                catch (global::System.Exception ex)
+                {
+                    *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}(ex.Message));
+                    {{defaultReturnStmt}}
+                }
             }
-            else
-            {
-                csWriter.WriteLine($"{indent}    return default; // Return default value on error");
-            }
-        }
-        else
-        {
-            // Void-return: explicit early return so we don't fall through
-            // to the success block and clobber *errorOut with default.
-            csWriter.WriteLine($"{indent}    return;");
-        }
-
-        csWriter.WriteLines($$"""
-            {{indent}}}
-
-            {{indent}}// Success case - no error
-            {{indent}}*errorOut = default;
             """);
-
-        if (hasReturn)
-        {
-            // Use the shared return conversion logic — same cases as EmitEscapingClosureCallback
-            var successReturn = BuildCallbackReturnStatement(
-                closureTypeSpec.ReturnType,
-                "swiftResult.Success",
-                closureHandler,
-                returnType);
-            csWriter.WriteLine($"{indent}{successReturn}");
-        }
-
-        csWriter.WriteLine("        }");
     }
 
     /// <summary>
@@ -173,9 +168,38 @@ public static partial class ClosureEmitter
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
         string resultVariableName = "result",
-        string? invokeThunkPInvokeName = null)
+        string? invokeThunkEntryPoint = null,
+        string? invokeThunkLibrary = null,
+        string? invokeThunkHelper = null)
     {
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
+
+        // When an invoke thunk is available, route through the pre-emitted CallConvCdecl invoker
+        // class instead of the inline `delegate* unmanaged[Swift]` lambda below. The inline lambda
+        // makes a CallConvSwift call from a display-class method, which crashes the returned
+        // throwing closure at runtime (an ABI/reabstraction SIGSEGV — the cdecl thunk passes the
+        // A/B probe 3/3 where the inline path SIGSEGVs 3/3). The throwing invoker class's `Invoke`
+        // returns SwiftResult<T, SwiftError> (matching the throwing delegate type) and consumes the
+        // error-out pointer internally, so it is a drop-in for the lambda. Mirrors the non-throwing
+        // EmitClosureReturnMarshalling path; the invoker class is already emitted by
+        // EmitClosureReturnInvokeThunkHelper whenever CanUseInvokeThunk holds.
+        if (invokeThunkEntryPoint != null && invokeThunkHelper != null)
+        {
+            var invokerClassName = GetInvokerClassName(invokeThunkHelper);
+            csWriter.WriteLines($$"""
+                // Wrap Swift closure in SwiftEscapingClosure for ARC management
+                var _closureWrapper = SwiftEscapingClosure<{{delegateType}}>.FromSwift({{resultVariableName}}.FunctionPointer, {{resultVariableName}}.Context);
+
+                // Use invoker class instead of lambda — Mono JIT crashes with !ji->async when
+                // native calls happen from display class methods (lambdas create display classes).
+                var _inv = new {{invokerClassName}}((nint)_closureWrapper.FunctionPointer, (nint)_closureWrapper.Context, _closureWrapper);
+                {{delegateType}} _invoker = _inv.Invoke;
+
+                return _invoker;
+                """);
+            return;
+        }
+
         var funcPtrType = closureHandler.GetPInvokeFunctionPointerTypeWithError(closureTypeSpec);
         var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
 

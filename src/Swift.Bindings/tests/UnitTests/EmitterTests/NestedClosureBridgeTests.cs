@@ -427,6 +427,41 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
+    public void TryEmit_OuterCallback_FailsFastOnManagedException()
+    {
+        // P0-01: the outer-closure UCO callback invokes the managed delegate. A non-throwing
+        // nested closure has no error channel, so a managed exception escaping the delegate must
+        // route to the fail-fast contract — never unwind into Swift (SIGABRT) and never be
+        // swallowed by a bare `catch { }`.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        // Outer (Int, (Int) -> Void) -> Void — outer callback returns void (the hardened path).
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int"), innerClosure }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "_perform");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var cs = csOutput.ToString();
+        Assert.Contains("catch (global::System.Exception", cs);
+        Assert.Contains("FailFastUnhandledClosureException", cs);
+        Assert.DoesNotContain("catch { }", cs);
+    }
+
+    [Fact]
     public void IsEligible_InnerClosureWithNonCdeclArg_ReturnsFalse()
     {
         // Inner closure with String arg — String is not cdecl-compatible
@@ -673,10 +708,51 @@ public class NestedClosureBridgeTests
         NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var swift = swiftOutput.ToString();
-        // takeUnretainedValue — bounded leak is safe for multi-call inner closures.
-        // passRetained(+1) keeps box alive for escaping closures; leak is bounded.
+        // The trampoline borrows the box (takeUnretainedValue) so the inner closure can be
+        // called multiple times during the outer invocation. The adapter's passRetained(+1)
+        // keeps the box alive for that window and is balanced by an explicit release after
+        // cdecl() returns for non-escaping inner closures (see TryEmit_ReleasesNonEscapingInnerBox).
         Assert.Contains("takeUnretainedValue", swift);
         Assert.DoesNotContain("takeRetainedValue", swift);
+    }
+
+    [Fact]
+    public void TryEmit_ReleasesNonEscapingInnerBox()
+    {
+        // The inner closure in CreateMethodWithNestedClosure is non-escaping, so the +1 box
+        // retain minted in the outer adapter must be balanced by a release after cdecl() returns
+        // (P1-16). Without this the binding leaks one AnyObject box per outer-closure invocation.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(__innerBox", swift);
+        Assert.Contains(".release()", swift);
+    }
+
+    [Fact]
+    public void TryEmit_DoesNotReleaseEscapingInnerBox()
+    {
+        // An @escaping inner closure may be invoked after the outer call returns, so releasing
+        // its box on the synchronous path would be a use-after-free. The box stays leaked (the
+        // only safe option here), so no release of __innerBox is emitted.
+        var (method, typeDatabase) = CreateMethodWithEscapingInnerClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        // Box is still minted (passRetained), but never released on this path.
+        Assert.Contains("Unmanaged.passRetained", swift);
+        Assert.DoesNotContain("Unmanaged<AnyObject>.fromOpaque(__innerBox", swift);
     }
 
     [Fact]
@@ -850,6 +926,35 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
+    public void TryEmit_NonEscapingOuter_FreesGCHandleUnconditionallyInFinally()
+    {
+        // Theme C: a non-escaping OUTER closure is invoked synchronously inside the call and Swift
+        // never owns it, so its per-call GCHandle must be freed on EVERY path. Pre-fix the
+        // try/finally was gated on `anyEscaping`, so a method whose only outer closure is
+        // non-escaping emitted no finally and leaked the handle (rooting the managed delegate and
+        // its captured graph) for the process lifetime. The fix wraps every outer closure's alloc
+        // in try/finally; the non-escaping branch frees unconditionally (no `__transferred` flag,
+        // which is the escaping ownership-transfer gate).
+        var (method, typeDatabase) = CreateMethodWithNonEscapingNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        // GCHandle still pre-declared at method scope (consistent with the escaping layout)...
+        Assert.Contains("GCHandle __gcHandle_0 = default;", cs);
+        // ...with no ownership-transfer flag (that gate is escaping-only)...
+        Assert.DoesNotContain("__transferred_0", cs);
+        // ...and the handle is freed in a finally regardless of how the call exits...
+        Assert.Contains("finally", cs);
+        // ...unconditionally (not behind the `!__transferred` escaping gate).
+        Assert.Contains("if (__gcHandle_0.IsAllocated) __gcHandle_0.Free();", cs);
+    }
+
+    [Fact]
     public void TryEmit_EscapingOuter_AllocsHappenInsideTryBlock()
     {
         var (method, typeDatabase) = CreateMethodWithNestedClosure();
@@ -915,6 +1020,67 @@ public class NestedClosureBridgeTests
 
         // Outer closure: (NSObject, innerClosure) -> Void
         // Using NSObject as a stand-in for HTTPURLResponse (ObjC-bridged)
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Foundation.NSObject"),
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onHTTPResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "_perform");
+
+        return (method, typeDatabase);
+    }
+
+    /// <summary>
+    /// Same shape as <see cref="CreateMethodWithNestedClosure"/> but the OUTER closure is NOT
+    /// marked @escaping. The outer fires synchronously inside the call, so Swift never owns its
+    /// GCHandle and the wrapper must free it unconditionally in finally (Theme C regression).
+    /// </summary>
+    private static (MethodDecl method, TypeDatabase typeDatabase) CreateMethodWithNonEscapingNestedClosure()
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        // Inner closure: (ResponseDisposition) -> Void
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
+            TupleTypeSpec.Empty);
+
+        // Outer closure: (NSObject, innerClosure) -> Void — note: NO @escaping on the outer.
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Foundation.NSObject"),
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+
+        var method = CreateMethodDecl("onHTTPResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "_perform");
+
+        return (method, typeDatabase);
+    }
+
+    /// <summary>
+    /// Same shape as <see cref="CreateMethodWithNestedClosure"/> but the inner closure is
+    /// marked @escaping. An escaping inner closure may be stored and called after the outer
+    /// invocation returns, so the box must outlive the call — the adapter must NOT release it.
+    /// </summary>
+    private static (MethodDecl method, TypeDatabase typeDatabase) CreateMethodWithEscapingInnerClosure()
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        // Inner closure: @escaping (ResponseDisposition) -> Void
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
+            TupleTypeSpec.Empty);
+        innerClosure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
         var outerClosureType = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[] {
                 new NamedTypeSpec("Foundation.NSObject"),

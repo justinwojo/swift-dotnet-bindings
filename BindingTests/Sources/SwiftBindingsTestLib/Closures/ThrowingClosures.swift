@@ -53,6 +53,22 @@ public func callThrowingBool(_ callback: @escaping (Int32) throws -> Bool) -> Bo
     }
 }
 
+/// Accepts a throwing closure returning a non-frozen struct (indirect return).
+/// Exercises the combined indirect-return + error-out callback path: when the C#
+/// delegate throws, the throwing-callback adapter must populate the Swift error-out
+/// and the adapter must surface that error BEFORE `.move()`-ing the never-written
+/// indirect result buffer. The thrown exception therefore unwinds through this
+/// `catch` and yields the sentinel (-1, -1) — never a SIGABRT (managed exception
+/// into native) or SIGSEGV (move of uninitialized storage). Graceful-fault guard
+/// for the non-primitive/indirect closure-return shape (P0-01).
+public func callThrowingNonFrozenReturn(_ callback: @escaping () throws -> NonFrozenPoint) -> NonFrozenPoint {
+    do {
+        return try callback()
+    } catch {
+        return NonFrozenPoint(x: -1, y: -1)
+    }
+}
+
 // MARK: - Returned Throwing Closure (Swift -> C# error path)
 
 /// Error thrown by `makeAlwaysThrowingIntClosure`. Participates in the shared
@@ -82,4 +98,13 @@ public final class TrackedClosureError: Error {
 /// is ever released.
 public func makeAlwaysThrowingIntClosure() -> () throws -> Int32 {
     return { throw TrackedClosureError(code: 7) }
+}
+
+/// Returns a `() throws -> Int32` closure that never throws — it returns 99. This is
+/// the success sibling of `makeAlwaysThrowingIntClosure`: the cdecl invoke thunk must
+/// route the returned throwing closure through the CallConvCdecl invoker class (not the
+/// inline CallConvSwift lambda that SIGSEGVs) and surface `SwiftResult.IsSuccess` with
+/// the value. Durable guard for the wired-up returned-throwing-closure path (Track-M4:105).
+public func makeNeverThrowingIntClosure() -> () throws -> Int32 {
+    return { 99 }
 }

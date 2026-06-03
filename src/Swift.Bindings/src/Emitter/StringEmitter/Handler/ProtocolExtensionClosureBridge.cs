@@ -146,39 +146,46 @@ public static class ProtocolExtensionClosureBridge
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // FromIntPtr itself never throws (it just reinterprets the cookie); the throwing step is
+        // handle.Target, which is resolved inside each guarded try below so a bad/freed handle
+        // faults via FailFast instead of unwinding out of the [UnmanagedCallersOnly] frame into
+        // the Swift @_cdecl caller → SIGABRT (P0-01).
         csWriter.WriteLine("var handle = GCHandle.FromIntPtr(contextPtr);");
 
         if (closureReturnIsBool)
         {
             // Bool return: extract Func<IntPtr..., bool>, invoke, convert to byte
             var funcTypeArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(_ => "IntPtr")) + ", bool";
-            csWriter.WriteLine($"var callback = (Func<{funcTypeArgs}>)handle.Target!;");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            csWriter.WriteLine($"var callback = (Func<{funcTypeArgs}>)handle.Target!;");
             var callArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"arg{i}"));
             csWriter.WriteLine($"return (byte)(callback({callArgs}) ? 1 : 0);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine("catch { return 0; }");
+            ClosureEmitter.EmitNonThrowingFailFastCatch(csWriter);
         }
         else if (closureReturnIsMethodGeneric)
         {
             // Generic return: extract Action<IntPtr..., IntPtr>, invoke with result buffer
             var actionTypeArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count + 1).Select(_ => "IntPtr"));
-            csWriter.WriteLine($"var callback = (Action<{actionTypeArgs}>)handle.Target!;");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            csWriter.WriteLine($"var callback = (Action<{actionTypeArgs}>)handle.Target!;");
             var callArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"arg{i}"));
             csWriter.WriteLine($"callback({callArgs}, resultBufPtr);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine("catch { }");
+            ClosureEmitter.EmitNonThrowingFailFastCatch(csWriter);
         }
         else
         {
             // Void return: extract Action<IntPtr...>, invoke
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
             if (closureArgs.Count > 0)
             {
                 var actionTypeArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(_ => "IntPtr"));
@@ -188,14 +195,11 @@ public static class ProtocolExtensionClosureBridge
             {
                 csWriter.WriteLine("var callback = (Action)handle.Target!;");
             }
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
             var callArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"arg{i}"));
             csWriter.WriteLine($"callback({callArgs});");
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine("catch { }");
+            ClosureEmitter.EmitNonThrowingFailFastCatch(csWriter);
         }
 
         csWriter.Indent--;
@@ -244,8 +248,18 @@ public static class ProtocolExtensionClosureBridge
         var pInvokeName = NameProvider.GetPInvokeName(method);
         var pinvokeParams = new List<string>();
 
-        // self_ first (protocol extension method ABI)
-        pinvokeParams.Add("IntPtr self_");
+        // self_ first (protocol extension method ABI). P1-22 (C1): a user non-closure param
+        // projected to `self_` would be a CS0100 duplicate, so reserve the synthetic against the
+        // user param names. Call-site args are positional, so the renamed declaration needs no
+        // call-site change.
+        var pinvokeReserved = new List<string>();
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            if (arg == closureArg) continue;
+            pinvokeReserved.Add(NameProvider.GetCSharpParameterName(arg));
+        }
+        var selfPInvokeName = new SyntheticNameScope(pinvokeReserved).Reserve("self_");
+        pinvokeParams.Add($"IntPtr {selfPInvokeName}");
 
         // Parameters in declaration order
         foreach (var arg in method.CSSignature.Skip(1))
@@ -472,12 +486,15 @@ public static class ProtocolExtensionClosureBridge
         }
         csWriter.WriteLine("__gcHandle = GCHandle.Alloc(__inner);");
 
-        if (isEscaping)
-        {
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-        }
+        // Always wrap the P/Invoke in try/finally so the GCHandle is released on every path.
+        // Escaping closures transfer ownership to Swift's `_SBClosureCtx` box (freed via the
+        // `!__transferred` gate); non-escaping closures are invoked synchronously inside the
+        // call and never owned by Swift, so their handle is freed unconditionally on return.
+        // Gating the try/finally on `isEscaping` previously leaked the handle for every
+        // non-escaping closure param.
+        csWriter.WriteLine("try");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
 
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
@@ -537,17 +554,17 @@ public static class ProtocolExtensionClosureBridge
             }
         }
 
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("finally");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
         if (isEscaping)
-        {
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("finally");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
             csWriter.WriteLine("if (!__transferred && __gcHandle.IsAllocated) __gcHandle.Free();");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-        }
+        else
+            csWriter.WriteLine("if (__gcHandle.IsAllocated) __gcHandle.Free();");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
 
         csWriter.Indent--;
         csWriter.WriteLine("}");

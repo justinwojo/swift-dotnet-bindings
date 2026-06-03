@@ -14,10 +14,11 @@ namespace Swift.Runtime;
 /// Swift side constructs a <c>String</c> from them. The error callback receives a
 /// pinned UTF-8 C-string exception message.
 ///
-/// The GCHandle is intentionally NOT freed — async closures share the escaping-closure
-/// leak semantics of <see cref="AsyncClosureHelper"/>: Swift may retain the closure
-/// context and invoke it more than once, so freeing after a single invocation would
-/// leave Swift with a dangling GCHandle.
+/// The GCHandle is NOT freed by this helper — it runs once per Swift invocation and the
+/// same context may be invoked more than once, so a per-invocation free would dangle a
+/// later leg. The handle's lifetime instead rides on the Swift-side <c>_SBClosureCtx</c>
+/// owner-token box (<c>_SBW_AsyncClosureHandoff.ctxOwner</c>), whose deinit frees it when
+/// Swift releases the adapter closure (P1-18); see <see cref="AsyncClosureHelper"/>.
 /// </summary>
 public static class StringAsyncClosureHelper
 {

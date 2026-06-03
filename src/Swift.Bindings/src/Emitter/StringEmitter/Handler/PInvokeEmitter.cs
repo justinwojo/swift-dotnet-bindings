@@ -389,6 +389,13 @@ namespace BindingsGeneration
                 _parameters.Add(new Parameter(MarshalledType.AsyncCallback, callbackName, CallExpression: callbackCallExpr));
                 _parameters.Add(new Parameter(MarshalledType.AsyncErrorCallback, errorCallbackName, CallExpression: errorCallbackCallExpr));
                 AddParameter(MarshalledType.AsyncTask, "handle");
+                // Monotonic cancellation-registry key, distinct from the recyclable GCHandle
+                // context above (P1-17). The wrapper body defines the matching
+                // `long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();` local before
+                // the call; the Swift @_cdecl wrapper registers tasks under this key, not the
+                // GCHandle cookie, so a completed task's deferred unregister cannot evict a
+                // newer task that reused the cookie.
+                AddParameter(MarshalledType.AsyncCancelKey, "_sbwCancelKey");
             }
         }
 
