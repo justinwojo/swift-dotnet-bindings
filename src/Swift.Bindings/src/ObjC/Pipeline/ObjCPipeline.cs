@@ -28,6 +28,7 @@ public static class ObjCPipeline
         ICommandRunner? commandRunner = null,
         string? namespacePattern = null,
         string? packageId = null,
+        string? packageVersion = null,
         bool sdkMode = false,
         bool isMixed = false,
         HashSet<string>? excludeTypeNames = null,
@@ -112,6 +113,24 @@ public static class ObjCPipeline
         // 4e. Detect delegate/data-source protocols and mark them with IsDelegateProtocol
         module = DetectDelegateProtocols(module, logger);
 
+        var diagnostics = new ObjCBindingDiagnostics();
+
+        // 4f. Native-symbol existence guard (Gap 3): drop classes the headers declare but
+        // whose `_OBJC_CLASS_$_<Name>` symbol is defined in NO binary the consumer links —
+        // header-only "over-bindings" whose ObjC runtime registration / link would fail
+        // (the demonstrated case is `_OBJC_CLASS_$_OMIDAdSession` undefined). Union symbols
+        // across every shipped slice AND the dependency framework binaries on the search
+        // paths, so a device-only/sim-only class, or one defined in a linked dependency, is
+        // not false-dropped from the shared ApiDefinition. Fail-open when no binary is
+        // readable or no class symbols are found at all (never remove without positive
+        // proof of absence). Classes only — protocols use `_OBJC_PROTOCOL_$_`/section
+        // metadata, not class symbols, and bgen tolerates protocol-only declarations.
+        var symbolBinaries = new List<string>();
+        symbolBinaries.AddRange(XCFrameworkResolver.EnumerateObjCSliceNativeBinaries(xcframeworkPath, logger));
+        symbolBinaries.AddRange(XCFrameworkResolver.EnumerateFrameworkBinariesUnder(additionalFrameworkSearchPaths, logger));
+        var symbolScan = NativeSymbolProbe.ScanObjCClassSymbols(symbolBinaries, commandRunner, logger);
+        module = FilterToNativeSymbolBackedClasses(module, symbolScan, logger, diagnostics);
+
         // 5. Emit bindings
         var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
         var resolvedNamespace = namespaceResolver.ResolveNamespace(resolution.ModuleName);
@@ -127,7 +146,6 @@ public static class ObjCPipeline
             resolvedNamespace = $"{resolvedNamespace}Binding";
         }
 
-        var diagnostics = new ObjCBindingDiagnostics();
         var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);
         var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);
         var structsPath = structsResult?.FilePath;
@@ -146,6 +164,7 @@ public static class ObjCPipeline
                     ModuleName = resolution.ModuleName,
                     SourceXCFrameworkPath = xcframeworkPath,
                     PackageId = packageId,
+                    PackageVersion = packageVersion,
                     PlatformInfo = pi,
                 }, logger);
         }
@@ -222,6 +241,92 @@ public static class ObjCPipeline
             Categories = sharedClassCategories,
             // Enums, structs, functions, constants, typedefs are never filtered
         };
+    }
+
+    /// <summary>
+    /// Native-symbol existence guard (Gap 3). Drops any class whose
+    /// <c>_OBJC_CLASS_$_&lt;Name&gt;</c> symbol is defined in none of the scanned binaries
+    /// (header-only "over-bindings" whose ObjC runtime registration / link would fail),
+    /// plus any category targeting a just-dropped class — a
+    /// <c>[Category][BaseType(typeof(X))]</c> on a removed class X fails to compile/link.
+    /// Protocols are never touched (they use <c>_OBJC_PROTOCOL_$_</c>/section metadata).
+    /// <para>
+    /// Fail-open: returns the module unchanged when no binary was readable
+    /// (<see cref="NativeSymbolProbe.ObjCClassSymbolScan.GatheredEvidence"/> is false), or
+    /// when the scan found no class symbols at all — absence of evidence is not evidence of
+    /// absence, and this guard only ever removes with positive proof.
+    /// </para>
+    /// </summary>
+    internal static ObjCModule FilterToNativeSymbolBackedClasses(
+        ObjCModule module,
+        NativeSymbolProbe.ObjCClassSymbolScan scan,
+        ILogger logger,
+        ObjCBindingDiagnostics diagnostics)
+    {
+        if (!scan.GatheredEvidence || scan.DefinedClassNames.Count == 0)
+        {
+            logger.LogDebug(
+                "Native-symbol guard: {Reason} — keeping all classes (fail-open).",
+                !scan.GatheredEvidence
+                    ? "no slice/dependency binary was readable"
+                    : "nm found no _OBJC_CLASS_$_ symbols");
+            return module;
+        }
+
+        var keptClasses = new List<ObjCClassDecl>(module.Classes.Count);
+        var droppedClassNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var cls in module.Classes)
+        {
+            // A class with objc_runtime_name has its symbol under the runtime name, which the
+            // JSON AST doesn't expose — so DefinedClassNames (keyed on declared names) can't
+            // confirm or refute it. Keep it: the guard only ever drops with positive proof of
+            // absence, and we have none here.
+            if (scan.DefinedClassNames.Contains(cls.Name) || cls.HasCustomRuntimeName)
+            {
+                keptClasses.Add(cls);
+            }
+            else
+            {
+                droppedClassNames.Add(cls.Name);
+                diagnostics.RecordSkip("class", cls.Name, ObjCSkipReason.MissingNativeSymbol,
+                    $"no _OBJC_CLASS_${cls.Name} symbol defined in any framework slice or linked dependency");
+            }
+        }
+
+        // Drop categories whose base class was just dropped. Categories on classes that
+        // survive, or on Apple SDK / foreign classes not in this module's class set, are kept.
+        var keptCategories = new List<ObjCCategoryDecl>(module.Categories.Count);
+        var droppedCategoryCount = 0;
+        foreach (var cat in module.Categories)
+        {
+            if (droppedClassNames.Contains(cat.ClassName))
+            {
+                droppedCategoryCount++;
+                diagnostics.RecordSkip("category", $"{cat.ClassName}+{cat.CategoryName}",
+                    ObjCSkipReason.MissingNativeSymbol,
+                    $"base class '{cat.ClassName}' has no native class symbol");
+            }
+            else
+            {
+                keptCategories.Add(cat);
+            }
+        }
+
+        if (droppedClassNames.Count == 0 && droppedCategoryCount == 0)
+            return module;
+
+        logger.LogWarning(
+            "SWIFTBIND054: dropped {ClassCount} over-bound ObjC class(es) with no native " +
+            "_OBJC_CLASS_$_ symbol{CatSuffix}: {Names}. These are declared in the framework " +
+            "headers but not defined in any shipped slice or linked dependency; binding them " +
+            "would fail to link. Review the framework distribution if any are expected.",
+            droppedClassNames.Count,
+            droppedCategoryCount > 0
+                ? $" (and {droppedCategoryCount} dependent category/categories)"
+                : "",
+            string.Join(", ", droppedClassNames.OrderBy(n => n, StringComparer.Ordinal)));
+
+        return module with { Classes = keptClasses, Categories = keptCategories };
     }
 
     /// <summary>

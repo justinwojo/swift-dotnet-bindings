@@ -262,6 +262,58 @@ namespace BindingsGeneration.Tests
 
             Assert.Contains("Thunk linking failed", ex.Message);
         }
+
+        [Fact]
+        public void LinkWithClang_ForceLoadBinary_EmitsClangForceLoadFlag()
+        {
+            // Gap 2: the thunk-only (no Swift wrapper) link path must also force-load a
+            // static-archive primary so the wrapper carries its ObjC classes. clang takes
+            // the linker flag as `-Wl,-force_load,<path>`. The binary must exist on disk.
+            var archive = Path.Combine(Path.GetTempPath(), $"clang_forceload_{Guid.NewGuid():N}.a");
+            File.WriteAllBytes(archive, new byte[] { 0x21, 0x3C, 0x61, 0x72, 0x63, 0x68, 0x3E, 0x0A });
+            try
+            {
+                var mockRunner = new MockCommandRunner();
+                mockRunner.SetResponse("clang -shared", 0, "", "");
+
+                NativeThunkCompiler.LinkWithClang(
+                    new[] { "/tmp/thunk.o" },
+                    "/tmp/output/binary",
+                    "TestSwiftBindings",
+                    "arm64-apple-ios17.0-simulator",
+                    "/sdk/path",
+                    mockRunner,
+                    NullLogger.Instance,
+                    forceLoadBinaries: new[] { archive });
+
+                var call = mockRunner.Invocations.First(i => i.Arguments.Contains("clang -shared"));
+                Assert.Contains($"-Wl,-force_load,\"{archive}\"", call.Arguments);
+            }
+            finally
+            {
+                File.Delete(archive);
+            }
+        }
+
+        [Fact]
+        public void LinkWithClang_NoForceLoadBinaries_NoForceLoadFlag()
+        {
+            var mockRunner = new MockCommandRunner();
+            mockRunner.SetResponse("clang -shared", 0, "", "");
+
+            NativeThunkCompiler.LinkWithClang(
+                new[] { "/tmp/thunk.o" },
+                "/tmp/output/binary",
+                "TestSwiftBindings",
+                "arm64-apple-ios17.0-simulator",
+                "/sdk/path",
+                mockRunner,
+                NullLogger.Instance,
+                forceLoadBinaries: null);
+
+            var call = mockRunner.Invocations.First(i => i.Arguments.Contains("clang -shared"));
+            Assert.DoesNotContain("-force_load", call.Arguments);
+        }
     }
 
     #endregion

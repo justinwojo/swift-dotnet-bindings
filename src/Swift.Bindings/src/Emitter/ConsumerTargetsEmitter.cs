@@ -25,6 +25,14 @@ namespace BindingsGeneration
         /// </summary>
         public string? XcframeworkPath { get; init; }
         /// <summary>
+        /// Native linkage of the source framework. When <see cref="NativeLinkage.Static"/>, the
+        /// wrapper is the sole carrier of the framework's ObjC classes (it force-loaded the static
+        /// archive), so the source xcframework NativeReference is dropped from BOTH the nupkg
+        /// <c>.targets</c> and the local <c>.ProjectReference.targets</c> — injecting it again
+        /// would duplicate-register every ObjC class. Dynamic sources keep the reference.
+        /// </summary>
+        public NativeLinkage SourceNativeLinkage { get; init; } = NativeLinkage.Dynamic;
+        /// <summary>
         /// Platform info for multi-platform support. Falls back to iOS if not specified (CLI default).
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
@@ -87,14 +95,45 @@ namespace BindingsGeneration
             var sanitized = SanitizeModuleName(options.ModuleName);
             var targetsPath = Path.Combine(options.OutputDirectory, $"{options.PackageId}.targets");
 
+            var wrapperXcfwPath = $"$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework";
             var wrapperNativeRef = options.HasWrapperXCFramework
                 ? $"""
-                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework')">
+                          <NativeReference Include="{wrapperXcfwPath}"
+                                           Condition="Exists('{wrapperXcfwPath}')">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
                 : "";
+
+            // Gap 2: the source xcframework reference is never dropped from these frozen consumer
+            // targets. They are written before the SDK's two-pass flow compiles the wrapper and
+            // are evaluated later on the consumer's machine, so a baked drop decision would gamble
+            // on a wrapper that a soft-failed or skipped compile may never produce — leaving the
+            // consumer with no native carrier at all (DllNotFound). Instead a static-archive source
+            // paired with a wrapper is referenced as a wrapper-absent fallback: when the wrapper is
+            // present the static archive stays inert (its classes are force-loaded into the wrapper,
+            // so referencing both would double-register them); when the wrapper is absent the source
+            // self-heals as the sole carrier. Dynamic sources and a static source with no wrapper
+            // are referenced unconditionally. The pack item (disk-based) keeps the source in tandem
+            // when the wrapper is absent at pack, so within an internally-consistent nupkg the
+            // runtimes/ path carries whichever xcframework this fallback resolves to: a static
+            // source dropped at pack means the wrapper WAS on disk and is therefore packed, so the
+            // consumer's Exists(wrapper) is satisfied. (The one unrecoverable case — a nupkg that
+            // drops the source yet ships no wrapper — is post-pack corruption, not a pack decision
+            // this code can make.) NativePackagingPolicy is the shared authority; the carrier here
+            // is the "will be produced" intent (HasWrapperXCFramework).
+            var sourceXcfwPath = $"$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework";
+            var sourceCondition = NativePackagingPolicy.ResolveConsumerSourceReferenceMode(
+                    options.SourceNativeLinkage, options.HasWrapperXCFramework) == SourceReferenceMode.WrapperAbsentFallback
+                ? $"!Exists('{wrapperXcfwPath}') AND Exists('{sourceXcfwPath}')"
+                : $"Exists('{sourceXcfwPath}')";
+            var sourceNativeRef = $"""
+
+                      <NativeReference Include="{sourceXcfwPath}"
+                                       Condition="{sourceCondition}">
+                        <Kind>Framework</Kind>
+                      </NativeReference>
+                """;
 
             // Native-macOS exclusion: the SwiftUI bridge is UIKit-only, so its macOS
             // slice is an empty Mach-O. Referencing it makes a native-macOS consumer
@@ -153,11 +192,7 @@ namespace BindingsGeneration
                     <PropertyGroup>
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
-                    <ItemGroup>
-                      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework"
-                                       Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework')">
-                        <Kind>Framework</Kind>
-                      </NativeReference>
+                    <ItemGroup>{sourceNativeRef}
                 {wrapperNativeRef}{bridgeNativeRef}{resourceBundleItems}    </ItemGroup>
                   </Target>
 
@@ -209,10 +244,11 @@ namespace BindingsGeneration
         {
             var localTargetsPath = Path.Combine(options.OutputDirectory, $"{options.PackageId}.ProjectReference.targets");
 
+            var wrapperXcfwPath = $"$(MSBuildThisFileDirectory){options.ModuleName}SwiftBindings.xcframework";
             var wrapperNativeRef = options.HasWrapperXCFramework
                 ? $"""
-                          <NativeReference Include="$(MSBuildThisFileDirectory){options.ModuleName}SwiftBindings.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory){options.ModuleName}SwiftBindings.xcframework')">
+                          <NativeReference Include="{wrapperXcfwPath}"
+                                           Condition="Exists('{wrapperXcfwPath}')">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
@@ -246,15 +282,29 @@ namespace BindingsGeneration
             // Compute the relative path from the output directory to the source xcframework.
             // This avoids hardcoding directory traversal depth, which breaks if the consumer
             // customizes IntermediateOutputPath or BaseIntermediateOutputPath.
+            //
+            // Gap 2: like the nupkg .targets, the source xcframework reference is never dropped —
+            // a static-archive source paired with a wrapper is referenced as a wrapper-absent
+            // fallback. This local PR path points at the on-disk source that DOES exist, so the
+            // !Exists(wrapper) guard is what keeps the static archive inert while the wrapper is
+            // present (referencing both would duplicate-register its classes); if the wrapper
+            // compile soft-failed, the source self-heals as the sole carrier. Dynamic sources and
+            // a static source with no wrapper are referenced unconditionally. NativePackagingPolicy
+            // is the shared authority; carrier is the "will be produced" intent.
             var sourceXcfwRef = "";
             if (options.XcframeworkPath != null)
             {
                 var outputFullPath = Path.GetFullPath(options.OutputDirectory);
                 var xcfwFullPath = Path.GetFullPath(options.XcframeworkPath);
                 var relativePath = Path.GetRelativePath(outputFullPath, xcfwFullPath);
+                var sourceXcfwPath = $"$(MSBuildThisFileDirectory){relativePath}";
+                var sourceCondition = NativePackagingPolicy.ResolveConsumerSourceReferenceMode(
+                        options.SourceNativeLinkage, options.HasWrapperXCFramework) == SourceReferenceMode.WrapperAbsentFallback
+                    ? $"!Exists('{wrapperXcfwPath}') AND Exists('{sourceXcfwPath}')"
+                    : $"Exists('{sourceXcfwPath}')";
                 sourceXcfwRef = $"""
-                      <NativeReference Include="$(MSBuildThisFileDirectory){relativePath}"
-                                       Condition="Exists('$(MSBuildThisFileDirectory){relativePath}')">
+                      <NativeReference Include="{sourceXcfwPath}"
+                                       Condition="{sourceCondition}">
                         <Kind>Framework</Kind>
                       </NativeReference>
                 """;

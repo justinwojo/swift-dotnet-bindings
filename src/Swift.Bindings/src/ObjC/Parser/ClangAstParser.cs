@@ -341,6 +341,12 @@ public static class ClangAstParser
         var swiftName = ExtractSwiftName(element);
         var (docComment, _) = ExtractDocComment(element);
 
+        // An interface marked __attribute__((objc_runtime_name("X"))) has its runtime class
+        // symbol under X, not its declared name. Clang's JSON AST emits an ObjCRuntimeNameAttr
+        // child node but omits the string argument, so we can only record the attribute's
+        // presence; the native-symbol guard uses this to avoid false-dropping the class.
+        var hasCustomRuntimeName = HasDirectChildOfKind(element, "ObjCRuntimeNameAttr");
+
         return new ObjCClassDecl
         {
             Name = name,
@@ -351,8 +357,26 @@ public static class ClangAstParser
             Properties = properties,
             Availability = availability,
             SwiftName = swiftName,
-            DocComment = docComment
+            DocComment = docComment,
+            HasCustomRuntimeName = hasCustomRuntimeName
         };
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="element"/> has a direct <c>inner</c> child whose
+    /// <c>kind</c> equals <paramref name="kind"/>. Used to detect decl-level attribute nodes
+    /// (e.g. <c>ObjCRuntimeNameAttr</c>) that clang places alongside member declarations.
+    /// </summary>
+    private static bool HasDirectChildOfKind(JsonElement element, string kind)
+    {
+        if (!element.TryGetProperty("inner", out var inner) || inner.ValueKind != JsonValueKind.Array)
+            return false;
+        foreach (var child in inner.EnumerateArray())
+        {
+            if (GetOptionalString(child, "kind") == kind)
+                return true;
+        }
+        return false;
     }
 
     private static ObjCProtocolDecl? ParseProtocolDecl(JsonElement element, string? currentFile = null)
@@ -1429,6 +1453,11 @@ public static class ClangAstParser
                 var allProtocols = new HashSet<string>(richest.ProtocolNames);
                 var allGenericParams = new HashSet<string>(richest.GenericTypeParamNames);
                 var allAvailability = new List<ObjCAvailability>(richest.Availability);
+                // objc_runtime_name can appear on any duplicate declaration (it is not tied to the
+                // richest-by-member-count one). OR it across all duplicates so the native-symbol
+                // guard never false-drops a runtime-renamed class just because the attribute landed
+                // on a sparser decl.
+                var hasCustomRuntimeName = g.Any(c => c.HasCustomRuntimeName);
 
                 foreach (var dup in g)
                 {
@@ -1450,7 +1479,8 @@ public static class ClangAstParser
                     SuperclassName = superclass,
                     ProtocolNames = allProtocols.ToList(),
                     GenericTypeParamNames = allGenericParams.ToList(),
-                    Availability = allAvailability
+                    Availability = allAvailability,
+                    HasCustomRuntimeName = hasCustomRuntimeName
                 };
             })
             .ToList();

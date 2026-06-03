@@ -754,6 +754,157 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region H. Static-Linkage Source Wrapper-Absent Fallback (Gap 2)
+
+    /// <summary>
+    /// When the source framework's native binary is a static <c>ar</c> archive, the wrapper
+    /// force-loads it and becomes the sole carrier of its ObjC classes — so referencing the
+    /// source xcframework while the wrapper is present would duplicate-register every class.
+    /// But these consumer targets are frozen before the wrapper is compiled and evaluated later
+    /// on the consumer's machine, so they must NOT bake a drop decision (a soft-failed/skipped
+    /// wrapper compile would then leave no carrier at all). Instead the source is referenced as a
+    /// wrapper-absent fallback (<c>!Exists(wrapper) AND Exists(source)</c>): inert while the
+    /// wrapper is present, the sole carrier when it is not. Dynamic sources and a static source
+    /// with no wrapper are referenced unconditionally (<c>Exists(source)</c>).
+    /// </summary>
+    public class ConsumerTargetsStaticLinkageTests
+    {
+        [Fact]
+        public void Emit_NupkgTargets_StaticSource_ReferencesSourceAsWrapperAbsentFallback()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitNupkg(dir, "Nuke", "Nuke.Swift.iOS", NativeLinkage.Static, hasWrapper: true);
+                // Wrapper (force-load carrier) is referenced...
+                Assert.Contains("native/NukeSwiftBindings.xcframework", content);
+                // ...and the source is kept, but only as a fallback gated on the wrapper's absence,
+                // so it self-heals to the sole carrier if the wrapper compile soft-failed.
+                Assert.Contains("native/Nuke.xcframework", content);
+                Assert.Contains(
+                    "!Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/NukeSwiftBindings.xcframework') "
+                    + "AND Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')",
+                    content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NupkgTargets_DynamicSource_ReferencesSourceUnconditionally()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitNupkg(dir, "Nuke", "Nuke.Swift.iOS", NativeLinkage.Dynamic, hasWrapper: true);
+                // Dynamic source is always carried by the source xcframework — plain Exists, no
+                // wrapper-absent fallback (the wrapper and source coexist).
+                Assert.Contains(
+                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')\"",
+                    content);
+                Assert.DoesNotContain("!Exists(", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NupkgTargets_StaticSourceNoWrapper_ReferencesSoleCarrierUnconditionally()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // Static source but no wrapper to carry it: the source IS the sole carrier and
+                // must be referenced unconditionally — dropping it would link no native at all.
+                var content = EmitNupkg(dir, "Nuke", "Nuke.Swift.iOS", NativeLinkage.Static, hasWrapper: false);
+                Assert.Contains(
+                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')\"",
+                    content);
+                Assert.DoesNotContain("NukeSwiftBindings.xcframework", content);
+                Assert.DoesNotContain("!Exists(", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ProjectReferenceTargets_StaticSource_ReferencesSourceAsWrapperAbsentFallback()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var sourceXcfw = Path.Combine(dir, "Nuke.xcframework");
+                Directory.CreateDirectory(sourceXcfw);
+
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    PackageId = "Nuke.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    XcframeworkPath = sourceXcfw,
+                    SourceNativeLinkage = NativeLinkage.Static,
+                }, NullLogger.Instance);
+
+                var prContent = File.ReadAllText(
+                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                // The local source archive always exists on disk here, so the !Exists(wrapper)
+                // guard is what keeps it inert while the wrapper is present and active when not.
+                Assert.Contains("NukeSwiftBindings.xcframework", prContent);
+                Assert.Contains(
+                    "!Exists('$(MSBuildThisFileDirectory)NukeSwiftBindings.xcframework') "
+                    + "AND Exists('$(MSBuildThisFileDirectory)Nuke.xcframework')",
+                    prContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ProjectReferenceTargets_DynamicSource_ReferencesSourceUnconditionally()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var sourceXcfw = Path.Combine(dir, "Nuke.xcframework");
+                Directory.CreateDirectory(sourceXcfw);
+
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    PackageId = "Nuke.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    XcframeworkPath = sourceXcfw,
+                    SourceNativeLinkage = NativeLinkage.Dynamic,
+                }, NullLogger.Instance);
+
+                var prContent = File.ReadAllText(
+                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                Assert.Contains("Nuke.xcframework\"", prContent);
+                Assert.DoesNotContain("!Exists(", prContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitNupkg(
+            string dir, string module, string packageId, NativeLinkage linkage, bool hasWrapper)
+        {
+            ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                PackageId = packageId,
+                EffectiveMinimumOSVersion = "15.0",
+                HasWrapperXCFramework = hasWrapper,
+                SourceNativeLinkage = linkage,
+            }, NullLogger.Instance);
+            return File.ReadAllText(Path.Combine(dir, $"{packageId}.targets"));
+        }
+
+        private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+    }
+
+    #endregion
+
     #region Test Helper
 
     internal static class ConsumerTargetsTestHelper

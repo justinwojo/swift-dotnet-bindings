@@ -372,6 +372,9 @@ namespace BindingsGeneration
                         simPrecompiledShadowPaths.Add(shadow);
                 }
 
+                // Gap 2: force-load a static-archive simulator primary into the wrapper.
+                var simForceLoad = ResolvePrimaryForceLoad(simulatorResolution.DylibPath, commandRunner, logger);
+
                 if (cleanedFiles.Count > 0)
                 {
                     InvokeSwiftCompiler(
@@ -380,7 +383,8 @@ namespace BindingsGeneration
                         simulatorResolution.FrameworkSearchPath, commandRunner, logger,
                         simEffectiveSearchPaths,
                         simPrecompiledShadowPaths.Count > 0 ? simPrecompiledShadowPaths : null,
-                        simThunkResult?.ObjectFiles, moduleName);
+                        simThunkResult?.ObjectFiles, moduleName,
+                        forceLoadBinaries: simForceLoad);
                     sliceCount++;
                 }
                 else if (simThunkResult != null && simThunkResult.ObjectFiles.Count > 0)
@@ -389,7 +393,8 @@ namespace BindingsGeneration
                     NativeThunkCompiler.LinkWithClang(
                         simThunkResult.ObjectFiles, simBinaryPath, wrapperModuleName,
                         simTargetTriple, simSdkPath, commandRunner, logger,
-                        simulatorResolution.FrameworkSearchPath, moduleName);
+                        simulatorResolution.FrameworkSearchPath, moduleName,
+                        forceLoadBinaries: simForceLoad);
                     sliceCount++;
                 }
 
@@ -498,6 +503,9 @@ namespace BindingsGeneration
                             devPrecompiledShadowPaths.Add(shadow);
                     }
 
+                    // Gap 2: force-load a static-archive device primary into the wrapper.
+                    var devForceLoad = ResolvePrimaryForceLoad(deviceResolution.DylibPath, commandRunner, logger);
+
                     if (cleanedFiles.Count > 0)
                     {
                         InvokeSwiftCompiler(
@@ -506,7 +514,8 @@ namespace BindingsGeneration
                             deviceResolution.FrameworkSearchPath, commandRunner, logger,
                             devEffectiveSearchPaths,
                             devPrecompiledShadowPaths.Count > 0 ? devPrecompiledShadowPaths : null,
-                            devThunkResult?.ObjectFiles, moduleName);
+                            devThunkResult?.ObjectFiles, moduleName,
+                            forceLoadBinaries: devForceLoad);
                         sliceCount++;
                     }
                     else if (devThunkResult != null && devThunkResult.ObjectFiles.Count > 0)
@@ -515,7 +524,8 @@ namespace BindingsGeneration
                         NativeThunkCompiler.LinkWithClang(
                             devThunkResult.ObjectFiles, devBinaryPath, wrapperModuleName,
                             devTargetTriple, devSdkPath, commandRunner, logger,
-                            deviceResolution.FrameworkSearchPath, moduleName);
+                            deviceResolution.FrameworkSearchPath, moduleName,
+                            forceLoadBinaries: devForceLoad);
                         sliceCount++;
                     }
 
@@ -779,6 +789,14 @@ namespace BindingsGeneration
                 var objectFilesToLink = thunkResult?.ObjectFiles?.Count > 0
                     ? (IReadOnlyList<string>)thunkResult.ObjectFiles : null;
 
+                // Gap 2: when the bound module's native binary is a static `ar` archive, it
+                // must be force-loaded into the wrapper so the wrapper is the SOLE carrier of
+                // its ObjC classes (and the source xcframework is then dropped from every
+                // consumer reference/pack site — see _SwiftBindingSourceNativeLinkage). A
+                // dynamic primary, or the direct/Apple path's `.tbd` text stub, returns
+                // Dynamic and is left to the normal auto-linked `-framework`.
+                var forceLoadBinaries = ResolvePrimaryForceLoad(dylibPath, commandRunner, logger);
+
                 // 7. Link into wrapper binary
                 if (cleanedFiles.Count > 0)
                 {
@@ -788,7 +806,8 @@ namespace BindingsGeneration
                         targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
                         effectiveSearchPaths,
                         precompiledShadowPaths.Count > 0 ? precompiledShadowPaths : null,
-                        objectFilesToLink, moduleName);
+                        objectFilesToLink, moduleName,
+                        forceLoadBinaries: forceLoadBinaries);
                 }
                 else if (objectFilesToLink != null && objectFilesToLink.Count > 0)
                 {
@@ -798,7 +817,8 @@ namespace BindingsGeneration
                     NativeThunkCompiler.LinkWithClang(
                         objectFilesToLink, outputBinaryPath, wrapperModuleName,
                         targetTriple, sdkPath, commandRunner, logger,
-                        frameworkSearchPath, moduleName);
+                        frameworkSearchPath, moduleName,
+                        forceLoadBinaries: forceLoadBinaries);
                 }
                 else if (cleanedFiles.Count == 0)
                 {
@@ -1395,7 +1415,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
             IReadOnlyList<string>? precompiledShadowFrameworkPaths = null,
             IReadOnlyList<string>? thunkObjectFiles = null,
-            string? originalModuleName = null)
+            string? originalModuleName = null,
+            IReadOnlyList<string>? forceLoadBinaries = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
@@ -1497,6 +1518,31 @@ namespace BindingsGeneration
                 }
             }
 
+            // Gap 2: force-load the bound source framework's native when it ships as a
+            // static `ar` archive, so the wrapper becomes the SOLE runtime carrier of its
+            // ObjC classes (the consumer-side source NativeReference is dropped in tandem).
+            // A bare `-framework <X>` against a static archive does lazy resolution — it
+            // pulls only the members that satisfy symbols the wrapper code already
+            // references, leaving any class not directly referenced out of the binary.
+            // `-force_load` pulls every member. Referencing the same archive again via the
+            // auto-linked `-framework` is a no-op (ld loads each member once), so
+            // force_load + -framework on one archive is safe.
+            //
+            // Only the primary source framework is force-loaded here. Static *transitive
+            // dependencies* are deliberately NOT force-loaded: a Swift-to-Swift dependency
+            // carries its own native in its own wrapper nupkg, so force-loading it into
+            // this wrapper too would double-embed it across both wrappers — worse than the
+            // single duplicate this fix removes. That case needs its own design.
+            var forceLoadFlags = new System.Text.StringBuilder();
+            if (forceLoadBinaries != null)
+            {
+                foreach (var binary in forceLoadBinaries)
+                {
+                    if (!string.IsNullOrEmpty(binary) && System.IO.File.Exists(binary))
+                        forceLoadFlags.Append($"-Xlinker -force_load -Xlinker \"{binary}\" ");
+                }
+            }
+
             string BuildArgs(string extraLinkerFlags) =>
                 $"swiftc -emit-library -target {targetTriple} " +
                 $"-sdk \"{sdkPath}\" " +
@@ -1505,6 +1551,7 @@ namespace BindingsGeneration
                 $"-module-name {wrapperModuleName} " +
                 $"{thunkLinkerFlags}" +
                 $"{transitiveFrameworkLinkerFlags}" +
+                $"{forceLoadFlags}" +
                 $"{extraLinkerFlags}" +
                 $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
                 $"-o \"{outputBinaryPath}\" " +
@@ -1638,6 +1685,25 @@ namespace BindingsGeneration
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Gap 2 primary-native force-load decision. Returns a single-element list containing
+        /// <paramref name="dylibPath"/> when it is a static <c>ar</c> archive (so the wrapper
+        /// force-loads it and becomes the sole carrier of its ObjC classes), or <c>null</c>
+        /// for a dynamic library / TBD text stub / missing path. Centralised so the swiftc and
+        /// clang link paths make the identical decision from one probe.
+        /// </summary>
+        private static List<string>? ResolvePrimaryForceLoad(
+            string dylibPath, ICommandRunner commandRunner, ILogger logger)
+        {
+            if (NativeLinkageProbe.Detect(dylibPath, commandRunner, logger) != NativeLinkage.Static)
+                return null;
+
+            logger.LogInformation(
+                "Source native is a static archive — force-loading into the wrapper as the sole carrier: {Path}",
+                dylibPath);
+            return new List<string> { dylibPath };
         }
 
         internal static string? TryGetMacCatalystIOSSupportFrameworkPath(string targetTriple, string sdkPath)

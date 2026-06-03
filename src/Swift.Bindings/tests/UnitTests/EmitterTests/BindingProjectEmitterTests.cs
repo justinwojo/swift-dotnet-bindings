@@ -745,6 +745,145 @@ namespace BindingsGeneration.Tests
     }
 
     /// <summary>
+    /// Gap 2: a source framework whose native binary is a static <c>ar</c> archive is
+    /// force-loaded into the wrapper, which becomes the sole runtime carrier. The csproj
+    /// must therefore DROP the source xcframework NativeReference and its pack item (else
+    /// the same ObjC classes are embedded/registered twice) while keeping the wrapper
+    /// NativeReference. Dynamic sources (the default) keep the source reference.
+    /// </summary>
+    public class BindingProjectStaticLinkageTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_StaticSource_OmitsSourceNativeReferenceAndPackItem()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var wrapperPath = Path.Combine(dir, "NukeSwiftBindings.xcframework");
+                Directory.CreateDirectory(wrapperPath);
+
+                var content = Emit(dir, "Nuke", wrapperPath, NativeLinkage.Static);
+
+                // Wrapper (the sole carrier) MUST remain.
+                Assert.Contains("NukeSwiftBindings.xcframework", content);
+                // Source xcframework NativeReference + pack item MUST be gone.
+                Assert.DoesNotContain("Include=\"../Nuke.xcframework\"", content);
+                Assert.DoesNotContain("runtimes/ios-arm64/native/Nuke.xcframework/", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_DynamicSource_KeepsSourceNativeReferenceAndPackItem()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var wrapperPath = Path.Combine(dir, "NukeSwiftBindings.xcframework");
+                Directory.CreateDirectory(wrapperPath);
+
+                var content = Emit(dir, "Nuke", wrapperPath, NativeLinkage.Dynamic);
+
+                // Dynamic source is referenced as a NativeReference and packed normally.
+                Assert.Contains("Include=\"../Nuke.xcframework\"", content);
+                Assert.Contains("runtimes/ios-arm64/native/Nuke.xcframework/", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_StaticSource_WithoutWrapper_KeepsSourceAsSoleCarrier()
+        {
+            // --skip-wrapper-compilation (or a wrapper failure) leaves no wrapper carrier, so
+            // the static source was never force-loaded into anything and is still the only
+            // native. Dropping it would emit a project with no native at all — keep it.
+            var dir = CreateTempDir();
+            try
+            {
+                var sourceXcfwPath = Path.Combine(dir, "..", "Nuke.xcframework");
+                Directory.CreateDirectory(sourceXcfwPath);
+
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    Metadata = CreateMetadata("Nuke"),
+                    SourceXCFrameworkPath = sourceXcfwPath,
+                    WrapperXCFrameworkPath = null, // no wrapper compiled
+                    SourceNativeLinkage = NativeLinkage.Static,
+                }, _logger);
+
+                var content = File.ReadAllText(Path.Combine(dir, "Nuke.Swift.iOS.csproj"));
+                Assert.Contains("Include=\"../Nuke.xcframework\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_DefaultLinkage_IsDynamic_KeepsSource()
+        {
+            // SourceNativeLinkage defaults to Dynamic — an emitter caller that never sets
+            // it (every pre-Gap-2 call site) must keep shipping the source xcframework.
+            var dir = CreateTempDir();
+            try
+            {
+                var sourceXcfwPath = Path.Combine(dir, "..", "Nuke.xcframework");
+                Directory.CreateDirectory(sourceXcfwPath);
+
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    Metadata = CreateMetadata("Nuke"),
+                    SourceXCFrameworkPath = sourceXcfwPath,
+                }, _logger);
+
+                var content = File.ReadAllText(Path.Combine(dir, "Nuke.Swift.iOS.csproj"));
+                Assert.Contains("Include=\"../Nuke.xcframework\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string Emit(string dir, string module, string wrapperPath, NativeLinkage linkage)
+        {
+            var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
+            Directory.CreateDirectory(sourceXcfwPath);
+
+            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                Metadata = CreateMetadata(module),
+                SourceXCFrameworkPath = sourceXcfwPath,
+                WrapperXCFrameworkPath = wrapperPath,
+                SourceNativeLinkage = linkage,
+            }, _logger);
+            return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
+        }
+
+        private static XCFrameworkMetadata CreateMetadata(string module) => new()
+        {
+            LibraryVersion = "1.0.0",
+            PackageVersion = "1.0.0",
+            IsVersionPlaceholder = false,
+            MinimumOSVersion = "15.0",
+            EffectiveMinimumOSVersion = "15.0",
+            SdkVersion = null,
+            ModuleName = module,
+            Platforms = new List<string>()
+        };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_static_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    /// <summary>
     /// Direct-mode (system-framework) emission. SourceXCFrameworkPath is null because
     /// Apple system frameworks live on-device under /System/Library/Frameworks/ and
     /// resolve at runtime via dyld @rpath; the csproj should omit the source NativeReference

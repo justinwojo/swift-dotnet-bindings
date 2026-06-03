@@ -443,6 +443,226 @@ namespace BindingsGeneration.Tests
             Assert.Contains("StripeCore.Swift.iOS.csproj", output);
         }
 
+        // ── Source-native-linkage is read solely by _ComputeSwiftBindingSourceXcframeworkInclusion
+        //    (it self-peeks binding-metadata.props so the generator-free GetNativeManifest path can
+        //    depend on it). Its read + absent→Dynamic default are covered by the
+        //    ComputeSourceXcframeworkInclusion_* tests below; there is no separate import-side peek. ──
+
+        // ── Source-xcframework inclusion decision (Gap 2): the single
+        //    _ComputeSwiftBindingSourceXcframeworkInclusion target derives
+        //    $(_SwiftBindingIncludeSourceXcframework) once, read by all three SDK consumers.
+        //    The decision must be Static-AND-wrapper-on-disk for a drop; everything else keeps. ──
+
+        [Fact]
+        public void ComputeSourceXcframeworkInclusion_StaticWithWrapperOnDisk_DropsSource()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var output = RunComputeInclusionDump(
+                "<_SwiftBindingSourceNativeLinkage>Static</_SwiftBindingSourceNativeLinkage>",
+                wrapperOnDisk: true);
+            Assert.Contains("INCLUDE:false", output);
+        }
+
+        [Fact]
+        public void ComputeSourceXcframeworkInclusion_StaticWithoutWrapper_KeepsSoleCarrier()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // No wrapper carrier on disk (compile failure / skipped pass): the static source is
+            // the only native, so it must be kept or the binding ships with no carrier at all.
+            var output = RunComputeInclusionDump(
+                "<_SwiftBindingSourceNativeLinkage>Static</_SwiftBindingSourceNativeLinkage>",
+                wrapperOnDisk: false);
+            Assert.Contains("INCLUDE:true", output);
+        }
+
+        [Fact]
+        public void ComputeSourceXcframeworkInclusion_DynamicWithWrapper_KeepsSource()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // A dynamic source is never force-loaded into the wrapper, so it is always referenced
+            // even when a wrapper carrier exists.
+            var output = RunComputeInclusionDump(
+                "<_SwiftBindingSourceNativeLinkage>Dynamic</_SwiftBindingSourceNativeLinkage>",
+                wrapperOnDisk: true);
+            Assert.Contains("INCLUDE:true", output);
+        }
+
+        [Fact]
+        public void ComputeSourceXcframeworkInclusion_AbsentLinkage_DefaultsToKeep()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Pre-Gap-2 metadata omits the linkage property; the compute target must default it
+            // to Dynamic (keep the source) — the conservative, never-drop default.
+            var output = RunComputeInclusionDump(linkageNode: "", wrapperOnDisk: true);
+            Assert.Contains("INCLUDE:true", output);
+        }
+
+        // ── End-to-end wiring: the compute tests above verify the PROPERTY value; these verify
+        //    _ResolveSwiftNativeReferences actually GATES the source NativeReference item on it,
+        //    so the source ref drops/keeps in lockstep with the decision (not just the property). ──
+
+        [Fact]
+        public void ResolveNativeReferences_StaticWithWrapperOnDisk_DropsSourceNativeReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Static archive + wrapper carrier on disk: the source NativeReference must NOT be
+            // injected (the wrapper force-loads it and is the sole carrier).
+            var nref = RunResolveNativeReferencesDump(wrapperOnDisk: true);
+            Assert.DoesNotContain("Mixed.xcframework", nref);
+            Assert.Contains("MixedSwiftBindings.xcframework", nref);
+        }
+
+        [Fact]
+        public void ResolveNativeReferences_StaticWithoutWrapper_KeepsSourceNativeReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // No wrapper on disk (compile soft-failed / skipped): the static source is the sole
+            // carrier and the source NativeReference must be injected, or the consumer links no
+            // native at all.
+            var nref = RunResolveNativeReferencesDump(wrapperOnDisk: false);
+            Assert.Contains("Mixed.xcframework", nref);
+            Assert.DoesNotContain("MixedSwiftBindings.xcframework", nref);
+        }
+
+        /// <summary>
+        /// Runs the REAL _ComputeSwiftBindingSourceXcframeworkInclusion target against a
+        /// binding-metadata.props carrying <paramref name="linkageNode"/>, optionally with the
+        /// wrapper xcframework present on disk, and returns build output containing
+        /// <c>INCLUDE:$(_SwiftBindingIncludeSourceXcframework)</c>.
+        /// </summary>
+        private string RunComputeInclusionDump(string linkageNode, bool wrapperOnDisk)
+        {
+            var bindingDir = Path.Combine(_tempDir, "Mixed.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // The compute target checks Exists($(_SwiftBindingIntermediateDir)<WrapperModule>.xcframework).
+            if (wrapperOnDisk)
+                Directory.CreateDirectory(Path.Combine(intermediateDir, "MixedSwiftBindings.xcframework"));
+
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>Mixed</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>1</_SwiftBindingWrapperSliceCount>
+                    {linkageNode}
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="TestDump" DependsOnTargets="_ComputeSwiftBindingSourceXcframeworkInclusion">
+                    <Message Importance="High" Text="INCLUDE:$(_SwiftBindingIncludeSourceXcframework)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_ComputeSwiftBindingSourceXcframeworkInclusion test failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            return result.StdOut + "\n" + result.StdErr;
+        }
+
+        /// <summary>
+        /// Runs the REAL _ResolveSwiftNativeReferences target (the live-disk SDK consumer of the
+        /// inclusion decision) over a static-linkage binding with a single source xcframework, and
+        /// returns the dumped <c>@(NativeReference)</c> identities. The generator/wrapper-compile
+        /// dependency targets are stubbed empty so only _ComputeSwiftBindingSourceXcframeworkInclusion
+        /// does real work; <paramref name="wrapperOnDisk"/> drives the carrier's presence.
+        /// </summary>
+        private string RunResolveNativeReferencesDump(bool wrapperOnDisk)
+        {
+            var bindingDir = Path.Combine(_tempDir, "MixedResolve.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var sourceXcfw = Path.Combine(bindingDir, "Mixed.xcframework");
+            Directory.CreateDirectory(sourceXcfw);
+            if (wrapperOnDisk)
+                Directory.CreateDirectory(Path.Combine(intermediateDir, "MixedSwiftBindings.xcframework"));
+
+            // The compute target self-peeks linkage + wrapper module name from this props file.
+            var metadataProps = """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingSourceNativeLinkage>Static</_SwiftBindingSourceNativeLinkage>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Stub the heavy DependsOnTargets of _ResolveSwiftNativeReferences so it runs without the
+            // generator/wrapper compile; the source/wrapper metadata it reads is set directly here.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{sourceXcfw}" />
+                  </ItemGroup>
+                  <!-- Stub the generator/validation deps so only _ResolveSwiftNativeReferences and
+                       _ComputeSwiftBindingSourceXcframeworkInclusion do real work. Overriding
+                       _ValidateSwiftPackageItems also drops its BeforeTargets hook, so the net10.0
+                       TFM guard (SWIFTBIND010) does not fire in this non-Apple-TFM harness. -->
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_UpdateSwiftWrapperMetadata" />
+                  <Target Name="_UpdateSwiftBridgeMetadata" />
+                  <Target Name="TestDump" DependsOnTargets="_ResolveSwiftNativeReferences">
+                    <Message Importance="High" Text="NREF:@(NativeReference)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_ResolveSwiftNativeReferences test failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            return result.StdOut + "\n" + result.StdErr;
+        }
+
         /// <summary>
         /// Creates a minimal project that imports the real Sdk.targets and overrides
         /// targets that would fail without a real xcframework. The TestDump target

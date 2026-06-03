@@ -19,6 +19,14 @@ namespace BindingsGeneration
         /// via dyld @rpath rather than a packaged xcframework.
         /// </summary>
         public string? SourceXCFrameworkPath { get; init; }
+        /// <summary>
+        /// Native linkage of the source framework. When <see cref="NativeLinkage.Static"/>, the
+        /// source xcframework was force-loaded into the wrapper (the sole runtime carrier of its
+        /// ObjC classes), so the source NativeReference and source pack item are BOTH dropped —
+        /// re-embedding a static archive that the wrapper already carries duplicate-registers its
+        /// ObjC classes. Dynamic sources keep both (the consumer links the source dylib directly).
+        /// </summary>
+        public NativeLinkage SourceNativeLinkage { get; init; } = NativeLinkage.Dynamic;
         public string? WrapperXCFrameworkPath { get; init; }
         /// <summary>
         /// Path to the bridge xcframework (for SwiftUI views). Null if no bridge.
@@ -107,6 +115,24 @@ namespace BindingsGeneration
             // via dyld @rpath at runtime, so the project file omits the source NativeReference
             // and the source pack item entirely.
             var hasSourceXcfw = !string.IsNullOrEmpty(options.SourceXCFrameworkPath);
+            // The wrapper is what force-loads a static source and carries its ObjC classes,
+            // so the static-source drop below is conditioned on the wrapper actually existing.
+            var hasWrapper = options.WrapperXCFrameworkPath != null &&
+                             Directory.Exists(options.WrapperXCFrameworkPath);
+            // Gap 2: a static-archive source was force-loaded into the wrapper, so the source
+            // xcframework must be dropped from BOTH the local NativeReference and the pack item
+            // (and the generation-time slice is skipped — there's nothing to pack). The drop is
+            // gated on a wrapper carrier actually being present: with --skip-wrapper-compilation
+            // (or a wrapper failure) there is no force_load, so the source is still the sole
+            // native carrier. This standalone-csproj site decides from on-disk presence (the CLI
+            // path compiles the wrapper before emitting, so the disk is settled) via the boolean
+            // ShouldIncludeSourceXcframework. The frozen NuGet/PR .targets ConsumerTargetsEmitter
+            // writes can't see the wrapper's eventual fate, so they use the enum-valued
+            // ResolveConsumerSourceReferenceMode instead — a different decision shape, but both live
+            // in NativePackagingPolicy as the single source of truth so the drop policy can't drift.
+            var emitSourceXcfw = hasSourceXcfw &&
+                                 NativePackagingPolicy.ShouldIncludeSourceXcframework(
+                                     options.SourceNativeLinkage, hasWrapper);
             var outputDirFull = Path.GetFullPath(options.OutputDirectory);
             var relativeSourceXcfw = hasSourceXcfw
                 ? Path.GetRelativePath(outputDirFull, Path.GetFullPath(options.SourceXCFrameworkPath!))
@@ -130,7 +156,7 @@ namespace BindingsGeneration
             // CLI runs XCFrameworkResolver has already validated the source's Info.plist
             // before BindingProjectEmitter runs, so the skip path can only be hit by tests.
             var packSourceXcfwRelative = relativeSourceXcfw;
-            if (hasSourceXcfw && File.Exists(Path.Combine(options.SourceXCFrameworkPath!, "Info.plist")))
+            if (emitSourceXcfw && File.Exists(Path.Combine(options.SourceXCFrameworkPath!, "Info.plist")))
             {
                 var sliceDest = Path.Combine(
                     outputDirFull, "pack-staging", pi.NuGetRid, $"{options.ModuleName}.xcframework");
@@ -143,9 +169,8 @@ namespace BindingsGeneration
                 ? "\n    <!-- WARNING: Version is a placeholder (Xcode default). Set PackageVersion manually. -->"
                 : "";
 
-            // Wrapper xcframework items (conditional)
-            var hasWrapper = options.WrapperXCFrameworkPath != null &&
-                             Directory.Exists(options.WrapperXCFrameworkPath);
+            // Wrapper xcframework items (conditional). hasWrapper is computed above, where the
+            // static-source drop is gated on it.
             var wrapperModuleName = $"{options.ModuleName}SwiftBindings";
 
             var wrapperNativeRef = hasWrapper
@@ -436,7 +461,7 @@ namespace BindingsGeneration
                   </ItemGroup>
 
                   <!-- NativeReference for local build -->
-                  <ItemGroup>{(hasSourceXcfw ? $"""
+                  <ItemGroup>{(emitSourceXcfw ? $"""
 
                     <NativeReference Include="{relativeSourceXcfw}">
                       <Kind>Framework</Kind>
@@ -452,7 +477,7 @@ namespace BindingsGeneration
                   <!-- NuGet pack layout -->
                   <ItemGroup>
                     <None Include="{packageId}.targets" Pack="true"
-                          PackagePath="{pi.GetBuildTransitivePath()}" />{(hasSourceXcfw ? $"""
+                          PackagePath="{pi.GetBuildTransitivePath()}" />{(emitSourceXcfw ? $"""
 
                     <None Include="{packSourceXcfwRelative}/**" Pack="true"
                           PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />

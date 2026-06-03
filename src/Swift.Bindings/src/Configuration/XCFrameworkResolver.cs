@@ -626,6 +626,98 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Returns the native binary path for every slice in the xcframework that exists on
+        /// disk (simulator + device + catalyst). Used by the ObjC over-binding guard to union
+        /// defined class symbols across all shipped slices, so a class present on only one
+        /// slice is not false-dropped from the shared ApiDefinition. Best-effort: parse/IO
+        /// failures yield an empty list (the guard then fails open).
+        /// </summary>
+        public static IReadOnlyList<string> EnumerateObjCSliceNativeBinaries(
+            string xcframeworkPath, ILogger logger)
+        {
+            var result = new List<string>();
+            try
+            {
+                xcframeworkPath = Path.GetFullPath(xcframeworkPath);
+                var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
+                if (!File.Exists(plistPath))
+                    return result;
+                foreach (var slice in ParseInfoPlist(plistPath))
+                {
+                    var binaryPath = ComputeSliceBinaryPath(xcframeworkPath, slice);
+                    if (binaryPath != null && File.Exists(binaryPath))
+                        result.Add(binaryPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    "Could not enumerate ObjC slice binaries for '{Path}': {Message}",
+                    xcframeworkPath, ex.Message);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Returns the binary path of every <c>*.framework</c> bundle found directly under the
+        /// given search paths (slice directories of dependency/sibling xcframeworks). Folded
+        /// into the over-binding guard's symbol union so a class declared in this framework's
+        /// headers but <em>defined</em> in a linked dependency is not false-dropped — biasing
+        /// the removal-only guard toward keeping classes.
+        /// </summary>
+        public static IReadOnlyList<string> EnumerateFrameworkBinariesUnder(
+            IEnumerable<string>? searchPaths, ILogger logger)
+        {
+            var result = new List<string>();
+            if (searchPaths == null)
+                return result;
+            foreach (var searchPath in searchPaths)
+            {
+                if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
+                    continue;
+                try
+                {
+                    foreach (var fwDir in Directory.GetDirectories(searchPath, "*.framework"))
+                    {
+                        var fwName = Path.GetFileNameWithoutExtension(fwDir);
+                        var binaryPath = Path.Combine(fwDir, fwName);
+                        if (File.Exists(binaryPath))
+                            result.Add(binaryPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(
+                        "Could not enumerate framework binaries under '{Path}': {Message}",
+                        searchPath, ex.Message);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Computes the on-disk native binary path for a slice, mirroring the Swift-side
+        /// derivation: <c>Foo.framework</c> slices wrap the binary at
+        /// <c>Foo.framework/Foo</c>; bare-binary slices expose the binary at LibraryPath.
+        /// </summary>
+        private static string? ComputeSliceBinaryPath(string xcframeworkPath, XCFrameworkSlice slice)
+        {
+            if (string.IsNullOrEmpty(slice.LibraryPath))
+                return null;
+            string binaryRel;
+            if (slice.LibraryPath.EndsWith(".framework", StringComparison.Ordinal))
+            {
+                var frameworkName = Path.GetFileNameWithoutExtension(slice.LibraryPath);
+                binaryRel = $"{slice.LibraryPath}/{frameworkName}";
+            }
+            else
+            {
+                binaryRel = slice.LibraryPath;
+            }
+            return Path.Combine(xcframeworkPath, slice.LibraryIdentifier, binaryRel);
+        }
+
+        /// <summary>
         /// Parses the module name from a module.modulemap file.
         /// Looks for "framework module NAME" or "module NAME" declarations.
         /// </summary>
@@ -1150,7 +1242,7 @@ namespace BindingsGeneration
                     "Ensure Xcode command-line tools are installed: xcode-select --install");
             }
 
-            var symbols = ParseNmSymbols(stdout);
+            var symbols = NativeSymbolProbe.ParseNmSymbols(stdout);
 
             // Minimal JSON TBD v5 — only the fields the in-process parser reads:
             //   tapi_tbd_version, main_library.{install_names, target_info,
@@ -1181,63 +1273,6 @@ namespace BindingsGeneration
             sb.Append("  }\n");
             sb.Append("}\n");
             File.WriteAllText(tbdOutputPath, sb.ToString());
-        }
-
-        private static List<string> ParseNmSymbols(string nmOutput)
-        {
-            // `nm -gU` on an archive emits per-object headers (`Foo-1.o:`)
-            // followed by `<hex>  <type>  <name>` rows. The name field can
-            // legitimately contain whitespace — Swift's reflection metadata
-            // surfaces entries like `_symbolic SS` and
-            // `_symbolic _____ 14Module0A8TypeV` — so we cannot just take the
-            // last token. Skip address (run of non-whitespace), skip the
-            // single-char type code, then take the rest of the line as the
-            // symbol name. Dedup because archives may repeat a symbol across
-            // member objects (linkonce/coalesced/etc.).
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            var result = new List<string>();
-            foreach (var raw in nmOutput.Split('\n'))
-            {
-                var line = raw.TrimEnd();
-                if (string.IsNullOrEmpty(line))
-                {
-                    continue;
-                }
-                if (line.EndsWith(":"))
-                {
-                    continue; // object-file header
-                }
-                var name = ExtractNmSymbolName(line);
-                if (name == null)
-                {
-                    continue;
-                }
-                if (seen.Add(name))
-                {
-                    result.Add(name);
-                }
-            }
-            return result;
-        }
-
-        private static string? ExtractNmSymbolName(string line)
-        {
-            int i = 0;
-            // Leading whitespace (defensive — TrimStart equivalent).
-            while (i < line.Length && char.IsWhiteSpace(line[i])) i++;
-            // Address column (run of non-whitespace; may be empty for
-            // undefined symbols, but `-U` excludes those).
-            while (i < line.Length && !char.IsWhiteSpace(line[i])) i++;
-            // Whitespace separator.
-            while (i < line.Length && char.IsWhiteSpace(line[i])) i++;
-            // Type column — exactly one non-whitespace character.
-            if (i >= line.Length) return null;
-            i++;
-            // Whitespace separator.
-            while (i < line.Length && char.IsWhiteSpace(line[i])) i++;
-            // Remainder is the symbol name (may contain spaces).
-            if (i >= line.Length) return null;
-            return line.Substring(i);
         }
 
         private static string JsonEscape(string value)

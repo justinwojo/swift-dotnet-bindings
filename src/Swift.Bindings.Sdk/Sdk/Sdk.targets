@@ -1523,6 +1523,12 @@ done; true"
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperSliceCount" />
     </XmlPeek>
 
+    <!-- Source native linkage (Static => wrapper force-loads the archive and is the sole runtime
+         carrier; Gap 2) is read solely by _ComputeSwiftBindingSourceXcframeworkInclusion, which
+         peeks it itself (it must stay self-contained so the generator-free GetNativeManifest path
+         can depend on it). Importing it here too would be a second, drift-prone copy of the same
+         peek+default, so it is intentionally not duplicated on this path. -->
+
     <!-- Read bridge metadata (may be absent for libraries without SwiftUI views) -->
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingHasBridgeSwift/text()"
@@ -2252,14 +2258,65 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Compute the source-xcframework inclusion decision (Gap 2)              -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Single source of truth for "should this binding reference/pack the original source
+       xcframework's native" across the three SDK consumers below (_ResolveSwiftNativeReferences,
+       GetNativeManifest, _ConfigureSwiftBindingPack), the MSBuild mirror of the C#
+       NativePackagingPolicy helper. The source is dropped only when it is a static archive
+       (force-loaded into the wrapper, the sole runtime carrier — referencing it too would
+       double-register its ObjC classes) AND the wrapper xcframework exists on disk NOW.
+
+       Computed at execution time, NOT persisted at generation: the generator writes the
+       linkage fact in a pass that skips wrapper compilation, then _CompileSwiftWrapper
+       materializes the wrapper later, so a gen-time "include source" flag would be stale. The
+       Exists() carrier check therefore reflects live disk state. Self-contained (its own
+       XmlPeek, no _ImportSwiftBindingMetadata dependency) so GetNativeManifest — which
+       deliberately avoids pulling the generator pipeline — can depend on it too. Each consumer
+       lists this in DependsOnTargets (never a target-level Condition, which would read at
+       evaluation phase before this runs) and orders it after wrapper compilation. -->
+  <Target Name="_ComputeSwiftBindingSourceXcframeworkInclusion">
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingSourceNativeLinkage/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SBInclSourceLinkage" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingWrapperModuleName/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SBInclWrapperModule" />
+    </XmlPeek>
+    <PropertyGroup>
+      <!-- This target is the sole reader of _SwiftBindingSourceNativeLinkage in the SDK; absent
+           linkage defaults to Dynamic (keep the source) — the conservative, never-drop default. -->
+      <_SBInclSourceLinkage Condition="'$(_SBInclSourceLinkage)' == ''">Dynamic</_SBInclSourceLinkage>
+      <!-- Reset to the include-default first so a prior project's value can't leak across a
+           multi-targeting build, then flip to false only for the static-with-wrapper case. -->
+      <_SwiftBindingIncludeSourceXcframework>true</_SwiftBindingIncludeSourceXcframework>
+      <_SwiftBindingIncludeSourceXcframework
+          Condition="'$(_SBInclSourceLinkage)' == 'Static'
+                     AND Exists('$(_SwiftBindingIntermediateDir)$(_SBInclWrapperModule).xcframework')">false</_SwiftBindingIncludeSourceXcframework>
+    </PropertyGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 6: Inject NativeReference items for the xcframeworks            -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ResolveSwiftNativeReferences"
           BeforeTargets="ResolveNativeReferences"
-          DependsOnTargets="_DiscoverSwiftFrameworks;_UpdateSwiftWrapperMetadata;_UpdateSwiftBridgeMetadata">
+          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata;_UpdateSwiftWrapperMetadata;_UpdateSwiftBridgeMetadata;_ComputeSwiftBindingSourceXcframeworkInclusion">
 
     <ItemGroup Condition="'@(SwiftFramework)' != ''">
-      <NativeReference Include="%(SwiftFramework.Identity)">
+      <!-- Source xcframework: dropped when the source native is a static archive AND the wrapper
+           xcframework exists on disk — the wrapper force-loads the archive and is then the sole
+           runtime carrier, so referencing the source here too would embed/register the same ObjC
+           classes twice (duplicate-class warnings, doubled binary). See Gap 2. The decision is
+           computed once by _ComputeSwiftBindingSourceXcframeworkInclusion (this target's
+           DependsOnTargets) so it can't drift from GetNativeManifest and the pack item; its
+           Exists() carrier check keeps the source as the sole carrier when the wrapper is absent
+           (SwiftWrapperRequired=false soft-failure, skipped pass, cleaned output). -->
+      <NativeReference Include="%(SwiftFramework.Identity)"
+                       Condition="'$(_SwiftBindingIncludeSourceXcframework)' == 'true'">
         <Kind>Framework</Kind>
       </NativeReference>
       <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
@@ -2332,7 +2389,7 @@ done"
        rather than depending on _ImportSwiftBindingMetadata, which would
        pull in the entire generator pipeline. -->
   <Target Name="GetNativeManifest"
-          DependsOnTargets="_DiscoverSwiftFrameworks"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_ComputeSwiftBindingSourceXcframeworkInclusion"
           Returns="@(_SwiftBindingNativeManifest)">
 
     <!-- Read wrapper metadata from the props file generated during Build -->
@@ -2346,6 +2403,10 @@ done"
              Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
       <Output TaskParameter="Result" PropertyName="_GNM_WrapperModule" />
     </XmlPeek>
+
+    <!-- Source native linkage drives the source-drop decision, but it is computed once by
+         _ComputeSwiftBindingSourceXcframeworkInclusion (this target's DependsOnTargets) into
+         $(_SwiftBindingIncludeSourceXcframework) — no local linkage peek needed here. -->
 
     <!-- Read bridge metadata -->
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
@@ -2362,9 +2423,20 @@ done"
     <!-- All paths must be absolute — relative paths resolve against the CONSUMER
          project, not this library project, when flowing through GetNativeManifest. -->
     <ItemGroup>
-      <!-- Source xcframework (skip in Apple-framework mode — system framework provided by OS) -->
+      <!-- Source xcframework (skip in Apple-framework mode — system framework provided by OS).
+           Also dropped for a static-archive source WHEN the wrapper xcframework exists: the
+           wrapper force-loads the archive and is the sole carrier, so flowing the source through
+           the consumer's manifest too would double-register its ObjC classes (Gap 2). The shared
+           _ComputeSwiftBindingSourceXcframeworkInclusion decision keeps the source when the wrapper
+           is absent so the ProjectReference consumer still gets a native carrier. The same on-disk
+           property gates _ResolveSwiftNativeReferences and the pack item — the three SDK consumers
+           that run with the wrapper's fate already settled on disk. The frozen NuGet/PR .targets the
+           C# emitters write can't read this property (they're consumed on a different machine before
+           the deferred wrapper compile runs), so they always emit the source ref under a wrapper-absent
+           fallback guard instead of baking this drop — see NativePackagingPolicy.ResolveConsumerSourceReferenceMode. -->
       <_SwiftBindingNativeManifest Include="$([System.IO.Path]::GetFullPath('%(SwiftFramework.Identity)'))"
-                                   Condition="'@(SwiftFramework)' != ''">
+                                   Condition="'@(SwiftFramework)' != ''
+                                              AND '$(_SwiftBindingIncludeSourceXcframework)' == 'true'">
         <Kind>Framework</Kind>
       </_SwiftBindingNativeManifest>
 
@@ -2650,7 +2722,7 @@ TARGETSEOF"
     per-item Conditions are evaluated.
   -->
   <Target Name="_ConfigureSwiftBindingPack"
-          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata;_SetSlicePaths"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata;_SetSlicePaths;_ComputeSwiftBindingSourceXcframeworkInclusion"
           Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != ''"
           Returns="@(TfmSpecificPackageFile)">
 
@@ -2717,10 +2789,20 @@ TARGETSEOF"
       <!-- Source xcframework, sliced down to slices the current RID can consume.
            Wrapper/bridge xcframeworks are already per-TFM (no duplication problem)
            and are packed raw below. _SliceSourceXcframework runs BeforeTargets this
-           target so $(_StagedSourceXcfwDir) is populated by the time we enumerate it. -->
+           target so $(_StagedSourceXcfwDir) is populated by the time we enumerate it.
+           Dropped for a static-archive source WHEN the wrapper xcframework exists: the
+           wrapper force-loads the archive and is the sole carrier, so packing the source
+           xcframework too would ship the same ObjC classes twice (Gap 2). The slice still
+           stages (the gate is here, at the pack item — a target-level Condition on
+           _SliceSourceXcframework would read the property at evaluation phase, before the
+           decision is computed), but the staged slice is never packed. The shared
+           _ComputeSwiftBindingSourceXcframeworkInclusion decision packs the source as the sole
+           carrier when the wrapper is absent (SwiftWrapperRequired=false soft-failure) so the
+           nupkg never ships with no native, and stays in lockstep with the reference sites. -->
       <TfmSpecificPackageFile Include="$(_StagedSourceXcfwDir)**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingSourceXcfwName)/"
-            Condition="'@(SwiftFramework)' != ''" />
+            Condition="'@(SwiftFramework)' != ''
+                       AND '$(_SwiftBindingIncludeSourceXcframework)' == 'true'" />
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />

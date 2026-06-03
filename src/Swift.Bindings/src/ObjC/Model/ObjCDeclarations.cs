@@ -77,6 +77,15 @@ public sealed record ObjCClassDecl
     public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public string? DocComment { get; init; }
+
+    /// <summary>
+    /// True when the interface carries <c>__attribute__((objc_runtime_name("...")))</c>, so its
+    /// runtime class symbol is <c>_OBJC_CLASS_$_&lt;runtimeName&gt;</c> rather than
+    /// <c>_OBJC_CLASS_$_&lt;Name&gt;</c>. The clang JSON AST exposes the attribute's presence but
+    /// not its string argument, so the native-symbol guard cannot verify the real symbol and must
+    /// keep such classes (it only ever drops with positive proof of absence).
+    /// </summary>
+    public bool HasCustomRuntimeName { get; init; }
 }
 
 public sealed record ObjCProtocolDecl

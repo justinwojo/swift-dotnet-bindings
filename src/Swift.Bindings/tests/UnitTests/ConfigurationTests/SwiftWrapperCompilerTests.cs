@@ -1104,6 +1104,72 @@ namespace BindingsGeneration.Tests
             Assert.Contains("-F \"/tmp/shadow1\"", args);
             Assert.Contains("-F \"/tmp/shadow2\"", args);
         }
+
+        [Fact]
+        public void InvokeSwiftCompiler_ForceLoadBinary_EmitsForceLoadLinkerFlag()
+        {
+            // Gap 2: a static-archive primary passed via forceLoadBinaries must be
+            // force-loaded so the wrapper carries every ObjC class, not just lazily
+            // referenced members. The binary must exist on disk (the guard skips ghosts).
+            var archive = Path.Combine(Path.GetTempPath(), $"forceload_{Guid.NewGuid():N}.a");
+            File.WriteAllBytes(archive, new byte[] { 0x21, 0x3C, 0x61, 0x72, 0x63, 0x68, 0x3E, 0x0A });
+            try
+            {
+                var runner = new MockCommandRunner();
+                runner.SetResponse("swiftc", 0, "");
+
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance,
+                    forceLoadBinaries: new[] { archive });
+
+                var (_, args) = runner.Invocations[0];
+                Assert.Contains($"-Xlinker -force_load -Xlinker \"{archive}\"", args);
+            }
+            finally
+            {
+                File.Delete(archive);
+            }
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_NoForceLoadBinaries_NoForceLoadFlag()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                forceLoadBinaries: null);
+
+            var (_, args) = runner.Invocations[0];
+            Assert.DoesNotContain("-force_load", args);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_ForceLoadNonexistentBinary_Skipped()
+        {
+            // A force-load entry that isn't on disk must NOT reach the linker — force-loading
+            // a missing path is a hard ld error. The File.Exists guard drops it silently.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var ghost = Path.Combine(Path.GetTempPath(), $"ghost_{Guid.NewGuid():N}.a");
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                forceLoadBinaries: new[] { ghost });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.DoesNotContain("-force_load", args);
+        }
     }
 
     #endregion

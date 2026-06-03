@@ -96,7 +96,8 @@ namespace BindingsGeneration
             ICommandRunner commandRunner,
             ILogger logger,
             string? frameworkSearchPath = null,
-            string? originalModuleName = null)
+            string? originalModuleName = null,
+            IReadOnlyList<string>? forceLoadBinaries = null)
         {
             var objectArgs = string.Join(" ", objectFiles.Select(f => $"\"{f}\""));
 
@@ -107,6 +108,18 @@ namespace BindingsGeneration
                 frameworkFlags += $"-F \"{frameworkSearchPath}\" ";
             if (!string.IsNullOrEmpty(originalModuleName))
                 frameworkFlags += $"-framework {originalModuleName} ";
+
+            // Gap 2: force-load a static-archive primary so this thunk-only wrapper carries
+            // the framework's ObjC classes (a bare `-framework` against a static archive
+            // pulls only lazily-referenced members). Same rationale as the swiftc path.
+            if (forceLoadBinaries != null)
+            {
+                foreach (var binary in forceLoadBinaries)
+                {
+                    if (!string.IsNullOrEmpty(binary) && File.Exists(binary))
+                        frameworkFlags += $"-Wl,-force_load,\"{binary}\" ";
+                }
+            }
 
             var args = $"clang -shared -target {targetTriple} " +
                        $"-isysroot \"{sdkPath}\" " +

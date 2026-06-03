@@ -1056,6 +1056,31 @@ public static class BindingsGeneratorCommand
             }
         }
 
+        // Extract metadata once, up front, so the companion ObjC binding's PackageVersion stays
+        // in lockstep with the Swift binding's — both derive from the same
+        // XCFrameworkMetadata.PackageVersion (one xcframework, one run). This is best-effort: a
+        // failure here must NOT stop the ObjC pipeline from running (it doesn't depend on
+        // metadata), so the companion simply falls back to its default version. The emission
+        // block below reuses this value, or re-extracts inside its own try/catch and surfaces a
+        // hard error there if the framework is genuinely unreadable — preserving existing
+        // fatal-error semantics for the emission path.
+        XCFrameworkMetadata? mixedMetadata = null;
+        if (hasXcframework && resolution != null)
+        {
+            try
+            {
+                mixedMetadata = XCFrameworkMetadataExtractor.Extract(
+                    resolution.DylibPath, resolution.XCFrameworkPath,
+                    resolution.ModuleName, logger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    "Could not pre-extract xcframework metadata for companion versioning "
+                    + "(will retry during emission): {Message}", ex.Message);
+            }
+        }
+
         // Run mixed framework ObjC pipeline (after Swift bindings generated, before project emission)
         ObjCPipelineResult? mixedObjcResult = null;
         if (hasXcframework && resolution != null && mixedObjcResolution != null)
@@ -1066,6 +1091,7 @@ public static class BindingsGeneratorCommand
             mixedObjcResult = ObjCPipeline.Run(
                 mixedObjcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                 namespacePattern: namespacePattern, packageId: null,
+                packageVersion: mixedMetadata?.PackageVersion,
                 sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames,
                 additionalFrameworkSearchPaths: mixedSiblingPaths,
                 platformInfo: platformInfo);
@@ -1078,7 +1104,10 @@ public static class BindingsGeneratorCommand
         {
             try
             {
-                var metadata = XCFrameworkMetadataExtractor.Extract(
+                // Reuse the up-front extraction (companion versioning above); re-extract only if
+                // that best-effort pass failed, so a genuinely unreadable framework still throws
+                // here and hits this block's fatal-error handling.
+                var metadata = mixedMetadata ?? XCFrameworkMetadataExtractor.Extract(
                     resolution.DylibPath, resolution.XCFrameworkPath,
                     resolution.ModuleName, logger);
 
@@ -1086,6 +1115,20 @@ public static class BindingsGeneratorCommand
                 var hasWrapperXcfw = wrapperXcfwPath != null && Directory.Exists(wrapperXcfwPath);
                 var effectivePackageId = packageId ?? platformInfo.GetDefaultSwiftPackageId(resolution.ModuleName);
                 var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
+
+                // Gap 2: classify the source framework's native linkage. When it's a static
+                // `ar` archive, the wrapper force-loaded it (sole carrier) so the source
+                // xcframework MUST be dropped from every consumer reference/pack site —
+                // re-embedding the same ObjC classes would duplicate-register them. This
+                // single signal (_SwiftBindingSourceNativeLinkage) is read by the binding
+                // project/consumer-targets emitters below and by the SDK's reference targets.
+                var sourceNativeLinkage = NativeLinkageProbe.Detect(
+                    resolution.DylibPath, new SystemCommandRunner(), logger);
+                if (sourceNativeLinkage == NativeLinkage.Static)
+                    logger.LogInformation(
+                        "Source framework '{Module}' has static native linkage — wrapper is the sole carrier; " +
+                        "source xcframework will be dropped from consumer references.",
+                        resolution.ModuleName);
 
                 // Mixed requires at least one ObjC class, protocol, or category.
                 bool isMixed = mixedObjcResult?.ExitCode == 0
@@ -1132,7 +1175,8 @@ public static class BindingsGeneratorCommand
                     bridgeModuleName: bridgeModuleName,
                     needsAppleSupplement: AppleSupplementReferences.Any,
                     appleSupplementVersion: appleVersion,
-                    appleSupplementPrototypeCsprojPath: appleSupplementPrototypeCsproj);
+                    appleSupplementPrototypeCsprojPath: appleSupplementPrototypeCsproj,
+                    sourceNativeLinkage: sourceNativeLinkage);
 
                 // Read resource bundle manifest (written by CreateResourceBundleStubs during compilation)
                 var resourceBundleManifest = Path.Combine(outputDirectory, "_resource-bundles.txt");
@@ -1153,6 +1197,7 @@ public static class BindingsGeneratorCommand
                         ModuleName = resolution.ModuleName,
                         Metadata = metadata,
                         SourceXCFrameworkPath = resolution.XCFrameworkPath,
+                        SourceNativeLinkage = sourceNativeLinkage,
                         WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null,
                         BridgeXCFrameworkPath = hasBridgeXcfw ? bridgeXcfwPath : null,
                         HasBridgeSwift = hasBridgeSwift,
@@ -1184,6 +1229,7 @@ public static class BindingsGeneratorCommand
                     HasWrapperXCFramework = hasWrapperXcfw || wouldCompileWrapper,
                     HasBridgeXCFramework = hasBridgeSwift,
                     XcframeworkPath = xcframeworkPath,
+                    SourceNativeLinkage = sourceNativeLinkage,
                     PlatformInfo = platformInfo,
                     ResourceBundleNames = resourceBundleNames,
                 }, logger);

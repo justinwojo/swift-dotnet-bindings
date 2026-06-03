@@ -44,6 +44,48 @@ public class ClangAstParserTests
     }
 
     [Fact]
+    public void Parse_ObjCInterfaceDecl_WithObjCRuntimeNameAttr_SetsHasCustomRuntimeName()
+    {
+        // Clang emits an ObjCRuntimeNameAttr child for __attribute__((objc_runtime_name("...")))
+        // but omits the string argument in JSON; we record only its presence.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "PublicName",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": [
+                { "kind": "ObjCRuntimeNameAttr" }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Single(module.Classes);
+        Assert.True(module.Classes[0].HasCustomRuntimeName);
+    }
+
+    [Fact]
+    public void Parse_ObjCInterfaceDecl_WithoutRuntimeNameAttr_HasCustomRuntimeNameFalse()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "PlainClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Single(module.Classes);
+        Assert.False(module.Classes[0].HasCustomRuntimeName);
+    }
+
+    [Fact]
     public void Parse_ObjCInterfaceDecl_WithNestedMethods()
     {
         var json = WrapInTranslationUnit($$"""

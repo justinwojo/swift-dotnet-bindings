@@ -292,7 +292,8 @@ namespace BindingsGeneration
             string? bridgeModuleName = null,
             bool needsAppleSupplement = false,
             string? appleSupplementVersion = null,
-            string? appleSupplementPrototypeCsprojPath = null)
+            string? appleSupplementPrototypeCsprojPath = null,
+            NativeLinkage sourceNativeLinkage = NativeLinkage.Dynamic)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
 
@@ -348,7 +349,8 @@ namespace BindingsGeneration
                     <_SwiftBindingIsVersionPlaceholder>{metadata.IsVersionPlaceholder}</_SwiftBindingIsVersionPlaceholder>
                     <_SwiftBindingHasWrapperXCFramework>{hasWrapperXCFramework}</_SwiftBindingHasWrapperXCFramework>
                     <_SwiftBindingWrapperModuleName>{wrapperModuleName}</_SwiftBindingWrapperModuleName>
-                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{frameworkTypeProp}{objcProjProp}{bridgeProps}{supplementProps}{depsProperty}
+                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingSourceNativeLinkage>{sourceNativeLinkage}</_SwiftBindingSourceNativeLinkage>{frameworkTypeProp}{objcProjProp}{bridgeProps}{supplementProps}{depsProperty}
                   </PropertyGroup>
                 </Project>
                 """;

@@ -58,6 +58,43 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void EmitMetadataProps_DefaultsSourceNativeLinkage_ToDynamic()
+        {
+            // The common case: a dynamic source framework. Absent an explicit Static
+            // classification, the consumer keeps its source xcframework reference.
+            var dir = CreateTempDir();
+            try
+            {
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    CreateTestMetadata(), dir, true, "NukeSwiftBindings", 2, _logger);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                AssertPropertyValue(doc.DocumentElement!, "_SwiftBindingSourceNativeLinkage", "Dynamic");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_StaticSourceNativeLinkage_EmitsStatic()
+        {
+            // Gap 2: a static-archive source emits Static so the SDK drops the source
+            // xcframework reference (the wrapper is the sole carrier).
+            var dir = CreateTempDir();
+            try
+            {
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    CreateTestMetadata(), dir, true, "NukeSwiftBindings", 2, _logger,
+                    sourceNativeLinkage: NativeLinkage.Static);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                AssertPropertyValue(doc.DocumentElement!, "_SwiftBindingSourceNativeLinkage", "Static");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void EmitMetadataProps_NoWrapper_ReflectsState()
         {
             var dir = CreateTempDir();
