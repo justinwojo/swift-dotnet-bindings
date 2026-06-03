@@ -422,8 +422,16 @@ public static class ConstructorWrapperEmitter
                         var arg = keptArgs[i];
                         if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
                             continue;
+                        // A Void (empty-tuple) parameter carries no bytes: no @_cdecl ABI
+                        // parameter and no reconstruction. But Swift still requires the argument
+                        // at the init call site, so forward the unique Void value `()` with its
+                        // label instead of dropping it (which fails to compile).
                         if (arg.SwiftTypeSpec.IsEmptyTuple)
+                        {
+                            var voidLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
+                            callArgs.Add($"{voidLabel}()");
                             continue;
+                        }
 
                         // Closure parameters: two @_cdecl params (funcPtr + context) + adapter code
                         var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);

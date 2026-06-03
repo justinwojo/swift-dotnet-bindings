@@ -55,15 +55,31 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
         bool needsMetatype = descriptor.IsConstructor || descriptor.IsStaticMethod;
         bool needsErrorBridge = descriptor.Throws;
 
-        // Calculate the cdecl parameter index where the error out pointer lives.
-        // cdecl signature: [self?,] param0, param1, ..., [error_out?]
-        // For instance methods: self is x0, params start at x1, error_out is last
-        // For static/free: params start at x0, error_out is last
+        // An address-only / >32-byte struct return travels in the x8 sret pointer under BOTH cdecl
+        // and swiftcc, so it needs no register-capture bridge — but the metadata accessor `bl` would
+        // clobber the live x8 unless we spill it (P0-08, handled in EmitMetatypeSetup).
+        bool swiftIndirect = descriptor.ReturnLowering is { IsIndirect: true };
+
+        // A throwing CONSTRUCTOR is the one thunked shape whose error-out pointer LEADS the value
+        // arguments. CdeclSignatureContract orders a class constructor as
+        // [ErrorOut?] [Arguments] [Metadata]: the error-out lands in x0 and the value arguments shift
+        // up to x1.. on the cdecl side, but swiftcc wants them in x0.. — so the value arguments are
+        // shifted back down by one. Every other thunked shape (instance/static/free function) places
+        // the value arguments first, so swiftcc's x0.. already line up and no shift is needed.
+        // (Struct constructors are declined to @_cdecl before reaching here, so a thunked constructor
+        // is always a class constructor with a direct pointer return.)
+        bool ctorErrorLeads = descriptor.IsConstructor && needsErrorBridge;
+        int argShift = ctorErrorLeads ? 1 : 0;
+
+        // Calculate the cdecl integer-register index where the error out pointer lives.
+        //   Class constructor (throws): [ErrorOut] [Arguments] ...  → error_out is x0.
+        //   Instance/static/free:       [Arguments] [Self?] [ErrorOut] → error_out is last.
         int errorOutRegIndex = -1;
         if (needsErrorBridge)
         {
-            int baseIndex = needsSelfBridge ? 1 : 0;
-            errorOutRegIndex = baseIndex + descriptor.ParameterCount;
+            errorOutRegIndex = ctorErrorLeads
+                ? 0
+                : (needsSelfBridge ? 1 : 0) + descriptor.ParameterCount;
         }
 
         // Prologue: save callee-saved registers x20, x19, plus frame pointer and link register.
@@ -103,18 +119,29 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
 
         // Handle self parameter (instance methods): self is the last integer register
         // parameter before error_out, at position x{ParameterCount}.
-        // CdeclSignatureContract orders: [Arguments] [Metadata] [Self] [ErrorOut]
-        // Value parameters (x0..x{ParameterCount-1}) are already in the correct registers
-        // for swiftcc — no shift needed. Only self needs to move to x20.
+        // CdeclSignatureContract orders a regular instance method [Arguments] [Metadata] [Self]
+        // [ErrorOut], so the value parameters (x0..x{ParameterCount-1}) are already in the correct
+        // registers for swiftcc — no shift needed. Only self needs to move to x20.
         if (needsSelfBridge)
         {
             sb.AppendLine($"    mov     x20, x{descriptor.ParameterCount}");
         }
 
-        // Handle metatype (constructors/static methods)
+        // Throwing constructor: the leading error-out pointer (captured to x19 above) pushed the
+        // value arguments up to x1.., so shift them back down to x0.. for swiftcc. Ascending order is
+        // safe — each source register is read before the next move overwrites it. Float arguments
+        // stay in d0.. and never shift (the error-out occupies an integer register).
+        if (argShift > 0)
+        {
+            for (int i = 0; i < descriptor.ParameterCount; i++)
+                sb.AppendLine($"    mov     x{i}, x{i + argShift}");
+        }
+
+        // Handle metatype (constructors/static methods). Preserve x8 across the accessor call when
+        // the return is address-only (the live sret pointer rides in x8 into the swiftcc call).
         if (needsMetatype)
         {
-            EmitMetatypeSetup(sb, descriptor);
+            EmitMetatypeSetup(sb, descriptor, swiftIndirect);
         }
 
         // Clear swifterror register before call
@@ -161,22 +188,29 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
     /// For constructors: saves/restores parameters around the metadata accessor call.
     /// For static methods: saves/restores parameters around the metadata accessor call.
     /// </summary>
-    private static void EmitMetatypeSetup(StringBuilder sb, ThunkDescriptor descriptor)
+    private static void EmitMetatypeSetup(StringBuilder sb, ThunkDescriptor descriptor, bool preserveX8)
     {
         if (descriptor.MetadataAccessorSymbol == null)
             return;
 
         int intParamCount = descriptor.ParameterCount;
         int floatParamCount = descriptor.FloatParameterCount;
-        int totalSaveCount = intParamCount + floatParamCount;
+        // x8 carries the caller's indirect-return (sret) buffer pointer for an address-only return.
+        // The metadata accessor `bl` is an ordinary call that may clobber x8 (caller-saved, outside
+        // the AAPCS64 callee-saved set), so spill it alongside the argument registers and reload it
+        // before returning to the main body, which issues the swiftcc `bl` that reads the sret
+        // pointer from x8. Without this, the Swift function writes its result through a clobbered x8
+        // (P0-08).
+        int x8SaveCount = preserveX8 ? 1 : 0;
+        int totalSaveCount = intParamCount + floatParamCount + x8SaveCount;
 
+        int stackSize = ((totalSaveCount * 8) + 15) & ~15;
         if (totalSaveCount > 0)
         {
-            // Save all parameter registers (both integer and float) on the stack
+            // Save all parameter registers (both integer and float), plus x8 when live, on the stack
             // before the metadata accessor call clobbers them.
             // The metadata accessor uses x0 for its result and may clobber
-            // caller-saved registers (x0-x7, d0-d7).
-            int stackSize = ((totalSaveCount * 8) + 15) & ~15;
+            // caller-saved registers (x0-x7, d0-d7, x8).
             sb.AppendLine($"    sub     sp, sp, #{stackSize}");
 
             int offset = 0;
@@ -190,6 +224,11 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
                 sb.AppendLine($"    str     d{i}, [sp, #{offset}]");
                 offset += 8;
             }
+            if (preserveX8)
+            {
+                sb.AppendLine($"    str     x8, [sp, #{offset}]");
+                offset += 8;
+            }
         }
 
         // Call metadata accessor: x0 = request (0 = complete metadata)
@@ -199,9 +238,7 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
 
         if (totalSaveCount > 0)
         {
-            // Restore all parameter registers
-            int stackSize = ((totalSaveCount * 8) + 15) & ~15;
-
+            // Restore all parameter registers (and x8 when live)
             int offset = 0;
             for (int i = 0; i < intParamCount; i++)
             {
@@ -211,6 +248,11 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
             for (int i = 0; i < floatParamCount; i++)
             {
                 sb.AppendLine($"    ldr     d{i}, [sp, #{offset}]");
+                offset += 8;
+            }
+            if (preserveX8)
+            {
+                sb.AppendLine($"    ldr     x8, [sp, #{offset}]");
                 offset += 8;
             }
             sb.AppendLine($"    add     sp, sp, #{stackSize}");

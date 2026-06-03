@@ -121,3 +121,26 @@ public class Greeter {
         return "\(greeting), \(name)!"
     }
 }
+
+// MARK: - Void-Parameter Method with Array Return
+
+/// Struct with a static method whose only parameter is `Void` (empty tuple) and
+/// which returns an Array — modeled on Swift result-builder overloads such as
+/// `buildPartialBlock(first: Void) -> [T]` (TipKit's `Tips.GroupBuilder`).
+///
+/// Regression guard for two interacting code paths:
+///   1. The `[Int32]` return is a frozen 8-byte (single-pointer) value that
+///      declines TypeLowering, so the method routes through the @_cdecl wrapper
+///      rather than a native thunk.
+///   2. On that wrapper path, the `Void` parameter contributes no @_cdecl ABI
+///      parameter, yet Swift still requires the argument at the call site.
+///      `CdeclSignatureContract.HasArguments` must keep the Arguments phase so
+///      the wrapper emits `make(first: ())` — emitting `make()` fails to compile
+///      ("missing argument for parameter 'first'").
+public struct VoidParamArrayFactory {
+    /// Single Void parameter, Array return. The values let the C# test assert a
+    /// round-trip rather than just a non-crash.
+    public static func make(first: Void) -> [Int32] {
+        return [10, 20, 30]
+    }
+}

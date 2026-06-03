@@ -768,6 +768,166 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
+        #region Throwing class constructor — error-out leads (P0-05, SysV)
+
+        [Fact]
+        public void EmitThunk_X86_64_ThrowingClassConstructor_ErrorLeadsAndShiftsArgs()
+        {
+            // P0-05 (SysV mirror of the ARM64 env test): a throwing class constructor is the one
+            // thunked shape whose error-out pointer LEADS the value arguments. CdeclSignatureContract
+            // orders it [ErrorOut][Arguments][Metadata], so the error-out lands in %rdi and the two
+            // value args occupy %rsi/%rdx on the cdecl side. The thunk must capture error-out from the
+            // LEADING %rdi (not a trailing register) and shift the value args back down to %rdi/%rsi for
+            // swiftcc. The earlier bug stashed error-out from a trailing register and emitted no shift,
+            // so the init read the error pointer as an argument and swifterror was never captured.
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_MyClass_init",
+                SwiftSymbol: "_$s4Test7MyClassC1a1bACs5Int32V_AGtKcfC",
+                // Class constructor returns the instance pointer directly (≤16 bytes, no sret).
+                ReturnLowering: new TypeLoweringResult(
+                    new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
+                    IsIndirect: false,
+                    TotalByteSize: 8),
+                SelfLowering: null,
+                ParameterCount: 2,
+                FloatParameterCount: 0,
+                IsInstanceMethod: false,
+                IsStaticMethod: false,
+                IsConstructor: true,
+                Throws: true,
+                MetadataAccessorSymbol: "_$s4Test7MyClassCMa");
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.X86_64);
+
+            // Error-out captured from the LEADING %rdi into the error slot.
+            Assert.Contains("movq    %rdi, -32(%rbp)", asm);
+            // Value args shift back down for swiftcc: %rsi->%rdi, %rdx->%rsi.
+            Assert.Contains("movq    %rsi, %rdi", asm);
+            Assert.Contains("movq    %rdx, %rsi", asm);
+            // Old bug stashed the error-out from the TRAILING value register (%rdx here).
+            Assert.DoesNotContain("movq    %rdx, -32(%rbp)", asm);
+            // Metatype accessor still called; swifterror cleared then written back.
+            Assert.Contains("callq   _$s4Test7MyClassCMa", asm);
+            Assert.Contains("xorl    %r12d, %r12d", asm);
+            Assert.Contains("movq    %r12, (%r10)", asm);
+        }
+
+        #endregion
+
+        #region Indirect-return metatype accessor — sret survives (P0-08)
+
+        [Fact]
+        public void EmitThunk_StaticMethodIndirectReturn_PreservesX8AcrossAccessor()
+        {
+            // P0-08 (ARM64): a static method returning an address-only / >32-byte struct carries the
+            // caller's sret buffer pointer in x8 into the swiftcc call. The metatype accessor is an
+            // ordinary `bl` that clobbers x8 (caller-saved, outside the AAPCS64 callee-saved set), so
+            // the thunk must spill x8 before the accessor and reload it after — otherwise Swift writes
+            // its result through a clobbered pointer (silent heap corruption).
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_Foo_makeBuffer",
+                SwiftSymbol: "_$s4Test3FooC10makeBufferAA6BufferVyFZ",
+                ReturnLowering: new TypeLoweringResult(
+                    new[] {
+                        new RegisterSlot(RegisterFile.Integer, 0, 8),
+                        new RegisterSlot(RegisterFile.Integer, 1, 8),
+                        new RegisterSlot(RegisterFile.Integer, 2, 8),
+                        new RegisterSlot(RegisterFile.Integer, 3, 8),
+                        new RegisterSlot(RegisterFile.Integer, 4, 8)
+                    },
+                    IsIndirect: true,
+                    TotalByteSize: 40),
+                SelfLowering: null,
+                ParameterCount: 0,
+                FloatParameterCount: 0,
+                IsInstanceMethod: false,
+                IsStaticMethod: true,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: "_$s4Test3FooCMa");
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.Arm64);
+
+            // x8 spilled, accessor called, x8 reloaded — in that order.
+            Assert.Contains("str     x8, [sp, #0]", asm);
+            Assert.Contains("ldr     x8, [sp, #0]", asm);
+            var spill = asm.IndexOf("str     x8, [sp, #0]", System.StringComparison.Ordinal);
+            var accessor = asm.IndexOf("bl      _$s4Test3FooCMa", System.StringComparison.Ordinal);
+            var reload = asm.IndexOf("ldr     x8, [sp, #0]", System.StringComparison.Ordinal);
+            Assert.True(spill >= 0 && accessor > spill && reload > accessor,
+                $"expected x8 spill < accessor < reload; got {spill}/{accessor}/{reload}");
+        }
+
+        [Fact]
+        public void EmitThunk_StaticMethodDirectReturn_DoesNotSpillX8()
+        {
+            // P0-08 contrast: a static method returning a register-resident value never carries an sret
+            // pointer in x8, so the metatype accessor needs no x8 spill. Guards against over-spilling.
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_Foo_makeSmall",
+                SwiftSymbol: "_$s4Test3FooC9makeSmallSiyFZ",
+                ReturnLowering: new TypeLoweringResult(
+                    new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
+                    IsIndirect: false,
+                    TotalByteSize: 8),
+                SelfLowering: null,
+                ParameterCount: 0,
+                FloatParameterCount: 0,
+                IsInstanceMethod: false,
+                IsStaticMethod: true,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: "_$s4Test3FooCMa");
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.Arm64);
+
+            Assert.Contains("bl      _$s4Test3FooCMa", asm);
+            Assert.DoesNotContain("str     x8", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_X86_64_StaticMethodIndirectReturn_StashesSretInRbx()
+        {
+            // P0-08 (SysV): the indirect return's sret buffer arrives in %rdi on the cdecl side and
+            // must reach swiftcc in %rax. The metatype accessor clobbers %rax and the caller-saved
+            // arg registers, so the thunk stashes the sret pointer in callee-saved %rbx across the
+            // accessor and moves it into %rax immediately before the swiftcc call.
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_Foo_makeBuffer",
+                SwiftSymbol: "_$s4Test3FooC10makeBufferAA6BufferVyFZ",
+                ReturnLowering: new TypeLoweringResult(
+                    new[] {
+                        new RegisterSlot(RegisterFile.Integer, 0, 8),
+                        new RegisterSlot(RegisterFile.Integer, 1, 8),
+                        new RegisterSlot(RegisterFile.Integer, 2, 8),
+                        new RegisterSlot(RegisterFile.Integer, 3, 8),
+                        new RegisterSlot(RegisterFile.Integer, 4, 8)
+                    },
+                    IsIndirect: true,
+                    TotalByteSize: 40),
+                SelfLowering: null,
+                ParameterCount: 0,
+                FloatParameterCount: 0,
+                IsInstanceMethod: false,
+                IsStaticMethod: true,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: "_$s4Test3FooCMa");
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.X86_64);
+
+            // sret stashed into callee-saved %rbx, accessor called, then %rbx → %rax before swiftcc.
+            Assert.Contains("movq    %rdi, %rbx", asm);
+            Assert.Contains("callq   _$s4Test3FooCMa", asm);
+            Assert.Contains("movq    %rbx, %rax", asm);
+            var stash = asm.IndexOf("movq    %rdi, %rbx", System.StringComparison.Ordinal);
+            var accessor = asm.IndexOf("callq   _$s4Test3FooCMa", System.StringComparison.Ordinal);
+            Assert.True(stash >= 0 && accessor > stash,
+                $"expected sret stash before accessor; got {stash}/{accessor}");
+        }
+
+        #endregion
+
         #region Symbol Generation
 
         [Fact]

@@ -15,7 +15,11 @@ namespace Swift.Runtime
 	[Flags]
     public enum ValueWitnessFlags
     {
-        AlignmentMask = 0x0000FFFF,
+        // Swift stores (alignment - 1) in the low 8 bits; bits 8..15 are reserved and must
+        // not bleed into the decoded alignment. Per swift/ABI/MetadataValues.h this mask is
+        // 0x000000FF, NOT 0x0000FFFF (the reserved byte happens to be zero today, so the wider
+        // mask is latently wrong rather than presently broken).
+        AlignmentMask = 0x000000FF,
         IsNonPOD = 0x00010000,
         IsNonInline = 0x00020000,
         HasSpareBits = 0x00080000,

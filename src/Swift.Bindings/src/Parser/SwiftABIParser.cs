@@ -2159,12 +2159,15 @@ namespace BindingsGeneration
                         privateName = internalParamNames[i - 1];
                     }
 
+                    var ownership = ParseParameterOwnership(childNode.paramValueOwnership);
+
                     methodDecl.CSSignature.Add(new ArgumentDecl
                     {
                         SwiftTypeSpec = typeSpec,
                         Name = paramNames[i],
                         PrivateName = privateName,
-                        IsInOut = childNode.paramValueOwnership == "InOut",
+                        IsInOut = ownership == ParameterOwnership.InOut,
+                        Ownership = ownership,
                         IsGeneric = childNode.Name == "GenericTypeParam",
                         HasDefaultArg = childNode.hasDefaultArg == true,
                         ParentDecl = methodDecl,
@@ -2294,6 +2297,22 @@ namespace BindingsGeneration
             return spec is NamedTypeSpec named &&
                 (named.Name == "Swift.Array" || named.Name == "Array");
         }
+
+        /// <summary>
+        /// Maps the ABI JSON <c>paramValueOwnership</c> string (Swift's <c>ParamSpecifier</c>) to
+        /// <see cref="ParameterOwnership"/>. The string values were confirmed empirically against
+        /// <c>swift-frontend -emit-abi-descriptor-path</c>: <c>consuming</c> → <c>"Owned"</c>,
+        /// <c>borrowing</c> → <c>"Shared"</c>, <c>inout</c> → <c>"InOut"</c>; a plain parameter omits
+        /// the field (null). Unknown or absent values fall back to <see cref="ParameterOwnership.Default"/>.
+        /// </summary>
+        private static ParameterOwnership ParseParameterOwnership(string? paramValueOwnership) =>
+            paramValueOwnership switch
+            {
+                "InOut" => ParameterOwnership.InOut,
+                "Shared" => ParameterOwnership.Shared,
+                "Owned" => ParameterOwnership.Owned,
+                _ => ParameterOwnership.Default,
+            };
 
         /// <summary>
         /// Checks whether any element in a demangled parameter list is a variadic parameter.

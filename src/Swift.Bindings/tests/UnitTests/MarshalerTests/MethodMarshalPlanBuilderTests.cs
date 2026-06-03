@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System.Globalization;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -1015,6 +1017,100 @@ public class MethodMarshalPlanBuilderTests
         var (env, wrapperSig, pInvokeSig) = CreateMethodSetup("fetch", parentKind: ParentKind.Class);
         var plan = BuildPlan(env, wrapperSig, pInvokeSig);
         Assert.Empty(plan.WitnessTableStatements);
+    }
+
+    [Fact]
+    public void WitnessTable_MultipleConformances_OrderedOrdinallyNotByCulture()
+    {
+        // PWT slot order must be deterministic (ordinal) so it matches the P/Invoke signature
+        // (PInvokeEmitter) and the witness-table accessor (PInvokeHelperEmitter), which both sort
+        // the same conformances with StringComparer.Ordinal. Ordinal sorts uppercase 'Z' (90)
+        // before lowercase 'a' (97); the en-US culture's default comparison sorts "apple" before
+        // "Zebra". Under a non-ordinal current culture the previous culture-sensitive OrderBy
+        // emitted the witness tables in [apple, Zebra] order — a slot mismatch versus the P/Invoke
+        // signature that passes the wrong PWT for a conformance.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Container", moduleDecl);
+
+        var zebra = new GenericParameterConformance(
+            new[] { "T" },
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Zebra"),
+            ConformanceKind.Protocol);
+        var apple = new GenericParameterConformance(
+            new[] { "T" },
+            SwiftTypeName.FromModuleQualifiedName("TestModule.apple"),
+            ConformanceKind.Protocol);
+
+        var method = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$s10TestModule9Container7processSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", TupleTypeSpec.Empty, moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "item",
+                    PrivateName = "_item",
+                    SwiftTypeSpec = new NamedTypeSpec("T"),
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            // Deliberately add the conformances in ordinal order; the builder must re-sort
+            // by ordinal regardless of insertion order or current culture.
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl(
+                    "T", "T",
+                    new List<GenericParameterConformance> { zebra, apple },
+                    new List<GenericParameterConformance>())
+            },
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(method);
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Container");
+        RegisterType(testModule, "TestModule.Zebra", "TestModule", "Zebra",
+            TypeRecordFlags.None, TypeRecordKind.Protocol);
+        RegisterType(testModule, "TestModule.apple", "TestModule", "apple",
+            TypeRecordFlags.None, TypeRecordKind.Protocol);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("void", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+
+        var previousCulture = CultureInfo.CurrentCulture;
+        SyncMethodPlan plan;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("en-US");
+            plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+
+        var pwtLines = plan.WitnessTableStatements
+            .Where(l => l.Contains("GetOrThrow"))
+            .ToList();
+        Assert.Equal(2, pwtLines.Count);
+
+        var zebraIndex = pwtLines.FindIndex(l => l.Contains("Zebra"));
+        var appleIndex = pwtLines.FindIndex(l => l.Contains("apple"));
+        Assert.True(zebraIndex >= 0 && appleIndex >= 0,
+            $"both PWT lines must be present; got: {string.Join(" | ", pwtLines)}");
+        Assert.True(zebraIndex < appleIndex,
+            $"Zebra (ordinal-first) must precede apple; got: {string.Join(" | ", pwtLines)}");
     }
 
     #endregion

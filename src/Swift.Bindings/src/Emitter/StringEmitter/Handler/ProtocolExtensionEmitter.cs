@@ -2111,7 +2111,17 @@ public static class ProtocolExtensionEmitter
                 IsInOut = false,
                 IsGeneric = false,
                 ParentDecl = conformingType,
-                ModuleDecl = moduleDecl
+                ModuleDecl = moduleDecl,
+                // P0-06 (defensive): these dispatch params are reconstructed from raw
+                // .swiftinterface text via ParseExtensionSignature, which carries no ownership
+                // qualifier — there is no source Ownership to copy here. A `consuming`/`borrowing`
+                // protocol-extension param is currently suppressed upstream by the
+                // IsCdeclCompatibleType two-layer gate (the keyword mis-parses to an unknown type
+                // and the method is dropped), so Default is correct today. If that gate is ever
+                // taught to strip + project ownership-qualified params, thread the parsed ownership
+                // through to here, or the @_cdecl cleanup path will skip .move()/MarkConsumed →
+                // P0-06 double-free.
+                Ownership = ParameterOwnership.Default
             });
         }
 
@@ -2235,7 +2245,17 @@ public static class ProtocolExtensionEmitter
                 IsInOut = false,
                 IsGeneric = false,
                 ParentDecl = conformingType,
-                ModuleDecl = moduleDecl
+                ModuleDecl = moduleDecl,
+                // P0-06 (defensive): these dispatch params are reconstructed from raw
+                // .swiftinterface text via ParseExtensionSignature, which carries no ownership
+                // qualifier — there is no source Ownership to copy here. A `consuming`/`borrowing`
+                // protocol-extension param is currently suppressed upstream by the
+                // IsCdeclCompatibleType two-layer gate (the keyword mis-parses to an unknown type
+                // and the method is dropped), so Default is correct today. If that gate is ever
+                // taught to strip + project ownership-qualified params, thread the parsed ownership
+                // through to here, or the @_cdecl cleanup path will skip .move()/MarkConsumed →
+                // P0-06 double-free.
+                Ownership = ParameterOwnership.Default
             });
         }
 

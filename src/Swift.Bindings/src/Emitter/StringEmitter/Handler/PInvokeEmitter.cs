@@ -642,11 +642,21 @@ namespace BindingsGeneration
                         // Non-frozen (non-bridgeable): use NativeRemappedNonFrozen marker
                         AddParameter(MarshalledType.NativeRemappedNonFrozen, csName);
                     }
+                    else if (MarshallingHelpers.ShouldDecomposeDataForCdecl(_env.MethodDecl, argument.SwiftTypeSpec))
+                    {
+                        // Foundation.Data ABI decomposition: @_cdecl constructor/method wrappers receive
+                        // Data as two Int words (_dW0_/_dW1_), matching the 16-byte struct layout. Passing
+                        // the whole struct by value misplaces the second word on AArch64 when the composite
+                        // lands after 7 leading int args (split between the last GP register and the stack).
+                        // Mirror the SwiftString two-word path; the C# wrapper extracts the words in
+                        // WrapperEmitter.Marshalling.TryEmitParameterConversionViaProjection.
+                        AddParameter("nint", csName + "_w0");
+                        AddParameter("nint", csName + "_w1");
+                    }
                     else
                     {
-                        // Frozen (Data): use NativeRemappedFrozen type.
-                        // For @_cdecl wrappers, C# passes the Swift.Foundation.Data struct (16 bytes) via CallConvCdecl
-                        // in two GP registers, matching the two-Int-word @_cdecl parameter in the Swift wrapper.
+                        // Frozen (Data) on paths that don't decompose: use NativeRemappedFrozen type.
+                        // C# passes the Swift.Foundation.Data struct (16 bytes) via CallConvCdecl.
                         AddParameter(new MarshalledType.NativeRemappedFrozen(swiftWrapperType!), csName);
                     }
                     continue;
@@ -843,7 +853,12 @@ namespace BindingsGeneration
 
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
-                var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
+                // Ordinal to match the PWT slot order emitted by PInvokeHelperEmitter
+                // (which sorts the same conformances with StringComparer.Ordinal). A
+                // culture-sensitive sort here would assign PInvoke parameter slots in a
+                // different order than the witness-table accessor under some cultures,
+                // passing the wrong PWT for a conformance.
+                var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName, StringComparer.Ordinal);
                 foreach (var conformance in conformances)
                 {
                     // Skip unknown protocols and protocols with associated types

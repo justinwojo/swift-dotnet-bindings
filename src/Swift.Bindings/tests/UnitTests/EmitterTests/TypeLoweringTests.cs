@@ -171,10 +171,15 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void LowerReturnType_MixedWidthStruct_ParsesPerFieldWidths()
+        public void LowerReturnType_MixedIntFloatInOneEightbyte_DeclinesToCdecl()
         {
-            // Mixed { i: Int32, f: Float, j: Int64, d: Double } → "i4,f4,i8,f8"
-            // Each slot must carry its real byte width so the thunk can store at natural offsets.
+            // Mixed { i: Int32, f: Float, j: Int64, d: Double } → "i4,f4,i8,f8".
+            // The first eightbyte (bytes 0-7) holds BOTH the Int32 (0-3) and the Float (4-7).
+            // swiftcc keeps them in separate registers (a GPR + an FP register); the System V C
+            // ABI coalesces that eightbyte into a single INTEGER register holding both halves.
+            // The field-wise register bridge cannot reproduce both lowerings, so TypeLowering must
+            // decline (null) and route the type to the @_cdecl wrapper, whose C-ABI call is correct
+            // by construction (P0-07). The old field-count model produced four slots and mis-bridged.
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Mixed");
             var record = new TypeRecord
             {
@@ -190,28 +195,108 @@ namespace BindingsGeneration.Tests
 
             var result = TypeLowering.LowerReturnType(new NamedTypeSpec("MyLib.Mixed"), db);
 
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void LowerReturnType_SeparateEightbytes_PreserveFloatWidth()
+        {
+            // { j: Int64, f: Float } → "i8,f4". The Int64 fills eightbyte 0; the Float sits alone in
+            // eightbyte 1, so neither eightbyte mixes register files and the type lowers directly.
+            // The lone-float slot must preserve its 4-byte width (a 32-bit float returns in s0, not
+            // d0) — the width-suffixed fragment is what carries that distinction.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.IntFloat");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "IntFloat"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib8IntFloatV",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16,
+                AbiFieldLayout = "i8,f4"
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+
+            var result = TypeLowering.LowerReturnType(new NamedTypeSpec("MyLib.IntFloat"), db);
+
             Assert.NotNull(result);
             Assert.False(result!.IsIndirect);
-            Assert.Equal(4, result.Slots.Count);
+            Assert.Equal(2, result.Slots.Count);
             Assert.Equal(RegisterFile.Integer, result.Slots[0].File);
-            Assert.Equal(4, result.Slots[0].ByteSize);
+            Assert.Equal(8, result.Slots[0].ByteSize);
             Assert.Equal(RegisterFile.Float, result.Slots[1].File);
             Assert.Equal(0, result.Slots[1].Index);
             Assert.Equal(4, result.Slots[1].ByteSize);
-            Assert.Equal(RegisterFile.Integer, result.Slots[2].File);
-            Assert.Equal(1, result.Slots[2].Index);
-            Assert.Equal(8, result.Slots[2].ByteSize);
-            Assert.Equal(RegisterFile.Float, result.Slots[3].File);
-            Assert.Equal(1, result.Slots[3].Index);
-            Assert.Equal(8, result.Slots[3].ByteSize);
+        }
+
+        [Fact]
+        public void LowerReturnType_Int8x5Int64Int64_CoalescesToThreeIntegerSlots()
+        {
+            // { a,b,c,d,e: Int8, f: Int64, g: Int64 } → "i1,i1,i1,i1,i1,i8,i8".
+            // The five Int8s share eightbyte 0 (bytes 0-4) and coalesce into ONE general-purpose
+            // register; the two Int64s occupy eightbytes 1 and 2. swiftcc returns this 24-byte
+            // aggregate DIRECTLY in three GPRs — it is NOT seven slots forced indirect. The old
+            // field-count model counted seven slots (> the 4-slot limit) and returned the value
+            // indirectly, reading silent garbage (P0-07). This is the headline P0-07 case and the
+            // {Int8×5,Int64,Int64} done-when fixture's unit-level mirror.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Packed7");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Packed7"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib7Packed7V",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 24,
+                AbiFieldLayout = "i1,i1,i1,i1,i1,i8,i8"
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+
+            var result = TypeLowering.LowerReturnType(new NamedTypeSpec("MyLib.Packed7"), db);
+
+            Assert.NotNull(result);
+            Assert.False(result!.IsIndirect);
+            Assert.Equal(3, result.Slots.Count);
+            Assert.All(result.Slots, s => Assert.Equal(RegisterFile.Integer, s.File));
+            Assert.Equal(0, result.Slots[0].Index);
+            Assert.Equal(1, result.Slots[1].Index);
+            Assert.Equal(2, result.Slots[2].Index);
             Assert.Equal(24, result.TotalByteSize);
+        }
+
+        [Fact]
+        public void LowerReturnType_TwoFloatsInOneEightbyte_DeclinesToCdecl()
+        {
+            // { x: Float, y: Float } packed into one eightbyte → "f4,f4". swiftcc keeps each Float in
+            // its own FP register; the System V C ABI coalesces two 4-byte floats into a single SSE
+            // register. Divergent, so TypeLowering declines a lowering that keeps one float per slot
+            // (P0-07). (Contrast LowerReturnType_FloatPair_TwoFloatSlots, where each Double fills its
+            // own eightbyte and the two-FP-slot lowering is valid.)
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Float2");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Float2"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib6Float2V",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 8,
+                AbiFieldLayout = "f4,f4"
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+
+            var result = TypeLowering.LowerReturnType(new NamedTypeSpec("MyLib.Float2"), db);
+
+            Assert.Null(result);
         }
 
         [Fact]
         public void LowerReturnType_LegacyBareLetters_DefaultToEightByteSlots()
         {
             // A type database produced before widths were tracked stores bare letters. They must
-            // still parse, defaulting to the historical 8-byte (1-byte for bool) slot widths.
+            // still parse, defaulting to the historical 8-byte (1-byte for bool) field widths used
+            // to compute offsets. Each field here lands in its own eightbyte: { i@0, f@8, b@16 }.
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Legacy");
             var record = new TypeRecord
             {
@@ -229,9 +314,15 @@ namespace BindingsGeneration.Tests
 
             Assert.NotNull(result);
             Assert.Equal(3, result.Slots.Count);
-            Assert.Equal(8, result.Slots[0].ByteSize); // bare "i" → 8
+            Assert.Equal(RegisterFile.Integer, result.Slots[0].File);
+            Assert.Equal(8, result.Slots[0].ByteSize); // eb0 {bare "i"} → 8
+            Assert.Equal(RegisterFile.Float, result.Slots[1].File); // eb1 {bare "f"} → its own FP register
             Assert.Equal(8, result.Slots[1].ByteSize); // bare "f" → 8
-            Assert.Equal(1, result.Slots[2].ByteSize); // bare "b" → 1
+            Assert.Equal(RegisterFile.Integer, result.Slots[2].File);
+            // eb2 {bare "b"} — the store width is the eightbyte span (8), not the 1-byte field. The
+            // bool's 1-byte width still drives offset computation, but the lone-bool eightbyte
+            // occupies a full integer register on return.
+            Assert.Equal(8, result.Slots[2].ByteSize);
         }
 
         [Fact]
@@ -423,9 +514,15 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void LowerReturnType_StructWithBoolField_CorrectSlotSize()
+        public void LowerReturnType_PackedStructStraddlingEightbyte_DeclinesToCdecl()
         {
-            // BoolStruct { flag: Bool, value: Int } → 2 integer slots, bool is 1 byte
+            // A PACKED { flag: Bool, value: Int } reported as "b,i" with InlineSize=9: the Int sits at
+            // byte offset 1 (no alignment padding), straddling the eightbyte boundary (bytes 1-8).
+            // TypeLowering reconstructs offsets from natural alignment (Bool@0, Int@8 → size 16) and
+            // cross-checks against InlineSize; 16 ≠ 9 reveals the packing, so it declines (null) and
+            // routes to the @_cdecl wrapper whose C-ABI call handles the straddle correctly (P0-07).
+            // The old model naively produced two slots assuming natural offsets and mis-bridged the
+            // straddling Int.
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.BoolStruct");
             var record = new TypeRecord
             {
@@ -442,14 +539,41 @@ namespace BindingsGeneration.Tests
 
             var result = TypeLowering.LowerReturnType(typeSpec, db);
 
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void LowerReturnType_NaturalBoolStruct_TwoIntegerSlots()
+        {
+            // A naturally-aligned { flag: Bool, value: Int } → "b,i" with InlineSize=16 (the Int's
+            // 8-byte alignment pads the Bool out to offset 8). Same layout string as the packed test
+            // above — only InlineSize disambiguates the two. The Bool fills eightbyte 0 alone and the
+            // Int eightbyte 1; reconstructed size (16) matches InlineSize, so it lowers directly into
+            // two integer registers. Each slot's store width is the eightbyte span (8), the lone Bool
+            // no longer reported as a 1-byte slot.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.BoolStructNatural");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "BoolStructNatural"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib17BoolStructNaturalV",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasBoolFields,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16,
+                AbiFieldLayout = "b,i"
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+            var typeSpec = new NamedTypeSpec("MyLib.BoolStructNatural");
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
             Assert.NotNull(result);
             Assert.False(result!.IsIndirect);
             Assert.Equal(2, result.Slots.Count);
             Assert.Equal(RegisterFile.Integer, result.Slots[0].File);
-            Assert.Equal(1, result.Slots[0].ByteSize); // Bool = 1 byte
+            Assert.Equal(8, result.Slots[0].ByteSize);
             Assert.Equal(RegisterFile.Integer, result.Slots[1].File);
-            Assert.Equal(8, result.Slots[1].ByteSize); // Int = 8 bytes
-            Assert.Equal(9, result.InlineSize());
+            Assert.Equal(8, result.Slots[1].ByteSize);
         }
 
         [Fact]

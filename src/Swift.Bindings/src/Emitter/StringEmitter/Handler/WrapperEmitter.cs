@@ -393,6 +393,7 @@ namespace BindingsGeneration
             EmitArrayOwnershipRetain(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
+            EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
@@ -473,6 +474,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
                 EmitRawBufferFixedStart(csWriter);
                 EmitPInvokeCall(csWriter);
+                EmitConsumedNonCopyableParamCleanup(csWriter);
                 EmitInConventionOptionalCleanup(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine("if (*buf == IntPtr.Zero)");
@@ -487,6 +489,7 @@ namespace BindingsGeneration
                 // Class constructors: P/Invoke returns IntPtr directly (pointer in register)
                 EmitRawBufferFixedStart(csWriter);
                 EmitPInvokeCall(csWriter);
+                EmitConsumedNonCopyableParamCleanup(csWriter);
                 EmitInConventionOptionalCleanup(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine($"if ({ReturnLocalName} == IntPtr.Zero)");
@@ -575,6 +578,7 @@ namespace BindingsGeneration
             EmitOptionalReturnBuffer(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
+            EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
@@ -801,6 +805,35 @@ namespace BindingsGeneration
             foreach (var name in _inConventionOptionalNames)
             {
                 csWriter.WriteLine($"{name}Swift.DisposeAfterConsumption();");
+            }
+        }
+
+        /// <summary>
+        /// After the P/Invoke returns, emits <c>{param}.Payload.MarkConsumed();</c> for each
+        /// non-copyable struct parameter passed under Swift's <c>consuming</c> (Owned) ownership.
+        /// On that path the @_cdecl wrapper moved the value out of the C# buffer with <c>.move()</c>
+        /// (see <see cref="CdeclParamMapper"/>) and Swift ran the value's deinit exactly once;
+        /// MarkConsumed tells the owning <c>SwiftSafeHandle</c> to free the now-empty buffer WITHOUT a
+        /// second value-witness Destroy. Without it the value is destroyed twice (P0-06, SIGABRT).
+        /// The predicate mirrors CdeclParamMapper's non-copyable branch exactly (Owned ownership +
+        /// <c>TypeRecordFlags.NonCopyable</c>) and is gated on the @_cdecl wrapper path, so the
+        /// MarkConsumed call is emitted iff the paired <c>.move()</c> was emitted.
+        /// </summary>
+        private void EmitConsumedNonCopyableParamCleanup(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return;
+
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (argumentDecl.Ownership != ParameterOwnership.Owned)
+                    continue;
+                if (!_env.TypeDatabase.TryGetTypeRecord(argumentDecl.SwiftTypeSpec, out var record)
+                    || !record.Flags.HasFlag(TypeRecordFlags.NonCopyable))
+                    continue;
+
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                csWriter.WriteLine($"{csName}.Payload.MarkConsumed();");
             }
         }
 

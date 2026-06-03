@@ -159,7 +159,11 @@ internal class MethodMarshalPlanBuilder
         foreach (var genericParameter in _env.MethodDecl.GenericParameters)
         {
             var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
-            var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
+            // Ordinal so the marshal-plan PWT argument order matches the PInvoke signature
+            // (PInvokeEmitter) and witness-table accessor (PInvokeHelperEmitter), all of which
+            // sort the same conformances with StringComparer.Ordinal. A culture-sensitive sort
+            // here would pass PWT arguments in a slot order the callee does not expect.
+            var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName, StringComparer.Ordinal);
             foreach (var conformance in conformances)
             {
                 bool resolvable = _isProtocolAvailable(conformance.ConformanceTarget);

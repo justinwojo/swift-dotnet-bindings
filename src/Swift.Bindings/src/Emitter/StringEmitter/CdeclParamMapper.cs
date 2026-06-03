@@ -316,14 +316,29 @@ public static class CdeclParamMapper
         // Classes: receive as UnsafeMutableRawPointer, reconstruct via Unmanaged
         if (env.TypeDatabase.TryGetTypeRecord(swiftTypeSpec, out var typeRecord))
         {
-            // Non-copyable structs (~Copyable): pass as pointer, use inline borrow without copy.
-            // let xVal = ptr.assumingMemoryBound(to: T.self).pointee creates a copy which
-            // noncopyable types reject. Instead, pass the inline borrow expression as the call arg.
-            // UnsafePointer<T: ~Copyable>.pointee gives a borrow in Swift 6 — safe for passing
-            // to functions that take borrowing parameters.
+            // Non-copyable structs (~Copyable): pass as pointer; ownership-specifier decides the load.
             if (typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable))
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+
+                // `consuming` (Owned, +1): ownership transfers into Swift. Move the value out of the
+                // C# buffer with `.move()` (which deinitializes the buffer, leaving it uninitialized)
+                // and pass it consuming. The function runs the value's deinit exactly once. The C#
+                // call site pairs this with SwiftSafeHandle.MarkConsumed() so the now-empty buffer is
+                // freed WITHOUT a second value-witness Destroy — without it Swift's consume plus the
+                // C# SafeHandle's Destroy double-free (P0-06, SIGABRT). `.move()` needs a mutable
+                // pointer, so the @_cdecl param is UnsafeMutableRawPointer.
+                if (arg.Ownership == ParameterOwnership.Owned)
+                {
+                    return ($"_ {label}: UnsafeMutableRawPointer",
+                            $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).move()",
+                            $"{argLabel}{label}Val");
+                }
+
+                // `borrowing`/default (+0): caller (C#) retains ownership and destroys. Use the inline
+                // borrow — `let xVal = ptr...pointee` would copy, which noncopyable types reject.
+                // UnsafePointer<T: ~Copyable>.pointee gives a borrow in Swift 6, safe to forward to a
+                // borrowing parameter.
                 return ($"_ {label}: UnsafeRawPointer",
                         null,  // no reconstruction — inline borrow avoids copy
                         $"{argLabel}{label}.assumingMemoryBound(to: {swiftType}.self).pointee");

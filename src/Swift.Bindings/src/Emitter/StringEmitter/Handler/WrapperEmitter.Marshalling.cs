@@ -733,6 +733,18 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"nint {csName}_w1 = Unsafe.Add(ref Unsafe.As<SwiftString.Buffer, nint>(ref {csName}Buf), 1);");
             }
 
+            // Foundation.Data ABI decomposition for @_cdecl constructor/method wrappers:
+            // Extract two nint words from the 16-byte Swift.Foundation.Data struct (mirrors the
+            // SwiftString two-word path above). The DataProjection setup already declared the mutable
+            // local {csName}Swift, so we ref it directly — no extra Buffer copy is needed. The local
+            // names ({csName}_w0, {csName}_w1) match the P/Invoke parameter names emitted by
+            // PInvokeEmitter, so GetCallArgumentString returns them via the default parameter.Name case.
+            if (MarshallingHelpers.ShouldDecomposeDataForCdecl(_env.MethodDecl, argumentDecl.SwiftTypeSpec))
+            {
+                csWriter.WriteLine($"nint {csName}_w0 = Unsafe.As<Swift.Foundation.Data, nint>(ref {csName}Swift);");
+                csWriter.WriteLine($"nint {csName}_w1 = Unsafe.Add(ref Unsafe.As<Swift.Foundation.Data, nint>(ref {csName}Swift), 1);");
+            }
+
             return true;
         }
 

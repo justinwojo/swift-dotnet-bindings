@@ -488,3 +488,71 @@ public struct IndexedSeries<Element>: RandomAccessCollection {
 public func makeIndexedSeriesString() -> IndexedSeries<String> {
     return IndexedSeries(items: ["alpha", "beta", "gamma", "delta"], metadata: "four-strings")
 }
+
+// MARK: - Eightbyte Grouping: {Int8×5, Int64, Int64} by-value return (P0-07)
+
+/// A 24-byte frozen struct whose five leading `Int8` fields share the first eightbyte while the two
+/// `Int64` fields each own a full eightbyte — laid out `[b0..b4 + 3 pad][first][second]`. swiftcc
+/// returns it directly in three general-purpose registers (x0/x1/x2), so the generator must group the
+/// ABI field layout into exactly three integer eightbytes. A naïve per-field count (7 slots) would
+/// wrongly mark it indirect or mis-store the packed first eightbyte, silently corrupting the bytes.
+/// Because it exceeds 16 bytes, the C ABI returns it via the x8 sret buffer, so the thunk bridges the
+/// three return registers to their natural buffer offsets (0, 8, 16). Round-tripped by
+/// `MixedRegisterReturnTests`.
+@frozen
+public struct ByteQuintWide {
+    public var b0: Int8
+    public var b1: Int8
+    public var b2: Int8
+    public var b3: Int8
+    public var b4: Int8
+    public var first: Int64
+    public var second: Int64
+
+    public init(b0: Int8, b1: Int8, b2: Int8, b3: Int8, b4: Int8, first: Int64, second: Int64) {
+        self.b0 = b0
+        self.b1 = b1
+        self.b2 = b2
+        self.b3 = b3
+        self.b4 = b4
+        self.first = first
+        self.second = second
+    }
+}
+
+/// Returns a `ByteQuintWide` by value — the three-integer-eightbyte return path under test.
+public func makeByteQuintWide(b0: Int8, b1: Int8, b2: Int8, b3: Int8, b4: Int8, first: Int64, second: Int64) -> ByteQuintWide {
+    return ByteQuintWide(b0: b0, b1: b1, b2: b2, b3: b3, b4: b4, first: first, second: second)
+}
+
+// MARK: - Indirect-return static factory: sret pointer survives the metatype accessor (P0-08)
+
+/// A 40-byte frozen struct (five `Int64` fields) returned by value. Exceeding 32 bytes, it is returned
+/// indirectly through the x8 sret buffer pointer under both conventions. Paired with the static factory
+/// below, it exercises the ARM64 thunk's x8 preservation: the metatype accessor `bl` clobbers x8
+/// (caller-saved), so the thunk must spill and reload it around the accessor — otherwise Swift writes
+/// the result through a corrupted pointer (heap corruption / crash). Round-tripped by
+/// `MixedRegisterReturnTests`.
+@frozen
+public struct WideQuintet {
+    public var a: Int64
+    public var b: Int64
+    public var c: Int64
+    public var d: Int64
+    public var e: Int64
+
+    public init(a: Int64, b: Int64, c: Int64, d: Int64, e: Int64) {
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.e = e
+    }
+
+    /// Static factory returning the 40-byte struct by value. A static method needs the metatype
+    /// (`Self.Type`) via the metadata accessor, whose call would clobber the live x8 sret pointer
+    /// unless the thunk preserves it.
+    public static func make(seed: Int64) -> WideQuintet {
+        return WideQuintet(a: seed, b: seed &+ 1, c: seed &+ 2, d: seed &+ 3, e: seed &+ 4)
+    }
+}

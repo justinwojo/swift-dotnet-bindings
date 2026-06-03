@@ -692,7 +692,7 @@ public class HandleGCLifecycleTests
         using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
             // Close() triggers ReleaseHandle with _explicitDispose=false.
-            // With the exit guard active, HandleProcessExitCleanup runs (frees buffer only).
+            // With the exit guard active, FreeBufferOnly runs (frees buffer only).
             SwiftDispose.FinalizerCleanup(handle);
 
             Assert.True(handle.IsClosed);

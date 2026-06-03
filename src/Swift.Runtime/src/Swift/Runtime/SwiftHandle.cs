@@ -73,6 +73,14 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     private volatile bool _explicitDispose;
 
     /// <summary>
+    /// Set by <see cref="MarkConsumed"/> when the underlying value has been moved out by a Swift
+    /// <c>consuming</c> parameter. When true, <see cref="ReleaseHandle"/> frees the .NET buffer but
+    /// skips the value-witness Destroy — Swift already ran the value's deinit exactly once, so a
+    /// second Destroy would double-free (P0-06).
+    /// </summary>
+    private volatile bool _consumed;
+
+    /// <summary>
     /// Cached type metadata handle for the Swift type T. Populated eagerly during
     /// construction on a user thread so that the finalizer path can call VWT Destroy
     /// via the Cdecl trampoline without any JIT compilation or generic resolution.
@@ -137,6 +145,23 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
+    /// Marks the underlying value as having been consumed (moved out) by a Swift <c>consuming</c>
+    /// parameter of a non-copyable type. Ownership transferred into Swift, which runs the value's
+    /// deinit exactly once, so the value-witness Destroy must NOT run again; the .NET-allocated
+    /// buffer is still freed by <see cref="ReleaseHandle"/> (or eagerly here is avoided — the
+    /// SafeHandle owns the free so it happens exactly once on Dispose/finalize). Idempotent.
+    /// </summary>
+    /// <remarks>
+    /// Generated bindings call this immediately after a P/Invoke that passes this handle to a Swift
+    /// <c>consuming</c> non-copyable parameter (see CdeclParamMapper's <c>.move()</c> path). Without
+    /// it, Swift's consume plus the SafeHandle's Destroy would double-free the value (P0-06).
+    /// </remarks>
+    public void MarkConsumed()
+    {
+        _consumed = true;
+    }
+
+    /// <summary>
     /// Releases the handle to the Swift object.
     /// This method must not throw exceptions per the SafeHandle contract.
     /// </summary>
@@ -165,9 +190,15 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (handle == IntPtr.Zero)
             return true;
 
+        // Value moved out by a Swift `consuming` parameter (P0-06): Swift already ran the value's
+        // deinit exactly once, so skip the value-witness Destroy and free the buffer only. Must
+        // precede the Destroy paths below. Checked on both Dispose and finalizer.
+        if (_consumed)
+            return FreeBufferOnly();
+
         // Process exit finalizer → free buffer only (Swift runtime may be torn down)
         if (IsProcessExiting && !_explicitDispose)
-            return HandleProcessExitCleanup();
+            return FreeBufferOnly();
 
         // Explicit Dispose → direct VWT Destroy (safe from user thread)
         if (_explicitDispose)
@@ -178,12 +209,12 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
-    /// Handles cleanup during process exit for finalizer-triggered releases.
-    /// Skips VWT Destroy because Swift deinit may reference torn-down runtime state,
-    /// but still frees the .NET-allocated buffer since NativeMemory.Free is always safe.
-    /// Explicit Dispose() bypasses this path — Swift deinit may flush/close/persist.
+    /// Frees the .NET-allocated buffer WITHOUT running the value-witness Destroy. Shared by two
+    /// paths: process-exit finalizer cleanup (Swift deinit may reference torn-down runtime state)
+    /// and consumed-value cleanup (Swift's <c>consuming</c> parameter already ran deinit exactly
+    /// once — see <see cref="MarkConsumed"/>). NativeMemory.Free is always safe.
     /// </summary>
-    private unsafe bool HandleProcessExitCleanup()
+    private unsafe bool FreeBufferOnly()
     {
         NativeMemory.Free((void*)handle);
         handle = IntPtr.Zero;

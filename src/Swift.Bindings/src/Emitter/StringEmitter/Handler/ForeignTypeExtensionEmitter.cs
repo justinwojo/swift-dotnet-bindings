@@ -117,7 +117,8 @@ public static class ForeignTypeExtensionEmitter
         if (ctx.ForeignExtClasses.Count == 0)
             return;
 
-        foreach (var (foreignTypeQualifiedName, classInfo) in ctx.ForeignExtClasses.OrderBy(kv => kv.Key))
+        // Ordinal for reproducible emission order independent of the host culture.
+        foreach (var (foreignTypeQualifiedName, classInfo) in ctx.ForeignExtClasses.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             EmitExtensionClass(csWriter, classInfo, typeDatabase, moduleName);
         }

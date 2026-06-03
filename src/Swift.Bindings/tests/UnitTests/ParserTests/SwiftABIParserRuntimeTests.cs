@@ -824,6 +824,67 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region Parameter Value Ownership Tests
+
+    [Theory]
+    [InlineData("Owned", ParameterOwnership.Owned, false)]    // consuming
+    [InlineData("Shared", ParameterOwnership.Shared, false)]  // borrowing
+    [InlineData("InOut", ParameterOwnership.InOut, true)]     // inout
+    [InlineData("Default", ParameterOwnership.Default, false)]
+    [InlineData(null, ParameterOwnership.Default, false)]     // plain parameter omits the field
+    public void ParseModule_ParameterValueOwnership_MapsToOwnershipEnum(
+        string? paramValueOwnership, ParameterOwnership expectedOwnership, bool expectedIsInOut)
+    {
+        // The ABI JSON strings were confirmed empirically against
+        // `swift-frontend -emit-abi-descriptor-path`: consuming -> "Owned",
+        // borrowing -> "Shared", inout -> "InOut", plain -> field omitted (null).
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var paramNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        paramNode.PrintedName = "Swift.Int";
+        paramNode.paramValueOwnership = paramValueOwnership;
+
+        var funcNode = CreateFunctionNode(
+            name: "consume",
+            printedName: "consume(value:)",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode, paramNode });
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        // CSSignature[0] is the return type placeholder; [1] is the first parameter.
+        var param = method.CSSignature[1];
+        Assert.Equal(expectedOwnership, param.Ownership);
+        // IsInOut must stay derived from the same source (back-compat with existing gates).
+        Assert.Equal(expectedIsInOut, param.IsInOut);
+    }
+
+    [Fact]
+    public void ParseModule_ParameterOwnership_DefaultsToDefaultForReturnPlaceholder()
+    {
+        // The synthetic return-type entry at CSSignature[0] is never a real parameter and
+        // must carry the default ownership, never leaking a parameter's specifier.
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        returnTypeNode.PrintedName = "Swift.Int";
+
+        var funcNode = CreateFunctionNode(
+            name: "produce",
+            printedName: "produce()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.Equal(ParameterOwnership.Default, method.CSSignature[0].Ownership);
+    }
+
+    #endregion
+
     #region spi_group_names Detection Tests
 
     [Fact]

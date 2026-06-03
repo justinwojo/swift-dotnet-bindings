@@ -146,13 +146,21 @@ public static class CdeclSignatureContract
     }
 
     /// <summary>
-    /// Returns true if the method has meaningful arguments beyond the return type.
-    /// Debug parameters and empty tuple parameters are excluded.
+    /// Returns true if the method has any non-debug parameters that require the
+    /// Arguments phase to run. Debug parameters (#file/#line/#column/#function) are
+    /// excluded; empty-tuple (Void) parameters are NOT.
+    ///
+    /// A Void parameter carries no bytes, so it contributes no @_cdecl ABI parameter
+    /// (both the P/Invoke signature builder and the wrapper swiftParams loop skip it).
+    /// But Swift still requires the argument at the source-level call site — e.g.
+    /// <c>buildPartialBlock(first: ())</c> — so the Arguments phase must still run for
+    /// an all-Void-parameter method, letting the wrapper emit the explicit <c>()</c>.
+    /// Excluding empty tuples here drops the Arguments phase, producing an invalid
+    /// nullary call (<c>buildPartialBlock()</c>) that fails to compile.
     /// </summary>
     private static bool HasArguments(MethodEnvironment env)
     {
         return env.MethodDecl.CSSignature.Skip(1)
-            .Any(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a)
-                    && !a.SwiftTypeSpec.IsEmptyTuple);
+            .Any(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a));
     }
 }

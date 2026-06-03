@@ -94,6 +94,45 @@ public class DefaultParameterOverloadEmitterTests
         Assert.Equal("query", overload.CSSignature[1].Name);
     }
 
+    [Fact]
+    public void BuildOverloadDecl_PreservesOwnershipOnKeptParam()
+    {
+        // P0-06 regression: Ownership is an intrinsic, position-independent property of a
+        // parameter. A `consuming` (Owned) parameter that survives into a trimmed
+        // default-overload must keep Ownership.Owned — otherwise it reverts to Default and
+        // routes off the .move()/MarkConsumed path → double-free.
+        // Repro shape: func f(_ resource: consuming TrackedResource, flags: Int = 0).
+        var resource = CreateArg("resource", hasDefault: false);
+        resource.Ownership = ParameterOwnership.Owned;
+        var method = CreateMethodWithArgs(
+            resource,
+            CreateArg("flags", hasDefault: true));
+
+        // Trim the trailing default; `resource` is kept.
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDecl(method, trimCount: 1);
+
+        Assert.Equal(2, overload.CSSignature.Count); // return + resource
+        var keptResource = overload.CSSignature[1];
+        Assert.Equal("resource", keptResource.Name);
+        Assert.Equal(ParameterOwnership.Owned, keptResource.Ownership);
+    }
+
+    [Fact]
+    public void BuildOverloadDecl_PreservesBorrowingOwnershipOnKeptParam()
+    {
+        // Shared (borrowing, +0) must also survive cloning — losing the distinction between
+        // Owned and Shared is the exact bug the Ownership field exists to prevent.
+        var resource = CreateArg("resource", hasDefault: false);
+        resource.Ownership = ParameterOwnership.Shared;
+        var method = CreateMethodWithArgs(
+            resource,
+            CreateArg("flags", hasDefault: true));
+
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDecl(method, trimCount: 1);
+
+        Assert.Equal(ParameterOwnership.Shared, overload.CSSignature[1].Ownership);
+    }
+
     #endregion
 
     #region TryEmitOverloads Skip Guard Tests

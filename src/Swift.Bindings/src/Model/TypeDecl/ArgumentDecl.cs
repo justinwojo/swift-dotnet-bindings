@@ -11,7 +11,7 @@ namespace BindingsGeneration
     {
         /// <summary>
         /// Type of the argument
-        /// <summary>
+        /// </summary>
         public required TypeSpec SwiftTypeSpec { get; set; }
 
         /// <summary>
@@ -23,6 +23,18 @@ namespace BindingsGeneration
         /// Indicates the inout annotation of the argument.
         /// </summary>
         public required bool IsInOut { get; set; }
+
+        /// <summary>
+        /// The Swift value-ownership convention for this parameter (consuming / borrowing /
+        /// inout / default), parsed from the ABI JSON <c>paramValueOwnership</c> field.
+        /// Authoritative for parser-produced declarations; synthetic argument declarations
+        /// (setter newValue, subscript indices, bridge parameters) leave this at
+        /// <see cref="ParameterOwnership.Default"/> and rely on <see cref="IsInOut"/> instead.
+        /// Distinguishes <see cref="ParameterOwnership.Owned"/> (consuming, +1 transfer) from
+        /// <see cref="ParameterOwnership.Shared"/> (borrowing, +0) — a distinction <see cref="IsInOut"/>
+        /// cannot express — so ownership-transfer paths avoid double-free / +0-forwarding bugs.
+        /// </summary>
+        public ParameterOwnership Ownership { get; set; } = ParameterOwnership.Default;
 
         /// <summary>
         /// Indicates if the argument is generic.

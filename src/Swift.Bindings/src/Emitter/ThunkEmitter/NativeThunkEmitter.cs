@@ -611,8 +611,26 @@ public static class NativeThunkEmitter
                 continue;
 
             var lowering = TypeLowering.LowerParameterType(arg.SwiftTypeSpec, env.TypeDatabase);
+
+            // Indirect param (0 register slots, IsIndirect=true — a non-frozen / address-only
+            // struct passed by pointer, including ~Copyable). Only `consuming` (+1, Owned) is
+            // unsafe: the bare tail-call thunk forwards the C# buffer pointer with no ownership
+            // modeling, so Swift consumes/deinitializes the value AND the C# SafeHandle destroys
+            // the same buffer → double-free (P0-06). Route consuming params to the @_cdecl wrapper,
+            // which models ownership (Swift-side `.move()` + C#-side MarkConsumed). Borrowing
+            // (Shared) and default params are +0 — the caller retains ownership, so forwarding the
+            // same initialized buffer pointer is ABI-correct and stays on the thunk. (InOut is
+            // already rejected upstream by the IsInOut gate, so it never reaches here.)
+            if (lowering != null && lowering.IsIndirect)
+            {
+                if (arg.Ownership == ParameterOwnership.Owned)
+                    return false;
+                continue;
+            }
+
+            // Single register-direct slot — safe for thunk register shifting.
             if (lowering != null && lowering.Slots.Count <= 1)
-                continue; // Single-slot param — safe for thunk register shifting
+                continue;
 
             // Multi-slot params (e.g., 16B struct = 2 registers) can't be thunked:
             // cdecl and swiftcc may disagree on register file (int vs float) for mixed-type structs,
@@ -696,12 +714,15 @@ public static class NativeThunkEmitter
             && record.Flags.HasFlag(TypeRecordFlags.Frozen))
             return false;
 
-        // Frozen struct ≤ 8 bytes: fits in a single register — safe for tail call
-        if (record.Kind == TypeRecordKind.Struct && record.Flags.HasFlag(TypeRecordFlags.Frozen)
-            && record.InlineSize.HasValue && record.InlineSize.Value <= 8)
-            return false;
+        // A frozen struct that reaches here has ALREADY failed TypeLowering (this method is only
+        // consulted when LowerReturnType returned null), so its register file is unknown — even at
+        // ≤ 8 bytes it is NOT safe to tail-call as if it were a single integer register. A struct
+        // holding a single Float/Double (or any float-containing shape TypeLowering declined as
+        // divergent) is returned in d0/xmm0 by swiftcc, while an integer tail-call reads x0/%rax and
+        // sees 0 (P1-09). Without a layout we cannot tell integer from floating-point, so decline to
+        // the @_cdecl wrapper, whose C-ABI return is correct by construction.
 
-        // Everything else: multi-register or unknown layout — needs bridging
+        // Everything else: multi-register, float-divergent, or unknown layout — needs bridging
         // that TypeLowering couldn't provide. Reject to @_cdecl wrapper.
         return true;
     }

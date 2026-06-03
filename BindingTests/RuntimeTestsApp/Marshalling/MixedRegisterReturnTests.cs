@@ -119,4 +119,42 @@ public class MixedRegisterReturnTests : TestBase
         AssertEqual(204L, s.E, "factory LargeScalar.E");
         TestLogger.Info($"LargeScalarStructFactory(200).Make() = ({s.A}, {s.B}, {s.C}, {s.D}, {s.E})");
     }
+
+    public void TestByteQuintWideEightbyteGroupingRoundTrip()
+    {
+        // {Int8 × 5, Int64, Int64} = 24 bytes, laid out as three integer eightbytes:
+        // [b0..b4 + 3 pad][first][second]. swiftcc returns it field-grouped across x0/x1/x2; a thunk
+        // that miscounts the eightbytes — treating each Int8 as its own register slot, or stopping at
+        // two slots — surfaces `first`/`second` as garbage while the five bytes still look correct.
+        // Distinct ascending bytes plus two wide values that need their own eightbytes prove the
+        // grouping survived. This is a different shape than the 5×Int64 LargeScalar struct above.
+        var s = TestLibFunctions.MakeByteQuintWide(1, 2, 3, 4, 5, 6_000_000_000L, 7_000_000_000L);
+        AssertEqual((sbyte)1, s.B0, "ByteQuintWide.B0");
+        AssertEqual((sbyte)2, s.B1, "ByteQuintWide.B1");
+        AssertEqual((sbyte)3, s.B2, "ByteQuintWide.B2");
+        AssertEqual((sbyte)4, s.B3, "ByteQuintWide.B3");
+        AssertEqual((sbyte)5, s.B4, "ByteQuintWide.B4");
+        AssertEqual(6_000_000_000L, s.First, "ByteQuintWide.First survived eightbyte grouping");
+        AssertEqual(7_000_000_000L, s.Second, "ByteQuintWide.Second survived eightbyte grouping");
+        TestLogger.Info($"MakeByteQuintWide = (b0..b4={s.B0},{s.B1},{s.B2},{s.B3},{s.B4}, first={s.First}, second={s.Second})");
+    }
+
+    public void TestWideQuintetStaticMethodIndirectRoundTrip()
+    {
+        // 40-byte (5 × Int64) struct returned INDIRECTLY by a STATIC method. A static method has no
+        // self, so the type-metadata accessor call (`bl` on arm64, `callq` on x86_64) is the call that
+        // clobbers the sret register — x8 on arm64, %rdi on x86_64 — between the wrapper receiving the
+        // sret pointer and the swiftcc call. P0-08 spills/reloads x8 around the accessor (arm64) and
+        // stashes the sret in callee-saved %rbx (x86_64). The free-function (tail call) and
+        // instance-method (self in swiftself) variants above cannot exercise the static+metadata case:
+        // only here does the metadata accessor sit between sret receipt and the call. Five ascending
+        // fields prove the result buffer pointer survived the accessor.
+        var s = WideQuintet.Make(500);
+        AssertEqual(500L, s.A, "WideQuintet.A — sret survived the metadata accessor");
+        AssertEqual(501L, s.B, "WideQuintet.B");
+        AssertEqual(502L, s.C, "WideQuintet.C");
+        AssertEqual(503L, s.D, "WideQuintet.D");
+        AssertEqual(504L, s.E, "WideQuintet.E");
+        TestLogger.Info($"WideQuintet.Make(500) = ({s.A}, {s.B}, {s.C}, {s.D}, {s.E})");
+    }
 }

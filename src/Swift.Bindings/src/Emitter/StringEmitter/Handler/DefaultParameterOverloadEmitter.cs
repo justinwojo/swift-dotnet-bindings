@@ -363,13 +363,19 @@ public static class DefaultParameterOverloadEmitter
             Name = returnArg.Name,
             PrivateName = returnArg.PrivateName,
             IsInOut = returnArg.IsInOut,
+            Ownership = returnArg.Ownership,
             IsGeneric = returnArg.IsGeneric,
             HasDefaultArg = returnArg.HasDefaultArg,
             ParentDecl = overload,
             ModuleDecl = returnArg.ModuleDecl
         });
 
-        // Copy non-trimmed parameters
+        // Copy non-trimmed parameters. Ownership is an intrinsic, position-independent
+        // property of the parameter (like IsInOut/IsGeneric) and MUST be carried over: a
+        // `consuming` (Owned) parameter that survives into a trimmed default-overload would
+        // otherwise revert to ParameterOwnership.Default and route off the .move()/MarkConsumed
+        // path → double-free (P0-06). CSharpName is deliberately NOT copied — it is re-deduped
+        // per overload against the overload's own (shorter) signature.
         var args = original.CSSignature.Skip(1).ToList();
         var keepCount = args.Count - trimCount;
         for (int i = 0; i < keepCount; i++)
@@ -381,6 +387,7 @@ public static class DefaultParameterOverloadEmitter
                 Name = arg.Name,
                 PrivateName = arg.PrivateName,
                 IsInOut = arg.IsInOut,
+                Ownership = arg.Ownership,
                 IsGeneric = arg.IsGeneric,
                 HasDefaultArg = arg.HasDefaultArg,
                 ParentDecl = overload,

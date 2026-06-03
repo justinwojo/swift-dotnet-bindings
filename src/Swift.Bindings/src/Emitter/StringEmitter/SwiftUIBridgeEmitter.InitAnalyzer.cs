@@ -143,6 +143,7 @@ public static partial class SwiftUIBridgeEmitter
             Name = param.Name,
             PrivateName = param.PrivateName,
             IsInOut = param.IsInOut,
+            Ownership = param.Ownership, // faithful clone — keep ownership across type substitution (P0-06)
             IsGeneric = false, // No longer generic after substitution
             SwiftTypeSpec = new NamedTypeSpec(qualifiedName),
             ParentDecl = param.ParentDecl,

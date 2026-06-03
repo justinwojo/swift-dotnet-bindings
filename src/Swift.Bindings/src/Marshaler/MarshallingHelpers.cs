@@ -66,6 +66,35 @@ namespace BindingsGeneration
                 && IsSwiftString(typeSpec);
 
         /// <summary>
+        /// Checks whether the type spec represents Foundation.Data.
+        /// </summary>
+        public static bool IsFoundationData(TypeSpec? typeSpec)
+        {
+            return typeSpec is NamedTypeSpec named && named.Name == "Foundation.Data";
+        }
+
+        /// <summary>
+        /// Whether a Foundation.Data parameter should be decomposed into two nint words for @_cdecl
+        /// constructor/method wrappers. The @_cdecl Swift wrappers receive Data as two Int words
+        /// (_dW0_, _dW1_; see <see cref="CdeclParamMapper"/>), so the C# P/Invoke must emit a matching
+        /// nint pair instead of passing the 16-byte Swift.Foundation.Data struct by value. Without
+        /// this, on AArch64 a Data composite that lands after 7 leading integer args is split between
+        /// the last GP register and the stack while the Swift side reads two whole-register Ints — the
+        /// second word is lost. Mirrors <see cref="ShouldDecomposeStringForCdecl"/>.
+        /// Invariant: Swift.Foundation.Data is exactly 16 bytes (two nint-sized words).
+        ///
+        /// Property/subscript (cdecl-property) wrappers are deliberately excluded: a setter's Data
+        /// value is always at argument slot 0 or 1 (after at most a single self/inout pointer), so it
+        /// never lands beyond x7. There "one 16-byte struct in x1:x2" and "two Int words in x1,x2" are
+        /// ABI-identical, so passing the struct by value (the accessor path) matches the Swift side's
+        /// two-word reconstruction without a register-straddle hazard. The constructor/method wrappers
+        /// are the only paths where a Data composite can be pushed past x7 by leading scalar args.
+        /// </summary>
+        public static bool ShouldDecomposeDataForCdecl(MethodDecl methodDecl, TypeSpec? typeSpec)
+            => (methodDecl.UsesCdeclConstructorWrapper || methodDecl.UsesCdeclMethodWrapper)
+                && IsFoundationData(typeSpec);
+
+        /// <summary>
         /// Determines whether the specified type spec represents Swift.Array.
         /// </summary>
         public static bool IsSwiftArray(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftArrayTypeName);

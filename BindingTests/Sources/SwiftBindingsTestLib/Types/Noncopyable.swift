@@ -98,3 +98,65 @@ public func createUniqueResource(id: Int32) -> UniqueResource {
 public func createFileHandle(descriptor: Int32) -> FileHandle {
     return FileHandle(descriptor: descriptor)
 }
+
+// MARK: - P0-06: consuming non-copyable deinit-runs-exactly-once probe
+
+/// A noncopyable resource that feeds the shared allocation counters (see
+/// `Lifetime/OwnershipTests.swift`) so a C# test can assert its `deinit` runs EXACTLY once when the
+/// value is handed to a `consuming` function.
+///
+/// A `~Copyable` value is address-only: the generator lowers it to an indirect (by-buffer-pointer)
+/// parameter and routes it through the `@_cdecl` wrapper, which `move`s the value into the Swift call.
+/// Before that routing existed, the C# SafeHandle destroyed the value a SECOND time after Swift had
+/// already consumed it — a double-free (SIGABRT), or a `deinit` count of 2. The fix marks the C# handle
+/// consumed so a later `Dispose()` is a no-op.
+public struct TrackedResource: ~Copyable {
+    public let id: Int32
+
+    public init(id: Int32) {
+        self.id = id
+        recordTrackedAllocation()
+    }
+
+    /// Borrowing read — does not consume.
+    public borrowing func peek() -> Int32 {
+        return id
+    }
+
+    deinit {
+        recordTrackedDeallocation()
+    }
+}
+
+/// Takes ownership of a `TrackedResource` (`consuming`) and returns its id. Swift consumes — and so
+/// `deinit`s — the value exactly once inside this call; the caller's handle is left invalid.
+public func consumeTrackedResource(_ resource: consuming TrackedResource) -> Int32 {
+    return resource.peek()
+}
+
+/// Creates a `TrackedResource` with the given id (bumps the live-object counter).
+public func createTrackedResource(id: Int32) -> TrackedResource {
+    return TrackedResource(id: id)
+}
+
+// MARK: - P0-06 × throwing: consuming non-copyable on a throwing function
+
+public enum TrackedResourceError: Error {
+    case rejected
+}
+
+/// Takes ownership of a `TrackedResource` (`consuming`) and THROWS when `id` is negative.
+///
+/// Swift owns a `consuming` parameter regardless of control flow: whether this returns normally or
+/// throws, the value's `deinit` runs exactly once inside the call (the throw unwinds through the
+/// callee's end-of-scope cleanup). The generated C# wrapper therefore marks the handle consumed
+/// BEFORE it rethrows the Swift error — otherwise the SafeHandle would run a second value-witness
+/// destroy on the already-consumed buffer on the throw path (a double-free the non-throwing
+/// `consumeTrackedResource` test cannot reach).
+public func consumeTrackedResourceOrThrow(_ resource: consuming TrackedResource) throws -> Int32 {
+    let value = resource.peek()
+    if value < 0 {
+        throw TrackedResourceError.rejected
+    }
+    return value
+}

@@ -1163,6 +1163,94 @@ public class PInvokeEmitterTests
         Assert.Contains(wordParams, p => p.Name == "d_w1");
     }
 
+    [Fact]
+    public void CdeclConstructor_DataParam_DecomposedIntoTwoNintWords()
+    {
+        // P1-10: Foundation.Data ABI decomposition. @_cdecl constructor wrappers receive Data as
+        // two Int words. The C# P/Invoke must emit two nint parameters (_w0, _w1) instead of passing
+        // the 16-byte Swift.Foundation.Data struct by value — otherwise, on AArch64, a Data composite
+        // pushed past x7 by leading scalar args is split between the last GP register and the stack
+        // while the Swift side reads two whole-register Ints, losing the second word.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("init", classDecl, moduleDecl, isConstructor: true);
+        method.UsesCdeclConstructorWrapper = true;
+        method.CSSignature.Add(CreateArg("payload", new NamedTypeSpec("Foundation.Data"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        RegisterFoundationData(typeDb);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // Two nint words, not one Data struct passed by value.
+        Assert.Contains(sig.Parameters, p => p.Name == "payload_w0" && p.Type is MarshalledType.Simple("nint"));
+        Assert.Contains(sig.Parameters, p => p.Name == "payload_w1" && p.Type is MarshalledType.Simple("nint"));
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "payload" && p.Type is MarshalledType.NativeRemappedFrozen);
+    }
+
+    [Fact]
+    public void CdeclMethod_DataParam_DecomposedIntoTwoNintWords()
+    {
+        // Same Data decomposition applies to @_cdecl method wrappers, not just constructors.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("upload", classDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+        method.CSSignature.Add(CreateArg("body", new NamedTypeSpec("Foundation.Data"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        RegisterFoundationData(typeDb);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Contains(sig.Parameters, p => p.Name == "body_w0" && p.Type is MarshalledType.Simple("nint"));
+        Assert.Contains(sig.Parameters, p => p.Name == "body_w1" && p.Type is MarshalledType.Simple("nint"));
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "body" && p.Type is MarshalledType.NativeRemappedFrozen);
+    }
+
+    [Fact]
+    public void CdeclProperty_DataParam_NotDecomposed_PassedByValue()
+    {
+        // P1-10 boundary: property/subscript (cdecl-property) wrappers are deliberately NOT decomposed.
+        // A setter's Data value sits at argument slot 0/1 (after at most one self/inout pointer), so it
+        // never lands beyond x7; "one 16-byte struct in x1:x2" and "two Int words in x1,x2" are
+        // ABI-identical there. The accessor path passes the frozen Data struct by value (NativeRemappedFrozen),
+        // with no _w0/_w1 split.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("setBlob", classDecl, moduleDecl);
+        method.UsesCdeclPropertyWrapper = true;
+        method.CSSignature.Add(CreateArg("value", new NamedTypeSpec("Foundation.Data"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        RegisterFoundationData(typeDb);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "value_w0");
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "value_w1");
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.NativeRemappedFrozen);
+    }
+
+    /// <summary>
+    /// Registers a Foundation.Data TypeRecord mirroring FoundationDatabase.xml: a frozen struct with a
+    /// native remapping to Foundation.NSData and no ObjC-bridgeable flag — the exact shape that drives
+    /// the @_cdecl two-word decompose branch in PInvokeEmitter.
+    /// </summary>
+    private static void RegisterFoundationData(TypeDatabase typeDb)
+    {
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Foundation", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData"),
+                MetadataAccessor = "$s10Foundation4DataVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(foundationModule);
+    }
+
     #endregion
 
     #region Signature String Tests

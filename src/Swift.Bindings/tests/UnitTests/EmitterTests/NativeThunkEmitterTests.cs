@@ -282,6 +282,43 @@ namespace BindingsGeneration.Tests
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
+        [Theory]
+        [InlineData(4)]
+        [InlineData(8)]
+        public void ShouldEmitThunk_SmallFrozenStructReturn_NoLayout_ReturnsFalse(int inlineSize)
+        {
+            // P1-09: a ≤8-byte frozen struct WITHOUT ABI field layout. TypeLowering returns null
+            // (register file unknown), so we can't tell whether the field is an integer (returned in
+            // x0/%rax) or a Float/Double (returned in d0/%xmm0). The removed "frozen struct ≤ 8 bytes
+            // → single register, no bridge" fast path tail-called it as if it were an integer; for a
+            // struct holding a single Float/Double swiftcc returns the value in d0 while the integer
+            // tail-call reads x0 and sees 0 — a silent wrong (zero) return. NeedsReturnBridging now
+            // declines any no-layout frozen struct to the @_cdecl wrapper, whose C-ABI return is
+            // correct by construction. Both the divergent 4-byte (single Float) and 8-byte (single
+            // Double) shapes must reject.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.Money", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "Money"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.Money"),
+                MetadataAccessor = "$s4Test5MoneyVMa",
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = inlineSize, // no AbiFieldLayout — register file unknown
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.Money"), ""), // return type
+                MakeArg(new NamedTypeSpec("Swift.Int"), "value"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
         [Fact]
         public void ShouldEmitThunk_SmallMixedIntFloatStructReturn_ReturnsFalse()
         {
@@ -1852,6 +1889,61 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
+        #region Bug Fix: Indirect consuming/non-copyable params rejected from thunks (P0-06)
+
+        [Theory]
+        // consuming (+1) is the ONLY indirect ownership that the bare thunk gets wrong.
+        [InlineData(ParameterOwnership.Owned, false)]
+        // borrowing (+0) and default (+0) leave ownership with the caller — pointer-forwarding the
+        // same initialized buffer is ABI-correct, so the thunk path is retained.
+        [InlineData(ParameterOwnership.Shared, true)]
+        [InlineData(ParameterOwnership.Default, true)]
+        public void ShouldEmitThunk_IndirectNonCopyableParam_DeclinesOnlyForConsuming(
+            ParameterOwnership ownership, bool expectThunk)
+        {
+            // P0-06: a non-copyable (~Copyable) struct parameter is address-only — TypeLowering
+            // returns IsIndirect=true with ZERO register slots, so it is passed by buffer pointer.
+            // An earlier gate admitted any param with Slots.Count <= 1 (and 0 <= 1), so it wrongly
+            // tail-call-thunked the buffer pointer with no ownership modeling: a `consuming` (+1)
+            // param is consumed (deinit'd) by Swift AND destroyed again by the C# SafeHandle →
+            // double-free (SIGABRT). The fix declines ONLY `consuming` (Owned) indirect params to
+            // the @_cdecl wrapper (Swift `.move()` + C# MarkConsumed). `borrowing` (Shared) and
+            // default params are +0 — the caller retains ownership, so forwarding the same buffer
+            // pointer through the thunk is ABI-correct and must NOT be forced onto the wrapper.
+            var classDecl = CreateClassDecl();
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.FileHandle", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "FileHandle"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.FileHandle"),
+                // Non-copyable, non-frozen → address-only → LowerStruct returns IsIndirect=true.
+                Flags = TypeRecordFlags.NonCopyable,
+                MetadataAccessor = "$s4Test10FileHandleVMa",
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: classDecl);
+            var consumed = MakeArg(new NamedTypeSpec("Test.FileHandle"), "handle");
+            consumed.Ownership = ownership;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(TupleTypeSpec.Empty, ""), // void return
+                consumed,
+            };
+            var env = new MethodEnvironment(method, db);
+
+            // Confirm the param really lowers indirect (0 slots) — the exact shape the
+            // Slots.Count<=1 fast path would mis-admit without an ownership check.
+            var lowering = TypeLowering.LowerParameterType(consumed.SwiftTypeSpec, db);
+            Assert.NotNull(lowering);
+            Assert.True(lowering!.IsIndirect);
+            Assert.Empty(lowering.Slots);
+
+            Assert.Equal(expectThunk, NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        #endregion
+
         #region Bug Fix: TBD symbol lookup underscore prefix mismatch
 
         [Fact]
@@ -2250,6 +2342,67 @@ namespace BindingsGeneration.Tests
             Assert.Contains("str     x21, [sp, #32]", asm);
             Assert.Contains("ldr     x21, [sp, #32]", asm);
             Assert.Contains("[sp, #-48]!", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_ThrowingClassConstructor_ErrorLeadsAndShiftsArgs()
+        {
+            // P0-05: a throwing class constructor is the one thunked shape whose error-out pointer
+            // LEADS the value arguments. CdeclSignatureContract orders it [ErrorOut][Arguments]
+            // [Metadata]: the error-out lands in x0 and the two value args occupy x1/x2 on the cdecl
+            // side. The thunk must capture error-out from x0 (NOT a trailing register) and shift the
+            // value args back DOWN to x0/x1 for swiftcc. The earlier bug placed error-out at
+            // x{ParameterCount} (x2 here) and emitted no shift, so the init read the error pointer as
+            // its first argument and swifterror was never captured.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyClass", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyClass"),
+                MetadataAccessor = "$s4Test7MyClassCMa",
+                Flags = TypeRecordFlags.None
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: parentDecl);
+            method.MangledName = "$s4Test7MyClassC1a1bACs5Int32V_AGtKcfC";
+            method.Throws = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(TupleTypeSpec.Empty, ""),                  // constructor "return" placeholder
+                MakeArg(new NamedTypeSpec("Swift.Int32"), "a"),
+                MakeArg(new NamedTypeSpec("Swift.Int32"), "b"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+
+            // The throwing class constructor must remain thunk-eligible (no gate rejects it),
+            // otherwise the error-leads assembly path below would be unreachable dead code.
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+
+            var asmBuilder = new System.Text.StringBuilder();
+            var result = NativeThunkEmitter.EmitThunk(env, "Test", asmBuilder);
+
+            Assert.True(result);
+            var asm = asmBuilder.ToString();
+
+            // Throwing frame (48 bytes) and x21 swifterror save.
+            Assert.Contains("[sp, #-48]!", asm);
+            Assert.Contains("str     x21, [sp, #32]", asm);
+            // Error-out captured from the LEADING register x0 — never a trailing x2.
+            Assert.Contains("mov     x19, x0", asm);
+            Assert.DoesNotContain("mov     x19, x2", asm);
+            // Value args shift back down for swiftcc: x1->x0, x2->x1.
+            Assert.Contains("mov     x0, x1", asm);
+            Assert.Contains("mov     x1, x2", asm);
+            // Metatype accessor still called; swifterror cleared then stored back.
+            Assert.Contains("bl      _$s4Test7MyClassCMa", asm);
+            Assert.Contains("mov     x21, xzr", asm);
+            Assert.Contains("str     x21, [x19]", asm);
         }
 
         #endregion

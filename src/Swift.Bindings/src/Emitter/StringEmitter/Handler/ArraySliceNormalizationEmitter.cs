@@ -375,6 +375,7 @@ public static class ArraySliceNormalizationEmitter
                 Name = arg.Name,
                 PrivateName = arg.PrivateName,
                 IsInOut = arg.IsInOut,
+                Ownership = arg.Ownership, // preserve consuming/borrowing across normalization (P0-06)
                 IsGeneric = arg.IsGeneric,
                 HasDefaultArg = arg.HasDefaultArg,
                 ParentDecl = normalized,

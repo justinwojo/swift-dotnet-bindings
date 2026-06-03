@@ -166,7 +166,23 @@ public static class TypeLowering
     }
 
     /// <summary>
-    /// Lowers a struct type using its ABI field layout.
+    /// Lowers a frozen struct to swiftcc register slots by classifying its fields into eightbytes
+    /// (8-byte chunks), mirroring how swiftcc expands an aggregate into registers:
+    /// <list type="bullet">
+    /// <item>integer fields that share an eightbyte coalesce into ONE general-purpose register
+    /// (so the slot count reflects the eightbyte count, not the field count — a
+    /// <c>{Int8 × 5, Int64, Int64}</c> is three eightbytes / three GPRs, returned directly by
+    /// swiftcc, NOT seven slots forced indirect);</item>
+    /// <item>each floating-point field keeps its own FP register (swiftcc does not merge floats the
+    /// way the System V C ABI packs two into one SSE eightbyte).</item>
+    /// </list>
+    /// Field offsets are reconstructed from natural C/Swift alignment and cross-checked against the
+    /// record's <see cref="TypeRecord.InlineSize"/>. A struct whose natural-aligned size does not
+    /// match (explicit packing, or nested aggregates with interior padding the flattened layout
+    /// string cannot express) is declined (null) so the caller routes it to the @_cdecl wrapper,
+    /// whose C-ABI call is correct by construction. Likewise an eightbyte that mixes integer and
+    /// floating-point fields, or packs more than one float, diverges from at least one target C ABI
+    /// and is declined.
     /// </summary>
     private static TypeLoweringResult? LowerStruct(TypeRecord record)
     {
@@ -195,47 +211,99 @@ public static class TypeLowering
         // Parse the ABI field layout string. Each fragment is a register-file letter (i/f/b/p)
         // followed by the field's byte width (e.g., "i4,f4,i8,f8"). A bare letter with no width
         // is the legacy encoding and is treated as a full 8-byte slot (1 byte for bool), preserving
-        // behaviour for type databases produced before widths were tracked.
-        var fields = record.AbiFieldLayout.Split(',');
+        // behaviour for type databases produced before widths were tracked. While parsing we
+        // reconstruct each field's natural-aligned byte offset so fields can be bucketed into
+        // eightbytes below.
+        var fragments = record.AbiFieldLayout.Split(',');
+        var fields = new List<(char Class, int Width, int Offset)>(fragments.Length);
+        int cursor = 0;
+        int structAlign = 1;
+
+        foreach (var fragment in fragments)
+        {
+            if (!TryParseFieldFragment(fragment.Trim(), out char fieldClass, out int width))
+                return null; // Unknown field type
+
+            // Field offsets can only be reconstructed for scalar leaves whose alignment equals their
+            // (power-of-two) width. A composite or unexpected width can't be modelled here — decline
+            // to the @_cdecl wrapper rather than guess an offset.
+            if (width != 1 && width != 2 && width != 4 && width != 8)
+                return null;
+
+            int align = width; // scalar alignment == width for the {1,2,4,8} domain
+            cursor = AlignUp(cursor, align);
+            fields.Add((fieldClass, width, cursor));
+            cursor += width;
+            structAlign = Math.Max(structAlign, align);
+        }
+
+        int reconstructedSize = AlignUp(cursor, structAlign);
+
+        // Cross-check the natural-aligned reconstruction against the authoritative inline size. A
+        // mismatch means the struct is packed, or contains nested aggregates whose interior padding
+        // the flattened layout string does not capture — we cannot place its fields in registers
+        // safely, so decline to the @_cdecl wrapper.
+        if (record.InlineSize.HasValue && record.InlineSize.Value != reconstructedSize)
+            return null;
+
+        int totalBytes = record.InlineSize ?? reconstructedSize;
+
+        // Group fields into eightbytes. A naturally-aligned scalar (≤ 8 bytes) never straddles an
+        // 8-byte boundary, so each field belongs to exactly the eightbyte at offset / 8.
         var slots = new List<RegisterSlot>();
         int intIndex = 0;
         int floatIndex = 0;
-        int totalBytes = 0;
 
-        foreach (var field in fields)
+        foreach (var group in fields.GroupBy(f => f.Offset / 8).OrderBy(g => g.Key))
         {
-            if (!TryParseFieldFragment(field.Trim(), out char fieldClass, out int width))
-                return null; // Unknown field type
+            var members = group.ToList();
+            bool anyFloat = members.Any(m => m.Class == 'f');
+            bool anyInt = members.Any(m => m.Class != 'f');
 
-            switch (fieldClass)
+            // An eightbyte that mixes integer and floating-point fields diverges between swiftcc
+            // (separate GPR + FP registers) and the System V C ABI (one packed INTEGER register), so
+            // the field-wise return bridge cannot reproduce both — decline.
+            if (anyFloat && anyInt)
+                return null;
+
+            if (anyFloat)
             {
-                case 'i':
-                case 'b':
-                case 'p':
-                    slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, width));
-                    break;
-                case 'f':
-                    slots.Add(new RegisterSlot(RegisterFile.Float, floatIndex++, width));
-                    break;
-                default:
-                    return null; // Unknown field type
+                // Pure floating-point eightbyte. swiftcc keeps each float in its own FP register;
+                // two floats packed into one eightbyte ({Float, Float}) is coalesced into a single
+                // SSE register by System V, so it diverges. Allow only a lone float.
+                if (members.Count != 1)
+                    return null;
+                slots.Add(new RegisterSlot(RegisterFile.Float, floatIndex++, members[0].Width));
             }
-
-            totalBytes += width;
+            else
+            {
+                // Pure-integer eightbyte → one general-purpose register. The store width spans this
+                // eightbyte, capped at the struct's end so a trailing partial eightbyte never writes
+                // past the buffer. Round to a width the backends can store (1/2/4/8); decline an
+                // unmodellable partial size.
+                int eightbyteBase = group.Key * 8;
+                int byteSize = Math.Min(8, totalBytes - eightbyteBase);
+                if (byteSize != 1 && byteSize != 2 && byteSize != 4 && byteSize != 8)
+                    return null;
+                slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, byteSize));
+            }
         }
 
-        // 4-slot limit: if total slots exceed MaxDirectSlots, pass indirectly
+        // More than four register slots: swiftcc passes/returns the aggregate indirectly via pointer.
         if (slots.Count > MaxDirectSlots)
             return new TypeLoweringResult(
                 slots.AsReadOnly(),
                 IsIndirect: true,
-                TotalByteSize: record.InlineSize ?? totalBytes);
+                TotalByteSize: totalBytes);
 
         return new TypeLoweringResult(
             slots.AsReadOnly(),
             IsIndirect: false,
-            TotalByteSize: record.InlineSize ?? totalBytes);
+            TotalByteSize: totalBytes);
     }
+
+    /// <summary>Rounds <paramref name="offset"/> up to a multiple of the power-of-two <paramref name="alignment"/>.</summary>
+    private static int AlignUp(int offset, int alignment) => (offset + (alignment - 1)) & ~(alignment - 1);
 
     /// <summary>
     /// Parses an ABI field-layout fragment into its register-file letter and byte width.

@@ -213,6 +213,7 @@ public static class MetatypeArrayBridgeEmitter
         Name = arg.Name,
         PrivateName = arg.PrivateName,
         IsInOut = arg.IsInOut,
+        Ownership = arg.Ownership, // preserve consuming/borrowing across bridge normalization (P0-06)
         IsGeneric = arg.IsGeneric,
         HasDefaultArg = arg.HasDefaultArg,
         ParentDecl = parent,

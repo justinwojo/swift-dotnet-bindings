@@ -153,6 +153,27 @@ public class CdeclSignatureContractTests
         Assert.DoesNotContain(CdeclPhase.Self, result.Phases);
     }
 
+    [Fact]
+    public void MethodWithOnlyEmptyTupleParam_IncludesArguments()
+    {
+        // Regression (P1-09 follow-on): a method whose only non-debug parameter is
+        // Void/empty-tuple — the shape of result-builder overloads like
+        // `buildPartialBlock(first: Void)` (TipKit's Tips.GroupBuilder) — must still
+        // run the Arguments phase. A Void parameter contributes no @_cdecl ABI
+        // parameter, but Swift requires the argument at the call site, so the wrapper
+        // must emit `make(first: ())`. Excluding empty tuples from HasArguments dropped
+        // the phase and produced an invalid nullary call that fails to compile.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithEmptyTupleArg("make", parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDb);
+
+        var result = CdeclSignatureContract.DetermineParameterOrder(env, overrideNeedsResultPtr: false);
+
+        Assert.Contains(CdeclPhase.Arguments, result.Phases);
+    }
+
     #endregion
 
     #region Protocol Extension Tests
@@ -287,6 +308,51 @@ public class CdeclSignatureContractTests
                     SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
                     Name = "arg0",
                     PrivateName = "arg0",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    /// <summary>
+    /// Creates a method whose single parameter is Void (empty tuple) — the shape of
+    /// result-builder overloads like `buildPartialBlock(first: Void)`. HasArguments must
+    /// return true so the Arguments phase forwards the call-site `first: ()`.
+    /// </summary>
+    private static MethodDecl CreateMethodWithEmptyTupleArg(string name, TypeDecl parentDecl, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule_{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty, // return slot
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty, // Void parameter `first: ()`
+                    Name = "first",
+                    PrivateName = "first",
                     IsInOut = false,
                     IsGeneric = false,
                     ParentDecl = null,

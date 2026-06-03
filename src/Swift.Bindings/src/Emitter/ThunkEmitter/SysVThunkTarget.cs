@@ -157,12 +157,26 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         bool cdeclUsesSret = CdeclUsesSret(descriptor);
         int sretOffset = cdeclUsesSret ? 1 : 0;
 
-        // cdecl integer-register positions, accounting for the hidden sret pointer in %rdi.
-        // Layout: [sret?] arg0 .. arg{N-1} [self?] [errorOut?]
+        // A throwing CONSTRUCTOR places its error-out pointer FIRST, ahead of the value arguments:
+        // CdeclSignatureContract orders a class constructor [ErrorOut?] [Arguments] [Metadata], so the
+        // error-out lands in %rdi and the value arguments shift up to %rsi.. . This mirrors the hidden
+        // sret pointer, so it is folded into the same leading-register offset and argument shift.
+        // (Struct constructors are declined to @_cdecl before reaching here; a class constructor
+        // returns a pointer directly, so it never also uses sret.)
+        bool ctorErrorLeads = descriptor.IsConstructor && needsErrorBridge;
+
+        // Total leading integer registers consumed before the value arguments (hidden sret pointer
+        // and/or a constructor's leading error-out pointer). The explicit value arguments are spilled
+        // from and restored to %{argRegOffset + i}, then shifted down to %{i} for swiftcc.
+        int argRegOffset = sretOffset + (ctorErrorLeads ? 1 : 0);
+
+        // cdecl integer-register positions.
+        //   Class constructor (throws): [ErrorOut] [Arguments] ...           → error_out is %rdi.
+        //   Instance/static/free:       [sret?] [Arguments] [Self?] [ErrorOut] → error_out is last.
         int selfCdeclIndex = descriptor.ParameterCount + sretOffset;
-        int errorCdeclIndex = descriptor.ParameterCount
-            + (needsSelfBridge ? 1 : 0)
-            + sretOffset;
+        int errorCdeclIndex = ctorErrorLeads
+            ? 0
+            : descriptor.ParameterCount + (needsSelfBridge ? 1 : 0) + sretOffset;
 
         // Prologue. Always preserve the callee-saved registers this template clobbers:
         // %rbx (stashes the sret buffer), %r12 (swifterror), %r13 (swiftself/metatype).
@@ -193,16 +207,17 @@ public sealed class SysVThunkTarget : ThunkTargetArch
 
         // metatype → %r13 (constructors/static methods).
         if (needsMetatype)
-            EmitMetatypeSetup(sb, descriptor, sretOffset);
+            EmitMetatypeSetup(sb, descriptor, argRegOffset);
 
-        // Drop the sret pointer out of the argument sequence: shift each explicit integer
-        // argument down one register so it lands where swiftcc expects it. Ascending order is
-        // safe — each source register is read before the next store would overwrite it. Float
-        // arguments stay in %xmm0.. and never shift.
-        if (cdeclUsesSret)
+        // Drop the leading non-argument register(s) (hidden sret pointer and/or a constructor's
+        // leading error-out pointer) out of the argument sequence: shift each explicit integer
+        // argument down so it lands where swiftcc expects it. Ascending order is safe — each source
+        // register is read before the next store would overwrite it. Float arguments stay in
+        // %xmm0.. and never shift.
+        if (argRegOffset > 0)
         {
             for (int i = 0; i < descriptor.ParameterCount; i++)
-                sb.AppendLine($"    movq    %{IntArgReg(i + 1)}, %{IntArgReg(i)}");
+                sb.AppendLine($"    movq    %{IntArgReg(i + argRegOffset)}, %{IntArgReg(i)}");
         }
 
         // Clear swifterror before the call.
@@ -257,8 +272,10 @@ public sealed class SysVThunkTarget : ThunkTargetArch
     /// </summary>
     /// <param name="sb">Assembly buffer.</param>
     /// <param name="descriptor">Thunk descriptor.</param>
-    /// <param name="sretOffset">1 if the cdecl integer arguments start after a hidden sret pointer, else 0.</param>
-    private static void EmitMetatypeSetup(StringBuilder sb, ThunkDescriptor descriptor, int sretOffset)
+    /// <param name="argRegOffset">Number of leading integer registers (hidden sret pointer and/or a
+    /// constructor's leading error-out pointer) before the explicit value arguments, so they are
+    /// spilled from and restored to the correct registers.</param>
+    private static void EmitMetatypeSetup(StringBuilder sb, ThunkDescriptor descriptor, int argRegOffset)
     {
         if (descriptor.MetadataAccessorSymbol == null)
             return;
@@ -276,7 +293,7 @@ public sealed class SysVThunkTarget : ThunkTargetArch
             int offset = 0;
             for (int i = 0; i < intParamCount; i++)
             {
-                sb.AppendLine($"    movq    %{IntArgReg(sretOffset + i)}, {SpillMem(offset)}");
+                sb.AppendLine($"    movq    %{IntArgReg(argRegOffset + i)}, {SpillMem(offset)}");
                 offset += 8;
             }
             for (int i = 0; i < floatParamCount; i++)
@@ -298,7 +315,7 @@ public sealed class SysVThunkTarget : ThunkTargetArch
             int offset = 0;
             for (int i = 0; i < intParamCount; i++)
             {
-                sb.AppendLine($"    movq    {SpillMem(offset)}, %{IntArgReg(sretOffset + i)}");
+                sb.AppendLine($"    movq    {SpillMem(offset)}, %{IntArgReg(argRegOffset + i)}");
                 offset += 8;
             }
             for (int i = 0; i < floatParamCount; i++)

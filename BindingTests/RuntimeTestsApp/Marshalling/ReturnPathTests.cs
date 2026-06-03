@@ -163,4 +163,26 @@ public class ReturnPathTests : TestBase
     }
 
     #endregion
+
+    #region VoidParamArrayFactory — Void Param + Array Return via @_cdecl
+
+    /// <summary>
+    /// Regression: a static method whose only parameter is Void (empty tuple) and
+    /// whose Array return routes through the @_cdecl wrapper. The wrapper must
+    /// forward the call as `make(first: ())`; dropping the Void argument emitted
+    /// invalid Swift ("missing argument for parameter 'first'"). Models TipKit's
+    /// `Tips.GroupBuilder.buildPartialBlock(first: Void) -> [any Tip]`.
+    /// </summary>
+    public void TestVoidParamArrayReturn()
+    {
+        var result = VoidParamArrayFactory.Make();
+        AssertNotNull(result, "VoidParamArrayFactory.Make() returned non-null");
+        AssertEqual(3, result.Count, "Array element count");
+        AssertEqual(10, result[0], "Element[0]");
+        AssertEqual(20, result[1], "Element[1]");
+        AssertEqual(30, result[2], "Element[2]");
+        TestLogger.Info($"VoidParamArrayFactory.Make() = [{string.Join(", ", result)}]");
+    }
+
+    #endregion
 }
