@@ -64,7 +64,8 @@ public static class DeviceCtl
         Log.Information("Installing app on device {Udid}...", udid);
         ProcessTasks.StartProcess(
                 "xcrun", $"devicectl device install app --device {udid} \"{appPath}\"")
-            .AssertWaitForExit();
+            .AssertWaitForExit()
+            .AssertZeroExitCode();
     }
 
     /// <summary>
@@ -135,6 +136,20 @@ public static class DeviceCtl
         }
 
         Terminate(udid, bundleId);
+
+        // Drain in-flight async output before snapshotting — the poll-break path kills the process
+        // immediately, so buffered OutputDataReceived/ErrorDataReceived callbacks may still be
+        // delivering queued lines (e.g. an ObjC duplicate-registration warning the mixed device leg
+        // greps for). Use the parameterless WaitForExit(), documented to block until the redirected
+        // async readers reach EOF (all callbacks fired), unlike the timeout overload. Bound the
+        // process-exit wait first (the process was just Killed, so it terminates promptly), then the
+        // parameterless call deterministically flushes the readers — no guessed interval to outrun.
+        try
+        {
+            if (process.WaitForExit(5000))
+                process.WaitForExit();
+        }
+        catch { /* Best-effort drain; snapshot whatever was captured. */ }
 
         var finalOutput = string.Join("\n", output);
         int? exitCode = null;

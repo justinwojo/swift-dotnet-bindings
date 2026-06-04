@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -113,6 +114,64 @@ namespace BindingsGeneration.Tests
             runner.SetResponse(f.Path, 1, "");
 
             Assert.Equal(NativeLinkage.Dynamic, NativeLinkageProbe.Detect(f.Path, runner, Logger));
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Real-toolchain checks: every mocked test above assumes file(1) emits the
+        // literal "current ar archive" / "dynamically linked shared library" strings.
+        // The entire Gap 2 force_load decision rests on that assumption, so pin it
+        // against the real `file`+`clang`+`ar` toolchain (macOS only).
+        // ─────────────────────────────────────────────────────────────────────
+
+        private static bool IsMacOS => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+
+        [Fact]
+        public void Detect_Static_ForRealArArchive_ViaSystemFile()
+        {
+            if (!IsMacOS) return;
+            var runner = new SystemCommandRunner();
+
+            var dir = Path.Combine(Path.GetTempPath(), $"linkage_real_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                // A real one-object static archive. `ar rcs` writes the "!<arch>\n" magic,
+                // and file(1) reports it as "current ar archive".
+                var objPath = Path.Combine(dir, "obj.o");
+                var srcPath = Path.Combine(dir, "obj.c");
+                File.WriteAllText(srcPath, "int gap2_probe_symbol(void){return 0;}\n");
+                var (ccExit, _, _) = runner.Run("xcrun", $"clang -c \"{srcPath}\" -o \"{objPath}\"", timeoutMs: 60000);
+                if (ccExit != 0 || !File.Exists(objPath)) return; // toolchain unavailable — environmental skip
+
+                var archive = Path.Combine(dir, "libgap2.a");
+                var (arExit, _, _) = runner.Run("xcrun", $"ar rcs \"{archive}\" \"{objPath}\"", timeoutMs: 30000);
+                if (arExit != 0 || !File.Exists(archive)) return;
+
+                Assert.Equal(NativeLinkage.Static, NativeLinkageProbe.Detect(archive, runner, Logger));
+            }
+            finally { try { Directory.Delete(dir, true); } catch { /* best effort */ } }
+        }
+
+        [Fact]
+        public void Detect_Dynamic_ForRealDylib_ViaSystemFile()
+        {
+            if (!IsMacOS) return;
+            var runner = new SystemCommandRunner();
+
+            var dir = Path.Combine(Path.GetTempPath(), $"linkage_real_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var srcPath = Path.Combine(dir, "lib.c");
+                File.WriteAllText(srcPath, "int gap2_probe_symbol(void){return 0;}\n");
+                var dylib = Path.Combine(dir, "libgap2.dylib");
+                var (ccExit, _, _) = runner.Run("xcrun",
+                    $"clang -dynamiclib \"{srcPath}\" -o \"{dylib}\"", timeoutMs: 60000);
+                if (ccExit != 0 || !File.Exists(dylib)) return; // toolchain unavailable — environmental skip
+
+                Assert.Equal(NativeLinkage.Dynamic, NativeLinkageProbe.Detect(dylib, runner, Logger));
+            }
+            finally { try { Directory.Delete(dir, true); } catch { /* best effort */ } }
         }
     }
 }

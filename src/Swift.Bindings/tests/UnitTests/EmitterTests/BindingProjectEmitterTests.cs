@@ -745,6 +745,130 @@ namespace BindingsGeneration.Tests
     }
 
     /// <summary>
+    /// Mixed framework (ONE xcframework carrying both a Swift API and an ObjC class surface)
+    /// ships as a SINGLE package: the standalone-emitted Swift csproj embeds the ObjC companion's
+    /// managed assembly into its own lib/ rather than depending on a separate package. The embed
+    /// must (a) capture the companion's REAL built assembly via GetTargetPath — never a guessed
+    /// bin.objc/$(Configuration)/$(TargetFramework)/ path that silently drifts under output-path
+    /// overrides — and (b) fail closed (SWIFTBIND039) at pack if no companion assembly was captured,
+    /// rather than silently shipping a Swift-only package. This mirrors the SDK's
+    /// _BuildMixedObjCCompanion + SWIFTBIND039 contract for CLI/standalone publishers.
+    /// </summary>
+    public class BindingProjectObjCCompanionTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        private const string Companion = "Nuke.ObjC.iOS.csproj";
+
+        [Fact]
+        public void Emit_MixedFramework_CompanionReferencedWithPrivateAssetsAll_NotAsDependency()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = Emit(dir, "Nuke", Companion);
+                // The companion builds via a ProjectReference, but PrivateAssets="all" stops NuGet
+                // from promoting it to a package <dependency>: the assembly is EMBEDDED, not depended on.
+                Assert.Contains($"<ProjectReference Include=\"{Companion}\" PrivateAssets=\"all\" />", content);
+                // The ref is gated on the companion csproj existing on disk (build-order safety).
+                Assert.Contains($"Condition=\"Exists('{Companion}')\"", content);
+                // A BARE (promotable) ProjectReference — no PrivateAssets="all" — would make the
+                // companion a separate package <dependency>: the exact topology the embed removes.
+                Assert.DoesNotContain($"<ProjectReference Include=\"{Companion}\" />", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MixedFramework_CapturesCompanionViaGetTargetPath_NotGuessedPath()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = Emit(dir, "Nuke", Companion);
+                // Embed goes through a GetTargetPath capture of the REAL build output...
+                Assert.Contains("Targets=\"GetTargetPath\"", content);
+                Assert.Contains("ItemName=\"_SwiftBindingCompanionBuildOutput\"", content);
+                Assert.Contains("<BuildOutputInPackage Include=\"@(_SwiftBindingCompanionBuildOutput)\"", content);
+                // RemoveProperties keeps this project's per-TFM pack pass from cross-wiring the
+                // companion's own single TFM.
+                Assert.Contains("RemoveProperties=\"TargetFramework\"", content);
+                // ...NOT the old guessed path, which drifts under output-path overrides.
+                Assert.DoesNotContain("bin.objc/$(Configuration)/$(TargetFramework)/", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MixedFramework_FailsClosed_WhenNoCompanionCaptured()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = Emit(dir, "Nuke", Companion);
+                // SWIFTBIND039 fires when the mixed binding emitted a companion but no assembly
+                // was captured to embed — a ship-blocking error, the standalone sibling of the SDK guard.
+                Assert.Contains("Code=\"SWIFTBIND039\"", content);
+                Assert.Contains("Condition=\"'@(_SwiftBindingCompanionBuildOutput)' == ''\"", content);
+                // The fail-closed target must run unconditionally (so the Error can fire even when the
+                // companion csproj is missing entirely); a Condition on the Target element would let a
+                // missing companion slip through silently.
+                Assert.Contains("<Target Name=\"_EmbedObjCCompanionInPackage\">", content);
+                Assert.Contains("$(TargetsForTfmSpecificBuildOutput);_EmbedObjCCompanionInPackage", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_SwiftOnlyFramework_NoCompanionMachinery()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // No ObjCProjectFileName → pure Swift binding → none of the embed/fail-closed machinery.
+                var content = Emit(dir, "Nuke", objCProjectFileName: null);
+                Assert.DoesNotContain("_EmbedObjCCompanionInPackage", content);
+                Assert.DoesNotContain("SWIFTBIND039", content);
+                Assert.DoesNotContain("_SwiftBindingCompanionBuildOutput", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string Emit(string dir, string module, string? objCProjectFileName)
+        {
+            var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
+            Directory.CreateDirectory(sourceXcfwPath);
+
+            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                Metadata = new XCFrameworkMetadata
+                {
+                    LibraryVersion = "1.0.0",
+                    PackageVersion = "1.0.0",
+                    IsVersionPlaceholder = false,
+                    MinimumOSVersion = "15.0",
+                    EffectiveMinimumOSVersion = "15.0",
+                    SdkVersion = null,
+                    ModuleName = module,
+                    Platforms = new List<string>()
+                },
+                SourceXCFrameworkPath = sourceXcfwPath,
+                ObjCProjectFileName = objCProjectFileName,
+            }, _logger);
+            return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_objc_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    /// <summary>
     /// Gap 2: a source framework whose native binary is a static <c>ar</c> archive is
     /// force-loaded into the wrapper, which becomes the sole runtime carrier. The csproj
     /// must therefore DROP the source xcframework NativeReference and its pack item (else
@@ -1392,91 +1516,6 @@ namespace BindingsGeneration.Tests
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"bpe_dep_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(dir);
-            return dir;
-        }
-    }
-
-    #endregion
-
-    #region E. ObjC ProjectReference Tests (Mixed Framework)
-
-    public class BindingProjectObjCRefTests
-    {
-        private static readonly ILogger _logger = NullLogger.Instance;
-
-        [Fact]
-        public void Emit_WithObjCProjectFileName_ProjectReferencePresent()
-        {
-            var dir = CreateTempDir();
-            try
-            {
-                var content = EmitAndRead(dir, "BlinkID", objcProjectFileName: "BlinkID.ObjC.iOS.csproj");
-                Assert.Contains("<ProjectReference Include=\"BlinkID.ObjC.iOS.csproj\" />", content);
-                Assert.Contains("mixed framework", content.ToLower());
-            }
-            finally { Directory.Delete(dir, true); }
-        }
-
-        [Fact]
-        public void Emit_WithoutObjCProjectFileName_NoObjCProjectReference()
-        {
-            // The dev-sentinel Swift.Runtime branch also emits a ProjectReference, so
-            // this test must scope to the ObjC mixed-framework comment+block specifically
-            // rather than asserting "no ProjectReference anywhere in the file".
-            var dir = CreateTempDir();
-            try
-            {
-                var content = EmitAndRead(dir, "Nuke", objcProjectFileName: null);
-                Assert.DoesNotContain("ObjC binding project", content);
-                Assert.DoesNotContain(".ObjC.iOS.csproj", content);
-            }
-            finally { Directory.Delete(dir, true); }
-        }
-
-        [Fact]
-        public void Emit_ObjCProjectReference_HasExistsCondition()
-        {
-            var dir = CreateTempDir();
-            try
-            {
-                var content = EmitAndRead(dir, "BlinkID", objcProjectFileName: "BlinkID.ObjC.iOS.csproj");
-                Assert.Contains("Condition=\"Exists('BlinkID.ObjC.iOS.csproj')\"", content);
-            }
-            finally { Directory.Delete(dir, true); }
-        }
-
-        private static string EmitAndRead(string dir, string module, string? objcProjectFileName)
-        {
-            var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
-            Directory.CreateDirectory(sourceXcfwPath);
-
-            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
-            {
-                OutputDirectory = dir,
-                ModuleName = module,
-                Metadata = CreateMinimalMetadata(module),
-                SourceXCFrameworkPath = sourceXcfwPath,
-                ObjCProjectFileName = objcProjectFileName
-            }, _logger);
-            return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
-        }
-
-        private static XCFrameworkMetadata CreateMinimalMetadata(string module) => new()
-        {
-            LibraryVersion = "1.0.0",
-            PackageVersion = "1.0.0",
-            IsVersionPlaceholder = false,
-            MinimumOSVersion = "15.0",
-            EffectiveMinimumOSVersion = "15.0",
-            SdkVersion = null,
-            ModuleName = module,
-            Platforms = new List<string>()
-        };
-
-        private static string CreateTempDir()
-        {
-            var dir = Path.Combine(Path.GetTempPath(), $"bpe_objc_{Guid.NewGuid():N}");
             Directory.CreateDirectory(dir);
             return dir;
         }

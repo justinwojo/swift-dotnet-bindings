@@ -125,6 +125,11 @@ public static class SwiftFrameworkResolver
         Justification = "RegisterAlcFallback only subscribes to AssemblyLoadContext.Default.ResolvingUnmanagedDll; " +
             "the IL3050 fires because the DynamicDependency keeps every AssemblyLoadContext member rooted, and ilc " +
             "transitively reaches Enum.GetValues<TEnum>() via members we never invoke at runtime.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Same root cause as the IL3050 above: the DynamicDependency keeps every AssemblyLoadContext " +
+            "member rooted, including the RequiresUnreferencedCode-annotated LoadFromAssemblyPath/LoadFromNativeImagePath/" +
+            "LoadFromStream overloads. RegisterAlcFallback never invokes any of them — it only does '+= ' on the " +
+            "ResolvingUnmanagedDll event — so the rooted-but-unused load APIs are trim-safe here.")]
     private static void RegisterAlcFallback()
     {
         if (Interlocked.Exchange(ref s_alcFallbackRegistered, 1) == 0)

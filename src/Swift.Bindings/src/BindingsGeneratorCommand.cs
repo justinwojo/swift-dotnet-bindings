@@ -1056,32 +1056,32 @@ public static class BindingsGeneratorCommand
             }
         }
 
-        // Extract metadata once, up front, so the companion ObjC binding's PackageVersion stays
-        // in lockstep with the Swift binding's — both derive from the same
-        // XCFrameworkMetadata.PackageVersion (one xcframework, one run). This is best-effort: a
-        // failure here must NOT stop the ObjC pipeline from running (it doesn't depend on
-        // metadata), so the companion simply falls back to its default version. The emission
-        // block below reuses this value, or re-extracts inside its own try/catch and surfaces a
-        // hard error there if the framework is genuinely unreadable — preserving existing
-        // fatal-error semantics for the emission path.
-        XCFrameworkMetadata? mixedMetadata = null;
-        if (hasXcframework && resolution != null)
-        {
-            try
-            {
-                mixedMetadata = XCFrameworkMetadataExtractor.Extract(
-                    resolution.DylibPath, resolution.XCFrameworkPath,
-                    resolution.ModuleName, logger);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    "Could not pre-extract xcframework metadata for companion versioning "
-                    + "(will retry during emission): {Message}", ex.Message);
-            }
-        }
+        // Gap 2: classify the source framework's native linkage ONCE, before the mixed ObjC
+        // pipeline runs. When it's a static `ar` archive, the Swift wrapper force-loaded it (sole
+        // carrier) so the source xcframework MUST be dropped from every consumer reference/pack
+        // site — re-linking the same ObjC classes would duplicate-register them. This single
+        // signal feeds the mixed companion emitter (so its own NativeReference follows the same
+        // policy), the binding-project/consumer-targets emitters below, and the SDK's reference
+        // targets (_SwiftBindingSourceNativeLinkage).
+        var sourceNativeLinkage = resolution != null
+            ? NativeLinkageProbe.Detect(resolution.DylibPath, new SystemCommandRunner(), logger)
+            : NativeLinkage.Dynamic;
+        if (sourceNativeLinkage == NativeLinkage.Static)
+            logger.LogInformation(
+                "Source framework '{Module}' has static native linkage — wrapper is the sole carrier; " +
+                "source xcframework will be dropped from consumer references.",
+                resolution?.ModuleName);
+        // The wrapper is the carrier whose presence decides the static-source drop. Use the
+        // "will be produced" intent (wouldCompileWrapper) OR an already-built wrapper on disk —
+        // the same signal the consumer-targets emitter uses — because under the SDK two-pass flow
+        // the wrapper isn't compiled yet when the companion csproj is emitted.
+        var wrapperWillExist = wouldCompileWrapper
+            || (compilationResult?.XCFrameworkPath != null
+                && Directory.Exists(compilationResult.XCFrameworkPath));
 
-        // Run mixed framework ObjC pipeline (after Swift bindings generated, before project emission)
+        // Run mixed framework ObjC pipeline (after Swift bindings generated, before project emission).
+        // The companion is a managed-only assembly embedded into the Swift binding's single package
+        // (one xcframework, one package), so it carries no independent PackageVersion to lockstep.
         ObjCPipelineResult? mixedObjcResult = null;
         if (hasXcframework && resolution != null && mixedObjcResolution != null)
         {
@@ -1091,12 +1091,27 @@ public static class BindingsGeneratorCommand
             mixedObjcResult = ObjCPipeline.Run(
                 mixedObjcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                 namespacePattern: namespacePattern, packageId: null,
-                packageVersion: mixedMetadata?.PackageVersion,
                 sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames,
                 additionalFrameworkSearchPaths: mixedSiblingPaths,
-                platformInfo: platformInfo);
-            if (mixedObjcResult.ExitCode != 0 && mixedObjcResult.ErrorMessage != null)
-                logger.LogWarning("ObjC pipeline for mixed framework: {Msg}", mixedObjcResult.ErrorMessage);
+                platformInfo: platformInfo,
+                sourceNativeLinkage: sourceNativeLinkage,
+                hasWrapperXCFramework: wrapperWillExist);
+            // Fail closed: the framework HAS an ObjC surface (mixedObjcResolution != null), so a
+            // non-zero pipeline exit means we tried to bind a known ObjC surface and failed. Do
+            // NOT silently degrade to a Swift-only package — that drops the ObjC types with no
+            // diagnostic AND bypasses SWIFTBIND039 (which only fires when metadata still says
+            // "Mixed"). Propagate the exit code (mirroring the pure-ObjC path's
+            // `context.ExitCode = objcResult.ExitCode` in the SwiftModuleNotFound/StaticLibrary
+            // catch above) so the Nuke gate's --strict/--permissive layer decides severity.
+            if (ShouldAbortForFailedMixedObjC(mixedObjcResult))
+            {
+                logger.LogError(
+                    "ObjC pipeline for mixed framework failed (exit {Code}); refusing to emit a " +
+                    "Swift-only binding that would silently drop the ObjC surface. {Msg}",
+                    mixedObjcResult.ExitCode, mixedObjcResult.ErrorMessage ?? "(no detail)");
+                context.ExitCode = mixedObjcResult.ExitCode;
+                return;
+            }
         }
 
         // Emit binding project files (xcframework mode only)
@@ -1104,10 +1119,9 @@ public static class BindingsGeneratorCommand
         {
             try
             {
-                // Reuse the up-front extraction (companion versioning above); re-extract only if
-                // that best-effort pass failed, so a genuinely unreadable framework still throws
-                // here and hits this block's fatal-error handling.
-                var metadata = mixedMetadata ?? XCFrameworkMetadataExtractor.Extract(
+                // Extract framework metadata for project emission. A genuinely unreadable
+                // framework throws here and hits this block's fatal-error handling.
+                var metadata = XCFrameworkMetadataExtractor.Extract(
                     resolution.DylibPath, resolution.XCFrameworkPath,
                     resolution.ModuleName, logger);
 
@@ -1116,25 +1130,14 @@ public static class BindingsGeneratorCommand
                 var effectivePackageId = packageId ?? platformInfo.GetDefaultSwiftPackageId(resolution.ModuleName);
                 var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
 
-                // Gap 2: classify the source framework's native linkage. When it's a static
-                // `ar` archive, the wrapper force-loaded it (sole carrier) so the source
-                // xcframework MUST be dropped from every consumer reference/pack site —
-                // re-embedding the same ObjC classes would duplicate-register them. This
-                // single signal (_SwiftBindingSourceNativeLinkage) is read by the binding
-                // project/consumer-targets emitters below and by the SDK's reference targets.
-                var sourceNativeLinkage = NativeLinkageProbe.Detect(
-                    resolution.DylibPath, new SystemCommandRunner(), logger);
-                if (sourceNativeLinkage == NativeLinkage.Static)
-                    logger.LogInformation(
-                        "Source framework '{Module}' has static native linkage — wrapper is the sole carrier; " +
-                        "source xcframework will be dropped from consumer references.",
-                        resolution.ModuleName);
+                // sourceNativeLinkage was classified once above (before the mixed ObjC pipeline)
+                // so the companion emitter and these binding-project/consumer-targets emitters
+                // share one probe and one drop decision (Gap 2).
 
-                // Mixed requires at least one ObjC class, protocol, or category.
-                bool isMixed = mixedObjcResult?.ExitCode == 0
-                    && (mixedObjcResult.Module?.Classes.Count > 0
-                        || mixedObjcResult.Module?.Protocols.Count > 0
-                        || mixedObjcResult.Module?.Categories.Count > 0);
+                // Mixed requires a zero-exit pipeline AND at least one ObjC class, protocol, or
+                // category after filtering (see IsMixedFramework for the deliberate "zero types
+                // → Swift-only" decision).
+                bool isMixed = IsMixedFramework(mixedObjcResult);
                 string? objcProjFileName = isMixed
                     ? Path.GetFileName(mixedObjcResult!.ProjectPath!)
                     : null;
@@ -1232,6 +1235,10 @@ public static class BindingsGeneratorCommand
                     SourceNativeLinkage = sourceNativeLinkage,
                     PlatformInfo = platformInfo,
                     ResourceBundleNames = resourceBundleNames,
+                    // Mixed only: lets the local .ProjectReference.targets inject a <Reference> to
+                    // the ObjC companion so PR consumers' C# sees the ObjC types (path c). Null for
+                    // Swift-only/pure-ObjC bindings, so no companion reference target is emitted.
+                    ObjCCompanionProjectFileName = objcProjFileName,
                 }, logger);
 
                 XCFrameworkMetadataExtractor.EmitMetadataJson(metadata, outputDirectory, logger);
@@ -1497,6 +1504,35 @@ public static class BindingsGeneratorCommand
     internal static bool RequiresExplicitPlatformVersion(string? swiftRuntimeVersion) =>
         !string.IsNullOrWhiteSpace(swiftRuntimeVersion) &&
         swiftRuntimeVersion != BindingProjectEmitter.DefaultSwiftRuntimeVersion;
+
+    /// <summary>
+    /// Fail-closed gate for the mixed-framework ObjC pipeline. The caller only runs the pipeline
+    /// when the framework HAS a detected ObjC surface, so a non-zero pipeline exit means we tried
+    /// to bind a known ObjC surface and failed. When this returns true, <c>Execute</c> propagates
+    /// the pipeline's exit code and refuses to emit a binding at all — silently degrading to a
+    /// Swift-only package would drop the ObjC types with no diagnostic AND bypass
+    /// <c>SWIFTBIND039</c> (which only fires when the emitted metadata still says "Mixed").
+    /// A null result means the pipeline never ran (not a mixed framework) → never abort.
+    /// </summary>
+    internal static bool ShouldAbortForFailedMixedObjC(ObjCPipelineResult? mixedObjcResult)
+        => mixedObjcResult != null && mixedObjcResult.ExitCode != 0;
+
+    /// <summary>
+    /// Classifies a framework as "Mixed" (Swift API + an embedded ObjC companion) iff the ObjC
+    /// pipeline both <b>succeeded</b> (exit 0) AND produced at least one bindable ObjC class,
+    /// protocol, or category <i>after</i> mixed-framework filtering. A zero-exit run that filtered
+    /// down to zero bindable types is deliberately treated as a plain Swift framework — there is no
+    /// managed ObjC surface to embed, so emitting a companion (and its <c>SWIFTBIND039</c> contract)
+    /// would be spurious. This is the same predicate that decides <c>frameworkType</c> and whether
+    /// an <c>objcProjectName</c> is recorded, so the companion-embed machinery and the metadata
+    /// agree by construction. Callers that detected an ObjC surface but reach here with a non-zero
+    /// exit are handled earlier by <see cref="ShouldAbortForFailedMixedObjC"/>.
+    /// </summary>
+    internal static bool IsMixedFramework(ObjCPipelineResult? mixedObjcResult)
+        => mixedObjcResult?.ExitCode == 0
+           && (mixedObjcResult.Module?.Classes.Count > 0
+               || mixedObjcResult.Module?.Protocols.Count > 0
+               || mixedObjcResult.Module?.Categories.Count > 0);
 
     internal static List<string>? GetDependencyModuleNamesForSwiftImports(
         IReadOnlyList<FrameworkDependencyInfo>? resolvedDependencies)

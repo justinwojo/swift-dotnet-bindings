@@ -139,7 +139,8 @@ public static class SimCtl
     {
         Log.Information("Installing app...");
         ProcessTasks.StartProcess("xcrun", $"simctl install {udid} \"{appPath}\"")
-            .AssertWaitForExit();
+            .AssertWaitForExit()
+            .AssertZeroExitCode();
     }
 
     /// <summary>
@@ -223,6 +224,24 @@ public static class SimCtl
 
         // Terminate the app via simctl (with its own timeout to avoid hangs)
         Terminate(udid, bundleId);
+
+        // Drain in-flight async output before snapshotting. The poll-break path (RESULTS FLUSHED +
+        // TEST SUCCESS) kills the process immediately, so buffered OutputDataReceived/ErrorDataReceived
+        // callbacks may still be delivering queued lines. Without this, a late line — e.g. an ObjC
+        // "Class X is implemented in both ..." duplicate-registration warning the mixed legs grep for —
+        // could be dropped from finalOutput and read as a false green.
+        //
+        // Use the parameterless WaitForExit() rather than a fixed sleep: it is documented to block
+        // until the redirected async readers reach EOF (the OutputDataReceived/ErrorDataReceived
+        // callbacks have all fired), whereas the timeout overload does NOT wait for them. We bound the
+        // process-exit wait first (the process was just Killed, so it terminates promptly), then the
+        // parameterless call deterministically flushes the readers — no guessed interval to outrun.
+        try
+        {
+            if (process.WaitForExit(5000))
+                process.WaitForExit();
+        }
+        catch { /* Best-effort drain; snapshot whatever was captured. */ }
 
         var finalOutput = string.Join("\n", output);
         int? exitCode = null;

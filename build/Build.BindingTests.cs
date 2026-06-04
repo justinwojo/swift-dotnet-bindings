@@ -789,6 +789,26 @@ partial class Build
         {
             RejectSkipBuildWithActiveSmokeFlags();
 
+            // --mixed-pack / --mixed-direct and --compile-only are mutually exclusive opt-in gates:
+            // --compile-only is a no-app-build compile-check gate, while the mixed legs build a
+            // mixed binding and run a consumer on a simulator/device. The --compile-only early
+            // return below would otherwise silently swallow the requested mixed leg. Fail loud
+            // rather than skip it.
+            if ((MixedPack || MixedDirect) && CompileOnly)
+                throw new Exception(
+                    "--mixed-pack/--mixed-direct and --compile-only cannot be combined: --compile-only is a compile-check "
+                    + "gate with no app build or test run, while the mixed legs build a mixed binding and run a consumer "
+                    + "on a simulator/device. Pass exactly one.");
+
+            // The two mixed legs exercise DIFFERENT consumption modes (--mixed-pack: a single packed
+            // PackageReference; --mixed-direct: SDK-direct, the app IS the binding) and each is a
+            // focused, exclusive run that returns early. Combining them would silently run only the
+            // first. Fail loud rather than skip one.
+            if (MixedPack && MixedDirect)
+                throw new Exception(
+                    "--mixed-pack and --mixed-direct cannot be combined: each is a focused, exclusive mixed-framework "
+                    + "leg that runs its own consumer and returns. Pass exactly one.");
+
             // --compile-only: run the binding pipeline + compile-check only (no app build,
             // no test execution). This is the CI gate — "does the generator emit valid C#?"
             if (CompileOnly)
@@ -822,6 +842,42 @@ partial class Build
                 if (SkipSurface)
                     RunSkipSurfaceGate();
 
+                return;
+            }
+
+            // --mixed-pack: the opt-in mixed-framework (ObjC + Swift) pack→consume→run
+            // gate. Packs a mixed binding into a SINGLE nupkg and consumes it via one
+            // PackageReference on iOS sim (Mono JIT) and/or device (NativeAOT) — the
+            // platforms where duplicate-ObjC-class registration actually bites and that
+            // the macOS-host PackGate cannot stand in for. Focused + exclusive: it does
+            // NOT also run the normal RuntimeTestsApp suite. Composes with --sim/--device
+            // and defaults to --sim when neither is given. Never part of the default inner
+            // loop (needs a booted sim and/or a provisioned device) — see CLAUDE.md.
+            if (MixedPack)
+            {
+                // iOS-only leg: it composes only with --sim/--device. Warn (don't silently
+                // ignore) if a non-iOS platform flag was also passed, mirroring --compile-only.
+                if (Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
+                    Log.Warning("--mixed-pack is an iOS-only leg; --macos/--macos-x64/--catalyst/--catalyst-x64/--tvos are ignored (it composes only with --sim/--device).");
+                RunMixedPackLeg(sim: Sim || !Device, device: Device);
+                return;
+            }
+
+            // --mixed-direct: the opt-in SDK-direct mixed-framework gate (consumption path b).
+            // Builds a mixed (ObjC + Swift) binding where the app's OWN csproj imports
+            // SwiftBindings.Sdk and declares <SwiftFramework> — so the app IS the binding project —
+            // then builds + runs it on the iOS Simulator and asserts the ObjC type round-trips and
+            // its class registers exactly once. This is the runtime gate for _ReferenceMixedObjCCompanion
+            // (the companion managed assembly surfaced into the SDK-direct consumer's own compile),
+            // the one mixed-consumption mode neither --mixed-pack (path a) nor the macOS PackGate
+            // exercises. Sim-only by design: the native single-registration question is already
+            // device-proven by --mixed-pack, and the new surface here (companion <Reference> injection)
+            // is a compile/copy-local concern fully observed on the Mono-JIT simulator runtime.
+            if (MixedDirect)
+            {
+                if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
+                    Log.Warning("--mixed-direct is a sim-only leg; --device/--macos/--macos-x64/--catalyst/--catalyst-x64/--tvos are ignored.");
+                RunMixedDirectLeg();
                 return;
             }
 

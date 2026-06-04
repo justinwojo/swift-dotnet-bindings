@@ -238,6 +238,14 @@
           "type": "boolean",
           "description": "Run on macOS for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)"
         },
+        "MixedDirect": {
+          "type": "boolean",
+          "description": "Opt-in: build a mixed (ObjC+Swift) binding in SDK-direct mode (the app's own csproj imports SwiftBindings.Sdk + <SwiftFramework>) and run it on the iOS Simulator. Sim-only; never part of the default run or --compile-only"
+        },
+        "MixedPack": {
+          "type": "boolean",
+          "description": "Opt-in: pack a mixed (ObjC+Swift) binding into ONE nupkg and consume it via a single PackageReference on iOS sim/device. Composes with --sim/--device; never part of the default run or --compile-only"
+        },
         "NuGetApiKey": {
           "type": "string",
           "default": "Secrets must be entered via 'nuke :secrets [profile]'"

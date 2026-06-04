@@ -368,16 +368,60 @@ namespace BindingsGeneration
                     <PackageReference Include="SwiftBindings.Runtime" Version="{BuildBoundedRuntimeVersionRange(runtimeVersion)}" />
                 """;
 
-            // ObjC binding project reference for mixed frameworks
+            // ObjC companion for mixed frameworks. A mixed framework is ONE xcframework → ONE
+            // package, so the companion's managed assembly is EMBEDDED into this package's lib/
+            // rather than shipped as a separate dependency. PrivateAssets="all" builds the
+            // companion (its ObjC class symbols resolve from the shared native at consume time)
+            // without NuGet promoting the ProjectReference to a package <dependency>;
+            // _EmbedObjCCompanionInPackage then adds the built assembly to lib/ via
+            // BuildOutputInPackage. It resolves the companion's REAL output via GetTargetPath
+            // (not a guessed bin.objc/$(Configuration)/$(TargetFramework)/ path, which silently
+            // drifts under output-path overrides), so the embedded assembly is always the one
+            // the companion actually built.
             var objcProjectRef = "";
             if (!string.IsNullOrEmpty(options.ObjCProjectFileName))
             {
                 objcProjectRef = $"""
 
-                  <!-- ObjC binding project reference (mixed framework) -->
+                  <!-- ObjC companion (mixed framework): embedded into this package, not a separate
+                       dependency. ONE xcframework → ONE package, so the companion's managed assembly
+                       ships in THIS package's lib/. PrivateAssets="all" builds the companion (its ObjC
+                       class symbols resolve from the shared native at consume time) without NuGet
+                       promoting the ProjectReference to a package <dependency>. _EmbedObjCCompanionInPackage
+                       captures the companion's REAL built assembly via GetTargetPath rather than guessing
+                       its output location (a hardcoded path silently drifts under output-path overrides
+                       such as AppendTargetFrameworkToOutputPath=false or -p:OutputPath=..., and would ship
+                       a Swift-only package), then adds it to lib/ via BuildOutputInPackage.
+                       The companion declares its own single TFM, so RemoveProperties="TargetFramework"
+                       keeps this project's per-TFM pack pass from cross-wiring it (mirrors the SDK's
+                       _BuildMixedObjCCompanion). -->
                   <ItemGroup Condition="Exists('{options.ObjCProjectFileName}')">
-                    <ProjectReference Include="{options.ObjCProjectFileName}" />
+                    <ProjectReference Include="{options.ObjCProjectFileName}" PrivateAssets="all" />
                   </ItemGroup>
+                  <PropertyGroup>
+                    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);_EmbedObjCCompanionInPackage</TargetsForTfmSpecificBuildOutput>
+                  </PropertyGroup>
+                  <Target Name="_EmbedObjCCompanionInPackage">
+                    <MSBuild Condition="Exists('{options.ObjCProjectFileName}')"
+                             Projects="{options.ObjCProjectFileName}"
+                             Properties="Configuration=$(Configuration)"
+                             RemoveProperties="TargetFramework"
+                             Targets="GetTargetPath"
+                             BuildInParallel="false">
+                      <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingCompanionBuildOutput" />
+                    </MSBuild>
+                    <ItemGroup>
+                      <BuildOutputInPackage Include="@(_SwiftBindingCompanionBuildOutput)"
+                                            Condition="'@(_SwiftBindingCompanionBuildOutput)' != ''" />
+                    </ItemGroup>
+                    <!-- Fail closed (standalone sibling of SWIFTBIND039): a mixed binding was emitted
+                         (ObjC companion present) but no companion assembly was captured to embed.
+                         Block the pack rather than silently shipping a Swift-only package whose
+                         consumers would hit TypeLoadException on the ObjC types. -->
+                    <Error Condition="'@(_SwiftBindingCompanionBuildOutput)' == ''"
+                           Code="SWIFTBIND039"
+                           Text="Mixed-framework binding emitted an ObjC companion ({options.ObjCProjectFileName}) but no built companion assembly was captured to embed in lib/. The mixed framework ships as a single package with the companion embedded, so packing without it would ship the Swift surface but not the ObjC types. Verify the companion csproj restores+builds before pack." />
+                  </Target>
                 """;
             }
 

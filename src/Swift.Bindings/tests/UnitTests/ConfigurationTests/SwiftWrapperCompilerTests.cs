@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -2532,6 +2533,181 @@ namespace BindingsGeneration.Tests
             var shadowModulesDir = Path.Combine(shadow!, "Demo.framework", "Modules");
             Assert.True(File.Exists(Path.Combine(shadowModulesDir, "module.modulemap")));
             Assert.False(File.Exists(Path.Combine(shadowModulesDir, "module.private.modulemap")));
+        }
+    }
+
+    #endregion
+
+    #region Force-Load Symbol Export (real toolchain — Gap 2 single-registration)
+
+    /// <summary>
+    /// Gap 2's load-bearing claim is that force-loading a static <c>ar</c> archive into the
+    /// Swift wrapper makes the wrapper DEFINE and EXPORT every <c>_OBJC_CLASS_$_*</c> the
+    /// archive carries — even classes the wrapper code never references — so the wrapper can be
+    /// the sole runtime carrier and the consumer can drop its redundant source NativeReference
+    /// without losing those classes. The arg-shape tests in
+    /// <see cref="SwiftWrapperCompilerInvocationTests"/> prove the <c>-force_load</c> flag is
+    /// emitted; these prove it actually changes the linked binary, which is the part the shipped
+    /// fix had no end-to-end coverage for. The static-vs-dynamic <em>decision</em> that gates
+    /// force_load is covered by <see cref="NativeLinkageProbeTests"/>.
+    ///
+    /// <para>
+    /// Real toolchain: a tiny static ObjC archive is built with <c>clang</c> + <c>ar</c>, the
+    /// wrapper is compiled through the production <see cref="SwiftWrapperCompiler.InvokeSwiftCompiler"/>,
+    /// and the produced dylib is inspected with <c>nm -gU</c> (the same evidence the resolver's
+    /// TBD synthesis relies on). macOS + an iOS-simulator SDK only; skipped elsewhere, matching
+    /// the <c>XCFrameworkSlicer</c>/<c>WrapperXCFrameworkMerger</c> integration tests.
+    /// </para>
+    /// </summary>
+    public class SwiftWrapperForceLoadSymbolExportTests
+    {
+        private static bool IsMacOS => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+
+        // Name is deliberately unique so a stray symbol from the SDK / Foundation can never
+        // satisfy the assertion by accident.
+        private const string ProbeClass = "SwiftBindGap2ForceLoadProbe";
+        private const string ProbeClassSymbol = "_OBJC_CLASS_$_" + ProbeClass;
+
+        [Fact]
+        public void ForceLoad_StaticArchive_ExportsUnreferencedObjCClassFromWrapper()
+        {
+            if (!IsMacOS) return;
+
+            using var env = ToolchainProbeEnv.TryCreate(ProbeClass);
+            if (env is null) return; // no iphonesimulator SDK / xcrun available — environmental skip
+
+            // POSITIVE — the production force_load path pulls the ObjC class (which the trivial
+            // wrapper never references) into the wrapper and exports it.
+            var withForceLoad = env.CompileWrapper(forceLoad: true);
+            var exportsWith = NmDefinedGlobals(withForceLoad);
+            Assert.Contains(ProbeClassSymbol, exportsWith);
+
+            // NEGATIVE control — identical inputs, no force_load. The wrapper references nothing
+            // in the archive, so `ar` lazy resolution pulls no members and the class is absent.
+            // The contrast proves the export is *caused by* force_load, not by Swift auto-linking
+            // or some incidental reference — i.e. the consumer can only safely drop its source
+            // reference because force_load is what carries the class.
+            var withoutForceLoad = env.CompileWrapper(forceLoad: false);
+            var exportsWithout = NmDefinedGlobals(withoutForceLoad);
+            Assert.DoesNotContain(ProbeClassSymbol, exportsWithout);
+        }
+
+        private static string NmDefinedGlobals(string binary)
+        {
+            var (exit, stdout, stderr) = new SystemCommandRunner().Run("nm", $"-gU \"{binary}\"", timeoutMs: 30000);
+            Assert.True(exit == 0, $"nm -gU failed for {binary} (exit {exit}): {stderr}");
+            return stdout;
+        }
+
+        /// <summary>
+        /// A disposable scratch directory holding a real single-arch static ObjC archive plus a
+        /// trivial Swift wrapper source, with the resolved simulator SDK and target triple. Returns
+        /// <c>null</c> from <see cref="TryCreate"/> when the simulator SDK or a build step is
+        /// unavailable, so the test skips cleanly on a toolchain-less host instead of failing.
+        /// </summary>
+        private sealed class ToolchainProbeEnv : IDisposable
+        {
+            private readonly string _dir;
+            private readonly string _sdkPath;
+            private readonly string _targetTriple;
+            private readonly string _archivePath;
+            private readonly string _wrapperSwift;
+            private int _compileCounter;
+
+            private ToolchainProbeEnv(
+                string dir, string sdkPath, string targetTriple, string archivePath, string wrapperSwift)
+            {
+                _dir = dir;
+                _sdkPath = sdkPath;
+                _targetTriple = targetTriple;
+                _archivePath = archivePath;
+                _wrapperSwift = wrapperSwift;
+            }
+
+            public static ToolchainProbeEnv? TryCreate(string probeClass)
+            {
+                var runner = new SystemCommandRunner();
+
+                // Resolve the iOS-simulator SDK so the archive and the wrapper target the same
+                // platform; force_load across platforms would fail to link.
+                var (sdkExit, sdkOut, _) = runner.Run("xcrun", "--sdk iphonesimulator --show-sdk-path", timeoutMs: 30000);
+                var sdkPath = sdkOut?.Trim();
+                if (sdkExit != 0 || string.IsNullOrEmpty(sdkPath) || !Directory.Exists(sdkPath))
+                    return null;
+
+                var arch = RuntimeInformation.ProcessArchitecture == Architecture.X64 ? "x86_64" : "arm64";
+                var targetTriple = $"{arch}-apple-ios15.0-simulator";
+
+                var dir = Path.Combine(Path.GetTempPath(), $"gap2_forceload_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(dir);
+
+                try
+                {
+                    // A static archive carrying one ObjC class that the wrapper never references.
+                    var probeM = Path.Combine(dir, "probe.m");
+                    File.WriteAllText(probeM,
+                        "#import <Foundation/Foundation.h>\n" +
+                        $"@interface {probeClass} : NSObject\n@end\n" +
+                        $"@implementation {probeClass}\n@end\n");
+
+                    var probeO = Path.Combine(dir, "probe.o");
+                    var (clangExit, _, clangErr) = runner.Run("xcrun",
+                        $"clang -x objective-c -c -target {targetTriple} -isysroot \"{sdkPath}\" " +
+                        $"-fobjc-arc \"{probeM}\" -o \"{probeO}\"", timeoutMs: 60000);
+                    if (clangExit != 0 || !File.Exists(probeO))
+                    {
+                        // Toolchain present but the probe didn't build — treat as environmental.
+                        return CleanupAndNull(dir);
+                    }
+
+                    var archivePath = Path.Combine(dir, "libGap2Probe.a");
+                    var (arExit, _, _) = runner.Run("xcrun", $"ar rcs \"{archivePath}\" \"{probeO}\"", timeoutMs: 30000);
+                    if (arExit != 0 || !File.Exists(archivePath))
+                        return CleanupAndNull(dir);
+
+                    // The wrapper hard-references Foundation/NSObject so Swift auto-links Foundation,
+                    // resolving the archive's NSObject superclass reference at link time. It does NOT
+                    // reference the probe class — that's the whole point of the lazy-vs-force_load contrast.
+                    var wrapperSwift = Path.Combine(dir, "Gap2Probe.swift");
+                    File.WriteAllText(wrapperSwift,
+                        "import Foundation\npublic func gap2GateProbe() -> AnyObject { return NSObject() }\n");
+
+                    return new ToolchainProbeEnv(dir, sdkPath, targetTriple, archivePath, wrapperSwift);
+                }
+                catch
+                {
+                    return CleanupAndNull(dir);
+                }
+            }
+
+            /// <summary>Compiles the wrapper dylib, with or without force-loading the probe archive.</summary>
+            public string CompileWrapper(bool forceLoad)
+            {
+                var outBin = Path.Combine(_dir, $"wrapper{_compileCounter++}.dylib");
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    new List<string> { _wrapperSwift },
+                    outBin,
+                    "Gap2ProbeBindings",
+                    _targetTriple,
+                    _sdkPath,
+                    _dir, // -F search path (real directory)
+                    new SystemCommandRunner(),
+                    NullLogger.Instance,
+                    forceLoadBinaries: forceLoad ? new[] { _archivePath } : null);
+                Assert.True(File.Exists(outBin), "wrapper dylib was not produced");
+                return outBin;
+            }
+
+            private static ToolchainProbeEnv? CleanupAndNull(string dir)
+            {
+                try { Directory.Delete(dir, true); } catch { /* best effort */ }
+                return null;
+            }
+
+            public void Dispose()
+            {
+                try { Directory.Delete(_dir, true); } catch { /* best effort */ }
+            }
         }
     }
 

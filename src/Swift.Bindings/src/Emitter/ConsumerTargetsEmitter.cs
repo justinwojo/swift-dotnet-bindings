@@ -41,6 +41,19 @@ namespace BindingsGeneration
         /// When non-empty, BundleResource items are emitted to include bundles from the NuGet package.
         /// </summary>
         public IReadOnlyList<string>? ResourceBundleNames { get; init; }
+        /// <summary>
+        /// File name (not full path) of the mixed framework's ObjC companion csproj, e.g.
+        /// <c>Module.ObjC.iOS.csproj</c>. Non-null only for mixed (ObjC+Swift) frameworks. When
+        /// set, the local <c>.ProjectReference.targets</c> injects an assembly <c>&lt;Reference&gt;</c>
+        /// to the companion's built output so a ProjectReference consumer's own C# can see the ObjC
+        /// types: the standalone Swift csproj references the companion with <c>PrivateAssets="all"</c>
+        /// (which blocks both nuspec promotion AND transitive compile-asset flow), and
+        /// <c>NativeReference</c> doesn't propagate through ProjectReference, so the companion's
+        /// managed surface would otherwise be invisible to the app (CS0246). A plain
+        /// <c>&lt;Reference&gt;</c> never promotes to a nuspec <c>&lt;dependency&gt;</c>, preserving the
+        /// single-package contract. The companion lives next to this targets file in the output dir.
+        /// </summary>
+        public string? ObjCCompanionProjectFileName { get; init; }
     }
 
     /// <summary>
@@ -310,6 +323,54 @@ namespace BindingsGeneration
                 """;
             }
 
+            // Mixed (ObjC+Swift) companion managed reference (path c). The standalone Swift csproj
+            // references the companion with PrivateAssets="all", which blocks nuspec promotion AND
+            // the transitive flow of the companion's compile assets to the app; NativeReference also
+            // doesn't propagate through ProjectReference. So a ProjectReference consumer's own C#
+            // can't see the ObjC types (CS0246) unless we inject an explicit assembly Reference to
+            // the companion's built output. GetTargetPath returns that output (the companion is built
+            // during the consumer's ResolveProjectReferences, via the Swift csproj's own reference to
+            // it). A <Reference> never promotes to a nuspec <dependency>, so the one-xcframework →
+            // one-package contract is preserved. Emitted only for mixed frameworks.
+            var companionReferenceTarget = options.ObjCCompanionProjectFileName == null
+                ? ""
+                : $"""
+
+                  <!-- Surface the mixed framework's ObjC companion managed types to this
+                       ProjectReference consumer's compile (and copy it to the app output for
+                       runtime). See ObjCCompanionProjectFileName for why an explicit <Reference>
+                       is required and why it is safe (no nuspec <dependency>). Runs before
+                       ResolveAssemblyReferences so RAR picks up the injected reference. -->
+                  <Target Name="_ResolveLocal{sanitized}ObjCCompanionReference"
+                          BeforeTargets="ResolveAssemblyReferences"
+                          DependsOnTargets="ResolveProjectReferences"
+                          Condition="'$(_SwiftBinding_{sanitized}_ObjCCompanionReferenced)' != 'true' AND Exists('$(MSBuildThisFileDirectory){options.ObjCCompanionProjectFileName}')">
+                    <PropertyGroup>
+                      <_SwiftBinding_{sanitized}_ObjCCompanionReferenced>true</_SwiftBinding_{sanitized}_ObjCCompanionReferenced>
+                    </PropertyGroup>
+                    <MSBuild Projects="$(MSBuildThisFileDirectory){options.ObjCCompanionProjectFileName}"
+                             Targets="GetTargetPath"
+                             Properties="Configuration=$(Configuration)"
+                             RemoveProperties="TargetFramework"
+                             BuildInParallel="false">
+                      <Output TaskParameter="TargetOutputs" ItemName="_SwiftBinding{sanitized}ObjCCompanionAssembly" />
+                    </MSBuild>
+                    <!-- Fail closed (non-pack sibling of SWIFTBIND039/041): this target only runs
+                         when the companion csproj exists, so an empty GetTargetPath result means the
+                         companion failed to build. A silent no-op would surface as a confusing CS0246
+                         on the ObjC types in the ProjectReference consumer's own sources; fail loudly
+                         instead so the real cause (companion build failure) is actionable. -->
+                    <Error Condition="'@(_SwiftBinding{sanitized}ObjCCompanionAssembly)' == ''"
+                           Code="SWIFTBIND042"
+                           Text="Mixed-framework ObjC companion '{options.ObjCCompanionProjectFileName}' is present but produced no built assembly to reference. The ObjC types would be unresolved (CS0246) in this project's compile. Rebuild the referenced Swift binding so its companion csproj restores and builds." />
+                    <ItemGroup>
+                      <Reference Include="@(_SwiftBinding{sanitized}ObjCCompanionAssembly)">
+                        <Private>true</Private>
+                      </Reference>
+                    </ItemGroup>
+                  </Target>
+                """;
+
             var content = $"""
                 <Project>
                   <!-- ProjectReference consumer targets for {options.PackageId}.
@@ -334,6 +395,7 @@ namespace BindingsGeneration
                     <ItemGroup>
                 {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}{localResourceBundleItems}    </ItemGroup>
                   </Target>
+                {companionReferenceTarget}
                 </Project>
                 """;
 

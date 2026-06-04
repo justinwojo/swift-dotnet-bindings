@@ -4,6 +4,7 @@
 #nullable enable
 
 using System.CommandLine;
+using BindingsGeneration.ObjC;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -323,6 +324,116 @@ public class DeriveModuleNameFromSwiftInterfacePathTests
     public void RejectsNonconformantPaths(string? path)
     {
         Assert.Null(BindingsGeneratorCommand.DeriveModuleNameFromSwiftInterfacePath(path!));
+    }
+}
+
+#endregion
+
+#region Mixed-framework ObjC fail-closed decision
+
+/// <summary>
+/// <c>ShouldAbortForFailedMixedObjC</c> is the fail-closed gate behind the generator's
+/// "refuse to emit a Swift-only binding when a known ObjC surface failed to bind" contract
+/// (the round-1 correctness hole). The pipeline only runs when an ObjC surface was detected,
+/// so a non-zero exit MUST abort the whole generation (propagating the exit code) rather than
+/// degrade to a Swift-only package that silently drops the ObjC types and never reaches the
+/// <c>SWIFTBIND039</c> pack-time guard. A null result means the pipeline never ran (not a mixed
+/// framework) and must never abort. These tests pin that decision at the generator layer so a
+/// future refactor of <c>Execute</c> can't quietly reinstate warn-and-continue.
+/// </summary>
+public class ShouldAbortForFailedMixedObjCTests
+{
+    private static ObjCPipelineResult Result(int exitCode, ObjCModule? module = null) =>
+        new(exitCode, module, exitCode == 0 ? null : "synthetic failure");
+
+    [Fact]
+    public void NullResult_DoesNotAbort()
+    {
+        // Pipeline never ran (Swift-only framework) → nothing to fail closed on.
+        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(null));
+    }
+
+    [Fact]
+    public void ZeroExit_DoesNotAbort()
+    {
+        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(Result(0)));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(255)]
+    public void NonZeroExit_Aborts(int exitCode)
+    {
+        // A detected ObjC surface that failed to bind must abort generation, NOT degrade.
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(Result(exitCode)));
+    }
+}
+
+/// <summary>
+/// <c>IsMixedFramework</c> decides <c>frameworkType</c> ("Mixed" vs "Swift") and whether an
+/// <c>objcProjectName</c>/companion-embed machinery is recorded. A framework is Mixed iff the
+/// ObjC pipeline succeeded AND produced at least one bindable class, protocol, or category after
+/// mixed-framework filtering. The deliberate edge: a zero-exit run whose module filtered down to
+/// zero bindable types is a plain Swift framework — no managed ObjC surface exists to embed, so
+/// emitting a companion (and its SWIFTBIND039 contract) would be spurious. Pinning this keeps the
+/// "zero types → Swift-only" outcome a documented, tested decision rather than silent behavior.
+/// </summary>
+public class IsMixedFrameworkTests
+{
+    private static ObjCModule ModuleWith(
+        bool withClass = false, bool withProtocol = false, bool withCategory = false)
+    {
+        var module = new ObjCModule { ModuleName = "M" };
+        if (withClass)
+            module.Classes.Add(new ObjCClassDecl { Name = "Foo" });
+        if (withProtocol)
+            module.Protocols.Add(new ObjCProtocolDecl { Name = "Bar" });
+        if (withCategory)
+            module.Categories.Add(new ObjCCategoryDecl { CategoryName = "Ext", ClassName = "Foo" });
+        return module;
+    }
+
+    [Fact]
+    public void NullResult_IsNotMixed()
+    {
+        Assert.False(BindingsGeneratorCommand.IsMixedFramework(null));
+    }
+
+    [Fact]
+    public void ZeroExit_EmptyModule_IsNotMixed()
+    {
+        // The deliberate decision: ObjC surface detected but everything filtered out → Swift-only.
+        var result = new ObjCPipelineResult(0, ModuleWith(), null);
+        Assert.False(BindingsGeneratorCommand.IsMixedFramework(result));
+    }
+
+    [Fact]
+    public void ZeroExit_NullModule_IsNotMixed()
+    {
+        var result = new ObjCPipelineResult(0, null, null);
+        Assert.False(BindingsGeneratorCommand.IsMixedFramework(result));
+    }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, true)]
+    public void ZeroExit_WithBindableTypes_IsMixed(bool cls, bool proto, bool cat)
+    {
+        var result = new ObjCPipelineResult(
+            0, ModuleWith(withClass: cls, withProtocol: proto, withCategory: cat), null);
+        Assert.True(BindingsGeneratorCommand.IsMixedFramework(result));
+    }
+
+    [Fact]
+    public void NonZeroExit_WithBindableTypes_IsNotMixed()
+    {
+        // A failed pipeline is never "Mixed" even if a partial module is attached — the abort
+        // gate (ShouldAbortForFailedMixedObjC) fires first, so emission never reaches here.
+        var result = new ObjCPipelineResult(1, ModuleWith(withClass: true), "synthetic failure");
+        Assert.False(BindingsGeneratorCommand.IsMixedFramework(result));
     }
 }
 

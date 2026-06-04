@@ -903,6 +903,110 @@ namespace BindingsGeneration.Tests
         private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
     }
 
+    /// <summary>
+    /// A mixed (ObjC+Swift) framework ships ONE xcframework as ONE NuGet package: the ObjC
+    /// companion's managed assembly is embedded in the Swift binding's lib/, never packed as a
+    /// separate package. The standalone Swift csproj references that companion with
+    /// PrivateAssets="all" (to block both nuspec promotion and transitive compile-asset flow), so a
+    /// local ProjectReference consumer's own C# can't see the ObjC types unless the
+    /// .ProjectReference.targets injects an explicit assembly <c>&lt;Reference&gt;</c> to the
+    /// companion's built output. These tests pin that injection on/off by
+    /// <see cref="ConsumerTargetsEmitterOptions.ObjCCompanionProjectFileName"/>.
+    /// </summary>
+    public class ConsumerTargetsMixedCompanionTests
+    {
+        [Fact]
+        public void Emit_ProjectReferenceTargets_MixedFramework_InjectsCompanionReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    PackageId = "Nuke.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    ObjCCompanionProjectFileName = "Nuke.ObjC.iOS.csproj",
+                }, NullLogger.Instance);
+
+                var prContent = File.ReadAllText(
+                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+
+                // A dedicated target resolves the companion's built output via GetTargetPath and
+                // injects it as a plain <Reference> (which never promotes to a nuspec <dependency>),
+                // running before RAR so the consumer's C# compile sees the ObjC types.
+                Assert.Contains("_ResolveLocalNukeObjCCompanionReference", prContent);
+                Assert.Contains("$(MSBuildThisFileDirectory)Nuke.ObjC.iOS.csproj", prContent);
+                Assert.Contains("Targets=\"GetTargetPath\"", prContent);
+                Assert.Contains("BeforeTargets=\"ResolveAssemblyReferences\"", prContent);
+                Assert.Contains("<Reference Include=\"@(_SwiftBindingNukeObjCCompanionAssembly)\">", prContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ProjectReferenceTargets_MixedFramework_CompanionResolveFailsClosedSWIFTBIND042()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    PackageId = "Nuke.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    ObjCCompanionProjectFileName = "Nuke.ObjC.iOS.csproj",
+                }, NullLogger.Instance);
+
+                var prContent = File.ReadAllText(
+                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+
+                // The companion-resolve target only runs once the companion csproj Exists (path c local
+                // dev), so an empty GetTargetPath result there is a genuine failure: the consumer's C#
+                // would not see the ObjC types (CS0246). The emitted target must fail closed with
+                // SWIFTBIND042 on the empty resolve rather than silently inject nothing — the path-c
+                // sibling of SWIFTBIND041 (SDK-direct) and SWIFTBIND039 (pack).
+                Assert.Contains("Code=\"SWIFTBIND042\"", prContent);
+                Assert.Contains(
+                    "'@(_SwiftBindingNukeObjCCompanionAssembly)' == ''", prContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ProjectReferenceTargets_PureSwift_OmitsCompanionReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // No companion: a pure-Swift binding has no ObjC companion to surface.
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    PackageId = "Nuke.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    ObjCCompanionProjectFileName = null,
+                }, NullLogger.Instance);
+
+                var prContent = File.ReadAllText(
+                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+
+                Assert.DoesNotContain("ObjCCompanionReference", prContent);
+                Assert.DoesNotContain("GetTargetPath", prContent);
+                Assert.DoesNotContain("ObjCCompanionAssembly", prContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+    }
+
     #endregion
 
     #region Test Helper

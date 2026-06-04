@@ -27,10 +27,11 @@ public class ObjCBindingProjectEmitterTests
         var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
         {
+            // The packageId determines the companion csproj/assembly NAME (it is embedded into
+            // the Swift binding's package, not packed under its own id), so it is asserted on the
+            // emitted file name rather than a <PackageId> property.
             var path = ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
             Assert.EndsWith("TestModule.ObjC.iOS.csproj", path);
-            var content = File.ReadAllText(path);
-            Assert.Contains("<PackageId>TestModule.ObjC.iOS</PackageId>", content);
         }
         finally
         {
@@ -46,8 +47,6 @@ public class ObjCBindingProjectEmitterTests
         {
             var path = ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir, "MyCustom.Package"), Logger);
             Assert.EndsWith("MyCustom.Package.csproj", path);
-            var content = File.ReadAllText(path);
-            Assert.Contains("<PackageId>MyCustom.Package</PackageId>", content);
         }
         finally
         {
@@ -259,42 +258,20 @@ public class ObjCBindingProjectEmitterTests
     }
 
     [Fact]
-    public void Contains_PackageVersion_WhenProvided()
+    public void Companion_IsNotPackable_EmbeddedNotSeparatePackage()
     {
-        // Lockstep versioning: the companion's PackageVersion is threaded from the Swift
-        // binding's XCFrameworkMetadata.PackageVersion. A versioned, packable companion is
-        // what lets the Swift binding's bare ProjectReference auto-promote to a nuspec dependency.
-        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        try
-        {
-            var opts = new ObjCBindingProjectOptions
-            {
-                OutputDirectory = tmpDir,
-                ModuleName = "TestModule",
-                SourceXCFrameworkPath = Path.Combine(tmpDir, "..", "TestModule.xcframework"),
-                PackageVersion = "3.14.159",
-            };
-            ObjCBindingProjectEmitter.Emit(opts, Logger);
-            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
-            Assert.Contains("<PackageVersion>3.14.159</PackageVersion>", content);
-        }
-        finally
-        {
-            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
-        }
-    }
-
-    [Fact]
-    public void PackageVersion_FallsBackToDefault_WhenAbsent()
-    {
-        // Defensive: a null/empty version (best-effort metadata pre-extract failed upstream)
-        // must still produce a packable companion rather than an empty <PackageVersion/>.
+        // A mixed framework is ONE xcframework → ONE package: the companion's assembly is
+        // embedded into the Swift binding's package, never packed as a separate package or
+        // promoted to a nuspec <dependency>. So the companion must declare IsPackable=false and
+        // carry no separate-package markers (no <PackageVersion>, no <PackageId>).
         var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
         {
             ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
             var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
-            Assert.Contains("<PackageVersion>1.0.0</PackageVersion>", content);
+            Assert.Contains("<IsPackable>false</IsPackable>", content);
+            Assert.DoesNotContain("<PackageVersion>", content);
+            Assert.DoesNotContain("<PackageId>", content);
         }
         finally
         {
@@ -362,6 +339,67 @@ public class ObjCBindingProjectEmitterTests
             var path = ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
             Assert.True(File.Exists(path));
             Assert.Equal(Path.Combine(Path.GetFullPath(tmpDir), "TestModule.ObjC.iOS.csproj"), path);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
+    // Gap 2 (Kidoz #40 "Class X is implemented in both …"): when the source framework's native is
+    // a static archive AND a Swift wrapper carries the binding, the wrapper force-loads that archive
+    // and is the sole native carrier. The companion must then DROP its own source NativeReference —
+    // re-linking the same Mach-O would duplicate-register every ObjC class. Every other shape keeps
+    // the reference (the companion is, or may be, the sole carrier).
+
+    [Fact]
+    public void NativeReference_Dropped_ForStaticSourceWithWrapper()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            ObjCBindingProjectEmitter.Emit(
+                CreateOptions(tmpDir) with
+                {
+                    SourceNativeLinkage = NativeLinkage.Static,
+                    HasWrapperXCFramework = true,
+                },
+                Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+            // No source NativeReference: the wrapper is the sole carrier (single-registration).
+            Assert.DoesNotContain("<NativeReference Include=\"", content);
+            // The drop is documented in-place so the omission can't read as an accident.
+            Assert.Contains("Source NativeReference dropped (Gap 2)", content);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Theory]
+    // Static source but no wrapper: the companion IS the sole carrier — keep it.
+    [InlineData(NativeLinkage.Static, false)]
+    // Dynamic source (with or without wrapper): the reference is inert/deduped — keep it.
+    [InlineData(NativeLinkage.Dynamic, true)]
+    [InlineData(NativeLinkage.Dynamic, false)]
+    public void NativeReference_Kept_WhenCompanionMayBeCarrier(
+        NativeLinkage linkage, bool hasWrapper)
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            ObjCBindingProjectEmitter.Emit(
+                CreateOptions(tmpDir) with
+                {
+                    SourceNativeLinkage = linkage,
+                    HasWrapperXCFramework = hasWrapper,
+                },
+                Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+            Assert.Contains("<NativeReference Include=\"", content);
+            Assert.Contains("TestModule.xcframework", content);
+            Assert.DoesNotContain("Source NativeReference dropped (Gap 2)", content);
         }
         finally
         {

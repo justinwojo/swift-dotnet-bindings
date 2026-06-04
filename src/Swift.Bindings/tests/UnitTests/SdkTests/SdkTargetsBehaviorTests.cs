@@ -507,7 +507,8 @@ namespace BindingsGeneration.Tests
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             // Static archive + wrapper carrier on disk: the source NativeReference must NOT be
             // injected (the wrapper force-loads it and is the sole carrier).
-            var nref = RunResolveNativeReferencesDump(wrapperOnDisk: true);
+            var (nref, exitCode) = RunResolveNativeReferencesDump(wrapperOnDisk: true);
+            Assert.True(exitCode == 0, $"_ResolveSwiftNativeReferences failed.\nOutput: {nref}");
             Assert.DoesNotContain("Mixed.xcframework", nref);
             Assert.Contains("MixedSwiftBindings.xcframework", nref);
         }
@@ -519,9 +520,247 @@ namespace BindingsGeneration.Tests
             // No wrapper on disk (compile soft-failed / skipped): the static source is the sole
             // carrier and the source NativeReference must be injected, or the consumer links no
             // native at all.
-            var nref = RunResolveNativeReferencesDump(wrapperOnDisk: false);
+            var (nref, exitCode) = RunResolveNativeReferencesDump(wrapperOnDisk: false);
+            Assert.True(exitCode == 0, $"_ResolveSwiftNativeReferences failed.\nOutput: {nref}");
             Assert.Contains("Mixed.xcframework", nref);
             Assert.DoesNotContain("MixedSwiftBindings.xcframework", nref);
+        }
+
+        [Fact]
+        public void ResolveNativeReferences_SourceDroppedButWrapperMetadataFalse_FailsClosedSWIFTBIND040()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // The source-drop/wrapper-ref divergence: _ComputeSwiftBindingSourceXcframeworkInclusion
+            // drops the source NativeReference off live disk (Static linkage + a wrapper dir present),
+            // but the wrapper NativeReference is gated on the PERSISTED _SwiftBindingHasWrapperXCFramework
+            // metadata — recorded False here (a metadata-refresh gap against the stale wrapper dir). The
+            // two readers disagree, so BOTH the source and the wrapper are skipped and no native carrier
+            // is referenced. _ResolveSwiftNativeReferences must fail closed with SWIFTBIND040 rather than
+            // build an SDK-direct app that DllNotFoundExceptions at runtime (the non-pack sibling of the
+            // pack-time SWIFTBIND040).
+            var (output, exitCode) = RunResolveNativeReferencesDump(
+                wrapperOnDisk: true, hasWrapperMetadata: "False");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND040 to fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND040", output);
+        }
+
+        [Fact]
+        public void GetNativeManifest_SourceDroppedButWrapperMetadataFalse_FailsClosedSWIFTBIND040()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // The path-c (ProjectReference) sibling of the _ResolveSwiftNativeReferences divergence:
+            // GetNativeManifest drops the source off live disk (Static + wrapper dir present) but reads
+            // the persisted _GNM_HasWrapper=False, so it flows NEITHER source NOR wrapper through the
+            // manifest — a ProjectReference consumer would build with no native carrier and
+            // DllNotFoundException at runtime. GetNativeManifest must fail closed with SWIFTBIND040.
+            var (output, exitCode) = RunGetNativeManifestDump(
+                wrapperOnDisk: true, hasWrapperMetadata: "False");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND040 to fail GetNativeManifest.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND040", output);
+        }
+
+        [Fact]
+        public void GetNativeManifest_SourceDroppedWithWrapperMetadataTrue_FlowsWrapperNoError()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Good state (no divergence): source dropped (Static + wrapper on disk) AND the persisted
+            // _GNM_HasWrapper=True, so the wrapper xcframework flows through the manifest as the sole
+            // native carrier and the guard stays inert. Confirms SWIFTBIND040 does not misfire on the
+            // healthy path-c case the manifest is built for.
+            var (output, exitCode) = RunGetNativeManifestDump(
+                wrapperOnDisk: true, hasWrapperMetadata: "True");
+
+            Assert.True(exitCode == 0, $"GetNativeManifest should succeed in the good state.\nOutput: {output}");
+            Assert.DoesNotContain("SWIFTBIND040", output);
+            Assert.Contains("MixedSwiftBindings.xcframework", output);
+            Assert.DoesNotContain("Mixed.xcframework\n", output.Replace("MixedSwiftBindings.xcframework", "WRAPPER"));
+        }
+
+        // ── _BuildMixedObjCCompanion: when the source framework is Mixed, the SDK builds the
+        //    emitted ObjC companion (Restore → Build → GetTargetPath) so its managed assembly
+        //    can be EMBEDDED into the Swift binding's single nupkg (one xcframework → one
+        //    package; no separate companion package, no nuspec <dependency>). These run the
+        //    REAL target with a stub companion whose Restore/Build/GetTargetPath are markers
+        //    (so no real NuGet restore/build is needed). ──
+
+        [Fact]
+        public void BuildMixedObjCCompanion_MixedFramework_RestoresThenBuildsCompanion()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Mixed + companion present: the target must Restore the companion (it is generated
+            // during build, so it is not in the parent's restore graph) BEFORE Build, then
+            // GetTargetPath to capture the assembly to embed.
+            var (output, exitCode) = RunBuildMixedObjCCompanionDump(
+                frameworkType: "Mixed", companionPresent: true);
+
+            Assert.True(exitCode == 0, $"_BuildMixedObjCCompanion failed.\nOutput: {output}");
+            Assert.Contains("COMPANION_RESTORE", output);
+            Assert.Contains("COMPANION_BUILD", output);
+            Assert.Contains("COMPANION_GETTARGETPATH", output);
+            // Restore must precede Build — the whole point of the explicit restore.
+            Assert.True(
+                output.IndexOf("COMPANION_RESTORE", StringComparison.Ordinal)
+                    < output.IndexOf("COMPANION_BUILD", StringComparison.Ordinal),
+                $"Restore must run before Build.\nOutput: {output}");
+        }
+
+        [Fact]
+        public void BuildMixedObjCCompanion_NonMixedFramework_DoesNotBuildCompanion()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // A pure-Swift binding has no companion. Even with a companion csproj present on
+            // disk (defensive — stale artifact), the FrameworkType gate must keep the build
+            // from firing so a non-mixed binding never builds a spurious companion.
+            var (output, exitCode) = RunBuildMixedObjCCompanionDump(
+                frameworkType: "Swift", companionPresent: true);
+
+            Assert.True(exitCode == 0, $"_BuildMixedObjCCompanion failed.\nOutput: {output}");
+            Assert.DoesNotContain("COMPANION_RESTORE", output);
+            Assert.DoesNotContain("COMPANION_BUILD", output);
+        }
+
+        [Fact]
+        public void BuildMixedObjCCompanion_MixedButCompanionMissing_IsCleanNoOp()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Metadata says Mixed and names a companion, but the csproj is absent: this build
+            // hook is a clean no-op (the fail-closed guard lives at pack time in
+            // _ConfigureSwiftBindingPack as SWIFTBIND039, where a missing companion would
+            // otherwise ship an ObjC-less package). It must not hard-fail an ordinary build.
+            var (output, exitCode) = RunBuildMixedObjCCompanionDump(
+                frameworkType: "Mixed", companionPresent: false);
+
+            Assert.True(exitCode == 0, $"_BuildMixedObjCCompanion should no-op, not fail.\nOutput: {output}");
+            Assert.DoesNotContain("COMPANION_RESTORE", output);
+            Assert.DoesNotContain("COMPANION_BUILD", output);
+        }
+
+        [Fact]
+        public void ConfigureSwiftBindingPack_MixedButNoCompanionCaptured_FailsClosedSWIFTBIND039()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Pack-time fail-closed (the partner to _BuildMixedObjCCompanion's clean no-op at build):
+            // metadata says Mixed and names a companion, but the companion csproj is absent so nothing
+            // was captured to embed. _ConfigureSwiftBindingPack MUST raise SWIFTBIND039 rather than
+            // silently ship a Swift-only package whose consumers hit TypeLoadException on the ObjC types.
+            var (output, exitCode) = RunConfigurePackDump(
+                frameworkType: "Mixed", companionPresent: false);
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND039 to fail the pack.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND039", output);
+        }
+
+        [Fact]
+        public void ConfigureSwiftBindingPack_MixedWithCompanionCaptured_DoesNotFailClosed()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Happy path: a companion csproj is present, so _BuildMixedObjCCompanion captures its
+            // assembly (GetTargetPath) and SWIFTBIND039's "nothing captured" condition is false.
+            // Pack proceeds — the guard must not misfire when the companion was embedded.
+            var (output, exitCode) = RunConfigurePackDump(
+                frameworkType: "Mixed", companionPresent: true);
+
+            Assert.True(exitCode == 0, $"Pack should not fail when the companion was captured.\nOutput: {output}");
+            Assert.DoesNotContain("SWIFTBIND039", output);
+        }
+
+        [Fact]
+        public void ConfigureSwiftBindingPack_SwiftOnly_DoesNotFailClosed()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // A pure-Swift binding has no companion and FrameworkType != Mixed, so SWIFTBIND039's
+            // guard is inert. Pack must proceed even though no companion was captured.
+            var (output, exitCode) = RunConfigurePackDump(
+                frameworkType: "Swift", companionPresent: false);
+
+            Assert.True(exitCode == 0, $"Swift-only pack must not trip the mixed guard.\nOutput: {output}");
+            Assert.DoesNotContain("SWIFTBIND039", output);
+        }
+
+        [Fact]
+        public void ConfigureSwiftBindingPack_SourceDroppedButWrapperMetadataFalse_FailsClosedSWIFTBIND040()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Pack-time source-drop/wrapper divergence: the source xcframework was dropped
+            // (_SwiftBindingIncludeSourceXcframework=false, the static-source-with-wrapper decision)
+            // but the persisted _SwiftBindingHasWrapperXCFramework is False, so the wrapper is NOT
+            // packed either — the nupkg would ship with no native payload. SWIFTBIND038 cannot catch
+            // this (it is gated on HasWrapper=='True'), so _ConfigureSwiftBindingPack must fail closed
+            // with SWIFTBIND040. Swift-only + no companion keeps SWIFTBIND039 inert so the failure is
+            // unambiguously the native-carrier guard.
+            var (output, exitCode) = RunConfigurePackDump(
+                frameworkType: "Swift", companionPresent: false, includeSourceXcframework: "false");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND040 to fail the pack.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND040", output);
+            Assert.DoesNotContain("SWIFTBIND039", output);
+        }
+
+        // ── _ReferenceMixedObjCCompanion: an SDK-direct consumer (path b) IS the binding and
+        //    compiles its own C# against the ObjC types, so it needs an explicit assembly
+        //    Reference to the companion _BuildMixedObjCCompanion built out-of-band. A <Reference>
+        //    (not a <ProjectReference>) never promotes to a nuspec <dependency>, so the
+        //    one-xcframework → one-package contract is preserved. ──
+
+        [Fact]
+        public void ReferenceMixedObjCCompanion_MixedFramework_InjectsCompanionReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Mixed + companion present: _BuildMixedObjCCompanion captures the companion assembly
+            // and _ReferenceMixedObjCCompanion must inject it as a <Reference> so the SDK-direct
+            // consumer's own C# sees the ObjC types (otherwise CS0246 / TypeLoadException).
+            var (output, exitCode) = RunReferenceMixedObjCCompanionDump(
+                frameworkType: "Mixed", companionPresent: true);
+
+            Assert.True(exitCode == 0, $"_ReferenceMixedObjCCompanion failed.\nOutput: {output}");
+            Assert.Contains("REF:", output);
+            Assert.Contains("stub-companion.dll", output);
+        }
+
+        [Fact]
+        public void ReferenceMixedObjCCompanion_NonMixedFramework_InjectsNothing()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // A pure-Swift binding has no companion: nothing was captured, so the gated ItemGroup
+            // must stay inert and inject no companion Reference.
+            var (output, exitCode) = RunReferenceMixedObjCCompanionDump(
+                frameworkType: "Swift", companionPresent: true);
+
+            Assert.True(exitCode == 0, $"_ReferenceMixedObjCCompanion failed.\nOutput: {output}");
+            Assert.DoesNotContain("stub-companion.dll", output);
+        }
+
+        [Fact]
+        public void ReferenceMixedObjCCompanion_NonPackableMixedNoCompanion_FailsClosedSWIFTBIND041()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // SDK-direct shape (path b): a non-packable project IS the binding and compiles its own C#
+            // against the ObjC types, but the companion was not captured (csproj absent). There is no
+            // later pack step to fail closed (SWIFTBIND039 only runs at pack), so the silent no-op would
+            // surface as a confusing CS0246. _ReferenceMixedObjCCompanion must fail closed with
+            // SWIFTBIND041 instead.
+            var (output, exitCode) = RunReferenceMixedObjCCompanionDump(
+                frameworkType: "Mixed", companionPresent: false, isPackable: "false");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND041 to fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND041", output);
+        }
+
+        [Fact]
+        public void ReferenceMixedObjCCompanion_PackableMixedNoCompanion_DefersToPack()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Packable binding (path a) with the same missing-companion state: SWIFTBIND041 is scoped to
+            // non-packable projects, so the build must stay a clean no-op and defer the fail-closed to
+            // pack time (SWIFTBIND039). This locks in that the new path-b guard does NOT regress the
+            // documented build-no-op behavior for a packable mixed binding.
+            var (output, exitCode) = RunReferenceMixedObjCCompanionDump(
+                frameworkType: "Mixed", companionPresent: false, isPackable: "true");
+
+            Assert.True(exitCode == 0, $"Packable build should no-op, not fail.\nOutput: {output}");
+            Assert.DoesNotContain("SWIFTBIND041", output);
         }
 
         /// <summary>
@@ -593,7 +832,9 @@ namespace BindingsGeneration.Tests
         /// dependency targets are stubbed empty so only _ComputeSwiftBindingSourceXcframeworkInclusion
         /// does real work; <paramref name="wrapperOnDisk"/> drives the carrier's presence.
         /// </summary>
-        private string RunResolveNativeReferencesDump(bool wrapperOnDisk)
+        private (string Output, int ExitCode) RunResolveNativeReferencesDump(
+            bool wrapperOnDisk,
+            string hasWrapperMetadata = "True")
         {
             var bindingDir = Path.Combine(_tempDir, "MixedResolve.Swift.iOS");
             Directory.CreateDirectory(bindingDir);
@@ -631,7 +872,7 @@ namespace BindingsGeneration.Tests
                   <PropertyGroup>
                     <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
                     <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
-                    <_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingHasWrapperXCFramework>{hasWrapperMetadata}</_SwiftBindingHasWrapperXCFramework>
                   </PropertyGroup>
                   <ItemGroup>
                     <SwiftFramework Include="{sourceXcfw}" />
@@ -658,9 +899,352 @@ namespace BindingsGeneration.Tests
             File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
 
             var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
-            Assert.True(result.ExitCode == 0,
-                $"_ResolveSwiftNativeReferences test failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
-            return result.StdOut + "\n" + result.StdErr;
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL GetNativeManifest target (the ProjectReference-consumer path, path c) via a
+        /// TestDump that depends on it, then dumps the resolved <c>@(_SwiftBindingNativeManifest)</c>
+        /// as <c>NMAN:</c> lines. Mirrors <see cref="RunResolveNativeReferencesDump"/> but exercises the
+        /// distinct manifest path: GetNativeManifest peeks <c>_GNM_HasWrapper</c> from the PROPS file
+        /// (not the project property), so <paramref name="hasWrapperMetadata"/> is written into
+        /// binding-metadata.props here. Static linkage + <paramref name="wrapperOnDisk"/> drive
+        /// _ComputeSwiftBindingSourceXcframeworkInclusion (the real DependsOnTarget) to drop the source.
+        /// </summary>
+        private (string Output, int ExitCode) RunGetNativeManifestDump(
+            bool wrapperOnDisk,
+            string hasWrapperMetadata = "True")
+        {
+            var bindingDir = Path.Combine(_tempDir, "GetManifest.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var sourceXcfw = Path.Combine(bindingDir, "Mixed.xcframework");
+            Directory.CreateDirectory(sourceXcfw);
+            if (wrapperOnDisk)
+                Directory.CreateDirectory(Path.Combine(intermediateDir, "MixedSwiftBindings.xcframework"));
+
+            // GetNativeManifest self-peeks linkage (via _ComputeSwiftBindingSourceXcframeworkInclusion),
+            // wrapper module name, AND _SwiftBindingHasWrapperXCFramework all from this props file —
+            // hasWrapperMetadata is the persisted signal the manifest's _GNM_HasWrapper reads, which is
+            // exactly the half of the source-drop/wrapper divergence that the project property cannot fix.
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingSourceNativeLinkage>Static</_SwiftBindingSourceNativeLinkage>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingHasWrapperXCFramework>{hasWrapperMetadata}</_SwiftBindingHasWrapperXCFramework>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Stub _DiscoverSwiftFrameworks (GetNativeManifest's other DependsOnTarget) but let
+            // _ComputeSwiftBindingSourceXcframeworkInclusion run for real so the source-drop decision
+            // is the genuine on-disk one.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{sourceXcfw}" />
+                  </ItemGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="TestDump" DependsOnTargets="GetNativeManifest">
+                    <Message Importance="High" Text="NMAN:@(_SwiftBindingNativeManifest)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL _BuildMixedObjCCompanion target directly. A binding-metadata.props is
+        /// planted with the given <paramref name="frameworkType"/> and an ObjC companion project
+        /// name. When <paramref name="companionPresent"/> is true a STUB companion csproj is
+        /// written at that name: a plain (SDK-less) project exposing marker <c>Restore</c>,
+        /// <c>Build</c>, and <c>GetTargetPath</c> targets, so the <c>&lt;MSBuild&gt;</c> calls
+        /// under test run without a real NuGet restore/build. Each marker echoes a token so the
+        /// test can assert Restore-then-Build fired (and the assembly was captured). Returns
+        /// build output + exit code.
+        /// </summary>
+        private (string Output, int ExitCode) RunBuildMixedObjCCompanionDump(
+            string frameworkType,
+            bool companionPresent,
+            string objCProjectName = "Mixed.ObjC.iOS.csproj")
+        {
+            var bindingDir = Path.Combine(_tempDir, "Mixed.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingModuleName>Mixed</_SwiftBindingModuleName>
+                    <_SwiftBindingFrameworkType>{frameworkType}</_SwiftBindingFrameworkType>
+                    <_SwiftBindingObjCProjectName>{objCProjectName}</_SwiftBindingObjCProjectName>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            if (companionPresent)
+            {
+                // Stub companion: a plain (SDK-less) project exposing marker Restore/Build/
+                // GetTargetPath. The real companion would `<Import>` Microsoft.NET.Sdk and run
+                // NuGet restore + a real build; here we only need to prove the SDK target invokes
+                // them (Restore before Build) and captures the assembly path via GetTargetPath, so
+                // the markers echo back and GetTargetPath returns a stand-in assembly path.
+                File.WriteAllText(Path.Combine(intermediateDir, objCProjectName), """
+                    <Project>
+                      <Target Name="Restore">
+                        <Message Importance="high" Text="COMPANION_RESTORE:Config=$(Configuration)" />
+                      </Target>
+                      <Target Name="Build">
+                        <Message Importance="high" Text="COMPANION_BUILD:Config=$(Configuration)" />
+                      </Target>
+                      <Target Name="GetTargetPath" Returns="@(_StubCompanionOutput)">
+                        <Message Importance="high" Text="COMPANION_GETTARGETPATH" />
+                        <ItemGroup>
+                          <_StubCompanionOutput Include="$(MSBuildProjectDirectory)/stub-companion.dll" />
+                        </ItemGroup>
+                      </Target>
+                    </Project>
+                    """);
+            }
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // _SwiftBindingIntermediateDir is set AFTER the Sdk.targets import because
+            // Sdk.targets redefines it from $(IntermediateOutputPath), which would overwrite us.
+            // IsPackable=true models a packable Library binding (path a): _ReferenceMixedObjCCompanion
+            // fires via AfterTargets even under a bare -t:_BuildMixedObjCCompanion, and its SWIFTBIND041
+            // guard is scoped to non-packable (path b) projects. Setting it true here keeps the
+            // "Mixed + companion absent" build a clean no-op that defers to pack-time SWIFTBIND039.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <IsPackable>true</IsPackable>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:_BuildMixedObjCCompanion -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL _ReferenceMixedObjCCompanion target via a TestDump target that depends on
+        /// _BuildMixedObjCCompanion (so the companion is built/captured first and the AfterTargets
+        /// hook fires), then dumps the project-wide <c>@(Reference)</c> items as <c>REF:</c> lines.
+        /// Uses the same stub companion as <see cref="RunBuildMixedObjCCompanionDump"/> (GetTargetPath
+        /// returns stub-companion.dll), so a Mixed binding's dump contains the companion path and a
+        /// non-mixed one does not. Returns build output + exit code.
+        /// </summary>
+        private (string Output, int ExitCode) RunReferenceMixedObjCCompanionDump(
+            string frameworkType,
+            bool companionPresent,
+            string objCProjectName = "Mixed.ObjC.iOS.csproj",
+            string isPackable = "true")
+        {
+            var bindingDir = Path.Combine(_tempDir, "RefMixed.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingModuleName>Mixed</_SwiftBindingModuleName>
+                    <_SwiftBindingFrameworkType>{frameworkType}</_SwiftBindingFrameworkType>
+                    <_SwiftBindingObjCProjectName>{objCProjectName}</_SwiftBindingObjCProjectName>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            if (companionPresent)
+            {
+                // Same stub as the build-companion dump: marker Restore/Build and a GetTargetPath
+                // that returns a stand-in assembly path captured into _SwiftBindingCompanionBuildOutput.
+                File.WriteAllText(Path.Combine(intermediateDir, objCProjectName), """
+                    <Project>
+                      <Target Name="Restore" />
+                      <Target Name="Build" />
+                      <Target Name="GetTargetPath" Returns="@(_StubCompanionOutput)">
+                        <ItemGroup>
+                          <_StubCompanionOutput Include="$(MSBuildProjectDirectory)/stub-companion.dll" />
+                        </ItemGroup>
+                      </Target>
+                    </Project>
+                    """);
+            }
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // TestDump depends on _BuildMixedObjCCompanion so it runs first; its AfterTargets hook
+            // (_ReferenceMixedObjCCompanion) then injects @(Reference) before TestDump's body dumps it.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <IsPackable>{isPackable}</IsPackable>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="TestDump" DependsOnTargets="_BuildMixedObjCCompanion">
+                    <Message Importance="high" Text="REF:%(Reference.Identity)" Condition="'@(Reference)' != ''" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL _ConfigureSwiftBindingPack target (the pack-time inner-graph target that
+        /// stages TfmSpecificPackageFile entries and hosts the SWIFTBIND039 fail-closed guard) with
+        /// Mixed metadata. The heavy DependsOnTargets and BeforeTargets hooks (framework discovery,
+        /// slicing, validation, generation) are stubbed empty so only _BuildMixedObjCCompanion —
+        /// which captures the companion assembly, or not — and the guard logic do real work. When
+        /// <paramref name="companionPresent"/> is false NO companion csproj is on disk, so nothing is
+        /// captured to embed and SWIFTBIND039 must fire. _SwiftBindingHasWrapperXCFramework=False
+        /// keeps the sibling SWIFTBIND038 guard from firing first and masking SWIFTBIND039.
+        /// </summary>
+        private (string Output, int ExitCode) RunConfigurePackDump(
+            string frameworkType,
+            bool companionPresent,
+            string objCProjectName = "Mixed.ObjC.iOS.csproj",
+            string includeSourceXcframework = "")
+        {
+            var bindingDir = Path.Combine(_tempDir, "MixedPack.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingModuleName>Mixed</_SwiftBindingModuleName>
+                    <_SwiftBindingFrameworkType>{frameworkType}</_SwiftBindingFrameworkType>
+                    <_SwiftBindingObjCProjectName>{objCProjectName}</_SwiftBindingObjCProjectName>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            if (companionPresent)
+            {
+                // Stub companion exposing the marker Restore/Build/GetTargetPath targets
+                // _BuildMixedObjCCompanion drives; GetTargetPath returns a stand-in assembly path so
+                // _SwiftBindingCompanionBuildOutput is populated (SWIFTBIND039's guard sees a capture).
+                File.WriteAllText(Path.Combine(intermediateDir, objCProjectName), """
+                    <Project>
+                      <Target Name="Restore" />
+                      <Target Name="Build" />
+                      <Target Name="GetTargetPath" Returns="@(_StubCompanionOutput)">
+                        <ItemGroup>
+                          <_StubCompanionOutput Include="$(MSBuildProjectDirectory)/stub-companion.dll" />
+                        </ItemGroup>
+                      </Target>
+                    </Project>
+                    """);
+            }
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // _ConfigureSwiftBindingPack has three guards ahead of SWIFTBIND039 that this harness
+            // must satisfy so the test reaches (and isolates) the mixed-companion guard:
+            //  • SWIFTBIND035 (platform version): set _SwiftBindingPlatform to a value net10.0 does
+            //    NOT end with, so TargetFramework.EndsWith(platform) is false and the guard is inert
+            //    (keeps the harness on a plain net10.0 TFM — no Apple workload needed).
+            //  • SWIFTBIND037 (managed output present): point TargetPath at a real file on disk.
+            //  • SWIFTBIND038 (sibling native guard): _SwiftBindingHasWrapperXCFramework=False.
+            var dummyTargetPath = Path.Combine(bindingDir, "dummy-output.dll");
+            File.WriteAllText(dummyTargetPath, "stub-managed-assembly");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <IsPackable>true</IsPackable>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingPlatform>ios</_SwiftBindingPlatform>
+                    <_SwiftBindingIncludeSourceXcframework>{includeSourceXcframework}</_SwiftBindingIncludeSourceXcframework>
+                    <TargetPath>{dummyTargetPath}</TargetPath>
+                  </PropertyGroup>
+                  <!-- Stub everything in _ConfigureSwiftBindingPack's DependsOnTargets and BeforeTargets
+                       graph EXCEPT _BuildMixedObjCCompanion, which must run to (not) capture the companion. -->
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_SetSlicePaths" />
+                  <Target Name="_ComputeSwiftBindingSourceXcframeworkInclusion" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_ValidateSwiftDependencyMetadata" />
+                  <Target Name="_ValidateSwiftBindingPackSlices" />
+                  <Target Name="_SliceSourceXcframework" />
+                  <Target Name="_GenerateSwiftBindings" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:_ConfigureSwiftBindingPack -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
         }
 
         /// <summary>

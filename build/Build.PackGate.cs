@@ -546,6 +546,15 @@ partial class Build
                     $"stdout:\n{consumerStdout}\nstderr:\n{consumerStderr}");
 
             Log.Information("PackGate (consumer-run) OK — Swift round-trip string returned to managed code");
+
+            // 10. Mixed-framework (ObjC + Swift) pack→consume legs. Purpose-built
+            //     static + dynamic mixed xcframeworks exercise the companion
+            //     auto-pack (Phase E), the single-PackageReference transitive ObjC
+            //     type (Phase F), and — for the static source — the Gap 2
+            //     single-registration guarantee end-to-end (pack drops the source,
+            //     wrapper is sole carrier, consumer launches with no duplicate-class
+            //     warning). See Build.PackGate.MixedFixture.cs.
+            RunPackGateMixedLegs(scratch, nupkgDir);
         });
 
     // Expected nupkg layout for the 4-TFM TipKit fixture. Keyed by NuGet RID

@@ -28,12 +28,13 @@ public static class ObjCPipeline
         ICommandRunner? commandRunner = null,
         string? namespacePattern = null,
         string? packageId = null,
-        string? packageVersion = null,
         bool sdkMode = false,
         bool isMixed = false,
         HashSet<string>? excludeTypeNames = null,
         IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-        PlatformInfo? platformInfo = null)
+        PlatformInfo? platformInfo = null,
+        NativeLinkage sourceNativeLinkage = NativeLinkage.Dynamic,
+        bool hasWrapperXCFramework = false)
     {
         commandRunner ??= new SystemCommandRunner();
 
@@ -164,8 +165,13 @@ public static class ObjCPipeline
                     ModuleName = resolution.ModuleName,
                     SourceXCFrameworkPath = xcframeworkPath,
                     PackageId = packageId,
-                    PackageVersion = packageVersion,
                     PlatformInfo = pi,
+                    // Gap 2: a mixed framework's Swift wrapper is the sole carrier for a static
+                    // source, so the companion must drop its own source NativeReference to avoid
+                    // duplicate-registering the ObjC classes. Pure-ObjC bindings have no wrapper
+                    // (defaults: Dynamic + no wrapper → reference kept as sole carrier).
+                    SourceNativeLinkage = sourceNativeLinkage,
+                    HasWrapperXCFramework = hasWrapperXCFramework,
                 }, logger);
         }
 
