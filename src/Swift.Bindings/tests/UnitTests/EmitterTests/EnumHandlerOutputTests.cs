@@ -3747,7 +3747,13 @@ public class EnumHandlerOutputTests
         Assert.Contains("Container", csOutput);
         Assert.Contains("NativeMemory.Alloc", csOutput);
         Assert.Contains("Unsafe.Copy", csOutput);
-        Assert.Contains("NativeMemory.Free", csOutput);
+        // P1-03: the heap container is cleaned up via DestroyAndFreeExistential, which runs the
+        // existential value-witness destroy (only when the owns-bit says a value was boxed at +1)
+        // and then frees the heap. This replaced the unconditional inline NativeMemory.Free, which
+        // leaked the boxed payload (swift_allocBox) for value conformers.
+        Assert.Contains("DestroyAndFreeExistential", csOutput);
+        // The owns-bit must be threaded out of GetOrCreate so the finally can decide whether to destroy.
+        Assert.Contains("Owns", csOutput);
     }
 
     [Fact]

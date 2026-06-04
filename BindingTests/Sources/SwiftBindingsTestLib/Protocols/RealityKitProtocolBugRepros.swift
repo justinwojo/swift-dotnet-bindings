@@ -306,3 +306,202 @@ public final class CollidableBoxVendor {
         present ? .present(BoundCollidableImpl(hostTag: 13, collisionLabel: "box-\(label)")) : .absent
     }
 }
+
+// MARK: - Bug 15: class-bound `[any P]` array WRITE + PARAM directions (C# → Swift)
+//
+// Bug 13 fixed the READ stride (Swift → C#) by routing the array element carrier through the
+// 16-byte `ClassExistentialContainer1`. The SYMMETRIC write/param directions (C# → Swift) were
+// left on the 40-byte `ExistentialContainer1` carrier: the parameter path
+// (`ArrayProjection` FromEnumerable) and the protocol-receiver getter write path
+// (`ProtocolProxyEmitter.Receivers`) both built `SwiftArray<ExistentialContainer1>` (40-byte slots)
+// where Swift strides at 16 bytes. Swift then reads element[i] at `base + i*16` against 40-byte
+// data → wrong classRef/witness for every i>0 → SIGSEGV / over-release. The existing
+// ClassBoundExistentialArrayTests only exercise the return direction, so this half shipped untested.
+//
+// Both consumers below index element[1..] (not just element[0]) so a wrong stride surfaces as a
+// crash or wrong sum rather than a lucky element[0] hit. Conformers are Swift-vended (a
+// superclass-constrained class-bound protocol can only be satisfied by Swift subclasses), matching
+// the real `ARView.installGestures` round-trip shape.
+
+/// Superclass-constrained (class-bound) marker protocol with a trivial requirement so the
+/// generated proxy / round-trip stays small. `markerId()` returns a per-conformer Int the Swift
+/// consumers sum.
+public protocol Marker: GestureHostBase {
+    func markerId() -> Int
+}
+
+public final class MarkerImpl: GestureHostBase, Marker {
+    // Feeds the shared allocation counters (`recordTrackedAllocation`/`recordTrackedDeallocation`
+    // in Lifetime/OwnershipTests.swift, the same counters `LifetimeTracker` reads) so the
+    // class-bound `[any Marker]` ownership test can assert that a source marker passed through a
+    // SwiftArray round-trip is NOT prematurely deinit'd — i.e., the consuming `Array.append` adds
+    // its own +1 rather than stealing the source proxy/wrapper's +1.
+    public init(mid: Int) {
+        super.init(hostTag: mid)
+        recordTrackedAllocation()
+    }
+    deinit { recordTrackedDeallocation() }
+    public func markerId() -> Int { hostTag }
+}
+
+/// Vendor producing Swift-backed `Marker` conformers, so C# holds real proxies to pass back
+/// through the parameter / write paths.
+public class MarkerVendor {
+    public init() {}
+    public func make(_ id: Int) -> any Marker { MarkerImpl(mid: id) }
+}
+
+/// PARAM direction: C# passes an `IEnumerable<IMarker>`; this sums `markerId()` across the array,
+/// indexing every element (not just [0]). A 40-byte fill makes Swift read garbage classRef/witness
+/// at element[1..] → crash or wrong sum.
+public func sumMarkerIds(_ xs: [any Marker]) -> Int {
+    var total = 0
+    for x in xs { total += x.markerId() }
+    return total
+}
+
+/// PARAM direction, count-only — proves the array header marshals even when no element is indexed
+/// (the `Count`-succeeds / index-crashes asymmetry of the stride bug).
+public func countMarkers(_ xs: [any Marker]) -> Int { xs.count }
+
+/// WRITE direction: a witness-dispatched protocol getter requirement returning a class-bound
+/// `[any Marker]`. A C# class implements this; Swift calls the getter (dispatching into the C#
+/// implementation through its generated proxy / receiver), and `consumeMarkerProvider` indexes the
+/// returned array. Exercises `ProtocolProxyEmitter.Receivers` getter carrier + element conversion.
+public protocol MarkerProvider {
+    var markers: [any Marker] { get }
+}
+
+/// Swift consumer reading a `MarkerProvider`'s `markers` (whoever implements it, including a C#
+/// implementation reached through its proxy) and summing the ids, indexing element[1..].
+public func consumeMarkerProvider(_ p: MarkerProvider) -> Int {
+    var total = 0
+    for m in p.markers { total += m.markerId() }
+    return total
+}
+
+/// Non-class-bound (opaque) `[any P]` PARAM control — `BugReproExistentialItem` has no class
+/// constraint, so its existential keeps the 40-byte `ExistentialContainer1` carrier. Proves the
+/// write/param carrier change is surgical to class-bound elements only (this must stay on the
+/// opaque carrier and still round-trip correctly).
+public func joinItemDescriptions(_ xs: [any BugReproExistentialItem]) -> String {
+    xs.map { $0.describe() }.joined(separator: ",")
+}
+
+// MARK: - Class-bound `[String: any Marker]` dictionary VALUE carrier (audit P1-08, Dictionary sibling)
+//
+// The same stride bug as `[any Marker]`, but with the existential as a Dictionary VALUE.
+// `MemoryLayout<any Marker>.stride == 16` (class-bound), so a `[String: any Marker]` stores 16-byte
+// values — the layout is a property of the type, NOT the container, so it is identical to the array
+// element case. Building `SwiftDictionary<_, ExistentialContainer1>` (40-byte slots) reads garbage
+// classRef/witness for every value → SIGSEGV / over-release on dispatch. (Dictionary KEYS can't be
+// class-bound existentials: `any P` is not `Hashable`, so `[any P: V]` is ill-formed — only the value
+// crosses through the existential carrier.) Consumers iterate ALL values so a wrong stride surfaces
+// as a crash or wrong sum, not a lucky single-value hit.
+
+/// PARAM direction: C# passes a `[String: any Marker]`; this sums `markerId()` across all values,
+/// touching every value (not just one). A 40-byte fill makes Swift read garbage at the 2nd value on.
+public func sumMarkerIdsByKey(_ xs: [String: any Marker]) -> Int {
+    var total = 0
+    for (_, m) in xs { total += m.markerId() }
+    return total
+}
+
+/// PARAM direction, count-only — proves the dictionary header marshals even when no value is read
+/// (the `count`-succeeds / value-read-crashes asymmetry of the stride bug).
+public func countMarkerMap(_ xs: [String: any Marker]) -> Int { xs.count }
+
+/// WRITE direction: a witness-dispatched protocol getter requirement returning a class-bound
+/// `[String: any Marker]`. A C# class implements this; Swift calls the getter (dispatching into the
+/// C# implementation through its generated proxy / receiver) and reads the dictionary's values.
+/// Exercises `ProtocolProxyEmitter.Receivers` dict-value getter carrier + value conversion (and,
+/// transitively, the setter's `MarshalFromSwift<SwiftDictionary<_, carrier>>` ABI type).
+public protocol MarkerMapProvider {
+    var markerMap: [String: any Marker] { get }
+}
+
+/// Swift consumer reading a `MarkerMapProvider`'s `markerMap` (whoever implements it, including a C#
+/// implementation reached through its proxy) and summing the ids across all values.
+public func consumeMarkerMapProvider(_ p: MarkerMapProvider) -> Int {
+    var total = 0
+    for (_, m) in p.markerMap { total += m.markerId() }
+    return total
+}
+
+// MARK: - OWNED-RETURN class-bound existential collections (audit P1-07 element leak / P1-08 stride)
+//
+// The PARAM (`sumMarkerIds`) and WRITE (`MarkerProvider`) fixtures above cover C#→Swift and
+// witness-getter directions. These two factories cover the OWNED-RETURN direction P1-07/P1-08 actually
+// fixed: Swift hands C# an *owned* `[any Marker]` / `[String: any Marker]` whose elements are class-bound
+// existentials (16-byte `[classRef][witnessTable]` cells). The generated owned-return element/value
+// conversion routes each cell through `new MarkerProxy(e, ownsContainer: true)`, which must ADOPT the +1
+// the SwiftArray subscript getter (`$sSayxSicig`, InitializeWithCopy) / SwiftDictionary value move-out
+// (`MarshalMovedValueFromSlot`) lays on the class ref, and release it on Dispose. `MarkerImpl` already
+// feeds the shared `LifetimeTracker` counters (alloc/deinit), so a C# leak probe can assert the ARC
+// balance directly: every materialized proxy AND the source carrier disposed must drive the live count
+// back to 0 — a non-owning proxy orphans one element retain per materialization (leak), and a
+// double-adopt double-frees on Dispose (crash). Conformers are FRESH per call so the count is exactly
+// `count`.
+
+/// OWNED-RETURN: an owned `[any Marker]` of `count` fresh tracked conformers. Exercises
+/// `ArrayProjection.OwnedReturnElementConversion` → `ExistentialProjection.GetOwnedReturnElementConversion`.
+public func makeTrackedMarkerArray(count: Int) -> [any Marker] {
+    var result: [any Marker] = []
+    result.reserveCapacity(count)
+    for i in 0..<count { result.append(MarkerImpl(mid: i)) }
+    return result
+}
+
+/// OWNED-RETURN, Dictionary VALUE sibling: an owned `[String: any Marker]` of `count` fresh tracked
+/// conformers. Exercises `DictionaryProjection.OwnedReturnValueConversion` (move-out at +1 adopted by
+/// the owns:true proxy). Keys are plain `String`s (class-bound existentials can't be dictionary keys).
+public func makeTrackedMarkerMap(count: Int) -> [String: any Marker] {
+    var result: [String: any Marker] = [:]
+    for i in 0..<count { result["k\(i)"] = MarkerImpl(mid: i) }
+    return result
+}
+
+// MARK: - PARAM/WRITE OPAQUE (non-class-bound) `[any P]` / `[String: any P]` element ownership
+//
+// The class-bound PARAM/WRITE fixtures above (`sumMarkerIds`, `MarkerProvider`) drive the 16-byte
+// `ClassExistentialContainer1` carrier (audit P1-08), whose `__owned` array/dict write is balanced by
+// `ExistentialContainerFactory.CreateOwnedClassCarrier` minting a +1 on the class ref. These fixtures
+// drive the OPAQUE sibling: a non-class-bound `any BugReproExistentialItem` strides over the full
+// 40-byte `ExistentialContainer1`, and the C#→Swift collection-element conversion previously routed a
+// Swift-vended (borrowed) proxy straight through `GetOrCreate(...).GetExistentialContainer()` — which
+// ALIASES the proxy's only +1. `SwiftArray<ExistentialContainer1>.FromEnumerable` raw-copies that
+// aliased container into the array (`MarshalToSwift` → `IExistentialContainer.CopyTo`, +0) and the
+// `__owned` `Array.append` ($sSa6appendyyxnF) consumes it, so disposing the temporary array runs the
+// existential value-witness destroy and OVER-RELEASES the proxy's payload. A correct carrier mints/
+// donates its own +1 (the opaque analogue of `CreateOwnedClassCarrier`, via the existential
+// value-witness `InitializeWithCopy`).
+//
+// `TrackedOpaqueItem` feeds the same shared `LifetimeTracker` counters as `MarkerImpl`, so the C#
+// probe asserts the balance directly: vending N Swift-backed proxies and passing them through a
+// `[any P]` / `[String: any P]` param must NOT prematurely deinit them (live count stays N across the
+// call) and disposing them must drive the count back to 0. An aliasing carrier shows up as a premature
+// deinit (live < N right after the call) and/or a double-free crash on the proxy's own `Dispose`.
+
+/// Tracked class conformer to the non-class-bound `BugReproExistentialItem` (40-byte opaque
+/// `ExistentialContainer1` carrier). Feeds the shared allocation counters so the opaque PARAM/WRITE
+/// element-ownership probe can assert ARC balance without relying on GC timing.
+public final class TrackedOpaqueItem: BugReproExistentialItem {
+    private let tag: Int
+    public init(tag: Int) { self.tag = tag; recordTrackedAllocation() }
+    deinit { recordTrackedDeallocation() }
+    public func describe() -> String { "item-\(tag)" }
+}
+
+/// Vends a Swift-backed `any BugReproExistentialItem`, so C# holds a real (borrowed) proxy to pass
+/// back through the `[any P]` / `[String: any P]` param paths — the branch the C#-conformer control
+/// (`joinItemDescriptions([BugReproExistentialItemImpl(...)])`, which boxes/mints) never exercises.
+public func makeTrackedOpaqueItem(tag: Int) -> any BugReproExistentialItem {
+    TrackedOpaqueItem(tag: tag)
+}
+
+/// PARAM direction, Dictionary VALUE sibling of `joinItemDescriptions`: sums nothing — joins every
+/// value's `describe()` (sorted by key for determinism), touching every opaque existential value so a
+/// mis-marshalled carrier surfaces. Exercises `DictionaryProjection` opaque value-carrier conversion.
+public func joinItemDescriptionsByKey(_ xs: [String: any BugReproExistentialItem]) -> String {
+    xs.sorted { $0.key < $1.key }.map { $0.value.describe() }.joined(separator: ",")
+}

@@ -154,6 +154,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
                 writer.WriteLine("{");
                 writer.Indent++;
+                EmitUcoGuardOpen(writer);
                 // Read only the first existential word: this is the proxy handle (Payload0),
                 // the sole field TryGetProxy actually uses. Avoids the 5-word over-read of
                 // *(ExistentialContainer1*)selfContainer, which over-reads stack memory when
@@ -222,6 +223,7 @@ public partial class ProtocolProxyEmitter
                     }
                     writer.WriteLine($"return {nullReturnStr};");
                 }
+                EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
@@ -264,17 +266,25 @@ public partial class ProtocolProxyEmitter
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
                         {
-                            var handle = *(IntPtr*)selfContainer;
-                            // Dead-impl safe: silently drop the write if the proxy is unregistered
-                            // or the managed impl has already been GC'd. A throw here would propagate
-                            // across the [UnmanagedCallersOnly] boundary and terminate the process.
-                            if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>>(handle, out var proxy) || proxy is null)
-                                return;
-                            var impl = proxy.UserImpl;
-                            if (impl is null)
-                                return;
-                            var value = {{marshalExpr}};
-                            impl.{{pascalPropertyName}} = {{assignmentExpr}};
+                            try
+                            {
+                                var handle = *(IntPtr*)selfContainer;
+                                // Dead-impl safe: silently drop the write if the proxy is unregistered
+                                // or the managed impl has already been GC'd. A throw here would propagate
+                                // across the [UnmanagedCallersOnly] boundary and terminate the process.
+                                if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>>(handle, out var proxy) || proxy is null)
+                                    return;
+                                var impl = proxy.UserImpl;
+                                if (impl is null)
+                                    return;
+                                var value = {{marshalExpr}};
+                                impl.{{pascalPropertyName}} = {{assignmentExpr}};
+                            }
+                            catch (global::System.Exception __uco_ex)
+                            {
+                                global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__uco_ex);
+                                throw;
+                            }
                         }
 
                         """);
@@ -285,6 +295,7 @@ public partial class ProtocolProxyEmitter
                     writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)");
                     writer.WriteLine("{");
                     writer.Indent++;
+                    EmitUcoGuardOpen(writer);
                     writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                     writer.WriteLine($"var value = {marshalExpr};");
                     EmitSetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, assignmentExpr);
@@ -295,6 +306,7 @@ public partial class ProtocolProxyEmitter
                         EmitSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, assignmentExpr);
                         siblingIdx++;
                     }
+                    EmitUcoGuardCloseFailFast(writer);
                     writer.Indent--;
                     writer.WriteLine("}");
                     writer.WriteLine();
@@ -354,6 +366,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawFn, IntPtr rawCtx)");
                 writer.WriteLine("{");
                 writer.Indent++;
+                EmitUcoGuardOpen(writer);
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                 if (setterSiblings == null || setterSiblings.Count == 0)
                 {
@@ -379,6 +392,7 @@ public partial class ProtocolProxyEmitter
                         idx++;
                     }
                 }
+                EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
@@ -394,6 +408,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
                 writer.WriteLine("{");
                 writer.Indent++;
+                EmitUcoGuardOpen(writer);
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                 // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
                 // path returns the same shape.
@@ -424,6 +439,7 @@ public partial class ProtocolProxyEmitter
                     }
                     writer.WriteLine("return buf;");
                 }
+                EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
@@ -439,6 +455,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"private static void {getterThunkName}(IntPtr ctx)");
             writer.WriteLine("{");
             writer.Indent++;
+            EmitUcoGuardOpen(writer);
             writer.WriteLine("if (ctx == IntPtr.Zero) return;");
             writer.WriteLine("var handle = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
             writer.WriteLine("if (!handle.IsAllocated) return;");
@@ -446,6 +463,7 @@ public partial class ProtocolProxyEmitter
             writer.Indent++;
             writer.WriteLine("_del();");
             writer.Indent--;
+            EmitUcoGuardCloseFailFast(writer);
             writer.Indent--;
             writer.WriteLine("}");
             writer.WriteLine();
@@ -476,6 +494,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
         writer.WriteLine("{");
         writer.Indent++;
+        EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
         // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
         // path returns the same shape (mirrors Shape 3's getter).
@@ -498,6 +517,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&{returnedThunkName};");
         writer.WriteLine("*(IntPtr*)(buf + IntPtr.Size) = global::System.Runtime.InteropServices.GCHandle.ToIntPtr(_gch);");
         writer.WriteLine("return buf;");
+        EmitUcoGuardCloseFailFast(writer);
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -509,6 +529,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"private static void {returnedThunkName}(IntPtr ctx)");
         writer.WriteLine("{");
         writer.Indent++;
+        EmitUcoGuardOpen(writer);
         writer.WriteLine("if (ctx == IntPtr.Zero) return;");
         writer.WriteLine("var handle = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
         writer.WriteLine("if (!handle.IsAllocated) return;");
@@ -516,6 +537,7 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
         writer.WriteLine("_del();");
         writer.Indent--;
+        EmitUcoGuardCloseFailFast(writer);
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -573,6 +595,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawArg0_fn, IntPtr rawArg0_ctx)");
         writer.WriteLine("{");
         writer.Indent++;
+        EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
         writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
         writer.Indent++;
@@ -591,6 +614,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"var _inv = new {invokerClassName}((nint)_wrapper.FunctionPointer, (nint)_wrapper.Context, _wrapper);");
         writer.WriteLine($"{delegateType} handler = _inv.InvokeAsync;");
         writer.WriteLine($"impl.{pascalMethodName}(handler);");
+        EmitUcoGuardCloseFailFast(writer);
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -636,6 +660,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"private static IntPtr {receiverName}({paramTypes})");
                 writer.WriteLine("{");
                 writer.Indent++;
+                EmitUcoGuardOpen(writer);
 
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                 // Dead-impl safe: return zeroed buffer rather than throwing on missing
@@ -716,6 +741,7 @@ public partial class ProtocolProxyEmitter
                     writer.WriteLine($"return {subscriptNullReturnStr};");
                 }
 
+                EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
@@ -735,6 +761,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"private static void {receiverName}({paramTypes})");
                 writer.WriteLine("{");
                 writer.Indent++;
+                EmitUcoGuardOpen(writer);
 
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
 
@@ -806,6 +833,7 @@ public partial class ProtocolProxyEmitter
                     }
                 }
 
+                EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
@@ -909,12 +937,6 @@ public partial class ProtocolProxyEmitter
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!) : "void";
 
-        // Detect existential/optional-existential return types — these can't be marshalled
-        // back to Swift via Unsafe.Write because the C# interface type doesn't match
-        // the Swift existential container layout (3 payload + 1 metadata + N witness table words).
-        var existentialHandler = new ExistentialHandler(_typeDatabase);
-        bool hasOptionalExistentialReturn = hasReturn && existentialHandler.IsOptionalExistential(returnType!);
-
         var nonEmptyParams = method.CSSignature.Skip(1)
             .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
             .ToList();
@@ -941,30 +963,13 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
 
-        // Optional existential returns: return zeroed buffer representing Optional.none.
-        // C# interface types (e.g. IImageDecoding?) can't be correctly marshalled into
-        // Swift existential containers — constructing a valid container requires Swift type
-        // metadata + protocol witness table pointers that aren't accessible from C#.
-        // Returning None is safe; non-null existential return marshalling requires future
-        // infrastructure (Swift metadata lookup + witness table construction from C#).
-        // This is NOT a regression — before optional existential resolution, these methods
-        // used AnyType? with equally invalid Unsafe.Write marshalling.
-        if (hasOptionalExistentialReturn)
-        {
-            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(returnType!);
-            var containerSizeWords = innerProtocolList != null
-                ? existentialHandler.GetExistentialContainerSizeInWords(innerProtocolList)
-                : 5; // default: 3 payload + 1 metadata + 1 witness table
-            var containerSizeBytes = containerSizeWords * 8;
-            writer.WriteLine($"// Optional existential return: can't construct valid Swift existential container from C#");
-            writer.WriteLine($"// (needs type metadata + witness table). Return None until existential marshalling is implemented.");
-            writer.WriteLine($"return (IntPtr)NativeMemory.AllocZeroed({containerSizeBytes});");
-            writer.Indent--;
-            writer.WriteLine("}");
-            writer.WriteLine();
-            return;
-        }
+        // P1-04: optional-existential returns fall through to the normal marshalling path.
+        // GetReceiverExistentialGetterConversion's Optional<existential> arm builds a valid
+        // SwiftOptional<ExistentialContainerN> (NewSome/NewNone) from the C# proxy, and
+        // GetReceiverGetterCarrierTypeCore sizes the dead-impl null path to the same carrier.
+        // The old "return zeroed buffer (None)" stub silently dropped every non-nil return.
 
+        EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
         // Dead-impl safe: use TryGetProxy + impl null check. A throw across
         // the [UnmanagedCallersOnly] boundary is process-terminating, so a GC'd impl or
@@ -1185,6 +1190,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"impl.{pascalMethodName}({argsString});");
         }
 
+        EmitUcoGuardCloseFailFast(writer);
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -1579,12 +1585,16 @@ public partial class ProtocolProxyEmitter
             return $"SwiftOptional<{innerExist.PInvokeType}>";
 
         if (projection is ArrayProjection arrExistProj && arrExistProj.ElementProjection is ExistentialProjection arrExist)
-            return $"SwiftArray<{arrExist.PInvokeType}>";
+            return $"SwiftArray<{arrExist.ArrayElementCarrierType}>";
 
         if (projection is DictionaryProjection dictExistProj && dictExistProj.ValueProjection is ExistentialProjection dictExist)
         {
             var abiKeyType = dictExistProj.KeyProjection.SwiftContainerGenericType;
-            return $"SwiftDictionary<{abiKeyType}, {dictExist.PInvokeType}>";
+            // Class-bound existential value strides at the 16-byte ClassExistentialContainer1 (matching
+            // the array element fix and DictionaryProjection.ContainerTypeName); opaque values stay on
+            // the 40-byte carrier. The 16-byte form also feeds the setter's MarshalFromSwift<T> via
+            // GetCSharpTypeName(forAbiMarshalling) → DictionaryProjection.MarshalFromSwiftType.
+            return $"SwiftDictionary<{abiKeyType}, {dictExist.ArrayElementCarrierType}>";
         }
 
         // Non-existential carriers — must mirror GetReceiverGetterConversion's switch.
@@ -1637,18 +1647,26 @@ public partial class ProtocolProxyEmitter
             return $"({varName} is {{}} {varName}Val ? SwiftOptional<{containerType}>.NewSome({extractExpr}) : SwiftOptional<{containerType}>.NewNone())";
         }
 
-        // Array<existential>
+        // Array<existential>. Carrier + per-element conversion must agree on stride: a class-bound
+        // single-protocol element uses the 16-byte ClassExistentialContainer1 (matching the read
+        // direction's ArrayElementCarrierType), with the element narrowed from the proxy-produced
+        // ExistentialContainer1; opaque/composition elements stay on the 40-byte carrier (no-op).
         if (projection is ArrayProjection arrProj && arrProj.ElementProjection is ExistentialProjection arrExist)
         {
-            var containerType = arrExist.PInvokeType;
-            var elemConv = arrExist.GetParameterElementConversion("i");
+            var containerType = arrExist.ArrayElementCarrierType;
+            var elemConv = arrExist.GetArrayElementCarrierConversion("i");
             return $"SwiftArray<{containerType}>.FromEnumerable({varName}.Select(i => {elemConv}))";
         }
 
-        // Dictionary<K, existential>
+        // Dictionary<K, existential>. Carrier + per-value conversion must agree on stride, exactly like
+        // the array path above: a class-bound single-protocol VALUE uses the 16-byte
+        // ClassExistentialContainer1 (matching DictionaryProjection's carrier and the read-direction
+        // GetReceiverGetterCarrierType), with the value narrowed via the owned CreateOwnedClassCarrier;
+        // opaque/composition values stay on the 40-byte carrier (no-op). Keys are never class-bound
+        // existentials (`any P` is not Hashable), so only the value carrier changes.
         if (projection is DictionaryProjection dictProj && dictProj.ValueProjection is ExistentialProjection dictExist)
         {
-            var containerType = dictExist.PInvokeType;
+            var containerType = dictExist.ArrayElementCarrierType;
             var keyConv = dictProj.KeyProjection.GetParameterElementConversion("kvp.Key");
             var abiKeyType = dictProj.KeyProjection.SwiftContainerGenericType;
             // Skip per-element key conversion when SwiftContainerGenericType matches the C# public type
@@ -1660,7 +1678,7 @@ public partial class ProtocolProxyEmitter
             // BuildDictionarySetterReceiverExpression.
             var skipKeyConv = keyConv != null && abiKeyType == dictProj.KeyProjection.PublicType;
             var keyExpr = skipKeyConv ? "kvp.Key" : (keyConv ?? "kvp.Key");
-            var valConv = dictExist.GetParameterElementConversion("kvp.Value");
+            var valConv = dictExist.GetArrayElementCarrierConversion("kvp.Value");
             return $"SwiftDictionary<{abiKeyType}, {containerType}>.FromDictionary({varName}.ToDictionary(kvp => {keyExpr}, kvp => {valConv}))";
         }
 
@@ -1933,6 +1951,39 @@ public partial class ProtocolProxyEmitter
             }
 
             """);
+    }
+
+    /// <summary>
+    /// Opens a <c>try</c> block guarding the managed body of an <c>[UnmanagedCallersOnly]</c>
+    /// receiver. A managed exception that unwinds across the native (Swift) call boundary is
+    /// undefined behaviour — the process aborts with a corrupted, undiagnosable stack. Pair
+    /// with <see cref="EmitUcoGuardCloseFailFast"/> to convert any such escape into a
+    /// controlled <see cref="System.Environment.FailFast(string, System.Exception)"/> that
+    /// carries the original exception. Mirrors the closure-callback guard in ClosureEmitter.
+    /// </summary>
+    private static void EmitUcoGuardOpen(CSharpWriter writer)
+    {
+        writer.WriteLine("try");
+        writer.WriteLine("{");
+        writer.Indent++;
+    }
+
+    /// <summary>
+    /// Closes the <c>try</c> opened by <see cref="EmitUcoGuardOpen"/> with a catch that
+    /// fail-fasts on any unhandled exception. The trailing <c>throw;</c> matches the proven
+    /// non-throwing closure-callback shape and keeps value-returning receivers well-formed.
+    /// </summary>
+    private static void EmitUcoGuardCloseFailFast(CSharpWriter writer)
+    {
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine("catch (global::System.Exception __uco_ex)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine("global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__uco_ex);");
+        writer.WriteLine("throw;");
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     /// <summary>

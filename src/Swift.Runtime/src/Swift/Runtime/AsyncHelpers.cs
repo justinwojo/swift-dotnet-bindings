@@ -101,7 +101,28 @@ namespace Swift.Runtime
     public readonly struct ExistentialContainerHeap
     {
         public readonly IntPtr Ptr;
-        public ExistentialContainerHeap(IntPtr ptr) => Ptr = ptr;
+
+        /// <summary>
+        /// True when the buffer holds a freshly boxed existential whose +1 the caller owns and
+        /// must release (the <see cref="ExistentialContainerFactory.GetOrCreate{TProtocol}(TProtocol, out bool)"/>
+        /// boxable branch — audit P1-03). False for a borrowed proxy container, whose +1 the proxy
+        /// owns; destroying it would over-release. The foreground <c>finally</c> can't run this
+        /// destroy because the Swift continuation reads the buffer after the wrapper returns, so the
+        /// owns decision is carried here to the async-callback cleanup loop.
+        /// </summary>
+        public readonly bool OwnsContainer;
+
+        /// <summary>Number of witness tables in the existential (1 for EC1) — selects the existential metadata used for the destroy.</summary>
+        public readonly int WitnessTableCount;
+
+        public ExistentialContainerHeap(IntPtr ptr) : this(ptr, false, 0) { }
+
+        public ExistentialContainerHeap(IntPtr ptr, bool ownsContainer, int witnessTableCount)
+        {
+            Ptr = ptr;
+            OwnsContainer = ownsContainer;
+            WitnessTableCount = witnessTableCount;
+        }
     }
 
     /// <summary>
@@ -221,7 +242,18 @@ namespace Swift.Runtime
                         NativeMemory.Free((void*)copyBuffer.Buffer);
                     }
                     else if (holder[i] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
-                        NativeMemory.Free((void*)existentialHeap.Ptr);
+                    {
+                        // P1-03: a boxable value conformer was freshly boxed at +1 into this
+                        // buffer; balance it with the existential value-witness destroy now that
+                        // the continuation has finished reading the @in_guaranteed buffer. The
+                        // centralized helper applies the owns-gate (borrowed proxy containers,
+                        // OwnsContainer == false, are freed but never destroyed), the
+                        // metadata-unavailable try/catch, and the buffer free.
+                        ExistentialContainerFactory.DestroyAndFreeExistential(
+                            (void*)existentialHeap.Ptr,
+                            existentialHeap.WitnessTableCount,
+                            existentialHeap.OwnsContainer);
+                    }
                     else if (holder[i] is AsyncDeferredDisposeList deferredList)
                     {
                         foreach (var item in deferredList.Items)

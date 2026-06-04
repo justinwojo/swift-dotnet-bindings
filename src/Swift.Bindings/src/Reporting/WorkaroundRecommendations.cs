@@ -62,6 +62,8 @@ public static class WorkaroundRecommendations
             "The method body referenced a proxy class whose EveryProtocol conformance was not emitted. Once the proxy can be emitted (add support for the missing requirements), the method body is restored.",
         SkipReason.Pattern2InternalTypeReach =>
             "Member signature exposes a @usableFromInline internal type. Refactor the Swift API to use a public type, or expose the functionality through a public Swift wrapper.",
+        SkipReason.IndeterminateStructLayout =>
+            "The frozen struct has a stored field that is a generic value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>) whose inline size depends on its type arguments and cannot be derived cross-compile. Write a Swift wrapper that exposes the data through a supported, concretely-sized type.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -121,6 +123,8 @@ public static class WorkaroundRecommendations
             "method body removed because it constructed a proxy class whose conformance was suppressed",
         SkipReason.Pattern2InternalTypeReach =>
             "member signature reaches an @usableFromInline internal (or otherwise-suppressed) type",
+        SkipReason.IndeterminateStructLayout =>
+            "frozen struct stored field has an indeterminate cross-compile Buffer layout (generic value-type instantiation)",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

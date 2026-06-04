@@ -226,6 +226,26 @@ public static class SwiftSourceStripper
         // the broader HasMethodLevelGenericInSignature classification.
         "CombinedMixedSelfGeneric",
         "CombinedRegularSibling",
+        // Audit P1-08 WRITE direction: a C# class implements MarkerProvider and is vended
+        // to Swift through consumeMarkerProvider. The marshaller wraps the C# conformer in
+        // the EveryProtocol-backed proxy, so Get_EveryProtocol_MarkerProvider_WitnessTable
+        // must resolve; Swift then reads the getter's `[any Marker]` (class-bound) array back
+        // through the EveryProtocol vtable. The conformance is fully valid (a plain get-only
+        // property), it is only stripped because nothing referenced it before this test, so
+        // both the conformance and its witness-table getter must survive stripping. Marker
+        // itself is NOT listed: its elements are only ever Swift-vended proxies or concrete
+        // Swift class boxables (MarkerImpl), never a pure-C# IMarker, so its EveryProtocol
+        // conformance is never exercised.
+        "MarkerProvider",
+        // Audit P1-08 dict-value sibling: same WRITE direction as MarkerProvider but the
+        // requirement is `var markerMap: [String: any Marker] { get }`. A C# class implements
+        // MarkerMapProvider and is vended to Swift through consumeMarkerMapProvider, so
+        // Get_EveryProtocol_MarkerMapProvider_WitnessTable must resolve; Swift then reads the
+        // getter's [String: any Marker] (class-bound value) dictionary back through the
+        // EveryProtocol vtable. Like MarkerProvider the conformance is fully valid (a plain
+        // get-only property) and is only stripped because nothing referenced it before this
+        // test, so both the conformance and its witness-table getter must survive stripping.
+        "MarkerMapProvider",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

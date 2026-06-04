@@ -537,7 +537,8 @@ namespace BindingsGeneration
                 var csName = NameProvider.GetCSharpParameterName(arg);
                 // GetOrCreate only works for single-protocol (EC1) interfaces.
                 // Well-known types (AnyError/EC0) and compositions (EC2+) use direct cast.
-                if (containerType == "Swift.Runtime.ExistentialContainer1" && !_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+                bool owningCandidate = IsOwningExistentialCandidate(protocolList);
+                if (owningCandidate)
                 {
                     // Auto-wrap fallback only when we actually emit a proxy class for the protocol.
                     // Stdlib/external protocols (e.g. Swift.Encodable) project to publicType "object"
@@ -550,9 +551,12 @@ namespace BindingsGeneration
                     {
                         proxyClassName = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
                     }
+                    // P1-03: thread the runtime owns-bit out of GetOrCreate (declared before the try
+                    // by EmitExistentialHeapDeclarations) so the finally / async holder destroys ONLY
+                    // a freshly boxed value conformer's +1, never a borrowed proxy container.
                     var createExpr = proxyClassName != null
-                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, static __v => new {proxyClassName}(__v))"
-                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName})";
+                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, static __v => new {proxyClassName}(__v), out {csName}Owns)"
+                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, out {csName}Owns)";
                     csWriter.WriteLine($"var {csName}Container = {createExpr};");
                 }
                 else
@@ -566,7 +570,13 @@ namespace BindingsGeneration
                     // Slot index counts back from the trailing cancellation slot (Length-1)
                     // and forward through the reserved existential slots.
                     int reverseOffset = existentialTotal - existentialIndex;
-                    csWriter.WriteLine($"_asyncCallHolder[_asyncCallHolder.Length - 1 - {reverseOffset}] = new ExistentialContainerHeap((IntPtr){csName}Heap);");
+                    // The foreground finally is skipped for async; the holder carries the owns-bit
+                    // + witness count so the callback cleanup runs the existential destroy after
+                    // the continuation drains the @in_guaranteed buffer (P1-03).
+                    var holderCtor = owningCandidate
+                        ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {protocolList.Protocols.Count})"
+                        : $"new ExistentialContainerHeap((IntPtr){csName}Heap)";
+                    csWriter.WriteLine($"_asyncCallHolder[_asyncCallHolder.Length - 1 - {reverseOffset}] = {holderCtor};");
                     existentialIndex++;
                 }
             }

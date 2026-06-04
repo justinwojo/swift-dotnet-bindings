@@ -190,6 +190,53 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Takes an independent <c>+1</c> copy of a Swift value out of a wire buffer via the
+    /// value witness table's <c>InitializeWithCopy</c>: the boxed/inline heap payload is retained
+    /// so <paramref name="destination"/> owns a reference whose lifetime is independent of
+    /// <paramref name="source"/>. This is the read-side counterpart of
+    /// <see cref="DestroyWireBufferRetains(IntPtr, TypeMetadata)"/> — when a Swift accessor returns
+    /// an existential heap cell that is freed (deinitialized + deallocated) by a generated free
+    /// function, the adopting proxy must hold its <em>own</em> retained copy, or the proxy's later
+    /// destroy and the cell free would both release the same payload (double-release → UAF).
+    /// <paramref name="destination"/> is treated as raw, uninitialised storage; any prior bytes are
+    /// overwritten without running a destructor (the caller passes a fresh or trivially-copied
+    /// buffer). No-op when either pointer is null or <paramref name="metadata"/> is invalid.
+    /// </summary>
+    /// <param name="destination">Uninitialised buffer that receives the retained copy.</param>
+    /// <param name="source">The wire buffer holding the Swift value to copy from.</param>
+    /// <param name="metadata">The Swift type metadata of the value occupying the buffer.</param>
+    public static unsafe void CopyWireBufferRetains(IntPtr destination, IntPtr source, TypeMetadata metadata)
+    {
+        if (destination == IntPtr.Zero || source == IntPtr.Zero)
+            return;
+        if (!metadata.IsValid)
+            return;
+        metadata.ValueWitnessTable->InitializeWithCopy((void*)destination, (void*)source, metadata);
+    }
+
+    /// <summary>
+    /// The finalizer-thread-safe variant of <see cref="DestroyWireBufferRetains(IntPtr, TypeMetadata)"/>.
+    /// Routes the value-witness <c>Destroy</c> through the <c>SBW_VWTDestroy</c> <c>@_cdecl</c>
+    /// trampoline (which reads the VWT from <c>metadata[-1]</c> and calls it) instead of invoking
+    /// the witness pointer directly. A direct <c>CallConvSwift</c>/VWT call from the GC finalizer
+    /// thread crashes Mono with the <c>!ji-&gt;async</c> assertion after CallConvSwift JIT
+    /// contamination — the same failure the class-bound proxy release dodges via
+    /// <see cref="Arc.UnknownObjectReleaseFinalizerSafe"/>. Owned opaque existential proxies must
+    /// use this from their <c>~Proxy()</c> finalizer (audit P0-10). No-op on null buffer / invalid
+    /// metadata.
+    /// </summary>
+    /// <param name="buffer">The wire buffer pointer to destroy. <c>IntPtr.Zero</c> is a no-op.</param>
+    /// <param name="metadata">The Swift type metadata of the value occupying the buffer.</param>
+    public static void DestroyWireBufferRetainsFinalizerSafe(IntPtr buffer, TypeMetadata metadata)
+    {
+        if (buffer == IntPtr.Zero)
+            return;
+        if (!metadata.IsValid)
+            return;
+        VwtDestroyTrampoline.Destroy(buffer, metadata.Handle);
+    }
+
+    /// <summary>
     /// Marshals an <b>owned</b> by-value Swift struct out of a caller-owned temporary into a
     /// managed wrapper, then releases the temporary's value-witness retains. Used for the direct
     /// (by-value register) return of a frozen-with-memory struct: the C# local holds an
@@ -523,6 +570,27 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// The by-pointer sibling of <see cref="MarshalBorrowedClassFromSlot{T}"/>, for closure
+    /// callback parameters where the cdecl thunk passes the Swift class pointer <em>directly</em>
+    /// (not the address of a slot holding it). Takes an independent ARC <c>+1</c> on the borrowed
+    /// pointer and builds an <b>owning</b> wrapper, so the wrapper's <c>SwiftSafeHandle</c> balances
+    /// that retain on both <c>Dispose</c> and finalize. This replaces the older
+    /// <see cref="MarshalBorrowedFromSwift{T}"/> path for class parameters, whose
+    /// <c>GC.SuppressFinalize</c>-only strategy left an explicit <c>Dispose</c> in the user's
+    /// callback body double-releasing a <c>+0</c> borrowed handle. The retain routes through the
+    /// kind-dispatching <see cref="Arc.UnknownObjectRetain"/> so an Objective-C-backed class is
+    /// retained correctly (the same isa-aware entry point the receiver path uses).
+    /// </summary>
+    /// <typeparam name="T">The Swift-class wrapper type.</typeparam>
+    /// <param name="classPointer">The borrowed Swift class pointer passed by the cdecl callback.</param>
+    /// <returns>The constructed wrapper, owning an independent reference.</returns>
+    public static unsafe T MarshalBorrowedClassFromSwift<T>(IntPtr classPointer)
+    {
+        Arc.UnknownObjectRetain(classPointer);
+        return MarshalFromSwift<T>(classPointer);
+    }
+
+    /// <summary>
     /// Computes the size of the destination buffer an extracted-by-copy payload of type
     /// <typeparamref name="T"/> must be allocated with, given the Swift payload's own size
     /// (<paramref name="swiftPayloadSize"/>, the enum/container value-witness <c>Size</c>).
@@ -691,6 +759,17 @@ public static class SwiftMarshal
                 }
             }
         }
+
+        // ClassExistentialContainer1 (the compact 2-word [classRef][witnessTable] SwiftArray
+        // element carrier for class-bound `any P`) is a pure-blittable value type and falls into
+        // the branch below as a raw 16-byte write — deliberately +0. Its array-element ownership is
+        // NOT established here: every SwiftArray write entry point that takes the carrier is
+        // __owned (consumes at +1) and the array's class-existential value-witness table releases
+        // word0 on destroy, so the +1 the array consumes is minted/donated UPSTREAM by
+        // ExistentialContainerFactory.CreateOwnedClassCarrier (which the emitter calls for every
+        // class-bound `[any P]` param/write-direction element). Retaining word0 here too would
+        // double-count the boxable conformer's existing +1 and leak it. See that helper and
+        // ClassExistentialContainer1.FromExistentialContainer1 for the ownership contract.
 
         // Handle blittable value types: C# enums (simple enums) and frozen structs
         // (CGPoint, CGRect, CGSize, etc.). These have no managed references and can be

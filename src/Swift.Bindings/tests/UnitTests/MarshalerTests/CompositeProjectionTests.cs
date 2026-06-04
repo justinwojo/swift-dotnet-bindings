@@ -148,10 +148,15 @@ public class CompositeProjectionTests
         var plan = proj.GetParameterPlan("items");
         Assert.Equal("itemsBuffer", plan.PInvokeExpression);
 
-        // Should have Select with container extraction
+        // Per-element conversion for an opaque [any P] PARAM must mint/donate an OWNED carrier
+        // (CreateOwnedExistential1) rather than aliasing the proxy's only +1 via GetOrCreate: the
+        // Swift array element write is __owned (consuming) and the carrier's value-witness destroy
+        // would over-release a borrowed alias (audit P1-08 opaque sibling). The wrap-fallback is the
+        // proxy ctor, retained so a suppressed-proxy site can downgrade to the no-fallback overload.
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains(".Select(", firstLine.Code);
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>", firstLine.Code);
+        Assert.Contains("ExistentialContainerFactory.CreateOwnedExistential1<IDescribable>", firstLine.Code);
+        Assert.Contains("new DescribableProxy(", firstLine.Code);
     }
 
     #endregion

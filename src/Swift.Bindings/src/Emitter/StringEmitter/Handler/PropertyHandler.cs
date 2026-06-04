@@ -1055,16 +1055,23 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 {
                     proxyClassName = propertyEnv.ExistentialHandler.QualifyProxyClassName(filteredProxy, innerProtocolList);
                 }
+                // P1-03: when the factory boxes a value conformer at +1, the @in_guaranteed setter
+                // wrapper only borrows the buffer (reads via .pointee, copies into the property), so
+                // the caller must run the existential value-witness destroy afterward. Thread the
+                // runtime owns-bit; borrowed proxy/class containers (and the non-factory EC2+/
+                // well-known path) report owns=false and are only freed, never over-released.
                 var createExpr = useFactory
                     ? (proxyClassName != null
-                        ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, static __p => new {proxyClassName}(__p))"
-                        : $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v)")
+                        ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, static __p => new {proxyClassName}(__p), out __owns)"
+                        : $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, out __owns)")
                     : $"((global::Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)__v).GetExistentialContainer()";
+                var ownsArg = useFactory ? "__owns" : "false";
+                var ownsDecl = useFactory ? "\n        bool __owns = false;" : "";
 
                 csWriter.WriteLines($$"""
                     set {
                         unsafe {
-                            void* __heap = null;
+                            void* __heap = null;{{ownsDecl}}
                             try {
                                 IntPtr __ptr = IntPtr.Zero;
                                 bool __hasVal = value != null;
@@ -1076,7 +1083,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                                 }
                                 {{methodName}}(__ptr, __hasVal);
                             } finally {
-                                if (__heap != null) NativeMemory.Free(__heap);
+                                global::Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential(__heap, 1, {{ownsArg}});
                             }
                         }
                     }
@@ -1147,10 +1154,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // DangerousGetHandle() and the P/Invoke return could collect `value`, run its
             // SafeHandle finalizer, and free the buffer while Swift is still reading from it.
             // The receiver's own SafeHandle is already bracketed inside the accessor method body.
+            //
+            // `value is { } __value` unwraps the optional uniformly for both inner kinds: a
+            // reference type T? narrows to a non-null T, and a value type Nullable<T> (e.g.
+            // AnyHashable?/AnyType? — both are structs that carry a .Payload) unwraps to T. A
+            // bare `value.Payload` after `value is not null` is a CS1061 for the Nullable<T> case
+            // because the SafeHandle-bearing member lives on T, not Nullable<T>.
             csWriter.WriteLines($$"""
                 set {
-                    if (value is not null) {
-                        using var __valuePin = new global::Swift.Runtime.SafeHandlePin(value.Payload);
+                    if (value is { } __value) {
+                        using var __valuePin = new global::Swift.Runtime.SafeHandlePin(__value.Payload);
                         {{methodName}}(__valuePin.Handle, true);
                     } else {
                         {{methodName}}(IntPtr.Zero, false);

@@ -43,9 +43,13 @@ public class DictionaryProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
-    public string SwiftContainerGenericType => $"SwiftDictionary<{_keyProjection.SwiftContainerGenericType}, {_valueProjection.SwiftContainerGenericType}>";
+    // Param/write value slot uses ParamValueCarrierType; return/read uses the value's
+    // ArrayElementCarrierType. Both collapse to the legacy carrier for every non-existential value
+    // and for opaque/composition existentials — the class-bound single-protocol value is the only
+    // one that changes (16-byte ClassExistentialContainer1 instead of the 40-byte opaque container).
+    public string SwiftContainerGenericType => $"SwiftDictionary<{_keyProjection.SwiftContainerGenericType}, {ParamValueCarrierType}>";
 
-    public string ContainerTypeName => $"SwiftDictionary<{_keyProjection.MarshalFromSwiftType}, {_valueProjection.MarshalFromSwiftType}>";
+    public string ContainerTypeName => $"SwiftDictionary<{_keyProjection.MarshalFromSwiftType}, {_valueProjection.ArrayElementCarrierType}>";
 
     /// <summary>
     /// For MarshalFromSwift in return direction, use MarshalFromSwiftType of inner key/value
@@ -55,15 +59,48 @@ public class DictionaryProjection : ITypeProjection
     public string MarshalFromSwiftType => ContainerTypeName;
 
     /// <summary>
+    /// The SwiftDictionary VALUE-slot carrier for the PARAMETER/WRITE (FromDictionary) direction. For a
+    /// class-bound single-protocol existential value this is the 16-byte
+    /// <c>ClassExistentialContainer1</c> — matching the Swift dictionary's actual value stride
+    /// (<c>MemoryLayout&lt;any ClassP&gt;.stride == 16</c>, vs 40 for the opaque
+    /// <c>ExistentialContainer1</c>; the value layout is a property of the type, not the container, so
+    /// it is identical to the array-element case). Mirrors
+    /// <see cref="ArrayProjection.ParamElementCarrierType"/>. Dictionary KEYS are never class-bound
+    /// existentials — <c>any P</c> is not <c>Hashable</c>, so <c>[any P: V]</c> is ill-formed — so only
+    /// the value needs the carrier; the key stays on its <c>SwiftContainerGenericType</c>. A no-op for
+    /// every non-existential value and for opaque/composition existentials (whose
+    /// <c>ArrayElementCarrierType</c> equals their own <c>SwiftContainerGenericType</c>).
+    /// </summary>
+    private string ParamValueCarrierType =>
+        _valueProjection is ExistentialProjection existVal
+            ? existVal.ArrayElementCarrierType
+            : _valueProjection.SwiftContainerGenericType;
+
+    /// <summary>
+    /// Per-value conversion for the PARAMETER/WRITE direction. Narrows a class-bound existential
+    /// value's proxy-produced <c>ExistentialContainer1</c> down to the 16-byte
+    /// <c>ClassExistentialContainer1</c> carrier (<see cref="ParamValueCarrierType"/>) via the owned
+    /// <c>CreateOwnedClassCarrier</c>; a no-op passthrough for every other value. Pairs with
+    /// <see cref="ParamValueCarrierType"/> so the SwiftDictionary value slot type and the expression
+    /// filling it always agree on stride. Mirrors <c>ArrayProjection.ParamElementConversion</c>.
+    /// </summary>
+    private string? ParamValueConversion(string valueVar) =>
+        _valueProjection is ExistentialProjection existVal
+            ? existVal.GetArrayElementCarrierConversion(valueVar)
+            : _valueProjection.GetParameterElementConversion(valueVar);
+
+    /// <summary>
     /// Builds the container creation statements (key/value conversion + SwiftDictionary.FromDictionary)
     /// without PayloadBuffer extraction.
     /// </summary>
     private (List<MarshalStatement> setup, string containerExpr) BuildContainerSetup(string paramName)
     {
         var rawK = _keyProjection.SwiftContainerGenericType;
-        var rawV = _valueProjection.SwiftContainerGenericType;
+        // Class-bound existential value → 16-byte ClassExistentialContainer1 carrier + owned
+        // narrowing (ParamValueCarrierType/ParamValueConversion); a no-op for every other value.
+        var rawV = ParamValueCarrierType;
         var keyConv = _keyProjection.GetParameterElementConversion("kvp.Key");
-        var valConv = _valueProjection.GetParameterElementConversion("kvp.Value");
+        var valConv = ParamValueConversion("kvp.Value");
         // When SwiftContainerGenericType matches the C# public type for a key or value
         // projection (e.g. SwiftDictionary<K, NonFrozenStruct>), the per-slot storage holds
         // the typed wrapper directly and FromDictionary dispatches to ISwiftObject.MarshalToSwift.
@@ -169,10 +206,29 @@ public class DictionaryProjection : ITypeProjection
         if (UsesObjCContainerBridge)
             return BuildObjCBridgeReturnExpression(containerVar);
 
-        var keyConv = _keyProjection.GetReturnElementConversion("k");
-        var valConv = _valueProjection.GetReturnElementConversion("v");
+        var keyConv = OwnedReturnKeyConversion("k");
+        var valConv = OwnedReturnValueConversion("v");
         return $"{containerVar}{BuildAsProjected(keyConv, valConv)}";
     }
+
+    /// <summary>
+    /// P1-07: key/value conversions for the OWNED-return directions only. SwiftDictionary's
+    /// indexer get, Keys/Values, and entry enumerator all move each key and value out of their
+    /// slot at +1 (MarshalMovedValueFromSlot), so an adopting proxy must release that retain on
+    /// Dispose or it leaks; the source dictionary keeps its own independent +1, so adoption never
+    /// double-frees. Existential keys/values use the owning form; everything else — and the shared
+    /// non-owning <see cref="GetReturnElementConversion"/> reused for borrowed reads — stays +0.
+    /// Mirrors ArrayProjection.OwnedReturnElementConversion.
+    /// </summary>
+    private string? OwnedReturnKeyConversion(string keyVar)
+        => _keyProjection is ExistentialProjection existKey
+            ? existKey.GetOwnedReturnElementConversion(keyVar)
+            : _keyProjection.GetReturnElementConversion(keyVar);
+
+    private string? OwnedReturnValueConversion(string valVar)
+        => _valueProjection is ExistentialProjection existVal
+            ? existVal.GetOwnedReturnElementConversion(valVar)
+            : _valueProjection.GetReturnElementConversion(valVar);
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
@@ -180,11 +236,15 @@ public class DictionaryProjection : ITypeProjection
         if (UsesObjCContainerBridge)
             return BuildObjCBridgeReturnPlan(resultName, strategy);
 
-        // Use MarshalFromSwiftType for return — classes/non-frozen structs need the real type name
+        // Use MarshalFromSwiftType for return — classes/non-frozen structs need the real type name.
+        // The VALUE uses ArrayElementCarrierType so a class-bound existential value reads at its
+        // 16-byte ClassExistentialContainer1 stride (matches ContainerTypeName/MarshalFromSwiftType);
+        // ArrayElementCarrierType == MarshalFromSwiftType for every other value.
         var rawK = _keyProjection.MarshalFromSwiftType;
-        var rawV = _valueProjection.MarshalFromSwiftType;
-        var keyConv = _keyProjection.GetReturnElementConversion("k");
-        var valConv = _valueProjection.GetReturnElementConversion("v");
+        var rawV = _valueProjection.ArrayElementCarrierType;
+        // P1-07: owned-return direction — existential keys/values are adopted at +1 (see OwnedReturn*Conversion).
+        var keyConv = OwnedReturnKeyConversion("k");
+        var valConv = OwnedReturnValueConversion("v");
 
         var asProjected = BuildAsProjected(keyConv, valConv);
 

@@ -87,8 +87,12 @@ public struct ExistentialContainer0 : IExistentialContainer
             }
             case int i:
             {
-                if (!TypeMetadata.Cache.TryGet(typeof(nint), out var metadata))
-                    throw new SwiftRuntimeException("Cannot get Swift.Int metadata");
+                // A C# `int` is 32-bit — box it as Swift.Int32 (NOT Swift.Int, which is 64-bit).
+                // Tagging it with the distinct Int32 metadata is what lets Unbox round-trip it
+                // back to a C# `int` instead of silently widening to `long` (audit P1-06). The
+                // metadata cache maps typeof(int) -> `$ss5Int32VN` (Swift.Int32).
+                if (!TypeMetadata.Cache.TryGet(typeof(int), out var metadata))
+                    throw new SwiftRuntimeException("Cannot get Swift.Int32 metadata");
                 container.ObjectMetadata = metadata.Value;
                 container.Payload0 = (IntPtr)i;
                 break;
@@ -125,9 +129,16 @@ public struct ExistentialContainer0 : IExistentialContainer
                 break;
             }
             default:
+                // Non-primitive payloads (any generated Swift wrapper) box through the value
+                // witness table using the value's own Swift type metadata, instead of throwing.
+                // This is the runtime sibling of ExistentialContainerFactory.CreateAny<T> for the
+                // bare-`Any` path, where the per-element static type is only `object` (audit P1-06).
+                if (value is ISwiftObject swiftObject)
+                    return ExistentialContainerFactory.CreateAnyRuntime(swiftObject);
+
                 throw new NotSupportedException(
                     $"Cannot box value of type '{value.GetType().Name}' into ExistentialContainer0. " +
-                    $"Supported types: bool, int, long, double, string.");
+                    $"Supported types: bool, int, long, double, string, or any Swift object (ISwiftObject).");
         }
 
         return container;
@@ -153,6 +164,14 @@ public struct ExistentialContainer0 : IExistentialContainer
         if (TypeMetadata.Cache.TryGet(typeof(nint), out var intMeta) && metadata.Equals(intMeta.Value))
         {
             return (long)container.Payload0;
+        }
+
+        // Swift.Int32 round-trips back to a C# `int` (audit P1-06): a value boxed from a C# `int`
+        // carries Int32 metadata, so recover it as `int` rather than widening to `long`. Checked
+        // after the Swift.Int (nint) branch — the two metadata pointers are distinct.
+        if (TypeMetadata.Cache.TryGet(typeof(int), out var int32Meta) && metadata.Equals(int32Meta.Value))
+        {
+            return (int)(long)container.Payload0;
         }
 
         if (TypeMetadata.Cache.TryGet(typeof(double), out var doubleMeta) && metadata.Equals(doubleMeta.Value))
@@ -285,6 +304,61 @@ public struct ClassExistentialContainer1
     /// <param name="cell">Pointer to the 2-word class-bound existential cell.</param>
     public static unsafe ExistentialContainer1 ReadHeapCell(IntPtr cell)
         => Unsafe.Read<ClassExistentialContainer1>((void*)cell);
+
+    /// <summary>
+    /// Narrows a class-bound <see cref="ExistentialContainer1"/> down to the compact 2-word carrier
+    /// Swift expects for a class-bound <c>any P</c> array/collection element. The inverse of the
+    /// widening <c>implicit operator</c> above: that maps <c>ClassRef → Payload0</c> and
+    /// <c>WitnessTable0 → Payload1</c>, so this reads those same two words back.
+    ///
+    /// <para>
+    /// Only valid for an EC1 holding a class-bound conformer (a single class instance), so callers
+    /// MUST gate on the same class-bound check (<c>ExistentialProjection.IsClassBoundArity1</c>) the
+    /// read-side carrier uses — narrowing an opaque or composition EC1 would copy inline payload
+    /// bytes / metadata into the class-ref + witness words and hand Swift a garbage object.
+    /// </para>
+    /// <para>
+    /// The class instance is always <see cref="ExistentialContainer1.Payload0"/>. The witness table,
+    /// however, lands in a different word depending on which producer built the EC1 — and both
+    /// producers are reachable through
+    /// <see cref="ExistentialContainerFactory.GetOrCreate{TProtocol}(TProtocol, System.Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}})"/>:
+    /// <list type="bullet">
+    /// <item>the generated <b>proxy</b> path (a Swift-backed return wrapped in <c>{P}Proxy</c>, or a
+    ///   C# implementation wrapped in an <c>EveryProtocol</c>-backed proxy) builds the 2-word
+    ///   class-bound layout directly: witness in <see cref="ExistentialContainer1.Payload1"/>,
+    ///   leaving the dedicated witness word zero;</item>
+    /// <item>the <b>boxable</b> path (<c>IExistentialBoxable.BoxAsExistential1</c> →
+    ///   <c>ExistentialContainerFactory.Create&lt;T,TProtocol&gt;</c>, taken for a concrete Swift class
+    ///   conformer passed by value — e.g. <c>new {Conformer}(...)</c>) builds the opaque layout:
+    ///   class ref in <see cref="ExistentialContainer1.Payload0"/> via <c>MarshalPayload</c> with
+    ///   Payload1 left zero, and the witness in the dedicated witness word (<c>container[0]</c>).</item>
+    /// </list>
+    /// For a class-bound conformer the payload is a single class word, so exactly one of
+    /// {Payload1, witness word} is the witness and the other is zero — pick the non-zero one. A valid
+    /// witness-table pointer is never null, so this is unambiguous.
+    /// </para>
+    /// <para>
+    /// Pure word-copy: this narrowing does NOT change the ownership of the class reference — the
+    /// caller decides the +1. The two source layouts differ in who already owns it: the borrowed
+    /// convertible/proxy layout keeps its +1 (released on Dispose/finalize via
+    /// <c>ProxyLifetimeTracker</c>), whereas the boxable layout's <c>Create</c> has already minted a
+    /// fresh +1 on the class ref via an inline <c>InitializeWithCopy</c>. Whoever builds a
+    /// <c>SwiftArray&lt;ClassExistentialContainer1&gt;</c> element must therefore go through
+    /// <see cref="ExistentialContainerFactory.CreateOwnedClassCarrier{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}})"/>, which hands the array
+    /// exactly one owned +1 — minting for the borrowed layout, donating the boxable layout's existing
+    /// +1 — because Swift's array element write is <c>__owned</c> (consuming) and the
+    /// class-existential value-witness table releases word0 once on destroy. Using this bare
+    /// narrowing for an array element (as the original P1-08 carrier path did) over-releases the
+    /// borrowed proxy and leaks the boxable +1.
+    /// </para>
+    /// </summary>
+    /// <param name="c">A class-bound <see cref="ExistentialContainer1"/> (Payload0 = class instance).</param>
+    public static ClassExistentialContainer1 FromExistentialContainer1(ExistentialContainer1 c)
+        => new ClassExistentialContainer1
+        {
+            ClassRef = c.Payload0,
+            WitnessTable0 = c.Payload1 != IntPtr.Zero ? c.Payload1 : c[0],
+        };
 }
 
 /// <summary>
@@ -837,6 +911,31 @@ public static class ExistentialContainerFactory
     }
 
     /// <summary>
+    /// The runtime (non-generic) counterpart of <see cref="CreateAny{T}"/>, used when only the
+    /// erased <see cref="ISwiftObject"/> instance is available — e.g. boxing the per-element values
+    /// of a bare-<c>Any</c> dictionary/collection where the static element type is <c>object</c>.
+    /// Resolves the value's Swift type metadata from its concrete runtime type and marshals the
+    /// payload through the same inline/heap-box logic as <see cref="MarshalPayload"/>.
+    /// </summary>
+    /// <param name="value">The Swift object to box into an existential container.</param>
+    /// <returns>An <see cref="ExistentialContainer0"/> holding <paramref name="value"/>.</returns>
+    /// <exception cref="SwiftRuntimeException">Thrown if the value's Swift metadata cannot be resolved.</exception>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2072",
+        Justification = "value.GetType() is an ISwiftObject implementation whose GetTypeMetadata/NewFromPayload members are preserved via TrimmerRoots.xml")]
+    public static ExistentialContainer0 CreateAnyRuntime(ISwiftObject value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var container = new ExistentialContainer0();
+        var metadata = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(value.GetType());
+        if (!metadata.IsValid)
+            throw new SwiftRuntimeException(
+                $"Cannot resolve Swift type metadata for '{value.GetType().Name}' when boxing into Any.");
+        container.ObjectMetadata = metadata;
+        MarshalPayload(value, metadata, ref container);
+        return container;
+    }
+
+    /// <summary>
     /// Creates an existential container with 1 protocol witness table.
     /// Use this when a Swift method expects 'any Protocol'.
     /// </summary>
@@ -927,8 +1026,7 @@ public static class ExistentialContainerFactory
     /// Small values (≤ MaxInlinePayloadSize and not non-inline) are stored directly in the payload slots.
     /// Larger values are heap-allocated and a pointer is stored in Payload0.
     /// </summary>
-    private static unsafe void MarshalPayload<T, TContainer>(T value, TypeMetadata metadata, ref TContainer container)
-        where T : ISwiftObject
+    private static unsafe void MarshalPayload<TContainer>(ISwiftObject value, TypeMetadata metadata, ref TContainer container)
         where TContainer : struct, IExistentialContainer
     {
         var vwt = metadata.ValueWitnessTable;
@@ -984,12 +1082,43 @@ public static class ExistentialContainerFactory
     /// <returns>An ExistentialContainer1 for the value.</returns>
     public static ExistentialContainer1 GetOrCreate<TProtocol>(TProtocol value)
         where TProtocol : class
+        => GetOrCreate(value, out _);
+
+    /// <summary>
+    /// Ownership-aware overload of <see cref="GetOrCreate{TProtocol}(TProtocol)"/>.
+    /// </summary>
+    /// <remarks>
+    /// The boxed-vs-borrowed distinction is a RUNTIME property of <paramref name="value"/>, not
+    /// something the call site can decide statically (the emitted parameter type is the erased
+    /// interface, and both a boxable value conformer and a proxy are assignable to it — audit
+    /// P1-03). This overload carries the decision out of the single branch point so cleanup uses
+    /// the exact signal that made it, rather than re-testing <c>is</c> at each call site (which
+    /// would drift if branch precedence ever changed).
+    ///
+    /// <para>
+    /// <paramref name="ownsContainer"/> is <c>true</c> ONLY for the boxable branch, where
+    /// <see cref="IExistentialBoxable.BoxAsExistential1{TProtocol}"/> → <see cref="MarshalPayload"/>
+    /// creates a fresh +1 (an inline <c>InitializeWithCopy</c> or a <c>swift_allocBox</c>) that
+    /// nothing else releases. The caller MUST run the existential value-witness destroy of the
+    /// whole container after the (guaranteed) native call returns. For the convertible/proxy
+    /// branch it is <c>false</c>: the proxy owns its +1 (released on Dispose/finalize via
+    /// <see cref="ProxyLifetimeTracker"/>), so destroying the borrowed container would over-release.
+    /// </para>
+    /// </remarks>
+    public static ExistentialContainer1 GetOrCreate<TProtocol>(TProtocol value, out bool ownsContainer)
+        where TProtocol : class
     {
         if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
+        {
+            ownsContainer = false;
             return convertible.GetExistentialContainer();
+        }
 
         if (value is IExistentialBoxable boxable)
+        {
+            ownsContainer = true;
             return boxable.BoxAsExistential1<TProtocol>();
+        }
 
         throw new InvalidCastException(
             $"Cannot create ExistentialContainer1 for {value?.GetType().Name ?? "null"}: " +
@@ -1085,12 +1214,34 @@ public static class ExistentialContainerFactory
         TProtocol value,
         Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
         where TProtocol : class
+        => GetOrCreate(value, wrapFallback, out _);
+
+    /// <summary>
+    /// Ownership-aware overload of
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}})"/>.
+    /// See <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/> for the ownership contract.
+    /// The auto-wrap fallback path is a proxy (borrowed), so <paramref name="ownsContainer"/> is
+    /// <c>false</c> there — only the boxable branch transfers a fresh +1 the caller must destroy.
+    /// </summary>
+    public static ExistentialContainer1 GetOrCreate<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback,
+        out bool ownsContainer)
+        where TProtocol : class
     {
         if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
+        {
+            ownsContainer = false;
             return convertible.GetExistentialContainer();
+        }
 
         if (value is IExistentialBoxable boxable)
+        {
+            ownsContainer = true;
             return boxable.BoxAsExistential1<TProtocol>();
+        }
+
+        ownsContainer = false;
 
         if (wrapFallback == null)
             throw new ArgumentNullException(nameof(wrapFallback));
@@ -1129,6 +1280,218 @@ public static class ExistentialContainerFactory
         // ProxyLifetimeTracker, so its +1 releases when impl is GC'd.
         perImplMap[typeof(TProtocol)] = new WeakReference<ISwiftExistentialConvertible<ExistentialContainer1>>(proxy);
         return proxy.GetExistentialContainer();
+    }
+
+    /// <summary>
+    /// Builds a class-bound <see cref="ClassExistentialContainer1"/> array-element carrier whose
+    /// word0 (the class reference) holds exactly ONE owned +1, ready for
+    /// <c>SwiftArray&lt;ClassExistentialContainer1&gt;</c> to adopt and release once through the
+    /// class-existential value-witness table on destroy.
+    /// </summary>
+    /// <remarks>
+    /// Swift's array element write path is <c>__owned</c> (append/insert/subscript-set consume the
+    /// element at +1) and the array's class-existential value-witness table releases word0 on
+    /// destroy, so the array needs to OWN exactly one +1 per element. The two ways a protocol value
+    /// reaches this carrier differ in who already owns the class +1, and the authoritative signal is
+    /// the <c>ownsContainer</c> out-parameter of
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, out bool)"/>:
+    /// <list type="bullet">
+    /// <item><description>
+    /// <b>Borrowed (convertible/proxy or auto-wrapped fallback — <c>ownsContainer == false</c>):</b>
+    /// the container ALIASES a +1 owned by the proxy / <see cref="ProxyLifetimeTracker"/>. We MINT a
+    /// fresh +1 via <see cref="Arc.UnknownObjectRetain"/> so the array owns its own reference and the
+    /// source proxy keeps its — mirroring the proxy's <c>Arc.UnknownObjectReleaseFinalizerSafe</c> on
+    /// Dispose/finalize, correct whether word0 is an Objective-C or native Swift class.
+    /// </description></item>
+    /// <item><description>
+    /// <b>Owned (boxable conformer — <c>ownsContainer == true</c>):</b>
+    /// <see cref="IExistentialBoxable.BoxAsExistential1{TProtocol}"/> → <c>Create</c> →
+    /// <c>MarshalPayload</c> already minted a fresh +1 on the class ref (an inline
+    /// <c>InitializeWithCopy</c>). We DONATE that +1 to the array — no second retain. This also closes
+    /// the boxable orphan: the array-carrier path runs no scalar
+    /// <see cref="DestroyAndFreeExistential"/>, so without donation that +1 would have no owner and
+    /// leak.
+    /// </description></item>
+    /// </list>
+    /// Because the carrier returned here always owns its +1, the array write path
+    /// (<c>SwiftMarshal.MarshalToSwift&lt;ClassExistentialContainer1&gt;</c>) is a pure byte-copy that
+    /// transfers ownership of those words into array storage with no further retain.
+    /// </remarks>
+    public static ClassExistentialContainer1 CreateOwnedClassCarrier<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
+        where TProtocol : class
+        => MintOrDonateClassCarrier(GetOrCreate(value, wrapFallback, out bool ownsContainer), ownsContainer);
+
+    /// <summary>
+    /// No-fallback overload, emitted at call sites whose proxy class was suppressed (a
+    /// closed-constrained PAT existential projects to a typed generic interface with no usable
+    /// <c>{Protocol}Proxy</c> constructor, so <c>CSharpWrapperCoGater</c> strips the wrap-fallback
+    /// argument). With no fallback the value MUST already be a Swift-vended
+    /// <see cref="ISwiftExistentialConvertible{T}"/> or an <see cref="IExistentialBoxable"/> conformer
+    /// — <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/> throws otherwise, preserving the
+    /// throw-on-incompatible-input contract the co-gater documents. The ownership mint/donate is
+    /// identical to the two-arg overload, so a suppressed-proxy class-bound collection element is
+    /// balanced exactly as a proxy-backed one. Mirrors <see cref="GetOrCreate{TProtocol}(TProtocol)"/>.
+    /// </summary>
+    public static ClassExistentialContainer1 CreateOwnedClassCarrier<TProtocol>(TProtocol value)
+        where TProtocol : class
+        => MintOrDonateClassCarrier(GetOrCreate(value, out bool ownsContainer), ownsContainer);
+
+    private static ClassExistentialContainer1 MintOrDonateClassCarrier(ExistentialContainer1 container, bool ownsContainer)
+    {
+        var carrier = ClassExistentialContainer1.FromExistentialContainer1(container);
+        if (!ownsContainer && carrier.ClassRef != IntPtr.Zero)
+        {
+            // Borrowed source: mint the array's own +1. (Owned/boxable source already carries a
+            // donatable +1 on word0 from Create's InitializeWithCopy — adopt it as-is.)
+            Arc.UnknownObjectRetain(carrier.ClassRef);
+        }
+        return carrier;
+    }
+
+    /// <summary>
+    /// Opaque/40-byte sibling of <see cref="CreateOwnedClassCarrier{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}})"/>: builds an
+    /// <see cref="ExistentialContainer1"/> collection-element carrier that owns exactly ONE +1 on its
+    /// payload, for a non-class-bound single-protocol <c>any P</c> whose array/dictionary element
+    /// strides over the full opaque container (not the compact 16-byte
+    /// <see cref="ClassExistentialContainer1"/>).
+    /// </summary>
+    /// <remarks>
+    /// Like the class-bound carrier, the Swift collection write is <c>__owned</c> (append/insert/
+    /// subscript-set consume the element at +1) and the container's existential value-witness table
+    /// destroys the element on teardown, so the carrier must OWN exactly one +1. The two source shapes
+    /// — reported by
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, out bool)"/>'s
+    /// <c>ownsContainer</c> signal — are handled the same way as the class-bound path, but the MINT
+    /// differs: an opaque payload may be an inline class ref, an inline value type, or an out-of-line
+    /// <c>swift_allocBox</c>, so we run the existential value-witness <c>InitializeWithCopy</c>
+    /// (<see cref="Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains"/>) rather than the
+    /// class-only <see cref="Arc.UnknownObjectRetain"/> shortcut.
+    /// <list type="bullet">
+    /// <item><description>
+    /// <b>Borrowed (proxy/auto-wrap — <c>ownsContainer == false</c>):</b> the container ALIASES a +1
+    /// owned by the proxy / <see cref="ProxyLifetimeTracker"/>. MINT a fresh owned copy so the array
+    /// owns its own reference and the source proxy keeps its. Without this the <c>__owned</c> consume
+    /// plus the carrier's value-witness destroy over-released the proxy's only +1 (audit P1-08 opaque
+    /// sibling).
+    /// </description></item>
+    /// <item><description>
+    /// <b>Owned (boxable conformer — <c>ownsContainer == true</c>):</b>
+    /// <see cref="IExistentialBoxable.BoxAsExistential1{TProtocol}"/> → <c>Create</c> →
+    /// <c>MarshalPayload</c> already minted a fresh +1 (inline <c>InitializeWithCopy</c> or
+    /// <c>swift_allocBox</c>); DONATE it to the array as-is. This also closes the boxable orphan: the
+    /// array-carrier path runs no scalar <see cref="DestroyAndFreeExistential"/>, so without donation
+    /// that +1 would have no owner and leak.
+    /// </description></item>
+    /// </list>
+    /// Either way the returned container owns its +1, so the array write
+    /// (<c>SwiftMarshal.MarshalToSwift</c> → <c>IExistentialContainer.CopyTo</c>) is a pure byte-copy
+    /// that transfers ownership of those words into array storage with no further retain.
+    /// </remarks>
+    public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
+        where TProtocol : class
+        => MintOrDonateExistential1(GetOrCreate(value, wrapFallback, out bool ownsContainer), ownsContainer);
+
+    /// <summary>
+    /// No-fallback overload, emitted at call sites whose proxy class was suppressed (a
+    /// closed-constrained PAT existential — e.g. <c>any LabelledContainer&lt;String&gt;</c> — projects
+    /// to a typed generic interface with no usable <c>{Protocol}Proxy</c> constructor, so
+    /// <c>CSharpWrapperCoGater</c> strips the wrap-fallback argument). With no fallback the value MUST
+    /// already be a Swift-vended <see cref="ISwiftExistentialConvertible{T}"/> or an
+    /// <see cref="IExistentialBoxable"/> conformer — <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/>
+    /// throws otherwise, preserving the throw-on-incompatible-input contract the co-gater documents.
+    /// The ownership mint/donate is identical to the two-arg overload, so a suppressed-proxy opaque
+    /// collection element is balanced exactly as a proxy-backed one (the over-release fix still
+    /// applies). Mirrors <see cref="GetOrCreate{TProtocol}(TProtocol)"/>.
+    /// </summary>
+    public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(TProtocol value)
+        where TProtocol : class
+        => MintOrDonateExistential1(GetOrCreate(value, out bool ownsContainer), ownsContainer);
+
+    private static unsafe ExistentialContainer1 MintOrDonateExistential1(ExistentialContainer1 container, bool ownsContainer)
+    {
+        if (ownsContainer)
+        {
+            // Boxable conformer: a fresh +1 already lives in the container — donate it to the array's
+            // __owned consume.
+            return container;
+        }
+
+        // Borrowed source: mint the array's own +1 via the existential value-witness InitializeWithCopy,
+        // which correctly retains an inline class ref, copies an inline value type, or retains a
+        // swift_allocBox payload — the general operation the class-only Arc.UnknownObjectRetain cannot do.
+        ExistentialContainer1 owned = default;
+        try
+        {
+            var metadata = TypeMetadata.GetExistentialTypeMetadata(container.Count);
+            // owned/container are stack locals (already-fixed), so take their addresses directly —
+            // a `fixed` statement on them is a CS0213 error.
+            Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains((IntPtr)(&owned), (IntPtr)(&container), metadata);
+            return owned;
+        }
+        catch (SwiftRuntimeException)
+        {
+            // GetExistentialTypeMetadata throws SwiftRuntimeException ONLY when SwiftBindingsRuntime
+            // is unavailable (no-Swift-runtime unit contexts); that path never actually consumes the
+            // container, so the aliased (+0) fallback is safe there. A genuine value-witness fault
+            // from CopyWireBufferRetains (which runs only AFTER metadata resolves) throws a DIFFERENT
+            // type and is intentionally NOT caught — masking it would hand a borrowed (+0) carrier to
+            // an __owned consume and re-introduce the P1-08 over-release.
+            return container;
+        }
+    }
+
+    /// <summary>
+    /// Releases a heap-allocated existential container that the marshalling layer passed by
+    /// pointer to a borrowing Swift <c>@_cdecl</c> wrapper, then frees the buffer.
+    /// </summary>
+    /// <remarks>
+    /// Swift receives <c>any P</c> arguments <c>@in_guaranteed</c> (borrowed): the wrapper reads
+    /// the container with a copying <c>load</c>/<c>.pointee</c> and never releases the caller's
+    /// buffer. So when the C# side boxed the conformer at +1 — a value-type conformer routed
+    /// through <see cref="IExistentialBoxable.BoxAsExistential1{TProtocol}"/> / <c>swift_allocBox</c>,
+    /// reported by the <c>GetOrCreate(..., out owns)</c> overloads as <paramref name="owns"/> ==
+    /// <see langword="true"/> — the caller must run the existential value-witness <c>destroy</c> to
+    /// balance that +1 once the call returns. A borrowed/+0 container (class or proxy conformer, or
+    /// a well-known container such as AnyError) reports <paramref name="owns"/> ==
+    /// <see langword="false"/> and is only freed; destroying it would over-release (audit P0-09/P0-10).
+    ///
+    /// Single release path shared by every existential-parameter marshalling site — method/
+    /// function/constructor params (WrapperEmitter), enum-case factories (EnumHandler), and
+    /// optional-existential setters (PropertyHandler). See audit P1-03.
+    /// </remarks>
+    /// <param name="heap">Buffer returned by <c>NativeMemory.Alloc</c> holding the container, or null.</param>
+    /// <param name="witnessTableCount">Protocol-witness-table count of the container (EC1 = 1).</param>
+    /// <param name="owns">Whether the C# side boxed the payload at +1 (from <c>GetOrCreate(..., out owns)</c>).</param>
+    public static unsafe void DestroyAndFreeExistential(void* heap, int witnessTableCount, bool owns)
+    {
+        if (heap == null)
+            return;
+
+        try
+        {
+            if (owns)
+            {
+                // The existential value-witness destroy handles inline and boxed payloads
+                // uniformly (releases the swift_allocBox or the inline InitializeWithCopy retains).
+                var metadata = TypeMetadata.GetExistentialTypeMetadata(witnessTableCount);
+                Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)heap, metadata);
+            }
+        }
+        catch (SwiftRuntimeException)
+        {
+            // GetExistentialTypeMetadata throws SwiftRuntimeException ONLY when SwiftBindingsRuntime
+            // is unavailable (no-Swift-runtime unit contexts); the unbalanced +1 leak is benign there.
+            // A genuine destroy fault throws a different type and is intentionally NOT swallowed —
+            // masking it would hide a real over-release. The buffer is freed either way (finally).
+        }
+        finally
+        {
+            NativeMemory.Free(heap);
+        }
     }
 
     /// <summary>

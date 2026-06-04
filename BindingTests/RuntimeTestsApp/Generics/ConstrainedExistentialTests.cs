@@ -250,6 +250,14 @@ public class ConstrainedExistentialTests : TestBase
     /// only variadic signal. If detection fails, the generated wrapper emits a direct splat call that
     /// fails to compile — i.e. this test reaching runtime at all already proves the wrapper bridged
     /// the variadic-to-array ABI via <c>unsafeBitCast</c>; the count assertion proves the round-trip.
+    ///
+    /// It is also the runtime exerciser of the SUPPRESSED-PROXY one-arg owned-carrier overload
+    /// (<c>ExistentialContainerFactory.CreateOwnedExistential1&lt;T&gt;(value)</c>, P1-08 opaque sibling):
+    /// because the closed-constrained PAT proxy is suppressed, the co-gater strips the wrap-fallback and
+    /// the generated <c>buildBlock</c> body emits the one-arg form
+    /// <c>CreateOwnedExistential1&lt;ILabelledContainer&lt;SwiftString&gt;&gt;(e)</c>. The boxable
+    /// <c>StringLabel</c> inputs drive the donate branch; a regression in co-gating fallback removal
+    /// would emit the two-arg form referencing the suppressed proxy and fail to compile.
     /// </summary>
     public void TestLabelledContainerBuilder_VariadicExistentialSplat()
     {

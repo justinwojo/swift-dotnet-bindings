@@ -1320,12 +1320,16 @@ public class PropertyHandlerTests
         // Setter property body marshals value to (IntPtr, bool) via existential container.
         // The GetOrCreate call carries a wrap fallback so plain C# implementations of the
         // interface are auto-wrapped in the generator-emitted DataCachingProxy at the call site.
+        // P1-03: it also threads the runtime owns-bit (out __owns) so the finally can run the
+        // existential value-witness destroy only when a value conformer was boxed at +1.
         Assert.Contains(
-            "ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v, static __p => new DataCachingProxy(__p))",
+            "ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v, static __p => new DataCachingProxy(__p), out __owns)",
             csOutput);
         Assert.Contains("NativeMemory.Alloc", csOutput);
         Assert.Contains("Unsafe.Copy(__heap, ref __container)", csOutput);
         Assert.Contains("__hasVal", csOutput);
+        // P1-03: cleanup goes through the owns-gated destroy-and-free helper, not a bare free.
+        Assert.Contains("DestroyAndFreeExistential(__heap, 1, __owns)", csOutput);
         // Setter passes decomposed args — NOT simple pass-through
         Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
     }
@@ -1412,8 +1416,13 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        // The SafeHandlePin bracket — the A-4 fix.
-        Assert.Contains("using var __valuePin = new global::Swift.Runtime.SafeHandlePin(value.Payload);", csOutput);
+        // The optional is unwrapped via `is { } __value` so the .Payload access is valid for
+        // both inner kinds — a reference-type T? narrows to non-null T, and a value-type
+        // Nullable<T> (AnyHashable?/AnyType?) unwraps to T. A bare `value.Payload` is a CS1061
+        // for the Nullable<T> case.
+        Assert.Contains("if (value is { } __value) {", csOutput);
+        // The SafeHandlePin bracket — the A-4 fix — pins the unwrapped value's payload.
+        Assert.Contains("using var __valuePin = new global::Swift.Runtime.SafeHandlePin(__value.Payload);", csOutput);
         // Setter must pass the pinned handle, not raw DangerousGetHandle directly.
         Assert.Contains("CurrentShape_Set(__valuePin.Handle, true);", csOutput);
         // Null path stays a plain pass-through (no payload to pin).

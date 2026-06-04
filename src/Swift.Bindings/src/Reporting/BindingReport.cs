@@ -84,6 +84,15 @@ public enum SkipReason
     EveryProtocolConformanceSkipped,
     OwnedByAppleSupplement,
     IndeterminatePwtShape,
+    /// <summary>
+    /// Frozen value-with-memory struct (projected as a blitted-Buffer class) whose Buffer layout
+    /// cannot be sized cross-compile because a stored field is a generic value-type instantiation
+    /// (e.g. <c>ClosedRange&lt;Int&gt;</c>, <c>Result&lt;T,E&gt;</c>) — its inline size depends on
+    /// the type arguments, which the bare TypeDatabase record does not carry, and the iOS/device
+    /// slice exposes no live metadata. Emitting a guessed Buffer would mis-size the field and
+    /// corrupt the heap, so the type fails closed.
+    /// </summary>
+    IndeterminateStructLayout,
     AncestorSkipped,
     ActorIsolatedConstructor,
     MissingWrapperSymbol,

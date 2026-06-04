@@ -1848,14 +1848,28 @@ public partial class ProtocolProxyEmitter
             return (preamble, $"new {proxyClassName}(container, ownsContainer: true)");
         }
 
-        // Opaque (5-word) existential: the dispatched Swift accessor returned the existential at +1,
-        // so the proxy adopts the container and releases it on Dispose. Gate ownership on the
-        // container type, not the protocol count (ObjC filtering can diverge them).
-        var ownsContainerArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType)
-            ? ", ownsContainer: true"
-            : string.Empty;
+        // Opaque (5-word) existential. The dispatched Swift accessor returns the existential at +1
+        // in a heap cell that the generated free function deinitializes + deallocates (which
+        // Destroys the returned +1). A bare bitwise Unsafe.Read would make the adopting proxy share
+        // that exact payload, so the heap-cell free AND the proxy's Dispose would each Destroy it —
+        // a double-release → UAF/SIGSEGV (audit P0-09). Take an INDEPENDENT +1 on read via the
+        // existential value witness InitializeWithCopy (the opaque analogue of the class-bound
+        // branch's Arc.UnknownObjectRetain above): the proxy then owns its own retained copy, the
+        // cell free balances the returned +1, and the proxy's later Destroy balances this copy.
+        // Gate the +1 on the SAME ownership predicate as ownsContainer:true — a non-owning proxy
+        // must not take the extra retain (it never Destroys, so the +1 would leak).
+        if (ExistentialHandler.IsOwnedExistentialContainerType(containerType))
+        {
+            var ownedPreamble =
+                $"var container = Unsafe.Read<{containerType}>((void*)resultPtr);\n"
+                + "var existentialMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(container.Count);\n"
+                + "Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains("
+                + "(IntPtr)Unsafe.AsPointer(ref container), resultPtr, existentialMetadata);";
+            return (ownedPreamble, $"new {proxyClassName}(container, ownsContainer: true)");
+        }
+
         return ($"var container = Unsafe.Read<{containerType}>((void*)resultPtr);",
-                $"new {proxyClassName}(container{ownsContainerArg})");
+                $"new {proxyClassName}(container)");
     }
 
     /// <summary>

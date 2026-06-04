@@ -207,21 +207,27 @@ namespace BindingsGeneration
             TypeRecord typeRecord = _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName);
             if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
             {
-                // Constructor name uses _constructorName (may differ from _structDecl.Name if renamed)
+                // Constructor name uses _constructorName (may differ from _structDecl.Name if renamed).
+                // Wrap the raw IntPtr in a SwiftHandle explicitly so the call resolves to the
+                // private SwiftHandle-taking constructor. A raw-IntPtr payload constructor would
+                // collide (CS0111) with — or be ambiguous (CS0121) against — a public single-arg
+                // constructor whose parameter is itself IntPtr-shaped, e.g. a Swift `init(x: Int)`
+                // projected as `(nint)` (nint IS IntPtr). The non-frozen-struct and class paths
+                // already use this SwiftHandle indirection; this path must match.
                 var text = $$"""
                 [EditorBrowsable(EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    var obj = new {{_typeNameWithGenerics}}(handle);
+                    var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
                     Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
                     return obj;
                 }
 
-                unsafe {{_constructorName}}(IntPtr handle)
+                unsafe {{_constructorName}}(SwiftHandle handle)
                 {
                     var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
                     IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
+                    metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)(IntPtr)handle, metadata);
                     _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(bufferPtr);
                 }
                 """;

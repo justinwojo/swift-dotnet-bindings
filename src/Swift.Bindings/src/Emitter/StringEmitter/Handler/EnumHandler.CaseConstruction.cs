@@ -351,10 +351,12 @@ namespace BindingsGeneration
                     swiftWriter!, enumDecl, caseDecl, cdeclSymbol, wrapperEnv, emissionCtx);
             }
 
-            // Pre-scan for existential params: declare heap pointers before try so they're
-            // accessible in finally for cleanup (same pattern as WrapperEmitter)
-            var existentialHeapNames = new List<string>();
-            var existentialContainerTypes = new List<string>();
+            // Pre-scan for existential params: declare heap pointers (and, for owning EC1
+            // candidates, the owns-bit) before the try so they're accessible in finally for
+            // cleanup (same pattern as WrapperEmitter). The owning condition must match the
+            // marshalling loop's GetOrCreate gate exactly so the owns-bit only exists when a
+            // value conformer may have been boxed at +1 (P1-03).
+            var existentialHeaps = new List<(string HeapName, string? OwnsVar, int WitnessTableCount)>();
             if (useCdeclWrapper)
             {
                 var preScanHandler = new ExistentialHandler(typeDatabase);
@@ -368,14 +370,22 @@ namespace BindingsGeneration
                         if (protocolList != null)
                         {
                             var heapName = $"{bareName}Heap";
-                            existentialHeapNames.Add(heapName);
+                            var containerType = preScanHandler.GetCSharpExistentialType(protocolList);
+                            bool owningCandidate =
+                                preScanHandler.AllProtocolsHaveTypeRecords(protocolList) &&
+                                containerType == "Swift.Runtime.ExistentialContainer1" &&
+                                !preScanHandler.TryGetWellKnownProtocolType(protocolList, out _);
+                            string? ownsVar = owningCandidate ? $"{bareName}Owns" : null;
+                            existentialHeaps.Add((heapName, ownsVar, protocolList.Protocols.Count));
                             csWriter.WriteLine($"void* {heapName} = null;");
+                            if (ownsVar != null)
+                                csWriter.WriteLine($"bool {ownsVar} = false;");
                         }
                     }
                 }
             }
 
-            bool hasExistentialHeap = existentialHeapNames.Count > 0;
+            bool hasExistentialHeap = existentialHeaps.Count > 0;
             if (hasExistentialHeap)
             {
                 csWriter.WriteLine("try");
@@ -414,9 +424,13 @@ namespace BindingsGeneration
                                     {
                                         proxyClassName = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
                                     }
+                                    // P1-03: thread the runtime owns-bit so the finally can run
+                                    // the existential value-witness destroy only when a value
+                                    // conformer was boxed at +1 (borrowed proxy/class containers
+                                    // report owns=false and must not be over-released).
                                     var expr = proxyClassName != null
-                                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, static __v => new {proxyClassName}(__v))"
-                                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name})";
+                                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, static __v => new {proxyClassName}(__v), out {bareName}Owns)"
+                                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, out {bareName}Owns)";
                                     csWriter.WriteLine($"var {bareName}Container = {expr};");
                                 }
                                 else
@@ -429,7 +443,7 @@ namespace BindingsGeneration
                             }
                             // Heap-allocate the container to avoid NativeAOT stack reuse issues
                             // (same fix as WrapperEmitter.EmitExistentialContainerMarshalling)
-                            var heapName = existentialHeapNames[existentialIndex++];
+                            var heapName = existentialHeaps[existentialIndex++].HeapName;
                             csWriter.WriteLine($"{heapName} = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");
                             csWriter.WriteLine($"Unsafe.Copy({heapName}, ref {bareName}Container);");
                         }
@@ -600,9 +614,13 @@ namespace BindingsGeneration
                 csWriter.WriteLine("finally");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                foreach (var heapName in existentialHeapNames)
+                foreach (var (heapName, ownsVar, witnessCount) in existentialHeaps)
                 {
-                    csWriter.WriteLine($"if ({heapName} != null) NativeMemory.Free({heapName});");
+                    // P1-03: route through the centralized helper — it null-checks the heap,
+                    // runs the existential value-witness destroy only when owns==true (the
+                    // enum-case factory borrows the @in_guaranteed buffer like every other
+                    // existential-param site), and frees the buffer.
+                    csWriter.WriteLine($"Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential({heapName}, {witnessCount}, {ownsVar ?? "false"});");
                 }
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

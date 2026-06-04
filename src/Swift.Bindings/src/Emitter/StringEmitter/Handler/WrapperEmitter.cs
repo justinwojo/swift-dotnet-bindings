@@ -66,9 +66,14 @@ namespace BindingsGeneration
         // The live async C# callback-plumbing path. The Swift @_cdecl half is emitted by
         // WrapperEmitter.Async.EmitAsync; the C# callback half by _asyncHarness.EmitAsyncWrapper.
         private readonly AsyncHarnessEmitter _asyncHarness;
-        // Tracks existential container heap allocation variable names for cleanup in finally block.
+        // Tracks existential container heap allocations for cleanup in the finally block.
         // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
-        private readonly List<string> _existentialHeapNames = new();
+        // OwnsVar is the name of the runtime owns-bit local (non-null only for the EC1 GetOrCreate
+        // path, the only one that can freshly box a value conformer at +1 — audit P1-03); when set,
+        // the finally runs the existential value-witness destroy gated on that bit before freeing.
+        private readonly List<ExistentialHeapInfo> _existentialHeapNames = new();
+
+        private readonly record struct ExistentialHeapInfo(string HeapName, string? OwnsVar, int WitnessTableCount);
 
         // Tracks parameter names for Optional<generic> arguments passed under Swift @in
         // (callee-destroyed) convention via raw CallConvSwift. Swift consumes the buffer;
@@ -627,10 +632,28 @@ namespace BindingsGeneration
                     continue;
                 var csName = NameProvider.GetCSharpParameterName(arg);
                 var heapName = $"{csName}Heap";
-                _existentialHeapNames.Add(heapName);
+                // The EC1 GetOrCreate path is the only one that can box a value conformer at +1
+                // (EC2+/well-known go through the borrowed GetExistentialContainer() cast). This gate
+                // MUST mirror EmitExistentialContainerMarshalling's branch at the GetOrCreate site.
+                bool owningCandidate = IsOwningExistentialCandidate(protocolList);
+                string? ownsVar = owningCandidate ? $"{csName}Owns" : null;
+                _existentialHeapNames.Add(new ExistentialHeapInfo(heapName, ownsVar, protocolList.Protocols.Count));
                 csWriter.WriteLine($"void* {heapName} = null;");
+                if (ownsVar != null)
+                    csWriter.WriteLine($"bool {ownsVar} = false;");
             }
         }
+
+        /// <summary>
+        /// True when an existential parameter routes through the EC1 <c>GetOrCreate</c> path, which
+        /// can freshly box a value-type conformer at +1 (audit P1-03). EC2+ compositions and
+        /// well-known existentials (e.g. <c>AnyError</c>/EC0) instead take the borrowed
+        /// <c>GetExistentialContainer()</c> cast and never own a destroyable +1 at the call site.
+        /// Mirrors the branch in <see cref="EmitExistentialContainerMarshalling"/>.
+        /// </summary>
+        private bool IsOwningExistentialCandidate(ProtocolListTypeSpec protocolList)
+            => _env.ExistentialHandler.GetPInvokeExistentialType(protocolList) == "Swift.Runtime.ExistentialContainer1"
+                && !_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out _);
 
         /// <summary>
         /// Emits the SwiftSelf variable.
@@ -785,9 +808,15 @@ namespace BindingsGeneration
             if (_requiresSwiftAsync)
                 return;
 
-            foreach (var heapName in _existentialHeapNames)
+            foreach (var info in _existentialHeapNames)
             {
-                csWriter.WriteLine($"NativeMemory.Free({heapName});");
+                // P1-03: a value conformer boxed at +1 by GetOrCreate leaks unless balanced. The
+                // @in_guaranteed callee borrowed the buffer, so the existential value-witness destroy
+                // (uniform across inline vs. swift_allocBox) must run AFTER the native call, gated on
+                // the runtime owns-bit so borrowed proxy containers are never over-released. The
+                // centralized helper handles the owns-gate, the metadata-unavailable try/catch, and
+                // the buffer free — single source of truth across every existential-param site.
+                csWriter.WriteLine($"Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential({info.HeapName}, {info.WitnessTableCount}, {info.OwnsVar ?? "false"});");
             }
         }
 

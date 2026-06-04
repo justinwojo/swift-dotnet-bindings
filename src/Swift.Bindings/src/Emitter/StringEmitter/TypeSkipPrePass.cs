@@ -104,6 +104,21 @@ public static class TypeSkipPrePass
             return true;
         }
 
+        // Condition 3: frozen value-with-memory struct (projected as a blitted-Buffer class)
+        // whose Buffer layout cannot be sized cross-compile because a stored field is a generic
+        // value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>). Mirrors
+        // FrozenStructHandler's early skip — without it, members passing or returning the struct
+        // by value would reference a {Type}.Buffer that is never emitted.
+        if (typeDecl is StructDecl structDecl &&
+            FrozenStructHandler.HasIndeterminateBufferLayout(structDecl, typeDatabase))
+        {
+            ReportCollector.RecordTypeSkipped(
+                typeDecl,
+                SkipReason.IndeterminateStructLayout,
+                "Frozen struct has a stored field whose blitted Buffer size is not derivable cross-compile (generic value-type instantiation).");
+            return true;
+        }
+
         return false;
     }
 }

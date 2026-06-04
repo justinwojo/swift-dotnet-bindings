@@ -37,7 +37,37 @@ public class ArrayProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
-    public string SwiftContainerGenericType => $"SwiftArray<{_elementProjection.SwiftContainerGenericType}>";
+    public string SwiftContainerGenericType => $"SwiftArray<{ParamElementCarrierType}>";
+
+    /// <summary>
+    /// The SwiftArray element type for the PARAMETER/WRITE (FromEnumerable) direction. For a
+    /// class-bound single-protocol existential element this is the 16-byte
+    /// <c>ClassExistentialContainer1</c> — matching the Swift array's actual element stride and the
+    /// read-direction <see cref="ContainerTypeName"/> (which already uses ArrayElementCarrierType).
+    /// For every other element it is the legacy <c>SwiftContainerGenericType</c>: class / non-frozen
+    /// struct elements keep their typed-wrapper or IntPtr param carrier, which ArrayElementCarrierType
+    /// would wrongly replace with the read-direction PublicType. For an existential element
+    /// ArrayElementCarrierType equals its own SwiftContainerGenericType in the opaque case, so this is
+    /// a no-op everywhere except the class-bound existential bug. Composition is automatic: an outer
+    /// container reading this property routes <c>[[any P]]</c> / <c>[any P]?</c> through the same
+    /// carrier in the parameter direction.
+    /// </summary>
+    private string ParamElementCarrierType =>
+        _elementProjection is ExistentialProjection existElem
+            ? existElem.ArrayElementCarrierType
+            : _elementProjection.SwiftContainerGenericType;
+
+    /// <summary>
+    /// Per-element conversion for the PARAMETER/WRITE direction. Narrows a class-bound existential
+    /// element's proxy-produced <c>ExistentialContainer1</c> down to the 16-byte
+    /// <c>ClassExistentialContainer1</c> carrier (<see cref="ParamElementCarrierType"/>); a no-op
+    /// passthrough for every other element. Pairs with <see cref="ParamElementCarrierType"/> so the
+    /// SwiftArray element type and the expression filling it always agree on stride.
+    /// </summary>
+    private string? ParamElementConversion(string elementVar) =>
+        _elementProjection is ExistentialProjection existElem
+            ? existElem.GetArrayElementCarrierConversion(elementVar)
+            : _elementProjection.GetParameterElementConversion(elementVar);
 
     // Return/read direction: the SwiftArray<T> element type must match the Swift array's actual
     // element stride. ArrayElementCarrierType is MarshalFromSwiftType for every projection except a
@@ -58,8 +88,8 @@ public class ArrayProjection : ITypeProjection
     /// </summary>
     private (List<MarshalStatement> setup, string containerExpr) BuildContainerSetup(string paramName)
     {
-        var rawElem = _elementProjection.SwiftContainerGenericType;
-        var elemConversion = _elementProjection.GetParameterElementConversion("e");
+        var rawElem = ParamElementCarrierType;
+        var elemConversion = ParamElementConversion("e");
         // When SwiftContainerGenericType matches the C# public type, the SwiftArray<T>
         // container holds typed wrapper instances directly (e.g. SwiftArray<NonFrozenStruct>).
         // FromEnumerable then dispatches to ISwiftObject.MarshalToSwift per element, which
@@ -168,12 +198,31 @@ public class ArrayProjection : ITypeProjection
             return $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({containerVar}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)";
         }
 
-        var elemConversion = _elementProjection.GetReturnElementConversion("e");
+        var elemConversion = OwnedReturnElementConversion("e");
         var selector = elemConversion != null
             ? $"e => {elemConversion}"
             : "e => e";
         return $"{containerVar}.AsProjected({selector})";
     }
+
+    /// <summary>
+    /// P1-07: element conversion for the OWNED-return directions only
+    /// (<see cref="GetReturnContainerConversion"/> / <see cref="GetReturnPlan"/>). Swift hands
+    /// each existential element to us at +1: the array subscript getter <c>InitializeWithCopy</c>s
+    /// the element into a temp slot that the SwiftArray indexer then raw-frees, leaving the
+    /// element's ARC retain live. The adopting proxy must release that retain on Dispose or the
+    /// +1 leaks (the storage keeps its own independent +1, so adoption never double-frees).
+    /// Existential elements therefore use the owning <c>new Proxy(e, ownsContainer: true)</c> form;
+    /// every other element — and the shared <see cref="GetReturnElementConversion"/>, which is also
+    /// reused for borrowed receiver-callback parameter reads — keeps the non-owning +0 form.
+    /// Mirrors OptionalProjection.GetReturnPlan's existential-inner branch. (Nested existential
+    /// collections, e.g. <c>[[any P]]</c>, still project non-owning — a pre-existing deeper gap,
+    /// not a regression introduced here.)
+    /// </summary>
+    private string? OwnedReturnElementConversion(string elementVar)
+        => _elementProjection is ExistentialProjection existElem
+            ? existElem.GetOwnedReturnElementConversion(elementVar)
+            : _elementProjection.GetReturnElementConversion(elementVar);
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
@@ -188,7 +237,8 @@ public class ArrayProjection : ITypeProjection
         // class-bound existential elements need the 16-byte ClassExistentialContainer1 stride
         // (ArrayElementCarrierType defaults to MarshalFromSwiftType for every other projection).
         var rawElem = _elementProjection.ArrayElementCarrierType;
-        var elemConversion = _elementProjection.GetReturnElementConversion("e");
+        // P1-07: owned-return direction — existential elements are adopted at +1 (see OwnedReturnElementConversion).
+        var elemConversion = OwnedReturnElementConversion("e");
 
         var asProjected = elemConversion != null
             ? $".AsProjected(e => {elemConversion})"
@@ -244,8 +294,8 @@ public class ArrayProjection : ITypeProjection
             return $"Foundation.NSArray.FromNSObjects({elementVar}.ToArray())";
         }
 
-        var rawElem = _elementProjection.SwiftContainerGenericType;
-        var elemConversion = _elementProjection.GetParameterElementConversion("e");
+        var rawElem = ParamElementCarrierType;
+        var elemConversion = ParamElementConversion("e");
         // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
         // matches the C# public type, FromEnumerable wants the typed wrapper directly.
         if (elemConversion != null && rawElem != _elementProjection.PublicType)

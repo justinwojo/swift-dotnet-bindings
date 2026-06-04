@@ -385,11 +385,28 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine($"private static void {callbackName}({string.Join(", ", sigParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        // A managed exception unwinding across this [UnmanagedCallersOnly] boundary into
+        // native Swift is undefined behaviour — the process aborts with a corrupted stack.
+        // This non-throwing closure callback has no error channel back to Swift, so convert
+        // any escape into a controlled FailFast carrying the original exception. Mirrors the
+        // protocol-proxy receiver guard.
+        csWriter.WriteLine("try");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
         csWriter.WriteLine("var __handle = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
         csWriter.WriteLine($"var __del = ({closure.ClosureCSharpDelegateType})__handle.Target!;");
         var invokeArgs = string.Join(", ",
             closure.ClosureArgInfos.Select((info, i) => BuildCSharpCallbackInvokeArg(info, $"arg{i}")));
         csWriter.WriteLine($"__del({invokeArgs});");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("catch (global::System.Exception __uco_ex)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__uco_ex);");
+        csWriter.WriteLine("throw;");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
         csWriter.Indent--;
         csWriter.WriteLine("}");
     }

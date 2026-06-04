@@ -240,3 +240,128 @@ public func sbw_sretselfprobe_combine_cdecl(
     let result = selfBound.pointee.combine(x, y)
     outResult.assumingMemoryBound(to: SretSelfProbe.self).initialize(to: result)
 }
+
+// MARK: - P1-15: frozen struct with an UNSIZEABLE generic value-type stored field (fail-closed skip)
+
+/// `@frozen` struct carrying a `ClosedRange<Int>?` stored field. ClosedRange<Bound> is a frozen,
+/// reference-managed value type whose inline size depends on its Bound argument
+/// (`MemoryLayout<ClosedRange<Int>>` = 16 but `<ClosedRange<Float>>` = 8). The bare TypeDatabase
+/// record strips the generic arguments, so there is no persisted InlineSize, and the iOS/device
+/// slice exposes no live metadata — the per-instantiation Buffer size cannot be derived
+/// cross-compile. The generator therefore FAILS CLOSED and skips `RangeHolder`
+/// (SkipReason.IndeterminateStructLayout) rather than emit a guessed `Buffer` layout that would
+/// mis-size the field and corrupt the heap. Because the type is skipped, every free function that
+/// passes or returns it by value (e.g. `describeRangeHolder`) must be pruned in the same pass; the
+/// `--compile-only` gate verifies the prune is clean (no dangling reference to a non-emitted
+/// `RangeHolder.Buffer`).
+@frozen
+public struct RangeHolder {
+    public var bounds: ClosedRange<Int>?
+    public var marker: Int
+
+    public init(marker: Int) {
+        self.bounds = nil
+        self.marker = marker
+    }
+}
+
+/// References `RangeHolder` by value. After the fail-closed skip this whole function must be pruned
+/// from the generated bindings (its signature reaches a skipped type), proving the skip propagates
+/// to dependent members instead of leaving a dangling `RangeHolder.Buffer` reference behind.
+public func describeRangeHolder(_ h: RangeHolder) -> Int {
+    return h.marker
+}
+
+// MARK: - P1-15: frozen struct whose multi-word reference field MUST size correctly (persist path)
+
+/// `@frozen` struct whose first stored field is an `AnyHashable?` (a non-generic reference-managed
+/// type with a FIXED 40-byte existential box, persisted as `inlineSize="40"` in SwiftDatabase.xml),
+/// followed by a plain `Int` tag. `Optional<AnyHashable>` is also 40 bytes (AnyHashable has extra
+/// inhabitants, so the optional reuses a spare bit pattern), placing `tag` at byte offset 40. The
+/// historical bug clamped any reference-managed field with no persisted size to a single 8-byte
+/// pointer, which would lay `tag` at offset 8 in the C# Buffer — reading garbage and corrupting the
+/// heap on round-trip. With the size persisted, the Buffer reserves the correct 40 bytes for `key`
+/// and `tag` round-trips intact. `key` is deliberately left `nil` so no ARC box is involved and the
+/// test isolates the field-offset/Buffer-size behaviour from existential boxing.
+@frozen
+public struct HashHolder {
+    public var key: AnyHashable?
+    public var tag: Int
+
+    public init(tag: Int) {
+        self.key = nil
+        self.tag = tag
+    }
+
+    public func readTag() -> Int {
+        return tag
+    }
+}
+
+/// Constructs a `HashHolder` in Swift (key = nil, given tag) and returns it by value — the returned
+/// 48-byte buffer must be copied into the C# `Buffer` with `tag` at offset 40.
+public func makeHashHolder(tag: Int) -> HashHolder {
+    return HashHolder(tag: tag)
+}
+
+/// Round-trips a `HashHolder` by value back into Swift and reads its `tag`. If the C# Buffer
+/// mis-sized `key` (the old single-pointer clamp), `tag` lands at the wrong offset and this returns
+/// the wrong value (or corrupts the heap); with the 40-byte size persisted it returns `tag` intact.
+public func hashHolderRoundTripTag(_ h: HashHolder) -> Int {
+    return h.tag
+}
+
+// MARK: - P1-15: frozen-as-class struct whose Optional<8-byte-primitive> field MUST size to two words
+
+/// `@frozen` struct combining a reference-managed `AnyHashable?` first field (forces the
+/// `ClassWithBufferStruct` projection — a C# class with a nested blitted `Buffer`, exactly as
+/// `HashHolder`) with an `Optional<Int>` MIDDLE field and a trailing `Int` tag. `Optional<Int>` is a
+/// fixed-width primitive optional with NO extra inhabitants (Int uses its full bit range), so it
+/// carries a separate tag byte: `MemoryLayout<Int?>.size == 9`, occupying two 8-byte words. The
+/// historical bug resolved every `Optional<primitive>` to a single pointer (the reference-field
+/// fallback clamp), laying the Buffer's `maybeValue` slot at one word (8 bytes) instead of two — which
+/// shifts `tag` from its true offset (56) down to 48 and under-sizes the whole Buffer by 8 bytes, so
+/// `tag` reads garbage and the round-trip copy overruns. With `Optional<Int>` sized to two words the
+/// Buffer matches Swift's 64-byte layout and `tag` round-trips intact. `key` is left `nil` so no ARC
+/// box is involved and the test isolates the Optional-primitive field sizing. (Verified offsets:
+/// key=0, maybeValue=40, tag=56, size=64.) `Optional<Int>` as a non-last field also proves the
+/// two-word slot does not collapse against a following scalar — the precise case `HashHolder`
+/// (multi-word reference field) does not cover.
+@frozen
+public struct PrimitiveOptionalHolder {
+    public var key: AnyHashable?
+    public var maybeValue: Int?
+    public var tag: Int
+
+    public init(maybeValue: Int?, tag: Int) {
+        self.key = nil
+        self.maybeValue = maybeValue
+        self.tag = tag
+    }
+
+    public func readTag() -> Int {
+        return tag
+    }
+}
+
+/// Constructs a `PrimitiveOptionalHolder` in Swift (key = nil, given values) and returns it by value —
+/// the returned 64-byte buffer must be copied into the C# `Buffer` with `maybeValue` occupying two
+/// words and `tag` at offset 56.
+public func makePrimitiveOptionalHolder(maybeValue: Int, tag: Int) -> PrimitiveOptionalHolder {
+    return PrimitiveOptionalHolder(maybeValue: maybeValue, tag: tag)
+}
+
+/// Constructs a `PrimitiveOptionalHolder` whose `maybeValue` is `nil` — the Optional's nil tag byte
+/// must sit at the correct in-word offset for `tag` (offset 56) to still read back intact. Built
+/// Swift-side so the test does not depend on marshalling a `nil` `Optional<Int>` constructor argument.
+public func makePrimitiveOptionalHolderNil(tag: Int) -> PrimitiveOptionalHolder {
+    return PrimitiveOptionalHolder(maybeValue: nil, tag: tag)
+}
+
+/// Round-trips a `PrimitiveOptionalHolder` by value back into Swift and returns `tag &+ (maybeValue ??
+/// 0)`. If the C# Buffer mis-sized `maybeValue` to one word (the old clamp), `tag` lands at the wrong
+/// offset and this returns the wrong value (or corrupts the heap); with the two-word size it returns
+/// the expected sum intact. Handles both the some(value) and nil cases.
+public func primitiveOptionalHolderRoundTrip(_ h: PrimitiveOptionalHolder) -> Int {
+    return h.tag &+ (h.maybeValue ?? 0)
+}

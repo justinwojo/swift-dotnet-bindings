@@ -430,4 +430,77 @@ public class AbiSafetyRuntimeTests : TestBase
     }
 
     #endregion
+
+    #region HashHolder — Multi-Word Reference Field Buffer Sizing (P1-15)
+
+    public void TestHashHolderConstructAndReadTag()
+    {
+        // HashHolder is a ClassWithBufferStruct: { key: AnyHashable? (40 bytes), tag: Int (offset 40) }.
+        // The historical bug clamped the reference-managed key field to a single 8-byte pointer, which
+        // would lay tag at offset 8 in the C# Buffer and read garbage. With AnyHashable's 40-byte size
+        // persisted, the Buffer reserves the correct 40 bytes for key and tag is read intact.
+        var holder = new HashHolder(tag: 7);
+        AssertEqual((nint)7, holder.ReadTag(), "ReadTag after construction");
+        AssertEqual((nint)7, holder.Tag, "Tag property after construction");
+        TestLogger.Info("HashHolder(tag:7) construction + tag read passed");
+    }
+
+    public void TestHashHolderFactoryRoundTrip()
+    {
+        // Free function constructs the struct in Swift and returns it by value — the returned 48-byte
+        // buffer is copied into the C# Buffer with tag at offset 40.
+        var holder = TestLibFunctions.MakeHashHolder(99);
+        AssertEqual((nint)99, holder.ReadTag(), "ReadTag from factory-built holder");
+        AssertEqual((nint)99, holder.Tag, "Tag property from factory-built holder");
+        TestLogger.Info("makeHashHolder(99) factory round-trip passed");
+    }
+
+    public void TestHashHolderByValueRoundTrip()
+    {
+        // Pass the struct by value back into Swift and read its tag. If the Buffer mis-sized key, tag
+        // lands at the wrong offset; correct sizing returns tag intact across the boundary.
+        var holder = new HashHolder(tag: 123);
+        var tag = TestLibFunctions.HashHolderRoundTripTag(holder);
+        AssertEqual((nint)123, tag, "tag round-tripped by value");
+        TestLogger.Info($"hashHolderRoundTripTag(HashHolder(tag:123)) = {tag}");
+    }
+
+    #endregion
+
+    #region PrimitiveOptionalHolder — Optional<8-byte-primitive> two-word Buffer sizing (P1-15)
+
+    public void TestPrimitiveOptionalHolderFactoryReadsTag()
+    {
+        // PrimitiveOptionalHolder is a ClassWithBufferStruct: { key: AnyHashable? (40B, offset 0),
+        // maybeValue: Int? (offset 40), tag: Int (offset 56) }. Optional<Int> is 9 bytes and MUST
+        // occupy two 8-byte words in the Buffer. The historical clamp sized it as one word, laying
+        // tag at offset 48 and under-sizing the Buffer by 8 — tag then reads garbage. The factory
+        // builds the struct in Swift and returns the 64-byte buffer by value; reading tag back proves
+        // the two-word slot.
+        var holder = TestLibFunctions.MakePrimitiveOptionalHolder(5, 50);
+        AssertEqual((nint)50, holder.ReadTag(), "ReadTag from factory-built PrimitiveOptionalHolder");
+        TestLogger.Info("makePrimitiveOptionalHolder(5, 50) factory tag read passed");
+    }
+
+    public void TestPrimitiveOptionalHolderByValueRoundTrip()
+    {
+        // Pass the struct by value back into Swift. The result is tag + maybeValue; both fields read
+        // correctly only when maybeValue occupies two words and tag sits at offset 56.
+        var holder = TestLibFunctions.MakePrimitiveOptionalHolder(7, 100);
+        var sum = TestLibFunctions.PrimitiveOptionalHolderRoundTrip(holder);
+        AssertEqual((nint)107, sum, "tag + maybeValue round-tripped by value (100 + 7)");
+        TestLogger.Info($"primitiveOptionalHolderRoundTrip(maybeValue:7, tag:100) = {sum}");
+    }
+
+    public void TestPrimitiveOptionalHolderNilByValueRoundTrip()
+    {
+        // maybeValue == nil: the Optional's nil tag byte must sit at the correct in-word offset for tag
+        // (offset 56) to still read back intact. Sum is tag + 0.
+        var holder = TestLibFunctions.MakePrimitiveOptionalHolderNil(77);
+        var sum = TestLibFunctions.PrimitiveOptionalHolderRoundTrip(holder);
+        AssertEqual((nint)77, sum, "tag round-tripped with maybeValue == nil (77 + 0)");
+        TestLogger.Info($"primitiveOptionalHolderRoundTrip(nil, tag:77) = {sum}");
+    }
+
+    #endregion
 }

@@ -775,7 +775,11 @@ public static partial class ClosureEmitter
                 var inner = namedType.GenericParameters[0];
                 var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
                 if (closureHandler.IsClassType(inner))
-                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
+                    // The wrapper is handed to the user's closure body and may be Disposed there.
+                    // MarshalBorrowedClassFromSwift takes a real +1 (owning), so Dispose + finalize
+                    // both balance it — unlike MarshalBorrowedFromSwift, whose SuppressFinalize-only
+                    // strategy leaves an explicit Dispose double-releasing a +0 handle (audit P1-02).
+                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedClassFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
                 else // ObjC-bridged
                     return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
             }
@@ -861,8 +865,14 @@ public static partial class ClosureEmitter
             }
 
             // The callback receives void* but the delegate expects the actual type.
-            // Use MarshalBorrowedFromSwift — callback parameters are borrowed references.
+            // Callback parameters are borrowed references. For a class wrapper handed to the user's
+            // closure body, route through MarshalBorrowedClassFromSwift so an explicit Dispose in
+            // that body is balanced by a real +1 (audit P1-02); value-type wrappers (SwiftString /
+            // Foundation.Data read-and-discard) keep the SuppressFinalize-only borrowed path, which
+            // is correct because they are never surfaced to the user for Dispose.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+            if (closureHandler.IsClassType(typeSpec))
+                return $"SwiftMarshal.MarshalBorrowedClassFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
             return $"SwiftMarshal.MarshalBorrowedFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
         }
 

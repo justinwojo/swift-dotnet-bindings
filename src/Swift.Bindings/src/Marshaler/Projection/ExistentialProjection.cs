@@ -145,6 +145,48 @@ public class ExistentialProjection : ITypeProjection
                 ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
                 : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
+    /// <summary>
+    /// Per-element conversion for the PARAMETER/WRITE direction of a <c>[any P]</c> array (and the
+    /// receiver-getter write path) — the symmetric counterpart to <see cref="ArrayElementCarrierType"/>,
+    /// which fixed only the READ stride. For a class-bound single-protocol existential the Swift array
+    /// strides over the 16-byte <c>ClassExistentialContainer1</c> (the inverse of
+    /// <c>ClassExistentialContainer1.ReadHeapCell</c> on the read side), so this routes the element
+    /// through <see cref="Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier"/>: the
+    /// Swift array write is <c>__owned</c> (consuming) and its class-existential value-witness table
+    /// releases word0 on destroy, so the carrier must OWN exactly one +1 — minted for the borrowed
+    /// proxy/auto-wrap path, donated for the boxable conformer path (whose <c>Create</c> already
+    /// produced a fresh +1 that would otherwise leak). For every other existential (opaque arity-1,
+    /// composition, bare Any) <see cref="ArrayElementCarrierType"/> is the opaque container, so this
+    /// returns the unchanged per-element conversion — a no-op outside the class-bound case.
+    /// </summary>
+    public string? GetArrayElementCarrierConversion(string elementVar)
+    {
+        if (IsClassBoundArity1)
+        {
+            // Class-bound [any P] element: hand the Swift array a 16-byte carrier that owns exactly
+            // one +1 on its class ref. CreateOwnedClassCarrier consults GetOrCreate's ownership
+            // signal — mint for borrowed (proxy/auto-wrap), donate for boxable — so the consuming
+            // __owned append and the VWT destroy balance for BOTH layouts. The bare
+            // FromExistentialContainer1 narrowing used previously over-released the proxy (it
+            // aliased the proxy's only +1) and leaked the boxable conformer's +1.
+            return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";
+        }
+
+        // Opaque single-protocol existential with a proxy: the 40-byte EC1 carrier write is ALSO
+        // __owned (the array/dict existential value-witness table destroys each element on teardown),
+        // so the carrier must own its +1 — minted for the borrowed proxy/auto-wrap path, donated for
+        // the boxable conformer path — by CreateOwnedExistential1 (the opaque sibling of
+        // CreateOwnedClassCarrier). The bare GetParameterElementConversion below aliased the proxy's
+        // only +1, which the __owned consume plus the carrier's value-witness destroy over-released
+        // (audit P1-08 opaque sibling). Mirrors the EC1 condition in GetParameterElementConversion.
+        if (_proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1")
+        {
+            return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";
+        }
+
+        return GetParameterElementConversion(elementVar);
+    }
+
     // Non-owning by design: this element conversion is reused by BOTH owned collection-element
     // returns AND borrowed Swift->C# receiver-callback parameter wraps
     // (GetReceiverExistentialSetterConversion). A receiver parameter is +0 guaranteed — Swift

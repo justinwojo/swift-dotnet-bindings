@@ -96,6 +96,24 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Frozen value-with-memory struct (ClassWithBufferStruct) whose blitted Buffer layout
+            // cannot be sized cross-compile because a stored field is a generic value-type
+            // instantiation (e.g. ClosedRange<Int>, Result<T,E>) — its size depends on the type
+            // arguments, which SwiftTypeName strips, so there is no persisted InlineSize and the
+            // iOS/device slice exposes no live metadata. Emitting a guessed Buffer would mis-size
+            // the field and corrupt the heap, so fail closed and skip. Mirrored in TypeSkipPrePass
+            // so members passing/returning the struct by value are pruned in the same pass.
+            if (HasIndeterminateBufferLayout(structDecl, env.TypeDatabase))
+            {
+                const string detail = "stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange<Bound>, Result<Success,Failure>); a blitted Buffer would mis-size the field.";
+                ReportCollector.RecordTypeSkipped(structDecl, SkipReason.IndeterminateStructLayout, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.IndeterminateStructLayout, detail);
+                _logger.LogWarning(
+                    "Skipping frozen struct '{TypeName}' - indeterminate Buffer layout (unsizeable generic value-type stored field).",
+                    structDecl.Name);
+                return;
+            }
+
             // Create P/Invoke helper context for generic types (to avoid CS7042).
             // Pre-flatten conformances against the type database so the metadata-accessor
             // emitter can render the correct PWT plumbing.
@@ -257,43 +275,26 @@ namespace BindingsGeneration
 
                 foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
-                    if (propertyDecl.HasStorage)
+                    if (!propertyDecl.HasStorage)
+                        continue;
+
+                    switch (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, env.TypeDatabase, out int fieldByteSize))
                     {
-                        var fieldRecord = env.TypeDatabase.GetTypeRecordOrThrow(propertyDecl.SwiftTypeSpec);
-
-                        // Handle Optional<T> unconditionally — the generic Swift.Optional TypeRecord
-                        // has no concrete InlineSize (varies by T). Some registrations mark Optional
-                        // with RequiresMemoryManagement (SwiftDatabase.xml), others don't (enum kind).
-                        // Either way, Optional<T> in a frozen struct Buffer needs IntPtr-based emission
-                        // with the correctly computed size from the inner type T.
-                        if (TryComputeOptionalInlineSize(propertyDecl.SwiftTypeSpec, env.TypeDatabase, out int optionalFieldSize))
-                        {
-                            EmitIntPtrFields(csWriter, propertyDecl.Name, optionalFieldSize);
-                        }
-                        else if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
-                        {
-                            // Determine the actual inline size of the field type.
-                            // Swift.String is 16 bytes (2 words) but was previously mapped to IntPtr (8 bytes),
-                            // causing heap overflow and SIGSEGV for frozen structs with String fields.
-                            int fieldSize = IntPtr.Size; // default: single pointer
-                            if (fieldRecord.InlineSize.HasValue)
-                            {
-                                fieldSize = fieldRecord.InlineSize.Value;
-                            }
-                            else if (fieldRecord.SwiftTypeInfo.HasValue && fieldRecord.SwiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
-                            {
-                                unsafe
-                                {
-                                    fieldSize = (int)fieldRecord.SwiftTypeInfo.Value.ValueWitnessTable->Size;
-                                }
-                            }
-
-                            EmitIntPtrFields(csWriter, propertyDecl.Name, fieldSize);
-                        }
-                        else
-                        {
+                        case FrozenFieldLayoutKind.IntPtrFields:
+                            EmitIntPtrFields(csWriter, propertyDecl.Name, fieldByteSize);
+                            break;
+                        case FrozenFieldLayoutKind.Indeterminate:
+                            // Unreachable in normal flow: a struct carrying an indeterminate-size stored
+                            // field is skipped before emission (HasIndeterminateBufferLayout, mirrored in
+                            // TypeSkipPrePass). Guess-sizing the Buffer here would silently corrupt the
+                            // heap, so assert the invariant loudly rather than emit a wrong-sized field.
+                            throw new InvalidOperationException(
+                                $"Frozen struct '{structDecl.Name}' stored field '{propertyDecl.Name}' has an " +
+                                "indeterminate Buffer layout but reached field emission; it should have been skipped.");
+                        default: // FrozenFieldLayoutKind.TypedField
+                            var fieldRecord = env.TypeDatabase.GetTypeRecordOrThrow(propertyDecl.SwiftTypeSpec);
                             csWriter.WriteLine($"private {fieldRecord.CSharpTypeName.FullyQualifiedName} {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
-                        }
+                            break;
                     }
                 }
 
@@ -486,15 +487,97 @@ namespace BindingsGeneration
         // ComputePropertyRenames is now centralized in NameProvider.
 
         /// <summary>
-        /// Computes the inline size of Optional&lt;T&gt; for frozen struct Buffer fields.
-        /// The generic Swift.Optional TypeRecord has no concrete InlineSize since it varies
-        /// by instantiation. This method resolves T and computes the correct size:
-        /// - If T has extra inhabitants (String, classes, arrays): Optional&lt;T&gt;.size == T.size
-        /// - If T has no extra inhabitants (Int32, Double): Optional&lt;T&gt;.size == T.size + 1
+        /// How a frozen struct's stored field is laid out in the blitted Buffer.
         /// </summary>
-        private static bool TryComputeOptionalInlineSize(TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, out int optionalSize)
+        internal enum FrozenFieldLayoutKind
+        {
+            /// <summary>Emit a typed C# backing field (blittable value type).</summary>
+            TypedField,
+            /// <summary>Emit one or more IntPtr backing words sized by <c>byteSize</c>.</summary>
+            IntPtrFields,
+            /// <summary>
+            /// The field's inline byte size is not derivable cross-compile (a generic value-type
+            /// instantiation with no persisted size and no live metadata). The containing struct
+            /// must fail closed and be skipped rather than emit a guessed Buffer layout.
+            /// </summary>
+            Indeterminate,
+        }
+
+        /// <summary>
+        /// Classifies how a frozen struct's stored field is emitted into the blitted Buffer, and —
+        /// for reference-managed fields — resolves the exact inline byte size that the Buffer must
+        /// reserve. Shared by the field-emission loop and <see cref="HasIndeterminateBufferLayout"/>
+        /// so the skip decision and the emitted layout can never drift apart.
+        /// </summary>
+        internal static FrozenFieldLayoutKind ClassifyFrozenStructField(
+            TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, out int byteSize)
+        {
+            byteSize = IntPtr.Size;
+
+            // Optional<T> stored field. The generic Swift.Optional TypeRecord has no concrete
+            // InlineSize (it varies by T), so resolve the inner type's size directly. Some
+            // registrations mark Optional with RequiresMemoryManagement, others don't (enum kind) —
+            // either way Optional<T> in a frozen struct Buffer needs IntPtr-based emission.
+            if (TryComputeOptionalInlineSize(fieldTypeSpec, typeDatabase, out byteSize, out bool optionalIndeterminate))
+                return FrozenFieldLayoutKind.IntPtrFields;
+            if (optionalIndeterminate)
+                return FrozenFieldLayoutKind.Indeterminate;
+
+            // Direct (non-optional) stored field.
+            if (!typeDatabase.TryGetTypeRecord(fieldTypeSpec, out var fieldRecord))
+                return FrozenFieldLayoutKind.TypedField; // unresolved → fall back to a typed C# field (existing behavior)
+
+            if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+            {
+                // Reference-managed field (Swift.String is 16 bytes / 2 words but was once mapped to
+                // a single IntPtr, causing heap overflow and SIGSEGV). Resolve the true inline size;
+                // a per-instantiation generic value type that can't be sized fails closed.
+                if (TryResolveReferenceFieldSize(fieldRecord, fieldTypeSpec, out byteSize))
+                    return FrozenFieldLayoutKind.IntPtrFields;
+                return FrozenFieldLayoutKind.Indeterminate;
+            }
+
+            return FrozenFieldLayoutKind.TypedField;
+        }
+
+        /// <summary>
+        /// True when <paramref name="structDecl"/> is projected as a Buffer-backed class
+        /// (<see cref="MarshallingHelpers.IsFrozenStructProjectedAsClass"/>) and at least one of its
+        /// stored fields has an inline size that cannot be derived cross-compile. Such a struct must
+        /// be skipped — emitting a guessed Buffer layout mis-sizes the blit and corrupts the heap.
+        /// Mirrored as a skip condition in <see cref="TypeSkipPrePass"/> so members that pass or
+        /// return the struct by value are pruned in the same pass.
+        /// </summary>
+        internal static bool HasIndeterminateBufferLayout(StructDecl structDecl, ITypeDatabase typeDatabase)
+        {
+            if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord) ||
+                !MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                return false;
+
+            foreach (var propertyDecl in structDecl.Properties)
+            {
+                if (!propertyDecl.HasStorage)
+                    continue;
+                if (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, typeDatabase, out _) == FrozenFieldLayoutKind.Indeterminate)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Computes the inline size of Optional&lt;T&gt; for frozen struct Buffer fields.
+        /// - If T has extra inhabitants (String, classes, arrays, Bool): Optional&lt;T&gt;.size == T.size
+        /// - If T has no extra inhabitants (Int32, Double): Optional&lt;T&gt;.size == T.size + 1
+        /// Returns false when <paramref name="fieldTypeSpec"/> is not an Optional. When it IS an
+        /// Optional whose inner size cannot be derived (a generic value-type instantiation with no
+        /// persisted size and no live metadata, e.g. ClosedRange&lt;Int&gt;), returns false with
+        /// <paramref name="indeterminate"/> set — the caller must then fail closed.
+        /// </summary>
+        private static bool TryComputeOptionalInlineSize(TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, out int optionalSize, out bool indeterminate)
         {
             optionalSize = IntPtr.Size;
+            indeterminate = false;
 
             if (fieldTypeSpec is not NamedTypeSpec optionalSpec ||
                 optionalSpec.Name != "Swift.Optional" ||
@@ -502,33 +585,31 @@ namespace BindingsGeneration
                 return false;
 
             var innerTypeSpec = optionalSpec.GenericParameters[0];
+
+            // A fixed-width primitive inner (Int32/Bool/Double/...) has a language-constant Optional
+            // size that the cross-compile TypeDatabase does not persist (the XML primitive records
+            // carry no inlineSize) and for which no live metadata exists at generate time. Resolve it
+            // from the primitive table directly; otherwise TryResolveReferenceFieldSize would clamp the
+            // inner to a pointer width and Optional<Int32> would be sized as two words instead of one.
+            // This also wins over the live-metadata branch below for Bool, whose extra-inhabitant
+            // behaviour the metadata would report but which is absent cross-compile.
+            if (TryGetOptionalPrimitiveInlineSize(innerTypeSpec, out optionalSize))
+                return true;
+
             if (!typeDatabase.TryGetTypeRecord(innerTypeSpec, out var innerRecord))
+            {
+                // Optional<T> where T can't be resolved at all — the Buffer field can't be sized.
+                indeterminate = true;
                 return false;
-
-            // Determine inner type's inline size
-            int innerSize;
-            if (innerRecord.InlineSize.HasValue)
-            {
-                innerSize = innerRecord.InlineSize.Value;
-            }
-            else if (innerRecord.SwiftTypeInfo.HasValue && innerRecord.SwiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
-            {
-                unsafe { innerSize = (int)innerRecord.SwiftTypeInfo.Value.ValueWitnessTable->Size; }
-            }
-            else if ((innerRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
-            {
-                // RequiresMemoryManagement types without explicit InlineSize are pointer-sized
-                // (Array, Set, Dictionary, class references). String is the exception but always
-                // has InlineSize=16 in the XML. This fallback prevents Optional<Array<T>> from
-                // getting a wrong 8-byte layout when it should be 8 (pointer + extra inhabitants).
-                innerSize = IntPtr.Size;
-            }
-            else
-            {
-                return false; // Can't determine inner size
             }
 
-            // Determine if inner type has extra inhabitants
+            if (!TryResolveReferenceFieldSize(innerRecord, innerTypeSpec, out int innerSize))
+            {
+                indeterminate = true;
+                return false;
+            }
+
+            // Determine if the inner type has extra inhabitants the optional tag can reuse.
             bool hasExtraInhabitants;
             if (innerRecord.SwiftTypeInfo.HasValue && innerRecord.SwiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
             {
@@ -536,13 +617,110 @@ namespace BindingsGeneration
             }
             else
             {
-                // Heuristic: RequiresMemoryManagement types (String, classes, arrays) contain
-                // pointers which have extra inhabitants. Primitive value types don't.
-                hasExtraInhabitants = (innerRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0;
+                // Heuristic: reference-bearing types (String, classes, arrays) contain pointers whose
+                // spare bit patterns the optional tag reuses → Optional<T>.size == T.size.
+                hasExtraInhabitants = (innerRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0
+                                      || innerRecord.Kind == TypeRecordKind.Class;
             }
 
             optionalSize = hasExtraInhabitants ? innerSize : innerSize + 1;
             return true;
+        }
+
+        /// <summary>
+        /// Resolves the inline byte size of an <c>Optional&lt;primitive&gt;</c> Buffer field as a
+        /// language constant, or returns false for any non-primitive inner (the caller then resolves it
+        /// via InlineSize / live metadata / reference-field rules). Most fixed-width primitives use
+        /// their full bit range, so they expose no spare pattern for the optional tag and carry a
+        /// separate tag byte: <c>Optional&lt;T&gt;.size == T.size + 1</c> (verified Int8?=2, Int16?=3,
+        /// Int32?=5, Int?=9, Float?=5, Double?=9). <c>Bool</c> is the lone exception in this set: only
+        /// the bit patterns 0 and 1 are valid, so <c>Optional&lt;Bool&gt;</c> reuses a spare pattern for
+        /// nil and <c>Optional&lt;Bool&gt;.size == Bool.size == 1</c> (no tag byte).
+        ///
+        /// The sole present consumer (<see cref="EmitIntPtrFields"/>) rounds every field up to whole
+        /// 8-byte words, so the only size distinction it observes is the 8-byte-primitive case
+        /// (<c>Int?</c>/<c>Int64?</c>/<c>Double?</c>/<c>CGFloat?</c> = 9 bytes ⇒ two words, vs the
+        /// historical one-word clamp that under-sized the Buffer). The sub-word Bool/Int8/…/Float
+        /// distinctions are therefore presently masked by that rounding — this helper still reports the
+        /// true Swift layout size so the value is correct for any future precision-dependent consumer
+        /// and so the Bool extra-inhabitant exception is not silently wrong.
+        /// </summary>
+        internal static bool TryGetOptionalPrimitiveInlineSize(TypeSpec innerSpec, out int optionalSize)
+        {
+            optionalSize = 0;
+            if (!TryGetFixedWidthPrimitiveSize(innerSpec, out int innerSize))
+                return false;
+
+            bool hasExtraInhabitants = innerSpec is NamedTypeSpec named &&
+                                       (named.Name == "Swift.Bool" || named.Name == "Bool");
+            optionalSize = hasExtraInhabitants ? innerSize : innerSize + 1;
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves the inline byte size of a fixed-width Swift primitive value type (Int32, Bool,
+        /// Double, Int, CGFloat, …). These sizes are language constants that the cross-compile
+        /// TypeDatabase does not persist (the XML primitive records carry no <c>inlineSize</c>) and
+        /// for which no live metadata exists at generate time, yet they are needed to size
+        /// <c>Optional&lt;primitive&gt;</c> Buffer fields: without this the reference-field fallback
+        /// clamps the inner type to a pointer width and <c>Optional&lt;Int32&gt;</c> is mis-sized to
+        /// two words. Returns false for any non-primitive (the caller resolves those via
+        /// InlineSize/metadata/reference-field rules). Delegates to the single source of truth in
+        /// <see cref="OptionalMarshalClassifier.GetSwiftTagByteOffset"/> (the tag byte offset of an
+        /// Optional&lt;primitive&gt; is exactly the primitive's size).
+        /// </summary>
+        internal static bool TryGetFixedWidthPrimitiveSize(TypeSpec spec, out int byteSize)
+        {
+            byteSize = 0;
+            if (spec is NamedTypeSpec named &&
+                OptionalMarshalClassifier.GetSwiftTagByteOffset(named.Name) is int size)
+            {
+                byteSize = size;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the inline byte size a reference-managed type occupies when stored inline in a
+        /// frozen struct's blitted Buffer. Returns false (indeterminate) when the size is a
+        /// per-instantiation property of a generic value type that the cross-compile TypeDatabase
+        /// cannot derive: <see cref="SwiftTypeName.FromTypeSpec"/> strips the generic arguments so the
+        /// bare record carries no <see cref="TypeRecord.InlineSize"/>, the iOS/device slice exposes no
+        /// live metadata accessor, yet the true size depends on the arguments
+        /// (MemoryLayout&lt;ClosedRange&lt;Int&gt;&gt; = 16 vs &lt;ClosedRange&lt;Float&gt;&gt; = 8).
+        /// Guessing a word would mis-size the Buffer and corrupt the heap, so such fields fail closed.
+        /// A class reference is always one pointer regardless of generic arguments, and a non-generic
+        /// reference-managed value type keeps the historical single-pointer assumption (Array/Set/
+        /// Dictionary already carry InlineSize), so neither regresses.
+        /// </summary>
+        internal static bool TryResolveReferenceFieldSize(TypeRecord record, TypeSpec spec, out int byteSize)
+        {
+            byteSize = IntPtr.Size;
+
+            if (record.InlineSize.HasValue)
+            {
+                byteSize = record.InlineSize.Value;
+                return true;
+            }
+            if (record.SwiftTypeInfo.HasValue && record.SwiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
+            {
+                unsafe { byteSize = (int)record.SwiftTypeInfo.Value.ValueWitnessTable->Size; }
+                return true;
+            }
+            // A class reference is exactly one pointer regardless of its generic arguments.
+            if (record.Kind == TypeRecordKind.Class)
+            {
+                byteSize = IntPtr.Size;
+                return true;
+            }
+            // No persisted size, no live metadata, not a class. A generic value-type instantiation's
+            // size is not derivable here → fail closed. Non-generic reference-managed value types keep
+            // the historical single-pointer clamp (preserves behavior; no per-instantiation ambiguity).
+            if (spec.ContainsGenericParameters)
+                return false;
+
+            return true; // byteSize stays IntPtr.Size — unchanged clamp for non-generic types
         }
 
         /// <summary>

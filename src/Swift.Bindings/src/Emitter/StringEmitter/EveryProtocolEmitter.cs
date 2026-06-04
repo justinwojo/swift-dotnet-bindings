@@ -2321,7 +2321,14 @@ public class EveryProtocolEmitter
         }
         else
         {
-            writer.WriteLine($"return resultPtr.assumingMemoryBound(to: {swiftTypeNameForMetatype}.self).pointee");
+            // Consume the C#-allocated result buffer: move() returns the value AND deinitializes
+            // the buffer (transferring the MarshalToSwiftBuffer +1 into the return, no extra
+            // retain), then deallocate frees the raw memory. The String / ObjC siblings above
+            // both deallocate; the value path used to return `.pointee` and leak the buffer every
+            // call (audit P1-05).
+            writer.WriteLine($"let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {swiftTypeNameForMetatype}.self).move()");
+            writer.WriteLine("resultPtr.deallocate()");
+            writer.WriteLine("return __result");
         }
 
         writer.Indent--;
@@ -2547,7 +2554,12 @@ public class EveryProtocolEmitter
         }
         else
         {
-            writer.WriteLine($"return resultPtr.assumingMemoryBound(to: {returnTypeNameForMetatype}.self).pointee");
+            // Consume the C#-allocated result buffer (move() = value + deinitialize), then
+            // deallocate — the String / ObjC siblings deallocate; the value path leaked it
+            // every call (audit P1-05).
+            writer.WriteLine($"let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {returnTypeNameForMetatype}.self).move()");
+            writer.WriteLine("resultPtr.deallocate()");
+            writer.WriteLine("return __result");
         }
 
         writer.Indent--;
@@ -3229,7 +3241,9 @@ public class EveryProtocolEmitter
                             var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                             {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
                                 {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
-                            return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
+                            let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).move()
+                            resultPtr.deallocate()
+                            return __result
                         """);
                 }
             }

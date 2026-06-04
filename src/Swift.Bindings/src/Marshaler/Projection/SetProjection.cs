@@ -159,12 +159,25 @@ public class SetProjection : ITypeProjection
                    $"return _set; }}))()";
         }
 
-        var elemConversion = _elementProjection.GetReturnElementConversion("e");
+        var elemConversion = OwnedReturnElementConversion("e");
         if (elemConversion != null)
             return $"{containerVar}.Select(e => {elemConversion}).ToHashSet()";
         // SwiftSet<T> already implements IReadOnlySet<T>, no conversion needed
         return null;
     }
+
+    /// <summary>
+    /// P1-07: element conversion for the OWNED-return directions only. SwiftSet's iterator moves
+    /// each element out of the slot at +1 (MarshalMovedValueFromSlot), so the adopting proxy must
+    /// release that retain on Dispose or it leaks; the source set keeps its own independent +1, so
+    /// adoption never double-frees. Existential elements use the owning form; every other element —
+    /// and the shared non-owning <see cref="GetReturnElementConversion"/> reused for borrowed reads —
+    /// stays +0. Mirrors ArrayProjection.OwnedReturnElementConversion.
+    /// </summary>
+    private string? OwnedReturnElementConversion(string elementVar)
+        => _elementProjection is ExistentialProjection existElem
+            ? existElem.GetOwnedReturnElementConversion(elementVar)
+            : _elementProjection.GetReturnElementConversion(elementVar);
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
@@ -173,7 +186,11 @@ public class SetProjection : ITypeProjection
             return BuildObjCBridgeReturnPlan(resultName);
 
         var rawElem = _elementProjection.MarshalFromSwiftType;
-        var elemConversion = _elementProjection.GetReturnElementConversion("e");
+        // P1-07: owned-return direction — existential elements are adopted at +1 (see
+        // OwnedReturnElementConversion). Mirrors GetReturnContainerConversion and
+        // ArrayProjection/DictionaryProjection.GetReturnPlan; the shared non-owning
+        // GetReturnElementConversion stays reserved for borrowed receiver reads.
+        var elemConversion = OwnedReturnElementConversion("e");
 
         // If element conversion is needed (e.g., SwiftString→string), materialize via ToHashSet
         var conversion = elemConversion != null
