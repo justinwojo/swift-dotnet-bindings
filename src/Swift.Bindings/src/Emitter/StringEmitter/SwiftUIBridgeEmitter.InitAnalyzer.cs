@@ -208,7 +208,13 @@ public static partial class SwiftUIBridgeEmitter
                 var resultParam = MapResultClosureType(paramName, resultSpec, context);
                 if (resultParam != null)
                     return resultParam;
-                // Fall through to typed closure handling if Result inner types unsupported
+                // Result inner types are not bridge-supported. Do NOT fall through to
+                // typed-closure handling: that path maps the Swift.Result arg through the
+                // TypeDatabase to the generic Swift.SwiftResult *with its two generic
+                // arguments stripped*, emitting an uncompilable Action<Swift.SwiftResult>
+                // (CS0305 — SwiftResult<,> requires two type arguments). Treat the whole
+                // closure as unsupported so the View degrades to template emission instead.
+                return null;
             }
         }
 

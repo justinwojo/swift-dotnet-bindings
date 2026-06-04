@@ -264,24 +264,28 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static void OnAppearTrampoline(IntPtr userData)");
         sb.AppendLine("        {");
+        OpenUcoFailFastGuard(sb);
         sb.AppendLine("            if (userData != IntPtr.Zero)");
         sb.AppendLine("            {");
         sb.AppendLine("                var h = GCHandle.FromIntPtr(userData);");
         sb.AppendLine("                if (h.Target is Action action)");
         sb.AppendLine("                    action();");
         sb.AppendLine("            }");
+        CloseUcoFailFastGuard(sb);
         sb.AppendLine("        }");
         sb.AppendLine();
 
         sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static void OnDisappearTrampoline(IntPtr userData)");
         sb.AppendLine("        {");
+        OpenUcoFailFastGuard(sb);
         sb.AppendLine("            if (userData != IntPtr.Zero)");
         sb.AppendLine("            {");
         sb.AppendLine("                var h = GCHandle.FromIntPtr(userData);");
         sb.AppendLine("                if (h.Target is Action action)");
         sb.AppendLine("                    action();");
         sb.AppendLine("            }");
+        CloseUcoFailFastGuard(sb);
         sb.AppendLine("        }");
         sb.AppendLine();
     }

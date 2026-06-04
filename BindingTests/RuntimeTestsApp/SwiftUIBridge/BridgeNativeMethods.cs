@@ -788,6 +788,55 @@ internal static class BridgeTestHelpers
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ResultCompletionView_InvokeError")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int ResultCompletionView_InvokeError(IntPtr handle, int errorCode);
+
+    // --- Audit Session 5 fixtures ---
+
+    // UrlResultView (P1-19): Result<URL, ScanError> closure — ObjC-bridgeable success branch
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UrlResultView_InvokeSuccess")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UrlResultView_InvokeSuccess(IntPtr handle, int value);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UrlResultView_InvokeError")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UrlResultView_InvokeError(IntPtr handle, int code);
+
+    // UrlClosureView (review): typed (URL)->Void closure — ObjC-bridgeable struct arg
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UrlClosureView_InvokeOnPick")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UrlClosureView_InvokeOnPick(IntPtr handle, int value);
+
+    // FrozenRefClosureView (P1-20): @frozen struct w/ ref field as closure arg
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_FrozenRefClosureView_InvokeOnEvent")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int FrozenRefClosureView_InvokeOnEvent(IntPtr handle, int value);
+
+    // UrlParamView (P0-04): ObjC-bridgeable struct (URL) param
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UrlParamView_GetTargetLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int UrlParamView_GetTargetLength(IntPtr handle);
+
+    // OptionalUrlParamView (P0-04): Optional<ObjC-bridgeable struct> param
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_OptionalUrlParamView_GetTargetLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int OptionalUrlParamView_GetTargetLength(IntPtr handle);
+
+    // ArrayEnumView (P0-03): [BoundEnum] param
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ArrayEnumView_GetCount")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ArrayEnumView_GetCount(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ArrayEnumView_GetElement")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ArrayEnumView_GetElement(IntPtr handle, int index);
+
+    // HandleParamView (P1-22): init params colliding with generated locals
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_HandleParamView_GetHandle")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int HandleParamView_GetHandle(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_HandleParamView_GetSession")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int HandleParamView_GetSession(IntPtr handle);
 }
 
 #endregion

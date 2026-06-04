@@ -389,7 +389,8 @@ public static partial class SwiftUIBridgeEmitter
                 null, null, BridgeTypeName: bp.BridgeTypeName),
             BridgeParameterKind.BoundStruct => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundStruct, "UnsafeMutableRawPointer", "IntPtr",
-                null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName),
+                null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
+                IsObjCBridgeable: bp.IsObjCBridgeable),
             BridgeParameterKind.BoundEnum => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundEnum, bp.SwiftAbiType, bp.CSharpPInvokeType,
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName),
@@ -662,6 +663,18 @@ public static partial class SwiftUIBridgeEmitter
     {
         var chain = pattern.ConstructionChain;
 
+        // P0-13: the trailing synthetic params (onReady/onError/onResult/userData) collide with a
+        // user-flattened param of the same name → Swift "invalid redeclaration". Dedup the SYNTHETIC
+        // names against the flattened param names; the no-collision case yields the original names
+        // (zero churn for existing views).
+        var asyncNames = new SyntheticNameScope(pattern.FlattenedParams.Select(p => p.Name));
+        var readyName = asyncNames.Reserve("onReady");
+        var errorName = asyncNames.Reserve("onError");
+        var resultName = "onResult";
+        if (pattern.ResultCallback != null)
+            resultName = asyncNames.Reserve("onResult");
+        var udName = asyncNames.Reserve("userData");
+
         // S5 audited (Tier C): SwiftUI async-pattern Create in `_direct_helper` bucket. Per-view `prefix` + fixed `_Create` suffix — at most one per bridge.
         // @_cdecl signature with flattened params + callbacks
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Create");
@@ -685,19 +698,19 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}: {param.SwiftAbiType}");
             }
         }
-        createParams.Add($"_ onReady: {prefix}_ReadyFn?");
-        createParams.Add($"_ onError: {prefix}_ErrorFn?");
+        createParams.Add($"_ {readyName}: {prefix}_ReadyFn?");
+        createParams.Add($"_ {errorName}: {prefix}_ErrorFn?");
         if (pattern.ResultCallback != null)
         {
-            createParams.Add($"_ onResult: {prefix}_ResultFn?");
+            createParams.Add($"_ {resultName}: {prefix}_ResultFn?");
         }
-        createParams.Add("_ userData: UnsafeMutableRawPointer?");
+        createParams.Add($"_ {udName}: UnsafeMutableRawPointer?");
 
         sb.AppendLine(string.Join(",\n    ", createParams));
         sb.AppendLine(") {");
 
         // Guard onReady
-        sb.AppendLine("    guard let onReady = onReady else { return }");
+        sb.AppendLine($"    guard let {readyName} = {readyName} else {{ return }}");
         sb.AppendLine();
 
         // Copy string parameters eagerly (before Task)
@@ -725,12 +738,12 @@ public static partial class SwiftUIBridgeEmitter
         {
             var ptrNames = string.Join(" || ", boundTypeParams.Select(p => $"{p.Name}Ptr == UnsafeMutableRawPointer(bitPattern: 0)"));
             sb.AppendLine($"    if {ptrNames} {{");
-            sb.AppendLine($"        if let onError = onError {{");
+            sb.AppendLine($"        if let {errorName} = {errorName} {{");
             sb.AppendLine($"            let msg = \"Null pointer passed for required object parameter\"");
             sb.AppendLine($"            let utf8 = Array(msg.utf8)");
             sb.AppendLine($"            utf8.withUnsafeBufferPointer {{ buf in");
             sb.AppendLine($"                guard let base = buf.baseAddress else {{ return }}");
-            sb.AppendLine($"                onError(base, buf.count, userData)");
+            sb.AppendLine($"                {errorName}(base, buf.count, {udName})");
             sb.AppendLine($"            }}");
             sb.AppendLine($"        }}");
             sb.AppendLine($"        return");
@@ -739,6 +752,9 @@ public static partial class SwiftUIBridgeEmitter
             {
                 if (param.Kind == AsyncFlatParamKind.BoundType)
                     sb.AppendLine($"    let {param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+                else if (param.IsObjCBridgeable) // BoundStruct, ObjC-bridgeable
+                    // P0-04: ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
+                    sb.AppendLine($"    let {param.Name} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
                 else // BoundStruct
                     sb.AppendLine($"    let {param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
@@ -750,7 +766,18 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.Kind == AsyncFlatParamKind.BoundEnum)
             {
-                sb.AppendLine($"    let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.Name})!");
+                // P0-03: out-of-range raw value reports via onError and returns instead of trapping.
+                sb.AppendLine($"    guard let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.Name}) else {{");
+                sb.AppendLine($"        if let {errorName} = {errorName} {{");
+                sb.AppendLine($"            let msg = \"Invalid raw value for {param.BridgeTypeName}\"");
+                sb.AppendLine($"            let utf8 = Array(msg.utf8)");
+                sb.AppendLine($"            utf8.withUnsafeBufferPointer {{ buf in");
+                sb.AppendLine($"                guard let base = buf.baseAddress else {{ return }}");
+                sb.AppendLine($"                {errorName}(base, buf.count, {udName})");
+                sb.AppendLine($"            }}");
+                sb.AppendLine($"        }}");
+                sb.AppendLine($"        return");
+                sb.AppendLine($"    }}");
             }
         }
         if (pattern.FlattenedParams.Any(p => p.Kind == AsyncFlatParamKind.BoundEnum))
@@ -830,23 +857,23 @@ public static partial class SwiftUIBridgeEmitter
         {
             sb.AppendLine($"{indent}session.startResultMonitor(");
             sb.AppendLine($"{indent}    handle: handle,");
-            sb.AppendLine($"{indent}    resultCallback: onResult,");
-            sb.AppendLine($"{indent}    userData: userData");
+            sb.AppendLine($"{indent}    resultCallback: {resultName},");
+            sb.AppendLine($"{indent}    userData: {udName}");
             sb.AppendLine($"{indent})");
         }
 
         sb.AppendLine();
-        sb.AppendLine($"{indent}onReady(handle, userData)");
+        sb.AppendLine($"{indent}{readyName}(handle, {udName})");
 
         if (hasThrows)
         {
             sb.AppendLine("        } catch {");
-            sb.AppendLine("            if let onError = onError {");
+            sb.AppendLine($"            if let {errorName} = {errorName} {{");
             sb.AppendLine("                let msg = \"\\(error)\"");
             sb.AppendLine("                let utf8 = Array(msg.utf8)");
             sb.AppendLine("                utf8.withUnsafeBufferPointer { buf in");
             sb.AppendLine("                    guard let base = buf.baseAddress else { return }");
-            sb.AppendLine("                    onError(base, buf.count, userData)");
+            sb.AppendLine($"                    {errorName}(base, buf.count, {udName})");
             sb.AppendLine("                }");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
@@ -891,25 +918,34 @@ public static partial class SwiftUIBridgeEmitter
 
         // Create P/Invoke (returns void — async factory) — build params first
         var createPInvokeParams = new List<string>();
+        var csParamNames = new List<string>();
         foreach (var param in pattern.FlattenedParams)
         {
             if (param.Kind == AsyncFlatParamKind.String)
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}Ptr");
                 createPInvokeParams.Add($"nint {param.Name}Len");
+                csParamNames.Add($"{param.Name}Ptr");
+                csParamNames.Add($"{param.Name}Len");
             }
             else
             {
                 createPInvokeParams.Add($"{param.CSharpPInvokeType} {param.Name}");
+                csParamNames.Add(param.Name);
             }
         }
-        createPInvokeParams.Add("IntPtr onReady");
-        createPInvokeParams.Add("IntPtr onError");
+        // P0-13: dedup the synthetic trailing param names against the user-derived
+        // extern param identifiers — two params named e.g. `userData` is CS0100. The
+        // extern is called positionally, so renaming the synthetic side is sufficient;
+        // the no-collision case yields the original names (zero churn for existing views).
+        var csTrailingNames = new SyntheticNameScope(csParamNames);
+        createPInvokeParams.Add($"IntPtr {csTrailingNames.Reserve("onReady")}");
+        createPInvokeParams.Add($"IntPtr {csTrailingNames.Reserve("onError")}");
         if (pattern.ResultCallback != null)
         {
-            createPInvokeParams.Add("IntPtr onResult");
+            createPInvokeParams.Add($"IntPtr {csTrailingNames.Reserve("onResult")}");
         }
-        createPInvokeParams.Add("IntPtr userData");
+        createPInvokeParams.Add($"IntPtr {csTrailingNames.Reserve("userData")}");
 
         foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
         {
@@ -1002,11 +1038,13 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine("        private static void OnReadyTrampoline(IntPtr handle, IntPtr userData)");
         sb.AppendLine("        {");
+        OpenUcoFailFastGuard(sb);
         sb.AppendLine("            var stateHandle = GCHandle.FromIntPtr(userData);");
         sb.AppendLine("            var state = (CreateState)stateHandle.Target!;");
         sb.AppendLine($"            var session = new {info.ViewName}Session(handle);");
         sb.AppendLine("            session._stateHandle = stateHandle;");
         sb.AppendLine("            state.Tcs.TrySetResult(session);");
+        CloseUcoFailFastGuard(sb);
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -1014,6 +1052,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine("        private static void OnErrorTrampoline(IntPtr msgPtr, nint msgLen, IntPtr userData)");
         sb.AppendLine("        {");
+        OpenUcoFailFastGuard(sb);
         sb.AppendLine("            if (userData == IntPtr.Zero) return;");
         sb.AppendLine("            var stateHandle = GCHandle.FromIntPtr(userData);");
         sb.AppendLine("            if (!stateHandle.IsAllocated) return;");
@@ -1027,6 +1066,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("                msg = Encoding.UTF8.GetString(bytes);");
         sb.AppendLine("            }");
         sb.AppendLine("            state.Tcs.TrySetException(new InvalidOperationException(msg));");
+        CloseUcoFailFastGuard(sb);
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -1036,10 +1076,12 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
             sb.AppendLine("        private static void OnResultTrampoline(int resultCode, IntPtr userData)");
             sb.AppendLine("        {");
+            OpenUcoFailFastGuard(sb);
             sb.AppendLine("            if (userData == IntPtr.Zero) return;");
             sb.AppendLine("            var stateHandle = GCHandle.FromIntPtr(userData);");
             sb.AppendLine("            if (stateHandle.IsAllocated && stateHandle.Target is CreateState state)");
             sb.AppendLine("                state.OnResult?.Invoke(resultCode);");
+            CloseUcoFailFastGuard(sb);
             sb.AppendLine("        }");
             sb.AppendLine();
         }
@@ -1125,6 +1167,21 @@ public static partial class SwiftUIBridgeEmitter
         }
         requiredParams.AddRange(optionalParams);
 
+        // P1-22 (async surface): CreateAsync hardcodes bookkeeping locals (tcs/state/stateHandle
+        // and the readyPtr/errorPtr/resultPtr function pointers). A flattened init param projecting
+        // to one of those names would shadow the local → CS0136. Escape the SYNTHETIC name through
+        // a scope seeded with the factory's user-facing param identifiers. No collision → zero churn.
+        var asyncFactoryUserNames = new List<string>(pattern.FlattenedParams.Select(p => p.Name));
+        if (pattern.ResultCallback != null)
+            asyncFactoryUserNames.Add("onResult");
+        var asyncFactoryScope = new SyntheticNameScope(asyncFactoryUserNames);
+        var tcsLocal = asyncFactoryScope.Reserve("tcs");
+        var stateLocal = asyncFactoryScope.Reserve("state");
+        var stateHandleLocal = asyncFactoryScope.Reserve("stateHandle");
+        var readyPtrLocal = asyncFactoryScope.Reserve("readyPtr");
+        var errorPtrLocal = asyncFactoryScope.Reserve("errorPtr");
+        var resultPtrLocal = asyncFactoryScope.Reserve("resultPtr");
+
         sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 
@@ -1138,27 +1195,27 @@ public static partial class SwiftUIBridgeEmitter
         if (boundTypeFactoryParams.Count > 0)
             sb.AppendLine();
 
-        sb.AppendLine($"            var tcs = new TaskCompletionSource<{info.ViewName}Session>(");
+        sb.AppendLine($"            var {tcsLocal} = new TaskCompletionSource<{info.ViewName}Session>(");
         sb.AppendLine("                TaskCreationOptions.RunContinuationsAsynchronously);");
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine("            var state = new CreateState(tcs, onResult);");
+            sb.AppendLine($"            var {stateLocal} = new CreateState({tcsLocal}, onResult);");
         }
         else
         {
-            sb.AppendLine("            var state = new CreateState(tcs);");
+            sb.AppendLine($"            var {stateLocal} = new CreateState({tcsLocal});");
         }
-        sb.AppendLine("            var stateHandle = GCHandle.Alloc(state);");
+        sb.AppendLine($"            var {stateHandleLocal} = GCHandle.Alloc({stateLocal});");
         sb.AppendLine();
         sb.AppendLine("            try");
         sb.AppendLine("            {");
         sb.AppendLine("                unsafe");
         sb.AppendLine("                {");
-        sb.AppendLine("                    delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> readyPtr = &OnReadyTrampoline;");
-        sb.AppendLine("                    delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> errorPtr = &OnErrorTrampoline;");
+        sb.AppendLine($"                    delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {readyPtrLocal} = &OnReadyTrampoline;");
+        sb.AppendLine($"                    delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {errorPtrLocal} = &OnErrorTrampoline;");
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine("                    delegate* unmanaged[Cdecl]<int, IntPtr, void> resultPtr = &OnResultTrampoline;");
+            sb.AppendLine($"                    delegate* unmanaged[Cdecl]<int, IntPtr, void> {resultPtrLocal} = &OnResultTrampoline;");
         }
         sb.AppendLine();
 
@@ -1175,29 +1232,30 @@ public static partial class SwiftUIBridgeEmitter
             var fixedDecls = string.Join(", ", stringParams.Select(p => $"byte* {p.Name}Ptr = {p.Name}Bytes"));
             sb.AppendLine($"                    fixed ({fixedDecls})");
             sb.AppendLine("                    {");
-            EmitDataDrivenCreateAsyncCall(sb, info, pattern, "                        ");
+            EmitDataDrivenCreateAsyncCall(sb, info, pattern, "                        ", readyPtrLocal, errorPtrLocal, resultPtrLocal, stateHandleLocal);
             sb.AppendLine("                    }");
         }
         else
         {
-            EmitDataDrivenCreateAsyncCall(sb, info, pattern, "                    ");
+            EmitDataDrivenCreateAsyncCall(sb, info, pattern, "                    ", readyPtrLocal, errorPtrLocal, resultPtrLocal, stateHandleLocal);
         }
 
         sb.AppendLine("                }");
         sb.AppendLine("            }");
         sb.AppendLine("            catch");
         sb.AppendLine("            {");
-        sb.AppendLine("                if (stateHandle.IsAllocated) stateHandle.Free();");
+        sb.AppendLine($"                if ({stateHandleLocal}.IsAllocated) {stateHandleLocal}.Free();");
         sb.AppendLine("                throw;");
         sb.AppendLine("            }");
         sb.AppendLine();
-        sb.AppendLine("            return await tcs.Task;");
+        sb.AppendLine($"            return await {tcsLocal}.Task;");
         sb.AppendLine("        }");
         sb.AppendLine();
     }
 
     private static void EmitDataDrivenCreateAsyncCall(
-        StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern, string indent)
+        StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern, string indent,
+        string readyPtrLocal, string errorPtrLocal, string resultPtrLocal, string stateHandleLocal)
     {
         var nativeArgs = new List<string>();
         foreach (var param in pattern.FlattenedParams)
@@ -1220,13 +1278,13 @@ public static partial class SwiftUIBridgeEmitter
                 nativeArgs.Add(param.Name);
             }
         }
-        nativeArgs.Add("(IntPtr)readyPtr");
-        nativeArgs.Add("(IntPtr)errorPtr");
+        nativeArgs.Add($"(IntPtr){readyPtrLocal}");
+        nativeArgs.Add($"(IntPtr){errorPtrLocal}");
         if (pattern.ResultCallback != null)
         {
-            nativeArgs.Add("(IntPtr)resultPtr");
+            nativeArgs.Add($"(IntPtr){resultPtrLocal}");
         }
-        nativeArgs.Add("GCHandle.ToIntPtr(stateHandle)");
+        nativeArgs.Add($"GCHandle.ToIntPtr({stateHandleLocal})");
 
         sb.AppendLine($"{indent}{info.ViewName}BridgeNativeMethods.Create(");
         for (int i = 0; i < nativeArgs.Count; i++)
@@ -1319,7 +1377,8 @@ public record AsyncFlatParam(
     string? CSharpConversion,
     string? BridgeTypeName = null,
     string? CSharpTypeName = null,
-    string? SourceModule = null);
+    string? SourceModule = null,
+    bool IsObjCBridgeable = false);
 
 /// <summary>
 /// Kind of flattened async parameter.

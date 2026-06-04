@@ -755,8 +755,9 @@ public static partial class SwiftUIBridgeEmitter
         }
         sb.AppendLine();
 
-        // Init
-        sb.Append($"    init(");
+        // Init — failable so out-of-range BoundEnum raw values (P0-03) surface as a nil
+        // session/handle (→ C# InvalidOperationException) instead of trapping the process.
+        sb.Append($"    init?(");
         var initParams = new List<string>();
         foreach (var param in bridgeParams)
         {
@@ -834,16 +835,37 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (!hasUpdatableParams && param.Kind == BridgeParameterKind.BoundStruct)
             {
-                sb.AppendLine($"        self.{param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+                if (param.IsObjCBridgeable)
+                    // P0-04: ObjC-bridgeable struct (e.g. URL→NSURL) crosses the ABI as an ObjC
+                    // object pointer (C# passes `.Handle`), NOT raw Swift struct bytes. Reading it
+                    // via assumingMemoryBound reinterprets an object pointer as struct memory →
+                    // type confusion / SIGSEGV. Reconstruct the bridged value instead.
+                    sb.AppendLine($"        self.{param.Name} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                else
+                    sb.AppendLine($"        self.{param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
                 var inner = param.InnerParameter!;
-                var elementConversion = inner.Kind == BridgeParameterKind.BoundEnum
-                    ? $"{inner.BridgeTypeName}(rawValue: $0)!"
-                    : inner.SwiftConversion != null ? $"$0 {inner.SwiftConversion}" : "$0";
                 sb.AppendLine($"        if let ptr = {param.Name}Ptr, {param.Name}Count > 0 {{");
-                sb.AppendLine($"            self.{param.Name} = UnsafeBufferPointer(start: ptr, count: {param.Name}Count).map {{ {elementConversion} }}");
+                if (inner.Kind == BridgeParameterKind.BoundEnum)
+                {
+                    // P0-03: validate every raw value before constructing the session. A single
+                    // out-of-range element fails creation (return nil → C# InvalidOperationException)
+                    // rather than trapping the process or silently defaulting/dropping the element.
+                    sb.AppendLine($"            var {param.Name}Elements: [{inner.BridgeTypeName}] = []");
+                    sb.AppendLine($"            {param.Name}Elements.reserveCapacity({param.Name}Count)");
+                    sb.AppendLine($"            for {param.Name}Raw in UnsafeBufferPointer(start: ptr, count: {param.Name}Count) {{");
+                    sb.AppendLine($"                guard let {param.Name}Element = {inner.BridgeTypeName}(rawValue: {param.Name}Raw) else {{ return nil }}");
+                    sb.AppendLine($"                {param.Name}Elements.append({param.Name}Element)");
+                    sb.AppendLine($"            }}");
+                    sb.AppendLine($"            self.{param.Name} = {param.Name}Elements");
+                }
+                else
+                {
+                    var elementConversion = inner.SwiftConversion != null ? $"$0 {inner.SwiftConversion}" : "$0";
+                    sb.AppendLine($"            self.{param.Name} = UnsafeBufferPointer(start: ptr, count: {param.Name}Count).map {{ {elementConversion} }}");
+                }
                 sb.AppendLine($"        }} else {{");
                 sb.AppendLine($"            self.{param.Name} = []");
                 sb.AppendLine($"        }}");
@@ -1017,8 +1039,8 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
-        sb.AppendLine($"        let session = {sessionClass}(");
-        sb.AppendLine($"            {string.Join(",\n            ", sessionArgs)})");
+        sb.AppendLine($"        guard let session = {sessionClass}(");
+        sb.AppendLine($"            {string.Join(",\n            ", sessionArgs)}) else {{ return nil }}");
         sb.AppendLine($"        let handle = Unmanaged.passRetained(session).toOpaque()");
         sb.AppendLine($"        {handlesVar}.insert(handle)");
         sb.AppendLine($"        return handle");
@@ -1292,7 +1314,9 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundEnum)
         {
-            sb.AppendLine($"        let {param.Name}Converted = {param.BridgeTypeName}(rawValue: {param.Name})!");
+            // P0-03: out-of-range raw value fails creation (return nil from the failable init →
+            // C# InvalidOperationException) instead of trapping via force-unwrap.
+            sb.AppendLine($"        guard let {param.Name}Converted = {param.BridgeTypeName}(rawValue: {param.Name}) else {{ return nil }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
@@ -1313,7 +1337,12 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
-            sb.AppendLine($"        let {param.Name}Converted = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+            if (param.IsObjCBridgeable)
+                // P0-04: ObjC-bridgeable struct crosses the ABI as an ObjC object pointer, not
+                // raw struct bytes — reconstruct the bridged value via Unmanaged<AnyObject>.
+                sb.AppendLine($"        let {param.Name}Converted = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
+            else
+                sb.AppendLine($"        let {param.Name}Converted = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
         {
@@ -1330,19 +1359,34 @@ public static partial class SwiftUIBridgeEmitter
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
         {
             var inner = param.InnerParameter!;
-            sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
+            if (inner.IsObjCBridgeable)
+                // P0-04: ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
+                sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
+            else
+                sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped)
         {
             var inner = param.InnerParameter!;
-            string valueExpr;
             if (inner.Kind == BridgeParameterKind.BoundEnum)
-                valueExpr = $"{inner.BridgeTypeName}(rawValue: {param.Name}Value)!";
-            else if (inner.SwiftConversion != null)
-                valueExpr = $"{param.Name}Value {inner.SwiftConversion}";
+            {
+                // P0-03: validate a present raw value; out-of-range fails creation (return nil)
+                // rather than trapping. A nil Optional (HasValue == 0) stays nil.
+                sb.AppendLine($"        let {param.Name}Converted: {GetSwiftNativeType(param)}");
+                sb.AppendLine($"        if {param.Name}HasValue != 0 {{");
+                sb.AppendLine($"            guard let {param.Name}Case = {inner.BridgeTypeName}(rawValue: {param.Name}Value) else {{ return nil }}");
+                sb.AppendLine($"            {param.Name}Converted = {param.Name}Case");
+                sb.AppendLine($"        }} else {{");
+                sb.AppendLine($"            {param.Name}Converted = nil");
+                sb.AppendLine($"        }}");
+            }
             else
-                valueExpr = $"{param.Name}Value";
-            sb.AppendLine($"        let {param.Name}Converted: {GetSwiftNativeType(param)} = {param.Name}HasValue != 0 ? {valueExpr} : nil");
+            {
+                string valueExpr = inner.SwiftConversion != null
+                    ? $"{param.Name}Value {inner.SwiftConversion}"
+                    : $"{param.Name}Value";
+                sb.AppendLine($"        let {param.Name}Converted: {GetSwiftNativeType(param)} = {param.Name}HasValue != 0 ? {valueExpr} : nil");
+            }
         }
         else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
         {
@@ -1529,7 +1573,9 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundEnum)
         {
-            sb.AppendLine($"        session.state.{param.Name} = {param.BridgeTypeName}(rawValue: newValue)!");
+            // P0-03: out-of-range raw value leaves state unchanged (return) instead of trapping.
+            sb.AppendLine($"        guard let newValueConverted = {param.BridgeTypeName}(rawValue: newValue) else {{ return }}");
+            sb.AppendLine($"        session.state.{param.Name} = newValueConverted");
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
@@ -1547,7 +1593,11 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
-            sb.AppendLine($"        session.state.{param.Name} = newValuePtr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+            if (param.IsObjCBridgeable)
+                // P0-04: ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
+                sb.AppendLine($"        session.state.{param.Name} = Unmanaged<AnyObject>.fromOpaque(newValuePtr).takeUnretainedValue() as! {param.BridgeTypeName}");
+            else
+                sb.AppendLine($"        session.state.{param.Name} = newValuePtr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
         {
@@ -1563,19 +1613,33 @@ public static partial class SwiftUIBridgeEmitter
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
         {
             var inner = param.InnerParameter!;
-            sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
+            if (inner.IsObjCBridgeable)
+                // P0-04: ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
+                sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
+            else
+                sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped)
         {
             var inner = param.InnerParameter!;
-            string valueExpr;
             if (inner.Kind == BridgeParameterKind.BoundEnum)
-                valueExpr = $"{inner.BridgeTypeName}(rawValue: newValueValue)!";
-            else if (inner.SwiftConversion != null)
-                valueExpr = $"newValueValue {inner.SwiftConversion}";
+            {
+                // P0-03: a present out-of-range raw value leaves state unchanged (return) rather
+                // than trapping; a nil Optional (HasValue == 0) clears the state to nil.
+                sb.AppendLine($"        if newValueHasValue != 0 {{");
+                sb.AppendLine($"            guard let newValueCase = {inner.BridgeTypeName}(rawValue: newValueValue) else {{ return }}");
+                sb.AppendLine($"            session.state.{param.Name} = newValueCase");
+                sb.AppendLine($"        }} else {{");
+                sb.AppendLine($"            session.state.{param.Name} = nil");
+                sb.AppendLine($"        }}");
+            }
             else
-                valueExpr = "newValueValue";
-            sb.AppendLine($"        session.state.{param.Name} = newValueHasValue != 0 ? {valueExpr} : nil");
+            {
+                string valueExpr = inner.SwiftConversion != null
+                    ? $"newValueValue {inner.SwiftConversion}"
+                    : "newValueValue";
+                sb.AppendLine($"        session.state.{param.Name} = newValueHasValue != 0 ? {valueExpr} : nil");
+            }
         }
         else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
         {
@@ -2010,7 +2074,14 @@ public static partial class SwiftUIBridgeEmitter
                 }
                 else if (param.Kind == BridgeParameterKind.BoundEnum)
                 {
-                    sb.AppendLine($"        session.state.mod_{mod.MethodName} = hasValue != 0 ? {param.BridgeTypeName}(rawValue: value)! : nil");
+                    // P0-03: a present out-of-range raw value leaves the modifier state unchanged
+                    // (return) rather than trapping; a nil Optional (hasValue == 0) clears it.
+                    sb.AppendLine($"        if hasValue != 0 {{");
+                    sb.AppendLine($"            guard let modCase = {param.BridgeTypeName}(rawValue: value) else {{ return }}");
+                    sb.AppendLine($"            session.state.mod_{mod.MethodName} = modCase");
+                    sb.AppendLine($"        }} else {{");
+                    sb.AppendLine($"            session.state.mod_{mod.MethodName} = nil");
+                    sb.AppendLine($"        }}");
                 }
                 else
                 {
@@ -2275,6 +2346,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         sb.AppendLine("        internal static void FreeGCHandles(IntPtr buffer, int count)");
         sb.AppendLine("        {");
+        OpenUcoFailFastGuard(sb);
         sb.AppendLine("            if (buffer == IntPtr.Zero) return;");
         sb.AppendLine("            var slots = (IntPtr*)buffer;");
         sb.AppendLine("            for (int i = 0; i < count; i++)");
@@ -2285,6 +2357,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("                if (h.IsAllocated) h.Free();");
         sb.AppendLine("            }");
         sb.AppendLine("            NativeMemory.Free((void*)buffer);");
+        CloseUcoFailFastGuard(sb);
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -2471,12 +2544,14 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
             sb.AppendLine($"        private static void {trampolineName}(IntPtr userData)");
             sb.AppendLine("        {");
+            OpenUcoFailFastGuard(sb);
             sb.AppendLine("            if (userData != IntPtr.Zero)");
             sb.AppendLine("            {");
             sb.AppendLine("                var h = GCHandle.FromIntPtr(userData);");
             sb.AppendLine("                if (h.Target is Action action)");
             sb.AppendLine("                    action();");
             sb.AppendLine("            }");
+            CloseUcoFailFastGuard(sb);
             sb.AppendLine("        }");
             sb.AppendLine();
         }
@@ -2654,6 +2729,34 @@ public static partial class SwiftUIBridgeEmitter
         requiredParams.Add("Action? onAppear = null");
         requiredParams.Add("Action? onDisappear = null");
 
+        // P1-22: the Create factory hardcodes bookkeeping locals (handle/session/closureHandles
+        // and the loop locals h/fn/i). A View whose init param projects to one of those names
+        // would shadow the local → CS0136/CS0128 and the binding fails to compile. Reserve every
+        // synthetic through a scope seeded with the factory's user-facing param identifiers so the
+        // SYNTHETIC name is escaped (never the user's). No collision → original names → zero churn.
+        var factoryUserNames = new List<string>();
+        foreach (var param in bridgeParams)
+        {
+            if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                factoryUserNames.Add($"{param.Name}Success");
+                factoryUserNames.Add($"{param.Name}Error");
+            }
+            else
+            {
+                factoryUserNames.Add(param.Name);
+            }
+        }
+        factoryUserNames.Add("onAppear");
+        factoryUserNames.Add("onDisappear");
+        var factoryScope = new SyntheticNameScope(factoryUserNames);
+        var handleLocal = factoryScope.Reserve("handle");
+        var sessionLocal = factoryScope.Reserve("session");
+        var closureHandlesLocal = factoryScope.Reserve("closureHandles");
+        var hLocal = factoryScope.Reserve("h");
+        var fnLocal = factoryScope.Reserve("fn");
+        var iLocal = factoryScope.Reserve("i");
+
         var unsafeKeyword = needsUnsafe ? "unsafe " : "";
         var hasArrays = bridgeParams.Any(p => p.Kind == BridgeParameterKind.BridgeArray);
         sb.AppendLine($"        public static {unsafeKeyword}{info.ViewName}Session Create({string.Join(", ", requiredParams)})");
@@ -2662,7 +2765,7 @@ public static partial class SwiftUIBridgeEmitter
         if (hasClosures || hasArrays)
         {
             if (hasClosures)
-                sb.AppendLine("            var closureHandles = new global::System.Collections.Generic.List<GCHandle>();");
+                sb.AppendLine($"            var {closureHandlesLocal} = new global::System.Collections.Generic.List<GCHandle>();");
             // Declare array handle variables BEFORE try so they're visible in finally for cleanup.
             // The actual GCHandle.Alloc calls happen inside try to prevent leaks if a second alloc throws.
             if (hasArrays)
@@ -2673,7 +2776,7 @@ public static partial class SwiftUIBridgeEmitter
 
             // Array pinning: extract raw values and pin for native call (inside try block)
             if (hasArrays)
-                EmitCSharpArrayPinning(sb, bridgeParams, indent);
+                EmitCSharpArrayPinning(sb, bridgeParams, indent, iLocal);
 
             // Setup closure parameters
             foreach (var param in bridgeParams.Where(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure))
@@ -2683,14 +2786,14 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"{indent}IntPtr {param.Name}UserData = IntPtr.Zero;");
                 sb.AppendLine($"{indent}if ({param.Name} != null)");
                 sb.AppendLine($"{indent}{{");
-                sb.AppendLine($"{indent}    var h = GCHandle.Alloc({param.Name});");
-                sb.AppendLine($"{indent}    closureHandles.Add(h);");
-                sb.AppendLine($"{indent}    {param.Name}UserData = GCHandle.ToIntPtr(h);");
+                sb.AppendLine($"{indent}    var {hLocal} = GCHandle.Alloc({param.Name});");
+                sb.AppendLine($"{indent}    {closureHandlesLocal}.Add({hLocal});");
+                sb.AppendLine($"{indent}    {param.Name}UserData = GCHandle.ToIntPtr({hLocal});");
 
                 // Build delegate* type matching trampoline signature
                 var fnPtrType = GetClosureFunctionPointerType(param);
-                sb.AppendLine($"{indent}    {fnPtrType} fn = &{trampolineName};");
-                sb.AppendLine($"{indent}    {param.Name}Callback = (IntPtr)fn;");
+                sb.AppendLine($"{indent}    {fnPtrType} {fnLocal} = &{trampolineName};");
+                sb.AppendLine($"{indent}    {param.Name}Callback = (IntPtr){fnLocal};");
                 sb.AppendLine($"{indent}}}");
                 sb.AppendLine();
             }
@@ -2707,12 +2810,12 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine($"{indent}IntPtr {factoryName}UserData = IntPtr.Zero;");
                     sb.AppendLine($"{indent}if ({factoryName} != null)");
                     sb.AppendLine($"{indent}{{");
-                    sb.AppendLine($"{indent}    var h = GCHandle.Alloc({factoryName});");
-                    sb.AppendLine($"{indent}    closureHandles.Add(h);");
-                    sb.AppendLine($"{indent}    {factoryName}UserData = GCHandle.ToIntPtr(h);");
+                    sb.AppendLine($"{indent}    var {hLocal} = GCHandle.Alloc({factoryName});");
+                    sb.AppendLine($"{indent}    {closureHandlesLocal}.Add({hLocal});");
+                    sb.AppendLine($"{indent}    {factoryName}UserData = GCHandle.ToIntPtr({hLocal});");
                     var fnPtrType = BuildResultBranchFnPtrType(branchParam);
-                    sb.AppendLine($"{indent}    {fnPtrType} fn = &{trampolineName};");
-                    sb.AppendLine($"{indent}    {factoryName}Callback = (IntPtr)fn;");
+                    sb.AppendLine($"{indent}    {fnPtrType} {fnLocal} = &{trampolineName};");
+                    sb.AppendLine($"{indent}    {factoryName}Callback = (IntPtr){fnLocal};");
                     sb.AppendLine($"{indent}}}");
                     sb.AppendLine();
                 }
@@ -2735,15 +2838,15 @@ public static partial class SwiftUIBridgeEmitter
             }
 
             // Call with fixed block if strings or Codable bindings present
-            EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent);
+            EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent, handleLocal, sessionLocal, closureHandlesLocal);
 
             sb.AppendLine("            }");
             sb.AppendLine("            finally");
             sb.AppendLine("            {");
             if (hasClosures)
             {
-                sb.AppendLine("                foreach (var h in closureHandles)");
-                sb.AppendLine("                    if (h.IsAllocated) h.Free();");
+                sb.AppendLine($"                foreach (var {hLocal} in {closureHandlesLocal})");
+                sb.AppendLine($"                    if ({hLocal}.IsAllocated) {hLocal}.Free();");
             }
             if (hasArrays)
                 EmitCSharpArrayCleanup(sb, bridgeParams, "                ");
@@ -2767,18 +2870,18 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"{indent}ArgumentNullException.ThrowIfNull({param.Name});");
                 sb.AppendLine($"{indent}var {param.Name}Bytes = {param.Name}.EncodeToJson();");
             }
-            EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent);
+            EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent, handleLocal, sessionLocal, closureHandlesLocal);
         }
         else
         {
             // Simple case: no closures, no strings, no arrays
             var nativeArgs = BuildSimpleNativeCallArgs(bridgeParams);
-            sb.AppendLine($"            var handle = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
-            sb.AppendLine("            if (handle == IntPtr.Zero)");
+            sb.AppendLine($"            var {handleLocal} = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            sb.AppendLine($"            if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"                throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
-            sb.AppendLine($"            var session = new {info.ViewName}Session(handle);");
-            sb.AppendLine($"            session.SetLifecycleCallbacks(onAppear, onDisappear);");
-            sb.AppendLine($"            return session;");
+            sb.AppendLine($"            var {sessionLocal} = new {info.ViewName}Session({handleLocal});");
+            sb.AppendLine($"            {sessionLocal}.SetLifecycleCallbacks(onAppear, onDisappear);");
+            sb.AppendLine($"            return {sessionLocal};");
         }
 
         sb.AppendLine("        }");
@@ -2802,7 +2905,7 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# array pinning: extracts raw values from element arrays and pins via GCHandle.
     /// Must be called inside a try block (handle declarations emitted separately by EmitCSharpArrayHandleDeclarations).
     /// </summary>
-    private static void EmitCSharpArrayPinning(StringBuilder sb, List<BridgeParameter> bridgeParams, string indent)
+    private static void EmitCSharpArrayPinning(StringBuilder sb, List<BridgeParameter> bridgeParams, string indent, string iLocal)
     {
         foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.BridgeArray))
         {
@@ -2815,11 +2918,11 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"{indent}if ({param.Name} != null && {param.Name}.Length > 0)");
                 sb.AppendLine($"{indent}{{");
                 sb.AppendLine($"{indent}    var {param.Name}Raw = new {rawArrayType}[{param.Name}.Length];");
-                sb.AppendLine($"{indent}    for (int i = 0; i < {param.Name}.Length; i++)");
+                sb.AppendLine($"{indent}    for (int {iLocal} = 0; {iLocal} < {param.Name}.Length; {iLocal}++)");
                 if (inner.IsSimpleEnum)
-                    sb.AppendLine($"{indent}        {param.Name}Raw[i] = ({rawArrayType}){param.Name}[i];");
+                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = ({rawArrayType}){param.Name}[{iLocal}];");
                 else
-                    sb.AppendLine($"{indent}        {param.Name}Raw[i] = {param.Name}[i].RawValue;");
+                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {param.Name}[{iLocal}].RawValue;");
                 sb.AppendLine($"{indent}    {param.Name}Handle = GCHandle.Alloc({param.Name}Raw, GCHandleType.Pinned);");
                 sb.AppendLine($"{indent}    {param.Name}PinnedPtr = {param.Name}Handle.AddrOfPinnedObject();");
                 sb.AppendLine($"{indent}}}");
@@ -2830,8 +2933,8 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"{indent}if ({param.Name} != null && {param.Name}.Length > 0)");
                 sb.AppendLine($"{indent}{{");
                 sb.AppendLine($"{indent}    var {param.Name}Raw = new int[{param.Name}.Length];");
-                sb.AppendLine($"{indent}    for (int i = 0; i < {param.Name}.Length; i++)");
-                sb.AppendLine($"{indent}        {param.Name}Raw[i] = {param.Name}[i] {inner.CSharpConversion};");
+                sb.AppendLine($"{indent}    for (int {iLocal} = 0; {iLocal} < {param.Name}.Length; {iLocal}++)");
+                sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {param.Name}[{iLocal}] {inner.CSharpConversion};");
                 sb.AppendLine($"{indent}    {param.Name}Handle = GCHandle.Alloc({param.Name}Raw, GCHandleType.Pinned);");
                 sb.AppendLine($"{indent}    {param.Name}PinnedPtr = {param.Name}Handle.AddrOfPinnedObject();");
                 sb.AppendLine($"{indent}}}");
@@ -2861,7 +2964,8 @@ public static partial class SwiftUIBridgeEmitter
 
     private static void EmitSimpleCreateCall(
         StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
-        bool hasStrings, bool hasClosures, string indent)
+        bool hasStrings, bool hasClosures, string indent,
+        string handleLocal, string sessionLocal, string closureHandlesLocal)
     {
         var pinnedParams = bridgeParams.Where(p => p.Kind == BridgeParameterKind.String ||
             (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String) ||
@@ -2875,32 +2979,32 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"{indent}fixed ({fixedDecls})");
             sb.AppendLine($"{indent}{{");
             var innerIndent = indent + "    ";
-            sb.AppendLine($"{innerIndent}var handle = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
-            sb.AppendLine($"{innerIndent}if (handle == IntPtr.Zero)");
+            sb.AppendLine($"{innerIndent}var {handleLocal} = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            sb.AppendLine($"{innerIndent}if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"{innerIndent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
-            sb.AppendLine($"{innerIndent}var session = new {info.ViewName}Session(handle);");
+            sb.AppendLine($"{innerIndent}var {sessionLocal} = new {info.ViewName}Session({handleLocal});");
             if (hasClosures)
             {
-                sb.AppendLine($"{innerIndent}session._closureHandles = closureHandles.ToArray();");
-                sb.AppendLine($"{innerIndent}closureHandles.Clear();");
+                sb.AppendLine($"{innerIndent}{sessionLocal}._closureHandles = {closureHandlesLocal}.ToArray();");
+                sb.AppendLine($"{innerIndent}{closureHandlesLocal}.Clear();");
             }
-            sb.AppendLine($"{innerIndent}session.SetLifecycleCallbacks(onAppear, onDisappear);");
-            sb.AppendLine($"{innerIndent}return session;");
+            sb.AppendLine($"{innerIndent}{sessionLocal}.SetLifecycleCallbacks(onAppear, onDisappear);");
+            sb.AppendLine($"{innerIndent}return {sessionLocal};");
             sb.AppendLine($"{indent}}}");
         }
         else
         {
-            sb.AppendLine($"{indent}var handle = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
-            sb.AppendLine($"{indent}if (handle == IntPtr.Zero)");
+            sb.AppendLine($"{indent}var {handleLocal} = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            sb.AppendLine($"{indent}if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"{indent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
-            sb.AppendLine($"{indent}var session = new {info.ViewName}Session(handle);");
+            sb.AppendLine($"{indent}var {sessionLocal} = new {info.ViewName}Session({handleLocal});");
             if (hasClosures)
             {
-                sb.AppendLine($"{indent}session._closureHandles = closureHandles.ToArray();");
-                sb.AppendLine($"{indent}closureHandles.Clear();");
+                sb.AppendLine($"{indent}{sessionLocal}._closureHandles = {closureHandlesLocal}.ToArray();");
+                sb.AppendLine($"{indent}{closureHandlesLocal}.Clear();");
             }
-            sb.AppendLine($"{indent}session.SetLifecycleCallbacks(onAppear, onDisappear);");
-            sb.AppendLine($"{indent}return session;");
+            sb.AppendLine($"{indent}{sessionLocal}.SetLifecycleCallbacks(onAppear, onDisappear);");
+            sb.AppendLine($"{indent}return {sessionLocal};");
         }
     }
 
@@ -3275,6 +3379,17 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
+        // Collect ObjC-bridgeable BoundStruct args that need withExtendedLifetime nesting:
+        // they cross the ABI as ObjC object pointers (Unmanaged.passUnretained) and must be
+        // held alive across the synchronous callback (P0-04/P1-19), exactly like the Result
+        // success branch. Non-ObjC BoundStructs use the heap-allocate path below instead.
+        var objcArgIndices = new List<int>();
+        for (int i = 0; i < closureArgs.Count; i++)
+        {
+            if (closureArgs[i].Kind == BridgeParameterKind.BoundStruct && closureArgs[i].IsObjCBridgeable)
+                objcArgIndices.Add(i);
+        }
+
         // Guard against nil callback BEFORE heap-allocating BoundStruct args.
         // If cb_ is nil (C# didn't provide a callback), skip the allocation to avoid leaks.
         var hasBoundStructArgs = closureArgs.Any(a => a.Kind == BridgeParameterKind.BoundStruct);
@@ -3311,9 +3426,36 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (closureArgs[i].Kind == BridgeParameterKind.BoundStruct)
             {
+                if (closureArgs[i].IsObjCBridgeable)
+                {
+                    // P0-04/P1-19: an ObjC-bridgeable struct (URL→NSURL, Data→NSData) crosses the
+                    // ABI as an ObjC object pointer, NOT raw Swift struct bytes. Heap-allocating it
+                    // and letting C# read it via MarshalFromSwift (assumingMemoryBound) reinterprets
+                    // an object pointer as struct memory → type confusion / SIGSEGV. Bridge to an
+                    // object here and deliver Unmanaged.passUnretained(...).toOpaque() below, held
+                    // alive across the synchronous callback by withExtendedLifetime.
+                    sb.Append($"            let arg{i}Obj = arg{i} as AnyObject\n");
+                    continue;
+                }
                 var typeName = closureArgs[i].BridgeTypeName;
                 sb.Append($"            let arg{i}Ptr = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{typeName}>.size, alignment: MemoryLayout<{typeName}>.alignment)\n");
-                sb.Append($"            arg{i}Ptr.initializeMemory(as: {typeName}.self, repeating: arg{i}, count: 1)\n");
+                if (closureArgs[i].StructProjection == StructProjectionKind.FrozenWithMemory)
+                {
+                    // P1-20: a frozen struct with reference-holding fields (ClassWithBufferStruct)
+                    // is *copied* by the C# side via InitializeWithCopy into its own SafeHandle-owned
+                    // buffer — C# does NOT adopt this pointer (see SwiftMarshal.DestroyWireBufferRetains
+                    // docs). Without a Swift-side deinit, the source buffer keeps its +1 retains on the
+                    // heap fields, and the allocation itself, forever. Capture the typed pointer and
+                    // release+free it via defer (runs after the synchronous C# callback returns, and
+                    // after any closure return value is computed). Non-frozen structs/enums ARE adopted
+                    // by C#'s SafeHandle, so freeing them here would double-free → gate on FrozenWithMemory.
+                    sb.Append($"            let arg{i}Typed = arg{i}Ptr.initializeMemory(as: {typeName}.self, repeating: arg{i}, count: 1)\n");
+                    sb.Append($"            defer {{ arg{i}Typed.deinitialize(count: 1); arg{i}Ptr.deallocate() }}\n");
+                }
+                else
+                {
+                    sb.Append($"            arg{i}Ptr.initializeMemory(as: {typeName}.self, repeating: arg{i}, count: 1)\n");
+                }
             }
         }
 
@@ -3327,6 +3469,18 @@ public static partial class SwiftUIBridgeEmitter
             var si = stringArgIndices[s];
             var returnPrefix = hasReturn ? "return " : "";
             sb.Append($"{currentIndent}{returnPrefix}arg{si}Bytes.withUnsafeBufferPointer {{ buf{si} in\n");
+            currentIndent += "    ";
+        }
+
+        // Open a withExtendedLifetime block for each ObjC-bridgeable BoundStruct arg, nested
+        // inside the String blocks. passUnretained yields an untracked raw pointer; without this
+        // ARC may release the bridged object before the synchronous C# trampoline dereferences
+        // it → use-after-free (P1-19). The `return` prefix propagates a non-void result up.
+        for (int o = 0; o < objcArgIndices.Count; o++)
+        {
+            var oi = objcArgIndices[o];
+            var returnPrefix = hasReturn ? "return " : "";
+            sb.Append($"{currentIndent}{returnPrefix}withExtendedLifetime(arg{oi}Obj) {{\n");
             currentIndent += "    ";
         }
 
@@ -3347,9 +3501,14 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (a.Kind == BridgeParameterKind.BoundStruct)
             {
-                // Heap-allocate the value type and transfer ownership to C#.
-                // C#'s SwiftSafeHandle will call VWT Destroy + NativeMemory.Free on dispose.
-                callbackArgs.Add($"arg{i}Ptr");
+                if (a.IsObjCBridgeable)
+                    // ObjC-bridgeable struct: deliver the bridged object pointer (held alive by the
+                    // enclosing withExtendedLifetime block). C# reads it via GetNSObject, not VWT.
+                    callbackArgs.Add($"Unmanaged.passUnretained(arg{i}Obj).toOpaque()");
+                else
+                    // Heap-allocate the value type and transfer ownership to C#.
+                    // C#'s SwiftSafeHandle will call VWT Destroy + NativeMemory.Free on dispose.
+                    callbackArgs.Add($"arg{i}Ptr");
             }
             else if (a.CSharpConversion != null)
             {
@@ -3399,8 +3558,9 @@ public static partial class SwiftUIBridgeEmitter
                 if (closureReturn.SwiftConversion != null)
                     callExpr = $"({callExpr}) {closureReturn.SwiftConversion}";
 
-                // String args require `return` keyword inside withUnsafeBufferPointer blocks
-                if (stringArgIndices.Count > 0)
+                // String/ObjC-struct args nest the call inside withUnsafeBufferPointer /
+                // withExtendedLifetime blocks, which require `return` to propagate the result up.
+                if (stringArgIndices.Count > 0 || objcArgIndices.Count > 0)
                     sb.Append($"{currentIndent}return {callExpr}\n");
                 else
                     sb.Append($"{currentIndent}{callExpr}\n");
@@ -3409,6 +3569,13 @@ public static partial class SwiftUIBridgeEmitter
         else
         {
             sb.Append($"{currentIndent}cb_{param.Name}?({callbackArgStr})\n");
+        }
+
+        // Close withExtendedLifetime blocks (innermost — nested inside the String blocks).
+        for (int o = objcArgIndices.Count - 1; o >= 0; o--)
+        {
+            currentIndent = baseIndent + new string(' ', 4 * (stringArgIndices.Count + o));
+            sb.Append($"{currentIndent}}}\n");
         }
 
         // Close nested withUnsafeBufferPointer blocks — inner blocks need `return` propagation
@@ -3432,6 +3599,36 @@ public static partial class SwiftUIBridgeEmitter
         if (param.Kind == BridgeParameterKind.String) return "String";
         if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct) return param.BridgeTypeName!;
         return param.SwiftAbiType;
+    }
+
+    /// <summary>
+    /// Opens a FailFast guard around an <c>[UnmanagedCallersOnly]</c> trampoline body. A managed
+    /// exception that escapes a UCO frame into native Swift aborts the process with no diagnostic
+    /// (SIGABRT); routing it through <c>SwiftClosureMarshaller.FailFastUnhandledClosureException</c>
+    /// converts that into a deterministic, attributable crash. Used for trampolines that invoke a
+    /// user-supplied delegate with no synchronous error channel back to the caller (SwiftUI
+    /// render/event callbacks, lifecycle hooks, fire-and-forget result callbacks). Pair every call
+    /// with <see cref="CloseUcoFailFastGuard"/>; the guarded body keeps its existing indentation.
+    /// </summary>
+    private static void OpenUcoFailFastGuard(StringBuilder sb)
+    {
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+    }
+
+    /// <summary>
+    /// Closes a FailFast guard opened by <see cref="OpenUcoFailFastGuard"/>. The trailing
+    /// <c>throw;</c> is required: CS0161 reachability analysis does not honor
+    /// <c>[DoesNotReturn]</c>, so a non-void trampoline would otherwise fail to compile.
+    /// </summary>
+    private static void CloseUcoFailFastGuard(StringBuilder sb)
+    {
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::System.Exception __ex)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__ex);");
+        sb.AppendLine("                throw;");
+        sb.AppendLine("            }");
     }
 
     /// <summary>
@@ -3467,6 +3664,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static {returnType} {trampolineName}({string.Join(", ", trampolineParams)})");
         sb.AppendLine("        {");
+        OpenUcoFailFastGuard(sb);
         sb.AppendLine("            if (userData != IntPtr.Zero)");
         sb.AppendLine("            {");
         sb.AppendLine("                var h = GCHandle.FromIntPtr(userData);");
@@ -3491,7 +3689,14 @@ public static partial class SwiftUIBridgeEmitter
                 }
                 else if (a.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
                 {
-                    sb.AppendLine($"                var arg{i}Obj = ({a.CSharpTypeName})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{a.CSharpTypeName}>(arg{i});");
+                    if (a.Kind == BridgeParameterKind.BoundStruct && a.IsObjCBridgeable)
+                        // ObjC-bridgeable struct: the Swift side delivered the bridged object
+                        // pointer (Unmanaged.passUnretained). GetNSObject wraps it without ownership
+                        // transfer — reading it via MarshalFromSwift (assumingMemoryBound) would
+                        // reinterpret an object pointer as raw struct bytes → type confusion (P0-04).
+                        sb.AppendLine($"                var arg{i}Obj = ObjCRuntime.Runtime.GetNSObject<{a.CSharpTypeName}>(arg{i})!;");
+                    else
+                        sb.AppendLine($"                var arg{i}Obj = ({a.CSharpTypeName})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{a.CSharpTypeName}>(arg{i});");
                 }
             }
 
@@ -3554,6 +3759,7 @@ public static partial class SwiftUIBridgeEmitter
                 ? "IntPtr.Zero" : "0";
             sb.AppendLine($"            return {defaultReturn};");
         }
+        CloseUcoFailFastGuard(sb);
         sb.AppendLine("        }");
         sb.AppendLine();
     }
@@ -3745,6 +3951,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static void {trampolineName}({string.Join(", ", trampolineParams)})");
         sb.AppendLine("        {");
+        OpenUcoFailFastGuard(sb);
         sb.AppendLine("            if (userData != IntPtr.Zero)");
         sb.AppendLine("            {");
         sb.AppendLine("                var h = GCHandle.FromIntPtr(userData);");
@@ -3787,6 +3994,7 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         sb.AppendLine("            }");
+        CloseUcoFailFastGuard(sb);
         sb.AppendLine("        }");
         sb.AppendLine();
     }
@@ -3855,10 +4063,18 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (branchParam.IsObjCBridgeable)
             {
-                // ObjC-bridgeable struct (e.g., URL → NSUrl): crosses ABI as ObjC object
-                // pointer, not heap-allocated Swift struct buffer. passUnretained is safe
-                // because the Swift Result case binding keeps the value alive.
-                sb.Append($"                {cbName}?(Unmanaged.passUnretained({varName} as AnyObject).toOpaque(), {udName})\n");
+                // P1-19: ObjC-bridgeable struct (e.g. Data → NSData, URL → NSURL) crosses the
+                // ABI as an ObjC object pointer. `value as AnyObject` materializes a *bridged
+                // temporary* distinct from the Swift `value` case binding — the binding keeps
+                // the Swift value alive, NOT the bridged object. Because `passUnretained(...)
+                // .toOpaque()` yields an untracked raw pointer, ARC may release that temporary
+                // before the (synchronous) C# callback dereferences it → use-after-free. Bind
+                // the bridged object to a local and hold it across the call with
+                // withExtendedLifetime so it outlives the raw-pointer use.
+                sb.Append($"                let {varName}Obj = {varName} as AnyObject\n");
+                sb.Append($"                withExtendedLifetime({varName}Obj) {{\n");
+                sb.Append($"                    {cbName}?(Unmanaged.passUnretained({varName}Obj).toOpaque(), {udName})\n");
+                sb.Append($"                }}\n");
             }
             else
             {
@@ -3867,8 +4083,24 @@ public static partial class SwiftUIBridgeEmitter
                 // Same pattern as BuildComplexClosureViewInitArg's nil guard.
                 sb.Append($"                guard {cbName} != nil else {{ return }}\n");
                 sb.Append($"                let {varName}Ptr = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{typeName}>.size, alignment: MemoryLayout<{typeName}>.alignment)\n");
-                sb.Append($"                {varName}Ptr.initializeMemory(as: {typeName}.self, repeating: {varName}, count: 1)\n");
-                sb.Append($"                {cbName}?({varName}Ptr, {udName})\n");
+                if (branchParam.StructProjection == StructProjectionKind.FrozenWithMemory)
+                {
+                    // P1-20 (see BuildComplexClosureViewInitArg): a frozen-with-memory struct is
+                    // copied (InitializeWithCopy) by C#, not adopted, so the Swift source buffer must
+                    // be deinitialized + deallocated after the synchronous callback returns — otherwise
+                    // the buffer and its +1 heap-field retains leak. Control flow here is linear (no
+                    // early return between the call and cleanup), so inline rather than defer. Non-frozen
+                    // structs are adopted by C#'s SafeHandle and must NOT be freed here (double-free).
+                    sb.Append($"                let {varName}Typed = {varName}Ptr.initializeMemory(as: {typeName}.self, repeating: {varName}, count: 1)\n");
+                    sb.Append($"                {cbName}?({varName}Ptr, {udName})\n");
+                    sb.Append($"                {varName}Typed.deinitialize(count: 1)\n");
+                    sb.Append($"                {varName}Ptr.deallocate()\n");
+                }
+                else
+                {
+                    sb.Append($"                {varName}Ptr.initializeMemory(as: {typeName}.self, repeating: {varName}, count: 1)\n");
+                    sb.Append($"                {cbName}?({varName}Ptr, {udName})\n");
+                }
             }
         }
         else

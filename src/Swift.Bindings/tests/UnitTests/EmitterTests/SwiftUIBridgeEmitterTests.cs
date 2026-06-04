@@ -1199,7 +1199,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ style: Int32", swiftContent);
-        Assert.Contains("AlertStyle(rawValue: style)!", swiftContent);
+        // P0-03: an out-of-range raw value fails creation gracefully (return nil) instead of
+        // a force-unwrap SIGTRAP. The old `AlertStyle(rawValue: style)!` WAS the crash.
+        Assert.Contains("guard let styleConverted = AlertStyle(rawValue: style) else { return nil }", swiftContent);
+        Assert.DoesNotContain("AlertStyle(rawValue: style)!", swiftContent);
     }
 
     [Fact]
@@ -1372,7 +1375,11 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ styleHasValue: Int32", swiftContent);
         Assert.Contains("_ styleValue: Int32", swiftContent);
-        Assert.Contains("styleHasValue != 0 ? AlertStyle(rawValue: styleValue)! : nil", swiftContent);
+        // P0-03: a present-but-out-of-range raw value fails creation gracefully (return nil)
+        // instead of a force-unwrap trap; a nil Optional (HasValue == 0) stays nil.
+        Assert.Contains("if styleHasValue != 0 {", swiftContent);
+        Assert.Contains("guard let styleCase = AlertStyle(rawValue: styleValue) else { return nil }", swiftContent);
+        Assert.DoesNotContain("AlertStyle(rawValue: styleValue)!", swiftContent);
     }
 
     [Fact]
@@ -6839,7 +6846,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_EnumUpdateView_UpdateStyle\")", swiftContent);
-        Assert.Contains("session.state.style = AlertStyle(rawValue: newValue)!", swiftContent);
+        // P0-03: an out-of-range raw value leaves state unchanged (return) instead of trapping.
+        Assert.Contains("guard let newValueConverted = AlertStyle(rawValue: newValue) else { return }", swiftContent);
+        Assert.Contains("session.state.style = newValueConverted", swiftContent);
+        Assert.DoesNotContain("AlertStyle(rawValue: newValue)!", swiftContent);
         Assert.Contains("@Published var style: AlertStyle", swiftContent);
     }
 
@@ -9363,7 +9373,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("let formats: [AlertStyle]", swiftContent);
-        Assert.Contains("AlertStyle(rawValue: $0)!", swiftContent);
+        // P0-03: each element decodes via a failable init; a single out-of-range raw value fails
+        // reconstruction gracefully (return nil) instead of the old `rawValue: $0)!` force-unwrap.
+        Assert.Contains("guard let formatsElement = AlertStyle(rawValue: formatsRaw) else { return nil }", swiftContent);
+        Assert.DoesNotContain("AlertStyle(rawValue: $0)!", swiftContent);
     }
 
     [Fact]
@@ -9647,6 +9660,48 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("SwiftMarshal.MarshalFromSwift", csContent);
         Assert.Contains("Action<TestModule.DataFormat>", csContent);
+    }
+
+    [Fact]
+    public void ClosureWithObjCBridgeableStructArg_UsesGetNSObjectAndPassUnretained()
+    {
+        // Typed closure (URL) -> Void where URL is an ObjC-bridgeable struct (URL → NSUrl).
+        // The arg crosses the callback ABI as an ObjC OBJECT pointer, so the Swift side must
+        // deliver it via passUnretained(arg as AnyObject) held alive by withExtendedLifetime,
+        // and the C# trampoline must decode it via GetNSObject — NOT heap-allocate the raw URL
+        // struct bytes and read them via MarshalFromSwift (which reinterprets an object pointer
+        // as struct memory → type confusion / SIGSEGV). Contrast the non-ObjC BoundStruct closure
+        // arg above, which correctly allocates + MarshalFromSwift.
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.URL"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.URL"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+                Kind = TypeRecordKind.Struct,
+            },
+        });
+        var view = CreateViewWithTypedClosureInit("UrlClosureView", "onPick",
+            new NamedTypeSpec("TestModule.URL"), TupleTypeSpec.Empty);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // ObjC-bridgeable struct closure arg decodes via GetNSObject + typed NSUrl delegate.
+        Assert.Contains("GetNSObject", csContent);
+        Assert.Contains("Action<Foundation.NSUrl>", csContent);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // Object pointer held alive across the synchronous callback: passUnretained(... as AnyObject)
+        // inside withExtendedLifetime — never a raw heap-allocated URL struct.
+        Assert.Contains("as AnyObject", swiftContent);
+        Assert.Contains("withExtendedLifetime", swiftContent);
+        Assert.Contains("passUnretained", swiftContent);
+        Assert.DoesNotContain("UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<URL>", swiftContent);
     }
 
     [Fact]
@@ -10211,6 +10266,86 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         Assert.NotNull(result);
         Assert.False(result![0].IsUpdatable);
+    }
+
+    // Regression guard for the Result-closure fall-through fix.
+    //
+    // The earlier null-tests above use no / partial type database, so `Swift.Result`
+    // itself is unregistered. In that case the pre-fix typed-closure fall-through ALSO
+    // returned null (the Result arg didn't resolve), so those tests pass even without the
+    // fix — they do not exercise the regression. The bug only manifests when `Swift.Result`
+    // IS resolvable: the fall-through then mapped the whole Result arg through the database
+    // to the generic `Swift.SwiftResult` with its two generic args stripped, emitting an
+    // uncompilable `Action<Swift.SwiftResult>` (CS0305). These two tests register
+    // `Swift.Result` so the unfixed code path would produce that shape.
+    private static ITypeDatabase CreateResultResolvableButSuccessUnsupportedTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            // Swift.Result resolves to the generic Swift.SwiftResult — the trap type.
+            ["Swift.Result"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Result"),
+                MetadataAccessor = "$ss6ResultOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+            ["TestModule.ScanError"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanError"),
+                MetadataAccessor = "$s10TestModule9ScanErrorCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+            // The success type (TestModule.Unsupported) is deliberately ABSENT, so
+            // MapResultClosureType cannot resolve it and returns null.
+        });
+    }
+
+    [Fact]
+    public void MapResultClosure_DoesNotFallThroughToTypedClosure_WhenSuccessUnsupportedButResultResolvable()
+    {
+        var context = new BridgeContext(CreateResultResolvableButSuccessUnsupportedTypeDatabase());
+        // (Result<TestModule.Unsupported, ScanError>) -> Void — success type not bridge-supported.
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "TestModule.Unsupported", "TestModule.ScanError");
+
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        // The whole init must be unbridgeable (null). The pre-fix code fell through to
+        // typed-closure handling, resolved the Result arg to BoundType SwiftResult, and
+        // returned a (non-null) TypedClosure param — which then emitted Action<SwiftResult>.
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void EmitResultClosure_NoStrippedGenericSwiftResult_WhenSuccessUnsupported()
+    {
+        // Keep-alive view guarantees the bridge files are written even though the
+        // Result-closure view itself degrades (so File.ReadAllText below always succeeds).
+        var unsupportedView = CreateViewStructWithNoConstructor("ScannerView");
+        unsupportedView.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.Unsupported", "TestModule.ScanError"));
+        var views = new List<TypeDecl>
+        {
+            CreateSimpleViewStruct("KeepAliveView"),
+            unsupportedView,
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, CreateResultResolvableButSuccessUnsupportedTypeDatabase());
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+
+        // The CS0305 regression shape: SwiftResult<,> emitted with its generics stripped.
+        Assert.DoesNotContain("SwiftResult", csContent);
+        Assert.DoesNotContain("SwiftResult", swiftContent);
+        // And no functional Result decomposition was emitted for the unsupported view.
+        Assert.DoesNotContain("CompletionSuccessTrampoline", csContent);
+        Assert.DoesNotContain("CompletionErrorTrampoline", csContent);
     }
 
     [Fact]

@@ -782,3 +782,199 @@ public func SBW_TEST_RichToolbarView_GetSubtitleLength(_ handle: UnsafeMutableRa
         return Int32(session.state.subtitle.utf8.count)
     }
 }
+
+// MARK: - Audit Session 5 helpers
+//
+// Test hooks for the SwiftUI-bridge defect fixtures in AuditSession5Views.swift.
+// The closure-firing helpers call the closure stored on the Wrapper, which IS the
+// generated decomposition closure built in the Session init — so they exercise the
+// real P1-19 (withExtendedLifetime) / P1-20 (heap-buffer initializeMemory) callback
+// marshalling rather than bypassing it.
+
+// MARK: UrlResultView (P1-19) — Result<URL, ScanError> closure
+
+extension SBW_SwiftBindingsTestLib_UrlResultView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_UrlResultView_Wrapper { hostingController.rootView }
+}
+
+/// Fire onResult(.success(URL)) with a deterministic URL keyed by `value`.
+/// The success payload is an ObjC-bridgeable struct (URL→NSURL); the generated
+/// decomposition closure binds `value as AnyObject` and `withExtendedLifetime`s it
+/// across the synchronous C callback. Without that guard the bridged NSURL could be
+/// released before the C# callback reads absoluteString (the P1-19 use-after-free).
+/// Returns 1 on success, -1 if the handle is invalid.
+@_cdecl("SBW_TEST_UrlResultView_InvokeSuccess")
+public func SBW_TEST_UrlResultView_InvokeSuccess(
+    _ handle: UnsafeMutableRawPointer?,
+    _ value: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UrlResultView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UrlResultView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let url = URL(string: "https://audit.example/url-result/\(value)")!
+        session.rootView.onResult(.success(url))
+        return 1
+    }
+}
+
+/// Fire onResult(.failure(ScanError(code:))).
+/// Returns 1 on success, -1 if the handle is invalid.
+@_cdecl("SBW_TEST_UrlResultView_InvokeError")
+public func SBW_TEST_UrlResultView_InvokeError(
+    _ handle: UnsafeMutableRawPointer?,
+    _ code: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UrlResultView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UrlResultView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        session.rootView.onResult(.failure(ScanError(code: code)))
+        return 1
+    }
+}
+
+// MARK: UrlClosureView (review) — typed (URL)->Void closure, ObjC-bridgeable struct arg
+
+extension SBW_SwiftBindingsTestLib_UrlClosureView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_UrlClosureView_Wrapper { hostingController.rootView }
+}
+
+/// Fire onPick(URL(string:)) with a deterministic URL keyed by `value`. The generated
+/// decomposition closure bridges the URL to NSURL and delivers it as an object pointer
+/// (Unmanaged.passUnretained, held by withExtendedLifetime); the C# trampoline reads it via
+/// GetNSObject. A wrong path (heap-allocate raw struct bytes + MarshalFromSwift) would
+/// reinterpret the object pointer as struct memory → garbage AbsoluteString or SIGSEGV.
+/// Returns 1 on success, -1 if the handle is invalid.
+@_cdecl("SBW_TEST_UrlClosureView_InvokeOnPick")
+public func SBW_TEST_UrlClosureView_InvokeOnPick(
+    _ handle: UnsafeMutableRawPointer?,
+    _ value: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UrlClosureView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UrlClosureView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        session.rootView.onPick(URL(string: "https://audit.example/url-closure/\(value)")!)
+        return 1
+    }
+}
+
+// MARK: FrozenRefClosureView (P1-20) — @frozen struct w/ ref field as closure arg
+
+extension SBW_SwiftBindingsTestLib_FrozenRefClosureView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_FrozenRefClosureView_Wrapper { hostingController.rootView }
+}
+
+/// Fire onEvent(FrozenRefArg(s:)) with a deterministic String keyed by `value`.
+/// FrozenRefArg is a @frozen struct holding a String (ref-holding field); the generated
+/// decomposition closure copies it into a heap buffer via initializeMemory (ARC-correct)
+/// before the C callback and deinitializes/deallocates after (P1-20). The C# trampoline
+/// reads back the .S field — a corrupt or leaked String there would prove the buffer
+/// marshalling is wrong. Returns 1 on success, -1 if the handle is invalid.
+@_cdecl("SBW_TEST_FrozenRefClosureView_InvokeOnEvent")
+public func SBW_TEST_FrozenRefClosureView_InvokeOnEvent(
+    _ handle: UnsafeMutableRawPointer?,
+    _ value: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_FrozenRefClosureView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_FrozenRefClosureView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        session.rootView.onEvent(FrozenRefArg(s: "frozen-ref-\(value)"))
+        return 1
+    }
+}
+
+// MARK: UrlParamView (P0-04) — ObjC-bridgeable struct (URL) param
+
+/// Return the UTF-8 byte length of the bridged URL's absoluteString, or -1 if the handle
+/// is invalid. Lets the C# test confirm the URL crossed the Create ABI as an
+/// ObjC-bridgeable struct param without truncation.
+@_cdecl("SBW_TEST_UrlParamView_GetTargetLength")
+public func SBW_TEST_UrlParamView_GetTargetLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_UrlParamView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_UrlParamView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.state.target.absoluteString.utf8.count)
+    }
+}
+
+// MARK: OptionalUrlParamView (P0-04) — Optional<ObjC-bridgeable struct> param
+
+/// Return the UTF-8 byte length of the bridged URL?'s absoluteString, -2 if the target is
+/// nil, or -1 if the handle is invalid.
+@_cdecl("SBW_TEST_OptionalUrlParamView_GetTargetLength")
+public func SBW_TEST_OptionalUrlParamView_GetTargetLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_OptionalUrlParamView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalUrlParamView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        guard let target = session.state.target else { return -2 }
+        return Int32(target.absoluteString.utf8.count)
+    }
+}
+
+// MARK: ArrayEnumView (P0-03) — [BoundEnum] param
+
+/// Return the number of decoded AlertStyle elements, or -1 if the handle is invalid.
+@_cdecl("SBW_TEST_ArrayEnumView_GetCount")
+public func SBW_TEST_ArrayEnumView_GetCount(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ArrayEnumView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ArrayEnumView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.styles.count)
+    }
+}
+
+/// Return the rawValue of the AlertStyle at `index`, or -1 if the handle/index is invalid.
+@_cdecl("SBW_TEST_ArrayEnumView_GetElement")
+public func SBW_TEST_ArrayEnumView_GetElement(
+    _ handle: UnsafeMutableRawPointer?,
+    _ index: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ArrayEnumView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ArrayEnumView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let i = Int(index)
+        guard i >= 0, i < session.styles.count else { return -1 }
+        return session.styles[i].rawValue
+    }
+}
+
+// MARK: HandleParamView (P1-22) — init params colliding with generated locals
+
+/// Return the stored `handle` field, or Int32.min if the handle is invalid.
+@_cdecl("SBW_TEST_HandleParamView_GetHandle")
+public func SBW_TEST_HandleParamView_GetHandle(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_HandleParamView_liveHandles.contains(handle) else { return Int32.min }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_HandleParamView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.state.handle
+    }
+}
+
+/// Return the stored `session` field, or Int32.min if the handle is invalid.
+@_cdecl("SBW_TEST_HandleParamView_GetSession")
+public func SBW_TEST_HandleParamView_GetSession(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_HandleParamView_liveHandles.contains(handle) else { return Int32.min }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_HandleParamView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.state.session
+    }
+}

@@ -36,6 +36,15 @@ public class SimpleModel {
     }
 }
 
+// MARK: - Audit Session 5 supporting types
+
+/// Frozen struct with a reference-holding String field for P1-20 closure arg testing.
+/// @frozen ensures the bridge emits CallConvSwift layout (not resilient indirect pointer).
+@frozen public struct FrozenRefArg {
+    public let s: String
+    public init(s: String) { self.s = s }
+}
+
 // MARK: - Async chain types
 
 /// Async service class for testing single-level async chain inference.
