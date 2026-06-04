@@ -416,6 +416,43 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Detect_NonPublicImportOfRegisteredModule_StillEmitsDep()
+        {
+            // DELIBERATE BEHAVIOR LOCK: a non-public import (@_implementationOnly /
+            // private / internal import) of a REGISTERED module must STILL produce a
+            // dep edge. Unlike the wrapper re-emission path (ModuleHandler, which drops
+            // non-public imports via ExtractNonPublicImports so swiftc doesn't try to
+            // `import` a C++-only sibling), dependency detection must keep them: this
+            // binding's compiled dylib links the module at runtime regardless of import
+            // visibility, so the consumer's package must transitively pull its binding
+            // package or hit DllNotFound. If this test ever "fixes" non-public imports
+            // out of the dep set, it has reintroduced that shipping hazard.
+            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "apple-import-detector-tests-" + System.Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+            try
+            {
+                var path = System.IO.Path.Combine(tempDir, "test.swiftinterface");
+                System.IO.File.WriteAllText(path, """
+                    // swift-interface-format-version: 1.0
+                    import Foundation
+                    @_implementationOnly import RealityFoundation
+                    import Swift
+                    """);
+
+                var result = AppleFrameworkImportDetector.Detect(path, "RealityKit", "26.2.1");
+
+                Assert.Single(result);
+                Assert.Equal("RealityFoundation", result[0].ModuleName);
+                Assert.Equal("SwiftBindings.Apple.RealityFoundation", result[0].PackageId);
+            }
+            finally
+            {
+                System.IO.Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
         public void Detect_NonexistentFile_Throws()
         {
             var bogusPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),

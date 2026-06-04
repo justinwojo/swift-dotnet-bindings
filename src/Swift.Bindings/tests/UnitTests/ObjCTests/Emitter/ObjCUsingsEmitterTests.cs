@@ -122,6 +122,35 @@ public class ObjCUsingsEmitterTests
         Assert.Contains("using Foundation;", output);
     }
 
+    [Fact]
+    public void ApiDefinition_tvOS_OmitsWebKit()
+    {
+        // WebKit.framework does not ship on tvOS, so the kitchen-sink `using WebKit;`
+        // caused CS0246 on every generated mixed-binding ObjC companion targeting
+        // tvOS (surfaced by the four-platform mixed/multi-tfm PackGate leg).
+        var output = EmitApiDefinition(TrivialClassModule(), platformInfo: tvOS);
+        Assert.DoesNotContain("using WebKit;", output);
+    }
+
+    [Theory]
+    [InlineData("iOS")]
+    [InlineData("macOS")]
+    [InlineData("MacCatalyst")]
+    public void ApiDefinition_WebKitPlatforms_IncludeWebKit(string platformName)
+    {
+        // WebKit IS available on iOS, macOS, and Mac Catalyst — only tvOS lacks it,
+        // so the gate must keep `using WebKit;` everywhere except tvOS.
+        var pi = platformName switch
+        {
+            "iOS" => iOS,
+            "macOS" => macOS,
+            "MacCatalyst" => MacCatalyst,
+            _ => throw new System.ArgumentException(platformName),
+        };
+        var output = EmitApiDefinition(TrivialClassModule(), platformInfo: pi);
+        Assert.Contains("using WebKit;", output);
+    }
+
     // --- StructsAndEnums.cs ---
 
     [Fact]

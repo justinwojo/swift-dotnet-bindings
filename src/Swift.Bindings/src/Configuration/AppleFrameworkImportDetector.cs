@@ -201,6 +201,22 @@ public static class AppleFrameworkImportDetector
             throw new FileNotFoundException("swiftinterface file not found.", swiftInterfacePath);
 
         var text = File.ReadAllText(swiftInterfacePath);
+        // Use the BROAD ExtractImports set on purpose — non-public imports
+        // (@_implementationOnly / private / internal import) are deliberately NOT
+        // filtered here, unlike the wrapper re-emission path in ModuleHandler which
+        // drops them via ExtractNonPublicImports. The two paths answer different
+        // questions:
+        //   * Wrapper re-emission asks "may the generated wrapper module write
+        //     `import X`?" — no, if X is non-public (often a C++-only sibling swiftc
+        //     can't import), so it filters them out.
+        //   * Dependency detection (here) asks "does the consumer's package need X's
+        //     binding package present at restore/runtime?" — YES even for a non-public
+        //     import: this binding's compiled dylib still LINKS X, so X.dylib must load
+        //     at runtime, which means the consumer must transitively pull X's package.
+        //     Dropping non-public imports here would ship a nupkg whose dylib references
+        //     an absent sibling → DllNotFound. Registry filtering in ResolveDependencies
+        //     still keeps this to modules that actually ship as binding packages (system
+        //     frameworks present in the OS are unregistered and drop out).
         var imports = ExtractImports(text);
         return ResolveDependencies(imports, currentModule, appleVersion);
     }

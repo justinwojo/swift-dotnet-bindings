@@ -93,7 +93,21 @@ partial class Build
         RunPackGateMixedMultiTfmLeg(mixedRoot, nupkgDir);
     }
 
-    // ── Multi-TFM leg: one mixed binding, two platforms, one package ────────────
+    // The platforms the multi-TFM mixed leg packs into ONE package. iOS + macOS are the
+    // load-bearing pair; Mac Catalyst (UIKit-on-mac) and tvOS have distinct linkers and
+    // runtimes, so the per-TFM companion-embed + single-package contract is proven on them
+    // too (Gap #2). The runtimes/<rid>/native dir each platform's lib TFM resolves to comes
+    // from ApplePlatform.NativeRid (host Rid, or the device slice id for sim-deployed
+    // platforms) — derived from the model so there is no parallel RID list to drift.
+    static readonly ApplePlatform[] PackGateMixedMultiTfmPlatforms =
+    {
+        ApplePlatform.IOS,
+        ApplePlatform.MacOS,
+        ApplePlatform.MacCatalyst,
+        ApplePlatform.TvOS,
+    };
+
+    // ── Multi-TFM leg: one mixed binding, four platforms, one package ───────────
     // Locks in that a multi-targeted mixed binding embeds the CORRECT per-platform
     // ObjC companion in each lib/<tfm>/ slice — the regression a silent single-capture
     // companion path would introduce (the wrong-platform managed assembly under a slice).
@@ -102,7 +116,7 @@ partial class Build
         const string module = "SbGap2MultiTfm";
         const string probeClass = "SbGap2MultiTfmProbe";
 
-        Log.Information("=== PackGate (mixed/multi-tfm): building iOS(device+sim)+macOS mixed xcframework ===");
+        Log.Information("=== PackGate (mixed/multi-tfm): building iOS(device+sim)+macOS+MacCatalyst+tvOS(device+sim) mixed xcframework ===");
         var legRoot = mixedRoot / "multitfm";
         if (Directory.Exists(legRoot)) legRoot.DeleteDirectory();
         legRoot.CreateDirectory();
@@ -113,14 +127,15 @@ partial class Build
         fixtureDir.CreateDirectory();
         fixtureOut.CreateDirectory();
 
-        // ONE csproj, TWO platforms — the multi-targeted mixed binding under test. The
+        // ONE csproj, FOUR platforms — the multi-targeted mixed binding under test. The
         // version-suffixed TFM breaks single-TFM platform detection, so each entry is the
         // unsuffixed net10.0-<platform> (NuGet resolves each to its versioned lib/ slice).
+        var tfms = string.Join(";", PackGateMixedMultiTfmPlatforms.Select(p => p.GetTfm()));
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
                 <TargetFramework />
-                <TargetFrameworks>net10.0-ios;net10.0-macos</TargetFrameworks>
+                <TargetFrameworks>{tfms}</TargetFrameworks>
                 <PackageId>PackGateMixedFixture.{module}</PackageId>
                 <PackageVersion>{PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
@@ -166,28 +181,32 @@ partial class Build
 
         var failures = new List<string>();
 
-        // (a) iOS slice carries the iOS companion; (b) macOS slice carries the macOS
-        //     companion. AssertCompanionEmbeddedInLib also fails if the named companion
-        //     appears more than once under lib/, so calling it per-platform proves
-        //     isolation: the .ObjC.iOS assembly lives ONLY in the ios slice and the
-        //     .ObjC.macOS assembly ONLY in the macos slice — no wrong-platform embed.
-        AssertCompanionEmbeddedInLib(extract, module, "iOS", "ios", failures);
-        AssertCompanionEmbeddedInLib(extract, module, "macOS", "macos", failures);
+        // (a/b) each platform's lib slice carries ONLY its own ObjC companion.
+        //     AssertCompanionEmbeddedInLib also fails if the named companion appears more
+        //     than once under lib/, so calling it per-platform proves isolation: the
+        //     .ObjC.<platform> assembly lives ONLY in that platform's slice — no
+        //     wrong-platform embed. (PackageSuffix names the dll, TfmSuffix the slice dir.)
+        foreach (var p in PackGateMixedMultiTfmPlatforms)
+            AssertCompanionEmbeddedInLib(extract, module, p.PackageSuffix, p.TfmSuffix, failures);
 
-        // (c) belt-and-suspenders cross-isolation: explicitly assert neither companion
-        //     bled into the other platform's slice (a future change could embed BOTH in
-        //     each slice — that would pass the per-platform single-hit check above only if
-        //     it also dropped the other, so name the exact forbidden placements here).
-        AssertCompanionNotInForeignSlice(extract, $"{module}.ObjC.iOS.dll", foreignInfix: "macos", failures);
-        AssertCompanionNotInForeignSlice(extract, $"{module}.ObjC.macOS.dll", foreignInfix: "ios", failures);
+        // (c) belt-and-suspenders cross-isolation: for every ordered (own, foreign) pair,
+        //     explicitly assert the own companion did NOT bleed into the foreign platform's
+        //     slice (a future change could embed BOTH in each slice — that would pass the
+        //     per-platform single-hit check above only if it also dropped the other, so name
+        //     the exact forbidden placements here across the full N×(N-1) matrix).
+        foreach (var own in PackGateMixedMultiTfmPlatforms)
+            foreach (var foreign in PackGateMixedMultiTfmPlatforms)
+                if (own.TfmSuffix != foreign.TfmSuffix)
+                    AssertCompanionNotInForeignSlice(extract, $"{module}.ObjC.{own.PackageSuffix}.dll", foreignInfix: foreign.TfmSuffix, failures);
 
-        // (d) per-RID native wrappers for BOTH platforms ship in the one package; and because
+        // (d) per-RID native wrappers for EVERY platform ship in the one package; and because
         //     the fixture source is STATIC, the source xcframework is DROPPED from every RID —
         //     the wrapper force-loads the static archive and is the sole carrier (Gap 2), so the
         //     source must never ship alongside the wrapper (double-embed = duplicate ObjC-class
         //     registration at link/run). Assert both per RID, matching the static leg's rigor.
-        foreach (var rid in new[] { "ios-arm64", "osx-arm64" })
+        foreach (var p in PackGateMixedMultiTfmPlatforms)
         {
+            var rid = p.NativeRid;
             var nativeDir = extract / "runtimes" / rid / "native";
             if (!Directory.Exists(nativeDir / $"{module}SwiftBindings.xcframework"))
                 failures.Add($"missing wrapper xcframework for {rid}: runtimes/{rid}/native/{module}SwiftBindings.xcframework/ — the multi-TFM package must ship native for every targeted platform.");
@@ -205,13 +224,16 @@ partial class Build
             foreach (var f in failures) Log.Error("  {Detail}", f);
             Assert.Fail($"PackGate (mixed/multi-tfm): {failures.Count} structural defect(s) — see log.");
         }
-        Log.Information("PackGate (mixed/multi-tfm) structural OK — exactly one package, .ObjC.iOS in lib/ios slice, .ObjC.macOS in lib/macos slice, wrapper-only native for both RIDs (static source dropped)");
+        Log.Information("PackGate (mixed/multi-tfm) structural OK — exactly one package; per-platform .ObjC.<{Platforms}> companions each isolated to their own lib slice; wrapper-only native for every RID (static source dropped)",
+            string.Join(",", PackGateMixedMultiTfmPlatforms.Select(p => p.PackageSuffix)));
     }
 
-    // Builds a static MIXED xcframework with iOS device + iOS simulator + macOS slices —
-    // enough for a multi-TFM (net10.0-ios;net10.0-macos) binding to pack both platforms.
-    // Reuses the shared per-slice recipe; slice parameters come from ApplePlatform so the
-    // triples/sdks/min-OS/plist stay the single source of truth.
+    // Builds a static MIXED xcframework spanning every platform in PackGateMixedMultiTfmPlatforms
+    // (iOS device+sim, macOS, Mac Catalyst, tvOS device+sim) — enough for the multi-TFM binding to
+    // pack all four. Reuses the shared per-slice recipe; slice parameters come from ApplePlatform so
+    // the triples/sdks/min-OS/plist stay the single source of truth. create-xcframework keys each
+    // slice off its Mach-O LC_BUILD_VERSION platform (driven by the triple), so the macabi and
+    // macos-arm64 slices — both arm64 — slot into distinct platform buckets without collision.
     AbsolutePath BuildPackGateMixedMultiTfmXcframework(AbsolutePath buildRoot, string module, string probeClass)
     {
         if (Directory.Exists(buildRoot)) buildRoot.DeleteDirectory();
@@ -219,26 +241,23 @@ partial class Build
         var (probeM, libSwift) = WriteMixedFrameworkSources(buildRoot, module, probeClass);
 
         var slices = new List<AbsolutePath>();
-        var ios = ApplePlatform.IOS;
+        foreach (var p in PackGateMixedMultiTfmPlatforms)
+        {
+            if (p.HasDeviceSlice)
+            {
+                var deviceSlice = buildRoot / p.DeviceSliceId!;
+                BuildMixedFrameworkSlice(deviceSlice, probeM, libSwift, module, probeClass, isStatic: true,
+                    triple: p.DeviceTarget!, moduleSuffix: p.DeviceModuleSuffix!,
+                    sdkName: p.DeviceSdkName!, minOs: p.MinOsVersion, plistPlatform: p.DevicePlistPlatform!);
+                slices.Add(deviceSlice / $"{module}.framework");
+            }
 
-        var iosDevice = buildRoot / ios.DeviceSliceId!;
-        BuildMixedFrameworkSlice(iosDevice, probeM, libSwift, module, probeClass, isStatic: true,
-            triple: ios.DeviceTarget!, moduleSuffix: ios.DeviceModuleSuffix!,
-            sdkName: ios.DeviceSdkName!, minOs: ios.MinOsVersion, plistPlatform: ios.DevicePlistPlatform!);
-        slices.Add(iosDevice / $"{module}.framework");
-
-        var iosSim = buildRoot / ios.SimulatorSliceId;
-        BuildMixedFrameworkSlice(iosSim, probeM, libSwift, module, probeClass, isStatic: true,
-            triple: ios.SimulatorTarget, moduleSuffix: ios.SimulatorModuleSuffix,
-            sdkName: ios.SimulatorSdkName, minOs: ios.MinOsVersion, plistPlatform: ios.SimulatorPlistPlatform);
-        slices.Add(iosSim / $"{module}.framework");
-
-        var mac = ApplePlatform.MacOS;
-        var macSlice = buildRoot / mac.SimulatorSliceId;
-        BuildMixedFrameworkSlice(macSlice, probeM, libSwift, module, probeClass, isStatic: true,
-            triple: mac.SimulatorTarget, moduleSuffix: mac.SimulatorModuleSuffix,
-            sdkName: mac.SimulatorSdkName, minOs: mac.MinOsVersion, plistPlatform: mac.SimulatorPlistPlatform);
-        slices.Add(macSlice / $"{module}.framework");
+            var primarySlice = buildRoot / p.SimulatorSliceId;
+            BuildMixedFrameworkSlice(primarySlice, probeM, libSwift, module, probeClass, isStatic: true,
+                triple: p.SimulatorTarget, moduleSuffix: p.SimulatorModuleSuffix,
+                sdkName: p.SimulatorSdkName, minOs: p.MinOsVersion, plistPlatform: p.SimulatorPlistPlatform);
+            slices.Add(primarySlice / $"{module}.framework");
+        }
 
         var xcframeworkPath = buildRoot / $"{module}.xcframework";
         if (Directory.Exists(xcframeworkPath)) xcframeworkPath.DeleteDirectory();
@@ -246,7 +265,8 @@ partial class Build
         foreach (var s in slices) create = create.AddFrameworkPath(s);
         XcodeBuild.ExecuteCreateXcframework(create);
 
-        Log.Information("  built static+mixed iOS+macOS xcframework (3 slices): {Path}", xcframeworkPath);
+        Log.Information("  built static+mixed iOS+macOS+MacCatalyst+tvOS xcframework ({Count} slices): {Path}",
+            slices.Count, xcframeworkPath);
         return xcframeworkPath;
     }
 

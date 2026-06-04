@@ -443,6 +443,236 @@ namespace BindingsGeneration.Tests
             Assert.Contains("StripeCore.Swift.iOS.csproj", output);
         }
 
+        // ── Multi-framework first-build ordering (Gap #7): _BuildSiblingSwiftBindingDeps
+        //    pre-builds user-declared sibling ProjectReferences before the database scan +
+        //    generate. (Sibling Apple-framework deps need no in-tree pre-build — they are
+        //    always a restored PackageReference feeding _CollectSwiftModuleDatabases Source 1.) ──
+
+        [Fact]
+        public void BuildSiblingSwiftBindingDeps_PreBuildsSiblingProjectReference()
+        {
+            // On a CLEAN first build a multi-framework library's lower binding (a sibling
+            // ProjectReference) hasn't been built yet when _CollectSwiftModuleDatabases /
+            // _GenerateSwiftBindings run — ResolveProjectReferences builds siblings AFTER
+            // generate — so cross-module type resolution degrades to a CS0234 and the wrapper
+            // -F path misses the sibling, self-healing only on the 2nd build.
+            // _BuildSiblingSwiftBindingDeps closes that by pre-building the sibling first.
+            //
+            // Drive the REAL _CollectSwiftModuleDatabases chain (not the pre-build target in
+            // isolation): _BuildSiblingSwiftBindingDeps gates its Condition on
+            // @(_UserProjectReference), which is populated by _DiscoverProjectReferenceDependencies
+            // running early via _ComputeSwiftFingerprint's BeforeTargets — exactly the ordering
+            // the pre-build target needs. Invoking the pre-build target alone would evaluate its
+            // Condition before that runs and skip it.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // A sibling "binding" project: a plain MSBuild project whose Build target echoes
+            // a marker (a non-SDK <Project> so Targets="Build" hits our marker, not the MS default).
+            var siblingDir = Path.Combine(_tempDir, "Sibling.Swift.iOS");
+            Directory.CreateDirectory(siblingDir);
+            var siblingCsproj = Path.Combine(siblingDir, "Sibling.Swift.iOS.csproj");
+            File.WriteAllText(siblingCsproj, """
+                <Project>
+                  <Target Name="Restore" />
+                  <Target Name="Build">
+                    <Message Importance="High" Text="SIBLING_PREBUILT" />
+                  </Target>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Keep the REAL _DiscoverProjectReferenceDependencies (populates _UserProjectReference),
+            // _DetectSwiftBindingTargetKind (sets the non-Apple kind), and _BuildSiblingSwiftBindingDeps.
+            // Override the targets whose real bodies need an xcframework or reject the test TFM:
+            //   _ComputeSwiftFingerprint — empty body, but its BeforeTargets hooks
+            //     (_DiscoverProjectReferenceDependencies, _DetectSwiftBindingTargetKind) STILL fire,
+            //     which is exactly what populates _UserProjectReference + the kind before
+            //     _BuildSiblingSwiftBindingDeps's Condition is evaluated.
+            //   _DiscoverSwiftFrameworks — would error SWIFTBIND001 with no xcframework.
+            //   _ValidateSwiftPackageItems — fires SWIFTBIND010 on the net10.0 test TFM.
+            //   _DetectAppleFrameworkCrossModuleDeps — a _CollectSwiftModuleDatabases dep that
+            //     would otherwise resolve Apple framework paths / shell the generator.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <ProjectReference Include="{siblingCsproj}" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_DetectAppleFrameworkCrossModuleDeps" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            // Drive the real _CollectSwiftModuleDatabases entry: it DependsOn
+            // _BuildSiblingSwiftBindingDeps, and its earlier _ComputeSwiftFingerprint dep pulls
+            // in the BeforeTargets-scheduled discovery that populates _UserProjectReference first.
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CollectSwiftModuleDatabases -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_CollectSwiftModuleDatabases (sibling pre-build) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SIBLING_PREBUILT", output);
+        }
+
+        [Fact]
+        public void BuildSiblingSwiftBindingDeps_ForwardsPinnedConfigurationAndTargetFramework()
+        {
+            // When a sibling ProjectReference pins a CROSS-config/cross-TFM slice via
+            // SetConfiguration/SetTargetFramework, _BuildSiblingSwiftBindingDeps must pre-build it
+            // under THAT slice — the same one _CollectSwiftModuleDatabases Source 3 and the wrapper
+            // -F query later scan (obj/<cfg>/<tfm>/). Forwarding only the parent Configuration (as
+            // the pre-build did before this fix) builds the sibling into obj/Debug/ while a
+            // Release-pinned discovery scans obj/Release/ → the database + wrapper xcframework are
+            // missed on a clean first build. SetConfiguration is MSBuild's canonical
+            // `Configuration=<cfg>` form, passed verbatim and appended AFTER the parent default so
+            // the pin wins. This mirrors Codex's reported repro shape (both pins set).
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Sibling echoes the active Configuration/TargetFramework it was actually built under.
+            var siblingDir = Path.Combine(_tempDir, "Sibling.Swift.iOS");
+            Directory.CreateDirectory(siblingDir);
+            var siblingCsproj = Path.Combine(siblingDir, "Sibling.Swift.iOS.csproj");
+            File.WriteAllText(siblingCsproj, """
+                <Project>
+                  <Target Name="Restore" />
+                  <Target Name="Build">
+                    <Message Importance="High" Text="SIBLING_CFG=$(Configuration)" />
+                    <Message Importance="High" Text="SIBLING_TFM=$(TargetFramework)" />
+                  </Target>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Parent defaults to Debug (Microsoft.NET.Sdk's Configuration default). The pin forces
+            // the sibling onto Release, so a leaked-parent-config bug shows as SIBLING_CFG=Debug.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <ProjectReference Include="{siblingCsproj}"
+                                      SetConfiguration="Configuration=Release"
+                                      SetTargetFramework="TargetFramework=net10.0" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_DetectAppleFrameworkCrossModuleDeps" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CollectSwiftModuleDatabases -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_CollectSwiftModuleDatabases (pinned sibling pre-build) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            // The pin won: the sibling built under Release/net10.0, not the parent's Debug.
+            Assert.Contains("SIBLING_CFG=Release", output);
+            Assert.Contains("SIBLING_TFM=net10.0", output);
+            Assert.DoesNotContain("SIBLING_CFG=Debug", output);
+        }
+
+        // ── SwiftUI bridge -F search path must mirror the wrapper's (include BOTH the resolved
+        //    ProjectReference xcframeworks AND every explicit SwiftFrameworkDependency). ──
+
+        [Fact]
+        public void CompileSwiftUIBridge_IncludesFrameworkDependencyAlongsideProjectRefDep()
+        {
+            // A bare SwiftFrameworkDependency (a framework with no binding project, e.g. Stripe3DS2)
+            // must still reach the bridge compile even when a ProjectReference dep
+            // (_ResolvedDepXCFramework) is ALSO present. Previously it was dropped whenever
+            // _ResolvedDepXCFramework was non-empty, failing bridge compilation (SWIFTBIND052) so
+            // bridge views threw DllNotFound. The bridge now mirrors _CompileSwiftWrapper exactly.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+
+            var bindingDir = Path.Combine(_tempDir, "Bridge.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+            var sourceXcfw = Path.Combine(bindingDir, "Bridged.xcframework");
+            Directory.CreateDirectory(sourceXcfw);
+
+            // Bridge skip is keyed on _SwiftBindingHasBridgeSwift (peeked from props by the target).
+            var metadataProps = """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingHasBridgeSwift>True</_SwiftBindingHasBridgeSwift>
+                    <_SwiftBindingBridgeModuleName>BridgedBridge</_SwiftBindingBridgeModuleName>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var resolvedDep = Path.Combine(_tempDir, "ResolvedSibling.xcframework");
+            var explicitDep = Path.Combine(_tempDir, "Stripe3DS2.xcframework");
+
+            // _ResolvedDepXCFramework is normally produced by _CompileSwiftWrapper; inject it
+            // directly since we invoke the bridge target in isolation. SwiftFrameworkDependency is
+            // the bare (no binding project) dep that the buggy condition used to drop.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <_SwiftBindingGeneratorDir>{stubDir}</_SwiftBindingGeneratorDir>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{sourceXcfw}" />
+                    <SwiftFrameworkDependency Include="{explicitDep}" />
+                    <_ResolvedDepXCFramework Include="{resolvedDep}" />
+                  </ItemGroup>
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_UpdateSwiftWrapperMetadata" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:_CompileSwiftUIBridge -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_CompileSwiftUIBridge failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("STUB_RECEIVED_ARGS:", output);
+            Assert.Contains("--compile-bridge-only", output);
+            // Both deps must be on the bridge -F path simultaneously.
+            Assert.Contains("ResolvedSibling.xcframework", output);
+            Assert.Contains("Stripe3DS2.xcframework", output);
+        }
+
         // ── Source-native-linkage is read solely by _ComputeSwiftBindingSourceXcframeworkInclusion
         //    (it self-peeks binding-metadata.props so the generator-free GetNativeManifest path can
         //    depend on it). Its read + absent→Dynamic default are covered by the

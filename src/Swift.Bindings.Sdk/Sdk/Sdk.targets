@@ -1313,66 +1313,74 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Target 2a': Pre-build sibling Apple-framework dep csprojs                -->
+  <!-- Target 2a-bis: Pre-build sibling Swift-binding ProjectReferences        -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Apple-framework cross-module qualification (e.g. RealityKit referencing
-       RealityFoundation.Entity through the umbrella) requires the dep's
-       <DepModule>Database.xml to exist on disk when this project's generator
-       runs. _DetectAppleFrameworkCrossModuleDeps auto-injects a ProjectReference
-       to the sibling csproj when present, but ResolveProjectReferences runs
-       AFTER _GenerateSwiftBindingsAppleFramework — so on a clean build, the
-       dep is built too late and our generator emits umbrella-rooted type
-       qualifications that fail with CS0234 at C# compile.
+  <!-- Multi-framework libraries are bound as several binding projects where a
+       higher module ProjectReferences a lower one (e.g. PaymentSheet → Core).
+       The lower binding's module database and wrapper xcframework are produced by
+       its OWN build, but ResolveProjectReferences — which builds the
+       ProjectReferences — runs AFTER _GenerateSwiftBindings and
+       _CompileSwiftWrapper. On a CLEAN first build the lower binding therefore
+       hasn't been built yet, so _CollectSwiftModuleDatabases (Source 3) finds no
+       *Database.xml — the generator emits unresolved cross-module references that
+       fail with CS0234 at C# compile — and the wrapper -F search path is missing
+       the sibling wrapper xcframework. Without a structural fix this only self-heals
+       on the SECOND build (the dep is now present) — a first-run papercut.
 
-       Pre-building each sibling dep here ensures their DBs exist before
-       _CollectSwiftModuleDatabases scans for them. Subsequent
-       ResolveProjectReferences sees the dep as up-to-date and is a no-op.
-       BuildInParallel is off because nested invocations may themselves
-       recurse for transitive Apple deps; serial keeps the recursion graph
-       deterministic and the per-dep build is short. -->
-  <Target Name="_BuildSiblingAppleFrameworkDeps"
-          DependsOnTargets="_DetectAppleFrameworkCrossModuleDeps"
-          Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '@(_SwiftAppleAutoDep)' != ''">
-    <!-- Restore first: the sibling ProjectReference was injected during target
-         execution (after the parent's restore phase), so the dep's
-         project.assets.json doesn't yet exist on a clean build. Restore is a
-         no-op when assets are already current, so the cost is bounded.
+       This target IS that structural fix; the ContinueOnError warning + multi-framework
+       build hint below it is now the FALLBACK for the residual case (a sibling that
+       cannot build standalone here), not the primary mechanism.
 
-         IMPORTANT: do NOT let TargetFramework reach the sibling Restore.
-         NuGet's Restore honours a global TargetFramework by writing ONLY
-         that slice into project.assets.json, dropping the sibling's other
-         TFMs. In a multi-TFM parent build MSBuild dispatches one inner
-         build per parent TFM (each with TargetFramework set as a global
-         property), and the MSBuild task forwards the calling project's
-         global properties to the inner invocation unless we strip them
-         explicitly — omitting TargetFramework from `Properties` is not
-         enough. `RemoveProperties="TargetFramework"` is what actually
-         prevents the leak. Without it, each inner Restore would re-write
-         the sibling's assets file with a different single TFM and any
-         subsequent slice lookup would fail NETSDK1005. Build (below)
-         keeps TargetFramework set because Build does want a specific slice.
+       Pre-builds the user-declared sibling ProjectReferences before the database
+       scan and generate so the first build behaves like an incremental one.
+       Subsequent ResolveProjectReferences sees each dep up-to-date and is a no-op.
+       Serial (BuildInParallel=false) keeps a transitive A→B→C chain deterministic.
+       (The Apple-framework analogue is unnecessary: sibling Apple-framework deps are
+       always surfaced as a restored PackageReference whose buildTransitive .targets
+       feeds _CollectSwiftModuleDatabases Source 1 — no in-tree pre-build to schedule.)
 
-         The dedup gates mirror the ProjectReference injection above so we
-         don't redundantly build a dep the user pinned via PackageReference
-         (their pinned package wins) or already wired via ProjectReference
-         (their explicit PR is what gets used). -->
-    <MSBuild Projects="%(_SwiftAppleAutoDep.SiblingCsproj)"
-             Properties="Configuration=$(Configuration)"
-             RemoveProperties="TargetFramework"
-             Targets="Restore"
-             BuildInParallel="false"
-             Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
-                        Exists('%(_SwiftAppleAutoDep.SiblingCsproj)') AND
-                        !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
-                        !$(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);'))" />
-    <MSBuild Projects="%(_SwiftAppleAutoDep.SiblingCsproj)"
-             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)"
+       Operates on @(_UserProjectReference) (captured by
+       _DiscoverProjectReferenceDependencies; already excludes the '.ObjC.'
+       companion csproj). Best-effort: ContinueOnError keeps a ProjectReference
+       that can't build standalone here from blocking the build — the
+       authoritative build still happens in ResolveProjectReferences and would
+       surface the same error. -->
+  <Target Name="_BuildSiblingSwiftBindingDeps"
+          DependsOnTargets="_DetectSwiftBindingTargetKind;_DiscoverProjectReferenceDependencies"
+          Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND '@(_UserProjectReference)' != ''">
+    <!-- Pinned slice: honour an explicit ProjectReference SetTargetFramework/SetConfiguration
+         so a cross-TFM or cross-config pin builds (and is later discovered) under the same
+         slice that _CollectSwiftModuleDatabases Source 3 and the wrapper -F query look for.
+         SetTargetFramework/SetConfiguration are MSBuild's canonical `TargetFramework=<tfm>` /
+         `Configuration=<cfg>` name=value forms (see Swift.Bindings.csproj's own Swift.Runtime
+         reference), so they are passed through verbatim — re-prefixing would set the global
+         property to the literal string and build the wrong (or no) slice. SetConfiguration is
+         appended AFTER the Configuration=$(Configuration) default so a cross-config pin wins
+         (later value in the property list overrides); an absent pin contributes an empty
+         segment MSBuild ignores, leaving the parent Configuration in force. -->
+    <MSBuild Projects="@(_UserProjectReference)"
+             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetTargetFramework)"
              Targets="Build"
              BuildInParallel="false"
-             Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
-                        Exists('%(_SwiftAppleAutoDep.SiblingCsproj)') AND
-                        !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
-                        !$(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);'))" />
+             ContinueOnError="true"
+             Condition="Exists('%(_UserProjectReference.Identity)') AND '%(_UserProjectReference.SetTargetFramework)' != ''" />
+    <!-- Unpinned: let each sibling build its OWN declared TargetFramework(s).
+         A sibling Swift binding for the same platform shares the consumer's TFM,
+         so its parent-TFM slice gets built; a plain (non-binding) helper
+         ProjectReference builds its own TFM instead of being forced onto the
+         consumer's Apple TFM (which would fail NETSDK1005). RemoveProperties is
+         what actually strips the forwarded global TargetFramework — omitting it
+         from Properties is not enough (the MSBuild task forwards the calling
+         project's global TargetFramework otherwise). A config-only pin
+         (SetConfiguration set, no SetTargetFramework) still lands here and is
+         honoured by appending SetConfiguration after the default. -->
+    <MSBuild Projects="@(_UserProjectReference)"
+             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration)"
+             RemoveProperties="TargetFramework"
+             Targets="Build"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="Exists('%(_UserProjectReference.Identity)') AND '%(_UserProjectReference.SetTargetFramework)' == ''" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -1380,7 +1388,7 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_CollectSwiftModuleDatabases"
           BeforeTargets="_GenerateSwiftBindings"
-          DependsOnTargets="_ComputeSwiftFingerprint;_BuildSiblingAppleFrameworkDeps">
+          DependsOnTargets="_ComputeSwiftFingerprint;_DetectAppleFrameworkCrossModuleDeps;_BuildSiblingSwiftBindingDeps">
 
     <!-- Source 1: NuGet-provided SwiftModuleDatabase items (from consumed package .targets) -->
     <ItemGroup Condition="'@(SwiftModuleDatabase)' != ''">
@@ -1399,12 +1407,17 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
          On clean builds these don't exist yet (generated during dependency build), but on
          incremental builds they provide cross-module type resolution automatically.
          Honors per-reference SetConfiguration/SetTargetFramework metadata, falling back
-         to the consumer's $(Configuration)/$(TargetFramework) when unset. -->
+         to the consumer's $(Configuration)/$(TargetFramework) when unset. Those metadata
+         are MSBuild's canonical `Configuration=<cfg>`/`TargetFramework=<tfm>` name=value
+         form, so the `Name=` prefix is stripped before composing the obj/<cfg>/<tfm>/ path
+         (otherwise a TFM-pinned sibling's intermediate dir is never found here). -->
     <Exec Condition="'@(ProjectReference)' != ''"
           Command="echo &quot;@(ProjectReference->'%(RootDir)%(Directory)|%(SetConfiguration)|%(SetTargetFramework)', '%0A')&quot; | while IFS='|' read -r PROJDIR PR_CFG PR_TFM; do \
   [ -z &quot;%24PROJDIR&quot; ] &amp;&amp; continue; \
   CFG=&quot;%24{PR_CFG:-$(Configuration)}&quot;; \
   TFM=&quot;%24{PR_TFM:-$(TargetFramework)}&quot;; \
+  CFG=&quot;%24{CFG#Configuration=}&quot;; \
+  TFM=&quot;%24{TFM#TargetFramework=}&quot;; \
   DIR=&quot;%24{PROJDIR}obj/%24{CFG}/%24{TFM}/swift-binding/&quot;; \
   [ ! -d &quot;%24DIR&quot; ] &amp;&amp; continue; \
   find &quot;%24DIR&quot; -maxdepth 1 -name '*Database.xml' -type f 2>/dev/null; \
@@ -1765,8 +1778,8 @@ done"
     to version separately; a single package is the correct topology.
 
     The companion csproj is generated during build (_GenerateSwiftBindings), so it is NOT in
-    the parent's NuGet restore graph. Restore it explicitly before Build, mirroring
-    _BuildSiblingAppleFrameworkDeps. RemoveProperties="TargetFramework" keeps the parent's TFM
+    the parent's NuGet restore graph. Restore it explicitly before Build.
+    RemoveProperties="TargetFramework" keeps the parent's TFM
     from rewriting the companion's single-slice assets file (NuGet honours a forwarded global
     TargetFramework by writing ONLY that slice, dropping the companion's own); the companion
     pins its own single TFM, so Build/GetTargetPath resolve the right slice without us
@@ -2012,9 +2025,12 @@ done"
     Opt out by setting <SwiftAutoDetectAppleFrameworkDependencies>false</SwiftAutoDetectAppleFrameworkDependencies>
     in the consumer csproj when manual cross-package deps are preferred.
 
-    Dedup against any user-declared PackageReference of the same identity so
-    removing the auto-injection isn't required when migrating an existing
-    project; the user's pinned reference wins.
+    Dedup against any user-declared PackageReference OR ProjectReference of the
+    same identity so removing the auto-injection isn't required when migrating an
+    existing project; the user's pinned reference wins. Always injected as a
+    PackageReference (never a ProjectReference) so the dep reaches the packed
+    nuspec <dependencies> — a build-time ProjectReference resolves types but never
+    enters the restore graph the nuspec group is built from.
 
     Outer-evaluation guard: a multi-TFM `dotnet pack` first evaluates the
     project at the outer level (TargetFramework empty). _ResolveAppleFrameworkPaths
@@ -2040,69 +2056,78 @@ done"
     <!-- Each line: MODULE|PACKAGE_ID|VERSION_RANGE.
          Materialize parsed metadata first so the per-line PackageId and VersionRange
          are addressable in the inject ItemGroup's Condition (MSBuild can't index
-         a Split() result inside a Condition expression). SiblingCsproj computes the
-         conventional in-tree sibling path (`../<MODULE>/<PACKAGE_ID>.csproj`); when
-         it exists we inject a ProjectReference instead of a PackageReference so an
-         in-tree build can resolve a dep whose nupkg hasn't been packed yet. -->
+         a Split() result inside a Condition expression). -->
     <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftAppleAutoDep Include="%(_SwiftAppleAutoDepLine.Identity)"
                           Condition="'%(_SwiftAppleAutoDepLine.Identity)' != ''">
         <Module>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[0])</Module>
         <PackageId>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[1])</PackageId>
         <VersionRange>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[2])</VersionRange>
-        <SiblingCsproj>$(MSBuildProjectDirectory)/../$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[0])/$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[1]).csproj</SiblingCsproj>
       </_SwiftAppleAutoDep>
     </ItemGroup>
 
-    <!-- Build a sentinel-wrapped semicolon list of already-declared PackageReference
-         identities. The leading + trailing ';' lets the Condition use a single
-         Contains(';<id>;') check that matches whole identities only — without the
-         sentinels, a partial match could accidentally swallow "SwiftBindings.Apple"
-         vs. "SwiftBindings.Apple.RealityKit".
+    <!-- Build sentinel-wrapped semicolon lists of already-declared dependency
+         identities so a single Contains(';<id>;') check matches whole identities
+         only — without the leading/trailing ';' a partial match could swallow
+         "SwiftBindings.Apple" vs. "SwiftBindings.Apple.RealityKit".
 
-         The ProjectReference sentinel list is keyed on the resolved csproj filename
-         (sans extension), since user-authored ProjectReference items use any path
-         that resolves to the same project. Matching on filename avoids both the
-         duplicate-injection case (user already pinned a sibling ProjectReference
-         pointing at the dep csproj) and the metadata-stomp case (auto-injected
-         ProjectReference loses user-supplied SetConfiguration / SetTargetFramework /
-         ReferenceOutputAssembly metadata). -->
+         Two lists, because the user may have wired the sibling either way and we
+         must not double-declare it: PackageReference identities, and ProjectReference
+         filenames (sans extension — a user-authored ProjectReference can use any path
+         that resolves to the same project, and the conventional sibling csproj's
+         filename IS the PackageId). -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftAppleAutoDepExisting>;@(PackageReference->'%(Identity)', ';');</_SwiftAppleAutoDepExisting>
       <_SwiftAppleAutoDepExistingProjectFiles>;@(ProjectReference->'%(Filename)', ';');</_SwiftAppleAutoDepExistingProjectFiles>
     </PropertyGroup>
 
-    <!-- Inject one PackageReference per detected dep, skipping any whose ID is
-         already declared by the user (or by another SDK target) AND any whose
-         conventional sibling csproj exists in-tree (which gets a ProjectReference
-         instead, see below). The metadata
-         Condition `'%(_SwiftAppleAutoDep.PackageId)' != ''` is required to
-         silently drop empty-line garbage (xcframework mode produces no output
-         but the ItemName collection may still hold a single empty item). -->
+    <!-- Inject one PackageReference per detected dep — ALWAYS a PackageReference,
+         never a ProjectReference, regardless of whether the conventional sibling
+         csproj exists in-tree. A ProjectReference resolves types at build time but
+         does NOT propagate to the packed nuspec <dependencies> (NuGet builds that
+         group from the restore graph, which a build-time-injected ProjectReference
+         never enters), so an in-tree-built package — i.e. every shipped package, the
+         swift-dotnet-packages mono-repo being exactly the in-tree case — would link a
+         sibling dylib its nuspec never names → DllNotFound for the consumer. The
+         mono-repo pre-packs sibling Apple frameworks into its local feed before
+         building dependents, so the PackageReference restores in-tree too; if a
+         sibling is genuinely unavailable, restore fails LOUD (NU1101) rather than
+         silently shipping a broken package.
+
+         Skip any dep the user already wired as a PackageReference OR a ProjectReference
+         (their pin wins). The `'%(...PackageId)' != ''` guard drops empty-line garbage
+         (xcframework mode produces no output but the ItemName collection may still hold
+         a single empty item). The ProjectReference branch of that skip is paired with the
+         SWIFTBIND044 warning below, because a ProjectReference cannot carry the bounded
+         train range the way the suppressed PackageReference would. -->
     <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <PackageReference Include="%(_SwiftAppleAutoDep.PackageId)"
                         Version="%(_SwiftAppleAutoDep.VersionRange)"
                         Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
                                    !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
-                                   !Exists('%(_SwiftAppleAutoDep.SiblingCsproj)')" />
+                                   !$(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);'))" />
     </ItemGroup>
 
-    <!-- In-tree fallback: when the conventional sibling csproj exists at
-         `../<MODULE>/<PACKAGE_ID>.csproj`, inject a ProjectReference. This lets
-         the swift-dotnet-packages mono-repo build apple-frameworks/RealityKit
-         against the in-tree apple-frameworks/RealityFoundation csproj without
-         needing to pre-pack RealityFoundation as a NuGet package. The published
-         consumer scenario is unaffected because consumers never have the sibling
-         csproj on disk. The same dedup against existing PackageReference
-         identities also applies here so a user-pinned PackageReference still
-         wins. -->
-    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
-      <ProjectReference Include="%(_SwiftAppleAutoDep.SiblingCsproj)"
-                        Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
-                                   !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
-                                   !$(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
-                                   Exists('%(_SwiftAppleAutoDep.SiblingCsproj)')" />
-    </ItemGroup>
+    <!-- Cross-train safety warning. When the user wired the detected sibling as an
+         authored ProjectReference, the dedup above correctly suppresses the auto
+         PackageReference (we must not double-declare) — but a ProjectReference CANNOT
+         carry a version RANGE: NuGet packs it into the nuspec as an unbounded minimum
+         (version="X.Y.Z"), so a consumer can float that dep into the next Apple SDK
+         train and mix mismatched module ABIs. We warn rather than fail so existing
+         in-tree ProjectReference wiring keeps building, but the maintainer of a SHIPPED
+         Apple-framework package learns to switch to a bounded PackageReference. Skipped
+         when the same id is ALSO a PackageReference (the user already pinned the range
+         there, so the nuspec carries the bound regardless of the ProjectReference). A
+         maintainer who wants the bound HARD-enforced in CI escalates this with
+         <WarningsAsErrors>SWIFTBIND044</WarningsAsErrors> (standard MSBuild escalation) —
+         so it stays enforceable on demand without us failing a deliberate user choice. -->
+
+    <Warning Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND
+                        '%(_SwiftAppleAutoDep.PackageId)' != '' AND
+                        $(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
+                        !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);'))"
+             Code="SWIFTBIND044"
+             Text="Apple-framework binding references cross-module dependency '%(_SwiftAppleAutoDep.PackageId)' via a ProjectReference, which packs into the nuspec as an unbounded minimum version and lets consumers float across Apple SDK trains. For cross-train safety in a shipped package, reference it as &lt;PackageReference Include=&quot;%(_SwiftAppleAutoDep.PackageId)&quot; Version=&quot;%(_SwiftAppleAutoDep.VersionRange)&quot; /&gt; instead." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -2160,12 +2185,31 @@ done"
           Condition="!$([System.String]::Copy('%(Identity)').Contains('.ObjC.'))" />
     </ItemGroup>
 
-    <!-- Collect dependency xcframework paths from ProjectReferences -->
+    <!-- Collect dependency xcframework paths from ProjectReferences.
+         Split by SetTargetFramework so the sibling is queried under the SAME slice
+         it was built with by _BuildSiblingSwiftBindingDeps — otherwise the query
+         inherits the consumer's forwarded global TargetFramework, and a
+         cross-TFM-pinned sibling's _SwiftBindingIntermediateDir (obj/<cfg>/<tfm>/…)
+         resolves to the wrong slice so its wrapper xcframework is missed on the -F
+         path. SetConfiguration is forwarded the same way (verbatim canonical
+         `Configuration=<cfg>`) so a cross-config pin queries obj/<cfg>/ matching the
+         slice _BuildSiblingSwiftBindingDeps built; when absent the query inherits the
+         parent Configuration, which equals the sibling's default build config. Both
+         batches feed the same _ResolvedDepXCFramework. -->
     <MSBuild Projects="@(_SwiftBindingProjectReference)"
              Targets="GetSwiftFrameworkSearchPaths"
+             Properties="%(_SwiftBindingProjectReference.SetTargetFramework);%(_SwiftBindingProjectReference.SetConfiguration)"
              BuildInParallel="false"
              ContinueOnError="true"
-             Condition="'@(_SwiftBindingProjectReference)' != '' AND '$(_SwiftWrapperSkip)' != 'true'">
+             Condition="'@(_SwiftBindingProjectReference)' != '' AND '$(_SwiftWrapperSkip)' != 'true' AND '%(_SwiftBindingProjectReference.SetTargetFramework)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_ResolvedDepXCFramework" />
+    </MSBuild>
+    <MSBuild Projects="@(_SwiftBindingProjectReference)"
+             Targets="GetSwiftFrameworkSearchPaths"
+             Properties="%(_SwiftBindingProjectReference.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftBindingProjectReference)' != '' AND '$(_SwiftWrapperSkip)' != 'true' AND '%(_SwiftBindingProjectReference.SetTargetFramework)' == ''">
       <Output TaskParameter="TargetOutputs" ItemName="_ResolvedDepXCFramework" />
     </MSBuild>
 
@@ -2263,9 +2307,16 @@ done"
       <_SwiftBridgeCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftBridgeCmd) --platform-target $(SwiftPlatformTarget)</_SwiftBridgeCmd>
       <_SwiftBridgeCmd>$(_SwiftBridgeCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftBridgeCmd>
       <_SwiftBridgeCmd>$(_SwiftBridgeCmd) -v $(SwiftGeneratorVerbosity)</_SwiftBridgeCmd>
-      <!-- Dependency framework search paths (same as wrapper) -->
+      <!-- Dependency framework search paths — must mirror _CompileSwiftWrapper exactly
+           (2186/2190): include the resolved ProjectReference xcframeworks AND every
+           explicit SwiftFrameworkDependency unconditionally. A bridge can depend on a
+           framework that has no binding project (e.g. Stripe3DS2) at the same time as a
+           ProjectReference dep; gating SwiftFrameworkDependency on _ResolvedDepXCFramework
+           being empty dropped that framework's -F path whenever both were present, failing
+           bridge compilation (SWIFTBIND052) so bridge views threw DllNotFound at runtime.
+           Duplicates between the two lists are harmless extra -F flags. -->
       <_SwiftBridgeCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftBridgeCmd) @(_ResolvedDepXCFramework->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
-      <_SwiftBridgeCmd Condition="'@(SwiftFrameworkDependency)' != '' AND '@(_ResolvedDepXCFramework)' == ''">$(_SwiftBridgeCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftBridgeCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBridgeSkip)' != 'true'"

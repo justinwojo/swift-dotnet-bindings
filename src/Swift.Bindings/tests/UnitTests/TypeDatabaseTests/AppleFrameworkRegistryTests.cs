@@ -1,12 +1,48 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
 
 public class AppleFrameworkRegistryTests
 {
+    /// <summary>
+    /// Reads every <c>platformUnavailable</c> annotation straight from the embedded
+    /// apple-frameworks.json the registry itself loads, so platform-availability tests
+    /// stay exhaustive by construction instead of drifting against a hand-maintained
+    /// list (the original WebKit/tvOS gap was added to the JSON but not to the tests).
+    /// Returns distinct (module, platformString) pairs exactly as declared.
+    /// </summary>
+    private static List<(string Module, string Platform)> ReadPlatformUnavailableAnnotations()
+    {
+        using var stream = typeof(AppleFrameworkRegistry).Assembly
+            .GetManifestResourceStream("Swift.Bindings.Data.apple-frameworks.json");
+        Assert.NotNull(stream);
+        using var doc = System.Text.Json.JsonDocument.Parse(stream!);
+
+        var result = new List<(string, string)>();
+        Assert.True(doc.RootElement.TryGetProperty("frameworks", out var frameworks),
+            "apple-frameworks.json must have a top-level 'frameworks' array");
+        foreach (var def in frameworks.EnumerateArray())
+        {
+            if (!def.TryGetProperty("module", out var moduleEl)) continue;
+            var module = moduleEl.GetString();
+            if (string.IsNullOrEmpty(module)) continue;
+            if (!def.TryGetProperty("platformUnavailable", out var puEl) ||
+                puEl.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+            foreach (var p in puEl.EnumerateArray())
+            {
+                var platform = p.GetString();
+                if (!string.IsNullOrEmpty(platform))
+                    result.Add((module!, platform!));
+            }
+        }
+        return result.Distinct().ToList();
+    }
+
     // --- IsAutoBridgeModule ---
 
     [Theory]
@@ -424,10 +460,16 @@ public class AppleFrameworkRegistryTests
     [InlineData("IntentsUI", ApplePlatform.tvOS, false)]
     [InlineData("CoreNFC", ApplePlatform.tvOS, false)]
     [InlineData("ARKit", ApplePlatform.tvOS, false)]
+    // tvOS: WebKit.framework does not ship there (kitchen-sink ApiDefinition using)
+    [InlineData("WebKit", ApplePlatform.tvOS, false)]
     // tvOS: core frameworks still available
     [InlineData("UIKit", ApplePlatform.tvOS, true)]
     [InlineData("Foundation", ApplePlatform.tvOS, true)]
     [InlineData("AVFoundation", ApplePlatform.tvOS, true)]
+    // WebKit IS available everywhere except tvOS
+    [InlineData("WebKit", ApplePlatform.iOS, true)]
+    [InlineData("WebKit", ApplePlatform.macOS, true)]
+    [InlineData("WebKit", ApplePlatform.MacCatalyst, true)]
     // macOS: UIKit and mobile-only frameworks unavailable
     [InlineData("UIKit", ApplePlatform.macOS, false)]
     [InlineData("HealthKit", ApplePlatform.macOS, false)]
@@ -464,21 +506,21 @@ public class AppleFrameworkRegistryTests
     [Fact]
     public void PlatformUnavailableModules_AreKnownFrameworks()
     {
-        // Every module in the unavailability table should be a recognized Apple framework
-        // (either AutoBridge or OptionalFallback), not a random unknown module.
-        var unavailableModules = new[]
-        {
-            "ContactsUI", "EventKitUI", "MessageUI", "SafariServices", "IntentsUI",
-            "CoreNFC", "CarPlay", "ClassKit", "ARKit",
-            "UIKit", "HealthKit", "HomeKit",
-        };
+        // Every module the JSON marks platformUnavailable must be a bridgeable Apple framework
+        // (in the AutoBridge or OptionalFallback set), not a typo / stale module / framework we
+        // don't actually bridge. Derived from the JSON so a new annotation is covered
+        // automatically rather than silently escaping this invariant against a hand-kept list.
+        var annotations = ReadPlatformUnavailableAnnotations();
+        Assert.NotEmpty(annotations);
 
-        foreach (var module in unavailableModules)
+        foreach (var module in annotations.Select(a => a.Module).Distinct())
         {
             Assert.True(
                 AppleFrameworkRegistry.IsAutoBridgeModule(module) ||
                 AppleFrameworkRegistry.IsOptionalFallbackModule(module),
-                $"Unavailable module '{module}' should be in AutoBridge or OptionalFallback sets");
+                $"platformUnavailable module '{module}' should be in the AutoBridge or " +
+                $"OptionalFallback set — annotating availability for a framework we don't bridge " +
+                $"(or a typo'd module name) is almost certainly a mistake.");
         }
     }
 
@@ -997,20 +1039,37 @@ public class AppleFrameworkRegistryTests
     [Fact]
     public void JsonLoaded_AllPlatformUnavailableModules_ArePresent()
     {
-        // tvOS unavailable modules
-        var tvOSUnavailable = new[] { "ContactsUI", "EventKitUI", "MessageUI", "SafariServices", "IntentsUI", "CoreNFC", "CarPlay", "ClassKit", "ARKit" };
-        foreach (var module in tvOSUnavailable)
-        {
-            Assert.False(AppleFrameworkRegistry.IsModuleAvailableOnPlatform(module, ApplePlatform.tvOS),
-                $"'{module}' should be unavailable on tvOS");
-        }
+        // Derive the (module, platform) exclusions from the JSON itself so this test stays
+        // exhaustive by construction — every platformUnavailable annotation must be honored by
+        // IsModuleAvailableOnPlatform. A hand-maintained list silently drifted before (WebKit/tvOS
+        // was added to the JSON but never to the test).
+        var annotations = ReadPlatformUnavailableAnnotations();
+        Assert.NotEmpty(annotations);
 
-        // macOS unavailable modules
-        var macOSUnavailable = new[] { "UIKit", "HealthKit", "HomeKit", "ARKit", "CoreNFC", "CarPlay", "ClassKit" };
-        foreach (var module in macOSUnavailable)
+        // WebKit/tvOS is the annotation the old hardcoded list missed — assert it explicitly so a
+        // regression that drops it from the JSON is a named failure, not a silent count change.
+        Assert.Contains(("WebKit", "tvOS"), annotations);
+
+        foreach (var (module, platformString) in annotations)
         {
-            Assert.False(AppleFrameworkRegistry.IsModuleAvailableOnPlatform(module, ApplePlatform.macOS),
-                $"'{module}' should be unavailable on macOS");
+            // Fail closed on any platform string the loader does not map. AppleFrameworkRegistry's
+            // platformUnavailable loader only recognizes "tvOS"/"macOS"; a new platform annotation
+            // would otherwise be silently dropped (the module would read as AVAILABLE everywhere).
+            // Forcing the mapping here means loader support must land before the annotation does.
+            var platform = platformString switch
+            {
+                "tvOS" => ApplePlatform.tvOS,
+                "macOS" => ApplePlatform.macOS,
+                _ => throw new Xunit.Sdk.XunitException(
+                    $"platformUnavailable annotation '{module}' → '{platformString}' uses a platform " +
+                    $"string the AppleFrameworkRegistry loader does not map (only tvOS/macOS are " +
+                    $"recognized). Add loader support before annotating this platform."),
+            };
+
+            Assert.False(
+                AppleFrameworkRegistry.IsModuleAvailableOnPlatform(module, platform),
+                $"'{module}' is annotated platformUnavailable on {platformString} but " +
+                $"IsModuleAvailableOnPlatform reports it AVAILABLE.");
         }
     }
 

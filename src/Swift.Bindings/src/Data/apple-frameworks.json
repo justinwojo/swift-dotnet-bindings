@@ -1019,6 +1019,7 @@
     },
     {
       "module": "WebKit",
+      "platformUnavailable": ["tvOS"],
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,

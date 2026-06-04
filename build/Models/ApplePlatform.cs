@@ -45,6 +45,16 @@ public record ApplePlatform
     public bool HasDeviceSlice => DeviceSdkName != null;
     public bool HasSimulatorPlistVariant => SimulatorPlistVariant != null;
 
+    // The NuGet RID whose runtimes/<rid>/native dir a package's lib TFM for this platform
+    // resolves to. macOS/Catalyst build a host exe, so it is their host Rid; iOS/tvOS are
+    // sim-deployed with no host Rid, and their native artifacts ship under the device RID,
+    // which is exactly the device slice id (ios-arm64 / tvos-arm64). Derived here so the
+    // RID has a single source of truth on the platform model instead of a parallel
+    // hand-maintained list that can silently drift from it.
+    public string NativeRid => Rid ?? DeviceSliceId
+        ?? throw new InvalidOperationException(
+            $"ApplePlatform '{Name}' has neither a host Rid nor a device slice id to derive a native RID from.");
+
     public const string BaseTfm = "net10.0";
     public string GetTfm() => $"{BaseTfm}-{TfmSuffix}";
 
