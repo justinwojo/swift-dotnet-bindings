@@ -1498,6 +1498,109 @@ public static class NameProvider
             suffix++;
         return $"{prefixed}{suffix}";
     }
+
+    /// <summary>
+    /// The synthetic Swift parameter binding names that wrapper emitters inject into a generated
+    /// <c>@_cdecl</c>/<c>@_silgen_name</c> function's flat parameter list — alongside the
+    /// user-derived parameter bindings. These are the names against which a colliding user binding
+    /// must be escaped (see <see cref="EscapeReservedSwiftWrapperLabel"/>).
+    /// <para>
+    /// The set is the union of every synthetic an emitter can add to the same signature as a user
+    /// param: the indirect-result buffer pointer (<c>resultPtr</c>, <c>__resultPtr</c>), the throwing
+    /// error out-param (<c>errorOut</c>, <c>errorPtr</c>), the instance-self pointer in its several
+    /// spellings (<c>self_</c>, <c>_self</c>, <c>__self</c>, <c>selfObj</c>), the large-Optional /
+    /// failable result buffer (<c>_resultBuf</c>), the decomposed-Optional flag pointer
+    /// (<c>hasValuePtr</c>, <c>hasValue</c>), the enum discriminator (<c>tag</c>), the collection
+    /// parent metadata (<c>parentMetaPtr</c>), the setter value (<c>newValue</c>), the key-path
+    /// applicator (<c>_by</c>), the closure-bridge locals (<c>cdecl</c>, <c>innerError</c>), and the
+    /// async-trampoline completion pair (<c>completionFn</c>, <c>completionCtx</c>).
+    /// </para>
+    /// <para>
+    /// Over-reserving is output-safe: <see cref="EscapeReservedSwiftWrapperLabel"/> only renames a
+    /// user binding that spells one of these EXACTLY, and the rename is source-local (a wrapper that
+    /// does not inject the synthetic still compiles and forwards identically). Add a name here when a
+    /// new emitter introduces a synthetic Swift wrapper binding that shares a signature with a user
+    /// param.
+    /// </para>
+    /// </summary>
+    public static readonly IReadOnlySet<string> ReservedSwiftWrapperParamNames =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "resultPtr", "__resultPtr",
+            "errorOut", "errorPtr",
+            "self_", "_self", "__self", "selfObj",
+            "_resultBuf",
+            "hasValuePtr", "hasValue",
+            "tag",
+            "parentMetaPtr",
+            "newValue",
+            "_by",
+            "cdecl", "innerError",
+            "completionFn", "completionCtx",
+        };
+
+    /// <summary>
+    /// Escapes a USER-derived Swift wrapper parameter's INTERNAL binding name when it would collide
+    /// with a synthetic binding the emitter injects into the same <c>@_cdecl</c>/<c>@_silgen_name</c>
+    /// function signature. Swift requires unique internal parameter names within one function; a
+    /// duplicate makes <c>swiftc</c> reject the wrapper, which is then silently dropped from the
+    /// compiled dylib — the binding compiles (generator exits 0) but crashes at runtime when the
+    /// missing entry point is called (the P1-22 collision class).
+    /// <para>
+    /// Unlike the user-FACING name (which the consumer sees and must be preserved), a wrapper's
+    /// internal binding name is SOURCE-LOCAL: it is not part of the <c>@_cdecl</c> symbol (a
+    /// positional C ABI), and the forwarded Swift call's EXTERNAL argument label is computed
+    /// separately from <c>arg.Name</c>/<c>OriginalSwiftName</c> via <c>BuildSwiftCallArgLabel</c> —
+    /// never from this binding. Renaming the internal binding is therefore output-safe, the same
+    /// rationale as the Swift-keyword rename in <c>CdeclParamMapper.Map</c> (<c>{label}</c> →
+    /// <c>{label}Param</c>). The bare name is returned unchanged when there is no collision, so
+    /// generated Swift is byte-identical in the common (non-colliding) case.
+    /// </para>
+    /// </summary>
+    /// <param name="label">The user-derived internal binding name the emitter is about to emit.</param>
+    /// <returns><paramref name="label"/> unchanged when free, otherwise a <c>__</c>-prefixed (and, if
+    /// needed, numeric-suffixed) variant guaranteed absent from
+    /// <see cref="ReservedSwiftWrapperParamNames"/>.</returns>
+    public static string EscapeReservedSwiftWrapperLabel(string label)
+        => EscapeReservedSwiftWrapperLabel(label, reservedSiblings: null);
+
+    /// <summary>
+    /// Sibling-aware overload of <see cref="EscapeReservedSwiftWrapperLabel(string)"/>: escapes
+    /// <paramref name="label"/> against the union of <see cref="ReservedSwiftWrapperParamNames"/> AND
+    /// <paramref name="reservedSiblings"/> — the OTHER internal binding names emitted into the same
+    /// <c>@_cdecl</c> wrapper signature (the user params' post-keyword/sanitize forms, plus any
+    /// hand-emitted generic-pointer binding).
+    /// <para>
+    /// The global set alone closed only user-vs-synthetic collisions (P1-22). It missed
+    /// user-vs-SIBLING: a user param <c>tag</c> escapes to <c>__tag</c> against the global set, but a
+    /// SIBLING user param literally named <c>__tag</c> is not in that set, so the two bindings still
+    /// duplicate — <c>swiftc</c> rejects the wrapper and it is silently stripped from the dylib
+    /// (runtime-missing entry point). Reserving the siblings here makes the escape pick <c>__tag2</c>.
+    /// </para>
+    /// <para>
+    /// The CALLER is responsible for ensuring <paramref name="reservedSiblings"/> does not contain
+    /// <paramref name="label"/>'s own binding (a param must never be escaped against itself). The
+    /// per-param <c>Map</c>/<c>MapInout</c> chokepoint strips the current label before calling; a
+    /// hand-emit site whose emitted binding (e.g. <c>_{label}</c>) is not itself in the sibling set
+    /// passes the set unchanged. Over-reserving a name that does not equal the escape target is
+    /// harmless; output stays byte-identical when there is no collision.
+    /// </para>
+    /// </summary>
+    public static string EscapeReservedSwiftWrapperLabel(string label, IReadOnlySet<string>? reservedSiblings)
+    {
+        if (string.IsNullOrEmpty(label))
+            return label;
+        if (reservedSiblings == null || reservedSiblings.Count == 0)
+            return MakeNonCollidingSyntheticName(label, ReservedSwiftWrapperParamNames);
+
+        var combined = new HashSet<string>(ReservedSwiftWrapperParamNames, StringComparer.Ordinal);
+        foreach (var sibling in reservedSiblings)
+        {
+            if (!string.IsNullOrEmpty(sibling))
+                combined.Add(StripVerbatimPrefix(sibling));
+        }
+        return MakeNonCollidingSyntheticName(label, combined);
+    }
 }
 
 /// <summary>
@@ -1561,4 +1664,73 @@ public sealed class SyntheticNameScope
     /// </summary>
     public bool IsReserved(string name)
         => !string.IsNullOrEmpty(name) && _reserved.Contains(NameProvider.StripVerbatimPrefix(name));
+}
+
+/// <summary>
+/// Resolved, collision-safe names for the synthetic locals that the sync-wrapper emission path
+/// hardcodes into the generated C# wrapper body and P/Invoke call: the indirect-result buffer
+/// pointer (<c>resultPtr</c>), the decomposed-optional flag pointer (<c>hasValuePtr</c>), the
+/// non-cdecl indirect-result register (<c>swiftIndirectResult</c>), the constructor buffer
+/// pointer (<c>bufferPtr</c>), and the return/inner type-metadata temporaries
+/// (<c>returnMetadata</c>, <c>innerMetadata</c>).
+/// <para>
+/// These names are referenced by string convention across three phases that must agree:
+/// the synthetic P/Invoke parameter added by <c>PInvokeSignatureBuilder</c> (which drives the
+/// positional call argument through <c>CallArgumentsString</c>), the allocation snippets built by
+/// <c>MethodMarshalPlanBuilder</c>, and the return-value marshalling in <c>WrapperEmitter.Return</c>.
+/// A user parameter that projects to the same C# identifier would shadow the body local (CS0136).
+/// Resolving the names once here — seeded from the same projected parameter names that
+/// <c>ResolveReturnLocalName</c> uses — and sharing them via <see cref="MethodEnvironment"/> keeps
+/// all three phases consistent while escaping the SYNTHETIC name (never the user-facing one).
+/// </para>
+/// <para>
+/// Each name is resolved eagerly in a fixed order so the result is independent of which phase
+/// reads it first. <see cref="SyntheticNameScope.Reserve"/> returns the bare spelling unless a user
+/// parameter collides, so generated output is byte-identical for the overwhelmingly common
+/// non-colliding case. The <c>_</c>-prefixed internal temporaries (<c>_cdeclBuf</c>, <c>_bufSize</c>,
+/// <c>_innerSize</c>, <c>_cdeclResult</c>) and the indexed <c>tupleResult{i}Ptr</c> family are NOT
+/// resolved here — a public Swift API parameter spelling one of those is not a realistic collision,
+/// and they remain string literals in their emitters.
+/// </para>
+/// </summary>
+public sealed class SyntheticLocalNames
+{
+    /// <summary>Indirect-result / @_cdecl payload buffer pointer (most common synthetic local).</summary>
+    public string ResultPtr { get; }
+
+    /// <summary>Decomposed-Optional has-value flag pointer.</summary>
+    public string HasValuePtr { get; }
+
+    /// <summary>Non-cdecl indirect-result register struct.</summary>
+    public string SwiftIndirectResult { get; }
+
+    /// <summary>Constructor frozen-with-ref-field buffer pointer (aliased to <see cref="ResultPtr"/>).</summary>
+    public string BufferPtr { get; }
+
+    /// <summary>Return-type metadata temporary used to size the result buffer.</summary>
+    public string ReturnMetadata { get; }
+
+    /// <summary>Inner-type metadata temporary for decomposed Optional returns.</summary>
+    public string InnerMetadata { get; }
+
+    private SyntheticLocalNames(SyntheticNameScope scope)
+    {
+        // Fixed resolution order → access-order independent. Reserve records each chosen name so
+        // the (vanishingly unlikely) case where two synthetics escape into the same identifier is
+        // still kept distinct.
+        ResultPtr = scope.Reserve("resultPtr");
+        HasValuePtr = scope.Reserve("hasValuePtr");
+        SwiftIndirectResult = scope.Reserve("swiftIndirectResult");
+        BufferPtr = scope.Reserve("bufferPtr");
+        ReturnMetadata = scope.Reserve("returnMetadata");
+        InnerMetadata = scope.Reserve("innerMetadata");
+    }
+
+    /// <summary>
+    /// Resolves the synthetic-local bundle for a method, seeded from the projected C# parameter
+    /// names (skipping the return slot at index 0), mirroring <c>ResolveReturnLocalName</c>.
+    /// </summary>
+    public static SyntheticLocalNames Resolve(MethodDecl method)
+        => new SyntheticLocalNames(new SyntheticNameScope(
+            method.CSSignature.Skip(1).Select(NameProvider.GetCSharpParameterName)));
 }

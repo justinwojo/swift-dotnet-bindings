@@ -550,6 +550,34 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// The <b>owned</b> sibling of <see cref="MarshalBorrowedClassFromSlot{T}"/>: <paramref name="slot"/>
+    /// is the address of a carrier word holding a Swift class pointer whose <c>+1</c> the slot
+    /// <b>owns</b> and transfers to the returned wrapper. Dereference the slot to get the instance
+    /// pointer, then build the wrapper via <see cref="MarshalFromSwift{T}"/> (<c>NewFromPayload</c>
+    /// for a class adopts the pointer's existing <c>+1</c> with <b>no extra retain</b>) — the move
+    /// semantics of <see cref="MarshalMovedValueFromSlot{T}"/>'s class branch, not the borrowed
+    /// copy-out's independent retain.
+    /// <para>
+    /// This is the receiver for a generic-parameter indirect return specialized to a class conformer
+    /// (audit P0-11): the Swift wrapper does <c>resultPtr.initializeMemory(as: (C).self, repeating:
+    /// _result, count: 1)</c>, which stores the instance pointer <i>into</i> the carrier and leaves
+    /// the carrier owning a single <c>+1</c>. Wrapping the carrier <i>address</i> directly (the prior
+    /// <c>MarshalFromSwift&lt;C&gt;(resultPtr)</c>) reinterprets the carrier as the instance and
+    /// use-after-frees it once the caller raw-frees the carrier, while leaking the real instance's
+    /// <c>+1</c>. The caller still raw-frees the carrier bytes after this call: the <c>+1</c> moved to
+    /// the wrapper, so freeing the carrier word releases no reference.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The Swift-class wrapper type.</typeparam>
+    /// <param name="slot">Address of the owned carrier slot holding the Swift class pointer.</param>
+    /// <returns>The constructed wrapper, adopting the carrier's transferred reference.</returns>
+    public static unsafe T MarshalOwnedClassFromSlot<T>(IntPtr slot)
+    {
+        IntPtr classPointer = *(IntPtr*)slot;
+        return MarshalFromSwift<T>(classPointer);
+    }
+
+    /// <summary>
     /// The <c>Optional&lt;class&gt;</c> sibling of <see cref="MarshalBorrowedClassFromSlot{T}"/>. A
     /// Swift <c>Optional</c> of a class is nil-pointer-optimised: the borrowed slot holds either a
     /// null word (<c>nil</c> → <c>null</c>) or the class pointer (non-nil → copy out with an

@@ -67,16 +67,16 @@ namespace BindingsGeneration
                         // @_cdecl wrapper: buffer was allocated in BuildIndirectResultSetup,
                         // P/Invoke wrote the result to resultPtr. Just create the SafeHandle.
                         var resolvedName = GetResolvedTypeName();
-                        csWriter.WriteLine($"_payload = new SwiftSafeHandle<{resolvedName}>(bufferPtr);");
+                        csWriter.WriteLine($"_payload = new SwiftSafeHandle<{resolvedName}>({BufferPtrName});");
                     }
                     else
                     {
                         var resolvedName = GetResolvedTypeName();
                         csWriter.WriteLine($@"
                         unsafe {{
-                            IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({resolvedName}.Buffer));
-                            *({resolvedName}.Buffer*)bufferPtr = {ReturnLocalName};
-                            _payload = new SwiftSafeHandle<{resolvedName}>(bufferPtr);
+                            IntPtr {BufferPtrName} = (IntPtr)NativeMemory.Alloc((nuint)sizeof({resolvedName}.Buffer));
+                            *({resolvedName}.Buffer*){BufferPtrName} = {ReturnLocalName};
+                            _payload = new SwiftSafeHandle<{resolvedName}>({BufferPtrName});
                         }}");
                     }
                     return;
@@ -153,7 +153,7 @@ namespace BindingsGeneration
             if (_env.MethodDecl.UsesCdeclMethodWrapper &&
                 returnArg.SwiftTypeSpec is NamedTypeSpec cdeclMethStrNts && cdeclMethStrNts.Name == "Swift.String")
             {
-                csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
+                csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({ResultPtrName});");
                 return;
             }
 
@@ -162,9 +162,9 @@ namespace BindingsGeneration
             if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                 returnArg.SwiftTypeSpec is NamedTypeSpec cdeclStrNts && cdeclStrNts.Name == "Swift.String")
             {
-                csWriter.WriteLines("""
+                csWriter.WriteLines($$"""
                     unsafe {
-                        return *(Utf8Slice*)resultPtr;
+                        return *(Utf8Slice*){{ResultPtrName}};
                     }
                     """);
                 return;
@@ -194,7 +194,7 @@ namespace BindingsGeneration
 
                 // @_cdecl wrappers use plain IntPtr resultPtr, not SwiftIndirectResult.
                 // Native thunks use SwiftIndirectResult (x8 register passthrough) — NOT resultPtr.
-                var resultExpr = _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)";
+                var resultExpr = _env.MethodDecl.UsesCdeclWrapper ? ResultPtrName : $"new IntPtr({SwiftIndirectResultName}.Value)";
 
                 // @_cdecl Optional<closure> return: read SwiftClosureData from resultPtr buffer,
                 // null-check via FunctionPointer == IntPtr.Zero (extra-inhabitant encoding).
@@ -214,7 +214,7 @@ namespace BindingsGeneration
 
                         csWriter.WriteLines($$"""
                             unsafe {
-                                var {{ReturnLocalName}} = *(SwiftClosureData*)resultPtr;
+                                var {{ReturnLocalName}} = *(SwiftClosureData*){{ResultPtrName}};
                                 if ({{ReturnLocalName}}.FunctionPointer == IntPtr.Zero) return null;
                             """);
                         csWriter.Indent++;
@@ -272,9 +272,9 @@ namespace BindingsGeneration
 
                             csWriter.WriteLines($$"""
                                 unsafe {
-                                    {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}
+                                    {{OptionalMarshalClassifier.CSharpReadHasValue(HasValuePtrName)}}
                                     {{OptionalMarshalClassifier.CSharpHasValueNullCheck()}}
-                                    var _container = SwiftMarshal.MarshalFromSwift<{{containerType}}>(resultPtr);
+                                    var _container = SwiftMarshal.MarshalFromSwift<{{containerType}}>({{ResultPtrName}});
                                     return {{proxyCtorExpr}};
                                 }
                                 """);
@@ -294,16 +294,16 @@ namespace BindingsGeneration
                         {
                             csWriter.WriteLines($$"""
                                 unsafe {
-                                    {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}
+                                    {{OptionalMarshalClassifier.CSharpReadHasValue(HasValuePtrName)}}
                                     {{OptionalMarshalClassifier.CSharpHasValueNullCheck()}}
                                     if (typeof({{innerType}}).IsValueType) {
-                                        return SwiftMarshal.MarshalFromSwift<{{innerType}}>(resultPtr);
+                                        return SwiftMarshal.MarshalFromSwift<{{innerType}}>({{ResultPtrName}});
                                     } else if (typeof(global::Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({{innerType}}))) {
-                                        var _result = SwiftMarshal.MarshalFromSwift<{{innerType}}>(resultPtr);
+                                        var _result = SwiftMarshal.MarshalFromSwift<{{innerType}}>({{ResultPtrName}});
                                         _cdeclBuf = null; // NewFromPayload took ownership
                                         return _result;
                                     } else {
-                                        IntPtr _classHandle = *(IntPtr*)resultPtr;
+                                        IntPtr _classHandle = *(IntPtr*){{ResultPtrName}};
                                         return SwiftMarshal.MarshalFromSwift<{{innerType}}>(_classHandle);
                                     }
                                 }
@@ -313,9 +313,9 @@ namespace BindingsGeneration
 
                         csWriter.WriteLines($$"""
                             unsafe {
-                                {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}
+                                {{OptionalMarshalClassifier.CSharpReadHasValue(HasValuePtrName)}}
                                 {{OptionalMarshalClassifier.CSharpHasValueNullCheck()}}
-                                var _result = SwiftMarshal.MarshalFromSwift<{{innerType}}>(resultPtr);
+                                var _result = SwiftMarshal.MarshalFromSwift<{{innerType}}>({{ResultPtrName}});
                                 _cdeclBuf = null; // NewFromPayload took ownership
                                 return _result;
                             }
@@ -401,7 +401,7 @@ namespace BindingsGeneration
 
                         csWriter.WriteLines($$"""
                             unsafe {
-                                var {{ReturnLocalName}} = *(SwiftClosureData*)resultPtr;
+                                var {{ReturnLocalName}} = *(SwiftClosureData*){{ResultPtrName}};
                             """);
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
@@ -444,8 +444,8 @@ namespace BindingsGeneration
                     // free is a plain dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is
                     // unchanged — only the read width differs.
                     var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
-                        ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
-                        : $"SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr)";
+                        ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({ResultPtrName})"
+                        : $"SwiftMarshal.MarshalFromSwift<{containerType}>({ResultPtrName})";
                     csWriter.WriteLine($"var existentialResult = {existentialRead};");
 
                     if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
@@ -501,6 +501,49 @@ namespace BindingsGeneration
                         return SwiftMarshal.MarshalFromSwift<{{tName}}>({{resultExpr}});
                         """);
                     return;
+                }
+
+                // Accessor optional-existential return via indirect-result buffer. A large existential
+                // (the 40-byte ExistentialContainer1) makes _requiresIndirectResult true, so the
+                // small-existential accessor block at ~549 (which marshals from &returnLocal) is
+                // unreachable — control returns out of this block before reaching it. The indirect
+                // buffer holds a SwiftOptional<Container>: read it, return null for None, else wrap the
+                // inner container in the protocol proxy. Without this, the optional-existential
+                // subscript/property getter falls through to the catch-all
+                // MarshalFromSwift<IProtocol?> below, which has no protocol-interface case and throws
+                // NotSupportedException at runtime. Ownership matches the decomposed-property path:
+                // the Swift wrapper wrote the inner existential at +1 (initializeMemory), the bitwise
+                // container copy does not re-retain, and the buffer's plain NativeMemory.Free (no VWT
+                // Destroy) leaves that +1 intact, so the proxy adopts it (ownsContainer: true, EC1 only)
+                // and releases it on Dispose/finalize — otherwise the payload's +1 leaks.
+                if (_env.MethodDecl.IsAccessor && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
+                {
+                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
+                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+                    // Unresolved protocol (publicType == "object") → no proxy class exists, fall through.
+                    if (publicType != "object")
+                    {
+                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                        var marshalType = $"Swift.SwiftOptional<{containerType}>";
+                        if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
+                        {
+                            csWriter.WriteLines($$"""
+                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{resultExpr}});
+                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {{wkType}}(swiftResult.Some{{ExistentialHandler.WellKnownOwnedTransferArg(wkType)}});
+                                """);
+                        }
+                        else
+                        {
+                            var proxyName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
+                            csWriter.WriteLines($$"""
+                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{resultExpr}});
+                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {{proxyName}}(swiftResult.Some{{OwnedExistentialCtorArg(containerType)}});
+                                """);
+                        }
+                        return;
+                    }
                 }
 
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
@@ -723,8 +766,8 @@ namespace BindingsGeneration
                 // free is a plain dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is
                 // unchanged — only the read width differs.
                 var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
-                    ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
-                    : $"SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr)";
+                    ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({ResultPtrName})"
+                    : $"SwiftMarshal.MarshalFromSwift<{containerType}>({ResultPtrName})";
                 csWriter.WriteLine($"var existentialResult = {existentialRead};");
 
                 // Then wrap in proxy (same logic as non-cdecl path below)
@@ -926,7 +969,7 @@ namespace BindingsGeneration
             string resultName = strategy switch
             {
                 // @_cdecl uses IntPtr resultPtr; thunks use SwiftIndirectResult (x8 passthrough).
-                ReturnStrategy.IndirectResult => usesCdecl ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)",
+                ReturnStrategy.IndirectResult => usesCdecl ? ResultPtrName : $"new IntPtr({SwiftIndirectResultName}.Value)",
                 ReturnStrategy.OutBuffer => "_optRetPtr",
                 _ => ReturnLocalName
             };
@@ -1040,7 +1083,7 @@ namespace BindingsGeneration
             var elements = tupleTypeSpec.Elements;
             csWriter.WriteLine("unsafe {");
             csWriter.Indent++;
-            csWriter.WriteLine("var _tupleMetaPtr = returnMetadata.AsTupleMetadata();");
+            csWriter.WriteLine($"var _tupleMetaPtr = {ReturnMetadataName}.AsTupleMetadata();");
 
             // Phase 1: Read each element from the buffer into a typed local matching the
             // P/Invoke type. The Swift @_cdecl wrapper writes the entire tuple inline via

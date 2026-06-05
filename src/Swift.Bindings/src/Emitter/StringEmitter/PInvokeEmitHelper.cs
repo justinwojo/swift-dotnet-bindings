@@ -273,6 +273,19 @@ public static class PInvokeEmitHelper
                 paramsStr = metadataParams;
         }
 
+        // Universal C# P/Invoke parameter-name dedup. A synthetic the emitter appends
+        // (SwiftSelf self_, the simple-enum `tag` discriminator, SwiftIndirectResult result, …)
+        // can collide with a user-derived parameter spelled the same way — producing CS0100
+        // "duplicate parameter name". The standard Parameter-list path already deduplicates
+        // upstream (MethodSignature.DeduplicateParameterNames), but the emitters that build
+        // raw param strings (cross-module extensions, simple-enum methods, generic bridges)
+        // bypass it. Deduping here — the single point every P/Invoke decl flows through —
+        // closes the whole category at once. P/Invoke parameter names are positional-only at
+        // the call site, so a rename is always output-safe; and because this only rewrites a
+        // string that actually contains a duplicate, the common (collision-free) case is byte-
+        // identical to before.
+        paramsStr = DeduplicateCSharpParamNames(paramsStr);
+
         // Build modifiers
         var visibility = info.Visibility switch
         {
@@ -288,5 +301,135 @@ public static class PInvokeEmitHelper
         lines.Add($"{visibility} static {newModifier}{unsafeModifier}partial {returnTypeStr} {info.MethodName}({paramsStr});");
 
         return lines;
+    }
+
+    /// <summary>
+    /// Deduplicates C# parameter names in a P/Invoke parameter-list string, renaming later
+    /// duplicates to <c>{name}_{N}</c> (matching the upstream <c>MethodSignature.DeduplicateParameterNames</c>
+    /// scheme). Parameter names are positional-only at the P/Invoke call site, so renaming is
+    /// always output-safe.
+    /// <para>
+    /// Defensive by construction: it splits only on top-level commas (tracking <c>&lt;&gt; [] () {}</c>
+    /// nesting so generics, attributes, and <c>delegate* unmanaged[...]&lt;...&gt;</c> function pointers
+    /// stay intact), and BAILS — returning the input unchanged — if any segment yields no extractable
+    /// identifier or if no name actually repeats. The only strings it rewrites are well-formed lists that
+    /// contain a genuine duplicate, which are exactly the ones that would otherwise fail to compile.
+    /// </para>
+    /// </summary>
+    internal static string DeduplicateCSharpParamNames(string paramsStr)
+    {
+        if (string.IsNullOrWhiteSpace(paramsStr))
+            return paramsStr;
+
+        var segments = SplitTopLevel(paramsStr);
+        if (segments.Count < 2)
+            return paramsStr;
+
+        // Extract the trailing identifier (the parameter name) from each segment.
+        var names = new string[segments.Count];
+        for (int i = 0; i < segments.Count; i++)
+        {
+            var name = ExtractTrailingIdentifier(segments[i]);
+            if (name == null)
+                return paramsStr; // unparseable segment — leave the whole list untouched
+            names[i] = name;
+        }
+
+        // Only rewrite when a name actually repeats.
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var n in names)
+        {
+            counts.TryGetValue(n, out var c);
+            counts[n] = c + 1;
+        }
+        if (!counts.Values.Any(c => c > 1))
+            return paramsStr;
+
+        var allNames = new HashSet<string>(names, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var rebuilt = new List<string>(segments.Count);
+        for (int i = 0; i < segments.Count; i++)
+        {
+            var segment = segments[i].Trim();
+            var name = names[i];
+            if (seen.Add(name))
+            {
+                rebuilt.Add(segment); // first occurrence keeps its name
+                continue;
+            }
+
+            var suffix = 1;
+            var candidate = $"{name}_{suffix}";
+            while (!allNames.Add(candidate))
+            {
+                suffix++;
+                candidate = $"{name}_{suffix}";
+            }
+
+            // Replace only the trailing name token (it is the suffix of the trimmed segment).
+            rebuilt.Add(string.Concat(segment.AsSpan(0, segment.Length - name.Length), candidate));
+        }
+
+        return string.Join(", ", rebuilt);
+    }
+
+    /// <summary>
+    /// Splits a C# parameter-list string on top-level commas, tracking angle/square/round/curly
+    /// bracket nesting so commas inside generic arguments, attributes, or function-pointer
+    /// signatures don't split a parameter.
+    /// </summary>
+    private static List<string> SplitTopLevel(string s)
+    {
+        var result = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < s.Length; i++)
+        {
+            switch (s[i])
+            {
+                case '<': case '[': case '(': case '{': depth++; break;
+                case '>': case ']': case ')': case '}': if (depth > 0) depth--; break;
+                case ',':
+                    if (depth == 0)
+                    {
+                        result.Add(s.Substring(start, i - start));
+                        start = i + 1;
+                    }
+                    break;
+            }
+        }
+        result.Add(s.Substring(start));
+        return result;
+    }
+
+    /// <summary>
+    /// Returns the trailing C# identifier of a parameter segment (its name), or null when the
+    /// segment has no valid trailing identifier. A leading <c>@</c> verbatim prefix is preserved.
+    /// </summary>
+    private static string? ExtractTrailingIdentifier(string segment)
+    {
+        var s = segment.TrimEnd();
+        int end = s.Length;
+        int i = end;
+        while (i > 0)
+        {
+            char c = s[i - 1];
+            if (char.IsLetterOrDigit(c) || c == '_')
+                i--;
+            else
+                break;
+        }
+        // Allow a verbatim '@' prefix immediately before the identifier run.
+        if (i > 0 && s[i - 1] == '@')
+            i--;
+        if (i >= end)
+            return null; // no trailing identifier chars
+
+        var name = s.Substring(i);
+        // A valid identifier must start with '@', '_' or a letter — not a digit.
+        var first = name[0] == '@' && name.Length > 1 ? name[1] : name[0];
+        if (!(char.IsLetter(first) || first == '_'))
+            return null;
+        return name;
     }
 }

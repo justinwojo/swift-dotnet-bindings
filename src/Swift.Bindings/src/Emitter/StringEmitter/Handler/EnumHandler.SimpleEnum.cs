@@ -505,7 +505,7 @@ namespace BindingsGeneration
                 }
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
-                csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+                csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
                 csWriter.WriteLine();
 
                 EmitFreePInvokeIfNeeded(csWriter, moduleName);
@@ -558,7 +558,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
                 csWriter.WriteLine();
             }
 
@@ -584,6 +584,9 @@ namespace BindingsGeneration
                 .Skip(1)
                 .Where(a => a.Name != "self")
                 .ToList();
+            // Sibling bindings so a reserved-name escape (e.g. `tag`) also dodges a sibling user
+            // binding (P1-22). The call-value loop reuses the same set, keeping decl and call in sync.
+            var siblings = CdeclParamMapper.CollectSiblingBindingNames(paramDecls);
             foreach (var param in paramDecls)
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
@@ -591,7 +594,14 @@ namespace BindingsGeneration
                 if (swiftType != null)
                 {
                     var label = NameProvider.IsGeneratedArgName(param.Name) ? "_" : param.Name;
-                    swiftParams.Add($"{label} {(!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name)}: {swiftType}");
+                    // Escape only the internal binding token (not the external label) when it
+                    // collides with a synthetic injected into this wrapper (e.g. `tag`) OR a sibling
+                    // user binding. The call value below escapes the same token identically, keeping
+                    // the two in sync.
+                    var rawLabel = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
+                    var binding = NameProvider.EscapeReservedSwiftWrapperLabel(
+                        rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+                    swiftParams.Add($"{label} {binding}: {swiftType}");
                 }
             }
 
@@ -615,7 +625,10 @@ namespace BindingsGeneration
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                 var label = NameProvider.IsGeneratedArgName(param.Name) ? "" : $"{NameProvider.StripCSharpKeywordPrefix(param.Name)}: ";
-                var argExpr = (!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name);
+                // Escape identically to the param-decl loop (same sibling set, self-excluded).
+                var rawLabel = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
+                var argExpr = NameProvider.EscapeReservedSwiftWrapperLabel(
+                    rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
                 if (isEnumParam)
                     argExpr = EmitEnumParamConversion(enumDecl, enumQualifiedName, swiftScalarType, argExpr);
                 callArgs.Add($"{label}{argExpr}");
@@ -977,7 +990,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
-                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
                 csWriter.WriteLine();
             }
 
@@ -1251,6 +1264,9 @@ namespace BindingsGeneration
                 .Skip(1)
                 .Where(a => a.Name != "self")
                 .ToList();
+            // Sibling bindings so a reserved-name escape also dodges a sibling user binding (P1-22).
+            // The call-value loop reuses the same set, keeping decl and call in sync.
+            var siblings = CdeclParamMapper.CollectSiblingBindingNames(paramDecls);
             foreach (var param in paramDecls)
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
@@ -1258,7 +1274,13 @@ namespace BindingsGeneration
                 if (swiftType != null)
                 {
                     var label = NameProvider.IsGeneratedArgName(param.Name) ? "_" : param.Name;
-                    swiftParams.Add($"{label} {(!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name)}: {swiftType}");
+                    // Escape only the internal binding token (not the external label) when it
+                    // collides with a synthetic injected into this wrapper OR a sibling user binding.
+                    // The call value below escapes the same token identically, keeping the two in sync.
+                    var rawLabel = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
+                    var binding = NameProvider.EscapeReservedSwiftWrapperLabel(
+                        rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+                    swiftParams.Add($"{label} {binding}: {swiftType}");
                 }
             }
 
@@ -1277,7 +1299,10 @@ namespace BindingsGeneration
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                 var label = NameProvider.IsGeneratedArgName(param.Name) ? "" : $"{NameProvider.StripCSharpKeywordPrefix(param.Name)}: ";
-                var argExpr = (!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name);
+                // Escape identically to the param-decl loop (same sibling set, self-excluded).
+                var rawLabel = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
+                var argExpr = NameProvider.EscapeReservedSwiftWrapperLabel(
+                    rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
                 if (isEnumParam)
                     argExpr = EmitEnumParamConversion(enumDecl, enumQualifiedName, swiftScalarType, argExpr);
                 callArgs.Add($"{label}{argExpr}");
@@ -1461,7 +1486,7 @@ namespace BindingsGeneration
             var stringMarshal = hasStringParam ? ", StringMarshalling = StringMarshalling.Utf8" : "";
             csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
             csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\"{stringMarshal})]");
-            csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+            csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
             csWriter.WriteLine();
 
             EmitFreePInvokeIfNeeded(csWriter, moduleName);

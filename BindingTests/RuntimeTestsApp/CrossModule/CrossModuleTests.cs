@@ -527,4 +527,66 @@ public class CrossModuleTests : TestBase
     }
 
     #endregion
+
+    #region Cross-Module Synthetic-Name Collision (P1-22: user `self_` vs injected receiver pointer)
+
+    // The cross-module extension trampolines inject the receiver pointer as `self_`. A user
+    // parameter also named `self_` would declare `self_` twice and the wrapper would be SILENTLY
+    // dropped — leaving a missing entry point that crashes at call time. These pin the escape on
+    // the struct-receiver, class-receiver, and async/throws-trampoline cross-module paths.
+
+    public void TestDependencyPointOffsetSelfCollision()
+    {
+        // Struct-receiver extension returning a frozen struct: trampoline injects both the
+        // receiver pointer (`self_`) and the indirect `__resultPtr`; the user `self_` escapes.
+        var point = new DependencyPoint(3.0, 4.0);
+        var moved = point.Offset(2.0);
+        AssertEqual(5.0, moved.X, "offset(self_:) adds self_ to x through the escaped binding");
+        AssertEqual(6.0, moved.Y, "offset(self_:) adds self_ to y through the escaped binding");
+    }
+
+    public void TestDependencyServiceTagWithSelfCollision()
+    {
+        // CONTROL (not a trampoline repro): a plain primitive sync class-extension method routes
+        // through a direct CallConvSwift import of the Swift symbol, not the @_cdecl trampoline —
+        // `self_` is just an ordinary Swift parameter and there is no injected-receiver collision.
+        // The escape on the SYNC closure trampoline is exercised by ReportWithSelf below.
+        using var active = new DependencyService("Worker", true);
+        AssertEqual(9, active.TagWithSelf(9), "tagWithSelf(self_:) returns self_ when active");
+
+        using var idle = new DependencyService("Worker", false);
+        AssertEqual(-9, idle.TagWithSelf(9), "tagWithSelf(self_:) negates self_ when inactive");
+    }
+
+    public void TestDependencyServiceReportWithSelfCollision()
+    {
+        // SYNC closure trampoline (EmitSwiftClosureTrampoline): the closure parameter forces the
+        // class @_cdecl trampoline, which injects `self_` for the receiver pointer. The user
+        // `self_` must escape the injected receiver binding — otherwise `self_` is declared twice
+        // and the trampoline is silently dropped. The completion firing at all proves the escaped
+        // binding forwarded the user value into the synchronously-invoked block.
+        using var active = new DependencyService("Worker", true);
+        int? activeCaught = null;
+        active.ReportWithSelf(9, v => activeCaught = v);
+        AssertEqual(9, activeCaught, "reportWithSelf(self_:completion:) forwards self_ when active");
+
+        using var idle = new DependencyService("Worker", false);
+        int? idleCaught = null;
+        idle.ReportWithSelf(9, v => idleCaught = v);
+        AssertEqual(-9, idleCaught, "reportWithSelf(self_:completion:) negates self_ when inactive");
+    }
+
+    public void TestDependencyServiceComputeAsyncWithSelfCollision()
+    {
+        // Async/throws trampoline injects completionFn/completionCtx/self_; the user `self_` escapes.
+        using var active = new DependencyService("Worker", true);
+        var result = active.ComputeAsyncWithSelfAsync(7).GetAwaiter().GetResult();
+        AssertEqual(14, result, "computeAsyncWithSelf(self_:) doubles self_ when active");
+
+        using var idle = new DependencyService("Worker", false);
+        var idleResult = idle.ComputeAsyncWithSelfAsync(7).GetAwaiter().GetResult();
+        AssertEqual(-7, idleResult, "computeAsyncWithSelf(self_:) negates self_ when inactive");
+    }
+
+    #endregion
 }

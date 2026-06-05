@@ -882,6 +882,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
             publicParams.Add($"string {csName}");
         }
 
+        // P1-22: the public method body hardcodes synthetic locals (tcs, resultPtr, holder,
+        // handle). A user parameter spelling any of them would shadow the synthetic (CS0136)
+        // and the generator would emit uncompilable C# at exit 0. Reserve each against the
+        // in-scope user identifiers (the `self` receiver + every Utf8Slice param); with no
+        // collision the original name is returned verbatim, so output is unchanged. The
+        // success/error callback methods take fixed params (no user names) and stay literal.
+        var asyncScope = new SyntheticNameScope(
+            new[] { "self" }.Concat(utf8Args.Select(NameProvider.GetCSharpParameterName)));
+        string tcsName = asyncScope.Reserve("tcs");
+        string asyncResultPtrName = asyncScope.Reserve("resultPtr");
+        string holderName = asyncScope.Reserve("holder");
+        string handleName = asyncScope.Reserve("handle");
+
         csWriter.WriteLine();
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
@@ -892,7 +905,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine(
-            $"var tcs = new global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>();");
+            $"var {tcsName} = new global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>();");
         // Size source diverges by return shape:
         //   SafeHandle-backed (non-frozen struct):
         //     `SwiftMarshal.GetSwiftTypeSize<T>()` queries Swift TypeMetadata.Size — required
@@ -907,19 +920,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (returnIsBlittable)
         {
             csWriter.WriteLine(
-                $"var resultPtr = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof({returnCsType}));");
+                $"var {asyncResultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof({returnCsType}));");
         }
         else
         {
             csWriter.WriteLine(
-                $"var resultPtr = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::Swift.Runtime.InteropServices.SwiftMarshal.GetSwiftTypeSize<{returnCsType}>());");
+                $"var {asyncResultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::Swift.Runtime.InteropServices.SwiftMarshal.GetSwiftTypeSize<{returnCsType}>());");
         }
         // Holder carries both the TCS and the resultPtr to whichever callback fires so
         // C# can free the buffer in both paths. Boxing IntPtr (nint) into object[] is
         // safe because the runtime preserves the pointer value verbatim.
-        csWriter.WriteLine("var holder = new object[] { tcs, (object)(nint)resultPtr };");
+        csWriter.WriteLine($"var {holderName} = new object[] {{ {tcsName}, (object)(nint){asyncResultPtrName} }};");
         csWriter.WriteLine(
-            "var handle = global::System.Runtime.InteropServices.GCHandle.Alloc(holder);");
+            $"var {handleName} = global::System.Runtime.InteropServices.GCHandle.Alloc({holderName});");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -929,7 +942,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //   (throws) → context. Each Utf8Slice arg also contributes a (csName, bareName)
         //   entry to utf8SliceLocals which drives the byte[] prelude + nested `fixed`
         //   block stack.
-        var callArgs = new List<string> { "resultPtr" };
+        var callArgs = new List<string> { asyncResultPtrName };
         var utf8SliceLocals = new List<(string csName, string bareName)>();
         foreach (var utf8Arg in utf8Args)
         {
@@ -942,7 +955,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         callArgs.Add("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
         callArgs.Add(successCallbackField);
         if (throws) callArgs.Add(errorCallbackField);
-        callArgs.Add("global::System.Runtime.InteropServices.GCHandle.ToIntPtr(handle)");
+        callArgs.Add($"global::System.Runtime.InteropServices.GCHandle.ToIntPtr({handleName})");
 
         // byte[] prelude (inside the try-block — UTF8.GetBytes can throw on null input,
         // and the catch below correctly cleans up handle + resultPtr in that case).
@@ -977,12 +990,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Synchronous-path safety net: if the P/Invoke itself throws before Swift could
         // schedule the Task (e.g. DllNotFoundException), neither callback will fire so
         // we free the buffer + handle here and let the caller see the original failure.
-        csWriter.WriteLine("if (handle.IsAllocated) handle.Free();");
-        csWriter.WriteLine("global::System.Runtime.InteropServices.NativeMemory.Free((void*)resultPtr);");
+        csWriter.WriteLine($"if ({handleName}.IsAllocated) {handleName}.Free();");
+        csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free((void*){asyncResultPtrName});");
         csWriter.WriteLine("throw;");
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine("return tcs.Task;");
+        csWriter.WriteLine($"return {tcsName}.Task;");
         csWriter.Indent--;
         csWriter.WriteLine("}");
     }

@@ -278,6 +278,8 @@ public static class SubscriptWrapperEmitter
                     break; // Already handled above
 
                 case CdeclPhase.Arguments:
+                    // Sibling bindings so a reserved-name escape also dodges a sibling index param (P1-22).
+                    var indexSiblings = CdeclParamMapper.CollectSiblingBindingNames(subscriptDecl.IndexParameters);
                     foreach (var param in subscriptDecl.IndexParameters)
                     {
                         if (param.SwiftTypeSpec.IsEmptyTuple)
@@ -285,7 +287,7 @@ public static class SubscriptWrapperEmitter
 
                         var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
                         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
-                            param, label, env, omitLabels: false, useUtf8Strings: true);
+                            param, label, env, omitLabels: false, useUtf8Strings: true, reservedSiblings: indexSiblings);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                             reconstructionLines.Add(reconstruction);
@@ -469,8 +471,11 @@ public static class SubscriptWrapperEmitter
                             ModuleDecl = null
                         };
                         // omitLabels: false — setters always need .load(as:) reconstruction for large Optionals.
+                        // escapeReservedCollision: false — `newValue` IS the injected setter-value synthetic
+                        // (referenced by bare name in the body), not a colliding user binding. The user *index*
+                        // params below keep the default escape so a `subscript(newValue:)` index renames instead.
                         var (cdeclParam, reconstruction, callArgExpr) = CdeclParamMapper.Map(
-                            newValueArg, "newValue", env, omitLabels: false);
+                            newValueArg, "newValue", env, omitLabels: false, escapeReservedCollision: false);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                         {
@@ -481,7 +486,9 @@ public static class SubscriptWrapperEmitter
                         }
                     }
 
-                    // Index parameters
+                    // Index parameters. Siblings dodge sibling index bindings; the injected
+                    // `newValue` synthetic is already covered by the global reserved set.
+                    var setterIndexSiblings = CdeclParamMapper.CollectSiblingBindingNames(subscriptDecl.IndexParameters);
                     foreach (var param in subscriptDecl.IndexParameters)
                     {
                         if (param.SwiftTypeSpec.IsEmptyTuple)
@@ -489,7 +496,7 @@ public static class SubscriptWrapperEmitter
 
                         var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
                         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
-                            param, label, env, omitLabels: false, useUtf8Strings: true);
+                            param, label, env, omitLabels: false, useUtf8Strings: true, reservedSiblings: setterIndexSiblings);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                             reconstructionLines.Add(reconstruction);

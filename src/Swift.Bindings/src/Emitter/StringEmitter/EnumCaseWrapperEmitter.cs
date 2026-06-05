@@ -203,14 +203,18 @@ public static class EnumCaseWrapperEmitter
         var reconstructionLines = new List<string>();
         var callArgs = new List<string>();
 
-        // Associated value parameters
+        // Associated value parameters. Pre-project the synthetic ArgumentDecls so sibling bindings
+        // can be collected up front — a reserved-name escape (e.g. `tag`→`__tag`) must also dodge a
+        // sibling associated-value binding literally named `__tag` (the user-vs-sibling half of P1-22).
+        var assocArgs = new List<ArgumentDecl>();
+        var assocLabels = new List<string>();
         for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
         {
             var assocValue = caseDecl.AssociatedValues[i];
             var label = !string.IsNullOrEmpty(assocValue.TypeLabel) ? assocValue.TypeLabel : $"value{i}";
-
+            assocLabels.Add(label);
             // Create a synthetic ArgumentDecl for GetCdeclParamMapping
-            var argDecl = new ArgumentDecl
+            assocArgs.Add(new ArgumentDecl
             {
                 SwiftTypeSpec = assocValue,
                 Name = assocValue.TypeLabel ?? "_",
@@ -219,10 +223,14 @@ public static class EnumCaseWrapperEmitter
                 IsGeneric = false,
                 ParentDecl = null,
                 ModuleDecl = moduleDecl
-            };
-
+            });
+        }
+        var assocSiblings = CdeclParamMapper.CollectSiblingBindingNames(assocArgs);
+        for (int i = 0; i < assocArgs.Count; i++)
+        {
             var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
-                argDecl, label, env, omitLabels: false, useUtf8Strings: true);
+                assocArgs[i], assocLabels[i], env, omitLabels: false, useUtf8Strings: true,
+                reservedSiblings: assocSiblings);
 
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)

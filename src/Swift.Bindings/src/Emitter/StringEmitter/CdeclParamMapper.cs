@@ -25,8 +25,15 @@ public static class CdeclParamMapper
     /// <param name="omitLabels">When true, omit argument labels (used when calling _dbw_init_* which uses _ for all params).</param>
     /// <param name="useUtf8Strings">When true, String params use UTF-8 ptr+len (for subscript/enum case wrappers
     /// where C# already sends UTF-8). When false, uses two Int words matching SwiftString.Buffer layout.</param>
+    /// <param name="escapeReservedCollision">When true (default), a <paramref name="label"/> that collides with a
+    /// synthetic the caller injects into the same wrapper signature (resultPtr, self_, errorOut, …) is renamed so the
+    /// two bindings don't duplicate. Pass <c>false</c> when <paramref name="label"/> is itself one of those synthetics
+    /// deliberately routed through this mapper (e.g. the property/subscript setter's <c>newValue</c> value parameter,
+    /// which the caller references by its bare name in the wrapper body). Escaping a synthetic's own emission renames
+    /// the parameter declaration while the body keeps the bare name → "cannot find 'newValue' in scope".</param>
     internal static (string cdeclParam, string? reconstruction, string callArg) Map(
-        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false, bool useUtf8Strings = false)
+        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false, bool useUtf8Strings = false,
+        bool escapeReservedCollision = true, IReadOnlySet<string>? reservedSiblings = null)
     {
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
@@ -38,6 +45,16 @@ public static class CdeclParamMapper
 
         // Strip type-syntax characters (<>[]()) that could appear in demangled parameter names
         label = SwiftBuilder.SanitizeIdentifier(label);
+
+        // Escape a user binding that collides with a synthetic the caller injects into the same
+        // wrapper signature (resultPtr, errorOut, self_, …) OR with a SIBLING user param's binding
+        // (reservedSiblings — e.g. `tag` escaping to `__tag` must also dodge a sibling literally
+        // named `__tag`). Same safety rationale as the keyword rename above: the internal binding is
+        // source-local and the call label comes from arg.Name. No-op (returns the bare name) when
+        // there is no collision. Skipped when the label IS the synthetic itself
+        // (escapeReservedCollision: false) — see the param doc.
+        if (escapeReservedCollision)
+            label = NameProvider.EscapeReservedSwiftWrapperLabel(label, ExcludeSelf(reservedSiblings, label));
 
         // Determine the Swift argument label for the init call
         // When calling _dbw_init_* (omitLabels=true), all params use _ (no external label)
@@ -776,7 +793,7 @@ public static class CdeclParamMapper
     /// emit no label at all. Falls back to the legacy underscore-stripping recovery for ArgumentDecls
     /// that were parsed before the OriginalSwiftName field was populated for that path.
     /// </summary>
-    private static string BuildSwiftCallArgLabel(ArgumentDecl arg)
+    internal static string BuildSwiftCallArgLabel(ArgumentDecl arg)
     {
         if (arg.IsUnlabeledSubscriptIndex)
             return "";
@@ -823,6 +840,52 @@ public static class CdeclParamMapper
         => WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase);
 
     /// <summary>
+    /// Collects the internal binding names that <see cref="Map"/>/<see cref="MapInout"/> will emit for
+    /// a wrapper's user parameters, so each per-param escape can dodge its SIBLINGS as well as the
+    /// global synthetic set (the user-vs-sibling half of the P1-22 collision class). Mirrors the
+    /// keyword-rename + <see cref="SwiftBuilder.SanitizeIdentifier"/> transform <c>Map</c> applies
+    /// BEFORE its reserved-collision escape (the escape is the step the sibling set feeds into, so it
+    /// is deliberately not replicated here).
+    /// <para>
+    /// Labels are derived as <c>PrivateName ?? Name</c> — the same source the multi-param emitters
+    /// pass to <c>Map</c>. The <c>_</c>→<c>arg{i}</c> index substitution those emitters apply to
+    /// unnamed params is intentionally omitted: a reserved-name escape (e.g. <c>tag</c>→<c>__tag</c>)
+    /// can never land on <c>arg{i}</c>, so an indexed sibling is never a collision target, and the
+    /// resulting set is at worst a harmless superset (over-reserving only ever picks a different,
+    /// still-valid escaped name — never a colliding one).
+    /// </para>
+    /// </summary>
+    internal static IReadOnlySet<string> CollectSiblingBindingNames(IEnumerable<ArgumentDecl> args)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var arg in args)
+        {
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            if (string.IsNullOrEmpty(label) || label == "_")
+                continue;
+            if (NameProvider.IsSwiftKeyword(label))
+                label = $"{label}Param";
+            names.Add(SwiftBuilder.SanitizeIdentifier(label));
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// Returns <paramref name="siblings"/> with the current param's own (already keyword/sanitized)
+    /// binding removed, so the per-param reserved-collision escape never escapes a binding against
+    /// itself. Returns the set unchanged (no allocation) when it does not contain
+    /// <paramref name="label"/>.
+    /// </summary>
+    internal static IReadOnlySet<string>? ExcludeSelf(IReadOnlySet<string>? siblings, string label)
+    {
+        if (siblings == null || siblings.Count == 0 || !siblings.Contains(label))
+            return siblings;
+        var filtered = new HashSet<string>(siblings, StringComparer.Ordinal);
+        filtered.Remove(label);
+        return filtered;
+    }
+
+    /// <summary>
     /// Maps an inout parameter to its @_cdecl-compatible representation with write-back semantics.
     /// All inout params use UnsafeMutableRawPointer in the @_cdecl signature. The wrapper creates
     /// a mutable local (var), passes it by reference (&amp;), and writes back the modified value.
@@ -832,7 +895,8 @@ public static class CdeclParamMapper
     /// statement to store the modified value back through the pointer after the method call.
     /// </returns>
     internal static (string cdeclParam, string reconstruction, string callArg, string writeBack) MapInout(
-        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false)
+        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false,
+        IReadOnlySet<string>? reservedSiblings = null)
     {
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
@@ -840,6 +904,9 @@ public static class CdeclParamMapper
         if (NameProvider.IsSwiftKeyword(label))
             label = $"{label}Param";
         label = SwiftBuilder.SanitizeIdentifier(label);
+        // Escape a user binding colliding with an injected synthetic OR a sibling user binding
+        // (same as Map).
+        label = NameProvider.EscapeReservedSwiftWrapperLabel(label, ExcludeSelf(reservedSiblings, label));
 
         // Argument label (same as Map)
         var argLabel = omitLabels ? "" : BuildSwiftCallArgLabel(arg);

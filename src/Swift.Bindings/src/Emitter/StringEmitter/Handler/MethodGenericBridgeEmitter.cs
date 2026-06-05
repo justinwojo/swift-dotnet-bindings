@@ -82,6 +82,12 @@ public static class MethodGenericBridgeEmitter
         if (WrapperValidation.IsMetatypeTypeIncludingOptional(methodDecl.CSSignature[0].SwiftTypeSpec))
             return false;
 
+        // Indirect-result returns must be ISwiftObject — the result buffer is sized via
+        // GetSwiftTypeSize<T>() (T : ISwiftObject) and marshalled by the ownership contract.
+        // Drops frozen-trivial structs / tuples / existentials / inline value structs (Data).
+        if (!IndirectResultReturnIsAdmissible(methodDecl, env.TypeDatabase))
+            return false;
+
         // Ensure xcframework mode (needed for wrapper library)
         if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
@@ -120,7 +126,8 @@ public static class MethodGenericBridgeEmitter
     /// <c>MemberValidationPipeline</c>); its only callers are unit tests. Production reachability
     /// of this emitter is solely via <see cref="TryEmit"/> through the
     /// <c>MethodHandler._bridgeEmitters</c> dispatch table. Wiring this predicate into the
-    /// validator placeholder gate is tracked as P1-28 (Session 6), not Session 1.
+    /// validator placeholder gate remains a separate identifier/gate-hygiene follow-up (not the
+    /// audit's P1-28, which is the frozen-with-ref ARC leak fixed on this path in Session 6).
     /// </para>
     /// </summary>
     public static bool IsEligible(MethodDecl method, ITypeDatabase typeDatabase)
@@ -145,8 +152,47 @@ public static class MethodGenericBridgeEmitter
             return false;
         if (WrapperValidation.IsMetatypeTypeIncludingOptional(method.CSSignature[0].SwiftTypeSpec))
             return false;
+        // Keep aligned with TryEmit: indirect-result returns must be ISwiftObject.
+        if (!IndirectResultReturnIsAdmissible(method, typeDatabase))
+            return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Whether the method's return is admissible for the bridge's indirect-result path. The
+    /// indirect buffer is sized via <c>SwiftMarshal.GetSwiftTypeSize&lt;T&gt;()</c> (constrained to
+    /// <c>T : ISwiftObject</c>) and consumed by the three-way ownership contract in
+    /// <see cref="EmitPublicMethod"/>, so an indirect return must be an ISwiftObject — a Swift class,
+    /// a non-frozen struct (ClassWithOpaquePayload), or a frozen-struct-with-ref-fields
+    /// (ClassWithBufferStruct). Void, string, and direct (primitive / class-pointer / simple-enum)
+    /// returns never take the GetSwiftTypeSize path and are always admissible.
+    /// <para>
+    /// Frozen-trivial structs, non-empty tuples, and protocol existentials route to
+    /// <see cref="CdeclReturnKind.IndirectResult"/> but have no ISwiftObject binding to size or
+    /// marshal against, so they are dropped (the sibling CSM emitter's
+    /// <c>CanEmitConcreteOverloadForPairing</c> indirect-result gate rejects them identically).
+    /// Inline ISwiftObject value structs (e.g. Foundation.Data) are also dropped: unlike the CSM
+    /// emitter, this bridge has no idiomatic/wire marshal-type split, so its <c>csReturnType</c>
+    /// would be the idiomatic projection (Data → <c>byte[]</c>) — not an ISwiftObject, so
+    /// <c>GetSwiftTypeSize&lt;byte[]&gt;()</c> would not even compile. Those returns are covered by
+    /// the CSM emitter's concrete overloads (the bridge is shadowed by CSM in practice). Audit
+    /// P0-12/P1-28.
+    /// </para>
+    /// </summary>
+    private static bool IndirectResultReturnIsAdmissible(MethodDecl method, ITypeDatabase typeDatabase)
+    {
+        var returnTypeSpec = method.CSSignature[0].SwiftTypeSpec;
+        if (returnTypeSpec.IsEmptyTuple) return true;
+        if (WitnessDispatchEmitter.IsStringType(returnTypeSpec)) return true;
+        if (!CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase).needsResultPtr) return true;
+
+        return returnTypeSpec is NamedTypeSpec named
+            && typeDatabase.TryGetTypeRecord(named, out var record)
+            && (record.Kind == TypeRecordKind.Class
+                || (record.Kind == TypeRecordKind.Struct
+                    && (!record.Flags.HasFlag(TypeRecordFlags.Frozen)
+                        || record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement))));
     }
 
     // ─── Eligibility Helpers ─────────────────────────────────────────
@@ -393,6 +439,9 @@ public static class MethodGenericBridgeEmitter
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
 
         // Regular parameters (with existential loading for generic params)
+        // Sibling bindings so the hand-emitted generic-pointer binding and the Map'd non-generic
+        // params each dodge their siblings (user-vs-sibling half of the P1-22 class).
+        var siblings = CdeclParamMapper.CollectSiblingBindingNames(methodDecl.CSSignature.Skip(1));
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
@@ -403,10 +452,16 @@ public static class MethodGenericBridgeEmitter
             if (arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName)
             {
                 // Generic parameter → receive class handle as UnsafeRawPointer,
-                // recover object and cast to protocol existential for implicit opening
-                swiftParams.Add($"_ _{label}: UnsafeRawPointer");
+                // recover object and cast to protocol existential for implicit opening.
+                // The binding is hand-emitted as `_{label}` (NOT routed through Map), so escape it
+                // here: a generic param internally named `_self` yields `__self`, which duplicates
+                // the receiver body local `let __self` below → swiftc rejects + silently drops the
+                // wrapper (P1-22). `__self`/`_self` are reserved, so the escape resolves the clash;
+                // siblings cover a generic binding that collides with another user param.
+                var genericBinding = NameProvider.EscapeReservedSwiftWrapperLabel($"_{label}", siblings);
+                swiftParams.Add($"_ {genericBinding}: UnsafeRawPointer");
                 var argLabel = GetSwiftArgLabel(arg);
-                callArgs.Add($"{argLabel}(Unmanaged<AnyObject>.fromOpaque(_{label}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
+                callArgs.Add($"{argLabel}(Unmanaged<AnyObject>.fromOpaque({genericBinding}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
             }
             else if (arg.HasDefaultArg)
             {
@@ -420,7 +475,7 @@ public static class MethodGenericBridgeEmitter
                 // reconstruction `let {label}Val = String(...)`. The matching C# side (pinvoke /
                 // public / callArgs switches below) carries a Utf8Slice case so the ABI pairs
                 // up. Mirrors the MethodClosureBridge.cs Utf8Slice marshalling shape.
-                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false, useUtf8Strings: true);
+                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false, useUtf8Strings: true, reservedSiblings: siblings);
                 swiftParams.Add(cdeclParam);
                 callArgs.Add(callArg);
                 if (!string.IsNullOrEmpty(reconstruction))
@@ -666,6 +721,9 @@ public static class MethodGenericBridgeEmitter
 
         // Build public parameter list
         var publicParams = new List<string>();
+        // Projected public parameter names — seed for the body-local scope below so the hardcoded
+        // indirect-result locals (resultPtr, _result) never shadow a user param (CS0136; P1-22).
+        var publicParamNames = new List<string>();
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
@@ -673,6 +731,7 @@ public static class MethodGenericBridgeEmitter
             if (arg.HasDefaultArg) continue;
 
             var csName = NameProvider.GetCSharpParameterName(arg);
+            publicParamNames.Add(csName);
 
             if (arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName)
             {
@@ -737,22 +796,71 @@ public static class MethodGenericBridgeEmitter
         // the fixed-block stack opens (mirrors MethodClosureBridge.cs ~1283-1292).
         var utf8SliceLocals = new List<(string csName, string bareName)>();
 
+        // Indirect-result ownership discrimination — mirrors the sibling CSM emitter's three-way
+        // NewFromPayload contract (ConcreteProtocolSpecializationEmitter.cs ~1514-1607). Replaces
+        // the prior fixed `Marshal.AllocHGlobal(256)` (heap overflow for any return whose Swift
+        // stride exceeds 256 bytes; audit P0-12) and the undiscriminated MarshalFromSwift +
+        // finally-free (double-free + allocator mismatch for ownership-transfer returns; missing
+        // +1-ARC release for frozen-with-ref returns — audit P0-12 / P1-28). The bridge gate
+        // (IndirectResultReturnIsAdmissible) guarantees the return is ISwiftObject, so
+        // GetSwiftTypeSize<T>() and the marshal helpers are well-constrained.
+        bool returnTypeIsDirectWrap = false;     // ownership-transfer: SafeHandle adopts the buffer
+        bool returnTypeNeedsWireDestroy = false; // copy-out: VWT-Destroy the wire's +1 before free
+        if (needsResultPtr
+            && methodDecl.CSSignature[0].SwiftTypeSpec is NamedTypeSpec returnNamed
+            && env.TypeDatabase.TryGetTypeRecord(returnNamed, out var returnRecord))
+        {
+            bool isNonFrozenStruct = returnRecord.Kind == TypeRecordKind.Struct
+                && !MarshallingHelpers.IsTypeFrozen(returnRecord);
+            bool isComplexEnum = returnRecord.Kind == TypeRecordKind.Enum
+                && !returnRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+            returnTypeIsDirectWrap = isNonFrozenStruct || isComplexEnum;
+            returnTypeNeedsWireDestroy = MarshallingHelpers.IsFrozenStructProjectedAsClass(returnRecord);
+        }
+        bool ownershipTransfer = needsResultPtr && returnTypeIsDirectWrap;
+        bool destroyWireRetains = needsResultPtr && !ownershipTransfer && returnTypeNeedsWireDestroy;
+
+        // Indirect-result body locals, resolved against the public param names so a user param
+        // spelled `resultPtr` / `_result` does not shadow them (CS0136; P1-22). The P/Invoke decl is
+        // deduped separately (FormatDeclarationLines), but the public-method body scope is not — so
+        // resolve here. Byte-identical to the literals in the common non-colliding case.
+        var bodyScope = new SyntheticNameScope(publicParamNames);
+        var resultPtrLocal = bodyScope.Reserve("resultPtr");
+        var resultLocal = bodyScope.Reserve("_result");
+
         // Result buffer (for indirect returns)
         if (needsResultPtr)
         {
-            csWriter.WriteLine("IntPtr resultPtr = Marshal.AllocHGlobal(256);");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            callArgs.Add("resultPtr");
+            if (ownershipTransfer)
+            {
+                // NewFromPayload stores the wire handle into a SwiftSafeHandle whose ReleaseHandle
+                // frees via NativeMemory.Free — match the allocator and DON'T open a try/finally
+                // (ownership transfers to the returned object; it frees the buffer). The
+                // (IntPtr)(void*) cast needs an unsafe context, and the method is only marked
+                // `unsafe` when it has a Utf8Slice param, so scope a local unsafe block (mirrors CSM).
+                csWriter.WriteLine($"IntPtr {resultPtrLocal};");
+                csWriter.WriteLine($"unsafe {{ {resultPtrLocal} = (IntPtr)NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnType}>()); }}");
+                callArgs.Add(resultPtrLocal);
+            }
+            else
+            {
+                // Copy-out / pure-value: size to the Swift stride (NOT a fixed 256) and free the
+                // C#-owned buffer in the finally below.
+                csWriter.WriteLine($"IntPtr {resultPtrLocal} = Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnType}>());");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                callArgs.Add(resultPtrLocal);
+            }
         }
         else if (isStringReturn)
         {
-            csWriter.WriteLine("IntPtr resultPtr = Marshal.AllocHGlobal(256);");
+            // SBW_Utf8Slice is exactly two machine words.
+            csWriter.WriteLine($"IntPtr {resultPtrLocal} = Marshal.AllocHGlobal(nint.Size * 2);");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            callArgs.Add("resultPtr");
+            callArgs.Add(resultPtrLocal);
         }
 
         // Regular parameters
@@ -839,12 +947,29 @@ public static class MethodGenericBridgeEmitter
         else if (isStringReturn)
         {
             csWriter.WriteLine($"{callExpr};");
-            csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
+            csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({resultPtrLocal});");
         }
         else if (needsResultPtr)
         {
             csWriter.WriteLine($"{callExpr};");
-            csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+            if (destroyWireRetains)
+            {
+                // Frozen-struct-with-ref return (ClassWithBufferStruct): NewFromPayload copies the
+                // wire into a managed buffer, but the wire still holds +1 retains on its ref fields,
+                // so VWT-Destroy it before the raw free below — otherwise each call leaks +1 (audit
+                // P1-28). Capture into a local so the Destroy runs before the return expression.
+                csWriter.WriteLine($"var {resultLocal} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrLocal});");
+                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrLocal});");
+                csWriter.WriteLine($"return {resultLocal};");
+            }
+            else
+            {
+                // Ownership-transfer (non-frozen struct / complex enum): NewFromPayload adopts
+                // resultPtr into the returned SafeHandle; no free here (NativeMemory.Alloc'd above,
+                // released by ReleaseHandle). Pure-value returns are byte-copied by MarshalFromSwift
+                // and the buffer is freed in the finally below.
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrLocal});");
+            }
         }
         else if (isClassPointerReturn)
         {
@@ -863,12 +988,14 @@ public static class MethodGenericBridgeEmitter
             csWriter.WriteLine("}");
         }
 
-        // Close try blocks for indirect returns
-        if (needsResultPtr || isStringReturn)
+        // Close try blocks for indirect returns. The ownership-transfer path opened no try block —
+        // the returned SafeHandle owns the NativeMemory.Alloc'd buffer and frees it via
+        // ReleaseHandle, so freeing it here would double-free with a mismatched allocator.
+        if ((needsResultPtr || isStringReturn) && !ownershipTransfer)
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine("finally { Marshal.FreeHGlobal(resultPtr); }");
+            csWriter.WriteLine($"finally {{ Marshal.FreeHGlobal({resultPtrLocal}); }}");
         }
 
         csWriter.Indent--;

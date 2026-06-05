@@ -228,10 +228,29 @@ namespace BindingsGeneration
             if (isInstance)
                 swiftParams.Add("_ _self: UnsafeMutableRawPointer");
 
+            // Sibling bindings: this emitter binds each param to its external label (p.Name), or
+            // arg{i} for an unnamed param — NOT the canonical PrivateName??Name — so collect the set
+            // with that exact formula so a reserved-name escape also dodges a sibling user binding
+            // (P1-22). Both loops recompute the identical raw name + reuse this set, keeping decl and
+            // call in sync.
+            var markerSiblings = new HashSet<string>(StringComparer.Ordinal);
+            for (int si = 1; si < methodDecl.CSSignature.Count; si++)
+            {
+                var sp = methodDecl.CSSignature[si];
+                var sraw = sp.Name == "_" ? (string.IsNullOrEmpty(sp.PrivateName) ? $"arg{si}" : sp.PrivateName) : sp.Name;
+                if (!string.IsNullOrEmpty(sraw) && sraw != "_")
+                    markerSiblings.Add(sraw);
+            }
+
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var p = methodDecl.CSSignature[i];
-                var pName = p.Name == "_" ? (string.IsNullOrEmpty(p.PrivateName) ? $"arg{i}" : p.PrivateName) : p.Name;
+                // Escape a user binding colliding with the injected `_self` synthetic OR a sibling user
+                // binding; the external call label is p.Name below, so this rename is source-local and
+                // safe. The call-value loop escapes the same binding identically, keeping decl and call
+                // in sync.
+                var rawName = p.Name == "_" ? (string.IsNullOrEmpty(p.PrivateName) ? $"arg{i}" : p.PrivateName) : p.Name;
+                var pName = NameProvider.EscapeReservedSwiftWrapperLabel(rawName, CdeclParamMapper.ExcludeSelf(markerSiblings, rawName));
                 if (i == markerParamIndex)
                     swiftParams.Add($"_ {pName}: {swiftConcreteType}");
                 else
@@ -248,7 +267,10 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var p = methodDecl.CSSignature[i];
-                var pName = p.Name == "_" ? (string.IsNullOrEmpty(p.PrivateName) ? $"arg{i}" : p.PrivateName) : p.Name;
+                // Same escape as the param-decl loop (same sibling set, self-excluded) so the call
+                // references the (possibly) renamed binding.
+                var rawName = p.Name == "_" ? (string.IsNullOrEmpty(p.PrivateName) ? $"arg{i}" : p.PrivateName) : p.Name;
+                var pName = NameProvider.EscapeReservedSwiftWrapperLabel(rawName, CdeclParamMapper.ExcludeSelf(markerSiblings, rawName));
                 var externalLabel = p.Name;
                 if (externalLabel == "_" || externalLabel.StartsWith("_"))
                     callArgs.Add(pName);

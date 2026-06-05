@@ -3,6 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Collisions;
@@ -303,6 +304,146 @@ public class CollisionTests : TestBase
 
         var failed = ResultFailable.TryCreate(-1, out var _);
         AssertEqual(false, failed, "TryCreate returns false for negative result");
+    }
+
+    #endregion
+
+    #region SyntheticParamCollider (P1-22: user param spelled like an @_cdecl synthetic binding)
+
+    // These exercise the highest-severity arm of the synthetic-name collision class: a USER
+    // parameter spelled exactly like a synthetic binding the generator injects into the
+    // @_cdecl/@_silgen_name wrapper (self_, resultPtr, errorOut, newValue, tag, _resultBuf).
+    // Before the escape, swiftc rejected the duplicate-parameter wrapper, the entry point was
+    // SILENTLY dropped from the dylib, and the call crashed at runtime. Each test round-trips a
+    // value to prove the wrapper survives compilation AND forwards through the escaped binding.
+
+    public void TestSyntheticAddSelf()
+    {
+        // `self_` collides with the injected instance-self pointer synthetic.
+        using var c = new SyntheticParamCollider(10);
+        AssertEqual(13, c.AddSelf(3), "addSelf(self_:) forwards through the escaped self_ binding");
+    }
+
+    public void TestSyntheticMakeWide()
+    {
+        // `resultPtr` collides with the indirect-result buffer synthetic (wide frozen return).
+        using var c = new SyntheticParamCollider(0);
+        using var wide = c.MakeWide(100);
+        AssertEqual(100, wide.A, "makeWide(resultPtr:) a");
+        AssertEqual(101, wide.B, "makeWide(resultPtr:) b");
+        AssertEqual(102, wide.C, "makeWide(resultPtr:) c");
+        AssertEqual(103, wide.D, "makeWide(resultPtr:) d");
+        AssertEqual(104, wide.E, "makeWide(resultPtr:) e");
+    }
+
+    public void TestSyntheticMightFailSuccess()
+    {
+        // `errorOut` collides with the throwing error out-param synthetic.
+        using var c = new SyntheticParamCollider(0);
+        AssertEqual(14, c.MightFail(7), "mightFail(errorOut:) doubles a non-negative value");
+    }
+
+    public void TestSyntheticMightFailThrows()
+    {
+        using var c = new SyntheticParamCollider(0);
+        try
+        {
+            c.MightFail(-1);
+            AssertTrue(false, "mightFail(errorOut:) should throw on negative input");
+        }
+        catch (SwiftException)
+        {
+            AssertTrue(true, "mightFail(errorOut:) surfaces the Swift error across the escaped binding");
+        }
+    }
+
+    public void TestSyntheticBump()
+    {
+        // `newValue` collides with the setter-value synthetic (here on a plain method).
+        using var c = new SyntheticParamCollider(5);
+        AssertEqual(8, c.Bump(3), "bump(newValue:) forwards through the escaped newValue binding");
+    }
+
+    public void TestSyntheticTagPairThunkControl()
+    {
+        // CONTROL: a plain blittable instance method takes the raw assembly register-shift thunk
+        // path (no Swift @_cdecl wrapper, no parameter bindings), so the sibling rename never runs
+        // here. Proves the thunk path forwards two params — one literally named `__tag` — correctly.
+        using var c = new SyntheticParamCollider(0);
+        AssertEqual(2003, c.TagPair(2, 3), "tagPair(tag:__tag:) = tag*1000 + __tag through the thunk path");
+    }
+
+    public void TestSyntheticTagPairWide()
+    {
+        // A REPRO: wide frozen return forces the @_cdecl wrapper. User param `tag` (reserved) is
+        // escaped to `__tag2`, dodging the SIBLING param literally named `__tag` (which stays
+        // `__tag`). Without sibling-awareness both bindings would be `__tag` → swiftc rejects →
+        // wrapper silently dropped → missing entry point. Distinct positions/scales catch a
+        // swapped or dropped forward.
+        using var c = new SyntheticParamCollider(0);
+        using var wide = c.TagPairWide(2, 3);
+        AssertEqual(2003, wide.A, "tagPairWide a = tag*1000 + __tag");
+        AssertEqual(2, wide.B, "tagPairWide b = tag (escaped binding `__tag2`)");
+        AssertEqual(3, wide.C, "tagPairWide c = __tag (sibling binding `__tag`)");
+        AssertEqual(-1, wide.D, "tagPairWide d = tag - __tag");
+        AssertEqual(5, wide.E, "tagPairWide e = tag + __tag");
+    }
+
+    public void TestSyntheticTagPairThrowing()
+    {
+        // A REPRO on a distinct wrapper-forcing path: `throws` injects `errorOut`, forcing the
+        // @_cdecl wrapper where `tag`→`__tag2` again dodges the sibling `__tag`.
+        using var c = new SyntheticParamCollider(0);
+        AssertEqual(2003, c.TagPairThrowing(2, 3), "tagPairThrowing(tag:__tag:) = tag*1000 + __tag");
+
+        try
+        {
+            c.TagPairThrowing(-1, 3);
+            AssertTrue(false, "tagPairThrowing should throw on negative tag");
+        }
+        catch (SwiftException)
+        {
+            AssertTrue(true, "tagPairThrowing surfaces the Swift error across the escaped bindings");
+        }
+    }
+
+    public void TestSyntheticAddSelfAsync()
+    {
+        // `self_` collides with the injected self pointer on the async @_cdecl wrapper.
+        using var c = new SyntheticParamCollider(10);
+        var result = c.AddSelfAsync(3).GetAwaiter().GetResult();
+        AssertEqual(13, result, "addSelfAsync(self_:) forwards through the escaped self_ binding");
+    }
+
+    public void TestSyntheticInitCollider()
+    {
+        // `resultPtr` and `self_` constructor params collide with init-wrapper synthetics.
+        using var c = new SyntheticInitCollider(4, 6);
+        AssertEqual(10, c.Total, "init(resultPtr:self_:) sums the escaped bindings");
+    }
+
+    public void TestKnobCombine()
+    {
+        // `tag` collides with the simple-enum discriminator synthetic on the enum @_cdecl wrapper.
+        AssertEqual(5, Knob.On.Combine(4), "Knob.on.combine(tag:) = rawValue(1) + tag(4)");
+        AssertEqual(4, Knob.Off.Combine(4), "Knob.off.combine(tag:) = rawValue(0) + tag(4)");
+    }
+
+    public void TestKnobFromTag()
+    {
+        // Static enum factory with a `tag` param (collides with the discriminator synthetic).
+        // A Swift static method on an enum surfaces as a plain static on the extensions class.
+        AssertEqual(Knob.Off, KnobExtensions.FromTag(0), "fromTag(0) -> off");
+        AssertEqual(Knob.On, KnobExtensions.FromTag(1), "fromTag(1) -> on");
+    }
+
+    public void TestSyntheticDefaultCollider()
+    {
+        // `_resultBuf` default param collides with the default-overload result-buffer synthetic.
+        using var c = new SyntheticDefaultCollider();
+        AssertEqual(15, c.Go(), "go() uses both defaults (5 + 10)");
+        AssertEqual(20, c.Go(10), "go(_resultBuf: 10) overrides the first default (10 + 10)");
+        AssertEqual(3, c.Go(1, 2), "go(_resultBuf: 1, extra: 2) overrides both (1 + 2)");
     }
 
     #endregion

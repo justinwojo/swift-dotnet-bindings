@@ -423,13 +423,19 @@ public static partial class CrossModuleExtensionEmitter
         ITypeDatabase typeDatabase,
         bool isStatic)
     {
+        // Seed each param's sibling-aware Swift binding before any SwiftBindingName read, so a
+        // reserved-name escape (self_/…) also dodges a sibling user binding (P1-22).
+        var siblingBindings = CollectTrampolineSiblingBindings(parameters.Select(p => p.Name));
+        foreach (var p in parameters)
+            p.ResolveSwiftBinding(siblingBindings);
+
         var swiftParams = new List<string>();
         foreach (var p in parameters)
         {
             if (p.Kind == ClassTrampolineParamKind.Closure)
             {
-                swiftParams.Add($"_ {p.Name}Fn: {p.ClosureSwiftCdeclSig}");
-                swiftParams.Add($"_ {p.Name}Ctx: UnsafeRawPointer");
+                swiftParams.Add($"_ {p.SwiftBindingName}Fn: {p.ClosureSwiftCdeclSig}");
+                swiftParams.Add($"_ {p.SwiftBindingName}Ctx: UnsafeRawPointer");
             }
             else if (p.Kind == ClassTrampolineParamKind.String)
             {
@@ -437,12 +443,12 @@ public static partial class CrossModuleExtensionEmitter
                 // The C# side pins a byte[] via `fixed` for the duration of the
                 // native call; the Swift body re-materializes a Swift.String
                 // from the buffer before calling the user method.
-                swiftParams.Add($"_ {p.Name}Ptr: UnsafePointer<UInt8>?");
-                swiftParams.Add($"_ {p.Name}Len: Int");
+                swiftParams.Add($"_ {p.SwiftBindingName}Ptr: UnsafePointer<UInt8>?");
+                swiftParams.Add($"_ {p.SwiftBindingName}Len: Int");
             }
             else
             {
-                swiftParams.Add($"_ {p.Name}: {RenderClosureTrampolineSwiftParamType(p)}");
+                swiftParams.Add($"_ {p.SwiftBindingName}: {RenderClosureTrampolineSwiftParamType(p)}");
             }
         }
         if (!isStatic)
@@ -497,15 +503,15 @@ public static partial class CrossModuleExtensionEmitter
         {
             var sigArgs = string.Join(", ",
                 cp.ClosureArgInfos.Select((info, i) => $"arg{i}: {info.SwiftType}"));
-            var boxName = $"_box_{cp.Name}";
-            swiftWriter.WriteLine($"let {boxName}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}(UnsafeMutableRawPointer(mutating: {cp.Name}Ctx))");
-            swiftWriter.WriteLine($"let {cp.Name}: {cp.ClosureSwiftSig} = {{ [{boxName}] ({sigArgs}) in");
+            var boxName = $"_box_{cp.SwiftBindingName}";
+            swiftWriter.WriteLine($"let {boxName}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}(UnsafeMutableRawPointer(mutating: {cp.SwiftBindingName}Ctx))");
+            swiftWriter.WriteLine($"let {cp.SwiftBindingName}: {cp.ClosureSwiftSig} = {{ [{boxName}] ({sigArgs}) in");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"_ = {boxName}");
             var convertedArgs = cp.ClosureArgInfos
                 .Select((info, i) => BuildSwiftClosureCdeclArg(info, $"arg{i}"))
-                .Concat(new[] { $"{cp.Name}Ctx" });
-            swiftWriter.WriteLine($"{cp.Name}Fn({string.Join(", ", convertedArgs)})");
+                .Concat(new[] { $"{cp.SwiftBindingName}Ctx" });
+            swiftWriter.WriteLine($"{cp.SwiftBindingName}Fn({string.Join(", ", convertedArgs)})");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }
@@ -518,7 +524,7 @@ public static partial class CrossModuleExtensionEmitter
             var p = parameters[i - 1];
             var label = argDecl.Name;
             var valueExpr = p.Kind == ClassTrampolineParamKind.Closure
-                ? p.Name
+                ? p.SwiftBindingName
                 : ConvertClosureTrampolineCdeclArg(p);
             // Underscore-labeled Swift params (`func foo(_ x: Int)`) are synthesized
             // by the parser to `argN`. The Swift call site must omit the label.
@@ -885,18 +891,20 @@ public static partial class CrossModuleExtensionEmitter
         _ => "UnsafeMutableRawPointer",
     };
 
+    // References the Swift @_cdecl binding (SwiftBindingName), not the C# param name (Name):
+    // these tokens appear in the Swift trampoline body and must match the escaped param decls.
     private static string ConvertClosureTrampolineCdeclArg(ClassTrampolineParamInfo p) => p.Kind switch
     {
-        ClassTrampolineParamKind.Primitive => p.Name,
-        ClassTrampolineParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.Name}).takeUnretainedValue() as! {p.SwiftTypeRendering})",
-        ClassTrampolineParamKind.SwiftClass => $"Unmanaged<{p.SwiftTypeRendering}>.fromOpaque({p.Name}).takeUnretainedValue()",
+        ClassTrampolineParamKind.Primitive => p.SwiftBindingName,
+        ClassTrampolineParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {p.SwiftTypeRendering})",
+        ClassTrampolineParamKind.SwiftClass => $"Unmanaged<{p.SwiftTypeRendering}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
         // String: reconstitute a Swift.String from the pinned UTF-8 buffer.
         // The C# side guarantees a non-nil pointer for non-empty inputs (the
         // CLR returns a non-null pinned address even for zero-length arrays),
         // so the force-unwrap on Ptr is safe when Len > 0; empty buffers fall
         // through to an empty String literal.
-        ClassTrampolineParamKind.String => $"({p.Name}Len > 0 ? String(decoding: UnsafeBufferPointer(start: {p.Name}Ptr!, count: {p.Name}Len), as: UTF8.self) : \"\")",
-        _ => p.Name,
+        ClassTrampolineParamKind.String => $"({p.SwiftBindingName}Len > 0 ? String(decoding: UnsafeBufferPointer(start: {p.SwiftBindingName}Ptr!, count: {p.SwiftBindingName}Len), as: UTF8.self) : \"\")",
+        _ => p.SwiftBindingName,
     };
 
     // =================================================================
@@ -1217,10 +1225,17 @@ public static partial class CrossModuleExtensionEmitter
         swiftWriter.WriteLine($"// Cross-module class-extension {(isAsync ? "async " : "")}{(isThrowing ? "throws " : "")}trampoline for {origSwiftTypeQualified}.{method.Name}");
         swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
 
+        // Seed each param's sibling-aware Swift binding before any SwiftBindingName read, so a
+        // reserved-name escape (completionFn/completionCtx/self_) also dodges a sibling user
+        // binding (P1-22).
+        var siblingBindings = CollectTrampolineSiblingBindings(parameters.Select(p => p.Name));
+        foreach (var p in parameters)
+            p.ResolveSwiftBinding(siblingBindings);
+
         // Swift cdecl signature
         var swiftParams = new List<string>();
         foreach (var p in parameters)
-            swiftParams.Add($"_ {p.Name}: {RenderAsyncTrampolineSwiftParam(p)}");
+            swiftParams.Add($"_ {p.SwiftBindingName}: {RenderAsyncTrampolineSwiftParam(p)}");
         var completionResultType = returnCategory switch
         {
             ReturnKind.Void => "UInt8", // unused
@@ -1355,12 +1370,14 @@ public static partial class CrossModuleExtensionEmitter
         _ => "UnsafeMutableRawPointer",
     };
 
+    // References the Swift @_cdecl binding (SwiftBindingName), not the C# param name (Name):
+    // these tokens appear in the Swift trampoline body and must match the escaped param decl.
     private static string ConvertAsyncTrampolineCdeclArg(AsyncTrampolineParamInfo p) => p.Kind switch
     {
-        ParamKind.Primitive => p.Name,
-        ParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.Name}).takeUnretainedValue() as! {RenderSwiftTypeName(p.TypeSpec)})",
-        ParamKind.SwiftClass => $"Unmanaged<{RenderSwiftTypeName(p.TypeSpec)}>.fromOpaque({p.Name}).takeUnretainedValue()",
-        _ => p.Name,
+        ParamKind.Primitive => p.SwiftBindingName,
+        ParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {RenderSwiftTypeName(p.TypeSpec)})",
+        ParamKind.SwiftClass => $"Unmanaged<{RenderSwiftTypeName(p.TypeSpec)}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
+        _ => p.SwiftBindingName,
     };
 
     private static string RenderPrimitiveSwiftType(TypeSpec spec)
@@ -1390,6 +1407,23 @@ public static partial class CrossModuleExtensionEmitter
         return RenderPrimitiveSwiftType(spec);
     }
 
+    /// <summary>
+    /// The raw (pre-escape) sibling binding names for a cross-module-extension trampoline — its
+    /// params bind to <c>Escape(Name)</c>, so the canonical binding is the param <c>Name</c>. Fed
+    /// to each param's <c>ResolveSwiftBinding</c> so a reserved-name escape also dodges a sibling
+    /// user binding (P1-22). Shared by the Class and Struct partials.
+    /// </summary>
+    private static IReadOnlySet<string> CollectTrampolineSiblingBindings(IEnumerable<string> names)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            if (!string.IsNullOrEmpty(name))
+                set.Add(name);
+        }
+        return set;
+    }
+
     private sealed class AsyncTrampolineParamInfo
     {
         public required string Name { get; init; }
@@ -1398,6 +1432,22 @@ public static partial class CrossModuleExtensionEmitter
         public required TypeSpec TypeSpec { get; init; }
         public required string ArgLabel { get; init; }
         public string PublicCSharpType => MapBoolType(CSharpType);
+
+        private string? _swiftBindingName;
+
+        // Swift @_cdecl binding spelling: escapes Name when it collides with a synthetic
+        // injected into the async trampoline signature (completionFn/completionCtx/self_) OR a
+        // sibling user binding (P1-22). Positional FFI lets the Swift binding differ from the C#
+        // param name (Name); the external Swift call label is ArgLabel, so this rename is
+        // source-local and safe. Falls back to the synthetic-only escape until
+        // ResolveSwiftBinding seeds the sibling-aware form (once the full param list is known).
+        public string SwiftBindingName => _swiftBindingName ?? NameProvider.EscapeReservedSwiftWrapperLabel(Name);
+
+        // Seed the sibling-aware binding once the full param list is known. Idempotent; the
+        // emit method calls it for every param before reading any SwiftBindingName.
+        public void ResolveSwiftBinding(IReadOnlySet<string>? siblings) =>
+            _swiftBindingName = NameProvider.EscapeReservedSwiftWrapperLabel(
+                Name, CdeclParamMapper.ExcludeSelf(siblings, Name));
     }
 
     private enum ClassTrampolineParamKind
@@ -1416,6 +1466,22 @@ public static partial class CrossModuleExtensionEmitter
         public required string CSharpType { get; init; }
         public required string SwiftTypeRendering { get; init; }
         public required TypeSpec TypeSpec { get; init; }
+
+        private string? _swiftBindingName;
+
+        // Swift @_cdecl binding spelling: escapes Name when it collides with a synthetic
+        // injected into the trampoline signature (e.g. the `self_` receiver) OR a sibling user
+        // binding (P1-22). The C# P/Invoke is matched positionally, so the Swift binding may
+        // differ from the C# param name (Name) without affecting the ABI; the public C# method
+        // keeps the faithful Name. Falls back to the synthetic-only escape until
+        // ResolveSwiftBinding seeds the sibling-aware form (once the full param list is known).
+        public string SwiftBindingName => _swiftBindingName ?? NameProvider.EscapeReservedSwiftWrapperLabel(Name);
+
+        // Seed the sibling-aware binding once the full param list is known. Idempotent; the
+        // emit method calls it for every param before reading any SwiftBindingName.
+        public void ResolveSwiftBinding(IReadOnlySet<string>? siblings) =>
+            _swiftBindingName = NameProvider.EscapeReservedSwiftWrapperLabel(
+                Name, CdeclParamMapper.ExcludeSelf(siblings, Name));
 
         // Public C# signature type (Bool mapped to bool, closure mapped to Action<...>).
         public string PublicCSharpType => Kind == ClassTrampolineParamKind.Closure

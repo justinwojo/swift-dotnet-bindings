@@ -1228,6 +1228,70 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
+    public void TranslateBoundGenericTypeToCSharp_DoublyGenericNested_PlacesArgsOnBothSegments()
+    {
+        // Regression for audit P2 (BoundGenericsHandler leaf-arg drop → CS0305): a nested type
+        // where BOTH the outer AND the inner (leaf) carry their own generic arguments
+        // (Swift "Outer<String>.Inner<Tag>"). The parser encodes this as
+        // NamedTypeSpec("TestModule.Outer"){ GenericParameters=[Swift.String],
+        // InnerType=NamedTypeSpec("Inner"){ GenericParameters=[TestModule.Tag] } }.
+        // Before the fix, only the outer args were placed and the early-return dropped the leaf
+        // args entirely — emitting "TestModule.Outer<...>.Inner" (bare leaf), which Roslyn rejects
+        // with CS0305 ("using the generic type 'Inner<U>' requires 1 type argument"). Distinct
+        // outer/inner arg types pin both placement AND ordering (a swap would also fail).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateGenericStructDecl("Outer", moduleDecl, "T", "Swift.Equatable");
+        _ = CreateNestedGenericStructDecl("Inner", moduleDecl, outerDecl, "U");
+
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Swift.String"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["TestModule.Tag"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Tag"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Tag"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["TestModule.Outer"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["TestModule.Outer.Inner"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer.Inner"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Inner"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var typeSpec = new NamedTypeSpec("TestModule.Outer");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        typeSpec.InnerType = new NamedTypeSpec("Inner");
+        typeSpec.InnerType.GenericParameters.Add(new NamedTypeSpec("TestModule.Tag"));
+
+        var result = handler.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty, moduleDecl);
+
+        Assert.Equal("TestModule.Outer<Swift.Runtime.SwiftString>.Inner<TestModule.Tag>", result);
+    }
+
+    [Fact]
     public void TranslateBoundGenericTypeToCSharp_SugaredGenericParamInContext_ResolvesToCSharpName()
     {
         // Regression for StoreKit2.VerificationResult<SignedType>.VerificationError:

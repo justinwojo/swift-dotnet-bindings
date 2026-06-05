@@ -167,7 +167,25 @@ namespace BindingsGeneration
         /// Returns the parameters string for P/Invoke declarations, where existential types
         /// use container types instead of public interface types.
         /// </summary>
-        public string PInvokeParametersString() => string.Join(", ", Parameters.Select(p => p.PInvokeSignatureString()));
+        /// <remarks>
+        /// Deduplicates the declaration identifiers so a synthetic parameter injected by the
+        /// emitter (resultPtr, errorPtr, hasValuePtr, swiftIndirectResult, …) cannot collide with
+        /// a user-named Swift parameter and produce CS0100 (duplicate parameter name). C# P/Invoke
+        /// calls are positional, so the declaration identifier is cosmetic — we rename the rendered
+        /// duplicate WITHOUT touching <see cref="Parameter.Name"/>, which <see cref="CallArgumentsString"/>
+        /// relies on. The first occurrence keeps its name, so the non-colliding case is byte-identical.
+        /// </remarks>
+        public string PInvokeParametersString()
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            return string.Join(", ", Parameters.Select(p =>
+            {
+                if (seen.Add(p.Name)) return p.PInvokeSignatureString();
+                string candidate;
+                for (var i = 1; !seen.Add(candidate = $"{p.Name}__{i}"); i++) { }
+                return (p with { Name = candidate }).PInvokeSignatureString();
+            }));
+        }
 
         public string CallArgumentsString() => string.Join(", ", Parameters.Select(p => GetCallArgumentString(p)));
 

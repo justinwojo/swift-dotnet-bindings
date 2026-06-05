@@ -527,15 +527,24 @@ public static class AsyncMethodGenericBridgeEmitter
         // Regular parameters (with existential opening for the generic param).
         var callArgs = new List<string>();
         var reconstructions = new List<string>();
+        // Sibling bindings so the hand-emitted generic-pointer binding and the Map'd non-generic
+        // params each dodge their siblings (user-vs-sibling half of the P1-22 class).
+        var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
         foreach (var arg in keptArgs)
         {
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
 
             if (arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName)
             {
-                swiftParams.Add($"_ _{label}: UnsafeRawPointer");
+                // Hand-emitted generic-pointer binding — escape it (NOT routed through Map). A
+                // generic param internally named `_self` yields `__self`, duplicating the receiver
+                // body local `let __self`; `self` yields `_self`, duplicating the injected self param.
+                // `__self`/`_self` are reserved, so the escape resolves both; siblings cover a
+                // generic binding clashing with another user param (P1-22).
+                var genericBinding = NameProvider.EscapeReservedSwiftWrapperLabel($"_{label}", siblings);
+                swiftParams.Add($"_ {genericBinding}: UnsafeRawPointer");
                 var argLabel = GetSwiftArgLabel(arg);
-                callArgs.Add($"{argLabel}(Unmanaged<AnyObject>.fromOpaque(_{label}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
+                callArgs.Add($"{argLabel}(Unmanaged<AnyObject>.fromOpaque({genericBinding}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
             }
             else
             {
@@ -544,7 +553,7 @@ public static class AsyncMethodGenericBridgeEmitter
                 // Task is scheduled, so the byte[] pin on the C# side only has to wrap
                 // the synchronous P/Invoke call (which creates the Task) — not the await.
                 // Matches the MGBE/CPSE Utf8Slice marshalling shape.
-                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false, useUtf8Strings: true);
+                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false, useUtf8Strings: true, reservedSiblings: siblings);
                 swiftParams.Add(cdeclParam);
                 callArgs.Add(callArg);
                 if (!string.IsNullOrEmpty(reconstruction))

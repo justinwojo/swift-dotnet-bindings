@@ -624,8 +624,10 @@ public static class PropertyWrapperEmitter
                         };
                         // omitLabels: false — property setters always need .load(as:) reconstruction
                         // for large Optionals. omitLabels: true would trigger ShouldWidenParam bypass.
+                        // escapeReservedCollision: false — `newValue` IS the injected setter synthetic
+                        // (referenced by bare name in the body below), not a colliding user binding.
                         var (cdeclParam, reconstruction, callArgExpr) = CdeclParamMapper.Map(
-                            newValueArg, "newValue", env, omitLabels: false);
+                            newValueArg, "newValue", env, omitLabels: false, escapeReservedCollision: false);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                         {
@@ -1265,7 +1267,8 @@ public static class PropertyWrapperEmitter
                 Name = "newValue", PrivateName = "newValue",
                 IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
             };
-            var (cdeclParam, reconstruction1, callArgExpr1) = CdeclParamMapper.Map(newValueArg, "newValue", env, false);
+            // escapeReservedCollision: false — `newValue` is the injected setter synthetic, not a user binding.
+            var (cdeclParam, reconstruction1, callArgExpr1) = CdeclParamMapper.Map(newValueArg, "newValue", env, false, escapeReservedCollision: false);
             cdeclParams.Add(cdeclParam);
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
             protocolParams.Add($"newValue: {swiftType}");
@@ -1388,7 +1391,8 @@ public static class PropertyWrapperEmitter
                     Name = "newValue", PrivateName = "newValue",
                     IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
                 };
-                var (_, reconstruction, _) = CdeclParamMapper.Map(newValueArg, "newValue", env, false);
+                // escapeReservedCollision: false — `newValue` is the injected setter synthetic, not a user binding.
+                var (_, reconstruction, _) = CdeclParamMapper.Map(newValueArg, "newValue", env, false, escapeReservedCollision: false);
                 if (reconstruction != null)
                     swiftWriter.WriteLine(reconstruction);
             }

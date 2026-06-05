@@ -745,13 +745,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (needsResultPtr || isStringReturn)
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
 
-        // Regular parameters
+        // Regular parameters. Every param's internal binding is hand-emitted as `_<label>` (NOT
+        // routed through Map), so escape that form here: a param internally named `_self` yields
+        // `__self`, duplicating the receiver body local `let __self` → swiftc rejects + silently
+        // drops the wrapper (P1-22). `__self`/`_self` are reserved so the escape resolves the clash;
+        // siblings cover a binding that collides with another user param.
+        var siblings = CdeclParamMapper.CollectSiblingBindingNames(method.CSSignature.Skip(1));
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
 
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            // Escaped `_`-prefixed binding used for the @_cdecl param, the forwarding call arg, and
+            // any derived (Len/Utf8Ptr/Utf8Len) tokens below. "_" + label avoids the literal token
+            // so the replace below leaves this line intact.
+            var b = NameProvider.EscapeReservedSwiftWrapperLabel("_" + label, siblings);
             var argLabel = ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
 
             if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformerObj))
@@ -765,8 +774,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 switch (category)
                 {
                     case ConformerCategory.Class:
-                        swiftParams.Add($"_ _{label}: UnsafeMutableRawPointer");
-                        callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer(_{label}), to: {concreteSwiftType}.self)");
+                        swiftParams.Add($"_ {b}: UnsafeMutableRawPointer");
+                        callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer({b}), to: {concreteSwiftType}.self)");
                         break;
                     case ConformerCategory.RawBuffer:
                         // byte[] / [UInt8]: receive (ptr, length), reconstruct as Foundation.Data
@@ -775,23 +784,23 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // pin — this is a synchronous call). Swift infers D = Foundation.Data
                         // at the call site regardless of the conformer's nominal [UInt8] identity,
                         // which is fine: both [UInt8] and Data conform to DataProtocol.
-                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
-                        swiftParams.Add($"_ _{label}Len: Int");
-                        callArgs.Add($"{argLabel}Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: _{label}), count: _{label}Len, deallocator: .none)");
+                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}Len: Int");
+                        callArgs.Add($"{argLabel}Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: {b}), count: {b}Len, deallocator: .none)");
                         break;
                     case ConformerCategory.InlineSwiftStruct:
                         // Foundation.Data (and future allowlisted value structs): the C# side
                         // pins &data via fixed(Data*) and passes (IntPtr)p. Swift loads via
                         // assumingMemoryBound+pointee, same shape as NonFrozenStruct.
-                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
-                        callArgs.Add($"{argLabel}_{label}.assumingMemoryBound(to: {concreteSwiftType}.self).pointee");
+                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {concreteSwiftType}.self).pointee");
                         break;
                     default:
                         // Frozen and non-frozen structs: pass as pointer, load value.
                         // Even frozen structs use pointer indirection because their C# binding
                         // is a class with SafeHandle, not a blittable C# struct.
-                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
-                        callArgs.Add($"{argLabel}_{label}.assumingMemoryBound(to: {concreteSwiftType}.self).pointee");
+                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {concreteSwiftType}.self).pointee");
                         break;
                 }
             }
@@ -806,12 +815,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 switch (abiCategory)
                 {
                     case MethodClosureBridge.ParamAbiCategory.Primitive:
-                        swiftParams.Add($"_ _{label}: {ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec)}");
-                        callArgs.Add($"{argLabel}_{label}");
+                        swiftParams.Add($"_ {b}: {ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec)}");
+                        callArgs.Add($"{argLabel}{b}");
                         break;
                     case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
-                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
                         var swiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                         // PayloadHandle covers both Swift classes and non-frozen structs.
                         // Discriminate: Swift classes (and ObjC-bridged) — the IntPtr IS the
@@ -828,9 +837,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                             && (abiCategory == MethodClosureBridge.ParamAbiCategory.ObjCHandle
                                 || MethodClosureBridge.IsClassTypeForSwift(namedArg, typeDatabase));
                         if (argIsClass)
-                            callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer(_{label}), to: {swiftTypeName}.self)");
+                            callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer({b}), to: {swiftTypeName}.self)");
                         else
-                            callArgs.Add($"{argLabel}_{label}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
+                            callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
                         break;
                     case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
                         // Swift.String passes as (UTF-8 byte pointer, length) pair — mirrors
@@ -838,9 +847,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // expression is a single Swift literal so we inline it directly into
                         // the call site rather than threading a prelude `let {name}Val` line
                         // (the param is consumed exactly once in CSM wrapper bodies).
-                        swiftParams.Add($"_ _{label}Utf8Ptr: UnsafePointer<UInt8>");
-                        swiftParams.Add($"_ _{label}Utf8Len: Int");
-                        callArgs.Add($"{argLabel}String(bytes: UnsafeBufferPointer(start: _{label}Utf8Ptr, count: _{label}Utf8Len), encoding: .utf8)!");
+                        swiftParams.Add($"_ {b}Utf8Ptr: UnsafePointer<UInt8>");
+                        swiftParams.Add($"_ {b}Utf8Len: Int");
+                        callArgs.Add($"{argLabel}String(bytes: UnsafeBufferPointer(start: {b}Utf8Ptr, count: {b}Utf8Len), encoding: .utf8)!");
                         break;
                     case MethodClosureBridge.ParamAbiCategory.KeyPathFamily:
                     {
@@ -849,13 +858,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // takeUnretainedValue (no retain consumed): C# passes @guaranteed
                         // with the SafeHandle kept alive by DangerousGetHandle across the call.
                         var swiftKpType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
-                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
-                        callArgs.Add($"{argLabel}Unmanaged<{swiftKpType}>.fromOpaque(_{label}).takeUnretainedValue()");
+                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}Unmanaged<{swiftKpType}>.fromOpaque({b}).takeUnretainedValue()");
                         break;
                     }
                     default:
-                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
-                        callArgs.Add($"{argLabel}_{label}");
+                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}{b}");
                         break;
                 }
             }
@@ -1139,6 +1148,34 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var pinvokeParams = new List<string>();
         var callArgs = new List<string>();
 
+        // P1-22: the generated C# hardcodes synthetic names in two scopes that a user
+        // parameter can collide with: (1) the public method body's locals (resultPtr,
+        // _result, errorPtr) — a user param spelling one shadows it (CS0136); and (2) the
+        // P/Invoke declaration's own synthetic params (the indirect-return `IntPtr resultPtr`
+        // and throwing `out IntPtr errorPtr`), which sit in the SAME parameter list as the
+        // forwarded user params — a user param spelling one is a duplicate parameter name
+        // (CS0100). Both ship uncompilable C# at exit 0. Reserve the synthetics against the
+        // in-scope user identifiers up front (BEFORE the P/Invoke param list is built below)
+        // so the same reserved spelling guards body locals AND P/Invoke params; collision-free
+        // input keeps the original names verbatim (output is byte-identical to before).
+        var reservedUserNames = new List<string>();
+        foreach (var preArg in method.CSSignature.Skip(1))
+        {
+            if (preArg.SwiftTypeSpec.IsEmptyTuple) continue;
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(preArg)) continue;
+            if (preArg.HasDefaultArg) continue;
+            reservedUserNames.Add(NameProvider.GetCSharpParameterName(preArg));
+        }
+        // The extension-method receiver is an explicit `this {ConcreteParent} self` first
+        // public param; reserve it too so no synthetic ever collides with it.
+        if (isExtension && !isStatic)
+            reservedUserNames.Add("self");
+
+        var syntheticScope = new SyntheticNameScope(reservedUserNames);
+        string resultPtrName = syntheticScope.Reserve("resultPtr");
+        string resultLocalName = syntheticScope.Reserve("_result");
+        string errorPtrName = syntheticScope.Reserve("errorPtr");
+
         // Pins: each entry is a C# fixed-statement "fixed (byte* _pfoo = foo)" that must
         // wrap the pinvoke call. InlineSwiftStruct uses `&param` directly (unmanaged
         // value type — no fixed needed) but still requires an `unsafe` context.
@@ -1175,7 +1212,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         if (needsResultPtr || isStringReturn)
-            pinvokeParams.Add("IntPtr resultPtr");
+            pinvokeParams.Add($"IntPtr {resultPtrName}");
 
         foreach (var arg in method.CSSignature.Skip(1))
         {
@@ -1331,12 +1368,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         // Throwing method: append the `out IntPtr errorPtr` parameter last so the P/Invoke
-        // matches the Swift wrapper's errorOut position.
+        // matches the Swift wrapper's errorOut position. P1-22: the param name is reserved
+        // (errorPtrName) so a user param literally named `errorPtr` does not duplicate it.
         bool throws = method.Throws;
         if (throws)
         {
-            pinvokeParams.Add("out IntPtr errorPtr");
-            callArgs.Add("out var errorPtr");
+            pinvokeParams.Add($"out IntPtr {errorPtrName}");
+            callArgs.Add($"out var {errorPtrName}");
         }
 
         // Determine C# return type
@@ -1506,7 +1544,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Build P/Invoke call
         var pinvokeCallArgs = new List<string>();
         if (needsResultPtr || isStringReturn)
-            pinvokeCallArgs.Add("resultPtr");
+            pinvokeCallArgs.Add(resultPtrName);
         pinvokeCallArgs.AddRange(callArgs);
 
         string pinvokeCall = $"{cdeclSymbol}({string.Join(", ", pinvokeCallArgs)})";
@@ -1524,12 +1562,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //   3. Pure value (frozen, no RequiresMemoryManagement): NewFromPayload does
         //      `*(T*)handle` — a byte copy with no retain semantics. Caller frees the wire.
         //   4. Class conformer (returnsGenericParam only — class parents take no resultPtr):
-        //      Swift writes the class pointer into resultPtr via `initializeMemory`, and
-        //      MarshalFromSwift<Class>(resultPtr) currently wraps the carrier address as
-        //      the class pointer (latent bug — should be `*(IntPtr*)resultPtr`). This case
-        //      keeps the legacy alloc-then-free shape pre-existing across all conformers,
-        //      tracked as a follow-up with the MethodGenericBridge fix. Not regressed by
-        //      this commit.
+        //      Swift writes the class pointer into resultPtr via `initializeMemory` (the carrier
+        //      owns the +1). C# reads the slot's contents via MarshalOwnedClassFromSlot and adopts
+        //      that +1, then raw-frees the one-word carrier below. Keeps the alloc-then-free shape
+        //      (a class carrier has no internal refs to VWT-Destroy); only the marshal call differs
+        //      from the pure-value path. Fixes audit P0-11 (was wrapping the carrier address as the
+        //      instance pointer → use-after-free on the carrier + leak of the real instance).
         // Class constructors take no resultPtr (direct UnsafeMutableRawPointer return) and
         // are excluded. String returns copy out via ReadUtf8Slice.
         //
@@ -1539,6 +1577,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // frozen-with-memory conformers via the wire's +1 retains.
         bool returnTypeIsDirectWrap = false;
         bool returnTypeNeedsWireDestroy = false;
+        // Class conformer carrier (returnsGenericParam only): the Swift wrapper stores the
+        // instance pointer INTO resultPtr via initializeMemory, so the carrier owns the +1 and
+        // C# must read the slot's contents (MarshalOwnedClassFromSlot), not wrap the carrier
+        // address. Keeps the alloc+raw-free shape (a class carrier is one word, no internal
+        // refs to VWT-Destroy); only the marshal call differs. Fixes audit P0-11.
+        bool returnTypeIsClassCarrier = false;
         if (needsResultPtr)
         {
             TypeRecord? returnRecord = null;
@@ -1558,6 +1602,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     // shape (see contract #4 above); everything else stays pure-value.
                     var category = ClassifyConformerForCSharp(returnConformer, typeDatabase);
                     returnTypeIsDirectWrap = category == ConformerCategory.NonFrozenStruct;
+                    returnTypeIsClassCarrier = category == ConformerCategory.Class;
                 }
             }
             else
@@ -1573,6 +1618,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     && !returnRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
                 returnTypeIsDirectWrap = isNonFrozenStruct || isComplexEnum;
                 returnTypeNeedsWireDestroy = MarshallingHelpers.IsFrozenStructProjectedAsClass(returnRecord);
+                // Only generic-param returns store a class instance into the carrier; class
+                // parents take no resultPtr (direct class-pointer return), so gate on returnsGenericParam.
+                returnTypeIsClassCarrier = returnsGenericParam && returnRecord.Kind == TypeRecordKind.Class;
             }
         }
         bool needsResultPtrOwnershipTransfer = needsResultPtr && returnTypeIsDirectWrap;
@@ -1582,7 +1630,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (isStringReturn)
             {
                 // SBW_Utf8Slice is exactly 2 machine words
-                csWriter.WriteLine("IntPtr resultPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(nint.Size * 2);");
+                csWriter.WriteLine($"IntPtr {resultPtrName} = System.Runtime.InteropServices.Marshal.AllocHGlobal(nint.Size * 2);");
             }
             else if (needsResultPtrOwnershipTransfer)
             {
@@ -1591,13 +1639,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // SafeHandle owns the buffer. The (IntPtr)(void*) cast requires an unsafe
                 // context; methods taking only handle/blittable args aren't marked unsafe,
                 // so wrap the alloc in a local unsafe block.
-                csWriter.WriteLine("IntPtr resultPtr;");
-                csWriter.WriteLine($"unsafe {{ resultPtr = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>()); }}");
+                csWriter.WriteLine($"IntPtr {resultPtrName};");
+                csWriter.WriteLine($"unsafe {{ {resultPtrName} = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>()); }}");
             }
             else
             {
                 // Struct constructor or other alloc+free case.
-                csWriter.WriteLine($"IntPtr resultPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>());");
+                csWriter.WriteLine($"IntPtr {resultPtrName} = System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>());");
             }
             if (!needsResultPtrOwnershipTransfer)
             {
@@ -1640,11 +1688,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         else if (needsResultPtrOwnershipTransfer)
         {
-            errorCheck = "if (errorPtr != IntPtr.Zero) { unsafe { System.Runtime.InteropServices.NativeMemory.Free((void*)resultPtr); } SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError); }";
+            errorCheck = $"if ({errorPtrName} != IntPtr.Zero) {{ unsafe {{ System.Runtime.InteropServices.NativeMemory.Free((void*){resultPtrName}); }} SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError); }}";
         }
         else
         {
-            errorCheck = "if (errorPtr != IntPtr.Zero) SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);";
+            errorCheck = $"if ({errorPtrName} != IntPtr.Zero) SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);";
         }
 
         if (isConstructor)
@@ -1653,9 +1701,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 if (throws)
                 {
-                    csWriter.WriteLine($"var _result = {pinvokeCall};");
+                    csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
                     csWriter.WriteLine(errorCheck);
-                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle(_result));");
+                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({resultLocalName}));");
                 }
                 else
                 {
@@ -1678,13 +1726,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     // (InitializeWithCopy bumps internal refs). Release the wire's +1 on
                     // internal refs before the finally Free reclaims the wire buffer —
                     // otherwise the retained inner allocations leak per call.
-                    csWriter.WriteLine($"var _result = SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
-                    csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>(resultPtr);");
-                    csWriter.WriteLine("return _result;");
+                    csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrName});");
+                    csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrName});");
+                    csWriter.WriteLine($"return {resultLocalName};");
                 }
                 else
                 {
-                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrName});");
                 }
             }
         }
@@ -1697,7 +1745,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             csWriter.WriteLine($"{pinvokeCall};");
             if (throws) csWriter.WriteLine(errorCheck);
-            csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
+            csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({resultPtrName});");
         }
         else if (needsResultPtr)
         {
@@ -1706,13 +1754,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (needsResultPtrDestroyWireRetains)
             {
                 // Frozen-with-memory return type: see struct-constructor branch above.
-                csWriter.WriteLine($"var _result = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>(resultPtr);");
-                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnMarshalType}>(resultPtr);");
-                csWriter.WriteLine($"return _result{returnProjectionSuffix};");
+                csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName});");
+                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnMarshalType}>({resultPtrName});");
+                csWriter.WriteLine($"return {resultLocalName}{returnProjectionSuffix};");
+            }
+            else if (returnTypeIsClassCarrier)
+            {
+                // Class conformer (audit P0-11): Swift's initializeMemory stored the instance
+                // pointer INTO the carrier with a +1. Read the slot's contents and adopt that +1
+                // (no extra retain); the carrier word is raw-freed below in finally.
+                csWriter.WriteLine($"return SwiftMarshal.MarshalOwnedClassFromSlot<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
             }
             else
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>(resultPtr){returnProjectionSuffix};");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
             }
         }
         else if (returnsGenericParam)
@@ -1733,22 +1788,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // Swift @_cdecl ABI is identical across both paths. For CdeclReturnKind.Direct
             // the switch falls through to `return _result;`, equivalent to the prior
             // inline `return pinvokeCall;`.
-            csWriter.WriteLine($"var _result = {pinvokeCall};");
+            csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
             if (throws) csWriter.WriteLine(errorCheck);
             switch (directReturnMapping?.Kind)
             {
                 case CdeclReturnKind.SimpleEnum:
-                    csWriter.WriteLine($"return ({csReturnType})_result;");
+                    csWriter.WriteLine($"return ({csReturnType}){resultLocalName};");
                     break;
                 case CdeclReturnKind.ClassPointer:
-                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle(_result));");
+                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({resultLocalName}));");
                     break;
                 case CdeclReturnKind.OptionalClassPointer:
                     // csReturnType is `MyClass?` — strip the `?` for the constructor call.
-                    csWriter.WriteLine($"return _result == IntPtr.Zero ? null : new {csReturnType.TrimEnd('?')}(new Swift.Runtime.SwiftHandle(_result));");
+                    csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : new {csReturnType.TrimEnd('?')}(new Swift.Runtime.SwiftHandle({resultLocalName}));");
                     break;
                 default:
-                    csWriter.WriteLine("return _result;");
+                    csWriter.WriteLine($"return {resultLocalName};");
                     break;
             }
         }
@@ -1764,7 +1819,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(resultPtr); }");
+            csWriter.WriteLine($"finally {{ System.Runtime.InteropServices.Marshal.FreeHGlobal({resultPtrName}); }}");
         }
 
         csWriter.Indent--;

@@ -280,14 +280,14 @@ namespace BindingsGeneration
                     // NOTE: Native thunks are NOT included here. Thunks rely on AAPCS64's hidden x8
                     // register for struct return buffers (the thunk prologue does `mov x19, x8`).
                     // Replacing SwiftIndirectResult with IntPtr would put resultPtr in x0 instead of x8.
-                    AddParameter("IntPtr", "resultPtr");
+                    AddParameter("IntPtr", _env.SyntheticLocals.ResultPtr);
                     // Decomposed Optional getter: add hasValuePtr after resultPtr.
                     // The Swift wrapper writes the inner payload to resultPtr and the hasValue flag to hasValuePtr.
                     if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                         !_env.MethodDecl.IsSubscriptAccessor &&
                         returnType.SwiftTypeSpec != null && OptionalMarshalClassifier.IsDecomposed(returnType.SwiftTypeSpec, _env.TypeDatabase))
                     {
-                        AddParameter("IntPtr", "hasValuePtr");
+                        AddParameter("IntPtr", _env.SyntheticLocals.HasValuePtr);
                     }
                 }
                 else if (MarshallingHelpers.IsMultiElementGenericTupleIndirectReturn(_env)
@@ -304,7 +304,7 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    AddParameter("SwiftIndirectResult", "swiftIndirectResult");
+                    AddParameter("SwiftIndirectResult", _env.SyntheticLocals.SwiftIndirectResult);
                 }
                 SetReturnType("void");
                 return;

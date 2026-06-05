@@ -498,6 +498,74 @@ public class MethodGenericBridgeEmitterTests
 
     #endregion
 
+    #region Indirect-result ownership (audit P0-12 / P1-28)
+
+    // The bridge's indirect-result buffer was previously a fixed `Marshal.AllocHGlobal(256)`
+    // (heap overflow for any Swift return whose stride exceeds 256 bytes — audit P0-12) followed
+    // by an undiscriminated MarshalFromSwift + finally-free: a double-free / allocator mismatch
+    // for ownership-transfer returns, and a leaked +1 ARC retain for frozen-with-ref returns
+    // (audit P1-28). These tests pin the three-way ownership contract and that NO fixed 256-byte
+    // buffer survives in the emitted C#.
+
+    [Fact]
+    public void TryEmit_NonFrozenStructReturn_SizesViaSwiftStrideAndTransfersOwnership()
+    {
+        // Non-frozen struct (ClassWithOpaquePayload): the wire buffer is adopted into the
+        // returned SafeHandle, so it must be NativeMemory.Alloc'd (to match ReleaseHandle's
+        // NativeMemory.Free) and NOT freed in a finally here — that would double-free.
+        var (handled, csResult, _) = EmitBridgeWithStructReturn(
+            "OpaqueResult", TypeRecordKind.Struct, TypeRecordFlags.RequiresMemoryManagement);
+
+        Assert.True(handled);
+        Assert.Contains("GetSwiftTypeSize<", csResult);   // sized to the Swift stride…
+        Assert.DoesNotContain("256", csResult);            // …never a fixed 256-byte buffer (P0-12)
+        Assert.Contains("NativeMemory.Alloc", csResult);   // allocator matches ReleaseHandle
+        Assert.Contains("MarshalFromSwift<", csResult);
+        Assert.DoesNotContain("FreeHGlobal", csResult);    // ownership transfers — no finally-free
+    }
+
+    [Fact]
+    public void TryEmit_FrozenWithRefStructReturn_DestroysWireRetainsThenFreesBuffer()
+    {
+        // Frozen-struct-with-ref-fields (ClassWithBufferStruct): NewFromPayload copies the wire
+        // into a managed buffer, but the wire still holds +1 on its ref fields — VWT-Destroy it
+        // before freeing the C#-owned buffer, else every call leaks +1 (audit P1-28).
+        var (handled, csResult, _) = EmitBridgeWithStructReturn(
+            "FrozenRefResult", TypeRecordKind.Struct,
+            TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+
+        Assert.True(handled);
+        Assert.Contains("GetSwiftTypeSize<", csResult);
+        Assert.DoesNotContain("256", csResult);
+        Assert.Contains("DestroyWireBufferRetains<", csResult);
+        Assert.Contains("FreeHGlobal", csResult);          // C#-owned buffer is freed (no transfer)
+    }
+
+    [Fact]
+    public void TryEmit_FrozenTrivialStructReturn_IsInadmissible_NotEmitted()
+    {
+        // Frozen-trivial struct (no ref fields) routes to IndirectResult but has no ISwiftObject
+        // binding to size via GetSwiftTypeSize<T>. The admission gate must drop it — the same
+        // branch that drops inline value structs whose idiomatic projection is not an ISwiftObject
+        // (e.g. Foundation.Data → byte[], where GetSwiftTypeSize<byte[]>() would not even compile).
+        // Dropping lets the method fall back to the normal path instead of emitting uncompilable C#.
+        var (csWriter, swiftWriter) = CreateWriters();
+        var method = CreateMethodDeclWithGenericParam();
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("TestModule.FrozenTrivialResult"), method.ModuleDecl);
+        var typeDatabase = CreateTypeDatabaseWithReturn(
+            "FrozenTrivialResult", TypeRecordKind.Struct, TypeRecordFlags.Frozen);
+
+        Assert.False(MethodGenericBridgeEmitter.IsEligible(method, typeDatabase));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        Assert.False(MethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, new ModuleEmissionContext()));
+        Assert.False(method.WasEmitted);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter) CreateWriters()
@@ -649,6 +717,80 @@ public class MethodGenericBridgeEmitterTests
     private static MethodEnvironment CreateMethodEnvironment(MethodDecl method)
     {
         return new MethodEnvironment(method, CreateTypeDatabase());
+    }
+
+    /// <summary>
+    /// Emits the sync MGB bridge for an eligible method whose return is the named struct,
+    /// registered with the given kind/flags. Returns whether emission was handled plus the
+    /// generated C# and Swift text. Used by the indirect-result ownership tests.
+    /// </summary>
+    private static (bool handled, string csResult, string swiftResult) EmitBridgeWithStructReturn(
+        string returnSimpleName, TypeRecordKind returnKind, TypeRecordFlags returnFlags)
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var method = CreateMethodDeclWithGenericParam();
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        // Swap the void return for the indirect-result struct return.
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec($"TestModule.{returnSimpleName}"), method.ModuleDecl);
+
+        var typeDatabase = CreateTypeDatabaseWithReturn(returnSimpleName, returnKind, returnFlags);
+        var env = new MethodEnvironment(method, typeDatabase);
+        var handled = MethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, new ModuleEmissionContext());
+        return (handled, csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    /// <summary>
+    /// Builds a TypeDatabase carrying Swift.Int, the non-generic class parent (Processor), and a
+    /// struct return type registered with the supplied kind/flags. xcframework mode is enabled
+    /// (AsyncLibraryName) so the bridge's IsXCFrameworkMode gate passes.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithReturn(
+        string returnSimpleName, TypeRecordKind returnKind, TypeRecordFlags returnFlags)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Processor"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Processor"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Processor"),
+                MetadataAccessor = "$s10TestModule9ProcessorCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"TestModule.{returnSimpleName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", returnSimpleName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{returnSimpleName}"),
+                MetadataAccessor = $"$s10TestModule{returnSimpleName.Length}{returnSimpleName}VMa",
+                Flags = returnFlags,
+                Kind = returnKind
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        return typeDatabase;
     }
 
     #endregion

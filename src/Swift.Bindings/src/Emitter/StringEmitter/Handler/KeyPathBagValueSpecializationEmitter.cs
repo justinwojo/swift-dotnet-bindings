@@ -482,6 +482,20 @@ internal static class KeyPathBagValueSpecializationEmitter
         csWriter.WriteLine();
     }
 
+    /// <summary>
+    /// The raw (pre-escape) `_`-prefixed binding names this trampoline emits for its non-KeyPath
+    /// params. Both the param-decl loop (<see cref="EmitSwiftTrampoline"/>) and the call loop
+    /// (<see cref="EmitTrampolineCall"/>) feed this set to the reserved-collision escape so each
+    /// per-param escape also dodges a sibling binding (P1-22), and both loops stay in sync.
+    /// </summary>
+    private static IReadOnlySet<string> CollectTrampolineSiblingBindings(StagedOverload ov)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var p in ov.OtherParams)
+            names.Add($"_{p.Name}");
+        return names;
+    }
+
     private static void EmitSwiftTrampoline(SwiftWriter swiftWriter, StagedOverload ov)
     {
         var variantList = string.Join(", ", ov.SwiftValueVariants);
@@ -491,8 +505,21 @@ internal static class KeyPathBagValueSpecializationEmitter
         swiftWriter.WriteLine($"@_cdecl(\"{ov.CdeclSymbol}\")");
 
         var swiftParams = new List<string> { "_ _by: UnsafeRawPointer" };
+        // Sibling bindings (this emitter binds each param to `_{Name}`) so a reserved-name escape
+        // (`_by`) also dodges a sibling user binding (P1-22). EmitTrampolineCall recomputes the
+        // identical set, keeping decl and call in sync.
+        var siblings = CollectTrampolineSiblingBindings(ov);
         foreach (var p in ov.OtherParams)
-            swiftParams.Add($"_ _{p.Name}: {SwiftPrimitiveToCdeclType(p.SwiftType)}");
+        {
+            // Escape the final `_`-prefixed binding when it collides with an injected synthetic
+            // (`_by`, e.g. user param "by" → "_by") OR a sibling user binding; the external call label
+            // is arg.Name, so the rename is source-local. The trampoline call escapes the same form
+            // identically.
+            var rawBinding = $"_{p.Name}";
+            var binding = NameProvider.EscapeReservedSwiftWrapperLabel(
+                rawBinding, CdeclParamMapper.ExcludeSelf(siblings, rawBinding));
+            swiftParams.Add($"_ {binding}: {SwiftPrimitiveToCdeclType(p.SwiftType)}");
+        }
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
         swiftWriter.WriteLine($"public func {ov.CdeclSymbol}(");
@@ -554,6 +581,9 @@ internal static class KeyPathBagValueSpecializationEmitter
     private static void EmitTrampolineCall(SwiftWriter swiftWriter, StagedOverload ov, string selfWriteBack)
     {
         var callArgs = new List<string>();
+        // Same sibling set as the param-decl loop (EmitSwiftTrampoline) so the call references the
+        // (possibly) escaped binding.
+        var siblings = CollectTrampolineSiblingBindings(ov);
         int otherIdx = 0;
         for (int sigIdx = 1; sigIdx < ov.Method.CSSignature.Count; sigIdx++)
         {
@@ -567,11 +597,15 @@ internal static class KeyPathBagValueSpecializationEmitter
             else
             {
                 var p = ov.OtherParams[otherIdx++];
+                // Match the escaped `_`-prefixed binding from the param decl so the call references it.
+                var rawBinding = $"_{p.Name}";
+                var binding = NameProvider.EscapeReservedSwiftWrapperLabel(
+                    rawBinding, CdeclParamMapper.ExcludeSelf(siblings, rawBinding));
                 // Swift Bool crosses @_cdecl as Int8; restore Bool at the call site.
                 if (SwiftPrimitiveIsBool(p.SwiftType))
-                    callArgs.Add($"{label}_{p.Name} != 0");
+                    callArgs.Add($"{label}{binding} != 0");
                 else
-                    callArgs.Add($"{label}_{p.Name}");
+                    callArgs.Add($"{label}{binding}");
             }
         }
 

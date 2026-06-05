@@ -547,8 +547,8 @@ internal class MethodMarshalPlanBuilder
                             IsConstructor = true,
                             ReturnTypeName = typeName,
                             AllocationCode = $$"""
-                                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{typeName}}.Buffer));
-                                var resultPtr = bufferPtr;
+                                IntPtr {{_env.SyntheticLocals.BufferPtr}} = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{typeName}}.Buffer));
+                                var {{_env.SyntheticLocals.ResultPtr}} = {{_env.SyntheticLocals.BufferPtr}};
                                 """
                         };
                     }
@@ -562,7 +562,7 @@ internal class MethodMarshalPlanBuilder
                             ReturnTypeName = typeName,
                             AllocationCode = $$"""
                                 {{typeName}} _cdeclResult;
-                                var resultPtr = (IntPtr)(&_cdeclResult);
+                                var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)(&_cdeclResult);
                                 """
                         };
                     }
@@ -574,7 +574,7 @@ internal class MethodMarshalPlanBuilder
                     ReturnTypeName = typeName,
                     AllocationCode = $$"""
                         _payload = new SwiftSafeHandle<{{safeHandleTypeName}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                        var resultPtr = _payload.DangerousGetHandle();
+                        var {{_env.SyntheticLocals.ResultPtr}} = _payload.DangerousGetHandle();
                         """
                 };
             }
@@ -585,7 +585,7 @@ internal class MethodMarshalPlanBuilder
                 ReturnTypeName = typeName,
                 AllocationCode = $$"""
                     _payload = new SwiftSafeHandle<{{safeHandleTypeName}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
-                    var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                    var {{_env.SyntheticLocals.SwiftIndirectResult}} = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     """
             };
         }
@@ -611,9 +611,9 @@ internal class MethodMarshalPlanBuilder
                     {
                         IsConstructor = false,
                         ReturnTypeName = "SwiftClosureData",
-                        AllocationCode = """
+                        AllocationCode = $$"""
                             _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
-                            var resultPtr = (IntPtr)_cdeclBuf;
+                            var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
                             """,
                         CleanupCode = "NativeMemory.Free(_cdeclBuf);"
                     };
@@ -664,9 +664,9 @@ internal class MethodMarshalPlanBuilder
                 string allocCode;
                 if (isUtf8Slice)
                 {
-                    allocCode = """
+                    allocCode = $$"""
                         _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
-                        var resultPtr = (IntPtr)_cdeclBuf;
+                        var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
                         """;
                 }
                 else if (isFrozenBlittable)
@@ -675,7 +675,7 @@ internal class MethodMarshalPlanBuilder
                     // no ISwiftObject implementation. Use Unsafe.SizeOf instead of TypeMetadata.
                     allocCode = $$"""
                         _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{allocTypeName}}>());
-                        var resultPtr = (IntPtr)_cdeclBuf;
+                        var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
                         """;
                 }
                 else
@@ -712,19 +712,19 @@ internal class MethodMarshalPlanBuilder
                                 var _innerSize = (nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{containerTypeName}}>();
                                 var _bufSize = Math.Max(_innerSize + 1, 16);
                                 _cdeclBuf = NativeMemory.AllocZeroed(_bufSize);
-                                var resultPtr = (IntPtr)_cdeclBuf;
-                                var hasValuePtr = (IntPtr)((byte*)_cdeclBuf + (int)_innerSize);
+                                var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
+                                var {{_env.SyntheticLocals.HasValuePtr}} = (IntPtr)((byte*)_cdeclBuf + (int)_innerSize);
                                 """;
                         }
                         else
                         {
                             var innerTypeName = innerProjection?.MarshalFromSwiftType ?? allocTypeName;
                             allocCode = $$"""
-                                var innerMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{innerTypeName}}>();
-                                var _bufSize = Math.Max((nuint)innerMetadata.Size + 1, 16);
+                                var {{_env.SyntheticLocals.InnerMetadata}} = TypeMetadata.GetTypeMetadataOrThrow<{{innerTypeName}}>();
+                                var _bufSize = Math.Max((nuint){{_env.SyntheticLocals.InnerMetadata}}.Size + 1, 16);
                                 _cdeclBuf = NativeMemory.AllocZeroed(_bufSize);
-                                var resultPtr = (IntPtr)_cdeclBuf;
-                                var hasValuePtr = (IntPtr)((byte*)_cdeclBuf + innerMetadata.Size);
+                                var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
+                                var {{_env.SyntheticLocals.HasValuePtr}} = (IntPtr)((byte*)_cdeclBuf + {{_env.SyntheticLocals.InnerMetadata}}.Size);
                                 """;
                         }
                     }
@@ -734,9 +734,9 @@ internal class MethodMarshalPlanBuilder
                     else if (MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec))
                     {
                         allocCode = $$"""
-                            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
-                            _cdeclBuf = NativeMemory.AllocZeroed(Math.Max((nuint)returnMetadata.Size, 16));
-                            var resultPtr = (IntPtr)_cdeclBuf;
+                            var {{_env.SyntheticLocals.ReturnMetadata}} = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
+                            _cdeclBuf = NativeMemory.AllocZeroed(Math.Max((nuint){{_env.SyntheticLocals.ReturnMetadata}}.Size, 16));
+                            var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
                             """;
                     }
                     else if (returnArg.SwiftTypeSpec is TupleTypeSpec tupleSpec)
@@ -753,18 +753,18 @@ internal class MethodMarshalPlanBuilder
                         }
                         var elementsJoined = string.Join(",\n                    ", elementMetaCalls);
                         allocCode = $$"""
-                            var returnMetadata = TypeMetadata.GetTupleTypeMetadataFromElements(
+                            var {{_env.SyntheticLocals.ReturnMetadata}} = TypeMetadata.GetTupleTypeMetadataFromElements(
                                 {{elementsJoined}});
-                            _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                            var resultPtr = (IntPtr)_cdeclBuf;
+                            _cdeclBuf = NativeMemory.Alloc((nuint){{_env.SyntheticLocals.ReturnMetadata}}.Size);
+                            var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
                             """;
                     }
                     else
                     {
                         allocCode = $$"""
-                            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
-                            _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                            var resultPtr = (IntPtr)_cdeclBuf;
+                            var {{_env.SyntheticLocals.ReturnMetadata}} = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
+                            _cdeclBuf = NativeMemory.Alloc((nuint){{_env.SyntheticLocals.ReturnMetadata}}.Size);
+                            var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
                             """;
                     }
                 }
@@ -954,9 +954,9 @@ internal class MethodMarshalPlanBuilder
                         IsConstructor = false,
                         ReturnTypeName = _wrapperSignature.ReturnType,
                         AllocationCode = $$"""
-                            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{containerType}}>>();
-                            _cdeclBuf = NativeMemory.AllocZeroed((nuint)returnMetadata.Size);
-                            var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);
+                            var {{_env.SyntheticLocals.ReturnMetadata}} = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{containerType}}>>();
+                            _cdeclBuf = NativeMemory.AllocZeroed((nuint){{_env.SyntheticLocals.ReturnMetadata}}.Size);
+                            var {{_env.SyntheticLocals.SwiftIndirectResult}} = new SwiftIndirectResult(_cdeclBuf);
                             """,
                         CleanupCode = swiftIndirectCleanup
                     };
@@ -1011,9 +1011,9 @@ internal class MethodMarshalPlanBuilder
                 IsConstructor = false,
                 ReturnTypeName = _wrapperSignature.ReturnType,
                 AllocationCode = $$"""
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{_wrapperSignature.ReturnType}}>();
-                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                    var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);
+                    var {{_env.SyntheticLocals.ReturnMetadata}} = TypeMetadata.GetTypeMetadataOrThrow<{{_wrapperSignature.ReturnType}}>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint){{_env.SyntheticLocals.ReturnMetadata}}.Size);
+                    var {{_env.SyntheticLocals.SwiftIndirectResult}} = new SwiftIndirectResult(_cdeclBuf);
                     """,
                 CleanupCode = swiftIndirectCleanup
             };

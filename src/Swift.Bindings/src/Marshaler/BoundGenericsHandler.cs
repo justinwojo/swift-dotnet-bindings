@@ -810,14 +810,15 @@ public class BoundGenericsHandler
 
         var (typeName, outerArgsPlaced) = QualifyNestedGenericOwners(
             typeReference.CSharpTypeName.FullyQualifiedName, namedTypeSpec, genericContext, moduleDecl,
-            translatedGenericParameters);
+            translatedGenericParameters, parentTypeDecl);
 
         // For nested-type references encoded via InnerType chain (e.g., the parser's output
         // for `VerificationOutcome<String>.Failure`: outer NamedTypeSpec carries the generic
         // args, InnerType points at the non-generic leaf), the outer args belong to the outer
-        // segment of the dotted FQN. QualifyNestedGenericOwners places them there; appending
-        // them again at the end would mis-place them on the leaf (producing
-        // "Outer.Inner<T>" instead of "Outer<T>.Inner").
+        // segment of the dotted FQN. QualifyNestedGenericOwners places them there (and places any
+        // args carried by the InnerType chain on their own segments — the doubly-generic
+        // Outer<X>.Inner<Y> case, Step 1b); appending the outer args again at the end would
+        // mis-place them on the leaf (producing "Outer.Inner<T>" instead of "Outer<T>.Inner").
         if (namedTypeSpec.InnerType != null && outerArgsPlaced)
             return typeName;
 
@@ -984,7 +985,8 @@ public class BoundGenericsHandler
         NamedTypeSpec namedTypeSpec,
         GenericContext genericContext,
         ModuleDecl? moduleDecl,
-        List<string> translatedOwnArgs)
+        List<string> translatedOwnArgs,
+        TypeDecl? parentTypeDecl)
     {
         if (moduleDecl == null || !namedTypeSpec.HasModule())
             return (fullyQualifiedTypeName, false);
@@ -1023,6 +1025,29 @@ public class BoundGenericsHandler
                 outerArgsPlaced = true;
                 break;
             }
+        }
+
+        // Step 1b: place generic args carried by the InnerType chain on their own segments. A
+        // doubly-generic nested type (e.g. Outer<Int>.Inner<String>) encodes the inner args on
+        // namedTypeSpec.InnerType.GenericParameters — the outer loop in the caller only translates
+        // the OUTER's args (namedTypeSpec.GenericParameters), so without this the leaf renders bare
+        // (Outer<nint>.Inner) and Roslyn rejects it with CS0305 ("requires N type arguments"). The
+        // InnerType chain aligns positionally with the type-decl chain below the outer: link k maps
+        // to typeChain[1 + k] and segment[firstTypeSegment + 1 + k]. Translate here (while segments
+        // are still bare) rather than after qualification — re-splitting an already-qualified name
+        // on '.' would break on dotted args like Outer<Module.Foo>.
+        var innerLink = namedTypeSpec.InnerType;
+        for (var i = 1; i < typeChain.Count && innerLink != null; i++, innerLink = innerLink.InnerType)
+        {
+            if (innerLink.GenericParameters.Count == 0)
+                continue;
+            // Skip a segment already qualified (defensive; inner segments are untouched by Step 1).
+            if (segments[firstTypeSegment + i].EndsWith('>'))
+                continue;
+            var innerArgs = new List<string>(innerLink.GenericParameters.Count);
+            foreach (var innerArg in innerLink.GenericParameters)
+                innerArgs.Add(TranslateTypeSpecToCSharp(innerArg, genericContext, moduleDecl, parentTypeDecl));
+            segments[firstTypeSegment + i] = $"{segments[firstTypeSegment + i]}<{string.Join(", ", innerArgs)}>";
         }
 
         // Step 2: for remaining generic ancestors without args yet, fall back to context-based

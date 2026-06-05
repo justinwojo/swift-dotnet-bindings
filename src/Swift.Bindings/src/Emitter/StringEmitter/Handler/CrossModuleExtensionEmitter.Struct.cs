@@ -540,13 +540,27 @@ public static partial class CrossModuleExtensionEmitter
         ReturnKind returnCategory,
         SimpleEnumLowering? returnEnumLowering)
     {
+        // Seed each param's sibling-aware Swift binding before any SwiftBindingName read, so a
+        // reserved-name escape (__resultPtr/self_) also dodges a sibling user binding (P1-22).
+        // StructParamInfo is a record struct, so re-seat each entry via `with`.
+        var siblingBindings = CollectTrampolineSiblingBindings(parameters.Select(p => p.Name));
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var name = parameters[i].Name;
+            parameters[i] = parameters[i] with
+            {
+                ResolvedSwiftBinding = NameProvider.EscapeReservedSwiftWrapperLabel(
+                    name, CdeclParamMapper.ExcludeSelf(siblingBindings, name)),
+            };
+        }
+
         var swiftParams = new List<string>();
         bool returnsViaResultPtr = returnCategory == ReturnKind.FrozenStruct;
         if (returnsViaResultPtr)
             swiftParams.Add("_ __resultPtr: UnsafeMutableRawPointer");
         foreach (var p in parameters)
         {
-            swiftParams.Add($"_ {p.Name}: {RenderSwiftParamType(p)}");
+            swiftParams.Add($"_ {p.SwiftBindingName}: {RenderSwiftParamType(p)}");
         }
         swiftParams.Add("_ self_: UnsafeRawPointer");
 
@@ -573,7 +587,7 @@ public static partial class CrossModuleExtensionEmitter
         {
             if (p.Kind == ParamKind.SimpleEnum)
             {
-                swiftWriter.WriteLine($"guard let {p.Name}Val = {p.SimpleEnumQualifiedSwiftType}(rawValue: {p.Name}) else {{ preconditionFailure(\"Invalid raw value \\({p.Name}) for {p.SimpleEnumQualifiedSwiftType}\") }}");
+                swiftWriter.WriteLine($"guard let {p.SwiftBindingName}Val = {p.SimpleEnumQualifiedSwiftType}(rawValue: {p.SwiftBindingName}) else {{ preconditionFailure(\"Invalid raw value \\({p.SwiftBindingName}) for {p.SimpleEnumQualifiedSwiftType}\") }}");
             }
         }
 
@@ -813,15 +827,17 @@ public static partial class CrossModuleExtensionEmitter
         _ => "UnsafeMutableRawPointer",
     };
 
+    // References the Swift @_cdecl binding (SwiftBindingName), not the C# param name (Name):
+    // these tokens appear in the Swift trampoline body and must match the escaped param decl.
     private static string ConvertCdeclSwiftArg(StructParamInfo p) => p.Kind switch
     {
-        ParamKind.Primitive => p.Name,
-        ParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.Name}).takeUnretainedValue() as! {p.SwiftType})",
-        ParamKind.SwiftClass => $"Unmanaged<{p.SwiftType}>.fromOpaque({p.Name}).takeUnretainedValue()",
+        ParamKind.Primitive => p.SwiftBindingName,
+        ParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {p.SwiftType})",
+        ParamKind.SwiftClass => $"Unmanaged<{p.SwiftType}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
         // The enum was reconstructed via guard-let above the call site (see
         // EmitSwiftMethodTrampoline). Reference the bound local here.
-        ParamKind.SimpleEnum => $"{p.Name}Val",
-        _ => p.Name,
+        ParamKind.SimpleEnum => $"{p.SwiftBindingName}Val",
+        _ => p.SwiftBindingName,
     };
 
     /// <summary>
@@ -938,7 +954,19 @@ public static partial class CrossModuleExtensionEmitter
         // T(rawValue:) on the Swift side. Both are non-null for SimpleEnum kinds.
         string? SimpleEnumUnderlyingCSType = null,
         string? SimpleEnumUnderlyingSwiftType = null,
-        string? SimpleEnumQualifiedSwiftType = null);
+        string? SimpleEnumQualifiedSwiftType = null,
+        // Seeded by EmitSwiftMethodTrampoline (via `with`) once the full param list is known, so
+        // the escape can also dodge sibling bindings. Null until then → synthetic-only fallback.
+        string? ResolvedSwiftBinding = null)
+    {
+        // Swift @_cdecl binding spelling: escapes Name when it collides with a synthetic
+        // injected into the trampoline signature (__resultPtr/self_) OR a sibling user binding
+        // (P1-22). Positional FFI lets the Swift binding differ from the C# param name (Name); the
+        // external Swift call label is the original arg label, so this rename is source-local and
+        // safe. Uses the sibling-aware ResolvedSwiftBinding once seeded, else the synthetic-only
+        // escape.
+        public string SwiftBindingName => ResolvedSwiftBinding ?? NameProvider.EscapeReservedSwiftWrapperLabel(Name);
+    }
 
     private readonly record struct StructPInvokeInfo(
         string EntryPoint,

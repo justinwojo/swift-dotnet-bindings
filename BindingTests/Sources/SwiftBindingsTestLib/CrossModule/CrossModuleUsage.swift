@@ -183,6 +183,15 @@ extension DependencyPoint {
         @unknown default: return .unknown
         }
     }
+
+    /// P1-22 collision: a user parameter named `self_` on a struct-receiver extension
+    /// method that returns a frozen struct (indirect `__resultPtr` result). The trampoline
+    /// injects both `self_` (receiver pointer) and `__resultPtr`; without the binding
+    /// escape, `self_` would duplicate the receiver parameter and the wrapper would be
+    /// silently dropped.
+    public func offset(self_: Double) -> DependencyPoint {
+        return DependencyPoint(x: self.x + self_, y: self.y + self_)
+    }
 }
 
 /// Free function that uses the extension method.
@@ -223,12 +232,36 @@ extension DependencyService {
         return self.isActive
     }
 
+    /// P1-22 collision: a user parameter named `self_` on a class-receiver extension
+    /// method. The class trampoline injects `self_` for the receiver pointer; without the
+    /// binding escape the wrapper would declare `self_` twice and be silently dropped.
+    public func tagWithSelf(self_: Int32) -> Int32 {
+        return self.isActive ? self_ : -self_
+    }
+
+    /// P1-22 collision on the async/throws trampoline, which injects
+    /// `completionFn`/`completionCtx`/`self_`. The user parameter `self_` collides with
+    /// the injected receiver pointer.
+    public func computeAsyncWithSelf(self_: Int32) async -> Int32 {
+        return self.isActive ? self_ * 2 : -self_
+    }
+
     /// Closure-bearing cross-module class extension — reproduces the Stripe
     /// `STPAPIClient.createToken(withCard:completion:)` shape on a pure Swift
     /// class receiver. The completion block fires synchronously inside the
     /// trampoline so a per-call GCHandle lifetime is sufficient.
     public func computeWithCompletion(value: Int32, completion: @escaping (Int32) -> Void) {
         completion(self.isActive ? value * 2 : -value)
+    }
+
+    /// P1-22 collision on the SYNC closure trampoline (`EmitSwiftClosureTrampoline`). A plain
+    /// primitive sync method (`tagWithSelf`) routes through a direct CallConvSwift import where
+    /// `self_` is just an ordinary Swift parameter — no @_cdecl wrapper, so no collision. A
+    /// CLOSURE parameter, however, forces the class @_cdecl trampoline, which injects `self_`
+    /// for the receiver pointer. The user `self_` must escape the injected receiver binding;
+    /// the completion fires synchronously so a per-call GCHandle is sufficient.
+    public func reportWithSelf(self_: Int32, completion: @escaping (Int32) -> Void) {
+        completion(self.isActive ? self_ : -self_)
     }
 
     /// Stripe-shape completion block exercising Optional<class> + Optional<any Error>

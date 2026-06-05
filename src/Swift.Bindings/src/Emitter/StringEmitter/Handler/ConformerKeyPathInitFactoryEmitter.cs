@@ -395,7 +395,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
                 csWriter, availability, parentAnnotations: null);
             csWriter.WriteLine("[System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new Type[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"[System.Runtime.InteropServices.LibraryImport(\"SwiftBindings\", EntryPoint = \"{symbol}\")]");
-            csWriter.WriteLine($"private static partial IntPtr {pinvokeName}({string.Join(", ", pinvokeParams)});");
+            csWriter.WriteLine($"private static partial IntPtr {pinvokeName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
             csWriter.WriteLine();
 
             // Public factory.

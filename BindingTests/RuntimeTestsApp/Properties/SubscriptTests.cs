@@ -198,4 +198,55 @@ public class SubscriptTests : TestBase
     }
 
     #endregion
+
+    #region ItemBag — Optional-Existential Subscript on a Value Type (GRDB regression)
+
+    // A value-type struct with a `subscript(key:) -> (any StoredItem)?` routes through
+    // OptionalPointerWrapperEmitter, whose setter assignment references the synthesized
+    // `newValue` binding by bare name. A prior over-eager reserved-name escape renamed the
+    // wrapper's value-param DECLARATION to `__newValue` while the body kept bare `newValue`,
+    // so swiftc rejected the wrapper and the build SILENTLY stripped it — the setter entry
+    // point went missing and crashed at call time. These round-trip a value through the
+    // subscript setter, proving the wrapper survived compilation and forwarded correctly.
+
+    public void TestItemBagSubscriptSetterRoundTrip()
+    {
+        var bag = new ItemBag();
+        AssertEqual("none", bag.DescribeItem("k"), "ItemBag starts empty");
+
+        // Set through the optional-existential subscript setter (the regressed wrapper).
+        bag["k"] = new BaggedItem(name: "alpha");
+
+        // Read back through a known-good String method — if the setter wrapper had been
+        // stripped, the call above would crash on a missing entry point (or no-op, leaving
+        // "none" here). A correct round-trip proves the wrapper survived and forwarded.
+        AssertEqual("BaggedItem(alpha)", bag.DescribeItem("k"), "Subscript setter forwarded the value");
+        AssertEqual(1, bag.GetCount(), "Count reflects the inserted item");
+        TestLogger.Info("ItemBag optional-existential subscript setter round-trip passed");
+    }
+
+    public void TestItemBagSubscriptGetterRoundTrip()
+    {
+        var bag = new ItemBag();
+        bag["g"] = new BaggedItem(name: "beta");
+
+        var item = bag["g"];
+        AssertNotNull(item, "Subscript getter returns non-null after set");
+        AssertEqual("BaggedItem(beta)", item!.GetDescribeBag(), "Subscript get→describe round-trip");
+        TestLogger.Info("ItemBag optional-existential subscript getter round-trip passed");
+    }
+
+    public void TestItemBagSubscriptSetNilDeletes()
+    {
+        var bag = new ItemBag();
+        bag["d"] = new BaggedItem(name: "gamma");
+        AssertEqual(1, bag.GetCount(), "Count after insert");
+
+        bag["d"] = null;
+        AssertEqual("none", bag.DescribeItem("d"), "Setting nil clears the entry");
+        AssertEqual(0, bag.GetCount(), "Count after delete");
+        TestLogger.Info("ItemBag subscript set-nil delete passed");
+    }
+
+    #endregion
 }

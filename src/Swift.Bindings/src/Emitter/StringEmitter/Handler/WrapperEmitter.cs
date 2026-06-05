@@ -63,6 +63,20 @@ namespace BindingsGeneration
         /// shadowing on the self-referential P/Invoke call expression.
         /// </summary>
         private string ReturnLocalName => _syncPlan.ReturnLocalName;
+
+        // Synthetic wrapper-body local names (resultPtr / hasValuePtr / swiftIndirectResult /
+        // bufferPtr / returnMetadata). Normally the bare spelling, but renamed to a
+        // double-underscore variant when a user-facing C# parameter claims the same name, so
+        // the indirect-result buffer locals can't shadow a parameter (CS0136) or silently bind
+        // to it. The allocation snippets in MethodMarshalPlanBuilder and the return-marshalling
+        // reads here pull from the SAME MethodEnvironment.SyntheticLocals bundle, so the
+        // declaration and every read agree by construction. Output-preserving: in the common
+        // (non-colliding) case Reserve returns the bare name, keeping generated code byte-identical.
+        private string ResultPtrName => _env.SyntheticLocals.ResultPtr;
+        private string HasValuePtrName => _env.SyntheticLocals.HasValuePtr;
+        private string SwiftIndirectResultName => _env.SyntheticLocals.SwiftIndirectResult;
+        private string BufferPtrName => _env.SyntheticLocals.BufferPtr;
+        private string ReturnMetadataName => _env.SyntheticLocals.ReturnMetadata;
         // The live async C# callback-plumbing path. The Swift @_cdecl half is emitted by
         // WrapperEmitter.Async.EmitAsync; the C# callback half by _asyncHarness.EmitAsyncWrapper.
         private readonly AsyncHarnessEmitter _asyncHarness;
@@ -474,9 +488,9 @@ namespace BindingsGeneration
                 // Non-frozen struct constructors: result goes into buf via SwiftIndirectResult or IntPtr
                 csWriter.WriteLine("IntPtr* buf = stackalloc IntPtr[1];");
                 if (_env.MethodDecl.UsesCdeclConstructorWrapper)
-                    csWriter.WriteLine("var resultPtr = (IntPtr)buf;");
+                    csWriter.WriteLine($"var {ResultPtrName} = (IntPtr)buf;");
                 else
-                    csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
+                    csWriter.WriteLine($"var {SwiftIndirectResultName} = new SwiftIndirectResult(buf);");
                 EmitRawBufferFixedStart(csWriter);
                 EmitPInvokeCall(csWriter);
                 EmitConsumedNonCopyableParamCleanup(csWriter);

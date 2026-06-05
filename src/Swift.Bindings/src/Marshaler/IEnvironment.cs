@@ -197,6 +197,17 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Collision-safe names for the synthetic locals the sync-wrapper emission path hardcodes
+        /// (resultPtr, hasValuePtr, swiftIndirectResult, …). Resolved once and shared across
+        /// <c>PInvokeSignatureBuilder</c>, <c>MethodMarshalPlanBuilder</c>, and
+        /// <c>WrapperEmitter</c> so the synthetic P/Invoke parameter, the allocation snippet local,
+        /// and the return-marshalling read all agree. Byte-identical to the bare names unless a user
+        /// parameter collides. See <see cref="SyntheticLocalNames"/>.
+        /// </summary>
+        private SyntheticLocalNames? _syntheticLocals;
+        public SyntheticLocalNames SyntheticLocals => _syntheticLocals ??= SyntheticLocalNames.Resolve(MethodDecl);
+
+        /// <summary>
         /// Gets the P/Invoke helper context for collecting P/Invoke declarations in generic types.
         /// When non-null, P/Invoke declarations are collected here instead of emitted inline (to avoid CS7042).
         /// </summary>
