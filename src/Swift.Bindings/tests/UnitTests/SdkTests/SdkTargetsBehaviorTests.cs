@@ -673,6 +673,79 @@ namespace BindingsGeneration.Tests
             Assert.Contains("Stripe3DS2.xcframework", output);
         }
 
+        // ── Author-declared SwiftLinkFramework/SwiftLinkLibrary must reach the WRAPPER compile
+        //    (the pass that actually links), so a force-loaded static-archive source that depends
+        //    on an autolink-hint-free system framework (Kidoz/MediaPipe shape) resolves. ──
+
+        [Fact]
+        public void CompileSwiftWrapper_ForwardsLinkFrameworkAndLibraryToGenerator()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+
+            var bindingDir = Path.Combine(_tempDir, "Linked.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+            var sourceXcfw = Path.Combine(bindingDir, "Linked.xcframework");
+            Directory.CreateDirectory(sourceXcfw);
+
+            // The wrapper target's Condition keys off _SwiftBindingWrapperModuleName. MSBuild
+            // evaluates a target Condition BEFORE its DependsOnTargets (_ImportSwiftBindingMetadata)
+            // run, so in a full build the property is already project-global by the time the wrapper
+            // target is reached. In this isolated invocation we set it as a project property (and in
+            // binding-metadata.props, so the dependency's XmlPeek re-affirms the same value rather
+            // than clobbering it to empty). No xcframework on disk => _SwiftWrapperSkip stays false,
+            // so the wrapper Exec actually fires against the stub generator.
+            var metadataProps = """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingWrapperModuleName>LinkedSwiftBindings</_SwiftBindingWrapperModuleName>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <_SwiftBindingGeneratorDir>{stubDir}</_SwiftBindingGeneratorDir>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingWrapperModuleName>LinkedSwiftBindings</_SwiftBindingWrapperModuleName>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{sourceXcfw}" />
+                    <SwiftLinkFramework Include="CoreVideo" />
+                    <SwiftLinkLibrary Include="c++" />
+                  </ItemGroup>
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:_CompileSwiftWrapper -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_CompileSwiftWrapper failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("STUB_RECEIVED_ARGS:", output);
+            Assert.Contains("--compile-wrapper-only", output);
+            Assert.Contains("--link-framework \"CoreVideo\"", output);
+            Assert.Contains("--link-library \"c++\"", output);
+        }
+
         // ── Source-native-linkage is read solely by _ComputeSwiftBindingSourceXcframeworkInclusion
         //    (it self-peeks binding-metadata.props so the generator-free GetNativeManifest path can
         //    depend on it). Its read + absent→Dynamic default are covered by the

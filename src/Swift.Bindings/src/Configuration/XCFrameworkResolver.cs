@@ -158,7 +158,8 @@ namespace BindingsGeneration
             ILogger logger,
             ICommandRunner? commandRunner = null,
             PlatformInfo? platformInfo = null,
-            string? requestedArchitecture = null)
+            string? requestedArchitecture = null,
+            IReadOnlyList<string>? companionFrameworkPaths = null)
         {
             commandRunner ??= new SystemCommandRunner();
             xcframeworkPath = Path.GetFullPath(xcframeworkPath);
@@ -262,7 +263,8 @@ namespace BindingsGeneration
             // 11. Find or generate ABI JSON
             var abiJsonPath = FindOrGenerateAbiJson(
                 swiftModuleDir, selectedArch, swiftInterfacePath, slice,
-                moduleName, outputDirectory, commandRunner, logger);
+                moduleName, outputDirectory, commandRunner, logger,
+                xcframeworkPath, platformTarget, platformInfo, companionFrameworkPaths);
 
             // 12. Find or generate TBD
             var tbdPath = FindOrGenerateTbd(
@@ -326,7 +328,8 @@ namespace BindingsGeneration
             ILogger logger,
             ICommandRunner? commandRunner = null,
             PlatformInfo? platformInfo = null,
-            string? requestedArchitecture = null)
+            string? requestedArchitecture = null,
+            IReadOnlyList<string>? companionFrameworkPaths = null)
         {
             commandRunner ??= new SystemCommandRunner();
             xcframeworkPath = Path.GetFullPath(xcframeworkPath);
@@ -343,7 +346,8 @@ namespace BindingsGeneration
             if (platformInfo != null && !platformInfo.HasSimulatorVariant)
             {
                 var deviceResolution = Resolve(xcframeworkPath, outputDirectory,
-                    XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo, requestedArchitecture);
+                    XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo, requestedArchitecture,
+                    companionFrameworkPaths);
                 return (deviceResolution, null);
             }
 
@@ -360,7 +364,8 @@ namespace BindingsGeneration
             }
 
             var simResolution = Resolve(xcframeworkPath, outputDirectory,
-                XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo, requestedArchitecture);
+                XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo, requestedArchitecture,
+                companionFrameworkPaths);
 
             // Try to resolve device slice
             XCFrameworkResolution? deviceResolution2 = null;
@@ -374,7 +379,8 @@ namespace BindingsGeneration
                 try
                 {
                     deviceResolution2 = Resolve(xcframeworkPath, outputDirectory,
-                        XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo, requestedArchitecture);
+                        XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo, requestedArchitecture,
+                        companionFrameworkPaths);
                 }
                 catch (Exception ex)
                 {
@@ -584,6 +590,35 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Resolves a single xcframework to the slice directory that matches the given platform
+        /// target, suitable for use as a <c>-F</c> framework search path. Returns <c>null</c> when
+        /// the path is not a parseable xcframework or has no matching slice. Best-effort:
+        /// never throws, so it can be folded into search-path collection without guarding callers.
+        /// </summary>
+        internal static string? TryResolveSliceSearchPath(
+            string xcframeworkPath,
+            XCFrameworkPlatformTarget platformTarget,
+            ILogger logger,
+            PlatformInfo? platformInfo = null)
+        {
+            try
+            {
+                var full = Path.GetFullPath(xcframeworkPath);
+                var plistPath = Path.Combine(full, "Info.plist");
+                if (!File.Exists(plistPath)) return null;
+                var slices = ParseInfoPlist(plistPath);
+                var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
+                var sliceDir = Path.Combine(full, slice.LibraryIdentifier);
+                return Directory.Exists(sliceDir) ? sliceDir : null;
+            }
+            catch
+            {
+                // Unparseable / no matching slice — caller treats as "no path".
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Resolves framework search paths for sibling xcframeworks in the same directory.
         /// This handles the Firebase/Google SDK distribution pattern where all dependency
         /// xcframeworks are co-located in the same parent directory.
@@ -603,26 +638,106 @@ namespace BindingsGeneration
             {
                 if (Path.GetFileName(siblingDir) == selfName) continue;
 
-                try
-                {
-                    var plistPath = Path.Combine(siblingDir, "Info.plist");
-                    if (!File.Exists(plistPath)) continue;
-                    var slices = ParseInfoPlist(plistPath);
-                    var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
-                    var sliceDir = Path.Combine(siblingDir, slice.LibraryIdentifier);
-                    if (Directory.Exists(sliceDir))
-                        paths.Add(sliceDir);
-                }
-                catch
-                {
-                    // Skip unresolvable siblings silently
-                }
+                var sliceDir = TryResolveSliceSearchPath(siblingDir, platformTarget, logger, platformInfo);
+                if (sliceDir != null)
+                    paths.Add(sliceDir);
             }
 
             if (paths.Count > 0)
                 logger.LogInformation("Auto-detected {Count} sibling framework search path(s).", paths.Count);
 
             return paths;
+        }
+
+        /// <summary>
+        /// Merges explicit dependency <c>-F</c> search paths with auto-detected co-located sibling
+        /// xcframework slices for the WRAPPER COMPILE, so a companion xcframework dropped next to the
+        /// source resolves its module for <c>swiftc</c> exactly as it already does for ABI extraction
+        /// (<see cref="BuildAbiFrameworkSearchPaths"/>). Without this, ABI generation auto-detects a
+        /// co-located companion but the wrapper compile fails <c>no such module</c> on the same layout.
+        /// Explicit paths keep priority; siblings are appended and de-duplicated (case-sensitive,
+        /// normalized via <see cref="Path.GetFullPath(string)"/>). Returns <c>null</c> when the merged
+        /// set is empty so callers preserve the historical "no additional search paths" behavior.
+        /// </summary>
+        public static List<string>? MergeWrapperDependencySearchPaths(
+            IReadOnlyList<string>? explicitPaths,
+            string xcframeworkPath,
+            XCFrameworkPlatformTarget platformTarget,
+            ILogger logger,
+            PlatformInfo? platformInfo = null)
+        {
+            var siblings = ResolveSiblingFrameworkSearchPaths(xcframeworkPath, platformTarget, logger, platformInfo);
+
+            var ordered = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            void Add(string? p)
+            {
+                if (string.IsNullOrEmpty(p)) return;
+                var full = Path.GetFullPath(p);
+                if (seen.Add(full)) ordered.Add(full);
+            }
+
+            if (explicitPaths != null)
+                foreach (var p in explicitPaths) Add(p);
+            foreach (var p in siblings) Add(p);
+
+            return ordered.Count > 0 ? ordered : null;
+        }
+
+        /// <summary>
+        /// Builds the ordered, de-duplicated <c>-F</c> framework search-path list for ABI
+        /// extraction: the framework's own slice directory first, then explicit companion
+        /// (<c>--framework-dependency</c>) slices, then auto-detected co-located sibling slices.
+        /// User-provided companions are ordered before auto-detected siblings so an explicit
+        /// path wins on a module-name collision. Paths are normalized via <see cref="Path.GetFullPath(string)"/>
+        /// and de-duplicated case-sensitively.
+        /// </summary>
+        internal static IReadOnlyList<string> BuildAbiFrameworkSearchPaths(
+            string selfSliceDir,
+            IEnumerable<string>? explicitCompanionSlices,
+            IEnumerable<string>? siblingSlices)
+        {
+            var ordered = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            void Add(string? p)
+            {
+                if (string.IsNullOrEmpty(p)) return;
+                var full = Path.GetFullPath(p);
+                if (seen.Add(full)) ordered.Add(full);
+            }
+
+            Add(selfSliceDir);
+            if (explicitCompanionSlices != null)
+                foreach (var p in explicitCompanionSlices) Add(p);
+            if (siblingSlices != null)
+                foreach (var p in siblingSlices) Add(p);
+
+            return ordered;
+        }
+
+        /// <summary>
+        /// Builds the actionable portion of a SWIFTBIND103 message when ABI extraction failed
+        /// because the Swift interface imports companion module(s) that could not be resolved on
+        /// any framework search path. Returns an empty string when no missing modules were
+        /// detected, so the caller does not claim a misleading cause for an unrelated failure.
+        /// </summary>
+        internal static string BuildMissingCompanionModuleHint(string moduleName, IReadOnlyList<string> missingModules)
+        {
+            if (missingModules.Count == 0) return string.Empty;
+
+            var list = string.Join(", ", missingModules.Select(m => $"'{m}'"));
+            return $"\n\nThe Swift interface for '{moduleName}' imports companion module(s) {list} that could not " +
+                "be found on any framework search path. These modules ship in separate xcframework(s) that must " +
+                "be provided so ABI extraction can resolve them:\n" +
+                "  - Co-locate (simplest): place the companion .xcframework in the SAME directory as this " +
+                "framework — it is auto-detected, or\n" +
+                "  - CLI:  --framework-dependency /path/to/<Module>.xcframework  (repeat for each), or\n" +
+                "  - SDK:  <SwiftFrameworkDependency Include=\"path/to/<Module>.xcframework\" PackageId=\"...\" " +
+                "PackageVersion=\"...\" />\n" +
+                "Note: any accompanying \"this SDK is not supported by the compiler\" line is a misleading " +
+                "secondary diagnostic from the failed module rebuild — it does not indicate a real " +
+                "toolchain-version mismatch.";
         }
 
         /// <summary>
@@ -1067,7 +1182,11 @@ namespace BindingsGeneration
             string moduleName,
             string outputDirectory,
             ICommandRunner commandRunner,
-            ILogger logger)
+            ILogger logger,
+            string xcframeworkPath,
+            XCFrameworkPlatformTarget platformTarget,
+            PlatformInfo? platformInfo,
+            IReadOnlyList<string>? companionFrameworkPaths)
         {
             // Try arch-specific ABI JSON first
             var archPattern = $"{selectedArch}-apple-*.abi.json";
@@ -1100,7 +1219,33 @@ namespace BindingsGeneration
             }
 
             logger.LogInformation("No ABI JSON found. Generating from Swift interface...");
-            return GenerateAbiJson(swiftInterfacePath, slice, selectedArch, moduleName, outputDirectory, commandRunner);
+
+            // The Swift interface may `import` companion modules (e.g. a thin Swift wrapper over a
+            // separate C/C++ engine, as MediaPipeTasksGenAI imports MediaPipeTasksGenAIC). swift-frontend
+            // must be able to resolve those modules or it aborts before writing any ABI. Build the `-F`
+            // search-path list: the framework's own slice, then explicit --framework-dependency companions,
+            // then auto-detected co-located siblings.
+            var selfSliceDir = Path.Combine(xcframeworkPath, slice.LibraryIdentifier);
+            var explicitSlices = new List<string>();
+            foreach (var companionPath in companionFrameworkPaths ?? Array.Empty<string>())
+            {
+                var companionSlice = TryResolveSliceSearchPath(companionPath, platformTarget, logger, platformInfo);
+                if (companionSlice != null)
+                    explicitSlices.Add(companionSlice);
+                else
+                    // A provided companion that doesn't resolve to a slice would otherwise vanish silently and
+                    // leave the user staring at a "missing companion module" error for a path they DID supply.
+                    logger.LogWarning(
+                        "Companion framework path '{Path}' could not be resolved to a {Target} slice and will not " +
+                        "be used as an ABI-extraction search path. Verify the path points at a valid .xcframework " +
+                        "with a matching slice.", companionPath, platformTarget);
+            }
+            var siblingSlices = ResolveSiblingFrameworkSearchPaths(xcframeworkPath, platformTarget, logger, platformInfo);
+            var searchPaths = BuildAbiFrameworkSearchPaths(selfSliceDir, explicitSlices, siblingSlices);
+
+            return GenerateAbiJson(
+                swiftInterfacePath, slice, selectedArch, moduleName, outputDirectory,
+                commandRunner, searchPaths, logger);
         }
 
         private static string GenerateAbiJson(
@@ -1109,7 +1254,9 @@ namespace BindingsGeneration
             string selectedArch,
             string moduleName,
             string outputDirectory,
-            ICommandRunner commandRunner)
+            ICommandRunner commandRunner,
+            IReadOnlyList<string> frameworkSearchPaths,
+            ILogger logger)
         {
             // Resolve SDK path using platform-aware lookup
             var isSimulator = string.Equals(slice.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase);
@@ -1136,18 +1283,32 @@ namespace BindingsGeneration
             Directory.CreateDirectory(outputDirectory);
             var abiOutputPath = Path.Combine(outputDirectory, $"{moduleName}.abi.json");
 
+            // `-F` lets swift-frontend resolve companion modules imported by the interface
+            // (the framework's own slice plus any companion/sibling xcframework slices).
+            var frameworkFlags = string.Concat(frameworkSearchPaths.Select(p => $"-F \"{p}\" "));
+            if (frameworkSearchPaths.Count > 0)
+                logger.LogInformation("ABI extraction framework search paths: {Paths}", string.Join(", ", frameworkSearchPaths));
+
             var args = $"swift-frontend -compile-module-from-interface " +
                        $"\"{swiftInterfacePath}\" " +
                        $"-target {targetTriple} " +
                        $"-module-name {moduleName} " +
                        $"-sdk \"{sdkPath}\" " +
+                       $"{frameworkFlags}" +
                        $"-emit-abi-descriptor-path \"{abiOutputPath}\"";
 
             var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
             if (exitCode != 0 || !File.Exists(abiOutputPath))
             {
+                // When the failure is a missing companion module, name it and explain how to supply
+                // it — and call out the misleading "SDK is not supported by the compiler" cascade.
+                var missing = SwiftWrapperCompiler.ExtractMissingModules(stderr);
+                var hint = BuildMissingCompanionModuleHint(moduleName, missing);
+                var stderrPreview = stderr.Length > 4000 ? stderr.Substring(0, 4000) + "…" : stderr;
                 throw new InvalidOperationException(
-                    $"SWIFTBIND103: swift-frontend failed to extract ABI from Swift interface: {stderr}. Ensure Xcode is installed.");
+                    $"SWIFTBIND103: swift-frontend failed to extract ABI from Swift interface for module " +
+                    $"'{moduleName}'.{hint}\n\nUnderlying swift-frontend error:\n{stderrPreview}\n\n" +
+                    "Ensure Xcode and the platform SDK are installed.");
             }
 
             return abiOutputPath;

@@ -6,10 +6,12 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
-    /// Reads defined symbols from native binaries (Mach-O dylibs, static <c>ar</c>
-    /// archives, object files) via <c>nm -gU</c>. Shared by the TBD-synthesis path
-    /// (Swift static archives) and the ObjC over-binding guard (native-symbol
-    /// existence check), so the tricky <c>nm</c> output parsing lives in one place.
+    /// Reads symbols from native binaries (Mach-O dylibs, static <c>ar</c>
+    /// archives, object files) via <c>nm</c>. Reads <em>defined</em> symbols
+    /// (<c>nm -gU</c>) for the TBD-synthesis path (Swift static archives) and the
+    /// ObjC over-binding guard, and <em>undefined</em> symbols (<c>nm -u</c>) to
+    /// complete the system-framework link-failure hint — so the tricky <c>nm</c>
+    /// output parsing lives in one place.
     /// </summary>
     internal static class NativeSymbolProbe
     {
@@ -90,6 +92,108 @@ namespace BindingsGeneration
                 logger.LogDebug("nm -gU threw for '{Path}': {Message}", binaryPath, ex.Message);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Runs <c>nm -u</c> on each existing binary path and unions the undefined
+        /// (externally-referenced) symbol names across all of them. The returned flag mirrors
+        /// <see cref="ObjCClassSymbolScan.GatheredEvidence"/>: false means every probe failed
+        /// (or no binary existed), so callers must not read an empty set as "no undefined
+        /// symbols". Non-existent paths and per-binary <c>nm</c> failures are skipped (logged at
+        /// debug). Used to complete the system-framework link-failure hint independently of how
+        /// much of its undefined-symbol list the linker chose to print.
+        /// </summary>
+        public static (IReadOnlySet<string> UndefinedSymbols, bool GatheredEvidence) ScanUndefinedSymbols(
+            IEnumerable<string> binaryPaths, ICommandRunner commandRunner, ILogger logger)
+        {
+            var symbols = new HashSet<string>(StringComparer.Ordinal);
+            var gathered = false;
+            foreach (var path in binaryPaths)
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    continue;
+                }
+                var found = ReadUndefinedSymbols(path, commandRunner, logger);
+                if (found == null)
+                {
+                    continue; // nm failed on this binary — keep the others
+                }
+                gathered = true;
+                foreach (var sym in found)
+                {
+                    symbols.Add(sym);
+                }
+            }
+            return (symbols, gathered);
+        }
+
+        /// <summary>
+        /// Runs <c>nm -u</c> on a single binary and returns its undefined, externally-referenced
+        /// symbol names, or null if <c>nm</c> failed. No <c>-arch</c> filter (same rationale as
+        /// <see cref="ReadDefinedSymbols"/>): a fat <c>ar</c> archive must be read whole.
+        /// </summary>
+        public static List<string>? ReadUndefinedSymbols(
+            string binaryPath, ICommandRunner commandRunner, ILogger logger)
+        {
+            try
+            {
+                var (exitCode, stdout, stderr) = commandRunner.Run(
+                    "nm",
+                    $"-u \"{binaryPath}\"",
+                    timeoutMs: 60000);
+                if (exitCode != 0)
+                {
+                    logger.LogDebug(
+                        "nm -u failed for '{Path}' (exit {Exit}): {Err}",
+                        binaryPath, exitCode, stderr);
+                    return null;
+                }
+                return ParseNmUndefinedSymbols(stdout);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug("nm -u threw for '{Path}': {Message}", binaryPath, ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Parses undefined symbol names out of <c>nm -u</c> output. Unlike <c>nm -gU</c>, the
+        /// <c>-u</c> form omits the address/type columns and prints bare names (with interspersed
+        /// <c>member.o:</c> headers and blank lines), though some <c>nm</c> builds prefix a single
+        /// <c>U</c> type code. Undefined symbol names carry no embedded whitespace, so taking the
+        /// last whitespace-delimited token parses both shapes. Header/blank lines are skipped and
+        /// names de-duplicated (a symbol can be undefined across many member objects).
+        /// </summary>
+        internal static List<string> ParseNmUndefinedSymbols(string nmOutput)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<string>();
+            foreach (var raw in nmOutput.Split('\n'))
+            {
+                var line = raw.Trim();
+                if (string.IsNullOrEmpty(line))
+                {
+                    continue;
+                }
+                if (line.EndsWith(":", StringComparison.Ordinal))
+                {
+                    continue; // member-object header (e.g. "foo.o:")
+                }
+                var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 0)
+                {
+                    continue; // defensive: a non-empty trimmed line always yields a token today,
+                              // but this is an error-path builder — degrade, don't throw.
+                }
+                var name = parts[parts.Length - 1];
+                if (seen.Add(name))
+                {
+                    result.Add(name);
+                }
+            }
+            return result;
         }
 
         /// <summary>

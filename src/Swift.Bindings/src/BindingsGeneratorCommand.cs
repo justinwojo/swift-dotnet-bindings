@@ -49,6 +49,8 @@ public static class BindingsGeneratorCommand
         var wrapperArchitectures = parseResult.GetValueForOption(options.WrapperArchitectures);
         var targetArchitectures = parseResult.GetValueForOption(options.TargetArchitectures);
         var frameworkDependencies = parseResult.GetValueForOption(options.FrameworkDependency);
+        var linkFrameworks = parseResult.GetValueForOption(options.LinkFramework);
+        var linkLibraries = parseResult.GetValueForOption(options.LinkLibrary);
         var moduleDatabases = parseResult.GetValueForOption(options.ModuleDatabase);
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
         var keepBuiltinDatabase = parseResult.GetValueForOption(options.KeepBuiltinDatabase);
@@ -300,7 +302,8 @@ public static class BindingsGeneratorCommand
             context.ExitCode = BindingsGenerator.RunCompileWrapperOnly(
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
-                skipThunkCompilation, targetArchitectures);
+                skipThunkCompilation, targetArchitectures,
+                linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
             return;
         }
 
@@ -363,6 +366,24 @@ public static class BindingsGeneratorCommand
             return;
         }
 
+        // --link-framework / --link-library only take effect on the wrapper link of a
+        // force-loaded static-archive source, which is an --xcframework-mode concept. In
+        // -a/-d/-t direct mode (and the Apple system-framework path) there is no wrapper
+        // link to consume them, so accepting them silently would drop the author's declared
+        // system dependencies and produce a wrapper that fails to resolve at load. Fail closed
+        // instead, honoring the CLI descriptions ("Requires --xcframework"). The
+        // --compile-wrapper-only fast path is unaffected: it returns above and already
+        // requires --xcframework.
+        if (LinkDependenciesSuppliedWithoutXcframework(hasXcframework, linkFrameworks, linkLibraries))
+        {
+            logger.LogError(
+                "Error: --link-framework and --link-library require --xcframework mode. They declare " +
+                "system frameworks/libraries for the wrapper link of a force-loaded static-archive source " +
+                "and have no effect in -a/-d/-t direct mode.");
+            context.ExitCode = 1;
+            return;
+        }
+
         // Resolve xcframework mode
         XCFrameworkResolution? resolution = null;
         XCFrameworkResolver.ObjCFrameworkResolution? mixedObjcResolution = null;
@@ -420,7 +441,8 @@ public static class BindingsGeneratorCommand
             try
             {
                 resolution = XCFrameworkResolver.Resolve(
-                    xcframeworkPath!, outputDirectory, platformTarget, logger, platformInfo: platformInfo);
+                    xcframeworkPath!, outputDirectory, platformTarget, logger, platformInfo: platformInfo,
+                    companionFrameworkPaths: frameworkDependencies);
                 swiftAbiPath = resolution.AbiJsonPath;
                 dylibPath = resolution.DylibPath;
                 tbdPath = resolution.TbdPath;
@@ -502,7 +524,8 @@ public static class BindingsGeneratorCommand
                 resolution!.DylibPath, xcframeworkPath!, resolution.ModuleName,
                 platformTarget,
                 wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
-                logger, platformInfo: platformInfo);
+                logger, platformInfo: platformInfo,
+                companionFrameworkPaths: frameworkDependencies);
             if (analysisResult != null)
             {
                 autoDetectedDeps = analysisResult.ResolvedDependencies;
@@ -715,6 +738,17 @@ public static class BindingsGeneratorCommand
                 .Select(d => d.DeviceFrameworkSearchPath!)
                 .ToList();
 
+            // Gap (a): mirror ABI extraction's co-located sibling auto-detection on the wrapper
+            // compile, so a companion xcframework dropped next to the source resolves its module
+            // for swiftc just as it already does for ABI generation. Explicit --framework-dependency
+            // paths keep priority; siblings are merged in.
+            var simDepPathsMerged = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                simDepPaths, xcframeworkPath!, XCFrameworkPlatformTarget.Simulator, logger, platformInfo);
+            var deviceDepPathsMerged = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                deviceDepPaths, xcframeworkPath!, XCFrameworkPlatformTarget.Device, logger, platformInfo);
+            simDepPaths = simDepPathsMerged;
+            deviceDepPaths = deviceDepPathsMerged;
+
             Exception? compilationException = null;
 
             // CPU target arch(es) — mirrors the --compile-wrapper-only fast path so the standalone
@@ -740,7 +774,7 @@ public static class BindingsGeneratorCommand
 
             var (autoBasisArchs, autoBasisSliceId) = BindingsGenerator.ResolveAutoArchBasis(
                 resolution, xcframeworkPath!, outputDirectory, platformTarget, wrapperArchNormalized,
-                platformInfo, logger);
+                platformInfo, logger, companionFrameworkPaths: frameworkDependencies);
             if (!BindingsGenerator.TryDecideWrapperArchitectures(
                     autoMatchSource, requestedArchs, autoBasisArchs, autoBasisSliceId,
                     logger, out var primaryArch, out var extraArchs))
@@ -759,7 +793,8 @@ public static class BindingsGeneratorCommand
                     // Multi-arch: resolve both slices, compile wrapper for both
                     var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
                         xcframeworkPath!, outputDirectory, logger, platformInfo: platformInfo,
-                        requestedArchitecture: requestedArch);
+                        requestedArchitecture: requestedArch,
+                        companionFrameworkPaths: frameworkDependencies);
 
                     if (deviceResolution == null)
                     {
@@ -779,7 +814,9 @@ public static class BindingsGeneratorCommand
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: simResolution.SwiftInterfacePath,
                         depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
-                        depModuleNamesForCollisionDevice: depModuleCollisions.Device);
+                        depModuleNamesForCollisionDevice: depModuleCollisions.Device,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -788,7 +825,8 @@ public static class BindingsGeneratorCommand
                     var deviceOnlyResolution = XCFrameworkResolver.Resolve(
                         xcframeworkPath!, outputDirectory,
                         XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo,
-                        requestedArchitecture: requestedArch);
+                        requestedArchitecture: requestedArch,
+                        companionFrameworkPaths: frameworkDependencies);
 
                     return SwiftWrapperCompiler.CompileSlice(
                         outputDirectory, resolution.ModuleName,
@@ -803,7 +841,9 @@ public static class BindingsGeneratorCommand
                         swiftInterfacePath: deviceOnlyResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
                         resolvedArchitecture: deviceOnlyResolution.SelectedArchitecture,
-                        depModuleNamesForCollision: depModuleCollisions.Device);
+                        depModuleNamesForCollision: depModuleCollisions.Device,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries);
                 }
                 else
                 {
@@ -811,7 +851,8 @@ public static class BindingsGeneratorCommand
                     var simResolution = XCFrameworkResolver.Resolve(
                         xcframeworkPath!, outputDirectory,
                         platformTarget, logger, platformInfo: platformInfo,
-                        requestedArchitecture: requestedArch);
+                        requestedArchitecture: requestedArch,
+                        companionFrameworkPaths: frameworkDependencies);
 
                     return SwiftWrapperCompiler.Compile(
                         outputDirectory, resolution.ModuleName,
@@ -824,7 +865,9 @@ public static class BindingsGeneratorCommand
                         swiftInterfacePath: simResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
                         resolvedArchitecture: simResolution.SelectedArchitecture,
-                        depModuleNamesForCollision: depModuleCollisions.Simulator);
+                        depModuleNamesForCollision: depModuleCollisions.Simulator,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries);
                 }
             }
 
@@ -1449,6 +1492,20 @@ public static class BindingsGeneratorCommand
     }
 
     /// <summary>
+    /// Returns true when <c>--link-framework</c> or <c>--link-library</c> was supplied without
+    /// <c>--xcframework</c>. Those flags declare system frameworks/libraries for the wrapper link
+    /// of a force-loaded static-archive source, which only exists on the <c>--xcframework</c>
+    /// path; in <c>-a/-d/-t</c> direct mode there is no wrapper link to consume them. The CLI
+    /// fails closed on this combination rather than silently dropping the author's declared
+    /// dependencies (which would yield a wrapper that fails to resolve symbols at load). Empty
+    /// arrays do not trip the guard. Pulled out as a small helper so the gate is unit-testable.
+    /// </summary>
+    internal static bool LinkDependenciesSuppliedWithoutXcframework(
+        bool hasXcframework, string[]? linkFrameworks, string[]? linkLibraries)
+        => !hasXcframework
+            && (((linkFrameworks?.Length ?? 0) > 0) || ((linkLibraries?.Length ?? 0) > 0));
+
+    /// <summary>
     /// Computes the library name baked into generated <c>[LibraryImport]</c> and
     /// <c>LoadFromSymbol</c> strings. For an Apple <b>system</b> framework target the embedded
     /// name is reduced to the bare framework/module name (e.g. <c>"CryptoKit"</c>) rather than
@@ -1567,6 +1624,8 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --swift-runtime-version  Optional. SwiftBindings.Runtime version for the emitted .csproj. Default '0.0.0-dev' is local-dev only (IsPackable=false). Pass a published version to enable 'dotnet pack'.");
         Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
         Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
+        Console.WriteLine("  --link-framework     Optional. Repeatable. Apple system framework to link into the wrapper (e.g. 'CoreVideo'). Emits '-framework <name>' so a force-loaded static-archive source can resolve system-framework deps that carry no autolink hints. Requires --xcframework.");
+        Console.WriteLine("  --link-library       Optional. Repeatable. System library to link into the wrapper by linker name (e.g. 'c++' for libc++). Emits '-l<name>'. Use alongside --link-framework when a static-archive source pulls in C++/library symbols. Requires --xcframework.");
         Console.WriteLine("  --module-database    Optional. Repeatable. Path to dependency module database XML for cross-module type resolution.");
         Console.WriteLine("  --no-auto-detect     Optional. Disable automatic dependency detection from binary linkage.");
         Console.WriteLine("  --keep-builtin-database  Optional. Disable Apple-framework target mode auto-detection (keeps the built-in stub when the input module name matches).");

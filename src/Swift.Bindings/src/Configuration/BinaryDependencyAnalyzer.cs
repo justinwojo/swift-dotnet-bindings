@@ -185,6 +185,14 @@ namespace BindingsGeneration
         /// <param name="wrapperArchitectures">Wrapper architectures scope.</param>
         /// <param name="logger">Logger instance.</param>
         /// <param name="commandRunner">Optional command runner for testing.</param>
+        /// <param name="platformInfo">Platform info for slice selection.</param>
+        /// <param name="companionFrameworkPaths">
+        /// Explicit companion xcframework paths (from <c>--framework-dependency</c>). An auto-detected
+        /// sibling's own <c>.swiftinterface</c> may import a companion module; if that companion is not
+        /// co-located, ABI extraction for the sibling needs its search path. Forwarded to each resolve so
+        /// the sibling's ABI generation can resolve a non-co-located companion, mirroring the explicit
+        /// dependency path.
+        /// </param>
         /// <returns>Analysis result, or null if otool fails.</returns>
         public static DependencyAnalysisResult? Analyze(
             string dylibPath,
@@ -194,7 +202,8 @@ namespace BindingsGeneration
             string wrapperArchitectures,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            IReadOnlyList<string>? companionFrameworkPaths = null)
         {
             var runner = commandRunner ?? new SystemCommandRunner();
 
@@ -236,7 +245,8 @@ namespace BindingsGeneration
                 try
                 {
                     var depResolution = XCFrameworkResolver.Resolve(
-                        siblingPath, Path.GetTempPath(), platformTarget, logger, runner, platformInfo: platformInfo);
+                        siblingPath, Path.GetTempPath(), platformTarget, logger, runner, platformInfo: platformInfo,
+                        companionFrameworkPaths: companionFrameworkPaths);
 
                     // Resolve both slices if needed
                     string? simSearchPath = null;
@@ -263,7 +273,8 @@ namespace BindingsGeneration
                         try
                         {
                             var oppositeResolution = XCFrameworkResolver.Resolve(
-                                siblingPath, Path.GetTempPath(), oppositeTarget, logger, runner, platformInfo: platformInfo);
+                                siblingPath, Path.GetTempPath(), oppositeTarget, logger, runner, platformInfo: platformInfo,
+                                companionFrameworkPaths: companionFrameworkPaths);
                             var expectSimulator = oppositeTarget == XCFrameworkPlatformTarget.Simulator;
                             if (oppositeResolution.IsSimulatorSlice == expectSimulator)
                             {
@@ -300,7 +311,8 @@ namespace BindingsGeneration
                         {
                             var deviceResolution = XCFrameworkResolver.Resolve(
                                 siblingPath, Path.GetTempPath(),
-                                XCFrameworkPlatformTarget.Device, logger, runner, platformInfo: platformInfo);
+                                XCFrameworkPlatformTarget.Device, logger, runner, platformInfo: platformInfo,
+                                companionFrameworkPaths: companionFrameworkPaths);
                             if (!deviceResolution.IsSimulatorSlice)
                             {
                                 deviceSearchPath = deviceResolution.FrameworkSearchPath;
@@ -331,7 +343,8 @@ namespace BindingsGeneration
                         {
                             var simResolution = XCFrameworkResolver.Resolve(
                                 siblingPath, Path.GetTempPath(),
-                                XCFrameworkPlatformTarget.Simulator, logger, runner, platformInfo: platformInfo);
+                                XCFrameworkPlatformTarget.Simulator, logger, runner, platformInfo: platformInfo,
+                                companionFrameworkPaths: companionFrameworkPaths);
                             if (simResolution.IsSimulatorSlice)
                             {
                                 simSearchPath = simResolution.FrameworkSearchPath;

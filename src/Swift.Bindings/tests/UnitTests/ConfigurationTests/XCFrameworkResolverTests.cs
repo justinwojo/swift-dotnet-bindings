@@ -1675,4 +1675,447 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region J. Companion Module ABI Extraction Tests
+
+    /// <summary>
+    /// Issue #41: a thin Swift wrapper whose <c>.swiftinterface</c> imports a companion module
+    /// (e.g. <c>MediaPipeTasksGenAI</c> importing the C/C++ engine <c>MediaPipeTasksGenAIC</c>)
+    /// could not have its ABI extracted because <c>swift-frontend</c> was invoked with no
+    /// <c>-F</c> framework search paths, so it could not resolve the companion and aborted before
+    /// writing any report. These tests pin the fix: the framework's own slice plus explicit and
+    /// auto-detected companion slices are passed as <c>-F</c> paths, and a missing companion now
+    /// yields an actionable error that names the module and flags the misleading SDK-version cascade.
+    /// </summary>
+    public class XCFrameworkCompanionModuleTests
+    {
+        // ----- Pure helper: search-path list construction -----
+
+        [Fact]
+        public void BuildAbiFrameworkSearchPaths_OrdersSelfThenExplicitThenSiblings()
+        {
+            var result = XCFrameworkResolver.BuildAbiFrameworkSearchPaths(
+                "/fw/Self.xcframework/ios",
+                new[] { "/explicit/A.xcframework/ios", "/explicit/B.xcframework/ios" },
+                new[] { "/siblings/C.xcframework/ios" });
+
+            Assert.Equal(4, result.Count);
+            Assert.EndsWith("Self.xcframework/ios", result[0]);
+            Assert.EndsWith("A.xcframework/ios", result[1]);
+            Assert.EndsWith("B.xcframework/ios", result[2]);
+            Assert.EndsWith("C.xcframework/ios", result[3]);
+        }
+
+        [Fact]
+        public void BuildAbiFrameworkSearchPaths_DedupsAcrossSources()
+        {
+            // The same slice appears as both an explicit companion AND a sibling — keep one,
+            // and self is added only once even when it reappears among siblings.
+            var result = XCFrameworkResolver.BuildAbiFrameworkSearchPaths(
+                "/fw/Self.xcframework/ios",
+                new[] { "/shared/Dup.xcframework/ios" },
+                new[] { "/shared/Dup.xcframework/ios", "/fw/Self.xcframework/ios" });
+
+            Assert.Equal(2, result.Count);
+            Assert.EndsWith("Self.xcframework/ios", result[0]);
+            Assert.EndsWith("Dup.xcframework/ios", result[1]);
+        }
+
+        // ----- Pure helper: missing-companion hint -----
+
+        [Fact]
+        public void BuildMissingCompanionModuleHint_EmptyWhenNothingMissing()
+        {
+            var hint = XCFrameworkResolver.BuildMissingCompanionModuleHint("Foo", new List<string>());
+            Assert.Equal(string.Empty, hint);
+        }
+
+        [Fact]
+        public void BuildMissingCompanionModuleHint_NamesModulesAndRemediation()
+        {
+            var hint = XCFrameworkResolver.BuildMissingCompanionModuleHint(
+                "MediaPipeTasksGenAI", new List<string> { "MediaPipeTasksGenAIC" });
+
+            Assert.Contains("MediaPipeTasksGenAIC", hint);
+            Assert.Contains("--framework-dependency", hint);
+            Assert.Contains("SwiftFrameworkDependency", hint);
+            Assert.Contains("misleading", hint);   // the SDK-version cascade caveat
+        }
+
+        // ----- TryResolveSliceSearchPath -----
+
+        [Fact]
+        public void TryResolveSliceSearchPath_ResolvesMatchingSlice()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"companion_resolve_{Guid.NewGuid():N}");
+            try
+            {
+                var companion = Path.Combine(tempDir, "Engine.xcframework");
+                Directory.CreateDirectory(companion);
+                WriteCompanionPlist(companion, "Engine");
+
+                var sliceDir = XCFrameworkResolver.TryResolveSliceSearchPath(
+                    companion, XCFrameworkPlatformTarget.Simulator, NullLogger.Instance);
+
+                Assert.NotNull(sliceDir);
+                Assert.EndsWith("ios-arm64-simulator", sliceDir);
+            }
+            finally { Directory.Delete(tempDir, true); }
+        }
+
+        [Fact]
+        public void TryResolveSliceSearchPath_NullWhenNotAnXCFramework()
+        {
+            var sliceDir = XCFrameworkResolver.TryResolveSliceSearchPath(
+                Path.Combine(Path.GetTempPath(), $"does_not_exist_{Guid.NewGuid():N}"),
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance);
+            Assert.Null(sliceDir);
+        }
+
+        // ----- End-to-end through Resolve: -F propagation (success) -----
+
+        [Fact]
+        public void Resolve_GeneratesAbi_PassesExplicitCompanionAsFrameworkSearchPath()
+        {
+            using var fixture = new XCFrameworkFixture("Wrapper.xcframework");
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Wrapper"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Wrapper.framework", "Wrapper.framework/Wrapper");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Wrapper.framework", "Wrapper");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");  // no abi.json → generate
+            fixture.CreateTbd(moduleDir, "Wrapper");
+
+            // A companion xcframework in a SEPARATE directory, passed explicitly.
+            var companionParent = Path.Combine(Path.GetTempPath(), $"companion_explicit_{Guid.NewGuid():N}");
+            var companion = Path.Combine(companionParent, "Engine.xcframework");
+            Directory.CreateDirectory(companion);
+            WriteCompanionPlist(companion, "Engine");
+
+            try
+            {
+                var runner = new MockCommandRunner();
+                runner.SetResponse("--show-sdk-path", 0, "/fake/iPhoneSimulator.sdk");
+                runner.SetResponse("swift-frontend", 0, "");
+                // Pre-create the abi.json that swift-frontend would emit so the success path is taken.
+                File.WriteAllText(Path.Combine(fixture.OutputPath, "Wrapper.abi.json"), "{}");
+
+                XCFrameworkResolver.Resolve(
+                    fixture.RootPath, fixture.OutputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner,
+                    companionFrameworkPaths: new[] { companion });
+
+                // Self slice AND explicit companion slice both appear as -F paths on the frontend call.
+                Assert.Contains(runner.Invocations, i =>
+                    i.Arguments.Contains("compile-module-from-interface") &&
+                    i.Arguments.Contains("-F \"" + Path.Combine(fixture.RootPath, "ios-arm64-simulator")) &&
+                    i.Arguments.Contains("Engine.xcframework"));
+            }
+            finally { Directory.Delete(companionParent, true); }
+        }
+
+        [Fact]
+        public void Resolve_GeneratesAbi_DropsUnresolvableExplicitCompanionKeepsValidOne()
+        {
+            using var fixture = new XCFrameworkFixture("Wrapper.xcframework");
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Wrapper"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Wrapper.framework", "Wrapper.framework/Wrapper");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Wrapper.framework", "Wrapper");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateTbd(moduleDir, "Wrapper");
+
+            var companionParent = Path.Combine(Path.GetTempPath(), $"companion_mixed_{Guid.NewGuid():N}");
+            var goodCompanion = Path.Combine(companionParent, "Engine.xcframework");
+            Directory.CreateDirectory(goodCompanion);
+            WriteCompanionPlist(goodCompanion, "Engine");
+            // A bogus path that cannot resolve to a slice — must be dropped, not crash, not appear in -F.
+            var bogusCompanion = Path.Combine(companionParent, "DoesNotExist.xcframework");
+
+            try
+            {
+                var runner = new MockCommandRunner();
+                runner.SetResponse("--show-sdk-path", 0, "/fake/iPhoneSimulator.sdk");
+                runner.SetResponse("swift-frontend", 0, "");
+                File.WriteAllText(Path.Combine(fixture.OutputPath, "Wrapper.abi.json"), "{}");
+
+                XCFrameworkResolver.Resolve(
+                    fixture.RootPath, fixture.OutputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner,
+                    companionFrameworkPaths: new[] { goodCompanion, bogusCompanion });
+
+                // The resolvable companion is present; the bogus one never appears as a -F path.
+                Assert.Contains(runner.Invocations, i =>
+                    i.Arguments.Contains("compile-module-from-interface") &&
+                    i.Arguments.Contains("Engine.xcframework") &&
+                    !i.Arguments.Contains("DoesNotExist.xcframework"));
+            }
+            finally { Directory.Delete(companionParent, true); }
+        }
+
+        [Fact]
+        public void Resolve_GeneratesAbi_AutoDetectsCoLocatedCompanionSibling()
+        {
+            // The reported MediaPipe scenario: companion sits NEXT TO the wrapper, no explicit flag.
+            var parent = Path.Combine(Path.GetTempPath(), $"colocated_{Guid.NewGuid():N}");
+            var wrapperRoot = Path.Combine(parent, "Wrapper.xcframework");
+            var outputPath = Path.Combine(parent, "output");
+            Directory.CreateDirectory(wrapperRoot);
+            Directory.CreateDirectory(outputPath);
+            try
+            {
+                File.WriteAllText(Path.Combine(wrapperRoot, "Info.plist"),
+                    XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Wrapper"));
+                var fwDir = Path.Combine(wrapperRoot, "ios-arm64-simulator", "Wrapper.framework");
+                Directory.CreateDirectory(fwDir);
+                File.WriteAllText(Path.Combine(fwDir, "Wrapper"), "");
+                var moduleDir = Path.Combine(fwDir, "Modules", "Wrapper.swiftmodule");
+                Directory.CreateDirectory(moduleDir);
+                File.WriteAllText(Path.Combine(moduleDir, "arm64-apple-ios-simulator.swiftinterface"), "// iface");
+                File.WriteAllText(Path.Combine(moduleDir, "Wrapper.tbd"), "--- !tapi-tbd");
+
+                // Co-located companion sibling
+                var companion = Path.Combine(parent, "Engine.xcframework");
+                Directory.CreateDirectory(companion);
+                WriteCompanionPlist(companion, "Engine");
+
+                var runner = new MockCommandRunner();
+                runner.SetResponse("--show-sdk-path", 0, "/fake/iPhoneSimulator.sdk");
+                runner.SetResponse("swift-frontend", 0, "");
+                File.WriteAllText(Path.Combine(outputPath, "Wrapper.abi.json"), "{}");
+
+                XCFrameworkResolver.Resolve(
+                    wrapperRoot, outputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+                // Sibling auto-detected and surfaced as a -F path even with no explicit dependency.
+                Assert.Contains(runner.Invocations, i =>
+                    i.Arguments.Contains("compile-module-from-interface") &&
+                    i.Arguments.Contains("Engine.xcframework"));
+            }
+            finally { Directory.Delete(parent, true); }
+        }
+
+        // ----- End-to-end through Resolve: actionable error (failure) -----
+
+        [Fact]
+        public void Resolve_MissingCompanionModule_ThrowsActionableSwiftbind103()
+        {
+            using var fixture = new XCFrameworkFixture("Wrapper.xcframework");
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Wrapper"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Wrapper.framework", "Wrapper.framework/Wrapper");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Wrapper.framework", "Wrapper");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateTbd(moduleDir, "Wrapper");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("--show-sdk-path", 0, "/fake/iPhoneSimulator.sdk");
+            // swift-frontend fails with the missing-companion error (the issue #41 cascade).
+            runner.SetResponse("compile-module-from-interface", 1, "",
+                "error: no such module 'EngineKit'\n" +
+                "error: failed to build module 'Wrapper'; this SDK is not supported by the compiler");
+            // Deliberately do NOT pre-create the abi.json — generation must be seen as failed.
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                XCFrameworkResolver.Resolve(
+                    fixture.RootPath, fixture.OutputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner));
+
+            Assert.Contains("SWIFTBIND103", ex.Message);
+            Assert.Contains("EngineKit", ex.Message);                  // names the missing companion
+            Assert.Contains("--framework-dependency", ex.Message);     // remediation
+            Assert.Contains("misleading", ex.Message);                 // SDK-version cascade caveat
+            Assert.Contains("no such module 'EngineKit'", ex.Message); // preserves underlying stderr
+        }
+
+        [Fact]
+        public void Resolve_AbiGenFailsWithoutMissingModule_NoCascadeClaim()
+        {
+            // A swift-frontend failure that is NOT a missing-module error must not claim the
+            // "SDK-version line is misleading" cascade — that caveat is only valid for missing modules.
+            using var fixture = new XCFrameworkFixture("Wrapper.xcframework");
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Wrapper"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Wrapper.framework", "Wrapper.framework/Wrapper");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Wrapper.framework", "Wrapper");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateTbd(moduleDir, "Wrapper");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("--show-sdk-path", 0, "/fake/iPhoneSimulator.sdk");
+            runner.SetResponse("compile-module-from-interface", 1, "", "error: some unrelated frontend failure");
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                XCFrameworkResolver.Resolve(
+                    fixture.RootPath, fixture.OutputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner));
+
+            Assert.Contains("SWIFTBIND103", ex.Message);
+            Assert.DoesNotContain("misleading", ex.Message);
+            Assert.Contains("some unrelated frontend failure", ex.Message);
+        }
+
+        private static void WriteCompanionPlist(string xcfwPath, string name)
+        {
+            var plist = $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{name}.framework/{name}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>{name}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), plist);
+            Directory.CreateDirectory(Path.Combine(xcfwPath, "ios-arm64-simulator"));
+        }
+    }
+
+    #endregion
+
+    #region MergeWrapperDependencySearchPaths (gap-a wrapper sibling parity)
+
+    /// <summary>
+    /// The wrapper compile must see the same co-located sibling xcframeworks the ABI extraction
+    /// already auto-detects, so a companion dropped next to the source resolves <c>import</c>
+    /// for <c>swiftc</c> and not just for symbol-graph extraction. <see
+    /// cref="XCFrameworkResolver.MergeWrapperDependencySearchPaths"/> folds explicit
+    /// <c>--framework-dependency</c> paths together with auto-detected siblings: explicit first,
+    /// de-duplicated and full-pathed, null when the merged set is empty.
+    /// </summary>
+    public class MergeWrapperDependencySearchPathsTests
+    {
+        private static readonly ILogger Logger = NullLogger.Instance;
+
+        [Fact]
+        public void ExplicitPaths_NoSiblings_PreservedAndFullPathed()
+        {
+            var root = CreateTempDir();
+            try
+            {
+                // A primary whose parent dir has no other *.xcframework -> no siblings.
+                var primary = Path.Combine(root, "Primary.xcframework");
+                Directory.CreateDirectory(primary);
+                var dep = CreateTempDir();
+                try
+                {
+                    var merged = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                        new[] { dep }, primary, XCFrameworkPlatformTarget.Simulator, Logger);
+
+                    Assert.NotNull(merged);
+                    Assert.Single(merged!);
+                    Assert.Equal(Path.GetFullPath(dep), merged![0]);
+                }
+                finally { Directory.Delete(dep, true); }
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
+        public void NoExplicit_NoSiblings_ReturnsNull()
+        {
+            // Null preserves the historical "no additional -F" behavior for the common case.
+            var root = CreateTempDir();
+            try
+            {
+                var primary = Path.Combine(root, "Primary.xcframework");
+                Directory.CreateDirectory(primary);
+                var merged = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                    null, primary, XCFrameworkPlatformTarget.Simulator, Logger);
+                Assert.Null(merged);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
+        public void DuplicateExplicitPaths_Deduped()
+        {
+            var root = CreateTempDir();
+            try
+            {
+                var primary = Path.Combine(root, "Primary.xcframework");
+                Directory.CreateDirectory(primary);
+                var dep = CreateTempDir();
+                try
+                {
+                    var merged = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                        new[] { dep, dep }, primary, XCFrameworkPlatformTarget.Simulator, Logger);
+                    Assert.NotNull(merged);
+                    Assert.Single(merged!);
+                }
+                finally { Directory.Delete(dep, true); }
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
+        public void SiblingAutoDetected_AppendedAfterExplicit()
+        {
+            // Drop a companion xcframework next to the primary; it must be discovered and merged
+            // AFTER the explicit path — the gap-a parity proof for the wrapper compile.
+            var root = CreateTempDir();
+            try
+            {
+                var primary = Path.Combine(root, "Primary.xcframework");
+                Directory.CreateDirectory(primary);
+                var companion = Path.Combine(root, "Companion.xcframework");
+                Directory.CreateDirectory(companion);
+                WriteSimSlicePlist(companion, "Companion");
+
+                var dep = CreateTempDir();
+                try
+                {
+                    var merged = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                        new[] { dep }, primary, XCFrameworkPlatformTarget.Simulator, Logger);
+
+                    Assert.NotNull(merged);
+                    var siblingSlice = Path.GetFullPath(Path.Combine(companion, "ios-arm64-simulator"));
+                    Assert.Equal(Path.GetFullPath(dep), merged![0]);
+                    Assert.Contains(siblingSlice, merged);
+                    Assert.True(merged.IndexOf(Path.GetFullPath(dep)) < merged.IndexOf(siblingSlice),
+                        "explicit path must precede the auto-detected sibling");
+                }
+                finally { Directory.Delete(dep, true); }
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        private static void WriteSimSlicePlist(string xcfwPath, string name)
+        {
+            var plist = $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{name}.framework/{name}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>{name}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), plist);
+            Directory.CreateDirectory(Path.Combine(xcfwPath, "ios-arm64-simulator"));
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"mwd_test_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

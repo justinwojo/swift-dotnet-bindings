@@ -87,6 +87,31 @@ namespace BindingsGeneration
         /// <param name="logger">Logger instance.</param>
         /// <param name="frameworkSearchPath">Search path for the original framework.</param>
         /// <param name="originalModuleName">Module name for -framework linking.</param>
+        /// <param name="forceLoadBinaries">Static-archive primaries to force-load into the wrapper.</param>
+        /// <param name="linkFrameworks">Author-declared system frameworks (--link-framework) to link.</param>
+        /// <param name="linkLibraries">Author-declared system libraries (--link-library) to link.</param>
+        /// <param name="transitiveFrameworks">
+        /// Sibling framework-dependency names (pre-scanned by the caller from the genuine
+        /// user-passed <c>--framework-dependency</c> search paths — NOT the internally-injected
+        /// XCTest platform path) to emit as <c>-framework</c>. Mirrors the swiftc path's
+        /// transitive framework flags (which scan the same raw set) so a thunk-only wrapper that
+        /// references a companion framework's symbols carries the matching load commands.
+        /// </param>
+        /// <param name="transitiveFrameworkSearchPaths">
+        /// The raw dependency search-path dirs the caller scanned to produce
+        /// <paramref name="transitiveFrameworks"/>. Each is emitted as a <c>-F</c> so the linker
+        /// can LOCATE those <c>-framework</c> names — a companion lives in a dep dir, not the
+        /// primary source slice's <paramref name="frameworkSearchPath"/>, so without these the
+        /// emitted <c>-framework Dep</c> would fail with ld "framework not found". Mirrors the
+        /// swiftc path, which emits a <c>-F</c> for every effective dependency search path.
+        /// </param>
+        /// <param name="buildLinkFailureHint">
+        /// Maps the linker stderr to actionable system-link guidance appended to the failure
+        /// message (single source of truth: <c>SwiftWrapperCompiler.BuildSystemLinkDependencyHint</c>),
+        /// so an undeclared system-framework/libc++ link failure on this path points at
+        /// <c>--link-framework</c>/<c>&lt;SwiftLinkFramework&gt;</c> (or the library-only
+        /// <c>--link-library</c>/<c>&lt;SwiftLinkLibrary&gt;</c> form) instead of an opaque wall.
+        /// </param>
         internal static void LinkWithClang(
             IReadOnlyList<string> objectFiles,
             string outputBinaryPath,
@@ -97,17 +122,67 @@ namespace BindingsGeneration
             ILogger logger,
             string? frameworkSearchPath = null,
             string? originalModuleName = null,
-            IReadOnlyList<string>? forceLoadBinaries = null)
+            IReadOnlyList<string>? forceLoadBinaries = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null,
+            IReadOnlyList<string>? transitiveFrameworks = null,
+            Func<string, string>? buildLinkFailureHint = null,
+            IReadOnlyList<string>? transitiveFrameworkSearchPaths = null)
         {
             var objectArgs = string.Join(" ", objectFiles.Select(f => $"\"{f}\""));
 
             // Add framework search path and link against the original framework
             // so the linker can resolve thunk bl instructions targeting Swift symbols.
+            // `seenFrameworks` is shared across the primary, transitive, and author-declared
+            // `-framework` emissions so a name is never emitted twice (mirrors the swiftc path's
+            // single `seenLinkedFrameworks`); seed it with the primary module up front so a
+            // declared --link-framework matching the module name does not duplicate it.
             var frameworkFlags = "";
+            var seenFrameworks = new HashSet<string>(StringComparer.Ordinal);
+            var seenSearchPaths = new HashSet<string>(StringComparer.Ordinal);
             if (!string.IsNullOrEmpty(frameworkSearchPath))
+            {
                 frameworkFlags += $"-F \"{frameworkSearchPath}\" ";
+                seenSearchPaths.Add(frameworkSearchPath);
+            }
             if (!string.IsNullOrEmpty(originalModuleName))
+            {
                 frameworkFlags += $"-framework {originalModuleName} ";
+                seenFrameworks.Add(originalModuleName);
+            }
+
+            // `-F` for every transitive dependency search-path dir so the linker can LOCATE the
+            // `-framework` names emitted below. The companions scanned into transitiveFrameworks
+            // live in these dep dirs, NOT the primary source slice's frameworkSearchPath; without
+            // a matching `-F`, `-framework Dep` fails with ld "framework not found". Mirrors the
+            // swiftc path, which emits `-F` for every effective dependency search path. Emitted
+            // unconditionally per dir (an extra `-F` over a dir with no framework is harmless),
+            // deduped against the primary path and each other.
+            if (transitiveFrameworkSearchPaths != null)
+            {
+                foreach (var path in transitiveFrameworkSearchPaths)
+                {
+                    if (string.IsNullOrWhiteSpace(path)) continue;
+                    if (seenSearchPaths.Add(path))
+                        frameworkFlags += $"-F \"{path}\" ";
+                }
+            }
+
+            // Transitive `-framework` flags for sibling framework-dependency xcframeworks, scanned
+            // by the caller from the genuine user-passed `--framework-dependency` search paths (the
+            // same raw set the swiftc path scans, excluding the internally-injected XCTest platform
+            // path). A thunk-only wrapper that references a companion framework's symbols needs these
+            // load commands just as the swiftc path emits them via transitiveFrameworkLinkerFlags.
+            if (transitiveFrameworks != null)
+            {
+                foreach (var fw in transitiveFrameworks)
+                {
+                    if (string.IsNullOrWhiteSpace(fw)) continue;
+                    var name = fw.Trim();
+                    if (seenFrameworks.Add(name))
+                        frameworkFlags += $"-framework {name} ";
+                }
+            }
 
             // Gap 2: force-load a static-archive primary so this thunk-only wrapper carries
             // the framework's ObjC classes (a bare `-framework` against a static archive
@@ -118,6 +193,38 @@ namespace BindingsGeneration
                 {
                     if (!string.IsNullOrEmpty(binary) && File.Exists(binary))
                         frameworkFlags += $"-Wl,-force_load,\"{binary}\" ";
+                }
+            }
+
+            // Author-declared link inputs (--link-framework / --link-library, surfaced by the SDK
+            // as <SwiftLinkFramework> / <SwiftLinkLibrary>). A force-loaded static-archive source
+            // drags in objects that reference Apple system frameworks (CoreVideo, Metal, OpenGLES,
+            // Accelerate, …) and libc++ with no autolink hints, so the author must declare them;
+            // here they become real clang `-framework`/`-l` flags so the wrapper dylib carries the
+            // matching LC_LOAD_DYLIB load commands. Mirrors InvokeSwiftCompiler's explicitLinkFlags
+            // so the thunk-only wrapper (no .swift inputs) gets the same linkage as the swiftc path.
+            if (linkFrameworks != null)
+            {
+                foreach (var fw in linkFrameworks)
+                {
+                    if (string.IsNullOrWhiteSpace(fw)) continue;
+                    var name = fw.Trim();
+                    if (seenFrameworks.Add(name))
+                        frameworkFlags += $"-framework {name} ";
+                }
+            }
+            if (linkLibraries != null)
+            {
+                var seenLibraries = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var lib in linkLibraries)
+                {
+                    if (string.IsNullOrWhiteSpace(lib)) continue;
+                    // Accept bare names ("c++") or already-prefixed ("-lc++"); normalize to -l<name>.
+                    var name = lib.Trim();
+                    if (name.StartsWith("-l", StringComparison.Ordinal))
+                        name = name.Substring(2);
+                    if (name.Length > 0 && seenLibraries.Add(name))
+                        frameworkFlags += $"-l{name} ";
                 }
             }
 
@@ -134,9 +241,14 @@ namespace BindingsGeneration
 
             if (exitCode != 0)
             {
+                // Surface the same actionable system-link guidance the swiftc path emits when an
+                // undeclared system framework / libc++ dependency of a force-loaded static archive
+                // leaves undefined symbols. Computed on the FULL stderr (before truncation) so a
+                // needle past the 2000-char preview boundary is still detected.
+                var hint = buildLinkFailureHint?.Invoke(stderr) ?? string.Empty;
                 var errorPreview = stderr.Length > 2000 ? stderr.Substring(0, 2000) + "..." : stderr;
                 throw new InvalidOperationException(
-                    $"Thunk linking failed (exit code {exitCode}): {errorPreview}");
+                    $"Thunk linking failed (exit code {exitCode}): {errorPreview}{hint}");
             }
         }
 

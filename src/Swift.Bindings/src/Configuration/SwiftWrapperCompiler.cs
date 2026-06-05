@@ -132,7 +132,9 @@ namespace BindingsGeneration
             string? swiftInterfacePath = null,
             bool skipThunkCompilation = false,
             string? resolvedArchitecture = null,
-            IReadOnlyList<string>? depModuleNamesForCollision = null)
+            IReadOnlyList<string>? depModuleNamesForCollision = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -144,7 +146,9 @@ namespace BindingsGeneration
                 nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                 swiftInterfacePath: swiftInterfacePath,
                 skipThunkCompilation: skipThunkCompilation,
-                depModuleNamesForCollision: depModuleNamesForCollision);
+                depModuleNamesForCollision: depModuleNamesForCollision,
+                linkFrameworks: linkFrameworks,
+                linkLibraries: linkLibraries);
         }
 
         /// <summary>
@@ -168,7 +172,9 @@ namespace BindingsGeneration
             HashSet<string>? nestedTypesInCollidingClass = null,
             string? swiftInterfacePath = null,
             IReadOnlyList<string>? depModuleNamesForCollisionSimulator = null,
-            IReadOnlyList<string>? depModuleNamesForCollisionDevice = null)
+            IReadOnlyList<string>? depModuleNamesForCollisionDevice = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -384,7 +390,10 @@ namespace BindingsGeneration
                         simEffectiveSearchPaths,
                         simPrecompiledShadowPaths.Count > 0 ? simPrecompiledShadowPaths : null,
                         simThunkResult?.ObjectFiles, moduleName,
-                        forceLoadBinaries: simForceLoad);
+                        forceLoadBinaries: simForceLoad,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries,
+                        transitiveScanSearchPaths: primaryAdditionalSearchPaths);
                     sliceCount++;
                 }
                 else if (simThunkResult != null && simThunkResult.ObjectFiles.Count > 0)
@@ -394,7 +403,13 @@ namespace BindingsGeneration
                         simThunkResult.ObjectFiles, simBinaryPath, wrapperModuleName,
                         simTargetTriple, simSdkPath, commandRunner, logger,
                         simulatorResolution.FrameworkSearchPath, moduleName,
-                        forceLoadBinaries: simForceLoad);
+                        forceLoadBinaries: simForceLoad,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries,
+                        transitiveFrameworks: CollectTransitiveFrameworkNames(primaryAdditionalSearchPaths, new[] { moduleName }),
+                        buildLinkFailureHint: stderr => BuildSystemLinkDependencyHint(
+                            stderr, linkFrameworks, linkLibraries, simForceLoad, commandRunner, logger),
+                        transitiveFrameworkSearchPaths: primaryAdditionalSearchPaths);
                     sliceCount++;
                 }
 
@@ -515,7 +530,10 @@ namespace BindingsGeneration
                             devEffectiveSearchPaths,
                             devPrecompiledShadowPaths.Count > 0 ? devPrecompiledShadowPaths : null,
                             devThunkResult?.ObjectFiles, moduleName,
-                            forceLoadBinaries: devForceLoad);
+                            forceLoadBinaries: devForceLoad,
+                            linkFrameworks: linkFrameworks,
+                            linkLibraries: linkLibraries,
+                            transitiveScanSearchPaths: deviceAdditionalSearchPaths);
                         sliceCount++;
                     }
                     else if (devThunkResult != null && devThunkResult.ObjectFiles.Count > 0)
@@ -525,7 +543,13 @@ namespace BindingsGeneration
                             devThunkResult.ObjectFiles, devBinaryPath, wrapperModuleName,
                             devTargetTriple, devSdkPath, commandRunner, logger,
                             deviceResolution.FrameworkSearchPath, moduleName,
-                            forceLoadBinaries: devForceLoad);
+                            forceLoadBinaries: devForceLoad,
+                            linkFrameworks: linkFrameworks,
+                            linkLibraries: linkLibraries,
+                            transitiveFrameworks: CollectTransitiveFrameworkNames(deviceAdditionalSearchPaths, new[] { moduleName }),
+                            buildLinkFailureHint: stderr => BuildSystemLinkDependencyHint(
+                                stderr, linkFrameworks, linkLibraries, devForceLoad, commandRunner, logger),
+                            transitiveFrameworkSearchPaths: deviceAdditionalSearchPaths);
                         sliceCount++;
                     }
 
@@ -617,7 +641,9 @@ namespace BindingsGeneration
             HashSet<string>? nestedTypesInCollidingClass = null,
             string? swiftInterfacePath = null,
             bool skipThunkCompilation = false,
-            IReadOnlyList<string>? depModuleNamesForCollision = null)
+            IReadOnlyList<string>? depModuleNamesForCollision = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -807,7 +833,10 @@ namespace BindingsGeneration
                         effectiveSearchPaths,
                         precompiledShadowPaths.Count > 0 ? precompiledShadowPaths : null,
                         objectFilesToLink, moduleName,
-                        forceLoadBinaries: forceLoadBinaries);
+                        forceLoadBinaries: forceLoadBinaries,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries,
+                        transitiveScanSearchPaths: additionalFrameworkSearchPaths);
                 }
                 else if (objectFilesToLink != null && objectFilesToLink.Count > 0)
                 {
@@ -818,7 +847,13 @@ namespace BindingsGeneration
                         objectFilesToLink, outputBinaryPath, wrapperModuleName,
                         targetTriple, sdkPath, commandRunner, logger,
                         frameworkSearchPath, moduleName,
-                        forceLoadBinaries: forceLoadBinaries);
+                        forceLoadBinaries: forceLoadBinaries,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries,
+                        transitiveFrameworks: CollectTransitiveFrameworkNames(additionalFrameworkSearchPaths, new[] { moduleName }),
+                        buildLinkFailureHint: stderr => BuildSystemLinkDependencyHint(
+                            stderr, linkFrameworks, linkLibraries, forceLoadBinaries, commandRunner, logger),
+                        transitiveFrameworkSearchPaths: additionalFrameworkSearchPaths);
                 }
                 else if (cleanedFiles.Count == 0)
                 {
@@ -919,7 +954,9 @@ namespace BindingsGeneration
             string? swiftInterfacePath = null,
             bool skipThunkCompilation = false,
             string? resolvedArchitecture = null,
-            IReadOnlyList<string>? depModuleNamesForCollision = null)
+            IReadOnlyList<string>? depModuleNamesForCollision = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -934,7 +971,9 @@ namespace BindingsGeneration
                 nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                 swiftInterfacePath: swiftInterfacePath,
                 skipThunkCompilation: skipThunkCompilation,
-                depModuleNamesForCollision: depModuleNamesForCollision);
+                depModuleNamesForCollision: depModuleNamesForCollision,
+                linkFrameworks: linkFrameworks,
+                linkLibraries: linkLibraries);
         }
 
         /// <summary>
@@ -1402,6 +1441,16 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="additionalFrameworkSearchPaths">
         /// Additional -F search paths for dependency frameworks (e.g., from --framework-dependency).
+        /// Emits a <c>-F</c> for every entry. May include internally-injected platform paths
+        /// (XCTest <c>Developer/Library/Frameworks</c>) that exist purely for module resolution.
+        /// </param>
+        /// <param name="transitiveScanSearchPaths">
+        /// The genuine user-passed dependency search paths to scan for sibling
+        /// <c>--framework-dependency</c> companions to emit as transitive <c>-framework</c> flags.
+        /// Distinct from <paramref name="additionalFrameworkSearchPaths"/> because that set may
+        /// carry the internally-added XCTest platform path, which must drive <c>-F</c> (module
+        /// resolution) but must NOT contribute <c>-framework</c> flags for test-host frameworks.
+        /// Falls back to <paramref name="additionalFrameworkSearchPaths"/> when null.
         /// </param>
         internal static void InvokeSwiftCompiler(
             List<string> swiftFiles,
@@ -1416,7 +1465,10 @@ namespace BindingsGeneration
             IReadOnlyList<string>? precompiledShadowFrameworkPaths = null,
             IReadOnlyList<string>? thunkObjectFiles = null,
             string? originalModuleName = null,
-            IReadOnlyList<string>? forceLoadBinaries = null)
+            IReadOnlyList<string>? forceLoadBinaries = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null,
+            IReadOnlyList<string>? transitiveScanSearchPaths = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
@@ -1455,12 +1507,16 @@ namespace BindingsGeneration
             // frameworks must be explicitly `-framework`-linked or the linker leaves their
             // OBJC_CLASS_$ / C++ / C symbols unresolved.
             //
-            // The scan is limited to the user-passed dependency search paths
-            // (`additionalFrameworkSearchPaths`), NOT internally-added platform paths
-            // (Catalyst iOS Support, XCTest Developer/Library/Frameworks). Those internal
-            // paths exist to satisfy `import XCTest`-style module resolution; they should
-            // not contribute `-framework` flags for Testing.framework, XCUIAutomation, etc.
-            // A binding library has no business pulling in test-host frameworks.
+            // The scan is limited to the genuine user-passed dependency search paths
+            // (`transitiveScanSearchPaths`, falling back to `additionalFrameworkSearchPaths`),
+            // NOT internally-added platform paths: the Catalyst iOS Support path (added below to
+            // the -F-only `effectiveAdditionalFrameworkSearchPaths`, never to the scan set) and the
+            // XCTest `Developer/Library/Frameworks` path (which the caller folds into the -F set it
+            // passes as `additionalFrameworkSearchPaths`, but deliberately keeps OUT of the raw set
+            // it passes here as `transitiveScanSearchPaths`). Those internal paths exist to satisfy
+            // `import XCTest`-style module resolution; they must not contribute `-framework` flags
+            // for Testing.framework, XCUIAutomation, etc. A binding library has no business pulling
+            // in test-host frameworks. The thunk-only clang path scans the same raw set for parity.
             var transitiveFrameworkLinkerFlags = new System.Text.StringBuilder();
             var seenLinkedFrameworks = new HashSet<string>(StringComparer.Ordinal);
             if (!string.IsNullOrEmpty(originalModuleName))
@@ -1473,32 +1529,16 @@ namespace BindingsGeneration
             {
                 additionalFFlags += $" -F \"{path}\"";
             }
-            if (additionalFrameworkSearchPaths != null)
+            // Only link a framework that has a real linker-consumable binary on disk —
+            // header/swiftmodule-only slices have no binary and would trigger ld
+            // "framework not found". CollectTransitiveFrameworkNames verifies the magic bytes
+            // (not just file presence) and de-duplicates against already-seen names; the clang
+            // thunk-only link path uses the same helper for parity.
+            foreach (var frameworkName in
+                CollectTransitiveFrameworkNames(transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, seenLinkedFrameworks))
             {
-                foreach (var path in additionalFrameworkSearchPaths)
-                {
-                    if (!System.IO.Directory.Exists(path))
-                    {
-                        continue;
-                    }
-                    foreach (var frameworkDir in System.IO.Directory.EnumerateDirectories(path, "*.framework"))
-                    {
-                        var frameworkName = System.IO.Path.GetFileNameWithoutExtension(frameworkDir);
-                        if (string.IsNullOrEmpty(frameworkName)) continue;
-                        // Only link a framework that has a real linker-consumable binary on disk —
-                        // header/swiftmodule-only slices have no binary and would trigger ld
-                        // "framework not found". We verify the magic bytes rather than just file
-                        // presence so a stray marker file or text manifest at the expected path
-                        // doesn't sneak through and fail at link. Accept Mach-O (thin or fat) and
-                        // static archives (.a — used by many static-framework xcframeworks).
-                        var binaryPath = System.IO.Path.Combine(frameworkDir, frameworkName);
-                        if (!IsLinkableFrameworkBinary(binaryPath)) continue;
-                        if (seenLinkedFrameworks.Add(frameworkName))
-                        {
-                            transitiveFrameworkLinkerFlags.Append($"-Xlinker -framework -Xlinker {frameworkName} ");
-                        }
-                    }
-                }
+                seenLinkedFrameworks.Add(frameworkName);
+                transitiveFrameworkLinkerFlags.Append($"-Xlinker -framework -Xlinker {frameworkName} ");
             }
 
             // Pre-compiled shadow module paths for collision resolution: each is a shadow
@@ -1543,6 +1583,41 @@ namespace BindingsGeneration
                 }
             }
 
+            // Author-declared link inputs (--link-framework / --link-library, surfaced by the
+            // SDK as <SwiftLinkFramework> / <SwiftLinkLibrary>). A force-loaded static-archive
+            // source (Gap 2) drags in every object it ships, including ones that reference Apple
+            // system frameworks (CoreVideo, Metal, OpenGLES, Accelerate, …) and libc++. Those
+            // dependencies are NOT discoverable: a C/C++ static archive built without
+            // LC_LINKER_OPTION autolink hints exposes nothing to otool, and the generator does
+            // not read CocoaPods podspecs. The binding author must declare them; here they
+            // become real `-framework`/`-l` flags so the wrapper dylib carries the matching
+            // LC_LOAD_DYLIB load commands and dyld resolves them transitively at app load.
+            var explicitLinkFlags = new System.Text.StringBuilder();
+            if (linkFrameworks != null)
+            {
+                foreach (var fw in linkFrameworks)
+                {
+                    if (string.IsNullOrWhiteSpace(fw)) continue;
+                    if (seenLinkedFrameworks.Add(fw.Trim()))
+                        explicitLinkFlags.Append($"-Xlinker -framework -Xlinker {fw.Trim()} ");
+                }
+            }
+            if (linkLibraries != null)
+            {
+                var seenLinkedLibraries = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var lib in linkLibraries)
+                {
+                    if (string.IsNullOrWhiteSpace(lib)) continue;
+                    // Accept either bare names ("c++") or already-prefixed ("-lc++"); normalize
+                    // to a single -l<name> token so swiftc forwards it to the linker.
+                    var name = lib.Trim();
+                    if (name.StartsWith("-l", StringComparison.Ordinal))
+                        name = name.Substring(2);
+                    if (name.Length > 0 && seenLinkedLibraries.Add(name))
+                        explicitLinkFlags.Append($"-l{name} ");
+                }
+            }
+
             string BuildArgs(string extraLinkerFlags) =>
                 $"swiftc -emit-library -target {targetTriple} " +
                 $"-sdk \"{sdkPath}\" " +
@@ -1552,6 +1627,7 @@ namespace BindingsGeneration
                 $"{thunkLinkerFlags}" +
                 $"{transitiveFrameworkLinkerFlags}" +
                 $"{forceLoadFlags}" +
+                $"{explicitLinkFlags}" +
                 $"{extraLinkerFlags}" +
                 $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
                 $"-o \"{outputBinaryPath}\" " +
@@ -1605,8 +1681,9 @@ namespace BindingsGeneration
                 var diagnosticLines = allLines.Where(l =>
                     l.Contains(" error:") ||
                     l.TrimStart().StartsWith("error:", StringComparison.Ordinal) ||
-                    l.Contains("Undefined symbols") ||
-                    l.Contains("undefined symbol") ||
+                    // Case-insensitive + singular-tolerant, matching BuildSystemLinkDependencyHint's
+                    // gate, so the preview surfaces the link failure under any linker casing/wording.
+                    l.Contains("undefined symbol", StringComparison.OrdinalIgnoreCase) ||
                     l.Contains("referenced from:") ||
                     l.TrimStart().StartsWith("\"_") ||
                     l.Contains("ld: ") ||
@@ -1634,8 +1711,201 @@ namespace BindingsGeneration
                            "binding csproj instead.";
                 }
 
+                // System-framework / libc++ undefined symbols come from a force-loaded static
+                // archive whose link dependencies the generator cannot discover (no autolink
+                // hints, no podspec reading). Point the author at the explicit declaration knobs
+                // rather than leaving an opaque "Undefined symbols" wall.
+                hint += BuildSystemLinkDependencyHint(
+                    stderr, linkFrameworks, linkLibraries, forceLoadBinaries, commandRunner, logger);
+
                 throw new InvalidOperationException(
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
+            }
+        }
+
+        // Maps a few common families of Apple system-framework undefined symbols to the framework
+        // (or library) that defines them, so a link failure caused by an undeclared system
+        // dependency of a force-loaded static archive produces actionable guidance instead of a
+        // raw "Undefined symbols" wall. Intentionally a small, high-signal table — not an attempt
+        // to model every framework. Returns "" when the failure doesn't look like a system-link gap
+        // so we never claim a misleading cause for an unrelated error.
+        //
+        // Two complementary symbol sources feed the table, so the author gets EVERY missing
+        // -framework in one pass instead of a multi-round whack-a-mole:
+        //   1. the linker's printed "Undefined symbols" list (always available on a link failure);
+        //   2. the force-loaded static archive's own `nm -u` undefined symbols (when the archive
+        //      path + a command runner are supplied) — authoritative and complete, so a linker that
+        //      prints only part of its undefined-symbol list (backtrace cap, truncated transcript)
+        //      can't cause the hint to under-report a framework.
+        internal static string BuildSystemLinkDependencyHint(
+            string stderr,
+            IReadOnlyList<string>? alreadyDeclaredFrameworks = null,
+            IReadOnlyList<string>? alreadyDeclaredLibraries = null,
+            IReadOnlyList<string>? forceLoadedArchives = null,
+            ICommandRunner? commandRunner = null,
+            ILogger? logger = null)
+        {
+            // Gate case-insensitively: Apple's ld prints "Undefined symbols for architecture …",
+            // but tolerate casing/wording drift (e.g. lld's "undefined symbol:"). This only decides
+            // whether to *run* the probe — the per-symbol "_needle / StartsWith matching below still
+            // gates what (if anything) is emitted, so a looser gate cannot manufacture a false hint.
+            if (string.IsNullOrEmpty(stderr) ||
+                !stderr.Contains("Undefined symbol", StringComparison.OrdinalIgnoreCase))
+                return string.Empty;
+
+            // (bare-symbol-prefix -> framework name). Matched two ways: against the linker stderr
+            // anchored as `"` + needle (the linker renders `"_name", referenced from:`, so anchoring
+            // at the quote keeps a generic stem like `_gl` from matching `_global…` mid-text), and
+            // against the archive's `nm -u` symbols via StartsWith. Matches are de-duplicated.
+            var frameworkProbes = new (string Needle, string Framework)[]
+            {
+                ("_CVPixelBuffer", "CoreVideo"),
+                ("_CVMetalTexture", "CoreVideo"),
+                ("_CVOpenGLESTexture", "CoreVideo"),
+                ("_CVPixelFormat", "CoreVideo"),
+                ("_CVBuffer", "CoreVideo"),
+                ("_MTL", "Metal"),
+                ("_OBJC_CLASS_$_MTL", "Metal"),
+                ("_gl", "OpenGLES"),
+                ("_OBJC_CLASS_$_EAGL", "OpenGLES"),
+                ("_vDSP_", "Accelerate"),
+                ("_vImage", "Accelerate"),
+                ("_cblas_", "Accelerate"),
+                ("_BNNS", "Accelerate"),
+                ("_AudioComponent", "AudioToolbox"),
+                ("_OBJC_CLASS_$_AV", "AVFoundation"),
+                ("_CMTime", "CoreMedia"),
+            };
+
+            var declaredFw = new HashSet<string>(
+                alreadyDeclaredFrameworks?.Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f.Trim())
+                    ?? Enumerable.Empty<string>(),
+                StringComparer.Ordinal);
+            // libc++ symbols are C++ mangled std:: names (start with __ZNSt / __ZSt) or std:: spellings.
+            var declaredLibs = new HashSet<string>(
+                (alreadyDeclaredLibraries ?? Enumerable.Empty<string>())
+                    .Where(l => !string.IsNullOrWhiteSpace(l))
+                    .Select(l => l.Trim().StartsWith("-l", StringComparison.Ordinal) ? l.Trim().Substring(2) : l.Trim()),
+                StringComparer.Ordinal);
+
+            var frameworks = new SortedSet<string>(StringComparer.Ordinal);
+
+            // Source 1: the symbols the linker actually printed, rendered as `"_name", referenced
+            // from:`. Extract each quoted symbol and run it through the same SymbolMatchesNeedle
+            // test as the archive scan, so the `_gl` CamelCase guard (and any future anchoring)
+            // applies here too — a quoted `"_global_ctors"` must not be misread as OpenGLES.
+            foreach (var sym in ExtractQuotedSymbols(stderr))
+            {
+                foreach (var (needle, framework) in frameworkProbes)
+                {
+                    if (declaredFw.Contains(framework)) continue;
+                    if (SymbolMatchesNeedle(sym, needle))
+                        frameworks.Add(framework);
+                }
+            }
+            var wantsCxx = !declaredLibs.Contains("c++") &&
+                (stderr.Contains("std::") || stderr.Contains("__ZNSt") || stderr.Contains("__ZSt") ||
+                 stderr.Contains("operator new") || stderr.Contains("operator delete"));
+
+            // Source 2 (completeness): scan the force-loaded archive's undefined symbols directly.
+            // Best-effort and error-path only (we're already inside a link failure, so no cost on
+            // success); a failed/absent nm simply leaves Source 1's result in place. This catches
+            // frameworks the linker's truncated list omitted. The match is prefix-based against the
+            // probe table: each needle is an Apple-reserved C/ObjC namespace (`_vDSP_`, `_MTL`,
+            // `_CVPixelBuffer`, `_OBJC_CLASS_$_…`), so in practice a table-matched undefined symbol
+            // the archive references and hasn't already declared is genuinely a missing system dep.
+            // It is high-signal, not provably collision-free — `SymbolMatchesNeedle` tightens the
+            // one short lowercase stem (`_gl`) that could collide with ordinary symbols.
+            if (forceLoadedArchives != null && forceLoadedArchives.Count > 0 &&
+                commandRunner != null && logger != null)
+            {
+                var scan = NativeSymbolProbe.ScanUndefinedSymbols(forceLoadedArchives, commandRunner, logger);
+                if (scan.GatheredEvidence)
+                {
+                    foreach (var sym in scan.UndefinedSymbols)
+                    {
+                        foreach (var (needle, framework) in frameworkProbes)
+                        {
+                            if (declaredFw.Contains(framework)) continue;
+                            if (SymbolMatchesNeedle(sym, needle))
+                                frameworks.Add(framework);
+                        }
+                        if (!wantsCxx && !declaredLibs.Contains("c++") &&
+                            (sym.StartsWith("__ZNSt", StringComparison.Ordinal) ||
+                             sym.StartsWith("__ZSt", StringComparison.Ordinal)))
+                        {
+                            wantsCxx = true;
+                        }
+                    }
+                }
+            }
+
+            if (frameworks.Count == 0 && !wantsCxx)
+                return string.Empty;
+
+            var declareFlags = new System.Text.StringBuilder();
+            var fwItems = new System.Text.StringBuilder();
+            foreach (var fw in frameworks)
+            {
+                declareFlags.Append($" --link-framework {fw}");
+                fwItems.Append($"          <SwiftLinkFramework Include=\"{fw}\" />\n");
+            }
+            if (wantsCxx)
+            {
+                declareFlags.Append(" --link-library c++");
+                fwItems.Append("          <SwiftLinkLibrary Include=\"c++\" />\n");
+            }
+
+            return "\n\nThe undefined symbols above are defined by Apple system framework(s)/" +
+                   "librarie(s) that a force-loaded static archive depends on. These cannot be " +
+                   "auto-discovered (the archive carries no autolink hints and the generator does " +
+                   "not read podspecs), so they must be declared explicitly:\n" +
+                   $"  CLI:  add{declareFlags}\n" +
+                   "  SDK:  add to the binding's <ItemGroup>:\n" +
+                   fwItems.ToString().TrimEnd('\n');
+        }
+
+        // Matches one bare undefined symbol against a probe needle. Both sources feed it bare
+        // symbols — the archive scan from `nm -u`, and the linker-stderr path after stripping the
+        // surrounding quotes (see ExtractQuotedSymbols) — so the anchoring lives here once for both.
+        // A short lowercase stem needs a tighter test than StartsWith: `_gl` is an OpenGL ES
+        // entry-point stem (`glBindTexture` → `_glBindTexture`), and those are always `gl` +
+        // CamelCase — requiring an uppercase letter after `_gl` keeps unrelated symbols like
+        // `_global_ctors` / `_glue_init` from being misattributed to OpenGLES (whether they arrive
+        // bare from the archive OR quoted as `"_global_ctors"` from the linker). Other needles carry
+        // enough of their own prefix (`_MTL`, `_CVPixelBuffer`, `_vImage`, `_OBJC_CLASS_$_…`) to be
+        // unambiguous on their own.
+        private static bool SymbolMatchesNeedle(string sym, string needle)
+        {
+            if (!sym.StartsWith(needle, StringComparison.Ordinal))
+                return false;
+            if (needle == "_gl")
+                return sym.Length > needle.Length && char.IsAsciiLetterUpper(sym[needle.Length]);
+            return true;
+        }
+
+        // Pulls bare symbol names out of a linker "Undefined symbols" dump, which renders each as
+        // `"_name", referenced from:`. Yielding the unquoted name lets Source 1 reuse the exact same
+        // SymbolMatchesNeedle test as the archive scan (Source 2), so a quoted `"_global_ctors"`
+        // cannot slip past the `_gl` guard that the bare-symbol path already enforces. Restricted to
+        // `_`-prefixed tokens (every Mach-O symbol carries a leading underscore) so a stray quoted
+        // path/word in the dump is not mistaken for a symbol.
+        private static IEnumerable<string> ExtractQuotedSymbols(string stderr)
+        {
+            int i = 0;
+            while (true)
+            {
+                int open = stderr.IndexOf('"', i);
+                if (open < 0) yield break;
+                int close = stderr.IndexOf('"', open + 1);
+                if (close < 0) yield break;
+                if (close > open + 1)
+                {
+                    var token = stderr.Substring(open + 1, close - open - 1);
+                    if (token.StartsWith("_", StringComparison.Ordinal))
+                        yield return token;
+                }
+                i = close + 1;
             }
         }
 
@@ -1644,6 +1914,45 @@ namespace BindingsGeneration
         // <Framework>.framework/<Framework> path would otherwise pass through and fail at link.
         // Accepts thin Mach-O, fat Mach-O (32- and 64-bit fat headers), and ar(1) static archives
         // (e.g. static-framework xcframeworks ship the framework binary as a `.a`-format file).
+        /// <summary>
+        /// Scans <paramref name="searchPaths"/> for <c>*.framework</c> directories that contain a
+        /// linker-consumable binary (Mach-O thin/fat or an <c>ar</c> static archive) and returns
+        /// their framework names — de-duplicated and excluding anything already in
+        /// <paramref name="alreadySeen"/>. Shared by the swiftc link path (its transitive
+        /// <c>-framework</c> flags) and the clang thunk-only link path so both surface the same
+        /// sibling framework-dependency load commands from one probe (same rationale as
+        /// <see cref="ResolvePrimaryForceLoad"/> centralising the force-load decision). Header/
+        /// swiftmodule-only slices have no binary and are skipped so ld never sees a
+        /// "framework not found".
+        /// </summary>
+        internal static List<string> CollectTransitiveFrameworkNames(
+            IReadOnlyList<string>? searchPaths, IEnumerable<string>? alreadySeen = null)
+        {
+            var result = new List<string>();
+            if (searchPaths == null)
+                return result;
+            var seen = new HashSet<string>(
+                alreadySeen?.Where(s => !string.IsNullOrEmpty(s)) ?? Enumerable.Empty<string>(),
+                StringComparer.Ordinal);
+            foreach (var path in searchPaths)
+            {
+                if (!System.IO.Directory.Exists(path))
+                    continue;
+                foreach (var frameworkDir in System.IO.Directory.EnumerateDirectories(path, "*.framework"))
+                {
+                    var frameworkName = System.IO.Path.GetFileNameWithoutExtension(frameworkDir);
+                    if (string.IsNullOrEmpty(frameworkName))
+                        continue;
+                    var binaryPath = System.IO.Path.Combine(frameworkDir, frameworkName);
+                    if (!IsLinkableFrameworkBinary(binaryPath))
+                        continue;
+                    if (seen.Add(frameworkName))
+                        result.Add(frameworkName);
+                }
+            }
+            return result;
+        }
+
         private static bool IsLinkableFrameworkBinary(string path)
         {
             try

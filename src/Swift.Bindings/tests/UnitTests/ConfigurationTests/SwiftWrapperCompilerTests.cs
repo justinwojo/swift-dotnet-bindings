@@ -991,6 +991,79 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void InvokeSwiftCompiler_TransitiveScanPaths_ExcludesModuleResolutionOnlyPath()
+        {
+            // The XCTest platform `Developer/Library/Frameworks` path is folded into the -F set
+            // (additionalFrameworkSearchPaths) so `import XCTest` resolves, but is deliberately
+            // kept OUT of the raw scan set (transitiveScanSearchPaths). A path present only for
+            // module resolution must get a -F but must NOT contribute a transitive -framework:
+            // a binding library has no business pulling in test-host frameworks (XCTest, Testing).
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var root = Path.Combine(Path.GetTempPath(), $"swc_link_test_{Guid.NewGuid():N}");
+            var userDeps = Path.Combine(root, "userdeps");
+            var platformDir = Path.Combine(root, "platform");
+            var realDep = Path.Combine(userDeps, "RealDep.framework");
+            var xctest = Path.Combine(platformDir, "XCTest.framework");
+            Directory.CreateDirectory(realDep);
+            Directory.CreateDirectory(xctest);
+            File.WriteAllBytes(Path.Combine(realDep, "RealDep"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+            File.WriteAllBytes(Path.Combine(xctest, "XCTest"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+
+            try
+            {
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance,
+                    // Effective set (-F): both the user dep AND the platform path.
+                    additionalFrameworkSearchPaths: new[] { userDeps, platformDir },
+                    // Raw scan set (-framework): user dep ONLY — platform path excluded.
+                    transitiveScanSearchPaths: new[] { userDeps });
+
+                var (_, args) = runner.Invocations[0];
+                // Platform path still drives module resolution via -F.
+                Assert.Contains($"-F \"{platformDir}\"", args);
+                // Genuine user dep is linked.
+                Assert.Contains("-Xlinker -framework -Xlinker RealDep", args);
+                // Module-resolution-only platform framework is NOT linked.
+                Assert.DoesNotContain("-Xlinker -framework -Xlinker XCTest", args);
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_NullTransitiveScanPaths_FallsBackToAdditionalPaths()
+        {
+            // Backward compatibility: when transitiveScanSearchPaths is null, the scan falls back
+            // to additionalFrameworkSearchPaths so existing callers (and tests) are unaffected.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var root = Path.Combine(Path.GetTempPath(), $"swc_link_test_{Guid.NewGuid():N}");
+            var fwSearchPath = Path.Combine(root, "deps");
+            var dep = Path.Combine(fwSearchPath, "FallbackDep.framework");
+            Directory.CreateDirectory(dep);
+            File.WriteAllBytes(Path.Combine(dep, "FallbackDep"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+
+            try
+            {
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance,
+                    additionalFrameworkSearchPaths: new[] { fwSearchPath });
+
+                var (_, args) = runner.Invocations[0];
+                Assert.Contains("-Xlinker -framework -Xlinker FallbackDep", args);
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+
+        [Fact]
         public void InvokeSwiftCompiler_IncludesStrictConcurrencyMinimal()
         {
             var runner = new MockCommandRunner();
@@ -1170,6 +1243,790 @@ namespace BindingsGeneration.Tests
 
             var (_, args) = runner.Invocations[0];
             Assert.DoesNotContain("-force_load", args);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_LinkFramework_EmitsFrameworkLinkerFlag()
+        {
+            // Author-declared system frameworks (for a force-loaded static archive whose
+            // autolink hints are absent) must reach the linker as -Xlinker -framework -Xlinker.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                linkFrameworks: new[] { "CoreVideo", "Metal" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-Xlinker -framework -Xlinker CoreVideo", args);
+            Assert.Contains("-Xlinker -framework -Xlinker Metal", args);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_LinkLibrary_EmitsLowerLFlag()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                linkLibraries: new[] { "c++" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-lc++", args);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_LinkLibrary_NormalizesDashLPrefix()
+        {
+            // An author may write either "c++" or "-lc++"; both must normalize to a single
+            // -lc++ token (never -l-lc++).
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                linkLibraries: new[] { "-lc++" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-lc++", args);
+            Assert.DoesNotContain("-l-lc++", args);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_LinkFramework_DedupesDuplicateEntries()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                linkFrameworks: new[] { "Metal", "Metal" });
+
+            var (_, args) = runner.Invocations[0];
+            var needle = "-Xlinker -framework -Xlinker Metal";
+            var occurrences = (args.Length - args.Replace(needle, "").Length) / needle.Length;
+            Assert.Equal(1, occurrences);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_LinkFramework_EmptyAndWhitespaceEntriesSkipped()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                linkFrameworks: new[] { "CoreVideo", "", "  " });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-Xlinker -framework -Xlinker CoreVideo", args);
+            // No bare "-framework " with an empty name slipped through.
+            Assert.DoesNotContain("-Xlinker -framework -Xlinker  ", args);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_LinkFramework_DedupesAgainstTransitiveScan()
+        {
+            // If a system framework is BOTH auto-linked via the transitive dep scan and
+            // declared via --link-framework, it must appear exactly once. The explicit
+            // declaration shares the seenLinkedFrameworks set with the transitive scan.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var root = Path.Combine(Path.GetTempPath(), $"swc_link_dedup_{Guid.NewGuid():N}");
+            var fwSearchPath = Path.Combine(root, "deps");
+            var depFw = Path.Combine(fwSearchPath, "Metal.framework");
+            Directory.CreateDirectory(depFw);
+            File.WriteAllBytes(Path.Combine(depFw, "Metal"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+            try
+            {
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance,
+                    additionalFrameworkSearchPaths: new[] { fwSearchPath },
+                    linkFrameworks: new[] { "Metal" });
+
+                var (_, args) = runner.Invocations[0];
+                var needle = "-Xlinker -framework -Xlinker Metal";
+                var occurrences = (args.Length - args.Replace(needle, "").Length) / needle.Length;
+                Assert.Equal(1, occurrences);
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_NoLinkDependencies_NoExtraFlags()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                linkFrameworks: null, linkLibraries: null);
+
+            var (_, args) = runner.Invocations[0];
+            Assert.DoesNotContain("-Xlinker -framework -Xlinker CoreVideo", args);
+            Assert.DoesNotContain("-lc++", args);
+        }
+    }
+
+    #endregion
+
+    #region E2. System-Link Dependency Hint Tests
+
+    public class SwiftWrapperSystemLinkHintTests
+    {
+        private const string UndefinedHeader = "Undefined symbols for architecture arm64:\n";
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_CoreVideoSymbol_NamesCoreVideo()
+        {
+            var stderr = UndefinedHeader +
+                "  \"_CVPixelBufferGetWidth\", referenced from:\n" +
+                "      _foo in libBar.a(baz.o)\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.Contains("--link-framework CoreVideo", hint);
+            Assert.Contains("<SwiftLinkFramework Include=\"CoreVideo\" />", hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_MetalSymbol_NamesMetal()
+        {
+            var stderr = UndefinedHeader +
+                "  \"_MTLCreateSystemDefaultDevice\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.Contains("--link-framework Metal", hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_LibcxxSymbol_NamesCxxLibrary()
+        {
+            var stderr = UndefinedHeader +
+                "  \"__ZNSt3__112basic_stringIcNS_11char_traitsIcEEEC1Ev\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.Contains("--link-library c++", hint);
+            Assert.Contains("<SwiftLinkLibrary Include=\"c++\" />", hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_NotALinkFailure_ReturnsEmpty()
+        {
+            // A missing-module compile error is not an undefined-symbol link failure — the
+            // hint must stay silent rather than claim a misleading system-link cause.
+            var stderr = "/tmp/Foo.swift:1:8: error: no such module 'Bar'\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.Equal(string.Empty, hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_UnrecognizedSymbol_ReturnsEmpty()
+        {
+            // Undefined symbols, but none map to a known system framework/library — don't guess.
+            var stderr = UndefinedHeader +
+                "  \"_SomeRandomUserSymbol\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.Equal(string.Empty, hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_AlreadyDeclaredFramework_Suppressed()
+        {
+            // CoreVideo already declared by the author -> the only undefined symbol maps to an
+            // already-declared framework, so there's nothing actionable left to suggest.
+            var stderr = UndefinedHeader +
+                "  \"_CVPixelBufferGetWidth\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                stderr, alreadyDeclaredFrameworks: new[] { "CoreVideo" });
+            Assert.Equal(string.Empty, hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_AlreadyDeclaredLibrary_Suppressed()
+        {
+            // Author already passed -lc++ (in either "c++" or "-lc++" spelling): suppress.
+            var stderr = UndefinedHeader +
+                "  \"__ZNSt3__19to_stringEi\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                stderr, alreadyDeclaredLibraries: new[] { "-lc++" });
+            Assert.Equal(string.Empty, hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_QuoteAnchored_NoMidTextMatch()
+        {
+            // The "_gl needle is quote-anchored: a user symbol that merely contains "gl" in the
+            // middle (no leading quote+_gl) must NOT be misattributed to OpenGLES.
+            var stderr = UndefinedHeader +
+                "  \"_myConfigleSetting\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.DoesNotContain("OpenGLES", hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_StderrGlStem_RequiresCamelCaseForOpenGLES()
+        {
+            // The linker prints undefined symbols quoted as `"_name", referenced from:`. A quoted
+            // `"_global_ctors"` / `"_glue_init"` begins with quote+`_gl` but is NOT an OpenGL ES
+            // entry point, so the stderr path (not just the archive scan) must not misattribute it
+            // to OpenGLES; a real `"_glBindTexture"` still must be named.
+            var nonGl = UndefinedHeader +
+                "  \"_global_ctors\", referenced from:\n" +
+                "  \"_glue_init\", referenced from:\n";
+            Assert.DoesNotContain("OpenGLES", SwiftWrapperCompiler.BuildSystemLinkDependencyHint(nonGl));
+
+            var realGl = UndefinedHeader + "  \"_glBindTexture\", referenced from:\n";
+            Assert.Contains(
+                "--link-framework OpenGLES", SwiftWrapperCompiler.BuildSystemLinkDependencyHint(realGl));
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_MediaPipeShapedStderr_NamesAllRequiredDeps()
+        {
+            // Regression guard for issue #41 (MediaPipeTasksGenAI): the thin Swift wrapper force-loads
+            // a C/C++ engine archive that carries no autolink hints and references Accelerate,
+            // CoreVideo, Metal, OpenGLES, and libc++. The linker prints these as a single quoted
+            // undefined-symbol wall; the Source-1 stderr path (post-extract/match unification) must
+            // name every one of them. Symbols mirror the shapes the real engine archive exposes.
+            var stderr = UndefinedHeader +
+                "  \"_CVPixelBufferGetWidth\", referenced from:\n" +
+                "  \"_CVPixelBufferLockBaseAddress\", referenced from:\n" +
+                "  \"_MTLCreateSystemDefaultDevice\", referenced from:\n" +
+                "  \"_OBJC_CLASS_$_MTLCompileOptions\", referenced from:\n" +
+                "  \"_glBindTexture\", referenced from:\n" +
+                "  \"_OBJC_CLASS_$_EAGLContext\", referenced from:\n" +
+                "  \"_vImageConvert_ARGB8888toPlanar8\", referenced from:\n" +
+                "  \"_vDSP_vsmul\", referenced from:\n" +
+                "  \"_cblas_sgemm\", referenced from:\n" +
+                "  \"_BNNSFilterApply\", referenced from:\n" +
+                "  \"__ZNSt3__112basic_stringIcNS_11char_traitsIcEEEC1Ev\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.Contains("--link-framework Accelerate", hint);
+            Assert.Contains("--link-framework CoreVideo", hint);
+            Assert.Contains("--link-framework Metal", hint);
+            Assert.Contains("--link-framework OpenGLES", hint);
+            Assert.Contains("--link-library c++", hint);
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_LowercaseUndefinedHeader_StillNamesFramework()
+        {
+            // The entry gate matches "undefined symbol" case-insensitively, so a link failure whose
+            // header casing/wording drifts (lowercased here) still triggers the hint when the
+            // linker's quoted symbols are present. The case-sensitive gate would have returned empty.
+            var stderr = "undefined symbols for architecture arm64:\n" +
+                "  \"_CVPixelBufferGetWidth\", referenced from:\n";
+            var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr);
+            Assert.Contains("--link-framework CoreVideo", hint);
+        }
+
+        // --- Source 2: scanning the force-loaded archive's own `nm -u` symbols completes the
+        //     framework set even when the linker printed only part of its undefined-symbol list. ---
+
+        // Creates a real (stub) archive file on disk (ScanUndefinedSymbols skips paths that don't
+        // exist) wired to a MockCommandRunner that returns the given `nm -u` output, runs the body,
+        // and cleans up.
+        private static void WithTempArchive(string nmUOutput, Action<string, MockCommandRunner> body)
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "nmscan_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "libEngine.a");
+            File.WriteAllText(path, "stub");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("nm -u", 0, nmUOutput);
+            try { body(path, runner); }
+            finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_ArchiveScan_CompletesFrameworkLinkerOmitted()
+        {
+            // The linker printed only a CoreVideo undefined symbol, but the force-loaded archive's
+            // own nm -u also references an Accelerate symbol. Scanning the archive completes the set
+            // so BOTH frameworks are named in one pass — no multi-round whack-a-mole.
+            var stderr = UndefinedHeader + "  \"_CVPixelBufferGetWidth\", referenced from:\n";
+            var nmU = "libEngine.a:\n_CVPixelBufferGetWidth\n_vImageConvert_AnyToAny\n";
+            WithTempArchive(nmU, (archivePath, runner) =>
+            {
+                var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                    stderr, forceLoadedArchives: new[] { archivePath },
+                    commandRunner: runner, logger: NullLogger.Instance);
+                Assert.Contains("--link-framework CoreVideo", hint);
+                Assert.Contains("--link-framework Accelerate", hint); // only discoverable via the scan
+            });
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_ArchiveScan_AddsLibcxxFromStdSymbols()
+        {
+            // libc++ surfaced from the archive's std:: (__ZNSt) symbols even though the linker's
+            // printed list didn't include any C++ symbol.
+            var stderr = UndefinedHeader + "  \"_MTLCreateSystemDefaultDevice\", referenced from:\n";
+            var nmU = "_MTLCreateSystemDefaultDevice\n__ZNSt3__112basic_stringIcNS_11char_traitsIcEEEC1Ev\n";
+            WithTempArchive(nmU, (archivePath, runner) =>
+            {
+                var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                    stderr, forceLoadedArchives: new[] { archivePath },
+                    commandRunner: runner, logger: NullLogger.Instance);
+                Assert.Contains("--link-library c++", hint);
+            });
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_ArchiveScan_RespectsDeclaredFramework()
+        {
+            // Accelerate already declared: even though the archive references a _vImage symbol, the
+            // scan must not re-suggest it.
+            var stderr = UndefinedHeader + "  \"_CVPixelBufferGetWidth\", referenced from:\n";
+            var nmU = "_vImageConvert_AnyToAny\n";
+            WithTempArchive(nmU, (archivePath, runner) =>
+            {
+                var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                    stderr, alreadyDeclaredFrameworks: new[] { "Accelerate" },
+                    forceLoadedArchives: new[] { archivePath },
+                    commandRunner: runner, logger: NullLogger.Instance);
+                Assert.DoesNotContain("Accelerate", hint);
+                Assert.Contains("CoreVideo", hint);
+            });
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_ArchiveScan_GateHoldsForNonLinkFailure()
+        {
+            // No "Undefined symbol" in stderr -> not a link failure. Even with an archive full of
+            // matching symbols, the hint stays empty and nm is never run.
+            var stderr = "/tmp/Foo.swift:1:8: error: no such module 'Bar'\n";
+            var nmU = "_vImageConvert_AnyToAny\n_MTLCreateSystemDefaultDevice\n";
+            WithTempArchive(nmU, (archivePath, runner) =>
+            {
+                var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                    stderr, forceLoadedArchives: new[] { archivePath },
+                    commandRunner: runner, logger: NullLogger.Instance);
+                Assert.Equal(string.Empty, hint);
+                Assert.DoesNotContain(runner.Invocations, i => i.Command == "nm");
+            });
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_ArchiveScan_GlStem_RequiresCamelCaseForOpenGLES()
+        {
+            // The archive scan sees bare symbols (no quote anchor). `_gl` is an OpenGL ES stem only
+            // when followed by CamelCase (glBindTexture). An unrelated `_glue_init` / `_global_ctors`
+            // must NOT be misattributed to OpenGLES, while a real `_glBindTexture` must be.
+            var stderr = UndefinedHeader + "  \"_CVPixelBufferGetWidth\", referenced from:\n";
+
+            var nmUNonGl = "_glue_init\n_global_ctors\n";
+            WithTempArchive(nmUNonGl, (archivePath, runner) =>
+            {
+                var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                    stderr, forceLoadedArchives: new[] { archivePath },
+                    commandRunner: runner, logger: NullLogger.Instance);
+                Assert.DoesNotContain("OpenGLES", hint);
+            });
+
+            var nmUGl = "_glBindTexture\n";
+            WithTempArchive(nmUGl, (archivePath, runner) =>
+            {
+                var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                    stderr, forceLoadedArchives: new[] { archivePath },
+                    commandRunner: runner, logger: NullLogger.Instance);
+                Assert.Contains("--link-framework OpenGLES", hint);
+            });
+        }
+
+        [Fact]
+        public void BuildSystemLinkDependencyHint_ArchiveScan_NmFailureFallsBackToStderr()
+        {
+            // nm exits non-zero on the archive (no evidence gathered): the stderr-derived result
+            // must still stand rather than the whole hint collapsing.
+            var stderr = UndefinedHeader + "  \"_CVPixelBufferGetWidth\", referenced from:\n";
+            var dir = Path.Combine(Path.GetTempPath(), "nmscan_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "libEngine.a");
+            File.WriteAllText(path, "stub");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("nm -u", 1, "", "nm: bad file");
+            try
+            {
+                var hint = SwiftWrapperCompiler.BuildSystemLinkDependencyHint(
+                    stderr, forceLoadedArchives: new[] { path },
+                    commandRunner: runner, logger: NullLogger.Instance);
+                Assert.Contains("--link-framework CoreVideo", hint);
+            }
+            finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+        }
+    }
+
+    #endregion
+
+    #region E3. Thunk-Only Clang Link Path (link-framework/library forwarding)
+
+    /// <summary>
+    /// When the generated wrapper has NO Swift source (every function was thunked), the link
+    /// goes through <c>NativeThunkCompiler.LinkWithClang</c> with <c>clang -shared</c> instead of
+    /// swiftc. The author-declared <c>--link-framework</c> / <c>--link-library</c> inputs must
+    /// reach this path too — otherwise a thunk-only binding over a force-loaded static archive
+    /// would silently drop its system-framework declarations and fail to resolve symbols at load.
+    /// clang takes the flags directly (<c>-framework X</c> / <c>-l&lt;name&gt;</c>), without the
+    /// swiftc <c>-Xlinker</c> indirection.
+    /// </summary>
+    public class ThunkOnlyClangLinkPathTests
+    {
+        private static readonly IReadOnlyList<string> OneObject = new[] { "/tmp/thunk.arm64.o" };
+
+        [Fact]
+        public void LinkWithClang_LinkFramework_EmitsFrameworkFlag()
+        {
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: null,
+                linkFrameworks: new[] { "CoreVideo", "Metal" });
+
+            var (cmd, args) = runner.Invocations[0];
+            Assert.Equal("xcrun", cmd);
+            Assert.Contains("clang -shared", args);
+            Assert.Contains("-framework CoreVideo", args);
+            Assert.Contains("-framework Metal", args);
+        }
+
+        [Fact]
+        public void LinkWithClang_LinkLibrary_EmitsLowerLFlag()
+        {
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: null,
+                linkLibraries: new[] { "c++" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-lc++", args);
+        }
+
+        [Fact]
+        public void LinkWithClang_LinkLibrary_NormalizesDashLPrefix()
+        {
+            // "c++" or "-lc++" both normalize to a single -lc++ (never -l-lc++), matching the
+            // swiftc path's normalization.
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: null,
+                linkLibraries: new[] { "-lc++" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-lc++", args);
+            Assert.DoesNotContain("-l-lc++", args);
+        }
+
+        [Fact]
+        public void LinkWithClang_LinkFramework_DedupesDuplicateEntries()
+        {
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: null,
+                linkFrameworks: new[] { "Metal", "Metal" });
+
+            var (_, args) = runner.Invocations[0];
+            var needle = "-framework Metal";
+            var occurrences = (args.Length - args.Replace(needle, "").Length) / needle.Length;
+            Assert.Equal(1, occurrences);
+        }
+
+        [Fact]
+        public void LinkWithClang_EmptyAndWhitespaceEntriesSkipped()
+        {
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: null,
+                linkFrameworks: new[] { "CoreVideo", "", "  " });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-framework CoreVideo", args);
+            // No bare "-framework " with an empty name slipped through.
+            Assert.DoesNotContain("-framework  ", args);
+        }
+
+        [Fact]
+        public void LinkWithClang_NoLinkDependencies_NoFrameworkOrLibraryFlags()
+        {
+            // The null/default case (the overwhelming majority of thunk-only wrappers) must be
+            // byte-identical to before: with no declared frameworks/libraries and no original
+            // module, no -framework or -l<name> flag is injected, but the link still happens.
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: null);
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("clang -shared", args);
+            Assert.Contains("/tmp/thunk.arm64.o", args);
+            Assert.DoesNotContain("-framework ", args);
+            Assert.DoesNotContain("-lc++", args);
+        }
+
+        [Fact]
+        public void LinkWithClang_PrimaryModule_NotDuplicatedByDeclaredFramework()
+        {
+            // Parity with the swiftc path: the primary `-framework {originalModuleName}` shares the
+            // same dedup set as author-declared --link-framework, so a declared framework matching
+            // the module name is emitted exactly once (swiftc seeds seenLinkedFrameworks with
+            // originalModuleName before its explicit loop).
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: "OrigMod",
+                linkFrameworks: new[] { "OrigMod", "CoreVideo" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-framework CoreVideo", args);
+            Assert.Equal(1, CountOccurrences(args, "-framework OrigMod"));
+        }
+
+        [Fact]
+        public void LinkWithClang_TransitiveFrameworks_EmitFrameworkFlags()
+        {
+            // Sibling framework-dependency names (pre-scanned by the caller) become -framework
+            // flags on the clang path, just as the swiftc path emits transitiveFrameworkLinkerFlags.
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: null,
+                transitiveFrameworks: new[] { "DepKit" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-framework DepKit", args);
+        }
+
+        [Fact]
+        public void LinkWithClang_TransitiveFramework_DedupesAcrossPrimaryAndDeclared()
+        {
+            // A transitive name that also matches the primary module or an author-declared
+            // framework is emitted once across all three sources (one shared dedup set).
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                originalModuleName: "OrigMod",
+                linkFrameworks: new[] { "DepKit", "CoreVideo" },
+                transitiveFrameworks: new[] { "DepKit", "OrigMod" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Equal(1, CountOccurrences(args, "-framework OrigMod"));
+            Assert.Equal(1, CountOccurrences(args, "-framework DepKit"));
+            Assert.Equal(1, CountOccurrences(args, "-framework CoreVideo"));
+        }
+
+        [Fact]
+        public void LinkWithClang_TransitiveFrameworkSearchPaths_EmitMatchingDashFForEachDir()
+        {
+            // The companions named by transitiveFrameworks live in the dependency search-path dirs,
+            // not the primary source slice. The clang path must emit a `-F {dir}` for each so the
+            // linker can locate the `-framework {name}` it also emits — without it ld fails
+            // "framework not found". This is the -F parity fix mirroring the swiftc path.
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                frameworkSearchPath: "/primary/slice",
+                originalModuleName: null,
+                transitiveFrameworks: new[] { "DepKit" },
+                transitiveFrameworkSearchPaths: new[] { "/deps/one", "/deps/two" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-F \"/primary/slice\"", args);
+            Assert.Contains("-F \"/deps/one\"", args);
+            Assert.Contains("-F \"/deps/two\"", args);
+            Assert.Contains("-framework DepKit", args);
+        }
+
+        [Fact]
+        public void LinkWithClang_TransitiveFrameworkSearchPaths_DedupAgainstPrimaryAndEachOther()
+        {
+            // A dep search-path dir equal to the primary frameworkSearchPath, or repeated, is
+            // emitted as `-F` exactly once (one shared seenSearchPaths set) — no redundant flags.
+            var runner = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                frameworkSearchPath: "/shared/dir",
+                originalModuleName: null,
+                transitiveFrameworkSearchPaths: new[] { "/shared/dir", "/deps/one", "/deps/one", "", "  " });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Equal(1, CountOccurrences(args, "-F \"/shared/dir\""));
+            Assert.Equal(1, CountOccurrences(args, "-F \"/deps/one\""));
+        }
+
+        [Fact]
+        public void LinkWithClang_LinkFailure_WithHintDelegate_SurfacesActionableGuidance()
+        {
+            // When the clang link fails on an undeclared system-framework symbol, the failure
+            // message carries the same actionable --link-framework / <SwiftLinkFramework> guidance
+            // the swiftc path emits — not an opaque "Thunk linking failed" wall.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("clang -shared", 1, "",
+                "Undefined symbols for architecture arm64:\n" +
+                "  \"_CVPixelBufferGetWidth\", referenced from:\n");
+
+            var ex = Assert.Throws<System.InvalidOperationException>(() =>
+                NativeThunkCompiler.LinkWithClang(
+                    OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                    originalModuleName: null,
+                    buildLinkFailureHint: stderr =>
+                        SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr, null, null)));
+
+            Assert.Contains("Thunk linking failed", ex.Message);
+            Assert.Contains("--link-framework CoreVideo", ex.Message);
+        }
+
+        [Fact]
+        public void LinkWithClang_LinkFailure_NoHintDelegate_PlainMessage()
+        {
+            // Without a hint provider the failure is reported plainly — no guidance fabricated.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("clang -shared", 1, "",
+                "Undefined symbols for architecture arm64:\n" +
+                "  \"_CVPixelBufferGetWidth\", referenced from:\n");
+
+            var ex = Assert.Throws<System.InvalidOperationException>(() =>
+                NativeThunkCompiler.LinkWithClang(
+                    OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                    originalModuleName: null));
+
+            Assert.Contains("Thunk linking failed", ex.Message);
+            Assert.DoesNotContain("--link-framework", ex.Message);
+        }
+
+        [Fact]
+        public void LinkWithClang_LinkFailure_HintComputedOnFullStderr_NotTruncatedPreview()
+        {
+            // The hint is computed on the FULL stderr before the 2000-char preview truncation, so a
+            // symbol past the preview boundary still produces guidance.
+            var runner = new MockCommandRunner();
+            var padding = new string('x', 2500);
+            runner.SetResponse("clang -shared", 1, "",
+                "Undefined symbols for architecture arm64:\n" + padding + "\n" +
+                "  \"_MTLCreateSystemDefaultDevice\", referenced from:\n");
+
+            var ex = Assert.Throws<System.InvalidOperationException>(() =>
+                NativeThunkCompiler.LinkWithClang(
+                    OneObject, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", runner, NullLogger.Instance,
+                    originalModuleName: null,
+                    buildLinkFailureHint: stderr =>
+                        SwiftWrapperCompiler.BuildSystemLinkDependencyHint(stderr, null, null)));
+
+            Assert.Contains("--link-framework Metal", ex.Message);
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+            => (haystack.Length - haystack.Replace(needle, "").Length) / needle.Length;
+    }
+
+    /// <summary>
+    /// <see cref="SwiftWrapperCompiler.CollectTransitiveFrameworkNames"/> is the single probe both
+    /// the swiftc and clang thunk-only link paths use to discover sibling framework-dependency
+    /// names from the effective search paths: only directories holding a real linker-consumable
+    /// binary count, and names are de-duplicated against an already-seen set.
+    /// </summary>
+    public class CollectTransitiveFrameworkNamesTests
+    {
+        // ar(1) static-archive magic "!<arch>\n" — a linker-consumable binary per IsLinkableFrameworkBinary.
+        private static readonly byte[] ArMagic =
+            { 0x21, 0x3C, 0x61, 0x72, 0x63, 0x68, 0x3E, 0x0A };
+
+        private static void MakeFrameworkDir(string root, string name, byte[]? binary)
+        {
+            var fwDir = System.IO.Path.Combine(root, $"{name}.framework");
+            System.IO.Directory.CreateDirectory(fwDir);
+            if (binary != null)
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(fwDir, name), binary);
+        }
+
+        [Fact]
+        public void IncludesFrameworkWithLinkableBinary_ExcludesBinaryless()
+        {
+            var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ctfn_{System.Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(root);
+            try
+            {
+                MakeFrameworkDir(root, "DepKit", ArMagic);                                       // linkable
+                MakeFrameworkDir(root, "HeaderOnly", null);                                      // no binary
+                MakeFrameworkDir(root, "TextStub", System.Text.Encoding.ASCII.GetBytes("nope")); // not a binary
+
+                var names = SwiftWrapperCompiler.CollectTransitiveFrameworkNames(new[] { root });
+
+                Assert.Contains("DepKit", names);
+                Assert.DoesNotContain("HeaderOnly", names);
+                Assert.DoesNotContain("TextStub", names);
+            }
+            finally
+            {
+                System.IO.Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void DedupesAgainstAlreadySeen()
+        {
+            var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ctfn_{System.Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(root);
+            try
+            {
+                MakeFrameworkDir(root, "DepKit", ArMagic);
+                MakeFrameworkDir(root, "OrigMod", ArMagic);
+
+                var names = SwiftWrapperCompiler.CollectTransitiveFrameworkNames(
+                    new[] { root }, alreadySeen: new[] { "OrigMod" });
+
+                Assert.Contains("DepKit", names);
+                Assert.DoesNotContain("OrigMod", names);
+            }
+            finally
+            {
+                System.IO.Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void NullOrMissingSearchPaths_ReturnEmpty()
+        {
+            Assert.Empty(SwiftWrapperCompiler.CollectTransitiveFrameworkNames(null));
+            Assert.Empty(SwiftWrapperCompiler.CollectTransitiveFrameworkNames(
+                new[] { "/no/such/path/ctfn-missing-xyz" }));
         }
     }
 

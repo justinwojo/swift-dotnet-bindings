@@ -716,6 +716,80 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SwiftFrameworkDependency", message);
             Assert.Contains("PackageReference", message);
         }
+
+        [Fact]
+        public void HandleOutcome_Fatal_SystemLinkGuidance_SuppressesContradictoryCauses()
+        {
+            // The wrapper-link failure already carried precise --link-framework guidance. The
+            // generic "missing dependency framework (use --framework-dependency)" causes would
+            // contradict it (the author may already have supplied the dependency), so they're
+            // suppressed and the precise guidance stands alone.
+            var ex = new InvalidOperationException(
+                "Swift wrapper compilation failed (exit code 1): Undefined symbols ...\n\n" +
+                "... so they must be declared explicitly:\n" +
+                "  CLI:  add --link-framework Accelerate --link-framework CoreVideo --link-library c++\n" +
+                "  SDK:  add to the binding's <ItemGroup>:\n" +
+                "          <SwiftLinkFramework Include=\"Accelerate\" />");
+
+            var (exitCode, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("--link-framework Accelerate", message);
+            Assert.DoesNotContain("missing dependency framework", message);
+        }
+
+        [Fact]
+        public void HandleOutcome_Fatal_LibraryOnlyGuidance_SuppressesContradictoryCauses()
+        {
+            // A static archive can need only libc++ (no system framework): the hint is then
+            // --link-library-only. That still counts as precise guidance, so the generic causes
+            // must be suppressed even with no --link-framework present.
+            var ex = new InvalidOperationException(
+                "Swift wrapper compilation failed (exit code 1): Undefined symbols ...\n" +
+                "  CLI:  add --link-library c++\n" +
+                "          <SwiftLinkLibrary Include=\"c++\" />");
+
+            var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+
+            Assert.Contains("--link-library c++", message);
+            Assert.DoesNotContain("missing dependency framework", message);
+        }
+
+        [Fact]
+        public void HandleOutcome_Fatal_NoLinkGuidance_KeepsGenericCauses()
+        {
+            // No precise link guidance in the failure → the generic actionable causes remain,
+            // so unrelated wrapper-compile failures still get their existing hint.
+            var ex = new InvalidOperationException(
+                "Swift wrapper compilation failed (exit code 1): error: some internal failure");
+
+            var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+
+            Assert.Contains("missing dependency framework", message);
+        }
+
+        [Fact]
+        public void HandleOutcome_Fatal_SdkMode_SystemLinkGuidance_SuppressesContradictoryCauses()
+        {
+            // Same suppression on the SDK-mode downgrade path — but the SWIFTBIND050 code and the
+            // DllNotFoundException runtime note are preserved.
+            var ex = new InvalidOperationException(
+                "Swift wrapper compilation failed (exit code 1): Undefined symbols ...\n" +
+                "  CLI:  add --link-framework Metal\n" +
+                "          <SwiftLinkFramework Include=\"Metal\" />");
+
+            var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal("SWIFTBIND050", diagnosticCode);
+            Assert.Contains("--link-framework Metal", message);
+            Assert.Contains("DllNotFoundException", message);
+            Assert.DoesNotContain("missing dependency framework", message);
+        }
     }
 
     /// <summary>

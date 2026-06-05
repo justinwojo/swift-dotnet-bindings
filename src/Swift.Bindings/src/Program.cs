@@ -810,7 +810,8 @@ namespace BindingsGeneration
             XCFrameworkResolution resolution,
             string xcframeworkPath, string outputDirectory,
             XCFrameworkPlatformTarget platformTarget, string wrapperArchNormalized,
-            PlatformInfo platformInfo, ILogger logger)
+            PlatformInfo platformInfo, ILogger logger,
+            IReadOnlyList<string>? companionFrameworkPaths = null)
         {
             if (platformTarget == XCFrameworkPlatformTarget.Device && wrapperArchNormalized != "device")
             {
@@ -818,7 +819,8 @@ namespace BindingsGeneration
                 {
                     var sim = XCFrameworkResolver.Resolve(
                         xcframeworkPath, outputDirectory,
-                        XCFrameworkPlatformTarget.Simulator, logger, platformInfo: platformInfo);
+                        XCFrameworkPlatformTarget.Simulator, logger, platformInfo: platformInfo,
+                        companionFrameworkPaths: companionFrameworkPaths);
                     return (sim.SupportedArchitectures, sim.LibraryIdentifier);
                 }
                 catch
@@ -956,7 +958,9 @@ namespace BindingsGeneration
             string? wrapperArchitectures, string[]? frameworkDependencies,
             ILogger logger, PlatformInfo platformInfo,
             bool skipThunkCompilation = false,
-            string? targetArchitectures = null)
+            string? targetArchitectures = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -1008,7 +1012,8 @@ namespace BindingsGeneration
             try
             {
                 resolution = XCFrameworkResolver.Resolve(
-                    xcframeworkPath, outputDirectory, platformTarget, logger, platformInfo: platformInfo);
+                    xcframeworkPath, outputDirectory, platformTarget, logger, platformInfo: platformInfo,
+                    companionFrameworkPaths: frameworkDependencies);
             }
             catch (Exception ex)
             {
@@ -1024,7 +1029,7 @@ namespace BindingsGeneration
             // fat sim slice is still detected for both the auto fold and explicit-arch validation.
             var (autoBasisArchs, autoBasisSliceId) = ResolveAutoArchBasis(
                 resolution, xcframeworkPath, outputDirectory, platformTarget, wrapperArchNormalized,
-                platformInfo, logger);
+                platformInfo, logger, companionFrameworkPaths: frameworkDependencies);
             if (!TryDecideWrapperArchitectures(
                     autoMatchSource, requestedArchs, autoBasisArchs,
                     autoBasisSliceId, logger, out var primaryArch, out var extraArchs))
@@ -1051,6 +1056,15 @@ namespace BindingsGeneration
                 .Where(d => d.DeviceFrameworkSearchPath != null)
                 .Select(d => d.DeviceFrameworkSearchPath!)
                 .ToList();
+
+            // Gap (a): mirror ABI extraction's co-located sibling auto-detection on the wrapper
+            // compile, so a companion xcframework dropped next to the source resolves its module
+            // for swiftc just as it already does for ABI generation. Explicit --framework-dependency
+            // paths keep priority; siblings are merged in.
+            simDepPaths = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                simDepPaths, xcframeworkPath, XCFrameworkPlatformTarget.Simulator, logger, platformInfo);
+            deviceDepPaths = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                deviceDepPaths, xcframeworkPath, XCFrameworkPlatformTarget.Device, logger, platformInfo);
 
             // Load wrapper compilation context saved by the generation pass
             var (internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass, depModuleCollisions) =
@@ -1108,7 +1122,8 @@ namespace BindingsGeneration
                 {
                     var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
                         xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo,
-                        requestedArchitecture: requestedArch);
+                        requestedArchitecture: requestedArch,
+                        companionFrameworkPaths: frameworkDependencies);
 
                     return SwiftWrapperCompiler.CompileAll(
                         outputDirectory, moduleName,
@@ -1122,14 +1137,17 @@ namespace BindingsGeneration
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: simResolution.SwiftInterfacePath,
                         depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
-                        depModuleNamesForCollisionDevice: depModuleCollisions.Device);
+                        depModuleNamesForCollisionDevice: depModuleCollisions.Device,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
                     var deviceResolution = XCFrameworkResolver.Resolve(
                         xcframeworkPath, outputDirectory,
                         XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo,
-                        requestedArchitecture: requestedArch);
+                        requestedArchitecture: requestedArch,
+                        companionFrameworkPaths: frameworkDependencies);
 
                     return SwiftWrapperCompiler.CompileSlice(
                         outputDirectory, moduleName,
@@ -1144,14 +1162,17 @@ namespace BindingsGeneration
                         swiftInterfacePath: deviceResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
                         resolvedArchitecture: deviceResolution.SelectedArchitecture,
-                        depModuleNamesForCollision: depModuleCollisions.Device);
+                        depModuleNamesForCollision: depModuleCollisions.Device,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries);
                 }
                 else
                 {
                     var simResolution = XCFrameworkResolver.Resolve(
                         xcframeworkPath, outputDirectory,
                         platformTarget, logger, platformInfo: platformInfo,
-                        requestedArchitecture: requestedArch);
+                        requestedArchitecture: requestedArch,
+                        companionFrameworkPaths: frameworkDependencies);
 
                     return SwiftWrapperCompiler.Compile(
                         outputDirectory, moduleName,
@@ -1164,7 +1185,9 @@ namespace BindingsGeneration
                         swiftInterfacePath: simResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
                         resolvedArchitecture: simResolution.SelectedArchitecture,
-                        depModuleNamesForCollision: depModuleCollisions.Simulator);
+                        depModuleNamesForCollision: depModuleCollisions.Simulator,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries);
                 }
             }
 
@@ -1255,7 +1278,8 @@ namespace BindingsGeneration
             try
             {
                 resolution = XCFrameworkResolver.Resolve(
-                    xcframeworkPath, outputDirectory, platformTarget, logger, platformInfo: platformInfo);
+                    xcframeworkPath, outputDirectory, platformTarget, logger, platformInfo: platformInfo,
+                    companionFrameworkPaths: frameworkDependencies);
             }
             catch (Exception ex)
             {
@@ -1347,7 +1371,8 @@ namespace BindingsGeneration
                 if (wrapperArchNormalized == "all")
                 {
                     var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
-                        xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo);
+                        xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo,
+                        companionFrameworkPaths: frameworkDependencies);
 
                     compilationResult = SwiftWrapperCompiler.CompileBridgeAll(
                         outputDirectory, moduleName,
@@ -1363,7 +1388,8 @@ namespace BindingsGeneration
                     {
                         deviceResolution = XCFrameworkResolver.Resolve(
                             xcframeworkPath, outputDirectory,
-                            XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
+                            XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo,
+                            companionFrameworkPaths: frameworkDependencies);
                     }
                     catch (Exception ex)
                     {
@@ -1741,7 +1767,8 @@ namespace BindingsGeneration
                 {
                     var primaryDepResolution = XCFrameworkResolver.Resolve(
                         depPath, Path.GetTempPath(),
-                        primaryPlatformTarget, logger, commandRunner, platformInfo: platformInfo);
+                        primaryPlatformTarget, logger, commandRunner, platformInfo: platformInfo,
+                        companionFrameworkPaths: dependencyPaths);
                     moduleName = primaryDepResolution.ModuleName;
                     depDylibPath = primaryDepResolution.DylibPath;
                     depAbiJsonPath = primaryDepResolution.AbiJsonPath;
@@ -1919,7 +1946,8 @@ namespace BindingsGeneration
                     {
                         var oppositeResolution = XCFrameworkResolver.Resolve(
                             depPath, Path.GetTempPath(),
-                            oppositeTarget, logger, commandRunner, platformInfo: platformInfo);
+                            oppositeTarget, logger, commandRunner, platformInfo: platformInfo,
+                            companionFrameworkPaths: dependencyPaths);
 
                         if (oppositeResolution.IsSimulatorSlice)
                             simSearchPath = oppositeResolution.FrameworkSearchPath;
@@ -1941,7 +1969,8 @@ namespace BindingsGeneration
                     {
                         var deviceResolution = XCFrameworkResolver.Resolve(
                             depPath, Path.GetTempPath(),
-                            XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo: platformInfo);
+                            XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo: platformInfo,
+                            companionFrameworkPaths: dependencyPaths);
                         deviceSearchPath = deviceResolution.FrameworkSearchPath;
                     }
                     catch (Exception ex)
@@ -1959,7 +1988,8 @@ namespace BindingsGeneration
                     {
                         var simResolution = XCFrameworkResolver.Resolve(
                             depPath, Path.GetTempPath(),
-                            XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo: platformInfo);
+                            XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo: platformInfo,
+                            companionFrameworkPaths: dependencyPaths);
                         simSearchPath = simResolution.FrameworkSearchPath;
                     }
                     catch (Exception ex)
@@ -2023,11 +2053,19 @@ namespace BindingsGeneration
 
             if (effective == WrapperCompilationOutcome.Fatal)
             {
+                // When the wrapper-link failure already carried precise system-framework/library
+                // link guidance (--link-framework / <SwiftLinkFramework>, or the library-only
+                // --link-library / <SwiftLinkLibrary> form), the generic "missing dependency
+                // framework" causes would contradict it — the author may already have supplied the
+                // --framework-dependency — so let the precise guidance stand alone instead of
+                // appending a misleading cause.
                 var message = compilationException != null
-                    ? $"Swift wrapper compilation failed: {compilationException.Message}. " +
-                      "Generated C# references the wrapper library but no compiled wrapper exists. " +
-                      "Common causes: missing dependency framework (use --framework-dependency or <SwiftFrameworkDependency>), " +
-                      "or internal types in the library's API. See Troubleshooting docs for details."
+                    ? (HasSystemLinkGuidance(compilationException.Message)
+                        ? $"Swift wrapper compilation failed: {compilationException.Message}"
+                        : $"Swift wrapper compilation failed: {compilationException.Message}. " +
+                          "Generated C# references the wrapper library but no compiled wrapper exists. " +
+                          "Common causes: missing dependency framework (use --framework-dependency or <SwiftFrameworkDependency>), " +
+                          "or internal types in the library's API. See Troubleshooting docs for details.")
                     : $"All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
                       "Generated C# references the wrapper library but no compiled wrapper exists. " +
                       "Use --async-library explicitly or report this as a generator bug.";
@@ -2040,10 +2078,16 @@ namespace BindingsGeneration
                 const string actionableHint =
                     " Common causes: missing dependency framework (use --framework-dependency or <SwiftFrameworkDependency>), " +
                     "or internal types in the library's API. See Troubleshooting docs for details.";
+                // Suppress the generic causes when precise --link-framework/--link-library guidance
+                // is already present, so it isn't undercut by a contradictory "missing dependency"
+                // message.
+                var exceptionHint = HasSystemLinkGuidance(compilationException?.Message)
+                    ? string.Empty
+                    : actionableHint;
                 var message = compilationException != null
                     ? $"SWIFTBIND050: Swift wrapper compilation failed: {compilationException.Message}. " +
                       "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime." +
-                      actionableHint
+                      exceptionHint
                     : $"SWIFTBIND050: All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
                       "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime." +
                       actionableHint;
@@ -2060,6 +2104,19 @@ namespace BindingsGeneration
 
             return (0, null, "");
         }
+
+        /// <summary>
+        /// True when a wrapper-compilation failure message already carries the precise
+        /// system-framework/library link remediation (<c>--link-framework</c> /
+        /// <c>&lt;SwiftLinkFramework&gt;</c>, or the library-only <c>--link-library</c> /
+        /// <c>&lt;SwiftLinkLibrary&gt;</c> form — a static archive can need only libc++), so callers
+        /// suppress the generic "missing dependency framework" causes that would otherwise
+        /// contradict it.
+        /// </summary>
+        private static bool HasSystemLinkGuidance(string? message) =>
+            message != null &&
+            (message.Contains("--link-framework", StringComparison.Ordinal) ||
+             message.Contains("--link-library", StringComparison.Ordinal));
 
         /// <summary>
         /// Formats a SWIFTBIND060 dependency warning message with actionable guidance.

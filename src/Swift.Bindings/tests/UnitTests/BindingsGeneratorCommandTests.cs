@@ -210,6 +210,108 @@ public class PlatformVersionCliOptionTests
 
 #endregion
 
+#region --link-framework / --link-library CLI options
+
+/// <summary>
+/// A force-loaded static-archive source can depend on Apple system frameworks/libraries
+/// that carry no autolink hints and aren't discoverable from the binary. The
+/// <c>--link-framework</c> / <c>--link-library</c> flags let the author declare them so
+/// the wrapper link resolves. They must (a) parse repeatably off the CLI, (b) default to
+/// null/empty when absent so existing callers are unaffected, and (c) be registered on the
+/// root command so System.CommandLine actually binds them.
+/// </summary>
+public class LinkDependencyCliOptionTests
+{
+    [Fact]
+    public void LinkFramework_Parses_Repeatably()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(new[]
+        {
+            "--link-framework", "CoreVideo",
+            "--link-framework", "Metal",
+        });
+        var value = parsed.GetValueForOption(opts.LinkFramework);
+        Assert.NotNull(value);
+        Assert.Equal(new[] { "CoreVideo", "Metal" }, value);
+    }
+
+    [Fact]
+    public void LinkLibrary_Parses_Repeatably()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(new[]
+        {
+            "--link-library", "c++",
+            "--link-library", "z",
+        });
+        var value = parsed.GetValueForOption(opts.LinkLibrary);
+        Assert.NotNull(value);
+        Assert.Equal(new[] { "c++", "z" }, value);
+    }
+
+    [Fact]
+    public void LinkFramework_DefaultsToNull_WhenNotSupplied()
+    {
+        // Null/empty default keeps the wrapper link byte-identical for the overwhelming
+        // majority of bindings that declare no extra system dependencies.
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(Array.Empty<string>());
+        var fw = parsed.GetValueForOption(opts.LinkFramework);
+        var lib = parsed.GetValueForOption(opts.LinkLibrary);
+        Assert.True(fw is null || fw.Length == 0);
+        Assert.True(lib is null || lib.Length == 0);
+    }
+
+    [Fact]
+    public void LinkFramework_And_LinkLibrary_AreRegisteredOnRootCommand()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        Assert.Contains(opts.LinkFramework, root.Options);
+        Assert.Contains(opts.LinkLibrary, root.Options);
+    }
+
+    // The flags only affect the wrapper link of a force-loaded static-archive source — an
+    // --xcframework-mode concept. Supplying them in -a/-d/-t direct mode must fail closed
+    // (the CLI descriptions say "Requires --xcframework") rather than silently dropping the
+    // author's declared system dependencies. The guard predicate is the unit under test.
+
+    [Fact]
+    public void LinkFlags_WithoutXcframework_TripGuard()
+    {
+        Assert.True(BindingsGeneratorCommand.LinkDependenciesSuppliedWithoutXcframework(
+            hasXcframework: false, linkFrameworks: new[] { "Metal" }, linkLibraries: null));
+        Assert.True(BindingsGeneratorCommand.LinkDependenciesSuppliedWithoutXcframework(
+            hasXcframework: false, linkFrameworks: null, linkLibraries: new[] { "c++" }));
+    }
+
+    [Fact]
+    public void LinkFlags_WithXcframework_DoNotTripGuard()
+    {
+        // --xcframework mode is exactly where these flags are consumed (the wrapper link),
+        // so the guard must stay silent there.
+        Assert.False(BindingsGeneratorCommand.LinkDependenciesSuppliedWithoutXcframework(
+            hasXcframework: true, linkFrameworks: new[] { "Metal" }, linkLibraries: new[] { "c++" }));
+    }
+
+    [Fact]
+    public void LinkFlags_AbsentOrEmpty_DoNotTripGuard()
+    {
+        // No flags is the common case; an empty array (System.CommandLine can surface one)
+        // must not be treated as "supplied", or every direct-mode build would break.
+        Assert.False(BindingsGeneratorCommand.LinkDependenciesSuppliedWithoutXcframework(
+            hasXcframework: false, linkFrameworks: null, linkLibraries: null));
+        Assert.False(BindingsGeneratorCommand.LinkDependenciesSuppliedWithoutXcframework(
+            hasXcframework: false, linkFrameworks: Array.Empty<string>(), linkLibraries: Array.Empty<string>()));
+    }
+}
+
+#endregion
+
 #region --platform-version format validation
 
 /// <summary>

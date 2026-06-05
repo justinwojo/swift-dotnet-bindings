@@ -120,6 +120,21 @@ public class CliOptions
                      "and PackageReference entries in the emitted .csproj. Requires --xcframework.")
     { AllowMultipleArgumentsPerToken = false };
 
+    public Option<string[]> LinkFramework { get; } = new(
+        aliases: new[] { "--link-framework" },
+        description: "Apple system framework to link into the wrapper (e.g. 'CoreVideo'). Repeatable. Emits " +
+                     "'-framework <name>' on the wrapper link so a force-loaded static-archive source can " +
+                     "resolve its system-framework dependencies (which carry no autolink hints and are not " +
+                     "discoverable from the binary). Requires --xcframework.")
+    { AllowMultipleArgumentsPerToken = false };
+
+    public Option<string[]> LinkLibrary { get; } = new(
+        aliases: new[] { "--link-library" },
+        description: "System library to link into the wrapper, by linker name (e.g. 'c++' for libc++). Repeatable. " +
+                     "Emits '-l<name>' on the wrapper link. Use alongside --link-framework when a static-archive " +
+                     "source pulls in C++/library symbols. Requires --xcframework.")
+    { AllowMultipleArgumentsPerToken = false };
+
     public Option<string[]> ModuleDatabase { get; } = new(
         aliases: new[] { "--module-database" },
         description: "Path to a dependency module database XML file. Repeatable. " +
@@ -336,6 +351,8 @@ public class CliOptions
             WrapperArchitectures,
             TargetArchitectures,
             FrameworkDependency,
+            LinkFramework,
+            LinkLibrary,
             ModuleDatabase,
             NoAutoDetect,
             KeepBuiltinDatabase,

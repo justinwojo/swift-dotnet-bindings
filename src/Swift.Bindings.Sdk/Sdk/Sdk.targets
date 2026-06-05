@@ -599,7 +599,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -1479,6 +1479,12 @@ done; true"
       <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Auto-discovered dependency frameworks from ProjectReference directories -->
       <_SwiftGenCmd Condition="'@(_AutoFrameworkDependency)' != ''">$(_SwiftGenCmd) @(_AutoFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
+      <!-- Author-declared system frameworks / libraries the wrapper link needs (e.g. a
+           force-loaded static-archive source that depends on CoreVideo/Metal/libc++). Harmless
+           in the generate pass (which skips wrapper compilation); the wrapper pass
+           below is where they take effect. -->
+      <_SwiftGenCmd Condition="'@(SwiftLinkFramework)' != ''">$(_SwiftGenCmd) @(SwiftLinkFramework->' --link-framework "%(Identity)"', '')</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftGenCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Pass collected module databases for cross-module type resolution -->
       <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Force ObjC pipeline for ObjC-only framework type -->
@@ -2232,6 +2238,12 @@ done"
            Frameworks like Stripe3DS2 may not have a binding project but are still required on the -F search path
            for wrapper compilation. Duplicates with _ResolvedDepXCFramework are harmless (just extra -F flags). -->
       <_SwiftWrapperCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftWrapperCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
+      <!-- System frameworks/libraries the wrapper link must declare explicitly. A companion's static
+           archive can carry zero autolink hints (LC_LINKER_OPTION count 0), so force-load drags in
+           objects that reference system frameworks (Metal, CoreVideo, …) with no way to discover them.
+           These flags become LC_LOAD_DYLIB on the wrapper and dyld resolves them transitively at app load. -->
+      <_SwiftWrapperCmd Condition="'@(SwiftLinkFramework)' != ''">$(_SwiftWrapperCmd) @(SwiftLinkFramework->' --link-framework "%(Identity)"', '')</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftWrapperCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftWrapperCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'"
