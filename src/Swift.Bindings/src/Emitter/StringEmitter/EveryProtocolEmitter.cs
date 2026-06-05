@@ -1005,8 +1005,11 @@ public class EveryProtocolEmitter
     /// <param name="OwnerIndex">The owner's per-protocol vtable index for this method
     /// (<c>func_{name}_{OwnerIndex}</c>).</param>
     /// <param name="Siblings">Every participant in the group with its own per-protocol method
-    /// index, owner first, the rest ordered by <see cref="GetProtocolFallbackKey"/>. The owner
-    /// body emits one fan-out branch per entry.</param>
+    /// index, ordered sync-first then by <see cref="GetProtocolFallbackKey"/> — NOT owner-first
+    /// (the owner is identified by <see cref="Owner"/>, not <c>Siblings[0]</c>). The sync-first
+    /// sort makes a mixed async/sync group dispatch through the ABI-compatible sync witness; see
+    /// the fan-out-order comment in <see cref="ComputeMethodEmissionPlans"/>. The owner body emits
+    /// one fan-out branch per entry.</param>
     /// <param name="HasFilteredPeers">Mirrors <see cref="SubscriptEmissionPlan.HasFilteredPeers"/>:
     /// true when the group contained one or more protocols that ModuleHandler.IsEmittable filtered
     /// out. Forces the owner body into the nil-check fan-out shape even for single-participant
@@ -1043,6 +1046,9 @@ public class EveryProtocolEmitter
         {
             foreach (var (method, idx) in EnumerateProtocolMethodsForDispatch(p))
             {
+                // Owner/peer dedup keys off the EMITTED Swift witness (default: async omitted), so a
+                // sync method and the async one it refines share one owner + an empty-extension peer.
+                // The C# fan-out distinction lives in ComputeSiblingMethodFallbacks (includeAsyncEffect:true).
                 var key = GetSwiftMethodFullSignature(method);
                 if (!groups.TryGetValue(key, out var list))
                 {
@@ -1071,11 +1077,24 @@ public class EveryProtocolEmitter
                 .First();
             var owner = ownerEntry.Proto;
             var ownerIndex = ownerEntry.Index;
+            // Fan-out branch order: try ABI-matching siblings first. The emitted pure-Swift
+            // EveryProtocol witness always drops `async` (EmitMethodImplementation's asyncDecl is
+            // gated on _useObjCBase) — a sync witness satisfies an async requirement — so the
+            // witness's @convention(c) vtable call is sync-ABI. An async sibling's per-protocol
+            // global vtable slot, however, holds an async C# receiver thunk that marshals a Task as
+            // the result; reached through the sync pointer it returns garbage (the Kingfisher
+            // async/sync refinement shape: a sync protocol refining an async one, both declaring the
+            // same selector). Ordering sync (non-async) siblings first makes a mixed async/sync group
+            // dispatch through the ABI-compatible vtable; the async branch stays a trailing fallback
+            // so an all-async group still emits a branch (its runtime dispatch is compile-gated only).
+            // The owner still emits the body (gated on plan.Owner, not Siblings[0]); Siblings carries
+            // no owner-first contract — it is purely the nil-check fan-out order. All-sync and
+            // all-async groups keep GetProtocolFallbackKey order (stable sort), so output is
+            // byte-identical for every non-mixed group.
             var siblings = entries
-                .Where(e => e.Proto != owner)
-                .OrderBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
+                .OrderBy(e => e.Method.IsAsync ? 1 : 0)
+                .ThenBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
                 .Select(e => (e.Proto, e.Index))
-                .Prepend((owner, ownerIndex))
                 .ToList();
             var plan = new MethodEmissionPlan(owner, ownerIndex, siblings,
                 HasFilteredPeers: filteredKeys.Contains(groupKey));
@@ -1096,7 +1115,12 @@ public class EveryProtocolEmitter
     /// The map key is a structural, projection-free identifier so the receiver — which iterates
     /// the same <c>protocolDecl.Methods</c> objects but has no <see cref="EveryProtocolEmitter"/>
     /// instance to call <see cref="GetSwiftMethodFullSignature"/> — reproduces it identically.
-    /// Grouping still uses the projected full signature so membership matches the fan-out.</para>
+    /// Grouping uses the projected full signature in its C#-member-identity form
+    /// (<c>includeAsyncEffect: true</c>): unlike the Swift owner/peer fan-out
+    /// (<see cref="ComputeMethodEmissionPlans"/>), a sync requirement and the async one it refines
+    /// are DISTINCT C# members and must NOT be siblings — so this grouping deliberately diverges from
+    /// the owner/peer grouping on the <c>async</c> axis (it matches <see cref="GetMethodSiblingMapKey"/>,
+    /// which also carries <c>async</c>).</para>
     /// </summary>
     public IReadOnlyDictionary<(string ProtoQName, string MethodKey), IReadOnlyList<ModuleEmissionContext.SiblingMethodFallback>>
         ComputeSiblingMethodFallbacks(IEnumerable<ProtocolDecl> protocols)
@@ -1106,7 +1130,12 @@ public class EveryProtocolEmitter
         {
             foreach (var (method, idx) in EnumerateProtocolMethodsForDispatch(p))
             {
-                var key = GetSwiftMethodFullSignature(method);
+                // C# receiver siblings key off MEMBER identity (includeAsyncEffect: true): a sync
+                // requirement and the async one it refines are distinct C# members (`Foo` vs
+                // `FooAsync`), so they must land in SEPARATE groups — the sync receiver must not
+                // fall back into the async-base interface (CS1061). Contrast ComputeMethodEmissionPlans,
+                // which keys off the emitted Swift witness (async omitted) so the two share one owner.
+                var key = GetSwiftMethodFullSignature(method, includeAsyncEffect: true);
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, MethodDecl, int)>();
@@ -1140,14 +1169,23 @@ public class EveryProtocolEmitter
     /// <c>ProtocolProxyEmitter.EmitMethodReceiver</c> (receiver side) to agree on the
     /// sibling-fallback map key. Uses raw <c>TypeSpec.ToString()</c> rather than the projected
     /// signature so it is computable without an <see cref="EveryProtocolEmitter"/> instance, and
-    /// includes the return type so return-type overloads stay distinct.
+    /// includes the return type so return-type overloads stay distinct, and the <c>async</c> effect
+    /// so a sync method and its async refinement (sharing name + params + return type) stay distinct
+    /// — they are separate witnesses projecting to separate C# members (`Foo` vs `FooAsync`).
+    /// (`throws` is deliberately excluded: a non-throwing function satisfies a throwing requirement
+    /// in Swift, so throwing/non-throwing same-signature methods share a witness and must stay
+    /// grouped.) Must stay structurally aligned with the C#-member-identity form of
+    /// <see cref="GetSwiftMethodFullSignature"/> (<c>includeAsyncEffect: true</c>) — the variant
+    /// <see cref="ComputeSiblingMethodFallbacks"/> groups by — NOT the owner/peer default, which omits
+    /// <c>async</c>.
     /// </summary>
     internal static string GetMethodSiblingMapKey(MethodDecl method)
     {
         var parts = method.CSSignature.Skip(1).Select(p =>
             (p.GetSwiftName() ?? p.Name ?? "_") + ":" + (p.SwiftTypeSpec?.ToString() ?? ""));
         var ret = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec?.ToString() ?? "Void";
-        return $"{method.Name}(" + string.Join(",", parts) + ")->" + ret;
+        var effects = method.IsAsync ? " async" : "";
+        return $"{method.Name}(" + string.Join(",", parts) + ")" + effects + "->" + ret;
     }
 
     /// <summary>
@@ -1472,7 +1510,16 @@ public class EveryProtocolEmitter
     /// <summary>
     /// Gets a full Swift method signature including parameter types and return type.
     /// Used for global dedup and non-throwing override tracking.
-    internal string GetSwiftMethodFullSignature(MethodDecl method)
+    /// </summary>
+    /// <param name="includeAsyncEffect">When false (default) the <c>async</c> effect is OMITTED so
+    /// the key mirrors the EMITTED pure-Swift witness signature — used by the Swift owner/peer dedup
+    /// (<see cref="ComputeMethodEmissionPlans"/>) and non-throwing-override tracking, where a sync
+    /// method and the async one it refines emit the same witness and must group together. When true
+    /// the <c>async</c> effect is INCLUDED so the key mirrors C# MEMBER identity — used by the C#
+    /// receiver sibling-fallback grouping (<see cref="ComputeSiblingMethodFallbacks"/>), where the
+    /// sync and async requirements project to distinct members (<c>Foo</c> vs <c>FooAsync</c>) and
+    /// must NOT be siblings. See the body for the full rationale.</param>
+    internal string GetSwiftMethodFullSignature(MethodDecl method, bool includeAsyncEffect = false)
     {
         var parts = new List<string>();
         for (int i = 1; i < method.CSSignature.Count; i++)
@@ -1484,7 +1531,27 @@ public class EveryProtocolEmitter
         }
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var returnStr = returnType != null && !returnType.IsEmptyTuple ? GetSwiftTypeName(returnType) : "Void";
-        return $"{method.Name}({string.Join(",", parts)})->{returnStr}";
+        // `async` is included ONLY when includeAsyncEffect is set (the C# receiver
+        // sibling-fallback grouping). For the default — Swift owner/peer dedup and non-throwing
+        // override tracking — it is OMITTED, because the EveryProtocol witness emitted for a
+        // pure-Swift base drops `async` (a sync candidate satisfies an async requirement; see
+        // EmitMethodImplementation's asyncDecl, gated on `_useObjCBase`). A sync method and the
+        // async method it refines therefore emit the IDENTICAL Swift signature and MUST stay in one
+        // owner/peer group: one owner emits the shared sync witness, the other an empty extension.
+        // Distinguishing them in this key splits them into two owners that BOTH emit
+        // `func foo(...) -> T` on EveryProtocol -> "invalid redeclaration" (the Kingfisher
+        // ImageDownloadRequestModifier : AsyncImageDownloadRequestModifier shape).
+        //
+        // The async DISTINCTION the C# side needs — a sync `Foo` and an async `FooAsync` are
+        // separate C# members, so the sync receiver must NOT treat the async-base interface as a
+        // sibling (else it emits `impl.Foo(...)` against an interface declaring only `FooAsync` ->
+        // CS1061) — is applied by the includeAsyncEffect:true caller (ComputeSiblingMethodFallbacks).
+        //
+        // (`throws` is deliberately NOT in the key in either mode: a non-throwing function satisfies
+        // a throwing requirement in Swift, so throwing/non-throwing same-signature methods share a
+        // witness and must stay grouped — see the nonThrowingOverrides mechanism.)
+        var effects = (method.IsAsync && includeAsyncEffect) ? " async" : "";
+        return $"{method.Name}({string.Join(",", parts)}){effects}->{returnStr}";
     }
 
     /// <summary>
@@ -2460,10 +2527,13 @@ public class EveryProtocolEmitter
         else
         {
             writer.WriteLine("let resultPtr: UnsafeRawPointer");
-            // Box `self` as the OWNER's type (branches[0]) for every branch — see
-            // EmitMethodFanOutBody for the full rationale: the C# receiver reads only word 0
-            // (the class reference) and never the witness table, and boxing as a sibling whose
-            // accessor is borrowed from this body would force a mid-typecheck conformance cycle.
+            // Box `self` as the OWNER's type for every branch. For PROPERTIES branches[0] IS the
+            // owner (ComputePropertyEmissionPlans Prepends(owner)), unlike the method fan-out whose
+            // Siblings list is sync-first. The box type is behaviorally IMMATERIAL either way: the
+            // C# receiver reads only word 0 (the class reference) and never the witness table, and
+            // EveryProtocol unconditionally conforms to every sibling so a sibling box type-checks
+            // too. Owner-box is the robust clarity invariant, not a correctness gate. See
+            // EmitMethodFanOutBody.
             var ownerProtoName = branches[0].SwiftTypeName.ModuleQualifiedName;
             for (int i = 0; i < branches.Count; i++)
             {
@@ -2580,11 +2650,13 @@ public class EveryProtocolEmitter
     private static void EmitSetterCallSite(SwiftWriter writer, PropertyDecl property,
         ProtocolDecl ownerProto, string fnExpr, string branchVtableExpr, bool isObjCBridgeableSetter)
     {
-        // Box `self` as the OWNER's protocol type, not the dispatching branch's — the C#
-        // receiver reads only word 0 (the class reference) of the existential, so the box
-        // type is immaterial to dispatch, and boxing a sibling whose witness is borrowed from
-        // the owner's body would force a mid-typecheck conformance cycle. The actual branch's
-        // vtable is already encoded in fnExpr/branchVtableExpr. See EmitMethodFanOutBody.
+        // Box `self` as the OWNER's protocol type, not the dispatching branch's (for properties
+        // branches[0]/ownerProto IS the owner — ComputePropertyEmissionPlans Prepends(owner)). The
+        // box type is behaviorally IMMATERIAL to dispatch — the C# receiver reads only word 0 (the
+        // class reference) of the existential, never the witness table, and EveryProtocol conforms
+        // to every sibling so a sibling box type-checks too — but owner-box is the robust clarity
+        // invariant. The actual branch's vtable is already encoded in fnExpr/branchVtableExpr.
+        // See EmitMethodFanOutBody.
         var protoName = ownerProto.SwiftTypeName.ModuleQualifiedName;
         if (isObjCBridgeableSetter)
         {
@@ -2702,7 +2774,8 @@ public class EveryProtocolEmitter
         {
             EmitSubscriptArgCopies(writer, subscript.IndexParameters);
             writer.WriteLine("let resultPtr: UnsafeRawPointer");
-            // Owner-typed box for every branch — see EmitMethodFanOutBody for the rationale.
+            // Owner-typed box for every branch (branches[0] IS the owner — ComputeSubscriptEmissionPlans
+            // Prepends(owner)). Box type is behaviorally immaterial; see EmitMethodFanOutBody.
             var ownerProtoName = branches[0].Proto.SwiftTypeName.ModuleQualifiedName;
             for (int i = 0; i < branches.Count; i++)
             {
@@ -2791,7 +2864,8 @@ public class EveryProtocolEmitter
         {
             writer.WriteLine("var newValueCopy = newValue");
             EmitSubscriptArgCopies(writer, subscript.IndexParameters);
-            // Owner-typed box for every branch — see EmitMethodFanOutBody for the rationale.
+            // Owner-typed box for every branch (branches[0] IS the owner — ComputeSubscriptEmissionPlans
+            // Prepends(owner)). Box type is behaviorally immaterial; see EmitMethodFanOutBody.
             var ownerProtoName = branches[0].Proto.SwiftTypeName.ModuleQualifiedName;
             for (int i = 0; i < branches.Count; i++)
             {
@@ -3465,7 +3539,8 @@ public class EveryProtocolEmitter
         }
         else
         {
-            EmitMethodFanOutBody(writer, method, branches, argPassList, writebackLines, argRefs,
+            EmitMethodFanOutBody(writer, method, protocolDecl.SwiftTypeName.ModuleQualifiedName,
+                branches, argPassList, writebackLines, argRefs,
                 hasReturn, isStringMethodReturn, isObjCBridgeableReturn, returnTypeNameForMetatype,
                 extensionAvailability);
         }
@@ -3483,7 +3558,7 @@ public class EveryProtocolEmitter
     /// writebacks are handle-independent, so they are emitted once around the branch chain.
     /// Mirrors <see cref="EmitSubscriptGetterBody"/>'s fan-out shape.
     /// </summary>
-    private void EmitMethodFanOutBody(SwiftWriter writer, MethodDecl method,
+    private void EmitMethodFanOutBody(SwiftWriter writer, MethodDecl method, string ownerProtoName,
         IReadOnlyList<(ProtocolDecl Proto, int Index)> branches,
         IReadOnlyList<string> argPassList, IReadOnlyList<string> writebackLines, string argRefs,
         bool hasReturn, bool isStringMethodReturn, bool isObjCBridgeableReturn,
@@ -3497,17 +3572,20 @@ public class EveryProtocolEmitter
         if (hasReturn)
             writer.WriteLine("let resultPtr: UnsafeRawPointer");
 
-        // Box `self` as the OWNER's protocol type for EVERY branch (branches[0] is the
-        // owner). The C# receiver reads only word 0 of the existential container — the
-        // class reference it looks the proxy up by — and never consults the witness table,
-        // so the box's protocol type is immaterial to dispatch. Boxing as the per-branch
-        // SIBLING type instead would force Swift to resolve that sibling's conformance here:
-        // a sibling whose sole witness is the `describe()`/method body BORROWED from this
-        // very extension creates a cycle — Swift reports `EveryProtocol does not conform to
-        // <Sibling>` at the cast while still type-checking the body that provides the witness.
-        // The owner always conforms self-containedly (it emits the witness in this extension),
-        // so its box is always valid and carries the identical class reference in word 0.
-        var ownerProtoName = branches[0].Proto.SwiftTypeName.ModuleQualifiedName;
+        // Box `self` as the OWNER's protocol type for EVERY branch — the protocol whose extension this
+        // body is emitted in (`ownerProtoName`, the caller's `protocolDecl`), NOT branches[0]. The
+        // fan-out branch order is sorted sync-first (see ComputeMethodEmissionPlans), so in a mixed
+        // async/sync sibling group branches[0] is the first *sync* participant, which need not be the
+        // owner. The box's protocol type is BEHAVIORALLY IMMATERIAL to dispatch: every sibling in the
+        // group is a same-module protocol EveryProtocol unconditionally conforms to (the non-owner
+        // siblings emit an empty extension that borrows this very witness), so `self as any <sibling>`
+        // always type-checks; and the C# receiver reads only word 0 of the existential container — the
+        // class reference it looks the proxy up by — never the witness table, so word 0 is the identical
+        // EveryProtocol instance pointer regardless of the box type. Boxing as the OWNER is therefore not
+        // a correctness gate but the robust INVARIANT: the box reflects the protocol whose extension and
+        // witness table back this code, rather than an arbitrary sync sibling that the sort happened to
+        // place first. (For all-sync / all-async groups the sort is stable, so branches[0] already equals
+        // the owner and output is byte-identical; only mixed groups see the box type change.)
 
         for (int i = 0; i < branches.Count; i++)
         {

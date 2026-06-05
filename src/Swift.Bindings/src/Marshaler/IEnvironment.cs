@@ -139,6 +139,21 @@ namespace BindingsGeneration
         public int CollisionIndex { get; set; }
 
         /// <summary>
+        /// When non-null, this override method adopted its same-module ancestor slot's emitted C#
+        /// name (resolved by full Swift selector — method name + external argument labels + parameter
+        /// Swift types) instead of recomputing one from its own class body. A C# <c>override</c> MUST
+        /// reuse the EXACT ancestor name; when a base disambiguated two same-name/same-type overloads
+        /// that differ only by Swift argument label with a B15 collision suffix (e.g. <c>Process</c> /
+        /// <c>Process2</c>), a derived class overriding only the suffixed slot has a single method in
+        /// its own body, so its local <see cref="CollisionIndex"/> is 0 and it would otherwise emit the
+        /// suffix-free name — binding to the WRONG base slot and silently mis-dispatching. Set once in
+        /// the <c>IHandler</c> dedup pass (the single locus that owns <see cref="CollisionIndex"/>) so
+        /// every <see cref="CSharpMethodName"/> reader — the public signature, the override modifier,
+        /// and the forwarding native-int/closure/default-parameter overloads — stays in lockstep.
+        /// </summary>
+        public string? AdoptedOverrideCSharpName { get; set; }
+
+        /// <summary>
         /// Gets the C# method name, resolving any collisions with property names
         /// and applying collision disambiguation suffix when needed.
         /// </summary>
@@ -146,6 +161,10 @@ namespace BindingsGeneration
         {
             get
             {
+                // An override that adopted its ancestor slot's emitted name uses it verbatim — the
+                // ancestor name already carries whatever B15 suffix that ancestor's class body assigned.
+                if (AdoptedOverrideCSharpName != null)
+                    return AdoptedOverrideCSharpName;
                 var name = NameProvider.GetPublicMethodName(
                     MethodDecl.Name, MethodDecl.IsAsync,
                     hasReturnValue: !MethodDecl.IsAccessor && MethodDecl.CSSignature.Count > 0 && !MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,

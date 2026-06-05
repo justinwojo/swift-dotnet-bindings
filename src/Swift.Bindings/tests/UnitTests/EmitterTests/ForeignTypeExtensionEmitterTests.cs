@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -278,6 +279,48 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Contains("SBSW_", result);
         Assert.Contains("UIView", result);
         Assert.Contains("Unmanaged", result);
+    }
+
+    [Fact]
+    public void EmitSwiftWrappers_UserParamNamedSelf_EscapedAgainstInjectedReceiver()
+    {
+        // P1-22 (foreign-type-extension path): a user parameter literally named `self_` collides
+        // with the receiver pointer the wrapper injects (`_ self_: UnsafeMutableRawPointer`). Without
+        // the reserved-escape in ComputeForeignExtParamNames, the wrapper declares `self_` twice;
+        // swiftc rejects it and the entry point is silently dropped from the dylib (runtime
+        // EntryPointNotFoundException). The fix escapes the user binding to `__self_`.
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("shift", "public func shift(self_: Swift.Int) -> Swift.Int");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter, ctx);
+        var result = swiftOutput.ToString();
+
+        // A wrapper was emitted at all.
+        Assert.Contains("SBSW_", result);
+        // The injected receiver binding (`_ self_:`) must appear EXACTLY once. Parameter decls carry
+        // the `_ ` positional prefix; the forwarded call label (`self_:`) does not, so this literal
+        // isolates the binding decl. Pre-fix the user param re-declared `_ self_:` → count 2.
+        Assert.Single(Regex.Matches(result, "_ self_:"));
+        // The colliding user binding was escaped rather than re-declared.
+        Assert.Contains("__self_", result);
+        // ...and the rename is SOURCE-LOCAL only: the forwarded Swift call must still pass the value
+        // under the original external argument label `self_:` (computed from the Swift label, not the
+        // escaped binding). `self_: __self_` proves label and binding moved independently — escaping
+        // the binding without also rewriting the call label would forward under the wrong label and
+        // silently change which Swift parameter receives the value.
+        Assert.Contains("self_: __self_", result);
     }
 
     [Fact]

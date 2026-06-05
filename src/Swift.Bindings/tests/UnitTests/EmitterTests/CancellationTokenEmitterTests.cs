@@ -461,7 +461,8 @@ public class CancellationTokenEmitterTests
             "GetProjectedCSharpMethodKey",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         Assert.NotNull(method);
-        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase, null! })!;
+        // Args: methodDecl, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone.
+        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase, null!, null!, false })!;
     }
 
     #endregion

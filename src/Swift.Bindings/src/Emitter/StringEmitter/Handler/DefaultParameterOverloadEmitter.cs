@@ -122,6 +122,12 @@ public static class DefaultParameterOverloadEmitter
                 env.PInvokeHelperContext,
                 env.CompositionCollector);
             overloadEnv.CollisionIndex = env.CollisionIndex;
+            // P1-21 (Scenario A): when the primary method adopted a collision-suffixed ancestor slot
+            // name (e.g. `override Process2`), every generated trimmed/default-arg overload must emit
+            // under the SAME adopted name. CollisionIndex alone does not carry it — CSharpMethodName
+            // recomputes from the bare NameProvider name + suffix, which would yield `Process` and
+            // silently bind the trimmed overload to the wrong base slot. Propagate the adopted name.
+            overloadEnv.AdoptedOverrideCSharpName = env.AdoptedOverrideCSharpName;
             overloadEnv.EmissionContext = env.EmissionContext;
 
             // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
@@ -225,10 +231,26 @@ public static class DefaultParameterOverloadEmitter
             // Different Swift overloads can produce identical C# signatures after normalization
             if (env.EmittedProjectedSignatures != null)
             {
-                var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase);
+                var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase, env.SiblingPropertyNames);
                 // Apply collision suffix so disambiguated methods use their suffixed name in the key
                 if (env.CollisionIndex > 0)
                     projectedKey = BaseHandler.ApplyCollisionSuffixToKey(projectedKey, env.CollisionIndex);
+                // P1-21 (Scenario D): when the primary method adopted a collision-suffixed ancestor slot
+                // name, this trimmed overload emits under that SAME adopted name (propagated to
+                // overloadEnv.AdoptedOverrideCSharpName at construction above), so CSharpMethodName reads
+                // `Process2` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
+                // from the local NameProvider name, so substitute the adopted name into the key's name
+                // component — otherwise the reserved key (`Process()`) diverges from the emitted name
+                // (`Process2()`): a sibling naturally projecting to `Process2()` would not collide (→
+                // duplicate CS0111) and a real `Process()` sibling would be wrongly blocked. Adoption is
+                // mutually exclusive with a non-zero CollisionIndex (a self-suffixing override resolves
+                // adoption to null), so this never double-applies a suffix.
+                if (overloadEnv.AdoptedOverrideCSharpName != null)
+                {
+                    int keyParen = projectedKey.IndexOf('(');
+                    if (keyParen > 0)
+                        projectedKey = overloadEnv.AdoptedOverrideCSharpName + projectedKey.Substring(keyParen);
+                }
                 if (!env.EmittedProjectedSignatures.Add(projectedKey))
                 {
                     logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — projected signature collides: {Key}", trim, methodDecl.Name, projectedKey);
@@ -667,14 +689,20 @@ public static class DefaultParameterOverloadEmitter
     /// with the CSM-sync primary (which already auto-fills all trailing defaults via
     /// Swift) and produce a CS0111 duplicate-method error.
     /// </summary>
-    internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase)
+    internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null)
     {
         var returnTypeSpec = overloadDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(overloadDecl);
+        // P1-21: thread the sibling-property set in lockstep with IHandler.GetProjectedCSharpMethodKey
+        // (constraints.md:16 — these two keys "must match exactly"). The name component must apply
+        // the same property-collision rename the authoritative emitted name applies, or the
+        // default-overload pool and the main-pass pool disagree about which projected key a method
+        // owns. The :228 caller passes env.SiblingPropertyNames; the CSM-seed callers pass null,
+        // consistent with their trimEnv (which carries no sibling set).
         var methodName = overloadDecl.IsConstructor
             ? "ctor"
-            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name,
+            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, propertyNames: siblingPropertyNames, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name,
                 parameterCount: overloadDecl.CSSignature.Skip(1).Count(a => !IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         // Mirror IHandler.GetProjectedCSharpMethodKey: collect parent + method generic

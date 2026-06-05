@@ -1480,7 +1480,8 @@ public class ThirdPartyValidationFixTestsV3
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         if (methodInfo == null)
             throw new InvalidOperationException("Could not find GetProjectedCSharpMethodKey method");
-        return (string)methodInfo.Invoke(null, new object?[] { method, typeDatabase, null })!;
+        // Args: method, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone.
+        return (string)methodInfo.Invoke(null, new object?[] { method, typeDatabase, null, null, false })!;
     }
 
     #endregion

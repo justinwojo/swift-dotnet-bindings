@@ -243,6 +243,25 @@ public static class SwiftSourceStripper
         // SiblingMethodDispatchTests, so their witness-table getters must survive stripping.
         "SiblingNameOwner",
         "SiblingNamePeer",
+        // Async/sync effect-overload sibling divergence (Kingfisher regression): a sync
+        // protocol (SyncRefineModifier) refines an async one (AsyncRefineModifierBase),
+        // both declaring refineModify, which differ only in the `async` effect. The sync
+        // requirement is reverse-dispatched through `any SyncRefineModifier` by
+        // SiblingMethodDispatchTests, so the EveryProtocol witness-table getter for the
+        // SyncRefineModifier conformance must survive stripping.
+        "AsyncRefineModifierBase",
+        "SyncRefineModifier",
+        // Unrelated (non-refining) async/sync sibling divergence: two INDEPENDENT protocols
+        // (no refinement between them) declare mixedFanModify differing only in the `async`
+        // effect. "Async" < "Sync", so MixedFanAsyncOwner is the lex-min OWNER that emits the
+        // shared sync witness body; MixedFanSyncPeer gets an EMPTY extension that borrows it.
+        // SiblingMethodDispatchTests reverse-dispatches the sync requirement through
+        // `any MixedFanSyncPeer`, so Get_EveryProtocol_MixedFanSyncPeer_WitnessTable must
+        // resolve — and because the peer extension is empty, the OWNER extension carrying the
+        // mixedFanModify witness must survive too. Preserve BOTH (same as the refine pair
+        // above) so the borrowed witness is never stripped out from under the peer.
+        "MixedFanAsyncOwner",
+        "MixedFanSyncPeer",
         // Audit P1-08 WRITE direction: a C# class implements MarkerProvider and is vended
         // to Swift through consumeMarkerProvider. The marshaller wraps the C# conformer in
         // the EveryProtocol-backed proxy, so Get_EveryProtocol_MarkerProvider_WitnessTable

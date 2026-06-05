@@ -98,3 +98,96 @@ public func callSiblingNameViaPeer(_ x: any SiblingNamePeer, _ n: Int32) -> Stri
 public func callSiblingNameViaOwner(_ x: any SiblingNameOwner, _ n: Int32) -> String {
     return x.collidingTag(n)
 }
+
+// MARK: - Async/sync effect-overload sibling divergence (Kingfisher regression)
+//
+// A sync protocol REFINING an async protocol, both declaring a method that shares
+// name + params + return TYPE but differs in the `async` effect — exactly
+// Kingfisher's `ImageDownloadRequestModifier: AsyncImageDownloadRequestModifier`,
+// where both declare `modified(for:)` (the base `async -> URLRequest?`, the
+// refinement sync `-> URLRequest?`).
+//
+// This shape guards TWO opposite failure modes that the EveryProtocol emitter must
+// satisfy at once — the `async` axis pulls them in different directions:
+//
+//   1. C# side (CS1061): the async requirement projects to a DIFFERENT C# member than
+//      the sync one (`RefineModifyAsync(int, CancellationToken) -> Task<int>` vs
+//      `RefineModify(int) -> int`). If the C# receiver sibling-fallback grouping omits
+//      `async`, the two collapse into one group, the sync receiver treats the async-base
+//      interface as a sibling, and emits `impl.RefineModify(...)` against an interface
+//      that only declares `RefineModifyAsync` -> CS1061. So the C# fallback grouping
+//      (ComputeSiblingMethodFallbacks, via GetSwiftMethodFullSignature includeAsyncEffect:true,
+//      and GetMethodSiblingMapKey) MUST carry `async`.
+//
+//   2. Swift side (invalid redeclaration): for a pure-Swift base the emitted EveryProtocol
+//      witness drops `async` (a sync candidate satisfies an async requirement), so the
+//      async and sync witnesses emit the IDENTICAL `func refineModify(_:) -> Int32`. They
+//      must therefore stay in ONE owner/peer group (one owner emits the shared sync witness,
+//      the other an empty extension). If the owner/peer grouping key carried `async`, both
+//      would emit a body on EveryProtocol -> "invalid redeclaration". So the owner/peer
+//      grouping (ComputeMethodEmissionPlans, via GetSwiftMethodFullSignature default) MUST
+//      OMIT `async`.
+//
+// The fix decouples the two: GetSwiftMethodFullSignature carries `async` only in its
+// includeAsyncEffect:true (C#-identity) form. This fixture must compile (both gates) AND
+// round-trip the sync path.
+//
+// (`throws` is deliberately NOT in EITHER key: a non-throwing witness satisfies a
+// throwing requirement in Swift, so throwing/non-throwing same-signature methods
+// share a witness — the nonThrowingOverrides mechanism — and must stay grouped.)
+public protocol AsyncRefineModifierBase: AnyObject {
+    func refineModify(_ n: Int32) async -> Int32
+}
+
+public protocol SyncRefineModifier: AsyncRefineModifierBase {
+    func refineModify(_ n: Int32) -> Int32
+}
+
+// Driver for the SYNC requirement — the receiver site whose sibling fan-out into
+// the async-base interface was the CS1061 locus. Runtime-callable on Mono (no async
+// execution). The async-base receiver is compile-gated via the EveryProtocol proxy.
+public func callRefineModifySync(_ x: any SyncRefineModifier, _ n: Int32) -> Int32 {
+    return x.refineModify(n)
+}
+
+// MARK: - Unrelated (non-refining) async/sync same-signature group
+//
+// Two UNRELATED class-bound protocols (NO refinement between them) declaring the SAME
+// method name+params+return TYPE, differing ONLY in the `async` effect. The owner/peer
+// grouping omits `async` (a sync witness satisfies an async requirement), so both land
+// in ONE EveryProtocol owner/peer group; the ASYNC protocol sorts first ("Async" <
+// "Sync") and is the OWNER that emits the shared sync witness body — the peer gets an
+// empty extension that borrows that witness.
+//
+// This complements the refinement shape above (SyncRefineModifier: AsyncRefineModifierBase)
+// with the case where the two protocols are INDEPENDENT. It exercises:
+//   - owner/peer grouping omitting `async` so an async owner and an unrelated sync peer
+//     form ONE group (one shared sync witness body), while the C# sibling-fallback grouping
+//     carries `async` so the two stay DISTINCT C# members (MixedFanModifyAsync vs
+//     MixedFanModify) — no CS1061 cross-fallback;
+//   - the sync-first fan-out branch order (ComputeMethodEmissionPlans) producing a valid
+//     mixed-group body where the async owner emits the witness and dispatches through
+//     whichever per-protocol vtable a registered proxy populated.
+//
+// NOTE on the fan-out `self` box: the owner's body boxes `self` as the OWNER's protocol
+// type. That box type is behaviorally IMMATERIAL — EveryProtocol unconditionally conforms
+// to every sibling here (the empty peer extension borrows this witness), so a box as the
+// sync peer also type-checks, and the C# receiver reads only word 0 (the class reference)
+// of the existential, never the witness table. So this fixture does NOT — and cannot —
+// gate the box's protocol type; owner-box is a clarity/robustness invariant, not a
+// correctness requirement. The fixture's value is the grouping/ordering coverage above and
+// the sync round-trip below.
+public protocol MixedFanAsyncOwner: AnyObject {
+    func mixedFanModify(_ n: Int32) async -> Int32
+}
+
+public protocol MixedFanSyncPeer: AnyObject {
+    func mixedFanModify(_ n: Int32) -> Int32
+}
+
+// Driver for the SYNC peer requirement — witnessed by the async OWNER's shared fan-out
+// body, so it routes through the owner/peer group under test. Runtime-callable on Mono (no
+// async execution); the async-owner receiver path is compile-only via the EveryProtocol proxy.
+public func callMixedFanViaSyncPeer(_ x: any MixedFanSyncPeer, _ n: Int32) -> Int32 {
+    return x.mixedFanModify(n)
+}

@@ -383,6 +383,83 @@ public class ClosureParamTombstoneEmitterTests
         Assert.NotEqual(firstKey, secondKey);
     }
 
+    [Fact]
+    public void GetProjectedCSharpMethodKey_PrePassTombstoneView_MatchesMainLoopFlagView()
+    {
+        // PreReserveAdoptedOverrideNames runs BEFORE the main loop sets
+        // IsClosureParamTombstone, so it requests the tombstone view via the
+        // treatAsClosureTombstone flag. That pre-pass key MUST byte-match the key the
+        // main loop computes AFTER setting the field — otherwise a closure-tombstone
+        // override's pre-reserved slot keys off the un-collapsed Swift closure shape
+        // while the loop dedups on the object?-collapsed shape, silently missing the
+        // collision the pre-reservation exists to catch (declaration-order regression).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Collision", moduleDecl);
+
+        // Pre-pass view: field still false (loop hasn't run), tombstone view requested explicitly.
+        var prePass = CreateMethod("handle", classDecl, moduleDecl);
+        prePass.CSSignature.Add(CreateArg("callback", BuildUnsupportedClosure(), moduleDecl));
+        var prePassKey = BaseHandler.GetProjectedCSharpMethodKey(
+            prePass, typeDatabase, treatAsClosureTombstone: true);
+
+        // Main-loop view: field set, default param.
+        var mainLoop = CreateMethod("handle", classDecl, moduleDecl);
+        mainLoop.CSSignature.Add(CreateArg("callback", BuildUnsupportedClosure(), moduleDecl));
+        mainLoop.IsClosureParamTombstone = true;
+        var mainLoopKey = BaseHandler.GetProjectedCSharpMethodKey(mainLoop, typeDatabase);
+
+        Assert.Equal(mainLoopKey, prePassKey);
+        Assert.Contains("object?", prePassKey);
+    }
+
+    [Fact]
+    public void ClassifyOverridePrePassEmission_ValidationSkippedSibling_ExcludedFromEmittingPartition()
+    {
+        // PreReserveAdoptedOverrideNames builds its local projected-key multiset from ONLY the
+        // methods that will actually emit (ClassifyOverridePrePassEmission), mirroring the main
+        // loop's collision counter (a validation-skipped method `continue`s before the dedup Add).
+        // A skipped sibling sharing an override's projected key must therefore NOT inflate the
+        // override's count — otherwise the count!=1 gate suppresses a valid adopted-name
+        // pre-reservation and an earlier-declared natural sibling steals the slot (CS0111,
+        // declaration-order regression). The projected key carries name + param types only (no
+        // return type), so a sibling skipped solely for an unsupported RETURN still shares the
+        // key — exactly the suppressor shape. Here the skip is modeled with @_spi (a deterministic
+        // skip the SPI gate forces regardless of the return type) while the return types
+        // deliberately differ, pinning BOTH halves: the keys still collapse, yet the skipped
+        // sibling classifies as non-emitting and drops out of the partition.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Worker", moduleDecl);
+
+        // Emitting: process(_ n: Int32) -> String. One param keeps parameterCount > 0, so the
+        // zero-arg "Get" name-shaping can't diverge between the two and confound the key match.
+        var emitting = CreateMethod("process", classDecl, moduleDecl);
+        emitting.CSSignature[0] = CreateArg("", new NamedTypeSpec("Swift.String"), moduleDecl);
+        emitting.CSSignature.Add(CreateArg("n", new NamedTypeSpec("Swift.Int32"), moduleDecl));
+
+        // Same name + param types (=> same projected key) but a DIFFERENT return type AND @_spi.
+        var skipped = CreateMethod("process", classDecl, moduleDecl);
+        skipped.CSSignature[0] = CreateArg("", new NamedTypeSpec("Swift.Int32"), moduleDecl);
+        skipped.CSSignature.Add(CreateArg("n", new NamedTypeSpec("Swift.Int32"), moduleDecl));
+        skipped.IsSpiProtected = true;
+
+        // Precondition: differing return types still collapse to one projected key, so the skipped
+        // sibling WOULD inflate the count if the emitting partition didn't exclude it.
+        Assert.Equal(
+            BaseHandler.GetProjectedCSharpMethodKey(emitting, typeDatabase),
+            BaseHandler.GetProjectedCSharpMethodKey(skipped, typeDatabase));
+
+        // The fix: the partition keeps the emitter and drops the validation-skipped sibling.
+        var emittingClass = BaseHandler.ClassifyOverridePrePassEmission(emitting, pipeline, null!, typeDatabase);
+        var skippedClass = BaseHandler.ClassifyOverridePrePassEmission(skipped, pipeline, null!, typeDatabase);
+
+        Assert.True(emittingClass.WillEmit);
+        Assert.False(skippedClass.WillEmit);
+        Assert.False(skippedClass.IsClosureTombstone);
+    }
+
     // ---- Helpers ----
 
     /// <summary>

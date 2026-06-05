@@ -545,11 +545,38 @@ public class BaseHandlerDedupTests
     }
 
     private static string InvokeGetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        => InvokeGetProjectedCSharpMethodKey(methodDecl, typeDatabase, siblingPropertyNames: null);
+
+    private static string InvokeGetProjectedCSharpMethodKey(
+        MethodDecl methodDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames)
     {
         var method = typeof(BaseHandler).GetMethod(
             "GetProjectedCSharpMethodKey",
             BindingFlags.NonPublic | BindingFlags.Static);
-        return (string)method!.Invoke(null, new object?[] { methodDecl, typeDatabase, null })!;
+        // Args: methodDecl, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone.
+        // (null sibling set = base behavior, no property rename; false = read IsClosureParamTombstone as-is.)
+        return (string)method!.Invoke(null, new object?[] { methodDecl, typeDatabase, null, siblingPropertyNames, false })!;
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_ThreadsSiblingPropertyNames_FoldsInPropertyCollisionRename()
+    {
+        // P1-21 root cause: the authoritative emitted name applies a sibling-property-collision rename
+        // (`Data` → `DataMethod`). The projected DEDUP key MUST fold in that same rename — a key built
+        // WITHOUT the sibling set reserves the bare `Data(...)` while the method is emitted as
+        // `DataMethod(...)`, so the dedup set and the emitted name disagree and a real C# collision
+        // slips past dedup (CS0111). This pins that threading `siblingPropertyNames` changes the key.
+        var typeDatabase = new BasicTypeDatabase();
+        var method = CreateMethod("data", new NamedTypeSpec("Swift.Int"));
+
+        var withoutSiblings = InvokeGetProjectedCSharpMethodKey(method, typeDatabase, siblingPropertyNames: null);
+        var withSiblings = InvokeGetProjectedCSharpMethodKey(
+            method, typeDatabase,
+            new HashSet<string>(StringComparer.Ordinal) { "Data" }); // PascalCase sibling property name
+
+        Assert.StartsWith("Data(", withoutSiblings);
+        Assert.StartsWith("DataMethod(", withSiblings);
+        Assert.NotEqual(withoutSiblings, withSiblings);
     }
 
     private static string InvokeGetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)

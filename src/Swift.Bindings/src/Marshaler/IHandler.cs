@@ -203,6 +203,13 @@ namespace BindingsGeneration
             var validationCtx = new ValidationContext(
                 typeDatabase, context.PInvokeHelperContext, emissionCtx,
                 parentType: null, moduleDecl: null, siblingPropertyNames, conductor);
+
+            // P1-21: reserve collision-suffix overrides' adopted ancestor names up front so the
+            // disambiguation in the main loop is declaration-order independent (see method doc).
+            PreReserveAdoptedOverrideNames(
+                sortedDecl, pipeline, validationCtx, typeDatabase, siblingPropertyNames,
+                context, emittedProjectedSignatures);
+
             foreach (var baseDecl in sortedDecl)
             {
                 if (baseDecl is TypeDecl typeDecl)
@@ -439,7 +446,7 @@ namespace BindingsGeneration
                     // For non-constructor methods, collisions are disambiguated with numeric suffix
                     // (e.g., HandleNextAction, HandleNextAction2). Constructors can't be renamed in C#,
                     // so constructor collisions are still skipped.
-                    var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger);
+                    var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames);
                     int collisionIndex = 0;
                     if (!emittedProjectedSignatures.Add(projectedKey))
                     {
@@ -480,6 +487,36 @@ namespace BindingsGeneration
                         // Pass property names and P/Invoke helper context to the method environment
                         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
                         env.CollisionIndex = collisionIndex;
+                        // P1-21 (Scenario A): a derived override of one collision-suffixed base overload
+                        // must adopt the ancestor slot's emitted name (resolved by full Swift selector,
+                        // labels included) — otherwise it recomputes a suffix-free name from its own
+                        // single-method class body and binds to the WRONG base slot (silent mis-dispatch).
+                        // Set before Emit so every CSharpMethodName reader (signature, override modifier,
+                        // forwarding overloads/bridges) and the EmittedCSharpName stamp below agree.
+                        // No-op for non-overrides and for overrides whose names already match the slot.
+                        env.AdoptedOverrideCSharpName = TryResolveAdoptedOverrideName(env);
+
+                        // P1-21 (Scenario C, dedup parity — in-loop fallback): the override added only
+                        // its LOCALLY computed key (`Process`) to emittedProjectedSignatures at the Add()
+                        // above, but it EMITS under the adopted name (`Process2`). A sibling that projects
+                        // to the adopted name (e.g. `process2(_:)` → `Process2`) must disambiguate to the
+                        // next free suffix (`Process22`) rather than emit a duplicate `Process2` (CS0111).
+                        // PreReserveAdoptedOverrideNames already reserved this key BEFORE the loop, so the
+                        // outcome is declaration-order independent (a `process2(_:)` declared ahead of the
+                        // override still loses the race). This in-loop Add is the fallback for the cases
+                        // the pre-pass conservatively skips — the override's local key was non-unique
+                        // because a validation-SKIPPED sibling shared it, so the pre-pass could not
+                        // distinguish it from a self-suffixing override — and is a harmless no-op when the
+                        // pre-pass already reserved the key. Uses the real CollisionIndex, so a self-
+                        // suffixing override (whose own body already yields the suffixed name) resolves
+                        // AdoptedOverrideCSharpName to null and reserves nothing.
+                        if (env.AdoptedOverrideCSharpName != null)
+                        {
+                            int adoptedParen = projectedKey.IndexOf('(');
+                            if (adoptedParen > 0)
+                                emittedProjectedSignatures.Add(
+                                    env.AdoptedOverrideCSharpName + projectedKey.Substring(adoptedParen));
+                        }
                         // C6/C7: Share projected signature set so DefaultParameterOverloadEmitter
                         // can dedup against methods already emitted from the main pass
                         env.EmittedProjectedSignatures = emittedProjectedSignatures;
@@ -518,14 +555,21 @@ namespace BindingsGeneration
         /// Uses the public method name and projected C# parameter types,
         /// so different Swift overloads that produce identical C# signatures are deduplicated.
         /// </summary>
-        internal static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
+        internal static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null, IReadOnlySet<string>? siblingPropertyNames = null, bool treatAsClosureTombstone = false)
         {
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
+            // P1-21: thread the sibling-property set so the key's name component applies the
+            // same Foo→FooMethod / Foo→WithFoo property-collision rename that the authoritative
+            // emitted name (MethodEnvironment.CSharpMethodName, which passes SiblingPropertyNames)
+            // applies. Without it, two Swift members that emit the same renamed C# name register
+            // different dedup keys and the real CS0111 collision slips past B15. Mirrors
+            // ProtocolSignatureHelper.GetProjectedCSharpMethodKey. Constructors hardcode "ctor"
+            // (the rename never applies), so callers without a sibling set in scope pass null.
             var methodName = methodDecl.IsConstructor
                 ? "ctor"
-                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name,
+                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, propertyNames: siblingPropertyNames, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name,
                     parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
             // Build the set of generic parameter names visible in this method's scope —
@@ -543,7 +587,12 @@ namespace BindingsGeneration
             // must mirror that or two Swift overloads with different unsupported
             // closure shapes get distinct projected keys but emit the same C#
             // signature (CS0111). Build the same `object?`-collapsing view here.
-            ClosureHandler? closureHandlerForTombstone = methodDecl.IsClosureParamTombstone
+            // `treatAsClosureTombstone` lets a caller that runs BEFORE the main loop
+            // sets IsClosureParamTombstone (PreReserveAdoptedOverrideNames) request the
+            // tombstone view it KNOWS the main loop will take, so the pre-pass key and
+            // the main-loop key agree (otherwise a tombstone override's pre-reserved
+            // slot would key off the un-collapsed param shape and miss the collision).
+            ClosureHandler? closureHandlerForTombstone = (methodDecl.IsClosureParamTombstone || treatAsClosureTombstone)
                 ? new ClosureHandler(typeDatabase)
                 : null;
 
@@ -618,6 +667,208 @@ namespace BindingsGeneration
             }
 
             return $"{methodName}({string.Join(",", paramTypes)})";
+        }
+
+        /// <summary>
+        /// Classifies whether <paramref name="method"/> will reach the dedup block in the main emission
+        /// loop and, if so, whether it does so as a closure-param tombstone (every unsupported closure
+        /// param collapsed to <c>object?</c>). Single source of truth for the pre-pass, mirroring the
+        /// main loop's predicate at the dedup site so the two agree on BOTH axes:
+        /// <list type="bullet">
+        /// <item><description><b>Emitting partition</b> — the main loop's collision counter and projected-
+        /// signature set count ONLY emitting methods (a validation-skipped non-tombstone method
+        /// <c>continue</c>s before the dedup <c>Add</c>); the pre-pass must apply the same filter or a
+        /// skipped sibling inflates an override's local key count and suppresses a valid pre-reservation.</description></item>
+        /// <item><description><b>Tombstone view</b> — the loop sets <see cref="MethodDecl.IsClosureParamTombstone"/>
+        /// AFTER this pre-pass runs, so the pre-pass predicts it here to key off the same object?-collapsed
+        /// param shape the loop will dedup on.</description></item>
+        /// </list>
+        /// <see cref="MemberValidationPipeline.ValidateMethodEmission"/> is a pure predicate, so evaluating
+        /// it here (and again in the loop) is side-effect-free.
+        /// </summary>
+        internal static (bool WillEmit, bool IsClosureTombstone) ClassifyOverridePrePassEmission(
+            MethodDecl method, MemberValidationPipeline pipeline, ValidationContext validationCtx, ITypeDatabase typeDatabase)
+        {
+            var vr = pipeline.ValidateMethodEmission(method, validationCtx);
+            bool isTombstone = !vr.ShouldEmit && vr.Reason == SkipReason.UnsupportedClosure
+                && !method.IsAccessor && ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase);
+            return (vr.ShouldEmit || isTombstone, isTombstone);
+        }
+
+        /// <summary>
+        /// P1-21 (declaration-order independence): reserve the adopted ancestor-slot names of same-module
+        /// collision-suffix overrides BEFORE the main emission loop, so that a natural sibling projecting
+        /// to the same adopted name (e.g. <c>process2(_:)</c> → <c>Process2</c>) disambiguates to the next
+        /// free suffix (<c>Process22</c>) regardless of which is declared first. Without this, an override
+        /// declared AFTER such a sibling finds its adopted slot already taken and silently emits a
+        /// duplicate C# name → CS0111 (the in-loop reservation at the <c>Emit</c> site fires too late to
+        /// stop an earlier sibling).
+        ///
+        /// Two guards keep this from over-reserving — both essential:
+        /// <list type="bullet">
+        /// <item>Validation gate — only an override that would ACTUALLY emit reserves a name, so a
+        /// validation-skipped (<c>@_spi</c>/internal/unsupported) override never blocks a sibling from its
+        /// natural name. (Reserving for skipped methods was the defect that retired the earlier
+        /// whole-body pre-pass; here the reservation, not just the count, is validation-gated.)</item>
+        /// <item>Uniqueness gate — only an override whose LOCAL projected key is unique among the body's
+        /// EMITTING methods reserves. A self-suffixing override (one that overrides BOTH label-overloads, so
+        /// two emitting methods share the local key) takes its suffix from the main loop's collision counter,
+        /// not adoption; pre-reserving its "adopted" name would push the real suffixed slot to the next index
+        /// (<c>Process3</c>) and mis-bind. The count mirrors the main loop's emitting partition
+        /// (<see cref="ClassifyOverridePrePassEmission"/>): a validation-skipped non-tombstone sibling that
+        /// happens to share the key is EXCLUDED from the count, so it cannot suppress an otherwise-valid
+        /// pre-reservation — the defect that let an earlier-declared natural sibling steal the adopted slot
+        /// (CS0111). The projected key carries name + param types only (no return type), so a sibling skipped
+        /// solely for an unsupported RETURN still shares the key and was exactly such a suppressor.</item>
+        /// </list>
+        /// A unique local key guarantees the main loop assigns <c>CollisionIndex 0</c>, so the adopted
+        /// name resolved here with a <c>CollisionIndex 0</c> environment matches what the loop computes.
+        /// The throwaway <see cref="MethodEnvironment"/> is side-effect-free (it only constructs helper
+        /// instances and reads the decl); <see cref="MemberValidationPipeline.ValidateMethodEmission"/> is
+        /// a pure predicate (the loop records skips separately), so both are safe to evaluate twice.
+        /// </summary>
+        private void PreReserveAdoptedOverrideNames(
+            IEnumerable<BaseDecl> sortedDecl, MemberValidationPipeline pipeline, ValidationContext validationCtx,
+            ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames, TypeHandlerContext context,
+            HashSet<string> emittedProjectedSignatures)
+        {
+            // Conservative local-key multiset over every method in this type body that WILL EMIT.
+            // Validation-skipped non-tombstone methods are EXCLUDED: the main loop's collision counter and
+            // emittedProjectedSignatures set count only emitting methods (a skipped method `continue`s
+            // before the dedup Add), so a skipped sibling sharing an override's projected key must NOT
+            // inflate the override's local count — otherwise the count!=1 gate below suppresses a valid
+            // pre-reservation and a natural adopted-name sibling (e.g. `process2(_:)`) declared earlier wins
+            // the slot in the main loop, emitting a duplicate of the override's adopted name (CS0111 /
+            // mis-dispatch). Each surviving key uses the SAME closure-tombstone view the main loop will take
+            // (the flag is set AFTER this pre-pass runs — see ClassifyOverridePrePassEmission).
+            var localKeyCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var d in sortedDecl)
+            {
+                if (d is MethodDecl m && !m.IsConstructor)
+                {
+                    var (willEmit, isTomb) = ClassifyOverridePrePassEmission(m, pipeline, validationCtx, typeDatabase);
+                    if (!willEmit) continue;
+                    var k = GetProjectedCSharpMethodKey(m, typeDatabase, _logger, siblingPropertyNames,
+                        treatAsClosureTombstone: isTomb);
+                    localKeyCounts[k] = localKeyCounts.TryGetValue(k, out var c) ? c + 1 : 1;
+                }
+            }
+
+            foreach (var d in sortedDecl)
+            {
+                if (d is not MethodDecl method) continue;
+                if (!method.IsOverride || method.IsConstructor || method.IsAccessor) continue;
+                if (method.ParentDecl is not ClassDecl) continue;
+
+                // Validation gate: reserve only for an override that will actually emit (ShouldEmit, or a
+                // closure-param tombstone, which still reaches the dedup block and emits a stub).
+                var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(method, pipeline, validationCtx, typeDatabase);
+                if (!willEmit) continue;
+
+                // Key with the loop's tombstone view so the uniqueness gate below compares against the
+                // same key namespace the main loop will dedup on.
+                var key = GetProjectedCSharpMethodKey(method, typeDatabase, _logger, siblingPropertyNames,
+                    treatAsClosureTombstone: isTombstone);
+                // Not unique → either a self-suffixing override (main loop's counter owns the suffix) or a
+                // skipped-sibling collision (in-loop reservation owns it). Either way, do not pre-reserve.
+                if (!localKeyCounts.TryGetValue(key, out var count) || count != 1) continue;
+
+                // Unique local key ⇒ CollisionIndex 0 in the main loop ⇒ adoption resolves identically.
+                var env = new MethodEnvironment(method, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
+                env.CollisionIndex = 0;
+                var adopted = TryResolveAdoptedOverrideName(env);
+                if (adopted == null) continue;
+
+                int paren = key.IndexOf('(');
+                if (paren > 0)
+                    emittedProjectedSignatures.Add(adopted + key.Substring(paren));
+            }
+        }
+
+        /// <summary>
+        /// For a same-module override of a B15 collision-suffixed base overload, returns the ancestor
+        /// slot's emitted C# name so the derived override can adopt it (see
+        /// <see cref="MethodEnvironment.AdoptedOverrideCSharpName"/>). The base may disambiguate two
+        /// same-name/same-type overloads that differ only by Swift external argument label (e.g.
+        /// <c>process(first:)</c> → <c>Process</c>, <c>process(second:)</c> → <c>Process2</c>). A derived
+        /// class overriding only the suffixed one has a single method in its own body, so its local
+        /// collision index is 0 and it naively computes the suffix-free name — binding to the WRONG base
+        /// slot and silently mis-dispatching. We resolve the precise overridden slot by FULL Swift
+        /// selector (method name + external argument labels + parameter Swift types; labels are required
+        /// because the colliding overloads are identical by type alone) and return its
+        /// <see cref="MethodDecl.EmittedCSharpName"/>.
+        ///
+        /// Returns null — leaving the derived's own computed name in place — when the method is not an
+        /// override, its parent is not a class, no same-module ancestor slot matches, the matched
+        /// ancestor was not emitted, or the ancestor name is NOT a pure collision-suffix variant of the
+        /// derived's own computed name. The last guard keeps adoption surgical: it never rewrites a
+        /// property-collision rename (e.g. base <c>Foo</c> vs derived <c>FooMethod</c>), which could
+        /// introduce a CS0102 clash in the derived. The cross-module variant of this bug is a tracked
+        /// residual — <see cref="TypeRecord.EmittedClassMethods"/> persists no argument labels, so a
+        /// cross-module ancestor's two same-type slots are indistinguishable.
+        /// </summary>
+        private static string? TryResolveAdoptedOverrideName(MethodEnvironment env)
+        {
+            var method = env.MethodDecl;
+            if (!method.IsOverride) return null;
+            if (method.ParentDecl is not ClassDecl classDecl) return null;
+
+            // Derived's own computed name BEFORE adoption (AdoptedOverrideCSharpName is still null here).
+            var derivedName = env.CSharpMethodName;
+            int paramCount = method.CSSignature.Count - 1;
+
+            // Walk the resolved superclass chain; the nearest ancestor that actually emitted the
+            // matching selector owns the C# slot this override binds to (Swift vtable rule).
+            for (var ancestor = classDecl.ResolvedSuperclass; ancestor != null; ancestor = ancestor.ResolvedSuperclass)
+            {
+                foreach (var candidate in ancestor.Methods)
+                {
+                    if (!candidate.WasEmitted || candidate.IsAccessor || candidate.IsConstructor) continue;
+                    if (candidate.Name != method.Name) continue;
+                    if (candidate.CSSignature.Count - 1 != paramCount) continue;
+                    if (!OverrideSelectorMatches(candidate, method, paramCount)) continue;
+
+                    var ancestorName = candidate.EmittedCSharpName;
+                    if (string.IsNullOrEmpty(ancestorName) || ancestorName == derivedName) return null;
+                    // Adopt only a pure collision-suffix variant (derivedName + digits, e.g. "Process2"
+                    // for "Process") — never a different rename, which could collide in the derived.
+                    return IsCollisionSuffixVariant(derivedName, ancestorName) ? ancestorName : null;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// True when <paramref name="ancestor"/> and <paramref name="derived"/> are the same Swift
+        /// selector: every parameter position agrees on both its Swift type spec AND its external
+        /// argument label (<see cref="BaseDecl.GetSwiftName"/>, which resolves keyword escaping).
+        /// Parameter counts are assumed already equal. Labels are what distinguish two overloads that
+        /// share a projected C# type.
+        /// </summary>
+        private static bool OverrideSelectorMatches(MethodDecl ancestor, MethodDecl derived, int paramCount)
+        {
+            for (int i = 1; i <= paramCount; i++)
+            {
+                var a = ancestor.CSSignature[i];
+                var d = derived.CSSignature[i];
+                if (a.SwiftTypeSpec.ToString() != d.SwiftTypeSpec.ToString()) return false;
+                if (a.GetSwiftName() != d.GetSwiftName()) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="candidate"/> is <paramref name="baseName"/> followed by one or
+        /// more digits — the exact shape of a B15 collision suffix (<c>Process</c> → <c>Process2</c>).
+        /// Confines override-name adoption to the collision-suffix case and excludes any other rename.
+        /// </summary>
+        private static bool IsCollisionSuffixVariant(string baseName, string candidate)
+        {
+            if (candidate.Length <= baseName.Length) return false;
+            if (!candidate.StartsWith(baseName, StringComparison.Ordinal)) return false;
+            for (int i = baseName.Length; i < candidate.Length; i++)
+                if (!char.IsDigit(candidate[i])) return false;
+            return true;
         }
 
         /// <summary>

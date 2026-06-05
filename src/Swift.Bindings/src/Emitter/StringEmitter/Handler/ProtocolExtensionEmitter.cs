@@ -1445,7 +1445,12 @@ public static class ProtocolExtensionEmitter
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
         var existentialHandler = new ExistentialHandler(typeDatabase);
-        var uniqueParamNames = ComputeUniqueParamNames(parameters);
+        // Reserve the appended generic-metatype bindings (`__tType`) so a user param that sanitizes to
+        // one is escaped away from it (P1-22 user-vs-metatype collision).
+        var metatypeBindings = isGenericConforming
+            ? genericParamNames.Select(MetatypeBindingName).ToList()
+            : null;
+        var uniqueParamNames = ComputeUniqueParamNames(parameters, appendedSyntheticBindings: metatypeBindings);
 
         for (int i = 0; i < parameters.Count; i++)
         {
@@ -1460,7 +1465,7 @@ public static class ProtocolExtensionEmitter
         {
             foreach (var gpName in genericParamNames)
             {
-                swiftParams.Add($"_ __{gpName.ToLowerInvariant()}Type: {gpName}.Type");
+                swiftParams.Add($"_ {MetatypeBindingName(gpName)}: {gpName}.Type");
             }
         }
 
@@ -1690,7 +1695,12 @@ public static class ProtocolExtensionEmitter
         // Build Swift parameter list — precompute unique names so the wrapper signature
         // and the call args agree on suffixes when params share a leaf type name.
         var existentialHandler = new ExistentialHandler(typeDatabase);
-        var uniqueParamNames = ComputeUniqueParamNames(parameters, closureTypeSpec, closureParamIndex);
+        // Reserve the appended generic-metatype bindings (class-level + method-level) so a user param
+        // that sanitizes to one is escaped away from it (P1-22 user-vs-metatype collision).
+        var metatypeBindings = genericParamNames.Count > 0
+            ? genericParamNames.Select(MetatypeBindingName).ToList()
+            : null;
+        var uniqueParamNames = ComputeUniqueParamNames(parameters, closureTypeSpec, closureParamIndex, metatypeBindings);
         var swiftParams = new List<string>();
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
@@ -1713,7 +1723,7 @@ public static class ProtocolExtensionEmitter
         // Add explicit T.Type metatype params for ALL generic params (class-level + method-level)
         foreach (var gpName in genericParamNames)
         {
-            swiftParams.Add($"_ __{gpName.ToLowerInvariant()}Type: {gpName}.Type");
+            swiftParams.Add($"_ {MetatypeBindingName(gpName)}: {gpName}.Type");
         }
 
         // Build return type
@@ -1795,10 +1805,11 @@ public static class ProtocolExtensionEmitter
             ctx.AddProtocolExtWrapperLine($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
         }
 
-        // Build cdecl callback type
-        var closureParamLabel = parameters[closureParamIndex].label;
-        var closureParamName = SanitizeSwiftParamName(
-            closureParamLabel == "_" ? GetClosureParamName(closureTypeSpec) : closureParamLabel);
+        // Build cdecl callback type. Reuse the already-deduped-and-reserved-escaped binding from
+        // ComputeUniqueParamNames so the `{closureParamName}FuncPtr`/`{closureParamName}Context` body
+        // references stay in lockstep with the wrapper's parameter decls (which use the same list).
+        // Recomputing it here would drop both the dedup suffix and the P1-22 reserved escape.
+        var closureParamName = uniqueParamNames[closureParamIndex];
 
         var cdeclArgTypes = new List<string>();
         foreach (var arg in closureArgs)
@@ -2645,10 +2656,21 @@ public static class ProtocolExtensionEmitter
     /// Index of a closure parameter that uses GetClosureParamName instead of
     /// GetParamNameFromType, or -1 if there is no closure replacement.
     /// </param>
+    /// <summary>
+    /// The synthetic metatype binding the generic-conformer wrapper appends for a generic param
+    /// (<c>T</c> → <c>_ __tType: T.Type</c>). Centralized so the append sites and the reserved-collision
+    /// set in <see cref="ComputeUniqueParamNames"/> never drift: a drift would let a user param spelled
+    /// <c>__tType</c> duplicate the binding, swiftc would strip the wrapper, and the entry point would
+    /// be missing at runtime (the P1-22 collision class).
+    /// </summary>
+    private static string MetatypeBindingName(string genericParamName)
+        => $"__{genericParamName.ToLowerInvariant()}Type";
+
     private static List<string> ComputeUniqueParamNames(
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         ClosureTypeSpec? closureTypeSpec = null,
-        int closureParamIndex = -1)
+        int closureParamIndex = -1,
+        IReadOnlyCollection<string>? appendedSyntheticBindings = null)
     {
         var names = new List<string>();
         var seen = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -2675,6 +2697,36 @@ public static class ProtocolExtensionEmitter
                 names.Add(baseName);
             }
         }
+
+        // P1-22: escape each user-derived binding that collides with a reserved synthetic the
+        // @_cdecl wrapper injects into the same signature (self_, resultPtr, errorOut, cdecl, …)
+        // or with a sibling binding. The dedup loop above only resolves user-vs-user collisions;
+        // a param named or sanitized to a reserved synthetic — e.g. a `self` label → `self_`, or a
+        // literal `cdecl` colliding with the injected `let cdecl` — would emit a DUPLICATE Swift
+        // binding (or shadow an injected local). swiftc rejects the wrapper, it is silently stripped
+        // from the dylib, and the entry point is missing at runtime (EntryPointNotFoundException).
+        // This renames only the source-local binding; the external forwarding labels (RenderCallArg's
+        // `label`) are computed separately and stay unchanged. The fixed injected synthetics (self_,
+        // cdecl, …) are covered by ReservedSwiftWrapperParamNames inside the escape; per-method
+        // synthetics appended AFTER the user params — the generic metatype bindings (`__tType`) — are
+        // not fixed and so are passed via `appendedSyntheticBindings`. They must be unioned into each
+        // param's reserved set AFTER ExcludeSelf, never before: a user param literally named `__tType`
+        // is its own ExcludeSelf target, so folding the metatype name into the same set would strip it
+        // and the collision would slip through. So the global set closes user-vs-fixed-synthetic, the
+        // sibling set closes user-vs-user, and the appended set closes user-vs-metatype.
+        var siblingBindings = new HashSet<string>(names, StringComparer.Ordinal);
+        for (int i = 0; i < names.Count; i++)
+        {
+            var reserved = new HashSet<string>(siblingBindings, StringComparer.Ordinal);
+            reserved.Remove(names[i]); // exclude self
+            if (appendedSyntheticBindings != null)
+            {
+                foreach (var synthetic in appendedSyntheticBindings)
+                    reserved.Add(synthetic); // appended synthetics are never the param's own binding
+            }
+            names[i] = NameProvider.EscapeReservedSwiftWrapperLabel(names[i], reserved);
+        }
+
         return names;
     }
 

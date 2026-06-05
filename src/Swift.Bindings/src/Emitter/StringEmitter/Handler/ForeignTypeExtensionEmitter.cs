@@ -595,9 +595,14 @@ public static class ForeignTypeExtensionEmitter
         var swiftParams = new List<string>();
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
-        foreach (var (label, typeSpec, swiftType, _) in compatibleParams)
+        // P1-22: compute the source-local wrapper bindings ONCE (sanitize + reserved-escape against
+        // the injected `self_` and siblings) so the signature decls below and the call-arg loop later
+        // index the SAME names — recomputing per loop and escaping only one would desync the wrapper.
+        var paramNames = ComputeForeignExtParamNames(compatibleParams);
+        for (int p = 0; p < compatibleParams.Count; p++)
         {
-            var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+            var (_, typeSpec, _, _) = compatibleParams[p];
+            var paramName = paramNames[p];
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
@@ -667,8 +672,10 @@ public static class ForeignTypeExtensionEmitter
             if (!compatibleSet.Contains(i))
                 continue; // Omitted — Swift fills default
 
-            var (label, typeSpec, swiftType, _) = allParameters[i];
-            var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+            var (label, typeSpec, _, _) = allParameters[i];
+            // Same escaped binding the signature emitted (compatible params share order) — never
+            // recompute here, or a P1-22 escape applied above would desync from the call body.
+            var paramName = paramNames[compatIdx++];
 
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
@@ -1273,6 +1280,45 @@ public static class ForeignTypeExtensionEmitter
     {
         if (string.IsNullOrEmpty(name)) return name;
         return char.ToLowerInvariant(name[0]) + name.Substring(1);
+    }
+
+    /// <summary>
+    /// Computes the source-local Swift wrapper binding name for each compatible param: sanitize the
+    /// label (or a type-derived name when the label is <c>_</c>), then P1-22 reserved-escape it
+    /// against the injected synthetics the wrapper adds to the same signature (<c>self_</c>, …) and
+    /// its siblings. The method-wrapper signature loop and the call-arg loop MUST index into this one
+    /// list so the <c>_ {name}:</c> decls and the body's <c>{name}</c> references stay in lockstep;
+    /// recomputing per loop and escaping only one would desync the wrapper, and swiftc would silently
+    /// strip it from the dylib (runtime EntryPointNotFoundException — the P1-22 collision class).
+    /// </summary>
+    private static List<string> ComputeForeignExtParamNames(
+        List<(string label, TypeSpec typeSpec, string swiftType, bool hasDefault)> parameters)
+    {
+        // Dedup user-vs-user FIRST: two compatible unlabeled params of the same Swift type both derive
+        // the same type-based binding (`func combine(_ a: Int, _ b: Int)` → two `value`), which swiftc
+        // rejects as a duplicate binding. Suffix repeats (`value`, `value2`) exactly as the protocol-
+        // extension path does — then reserved-escape against the injected synthetics + siblings.
+        var names = new List<string>(parameters.Count);
+        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (label, _, swiftType, _) in parameters)
+        {
+            var baseName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+            if (seen.TryGetValue(baseName, out var count))
+            {
+                seen[baseName] = count + 1;
+                names.Add($"{baseName}{count + 1}");
+            }
+            else
+            {
+                seen[baseName] = 1;
+                names.Add(baseName);
+            }
+        }
+        var siblings = new HashSet<string>(names, StringComparer.Ordinal);
+        for (int i = 0; i < names.Count; i++)
+            names[i] = NameProvider.EscapeReservedSwiftWrapperLabel(
+                names[i], CdeclParamMapper.ExcludeSelf(siblings, names[i]));
+        return names;
     }
 
     private static string GetParamNameFromType(string swiftType)

@@ -845,10 +845,18 @@ public static class ExistentialBypassEmitter
             csWriter.WriteLine();
         }
 
-        // Build C# method name — hasReturnValue gates the "Get" prefix.
-        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: isExistentialReturn, isSelfReturning: isSelfReturning,
-            parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+        // Emit under the authoritative C# name. env.CSharpMethodName (IEnvironment.cs) is the single
+        // source of truth — it folds in the sibling-property rename (Foo->FooMethod), the parent-type
+        // collision guard (CS0542), the B15 collision-suffix (CollisionIndex), AND an adopted ancestor-
+        // slot name for collision-suffix overrides. Recomputing here via GetPublicMethodName dropped all
+        // of those axes, so the bypass could emit `Foo`/`Process` while IHandler stamped
+        // EmittedCSharpName = `FooMethod`/`Process2` and reserved the matching dedup key
+        // (IMethodBridgeEmitter.GetProjectedCSharpMethodKey threads all of them) -> CS0111 / CS0102 /
+        // wrong-slot override. The old recompute used hasReturnValue: isExistentialReturn, which diverges
+        // from CSharpMethodName's non-void rule only when parameterCount == 0 (the sole "Get"-prefix
+        // gate); the only param-less bypass methods are existential-return (both compute the same), so
+        // env.CSharpMethodName is name-preserving for every existing binding.
+        var methodName = env.CSharpMethodName;
 
         // Pre-compute marshalling to determine if unsafe is needed before emitting the method declaration.
         var (marshalledArgs, setupLines, needsUnsafe) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);

@@ -165,6 +165,67 @@ public class SiblingMethodDispatchTests : TestBase
         AssertEqual("name:3:peer-after-owner", result,
             "Peer dispatch resolves the Peer's own name even after the owner vtable was primed globally");
     }
+
+    // MARK: - Async/sync effect-overload sibling divergence (Kingfisher regression)
+    //
+    // SyncRefineModifier refines AsyncRefineModifierBase; both declare refineModify
+    // differing only in the `async` effect, so they project to DIFFERENT C# members
+    // (`RefineModify(int)` vs `RefineModifyAsync(int, CancellationToken)`). When the C#
+    // receiver sibling-fallback grouping omitted `async`, the two collapsed into one
+    // group and the sync receiver fanned out into IAsyncRefineModifierBase emitting
+    // `impl.RefineModify(...)` against an interface that only declares
+    // `RefineModifyAsync` -> CS1061 at the compile gate (the Kingfisher validate
+    // regression). The fix carries `async` in the C# fallback grouping ONLY — the Swift
+    // owner/peer grouping must still OMIT it, or the async + sync witnesses both emit
+    // `func refineModify(_:) -> Int32` on EveryProtocol -> Swift "invalid redeclaration".
+    // With the two grouping keys decoupled the sync receiver dispatches `RefineModify`
+    // under ISyncRefineModifier's own name; this round-trip exercises that sync path
+    // (no async execution, so safe on Mono).
+
+    /// <summary>
+    /// Dispatch the SYNC requirement of a sync-protocol-refining-an-async-protocol
+    /// through the sync existential. The receiver must call ISyncRefineModifier's own
+    /// `RefineModify`, not fan out into the async base's `RefineModify` (which the async
+    /// interface never declares — the CS1061 regression locus).
+    /// </summary>
+    public void TestAsyncSyncRefine_SyncDispatch()
+    {
+        var impl = new SyncRefineModifierImpl(100);
+        var result = Functions.CallRefineModifySync(impl, 7);
+        AssertEqual(107, result,
+            "Sync-refine receiver dispatches RefineModify under its own name (async/sync effect-overloads stay in distinct sibling groups)");
+    }
+
+    // MARK: - Unrelated (non-refining) async/sync same-signature group
+    //
+    // MixedFanAsyncOwner (async) and MixedFanSyncPeer (sync) declare the same
+    // mixedFanModify(_:) -> Int32 with NO refinement between them, so they form one
+    // EveryProtocol owner/peer group with the async protocol as owner (owner/peer grouping
+    // omits `async`). Complements the refinement shape above (SyncRefineModifier:
+    // AsyncRefineModifierBase) with the INDEPENDENT-protocols case. The C# sibling-fallback
+    // grouping carries `async`, so the async and sync requirements stay DISTINCT C# members
+    // (MixedFanModifyAsync vs MixedFanModify) and the sync receiver never fans into the async
+    // interface (no CS1061). The fan-out body sorts siblings sync-first; the async owner emits
+    // the shared sync witness and dispatches through whichever per-protocol vtable a proxy
+    // populated. (The owner's `self` box type is behaviorally immaterial — the C# receiver
+    // reads only word 0 of the existential — so this exercises grouping/ordering + round-trip,
+    // not the box choice.)
+
+    /// <summary>
+    /// Dispatch the SYNC peer requirement of an UNRELATED async/sync same-signature group
+    /// through the sync existential. The requirement is witnessed by the async OWNER's shared
+    /// fan-out body, so it round-trips through the owner/peer group: the async owner and the
+    /// unrelated sync peer share one Swift witness, yet the sync peer's proxy vtable is the
+    /// one the fan-out dispatches into, reaching this C# impl under MixedFanSyncPeer's own
+    /// MixedFanModify member.
+    /// </summary>
+    public void TestMixedFanUnrelated_SyncDispatch()
+    {
+        var impl = new MixedFanSyncPeerImpl(50);
+        var result = Functions.CallMixedFanViaSyncPeer(impl, 7);
+        AssertEqual(57, result,
+            "Unrelated async/sync group: sync-peer dispatch round-trips through the async owner's shared fan-out body");
+    }
 }
 
 internal class SiblingMethodOwnerOnlyImpl : ISiblingMethodOwner
@@ -207,4 +268,26 @@ internal class SiblingNameOwnerOnlyImpl : ISiblingNameOwner
     public SiblingNameOwnerOnlyImpl(string tag) { _tag = tag; }
     public string CollidingTag => $"prop:{_tag}";
     public string CollidingTagMethod(int n) => $"name:{n}:{_tag}";
+}
+
+// Sync refinement of an async protocol (Kingfisher shape). ISyncRefineModifier inherits
+// IAsyncRefineModifierBase, so the impl must satisfy BOTH the sync `RefineModify` and the
+// inherited async `RefineModifyAsync` — only the sync path is exercised at runtime.
+internal class SyncRefineModifierImpl : ISyncRefineModifier
+{
+    private readonly int _bias;
+    public SyncRefineModifierImpl(int bias) { _bias = bias; }
+    public int RefineModify(int n) => n + _bias;
+    public System.Threading.Tasks.Task<int> RefineModifyAsync(int n, System.Threading.CancellationToken cancellationToken = default)
+        => System.Threading.Tasks.Task.FromResult(n + _bias + 1000);
+}
+
+// Sync peer of the UNRELATED async/sync group. Implements ONLY the sync interface (no
+// refinement, so it does not inherit the async owner's interface). Its proxy populates the
+// sync peer's per-protocol vtable, which the async owner's fan-out body dispatches into.
+internal class MixedFanSyncPeerImpl : IMixedFanSyncPeer
+{
+    private readonly int _bias;
+    public MixedFanSyncPeerImpl(int bias) { _bias = bias; }
+    public int MixedFanModify(int n) => n + _bias;
 }

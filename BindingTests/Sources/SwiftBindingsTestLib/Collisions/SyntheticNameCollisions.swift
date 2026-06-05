@@ -115,3 +115,24 @@ public class SyntheticDefaultCollider {
     public init() {}
     public func go(_resultBuf: Int32 = 5, extra: Int32 = 10) -> Int32 { return _resultBuf + extra }
 }
+
+/// PROTOCOL-EXTENSION emission path — a distinct @_cdecl wrapper emitter (ProtocolExtensionEmitter)
+/// from the instance-method/constructor/enum wrappers above. The wrapper injects the receiver
+/// pointer as `_ self_: UnsafeMutableRawPointer`; a user parameter literally named `self_` would
+/// declare `self_` twice. Before the reserved-escape, swiftc rejected the wrapper and it was
+/// silently dropped from the dylib (missing entry point → runtime crash). The escape renames the
+/// source-local user binding (`self_` → `__self_`) while the forwarded Swift call label is computed
+/// separately, so forwarding is unchanged. Primitive return keeps it inside the protocol-extension
+/// emission gate; `seed` makes the forward observable.
+public protocol SyntheticExtProtocol {
+    var seed: Int32 { get }
+}
+
+extension SyntheticExtProtocol {
+    public func mixSelf(self_: Int32) -> Int32 { return seed * 100 + self_ }
+}
+
+public struct SyntheticExtConformer: SyntheticExtProtocol {
+    public let seed: Int32
+    public init(seed: Int32) { self.seed = seed }
+}
