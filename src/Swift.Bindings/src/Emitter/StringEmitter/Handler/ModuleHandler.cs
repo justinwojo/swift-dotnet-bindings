@@ -1256,11 +1256,22 @@ namespace BindingsGeneration
             emissionCtx?.SetSiblingSubscriptFallbacks(
                 EveryProtocolEmitter.ComputeSiblingSubscriptFallbacks(planInputProtocols));
 
+            // Sibling-method plan + fallback map: same-signature-method counterpart of the property
+            // and subscript sibling pipelines. The owner of a shared method signature emits the body
+            // with fan-out across every sibling's per-protocol vtable index; siblings emit empty
+            // extensions. Without this, a C# impl conforming to ONLY a non-owner protocol would
+            // dispatch through the owner's nil global vtable and SIGSEGV on the force-unwrap.
+            // These are instance methods (not static) because the grouping key is the projected
+            // Swift signature. See EveryProtocolEmitter.ComputeMethodEmissionPlans.
+            var methodPlans = emitter.ComputeMethodEmissionPlans(planInputProtocols, filteredPeers);
+            emissionCtx?.SetSiblingMethodFallbacks(
+                emitter.ComputeSiblingMethodFallbacks(planInputProtocols));
+
             // Emit conformances and witness dispatch accessors for each suitable protocol
             foreach (var protocolDecl in suitableProtocols)
             {
                 _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans);
+                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans, methodPlans);
                 // Skip witness dispatch for mixed-generic protocols — the type projection
                 // pipeline generates incorrect types when method-level generic parameters
                 // are in scope (e.g., RxTime→Double instead of Date).
@@ -1282,7 +1293,7 @@ namespace BindingsGeneration
             foreach (var parentDecl in crossModuleParents)
             {
                 _logger.LogDebug($"Emitting cross-module parent EveryProtocol conformance for {parentDecl.ModuleDecl?.Name}.{parentDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, parentDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans);
+                emitter.EmitProtocolConformance(swiftWriter, parentDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans, methodPlans);
             }
         }
 

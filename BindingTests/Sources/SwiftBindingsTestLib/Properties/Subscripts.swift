@@ -56,22 +56,27 @@ public class IndexedStore {
 // that fixture never caught the regression. Mirrors GRDB's
 // `PersistenceContainer.subscript(_:) -> (any DatabaseValueConvertible)?`.
 
-// NOTE: the protocol method is named `describeBag()` rather than the more natural
-// `describe()` deliberately. `describe()` collides with the shared method signature that the
-// existential-proxy emitter already materializes on its `EveryProtocol` catch-all (several
-// other test-lib protocols declare `func describe() -> String`), which makes the generator
-// emit an EMPTY `extension EveryProtocol: StoredItem {}` that fails to conform and gets
-// stripped — a separate, pre-existing existential-proxy dedup bug unrelated to the
-// optional-pointer-wrapper regression under test here. A unique name keeps this fixture a
-// clean probe for the subscript-setter `newValue` escape.
+// `describe()` deliberately collides with the shared method signature that the
+// existential-proxy emitter materializes on its `EveryProtocol` catch-all (many other
+// test-lib protocols declare `func describe() -> String`). `StoredItem` is therefore a
+// "loser" in that same-signature group: the emitter emits an EMPTY
+// `extension EveryProtocol: StoredItem {}` and routes its `describe()` witness into the
+// owner's body via Swift cross-extension resolution. This name doubles as the audit item 1
+// Bug #1 end-to-end regression: the build-harness source stripper formerly stripped that
+// empty extension while leaving `Get_EveryProtocol_StoredItem_WitnessTable` orphaned, which
+// failed to compile and triggered a coarse retry-strip cascade that silently dropped
+// unrelated symbols (e.g. `ItemBag_init`) → EntryPointNotFoundException at runtime. With the
+// stripper fix (orphaned-getter strip in lock-step) and the method fan-out (Bug #2), the
+// natural `describe()` name is safe here, so the fixture also exercises the real collision
+// rather than dodging it with a unique name.
 public protocol StoredItem {
-    func describeBag() -> String
+    func describe() -> String
 }
 
 public struct BaggedItem: StoredItem {
     public let name: String
     public init(name: String) { self.name = name }
-    public func describeBag() -> String { return "BaggedItem(\(name))" }
+    public func describe() -> String { return "BaggedItem(\(name))" }
 }
 
 /// Value-type (struct) container with an optional-existential subscript. The dictionary
@@ -90,7 +95,7 @@ public struct ItemBag {
     /// Known-good readback path (plain String return) so the subscript SETTER can be
     /// verified independently of the optional-existential subscript getter.
     public func describeItem(_ key: String) -> String {
-        return storage[key]?.describeBag() ?? "none"
+        return storage[key]?.describe() ?? "none"
     }
 
     public func count() -> Int32 { Int32(storage.count) }

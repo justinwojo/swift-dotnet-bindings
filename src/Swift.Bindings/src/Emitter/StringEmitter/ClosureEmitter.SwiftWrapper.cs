@@ -1014,19 +1014,23 @@ public static partial class ClosureEmitter
             }
             else if (useCdecl)
             {
-                // Non-closure, non-large param in @_cdecl mode: convert to C-compatible type
+                // Non-closure, non-large param in @_cdecl mode: convert to C-compatible type.
+                // omitLabels:false so a small blittable Optional (Int32?/Double?/CGFloat?…) is
+                // DECODED here — this wrapper forwards to the ORIGINAL method, which expects the
+                // decoded Optional, not the bare UnsafeRawPointer that omitLabels:true forwards
+                // (that mode is correct only for _dbw_init_* dispatch targets, which decode the
+                // pointer internally). Consume the mapper's returned callArg verbatim so the local
+                // name carries whatever suffix the mapper declared (Opt for blittable primitives,
+                // Val for everything else) — the same single-source-of-truth approach
+                // PropertyWrapperEmitter uses, instead of re-deriving the suffix here.
                 var label_ = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-                // Match the synthetic/sibling-collision escape CdeclParamMapper.Map applies internally,
-                // so the manually-built call value ({label_}Val) references the same binding Map declared.
                 label_ = NameProvider.EscapeReservedSwiftWrapperLabel(
                     label_, CdeclParamMapper.ExcludeSelf(closureSiblings, label_));
                 var (cdeclParam, reconstruction, callArg) =
-                    CdeclParamMapper.Map(arg, label_, env, omitLabels: true, reservedSiblings: closureSiblings);
+                    CdeclParamMapper.Map(arg, label_, env, omitLabels: false, reservedSiblings: closureSiblings);
                 swiftParams.Add(cdeclParam);
                 if (reconstruction != null) adapterCode.Add(reconstruction);
-                var swiftArgLabel = GetSwiftArgLabel(arg);
-                var valueRef = reconstruction != null ? $"{label_}Val" : csName;
-                callArgs.Add($"{swiftArgLabel}{valueRef}");
+                callArgs.Add(callArg);
             }
             else
             {

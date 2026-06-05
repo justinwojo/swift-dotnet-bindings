@@ -226,6 +226,23 @@ public static class SwiftSourceStripper
         // the broader HasMethodLevelGenericInSignature classification.
         "CombinedMixedSelfGeneric",
         "CombinedRegularSibling",
+        // Sibling-protocol METHOD dispatch (audit item 1, Bug #2): two class-bound
+        // protocols declare the same method signature. The owner (SiblingMethodOwner,
+        // lex-min) emits the shared body; SiblingMethodPeer gets an EMPTY extension
+        // routed via Swift cross-extension resolution. The owner body fans out across
+        // both vtables and the receiver tries each sibling interface, so the Peer's
+        // witness-table getter must survive stripping for the per-instance C# proxy of
+        // the non-owner to be located. SiblingMethodDispatchTests is the runtime gate.
+        "SiblingMethodOwner",
+        "SiblingMethodPeer",
+        // Sibling-method NAME divergence (audit item 1, Codex r1 Medium): same same-signature
+        // fan-out shape, but SiblingNameOwner ALSO declares a `collidingTag` property that
+        // collides with its `collidingTag(_:)` method, renaming the method on the owner side
+        // only. SiblingNamePeer keeps the plain name; the owner receiver's sibling-fallback
+        // must call the Peer's OWN name. Both conformances are reverse-dispatched by
+        // SiblingMethodDispatchTests, so their witness-table getters must survive stripping.
+        "SiblingNameOwner",
+        "SiblingNamePeer",
         // Audit P1-08 WRITE direction: a C# class implements MarkerProvider and is vended
         // to Swift through consumeMarkerProvider. The marshaller wraps the C# conformer in
         // the EveryProtocol-backed proxy, so Get_EveryProtocol_MarkerProvider_WitnessTable
@@ -276,6 +293,20 @@ public static class SwiftSourceStripper
     private static readonly Regex VtableField = new(
         @"\bvar\s+func_(?<name>.+)_(?<suffix>get|set|\d+)\b", RegexOptions.Compiled);
 
+    // `@_cdecl("Get_EveryProtocol_<Protocol>_WitnessTable")` — the witness-table getter
+    // that binds `var proto: any <Protocol> = instance`. It is the ONLY symbol that depends
+    // on the `extension EveryProtocol: <Protocol>` conformance actually existing; no other
+    // strip pattern catches it (it is a plain `public func`, not `SBW_`/`PInvoke_`). When
+    // Pattern 1 removes the conformance extension this getter is orphaned — swiftc rejects
+    // its `any <Protocol>` bind, and the coarse line-based retry strip then deletes the
+    // error-enclosing functions, which cascades into UNRELATED symbols in the same file
+    // (observed: a stripped same-signature loser conformance taking out an unrelated
+    // `..._init`, surfacing at runtime as EntryPointNotFoundException). Strip the getter in
+    // lock-step with its extension. The captured name is the unqualified protocol name, which
+    // matches EveryProtocolExtensionHeader's capture for the common (non-nested) case.
+    private static readonly Regex WitnessTableGetterCdecl = new(
+        @"^\s*@_cdecl\(""Get_EveryProtocol_(\w+)_WitnessTable""\)", RegexOptions.Compiled);
+
     /// <summary>
     /// Result of stripping a single file.
     /// </summary>
@@ -304,6 +335,13 @@ public static class SwiftSourceStripper
         // declares at least one of those missing required names.
         var crossExtensionRequired = CollectCrossExtensionRequiredNames(lines);
 
+        // Pre-scan the conformance extensions Pattern 1 will strip so the orphaned
+        // witness-table getter (Pattern 1b below) can be removed in lock-step. Uses the
+        // exact same decision predicate as Pattern 1 (ShouldStripEveryProtocolBlock) so the
+        // two never disagree — a getter stripped for a kept conformance would itself break
+        // compile.
+        var strippedExtensionProtocols = CollectStrippedExtensionProtocols(lines, crossExtensionRequired);
+
         while (i < lines.Length)
         {
             var line = lines[i];
@@ -314,14 +352,26 @@ public static class SwiftSourceStripper
             if (stripped.StartsWith("extension EveryProtocol") || stripped.StartsWith("class EveryProtocol"))
             {
                 int end = FindBlockEnd(lines, i);
-                var body = ScanBlockBody(lines, i, end);
-                if (!ReferencesPreservedProtocol(body) &&
-                    !ProvidesCrossExtensionWitness(body, crossExtensionRequired))
+                if (ShouldStripEveryProtocolBlock(lines, i, end, crossExtensionRequired))
                 {
                     removedCount++;
                     i = end + 1;
                     continue;
                 }
+            }
+
+            // Pattern 1b: strip the witness-table getter for any EveryProtocol conformance
+            // Pattern 1 removed. Without this the getter's `any <Protocol> = instance` bind is
+            // orphaned and the retry strip cascades into unrelated symbols. Safe because a
+            // non-preserved conformance has no runtime test reverse-dispatching it, so its
+            // getter is never P/Invoked.
+            var wtGetterMatch = WitnessTableGetterCdecl.Match(line);
+            if (wtGetterMatch.Success && strippedExtensionProtocols.Contains(wtGetterMatch.Groups[1].Value))
+            {
+                int end = FindBlockEnd(lines, i);
+                removedCount++;
+                i = end + 1;
+                continue;
             }
 
             // Pattern 2: Skip @_silgen_name + function blocks that have broken patterns.
@@ -554,6 +604,53 @@ public static class SwiftSourceStripper
     private static bool ReferencesPreservedProtocol(string body)
     {
         return PreservedProtocolPattern.IsMatch(body);
+    }
+
+    /// <summary>
+    /// The shared decision predicate for Pattern 1: a non-preserved EveryProtocol block whose
+    /// body neither references a preserved protocol nor supplies a cross-extension witness for
+    /// a preserved sibling is dropped. Extracted so the Pattern 1b getter pre-scan
+    /// (<see cref="CollectStrippedExtensionProtocols"/>) and the inline Pattern 1 strip stay in
+    /// lock-step — if they ever diverged, a stripped getter could outlive its conformance (or
+    /// vice-versa), reintroducing the orphan-compile cascade this is meant to prevent.
+    /// </summary>
+    private static bool ShouldStripEveryProtocolBlock(
+        string[] lines, int start, int end, HashSet<WitnessKey> crossExtensionRequired)
+    {
+        var body = ScanBlockBody(lines, start, end);
+        return !ReferencesPreservedProtocol(body)
+            && !ProvidesCrossExtensionWitness(body, crossExtensionRequired);
+    }
+
+    /// <summary>
+    /// Pre-scans which <c>extension EveryProtocol: P</c> blocks Pattern 1 will strip and returns
+    /// their (unqualified) protocol names. The matching <c>Get_EveryProtocol_P_WitnessTable</c>
+    /// getter binds <c>any P = instance</c> and only compiles while the conformance survives;
+    /// it is caught by no other strip pattern, so when its extension is removed the getter is
+    /// orphaned, fails to compile, and the line-based retry strip cascades into unrelated
+    /// symbols. Collecting the names here lets <see cref="StripFile"/> drop the getter in
+    /// lock-step. Only the <c>extension</c> form (not the bare <c>class EveryProtocol</c>) is
+    /// scanned, since only conformance extensions back a witness-table getter.
+    /// </summary>
+    private static HashSet<string> CollectStrippedExtensionProtocols(
+        string[] lines, HashSet<WitnessKey> crossExtensionRequired)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        int i = 0;
+        while (i < lines.Length)
+        {
+            var match = EveryProtocolExtensionHeader.Match(lines[i]);
+            if (match.Success)
+            {
+                int end = FindBlockEnd(lines, i);
+                if (ShouldStripEveryProtocolBlock(lines, i, end, crossExtensionRequired))
+                    result.Add(match.Groups[1].Value);
+                i = end + 1;
+                continue;
+            }
+            i++;
+        }
+        return result;
     }
 
     /// <summary>

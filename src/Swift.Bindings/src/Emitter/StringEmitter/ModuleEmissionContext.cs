@@ -274,6 +274,59 @@ public sealed class ModuleEmissionContext
             ? list : null;
     }
 
+    // ==================== Sibling Method Fallback Map ====================
+
+    /// <summary>
+    /// A sibling fallback entry for a method in a same-signature group. <see cref="Proto"/> is one
+    /// of the OTHER protocols that declares the same Swift method signature (name + argument labels
+    /// + parameter types + return type). Methods have no accessor sets, so — unlike
+    /// <see cref="SiblingPropertyFallback"/> / <see cref="SiblingSubscriptFallback"/> — only the
+    /// protocol is recorded.
+    /// </summary>
+    public readonly record struct SiblingMethodFallback(ProtocolDecl Proto);
+
+    private readonly Dictionary<(string ProtoQName, string MethodKey), IReadOnlyList<SiblingMethodFallback>>
+        _siblingMethodFallbacks = new();
+
+    /// <summary>
+    /// Records the sibling-protocol fallback list for each (protocol, method) participating in a
+    /// same-signature method group. A "sibling group" is two or more protocols that declare the same
+    /// Swift method signature — see <see cref="EveryProtocolEmitter.ComputeMethodEmissionPlans"/>
+    /// for the resolution rules.
+    ///
+    /// <para>Consumed by <c>ProtocolProxyEmitter.EmitMethodReceiver</c>: when a method is in a
+    /// sibling group, the receiver tries its own interface first and then falls back to the recorded
+    /// sibling interfaces. The Swift owner-body fan-out can pick any populated sibling vtable, so
+    /// whichever receiver runs must locate the proxy via per-instance SwiftObjectRegistry lookups
+    /// across all sibling interfaces. Without this fallback the chosen vtable's proxy class cannot
+    /// see a handle registered as a different sibling's proxy and returns the dead-impl null value.</para>
+    ///
+    /// <para>Key shape: <c>(ProtoQName, MethodKey)</c> where MethodKey is the projection-free
+    /// <c>GetMethodSiblingMapKey</c> string. The receiver reproduces the same key from the same
+    /// <c>MethodDecl</c>, so the lookup is consistent without recomputing the projected signature.</para>
+    /// </summary>
+    public void SetSiblingMethodFallbacks(
+        IReadOnlyDictionary<(string ProtoQName, string MethodKey), IReadOnlyList<SiblingMethodFallback>> map)
+    {
+        _siblingMethodFallbacks.Clear();
+        foreach (var kvp in map)
+            _siblingMethodFallbacks[kvp.Key] = kvp.Value;
+    }
+
+    /// <summary>
+    /// Returns the sibling-protocol fallback list for <paramref name="protoQualifiedName"/>'s method
+    /// identified by <paramref name="methodKey"/>, or <c>null</c> when the method is not in a
+    /// sibling group.
+    /// </summary>
+    public IReadOnlyList<SiblingMethodFallback>? GetSiblingMethodFallbacks(
+        string protoQualifiedName, string methodKey)
+    {
+        if (string.IsNullOrEmpty(protoQualifiedName) || string.IsNullOrEmpty(methodKey))
+            return null;
+        return _siblingMethodFallbacks.TryGetValue((protoQualifiedName, methodKey), out var list)
+            ? list : null;
+    }
+
     // ==================== Protocol Extension Defaults Index ====================
 
     /// <summary>

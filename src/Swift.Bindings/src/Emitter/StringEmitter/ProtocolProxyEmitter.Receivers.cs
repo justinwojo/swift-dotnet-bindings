@@ -958,6 +958,26 @@ public partial class ProtocolProxyEmitter
 
         var csharpReturnType = hasReturn ? "IntPtr" : "void";
 
+        // Sibling-method fallback: when this method participates in a same-signature group (two or
+        // more protocols declaring the same Swift method signature), the Swift owner body fans out
+        // across sibling vtables and may pick ANY populated sibling's vtable — not the one matching
+        // the proxy registered for this EveryProtocol instance. Without a per-instance fallback the
+        // owner's receiver cannot locate a smaller-sibling proxy and returns the dead-impl null
+        // value. We try this interface first, then the recorded sibling interfaces. Restricted to
+        // plain sync value/string/ObjC-return methods — exactly the shape the Swift side fans out
+        // (async Task returns and dispatchable-closure params take other emit paths that do not
+        // fan out, so applying the fallback there would mis-marshal). See
+        // EveryProtocolEmitter.ComputeSiblingMethodFallbacks.
+        bool hasDispatchableClosureParamForFallback = nonEmptyParams.Any(p =>
+            EveryProtocolEmitter.TryGetDispatchableClosureParam(p.SwiftTypeSpec, closureHandlerForParams, out _, out _));
+        IReadOnlyList<ModuleEmissionContext.SiblingMethodFallback>? siblingFallbacks = null;
+        if (!method.IsAsync && !hasDispatchableClosureParamForFallback)
+        {
+            var protoQNameForMethod = EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl);
+            var methodMapKey = EveryProtocolEmitter.GetMethodSiblingMapKey(method);
+            siblingFallbacks = _emissionContext.GetSiblingMethodFallbacks(protoQNameForMethod, methodMapKey);
+        }
+
         writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static {csharpReturnType} {receiverName}({paramTypes})");
         writer.WriteLine("{");
@@ -1008,15 +1028,22 @@ public partial class ProtocolProxyEmitter
             // MarshalToSwiftBuffer<T>. See BuildReceiverNullFallbackExpr.
             methodNullReturnExpr = $"return {BuildReceiverNullFallbackExpr(methodCarrierTypeName)};";
         }
-        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-        writer.Indent++;
-        writer.WriteLine(methodNullReturnExpr);
-        writer.Indent--;
-        writer.WriteLine("var impl = proxy.UserImpl;");
-        writer.WriteLine("if (impl is null)");
-        writer.Indent++;
-        writer.WriteLine(methodNullReturnExpr);
-        writer.Indent--;
+        // No-sibling path acquires the proxy/impl eagerly (byte-identical to the historic shape).
+        // The sibling path skips this and instead does per-interface lookups after unmarshalling,
+        // since params must be unmarshalled once before trying each sibling impl.
+        bool useMethodSiblingFallback = siblingFallbacks != null && siblingFallbacks.Count > 0;
+        if (!useMethodSiblingFallback)
+        {
+            writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
+            writer.Indent++;
+            writer.WriteLine(methodNullReturnExpr);
+            writer.Indent--;
+            writer.WriteLine("var impl = proxy.UserImpl;");
+            writer.WriteLine("if (impl is null)");
+            writer.Indent++;
+            writer.WriteLine(methodNullReturnExpr);
+            writer.Indent--;
+        }
 
         // Unmarshal parameters - use param{i} for local variable names to avoid conflicts with rawArg{i}
         // B10: After unmarshalling, apply type conversion from ABI to idiomatic C# types
@@ -1126,50 +1153,51 @@ public partial class ProtocolProxyEmitter
         // because a same-named property took the PascalCased slot (CS1955), and
         // static-property collisions are missed while skipped-property collisions
         // are over-applied.
-        var protoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
-                               ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
-        var canonicalPropertyNames = _emissionContext.GetInterfacePropertyNames(protoQualifiedName);
-        HashSet<string> receiverPropertyNames;
-        if (canonicalPropertyNames != null)
-        {
-            receiverPropertyNames = new HashSet<string>(canonicalPropertyNames);
-        }
-        else
-        {
-            // Defensive fallback: the prepass populates the cache for every protocol in
-            // the module, so this branch should not trigger in practice. Mirror the
-            // canonical construction (instance + emitted static).
-            receiverPropertyNames = new HashSet<string>();
-            foreach (var property in protocolDecl.Properties)
-            {
-                if (property.IsStatic)
-                {
-                    if (_staticAbstractPropertyNames.Contains(property.Name))
-                        receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
-                }
-                else if (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name))
-                {
-                    receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
-                }
-            }
-        }
-        var pascalMethodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
-            propertyNames: receiverPropertyNames,
-            isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+        // The public C# method name depends on the TARGET protocol's OWN property set (a
+        // same-named property steals the PascalCased slot, renaming the method). Compute it
+        // per protocol via ComputeReceiverPascalMethodName so the sibling-fallback calls below
+        // bind to each sibling's own emitted name, not the primary protocol's.
+        var pascalMethodName = ComputeReceiverPascalMethodName(method, protocolDecl, hasReturn, isSelfReturning);
 
-        if (hasReturn)
+        // Return-conversion metadata is emitter-side (not generated output); compute it once so the
+        // eager-impl path and every sibling-fallback lookup block share the identical conversion.
+        // String returns use Utf8Slice encoding to avoid ARC issues with SwiftString (skip async —
+        // their C# return is Task<string>, not string). The existential→getter fallback covers
+        // ObjC-bridgeable, Date, NativeRemapped, etc.; without it a return of e.g. Foundation.NSUrl
+        // would write a managed reference via MarshalToSwiftBuffer instead of extracting the .Handle
+        // ObjC pointer Swift expects (also skipped for async: the C# return is Task<T>, not T).
+        bool isStringMethodReturn = hasReturn && !method.IsAsync && IsStringTypeSpec(returnType!);
+        string? returnConv = null;
+        if (hasReturn && !isStringMethodReturn)
         {
-            // String returns use Utf8Slice encoding to avoid ARC issues with SwiftString.
-            // Skip async methods — their C# return is Task<string>, not string.
-            bool isStringMethodReturn = !method.IsAsync && IsStringTypeSpec(returnType!);
-            var existentialReturnConv = GetReceiverExistentialGetterConversion("result", returnType!);
-            // Fall back to regular getter conversion for ObjC-bridgeable, Date, NativeRemapped, etc.
-            // Without this, method returns of e.g. Foundation.NSUrl write a managed reference via
-            // MarshalToSwiftBuffer instead of extracting .Handle (the ObjC pointer Swift expects).
-            // Skip async methods — their C# return is Task<T>, not T, so .Handle doesn't apply.
-            var returnConv = existentialReturnConv
+            returnConv = GetReceiverExistentialGetterConversion("result", returnType!)
                 ?? (method.IsAsync ? null : GetReceiverGetterConversion("result", returnType!));
+        }
+
+        if (useMethodSiblingFallback)
+        {
+            // The Swift owner body fans out across sibling vtables and may dispatch into whichever
+            // sibling proxy the C# impl populated — not necessarily the one matching this interface.
+            // Params are already unmarshalled once above; try this interface first, then each
+            // recorded sibling interface, then fall back to the dead-impl null value.
+            EmitMethodLookupHit(writer, interfaceName, "primary", pascalMethodName, argsString, hasReturn, isStringMethodReturn, returnConv);
+            int siblingIdx = 0;
+            foreach (var sibling in siblingFallbacks!)
+            {
+                var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                // The sibling interface names this method from ITS OWN property set, which may
+                // differ from the primary's (one declares a same-named property forcing a rename,
+                // the other does not). Resolve per sibling so the call binds to the name that
+                // interface actually emitted — reusing pascalMethodName would emit a call to a
+                // method the sibling interface never defined (CS1061/CS1955).
+                var siblingPascalMethodName = ComputeReceiverPascalMethodName(method, sibling.Proto, hasReturn, isSelfReturning);
+                EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, argsString, hasReturn, isStringMethodReturn, returnConv);
+                siblingIdx++;
+            }
+            writer.WriteLine(methodNullReturnExpr);
+        }
+        else if (hasReturn)
+        {
             writer.WriteLine($"var result = impl.{pascalMethodName}({argsString});");
             if (isStringMethodReturn)
             {
@@ -1194,6 +1222,56 @@ public partial class ProtocolProxyEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Computes the public C# method name the interface for <paramref name="proto"/> emits for
+    /// <paramref name="method"/>, mirroring the property-collision rename applied during interface
+    /// emission (ProtocolProxyEmitter.InterfaceImpl.cs L62–L88): a same-named property takes the
+    /// PascalCased slot, renaming the method (e.g. <c>RichText(range)</c> → <c>RichTextMethod(range)</c>).
+    /// <para>Resolved against the canonical cached property-name set (populated by ProtocolHandler /
+    /// InterfacePropertyNamePrecomputer for every protocol in the module) so the receiver's view
+    /// matches what the interface actually emits — including static-abstract property names and
+    /// excluding skipped instance properties.</para>
+    /// <para>Computed PER protocol because the same-signature sibling fan-out calls into multiple
+    /// sibling interfaces, and the method name depends on each TARGET protocol's own property set.
+    /// Reusing one protocol's name for a sibling whose property set differs would emit a call to a
+    /// method that sibling interface never defined (CS1061/CS1955).</para>
+    /// </summary>
+    private string ComputeReceiverPascalMethodName(
+        MethodDecl method, ProtocolDecl proto, bool hasReturn, bool isSelfReturning)
+    {
+        var protoQualifiedName = proto.SwiftTypeName?.ModuleQualifiedName
+                               ?? $"{proto.ModuleDecl?.Name ?? "Unknown"}.{proto.Name}";
+        var canonicalPropertyNames = _emissionContext.GetInterfacePropertyNames(protoQualifiedName);
+        HashSet<string> receiverPropertyNames;
+        if (canonicalPropertyNames != null)
+        {
+            receiverPropertyNames = new HashSet<string>(canonicalPropertyNames);
+        }
+        else
+        {
+            // Defensive fallback: the prepass populates the cache for every protocol in
+            // the module, so this branch should not trigger in practice. Mirror the
+            // canonical construction (instance + emitted static).
+            receiverPropertyNames = new HashSet<string>();
+            foreach (var property in proto.Properties)
+            {
+                if (property.IsStatic)
+                {
+                    if (_staticAbstractPropertyNames.Contains(property.Name))
+                        receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                }
+                else if (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name))
+                {
+                    receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                }
+            }
+        }
+        return NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+            propertyNames: receiverPropertyNames,
+            isSelfReturning: isSelfReturning,
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
     }
 
     /// <summary>
@@ -2014,6 +2092,54 @@ public partial class ProtocolProxyEmitter
         else
         {
             writer.WriteLine("return MarshalToSwiftBuffer(result);");
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits a try-lookup block for one interface in a sibling-method receiver. On lookup hit,
+    /// invokes the impl method (params threaded in via <paramref name="argsString"/>), then for a
+    /// returning method applies any conversion and returns via the appropriate marshalling helper;
+    /// for a void method calls and returns. On miss, falls through to the next sibling. Uses bare
+    /// <c>result</c>/<c>swiftResult</c> (each block is its own C# scope) so the shared
+    /// <paramref name="returnConv"/> expression — which references <c>result</c> — binds correctly.
+    /// </summary>
+    private static void EmitMethodLookupHit(CSharpWriter writer, string interfaceName, string slug,
+        string pascalMethodName, string argsString, bool hasReturn, bool isStringReturn, string? returnConv)
+    {
+        var proxyVar = $"proxy_{slug}";
+        var implVar = $"impl_{slug}";
+        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
+        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        if (hasReturn)
+        {
+            writer.WriteLine($"var result = {implVar}.{pascalMethodName}({argsString});");
+            if (isStringReturn)
+            {
+                writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+            }
+            else if (returnConv != null)
+            {
+                writer.WriteLine($"var swiftResult = {returnConv};");
+                writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+            }
+            else
+            {
+                writer.WriteLine("return MarshalToSwiftBuffer(result);");
+            }
+        }
+        else
+        {
+            writer.WriteLine($"{implVar}.{pascalMethodName}({argsString});");
+            writer.WriteLine("return;");
         }
         writer.Indent--;
         writer.WriteLine("}");

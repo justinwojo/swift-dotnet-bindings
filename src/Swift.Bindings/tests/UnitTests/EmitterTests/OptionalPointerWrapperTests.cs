@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -1420,6 +1421,100 @@ public class OptionalPointerWrapperTests
         Assert.True(valueIdx >= 0, "value param not found in wrapper output");
         Assert.True(resultPtrIdx < valueIdx,
             $"resultPtr (pos {resultPtrIdx}) must appear before value param (pos {valueIdx})");
+    }
+
+    #endregion
+
+    #region Blittable-Optional @_cdecl Decode (REMEDIATION-PLAN §6)
+
+    // These two tests pin the omitLabels:false decode of a small blittable Optional (Int32?)
+    // on the @_cdecl FALLBACK wrapper paths — OptionalPointerWrapperEmitter and the closure
+    // ClosureEmitter wrapper. They drive the emitters DIRECTLY (not through the MethodHandler
+    // pipeline) on purpose: in the live pipeline, MethodWrapperEmitter.ShouldEmitWrapper claims
+    // every compilable method of this shape and sets UsesWrapperLibrary, so the Phase-1 gates for
+    // these two fallback emitters never fire — the branch under test is not reachable by any
+    // compilable Swift shape today. The defect is therefore LATENT. A small blittable Optional
+    // reaching `else if (useCdecl)` in either fallback emitter was previously mapped with
+    // omitLabels:true (the bare-pointer shape, correct only for _dbw_init_* dispatch targets that
+    // decode internally), forwarding an UnsafeRawPointer to a method expecting Int32?. swiftc
+    // would reject the wrapper, the build would strip it, and the entry point would trap at
+    // runtime. These tests assert the hardened decode at the branch directly so a future routing
+    // change that makes the branch reachable cannot silently reintroduce the bug.
+
+    [Fact]
+    public void EmitSwiftWrapper_Cdecl_SmallBlittableOptional_IsDecodedNotRawPointer()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        // A large Optional<String> (widened to UnsafeRawPointer) rides alongside a small
+        // Optional<Int32> — the small one is what hits the `else if (useCdecl)` branch.
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var optInt32Type = new NamedTypeSpec("Swift.Optional");
+        optInt32Type.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+
+        var method = CreateMethodDecl("describe", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("big", optStringType, moduleDecl));
+        method.CSSignature.Add(CreateArgument("n", optInt32Type, moduleDecl));
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        OptionalPointerWrapperEmitter.EmitSwiftWrapper(
+            swiftWriter, new MethodEnvironment(method, typeDatabase), parentDecl, useCdecl: true);
+
+        var swift = swiftOutput.ToString();
+
+        // The `let nOpt` local and the `.advanced(by: 4).load(as: UInt8.self)` tag read are unique
+        // to the blittable-primitive decode and cannot appear under omitLabels:true (which emits no
+        // reconstruction and forwards the bare pointer).
+        Assert.Contains("let nOpt: Int32? =", swift);
+        Assert.Contains(".advanced(by: 4).load(as: UInt8.self)", swift);
+        Assert.Contains("load(as: Int32.self)", swift);
+        // The param is still received as a raw pointer (the buffer address)...
+        Assert.Contains("_ n: UnsafeRawPointer", swift);
+        // ...but the wrapper DECODES then FORWARDS the local: nOpt appears twice (declaration +
+        // call site). Under the bug, nOpt would not exist at all and `n` would be forwarded raw.
+        Assert.True(Regex.Matches(swift, "nOpt").Count >= 2,
+            $"nOpt must be declared and forwarded; output was:\n{swift}");
+    }
+
+    [Fact]
+    public void EmitClosureCdeclSwiftWrapper_Cdecl_SmallBlittableOptional_IsDecodedNotRawPointer()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        // An escaping (Int32) -> Void closure (the wrapper reason) rides alongside a small
+        // Optional<Int32> — the small one hits the `else if (useCdecl)` branch.
+        var optInt32Type = new NamedTypeSpec("Swift.Optional");
+        optInt32Type.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int32"), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("addOptionalWithClosure", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("n", optInt32Type, moduleDecl));
+        method.CSSignature.Add(CreateArgument("onDone", closureType, moduleDecl));
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        ClosureEmitter.EmitClosureCdeclSwiftWrapper(
+            swiftWriter, new MethodEnvironment(method, typeDatabase), parentDecl, useCdecl: true);
+
+        var swift = swiftOutput.ToString();
+
+        Assert.Contains("let nOpt: Int32? =", swift);
+        Assert.Contains(".advanced(by: 4).load(as: UInt8.self)", swift);
+        Assert.Contains("load(as: Int32.self)", swift);
+        Assert.Contains("_ n: UnsafeRawPointer", swift);
+        Assert.True(Regex.Matches(swift, "nOpt").Count >= 2,
+            $"nOpt must be declared and forwarded; output was:\n{swift}");
     }
 
     #endregion

@@ -168,26 +168,32 @@ public static class OptionalPointerWrapperEmitter
             }
             else if (useCdecl)
             {
-                // Non-large param in @_cdecl mode: convert to C-compatible type
+                // Non-large param in @_cdecl mode: convert to C-compatible type.
+                // omitLabels:false so a small blittable Optional is DECODED — this wrapper forwards
+                // to the ORIGINAL method/setter, which expects the decoded Optional, not the bare
+                // UnsafeRawPointer omitLabels:true forwards (correct only for _dbw_init_* dispatch
+                // targets that decode the pointer internally). Mirrors PropertyWrapperEmitter: take
+                // the value expression from the mapper's callArg (stripping any "label: " prefix) so
+                // the suffix the mapper chose (Opt for blittable primitives, Val otherwise) is used
+                // verbatim — both for the call site and the setter-assignment RHS in valueArgs.
                 var label_ = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
                 // Swift's `_` is a discard pattern — cannot be used as a variable name in the body.
                 if (label_ == "_")
                     label_ = $"arg{argIndex}";
-                // Match the synthetic/sibling-collision escape CdeclParamMapper.Map applies internally,
-                // so the manually-built call value ({label_}Val) references the same binding Map declared.
                 // The setter value param is exempt — it IS the synthetic (see above), so it must not be
                 // escaped here or inside Map, or the declaration diverges from the bare-name body RHS.
                 if (!isSetterValueParam)
                     label_ = NameProvider.EscapeReservedSwiftWrapperLabel(
                         label_, CdeclParamMapper.ExcludeSelf(optSiblings, label_));
                 var (cdeclParam, reconstruction, callArg) =
-                    CdeclParamMapper.Map(arg, label_, env, omitLabels: true,
+                    CdeclParamMapper.Map(arg, label_, env, omitLabels: false,
                         escapeReservedCollision: !isSetterValueParam, reservedSiblings: optSiblings);
                 swiftParams.Add(cdeclParam);
                 if (reconstruction != null) derefCode.Add(reconstruction);
-                var swiftArgLabel = GetSwiftArgLabel(arg);
-                var valueRef = reconstruction != null ? $"{label_}Val" : csName;
-                callArgs.Add($"{swiftArgLabel}{valueRef}");
+                // callArg is "{argLabel: }{value}"; strip the leading label for the bare valueArgs RHS.
+                var colonIdx = callArg.IndexOf(':');
+                var valueRef = colonIdx >= 0 ? callArg[(colonIdx + 2)..] : callArg;
+                callArgs.Add(callArg);
                 valueArgs.Add(valueRef);
             }
             else

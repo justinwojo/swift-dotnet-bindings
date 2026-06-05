@@ -308,6 +308,119 @@ public class EveryProtocolEmitterTests
         Assert.Contains("extension EveryProtocol: TestModule.SecondProtocol", secondOutput);
     }
 
+    // -- Same-signature method fan-out (audit item 1, Bug #2). When method plans
+    //    are supplied, the lex-min protocol OWNS the shared body and fans out
+    //    across every sibling vtable, instead of the legacy first-seen-wins dedup
+    //    above (which left the non-owner's witness routed to the owner's OWN
+    //    vtable and crashed when only the non-owner's proxy was populated). --
+
+    [Fact]
+    public void ComputeMethodEmissionPlans_SameSignatureAcrossTwoProtocols_PicksLexMinOwnerWithBothSiblings()
+    {
+        var first = CreateProtocolWithMethod("FirstProtocol", "conflict");
+        var second = CreateProtocolWithMethod("SecondProtocol", "conflict");
+
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { second, first });
+
+        // One group → one plan, referenced by an entry for each protocol.
+        var plan = Assert.Single(new HashSet<EveryProtocolEmitter.MethodEmissionPlan>(plans.Values));
+        Assert.Equal("FirstProtocol", plan.Owner.Name); // lex-min owner, independent of input order
+        Assert.Equal(2, plan.Siblings.Count);
+        Assert.Equal("FirstProtocol", plan.Siblings[0].Proto.Name); // owner first
+        Assert.Equal("SecondProtocol", plan.Siblings[1].Proto.Name);
+    }
+
+    [Fact]
+    public void ComputeMethodEmissionPlans_SoloMethod_OwnerIsSelfWithSingleBranch()
+    {
+        var solo = CreateProtocolWithMethod("SoloProtocol", "only");
+
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { solo });
+
+        var plan = Assert.Single(plans.Values);
+        Assert.Same(solo, plan.Owner);
+        Assert.Single(plan.Siblings); // no siblings → single-branch (byte-identical legacy output)
+        Assert.False(plan.HasFilteredPeers);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_WithMethodPlans_OwnerEmitsFanOutAcrossSiblingVtables()
+    {
+        var first = CreateProtocolWithMethod("FirstProtocol", "conflict");
+        var second = CreateProtocolWithMethod("SecondProtocol", "conflict");
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { first, second });
+
+        var ownerOutput = EmitFullConformanceWithMethodPlans(first, plans);
+
+        Assert.Contains("public func conflict()", ownerOutput);
+        // Fan-out shape: a nil-checked branch per sibling vtable + a fatalError tail.
+        Assert.Contains("else if", ownerOutput);
+        Assert.Contains("no sibling vtable populated for method conflict", ownerOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_WithMethodPlans_NonOwnerEmitsEmptyExtension()
+    {
+        var first = CreateProtocolWithMethod("FirstProtocol", "conflict");
+        var second = CreateProtocolWithMethod("SecondProtocol", "conflict");
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { first, second });
+
+        var loserOutput = EmitFullConformanceWithMethodPlans(second, plans);
+
+        // The non-owner conforms via an empty extension; Swift cross-extension
+        // resolution routes its requirement into the owner's body.
+        Assert.Contains("extension EveryProtocol: TestModule.SecondProtocol", loserOutput);
+        Assert.DoesNotContain("public func conflict()", loserOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_WithSoloMethodPlan_KeepsSingleBranchBody()
+    {
+        var solo = CreateProtocolWithMethod("SoloProtocol", "only");
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { solo });
+
+        var output = EmitFullConformanceWithMethodPlans(solo, plans);
+
+        // Zero-regression: a solo method must keep the historic single-branch
+        // force-unwrap shape — no fan-out scaffolding.
+        Assert.Contains("public func only()", output);
+        Assert.DoesNotContain("else if", output);
+        Assert.DoesNotContain("no sibling vtable populated", output);
+    }
+
+    [Fact]
+    public void ComputeSiblingMethodFallbacks_SameSignatureGroup_RecordsCrossProtocolSibling()
+    {
+        var first = CreateProtocolWithMethod("FirstProtocol", "conflict");
+        var second = CreateProtocolWithMethod("SecondProtocol", "conflict");
+
+        var fallbacks = _emitter.ComputeSiblingMethodFallbacks(new[] { first, second });
+
+        // The owner's receiver must be able to fall back to the sibling interface.
+        var firstKey = (EveryProtocolEmitter.GetProtocolFallbackKey(first),
+                        EveryProtocolEmitter.GetMethodSiblingMapKey(first.Methods[0]));
+        Assert.True(fallbacks.TryGetValue(firstKey, out var firstSiblings));
+        Assert.Single(firstSiblings!);
+        Assert.Equal("SecondProtocol", firstSiblings![0].Proto.Name);
+    }
+
+    [Fact]
+    public void GetMethodSiblingMapKey_IsDeterministicAndNameDiscriminating()
+    {
+        var describe = CreateMethodDecl("describe");
+        var other = CreateMethodDecl("other");
+
+        // Deterministic: same method shape → identical key (so emitter and receiver agree).
+        Assert.Equal(
+            EveryProtocolEmitter.GetMethodSiblingMapKey(describe),
+            EveryProtocolEmitter.GetMethodSiblingMapKey(CreateMethodDecl("describe")));
+        // Name-discriminating: distinct method names → distinct keys.
+        Assert.NotEqual(
+            EveryProtocolEmitter.GetMethodSiblingMapKey(describe),
+            EveryProtocolEmitter.GetMethodSiblingMapKey(other));
+        Assert.StartsWith("describe(", EveryProtocolEmitter.GetMethodSiblingMapKey(describe));
+    }
+
     [Fact]
     public void EmitProtocolConformance_SkipsProtocolWithConstructorRequirements()
     {
@@ -1355,6 +1468,15 @@ public class EveryProtocolEmitterTests
         var stringWriter = new StringWriter();
         var writer = new SwiftWriter(stringWriter);
         _emitter.EmitProtocolConformance(writer, protocolDecl, globalSignatures, nonThrowingOverrides);
+        return stringWriter.ToString();
+    }
+
+    private string EmitFullConformanceWithMethodPlans(ProtocolDecl protocolDecl,
+        IReadOnlyDictionary<(string ProtoQName, string FullSignature), EveryProtocolEmitter.MethodEmissionPlan> methodPlans)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocolDecl, null, null, null, null, methodPlans);
         return stringWriter.ToString();
     }
 

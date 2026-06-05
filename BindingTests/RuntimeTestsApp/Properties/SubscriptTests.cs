@@ -232,7 +232,7 @@ public class SubscriptTests : TestBase
 
         var item = bag["g"];
         AssertNotNull(item, "Subscript getter returns non-null after set");
-        AssertEqual("BaggedItem(beta)", item!.GetDescribeBag(), "Subscript get→describe round-trip");
+        AssertEqual("BaggedItem(beta)", item!.GetDescribe(), "Subscript get→describe round-trip");
         TestLogger.Info("ItemBag optional-existential subscript getter round-trip passed");
     }
 
