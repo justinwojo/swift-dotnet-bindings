@@ -3308,4 +3308,181 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region N. DllImport + static-extern shape (P0-14)
+
+    // The co-gater historically only recognized the [LibraryImport]+partial P/Invoke
+    // shape. Four emitters (AppEntityKeyPathSingletonEmitter, KeyPathBagValueSpecializationEmitter,
+    // KeyPathSingletonEmitter, ModuleHandler) emit the older [DllImport]+`static extern`
+    // shape against the same wrapper library (AsyncLibraryName / "libSwiftBindings").
+    // A stripped wrapper symbol behind that shape must be co-gated identically, or the
+    // generated binding keeps a dangling P/Invoke and throws DllNotFoundException-class
+    // dispatch failures at runtime.
+    public class CoGaterDllImportShapeTests
+    {
+        [Fact]
+        public void Process_DllImportStaticExtern_StrippedSymbol_RemovesDeclaration()
+        {
+            // KeyPath/AppEntity singleton shape: EntryPoint before CallingConvention,
+            // wrapper lib "libSwiftBindings", body is `private static extern`.
+            var input =
+                "public partial class Foo {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"libSwiftBindings\", EntryPoint = \"SBW_singleton_broken\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]\n" +
+                "    private static extern IntPtr PInvoke_singleton_ABC();\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_singleton_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.DoesNotContain("PInvoke_singleton_ABC", result.Content);
+            Assert.DoesNotContain("SBW_singleton_broken", result.Content);
+        }
+
+        [Fact]
+        public void Process_DllImportEntryPointAfterCallingConvention_RemovesDeclaration()
+        {
+            // ModuleHandler enum-metadata shape: CallingConvention before EntryPoint,
+            // module-qualified wrapper lib "{Module}SwiftBindings".
+            var input =
+                "public partial class Foo {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"SBW_GetEnumMetadata_broken\")]\n" +
+                "    private static extern IntPtr __GetEnumMetadata_Bar();\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_GetEnumMetadata_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.DoesNotContain("__GetEnumMetadata_Bar", result.Content);
+            Assert.DoesNotContain("SBW_GetEnumMetadata_broken", result.Content);
+        }
+
+        [Fact]
+        public void Process_DllImportStaticExtern_WithPublicCaller_RemovesCallerTransitively()
+        {
+            // Maximum-case: a public accessor forwards to the stripped extern P/Invoke.
+            // Both must vanish, and the public surface that disappeared is recorded.
+            var input =
+                "public partial class MyClass {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"libSwiftBindings\", EntryPoint = \"SBW_doStuff_broken\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]\n" +
+                "    private static extern void PInvoke_doStuff_DEF(IntPtr ptr, int arg);\n" +
+                "\n" +
+                "    public virtual string DoStuff(int arg)\n" +
+                "    {\n" +
+                "        PInvoke_doStuff_DEF(resultPtr, arg);\n" +
+                "        return result;\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_doStuff_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.DoesNotContain("PInvoke_doStuff_DEF", result.Content);
+            Assert.DoesNotContain("DoStuff", result.Content);
+            Assert.Equal(1, result.StrippedMemberCount);
+        }
+
+        [Fact]
+        public void Process_DllImportNativeLib_NotAffected()
+        {
+            // A DllImport against the native source library (not the wrapper) must survive
+            // even when its mangled symbol happens to be in the stripped set.
+            var input =
+                "public partial class Foo {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"SwiftBindingsTestLib\", EntryPoint = \"$s20SwiftBindingsTestLib_mangled\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]\n" +
+                "    private static extern int PInvoke_native_123(IntPtr ptr);\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "$s20SwiftBindingsTestLib_mangled" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.Contains("PInvoke_native_123", result.Content);
+        }
+
+        [Fact]
+        public void Process_DllImportStaticExtern_AmbiguousAcrossTypes_SkippedEntirely()
+        {
+            // Same extern P/Invoke name in two type scopes; only TypeA's symbol is stripped.
+            // The ambiguity guard (broadened to static-extern decls) must recognize the
+            // collision and skip file-wide caller stripping so TypeB survives intact.
+            var input =
+                "public partial class TypeA {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"libSwiftBindings\", EntryPoint = \"SBW_TypeA_eq_AAA\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]\n" +
+                "    private static extern bool PInvoke_eq(IntPtr lhs, IntPtr rhs);\n" +
+                "\n" +
+                "    public bool Equals(TypeA? other) { return PInvoke_eq(lhs, rhs); }\n" +
+                "}\n" +
+                "public partial class TypeB {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"libSwiftBindings\", EntryPoint = \"SBW_TypeB_eq_BBB\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]\n" +
+                "    private static extern bool PInvoke_eq(IntPtr lhs, IntPtr rhs);\n" +
+                "\n" +
+                "    public bool Equals(TypeB? other) { return PInvoke_eq(lhs, rhs); }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_TypeA_eq_AAA" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.Contains("TypeA", result.Content);
+            Assert.Contains("TypeB", result.Content);
+            Assert.Equal(0, result.StrippedMemberCount);
+        }
+
+        [Fact]
+        public void Process_DllImportAndLibraryImportMixed_BothShapesStripped()
+        {
+            // A file can carry both shapes; a stripped symbol behind either must be removed
+            // while the other shape's unrelated, live P/Invoke is preserved.
+            var input =
+                "public partial class Foo {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"libSwiftBindings\", EntryPoint = \"SBW_dll_broken\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]\n" +
+                "    private static extern IntPtr PInvoke_dll_X();\n" +
+                "\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_lib_live\")]\n" +
+                "    private static partial IntPtr PInvoke_lib_Y();\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_dll_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.DoesNotContain("PInvoke_dll_X", result.Content);
+            Assert.Contains("PInvoke_lib_Y", result.Content);
+        }
+
+        [Fact]
+        public void Process_PartialKeywordIdentifierInCaller_DoesNotSuppressStrip()
+        {
+            // 'partial' is a *contextual* keyword and a legal identifier. A caller body line that
+            // declares a local named 'partial' AND calls the stripped P/Invoke would, under a loose
+            // " partial " + ";" decl check, be miscounted as a SECOND declaration of that P/Invoke —
+            // flipping its name to "ambiguous" and SUPPRESSING the strip file-wide, so the dead
+            // wrapper symbol's P/Invoke and its caller survive (CS0103 / DllNotFound). The P/Invoke
+            // signature check requires the static-method shape, so the body line is not a decl and
+            // the single real declaration is stripped cleanly.
+            var input =
+                "public partial class Foo {\n" +
+                "    [System.Runtime.InteropServices.DllImport(\"libSwiftBindings\", EntryPoint = \"SBW_singleton_broken\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]\n" +
+                "    private static extern IntPtr PInvoke_singleton_X();\n" +
+                "\n" +
+                "    public bool IsReady()\n" +
+                "    {\n" +
+                "        bool partial = PInvoke_singleton_X() != IntPtr.Zero;\n" +
+                "        return partial;\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_singleton_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            // Strip proceeds: the dead P/Invoke and its transitive caller are both removed.
+            Assert.DoesNotContain("PInvoke_singleton_X", result.Content);
+            Assert.DoesNotContain("SBW_singleton_broken", result.Content);
+            Assert.DoesNotContain("IsReady", result.Content);
+        }
+
+        [Fact]
+        public void Process_InternalStaticUnsafePartial_StrippedSymbol_RemovesDeclaration()
+        {
+            // Modifier-order coverage: the generator also emits wrapper P/Invokes as
+            // `internal static unsafe partial` (e.g. async/generic-parent cdecl thunks). The
+            // tightened signature predicate (which now also requires " static " and "(") must
+            // still recognize that shape — the extra `unsafe` token sits between static and
+            // partial, so a contiguous `static partial` match would wrongly miss it.
+            var input =
+                "internal static unsafe partial class PInvoke {\n" +
+                "    [LibraryImport(\"MyLibSwiftBindings\", EntryPoint = \"SBW_async_thunk_broken\")]\n" +
+                "    internal static unsafe partial void PInvoke_asyncThunk_X(void* ctx);\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_async_thunk_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.DoesNotContain("PInvoke_asyncThunk_X", result.Content);
+            Assert.DoesNotContain("SBW_async_thunk_broken", result.Content);
+        }
+    }
+
+    #endregion
+
 }

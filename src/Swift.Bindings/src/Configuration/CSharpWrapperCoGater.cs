@@ -46,10 +46,13 @@ namespace BindingsGeneration
             @"EntryPoint\s*=\s*""([^""]+)""",
             RegexOptions.Compiled);
 
-        // Matches LibraryImport("SwiftBindings" or "XyzSwiftBindings" but NOT "SwiftBindingsTestLib".
-        // The wrapper library name is always "{ModuleName}SwiftBindings" or just "SwiftBindings".
+        // Matches LibraryImport/DllImport("SwiftBindings" or "XyzSwiftBindings" or "libSwiftBindings"
+        // but NOT "SwiftBindingsTestLib". The wrapper library name is always "{ModuleName}SwiftBindings",
+        // "libSwiftBindings", or just "SwiftBindings". Both the source-generated LibraryImport+partial
+        // shape and the older DllImport+`static extern` shape (KeyPath/AppEntity/enum-metadata emitters)
+        // target the wrapper lib, so a stripped wrapper symbol behind either must be co-gated.
         private static readonly Regex WrapperLibraryImportRegex = new(
-            @"LibraryImport\(""(\w*SwiftBindings)""",
+            @"(?:Library|Dll)Import\(""(\w*SwiftBindings)""",
             RegexOptions.Compiled);
 
         // Matches a single-line static function-pointer field initialized with the address of a
@@ -720,9 +723,9 @@ namespace BindingsGeneration
 
             for (int i = 0; i < lines.Count; i++)
             {
-                // Look for partial method declarations that match candidate names
+                // Look for P/Invoke method declarations (partial or static-extern) that match candidate names
                 var line = lines[i];
-                if (!line.Contains(" partial ") || !line.TrimEnd().EndsWith(";"))
+                if (!IsPInvokeSignatureLine(line))
                     continue;
 
                 foreach (var name in candidateNames)
@@ -761,7 +764,7 @@ namespace BindingsGeneration
             for (int i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                if (!line.Contains(" partial ") || !line.TrimEnd().EndsWith(";"))
+                if (!IsPInvokeSignatureLine(line))
                     continue;
 
                 foreach (var name in preStrippedNames)
@@ -774,20 +777,45 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a line is a LibraryImport attribute targeting a wrapper library.
-        /// Wrapper libraries are named "{ModuleName}SwiftBindings" or just "SwiftBindings".
-        /// Correctly excludes native library names like "SwiftBindingsTestLib".
+        /// Checks if a line is a LibraryImport or DllImport attribute targeting a wrapper library.
+        /// Wrapper libraries are named "{ModuleName}SwiftBindings", "libSwiftBindings", or just
+        /// "SwiftBindings". Correctly excludes native library names like "SwiftBindingsTestLib".
         /// </summary>
         internal static bool IsWrapperLibraryImportLine(string line)
         {
             return line.Contains("EntryPoint") && WrapperLibraryImportRegex.IsMatch(line);
         }
 
+        /// <summary>
+        /// True when <paramref name="line"/> is a P/Invoke method signature line — either the
+        /// source-generated <c>... static partial ...(...);</c> shape or the older
+        /// <c>... static extern ...(...);</c> (DllImport) shape. Both terminate in a semicolon with
+        /// no body. Centralizing the check keeps the three decl scanners
+        /// (<see cref="FindPartialDeclaration"/>, <see cref="FindAmbiguousMethodNames"/>,
+        /// <see cref="FindCollidingPreStrippedNames"/>) recognizing the same shapes in lockstep.
+        /// <para>
+        /// The check also requires <c> static </c> and a parameter list <c>(</c>: every emitted
+        /// P/Invoke is a static method with a signature, and <c>partial</c> is a *contextual*
+        /// keyword that can legally be an identifier (e.g. <c>var partial = Foo();</c>). Matching on
+        /// the bare <c> partial </c>/<c> extern </c> token plus a trailing <c>;</c> alone would let
+        /// such a body line — or a comment that happens to contain the token — be counted as a
+        /// duplicate declaration by <see cref="FindAmbiguousMethodNames"/>/<see cref="FindCollidingPreStrippedNames"/>,
+        /// which inflate a name's decl count and then SUPPRESS the strip file-wide, leaving a dead
+        /// wrapper symbol's P/Invoke (and its callers) behind. Requiring the static-method shape
+        /// matches every real declaration while excluding those false positives.
+        /// </para>
+        /// </summary>
+        private static bool IsPInvokeSignatureLine(string line)
+            => line.Contains(" static ")
+               && (line.Contains(" partial ") || line.Contains(" extern "))
+               && line.Contains("(")
+               && line.TrimEnd().EndsWith(";");
+
         private static int FindPartialDeclaration(List<string> lines, int fromLine)
         {
             for (int j = fromLine; j < Math.Min(fromLine + 5, lines.Count); j++)
             {
-                if (lines[j].Contains(" partial ") && lines[j].TrimEnd().EndsWith(";"))
+                if (IsPInvokeSignatureLine(lines[j]))
                     return j;
             }
             return -1;
@@ -2065,9 +2093,10 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Finds method names that appear as declarations (not just calls) in multiple locations
-        /// in the file. Unlike FindAmbiguousMethodNames (which checks partial declarations only),
-        /// this checks all method declarations. Used by the proxy co-gater to avoid false-matching
-        /// property helpers like "Subscript_Get" that exist in multiple types.
+        /// in the file. Unlike FindAmbiguousMethodNames (which checks P/Invoke signature lines —
+        /// static partial/extern — only), this checks all method declarations. Used by the proxy
+        /// co-gater to avoid false-matching property helpers like "Subscript_Get" that exist in
+        /// multiple types.
         /// </summary>
         private static HashSet<string> FindAmbiguousMethodDeclarations(
             List<string> lines, IEnumerable<string> candidateNames)

@@ -318,7 +318,8 @@ public static class BindingsGeneratorCommand
             }
             context.ExitCode = BindingsGenerator.RunCompileBridgeOnly(
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
-                wrapperArchitectures, frameworkDependencies, logger, platformInfo);
+                wrapperArchitectures, frameworkDependencies, logger, platformInfo,
+                targetArchitectures);
             return;
         }
 
@@ -1363,6 +1364,15 @@ public static class BindingsGeneratorCommand
                 var wrapperModuleName = $"{directModuleName}SwiftBindings";
                 var directPackageId = packageId ?? platformInfo.GetDefaultSwiftPackageId(directModuleName);
 
+                // Detect the SwiftUI bridge the direct-mode COMPILE step built inline (above). Without
+                // this the consumer .targets hardcoded HasBridgeXCFramework=false, dropping the
+                // {Module}Bridge NativeReference so any generated bridge view threw
+                // DllNotFoundException("<Module>Bridge") at runtime even though the dylib was packed.
+                var directBridgeModuleName = $"{directModuleName}Bridge";
+                var directBridgeXcfwPath = Path.Combine(outputDirectory, $"{directBridgeModuleName}.xcframework");
+                var directHasBridgeSwift = SwiftWrapperCompiler.CollectBridgeSwiftFiles(outputDirectory).Count > 0;
+                var directHasBridgeXcfw = Directory.Exists(directBridgeXcfwPath);
+
                 var projectFrameworkName = BindingsGenerator.InferFrameworkName(tbdPath, directModuleName);
                 var projectResolver = new NamespacePatternResolver(effectiveNamespacePattern, projectFrameworkName);
 
@@ -1389,6 +1399,8 @@ public static class BindingsGeneratorCommand
                     Metadata = metadata,
                     SourceXCFrameworkPath = null,
                     WrapperXCFrameworkPath = hasWrapperXcfw ? compilationResult!.XCFrameworkPath : null,
+                    BridgeXCFrameworkPath = directHasBridgeXcfw ? directBridgeXcfwPath : null,
+                    HasBridgeSwift = directHasBridgeSwift,
                     SwiftRuntimeVersion = swiftRuntimeVersion,
                     AppleSupplementVersion = appleVersion,
                     PlatformInfo = platformInfo,
@@ -1409,7 +1421,7 @@ public static class BindingsGeneratorCommand
                     PackageId = directPackageId,
                     EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
                     HasWrapperXCFramework = hasWrapperXcfw,
-                    HasBridgeXCFramework = false,
+                    HasBridgeXCFramework = directHasBridgeSwift,
                     XcframeworkPath = null,
                     PlatformInfo = platformInfo,
                 }, logger);

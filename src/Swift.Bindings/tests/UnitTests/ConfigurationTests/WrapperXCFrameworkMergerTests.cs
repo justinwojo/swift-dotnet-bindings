@@ -153,7 +153,162 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Fact]
+        public void MergeFatSlices_FailureAfterLipo_LeavesPrimaryConsistent()
+        {
+            // Transactional invariant: if the merge throws AFTER a slice was already lipo-fattened
+            // (here the secondary-only ditto fails), the primary xcframework must be left exactly as
+            // it was — never a fat binary advertised by a stale single-arch Info.plist. The resolver
+            // keys slice selection on the plist's SupportedArchitectures; a fat binary paired with a
+            // single-arch plist is denied for the folded arch → DllNotFound for Rosetta/x64 consumers.
+            if (!IsMacOS) return;
+
+            const string secondaryOnlySliceId = "tvos-x86_64-simulator";
+
+            var tmp = Path.Combine(Path.GetTempPath(), "merger-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tmp);
+            try
+            {
+                var real = new SystemCommandRunner();
+                var primary = Path.Combine(tmp, "Primary.xcframework");
+                var secondary = Path.Combine(tmp, "Secondary.xcframework");
+
+                // Primary: arm64 sim slice (the fold target) + arm64-only device slice.
+                WriteSliceBinary(real, primary, SimSliceId, "arm64");
+                WriteSliceBinary(real, primary, DeviceSliceId, "arm64");
+                WritePlist(primary, new[]
+                {
+                    (SimSliceId, "ios", (string?)"simulator", new[] { "arm64" }),
+                    (DeviceSliceId, "ios", (string?)null, new[] { "arm64" }),
+                });
+
+                // Secondary: the matching x86_64 sim slice (folds into primary's sim slice) PLUS an
+                // unmatched slice that lands in the secondary-only ditto path — which we force to fail
+                // so the throw happens strictly after the sim slice was already fattened.
+                WriteSliceBinary(real, secondary, SimSliceId, "x86_64");
+                WriteSliceBinary(real, secondary, secondaryOnlySliceId, "x86_64");
+                WritePlist(secondary, new[]
+                {
+                    (SimSliceId, "ios", (string?)"simulator", new[] { "x86_64" }),
+                    (secondaryOnlySliceId, "tvos", (string?)"simulator", new[] { "x86_64" }),
+                });
+
+                // Pass-through runner that forces the (post-lipo) ditto to fail.
+                var failingRunner = new FailOnCommandRunner(real, failCommand: "ditto");
+
+                Assert.Throws<InvalidOperationException>(() =>
+                    WrapperXCFrameworkMerger.MergeFatSlices(primary, secondary, NullLogger.Instance, failingRunner));
+
+                // The sim slice binary must remain single-arch (untouched) — the fold was rolled back.
+                var simArchs = LipoArchs(real, BinaryPath(primary, SimSliceId));
+                Assert.Contains("arm64", simArchs);
+                Assert.DoesNotContain("x86_64", simArchs);
+
+                // The plist must still advertise the sim slice as arm64-only, matching the binary.
+                var root = PlistReader.ReadPlistDict(Path.Combine(primary, "Info.plist"), real, NullLogger.Instance);
+                Assert.NotNull(root);
+                var slices = XCFrameworkResolver.ParseAvailableLibraries(root!);
+                var simSlice = slices.Single(s => s.LibraryIdentifier == SimSliceId);
+                Assert.Equal(new[] { "arm64" }, simSlice.SupportedArchitectures);
+
+                // Binary and plist agree — no desync.
+                Assert.DoesNotContain("x86_64", string.Join(",", simSlice.SupportedArchitectures));
+
+                // No staging/backup residue left behind, and the secondary survives (merge failed).
+                Assert.False(Directory.Exists(primary + ".merge-staging"), "staging dir must be cleaned up");
+                Assert.False(Directory.Exists(primary + ".superseded"), "superseded backup must not linger");
+                Assert.True(Directory.Exists(secondary), "secondary must not be deleted when the merge fails");
+            }
+            finally
+            {
+                try { Directory.Delete(tmp, true); } catch { /* best effort */ }
+            }
+        }
+
+        [Fact]
+        public void MergeFatSlices_RecoversFromInterruptedPriorCommit()
+        {
+            // Cross-run recovery: the commit phase renames the live primary to '<primary>.superseded'
+            // and then moves staging into its place. A hard kill (process killed / reboot / power loss)
+            // BETWEEN those two renames leaves the original intact in '.superseded' but absent at the
+            // primary path. The in-process catch only restores within the same run; the next run must
+            // heal it. Simulate the interrupted state and assert the merge completes correctly.
+            if (!IsMacOS) return; // clang + lipo only
+
+            var tmp = Path.Combine(Path.GetTempPath(), "merger-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tmp);
+            try
+            {
+                var runner = new SystemCommandRunner();
+                var primary = Path.Combine(tmp, "Primary.xcframework");
+                var secondary = Path.Combine(tmp, "Secondary.xcframework");
+
+                // Original (pre-merge) primary: arm64 sim slice + arm64 device slice.
+                WriteSliceBinary(runner, primary, SimSliceId, "arm64");
+                WriteSliceBinary(runner, primary, DeviceSliceId, "arm64");
+                WritePlist(primary, new[]
+                {
+                    (SimSliceId, "ios", (string?)"simulator", new[] { "arm64" }),
+                    (DeviceSliceId, "ios", (string?)null, new[] { "arm64" }),
+                });
+
+                // Secondary (x86_64 sim) — still on disk because the prior run was killed before it
+                // reached the post-swap secondary cleanup.
+                WriteSliceBinary(runner, secondary, SimSliceId, "x86_64");
+                WritePlist(secondary, new[]
+                {
+                    (SimSliceId, "ios", (string?)"simulator", new[] { "x86_64" }),
+                });
+
+                // Simulate the kill AFTER the first commit rename (live primary moved aside) and
+                // BEFORE the second (staging moved into place): primary path is gone, the original
+                // survives only as '.superseded'.
+                Directory.Move(primary, primary + ".superseded");
+                Assert.False(Directory.Exists(primary));
+                Assert.True(Directory.Exists(primary + ".superseded"));
+
+                WrapperXCFrameworkMerger.MergeFatSlices(primary, secondary, NullLogger.Instance, runner);
+
+                // The primary is restored AND the interrupted fold is redone: the sim slice is now fat.
+                Assert.True(Directory.Exists(primary), "primary must be recovered from '.superseded'");
+                var simArchs = LipoArchs(runner, BinaryPath(primary, SimSliceId));
+                Assert.Contains("arm64", simArchs);
+                Assert.Contains("x86_64", simArchs);
+
+                // No residue, and the secondary is consumed by the successful re-merge.
+                Assert.False(Directory.Exists(primary + ".superseded"), "recovered superseded must not linger");
+                Assert.False(Directory.Exists(primary + ".merge-staging"), "staging must be cleaned up");
+                Assert.False(Directory.Exists(secondary), "secondary must be consumed by the successful merge");
+            }
+            finally
+            {
+                try { Directory.Delete(tmp, true); } catch { /* best effort */ }
+            }
+        }
+
         // ── helpers ──────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Delegates every command to a real runner except those whose program name equals
+        /// <c>failCommand</c>, which return a non-zero exit so the merge throws at that step.
+        /// </summary>
+        private sealed class FailOnCommandRunner : ICommandRunner
+        {
+            private readonly ICommandRunner _inner;
+            private readonly string _failCommand;
+            public FailOnCommandRunner(ICommandRunner inner, string failCommand)
+            {
+                _inner = inner;
+                _failCommand = failCommand;
+            }
+            public (int ExitCode, string StdOut, string StdErr) Run(
+                string command, string arguments, int timeoutMs = 30000)
+            {
+                if (string.Equals(command, _failCommand, StringComparison.Ordinal))
+                    return (1, string.Empty, $"forced failure of '{command}' for transactional-merge test");
+                return _inner.Run(command, arguments, timeoutMs);
+            }
+        }
 
         private static string BinaryPath(string xcfw, string sliceId) =>
             Path.Combine(xcfw, sliceId, "Lib.framework", "Lib");

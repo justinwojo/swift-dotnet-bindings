@@ -1024,7 +1024,7 @@ done; true"
     <!-- Fat-sim compile: swiftc per-arch into per-arch staging dylibs, then lipo
          -create them into the framework binary. xcodebuild -create-xcframework
          (the merge below) detects the fat arches via lipo-inspect and names the
-         slice dir accordingly (e.g. ios-arm64_x86_64-simulator); _ResyncAppleFrameworkWrapperSliceIds
+         slice dir accordingly (e.g. ios-arm64_x86_64-simulator); _ResyncWrapperSliceIds
          re-reads that name post-merge so validation/consumer-synth see the
          correct id. The install_name + linker flags must match across arches —
          lipo only combines per-arch slices; it does not reconcile load commands. -->
@@ -1116,7 +1116,7 @@ done; true"
 sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperSliceCount&gt;%24SLICES|&quot; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot;"
           StandardOutputImportance="low" />
 
-    <!-- Slice-id resync after the fat fold lives in _ResyncAppleFrameworkWrapperSliceIds
+    <!-- Slice-id resync after the fat fold lives in _ResyncWrapperSliceIds
          (runs unconditionally per build via AfterTargets="_CompileAppleFrameworkSecondWrapperSlice").
          Keeping the resync there — rather than inline here — ensures incremental packs
          that skip this target (gated on _SwiftBindingUpToDate) still see the on-disk slice
@@ -1591,24 +1591,31 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Target 4a': Resync Apple-framework wrapper slice IDs from disk         -->
-  <!-- xcodebuild -create-xcframework renames slice dirs based on lipo arches  -->
-  <!-- (e.g. an arm64+x86_64 sim slice lives at ios-arm64_x86_64-simulator,    -->
-  <!-- not the static ios-arm64-simulator). The static property defaults at    -->
-  <!-- the top of this file are correct for single-arch slices but stale once  -->
-  <!-- a fat-fold has run. _CompileAppleFrameworkSecondWrapperSlice was the    -->
-  <!-- old source of truth for the resync, but it's gated on                   -->
-  <!-- _SwiftBindingUpToDate != 'true', so incremental packs skipped it and    -->
-  <!-- _ValidateSwiftBindingPackSlices fell back to the stale defaults — even  -->
-  <!-- though the on-disk fat slice existed and was valid (SWIFTBIND032).      -->
-  <!-- Re-reading from disk on every build keeps the in-memory ids honest     -->
-  <!-- regardless of incremental state.                                        -->
+  <!-- Target 4a': Resync wrapper slice IDs from disk (BOTH binding modes)     -->
+  <!-- A slice dir's name embeds its lipo arches, so a fat-fold (or an         -->
+  <!-- x86_64-primary build) lands the simulator slice at a name the static    -->
+  <!-- property defaults at the top of this file do not predict:               -->
+  <!--   • AppleFramework: xcodebuild -create-xcframework names a fat sim slice -->
+  <!--     ios-arm64_x86_64-simulator (not ios-arm64-simulator).               -->
+  <!--   • SwiftFramework: an x86_64-only / x86_64-primary wrapper lands its    -->
+  <!--     sim slice at ios-x86_64-simulator (not ios-arm64-simulator), because -->
+  <!--     SliceVariant.WithArchitecture stamps the slice id with the primary   -->
+  <!--     CPU. The static ios-arm64-simulator default then misses on disk and  -->
+  <!--     _ValidateSwiftBindingPackSlices hard-fails with a FALSE SWIFTBIND031 -->
+  <!--     even though the wrapper is correctly built.                          -->
+  <!-- The AppleFramework fat-fold source of truth                             -->
+  <!-- (_CompileAppleFrameworkSecondWrapperSlice) is gated on                   -->
+  <!-- _SwiftBindingUpToDate != 'true', so incremental packs skipped it and the -->
+  <!-- guard fell back to stale defaults (SWIFTBIND032). Re-reading the real    -->
+  <!-- dir names from disk on EVERY build keeps the in-memory ids honest for    -->
+  <!-- both modes regardless of incremental state. The glob is arch-agnostic    -->
+  <!-- (match by the '-simulator' suffix), so it is correct whether the primary -->
+  <!-- arch is arm64, x86_64, or a fat fold of both.                           -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <Target Name="_ResyncAppleFrameworkWrapperSliceIds"
-          AfterTargets="_ImportSwiftBindingMetadata;_CompileAppleFrameworkSecondWrapperSlice"
+  <Target Name="_ResyncWrapperSliceIds"
+          AfterTargets="_ImportSwiftBindingMetadata;_CompileAppleFrameworkSecondWrapperSlice;_CompileSwiftWrapper"
           BeforeTargets="_ValidateSwiftBindingPackSlices;_SynthesizeAppleFrameworkConsumerTargets"
-          Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
-                     AND '$(_SwiftBindingWrapperModuleName)' != ''
+          Condition="'$(_SwiftBindingWrapperModuleName)' != ''
                      AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">
 
     <PropertyGroup>
@@ -2318,6 +2325,10 @@ done"
       <_SwiftBridgeCmd>$(_SwiftBridgeCmd) --platform $(_SwiftBindingPlatform)</_SwiftBridgeCmd>
       <_SwiftBridgeCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftBridgeCmd) --platform-target $(SwiftPlatformTarget)</_SwiftBridgeCmd>
       <_SwiftBridgeCmd>$(_SwiftBridgeCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftBridgeCmd>
+      <!-- 'auto' (default) fattens the bridge to arm64+x86_64 exactly when the wrapper is, so the
+           {Module}Bridge.xcframework serves Apple Silicon and Intel/Rosetta from one native tree.
+           Must mirror _CompileSwiftWrapper or a fat wrapper would ship with an arm64-only bridge. -->
+      <_SwiftBridgeCmd Condition="'$(SwiftTargetArchitectures)' != ''">$(_SwiftBridgeCmd) --target-architectures $(SwiftTargetArchitectures)</_SwiftBridgeCmd>
       <_SwiftBridgeCmd>$(_SwiftBridgeCmd) -v $(SwiftGeneratorVerbosity)</_SwiftBridgeCmd>
       <!-- Dependency framework search paths — must mirror _CompileSwiftWrapper exactly
            (2186/2190): include the resolved ProjectReference xcframeworks AND every

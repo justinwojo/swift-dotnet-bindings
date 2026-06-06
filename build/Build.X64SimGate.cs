@@ -187,7 +187,7 @@ partial class Build
             //    desync on incremental). _CompileAppleFrameworkSecondWrapperSlice
             //    is gated on _SwiftBindingUpToDate != 'true', so on an incremental
             //    pack the slice-id resync MUST come from a target that runs every
-            //    build (_ResyncAppleFrameworkWrapperSliceIds). Pre-H2 fix this
+            //    build (_ResyncWrapperSliceIds). Pre-H2 fix this
             //    second pack fails with SWIFTBIND032 against a valid on-disk
             //    fat-named slice.
             Log.Information("  [5/8] Packing StoreKit Apple-framework binding (iOS + tvOS, x2 for incremental)");

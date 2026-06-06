@@ -261,6 +261,74 @@ namespace BindingsGeneration.Tests
             Assert.Contains("missing device or simulator slice", TargetsContent);
         }
 
+        // ── P1-24: slice-id resync is generalized to BOTH binding modes ─────────
+        // The static slice-id defaults at the top of Sdk.targets assume an
+        // arm64-primary sim slice (ios-arm64-simulator). A fat fold OR an
+        // x86_64-primary SwiftFramework wrapper lands the sim slice at a name the
+        // defaults don't predict (ios-arm64_x86_64-simulator / ios-x86_64-simulator),
+        // and Guard 2a (_ValidateSwiftBindingPackSlices) then hard-fails with a FALSE
+        // SWIFTBIND031. The disk-glob resync must run for SwiftFramework bindings too,
+        // not just AppleFramework — so the target was renamed + its condition broadened.
+
+        [Fact]
+        public void Targets_ResyncWrapperSliceIds_TargetExists()
+        {
+            // Renamed from _ResyncAppleFrameworkWrapperSliceIds when generalized to both modes.
+            Assert.Contains("Name=\"_ResyncWrapperSliceIds\"", TargetsContent);
+            Assert.DoesNotContain("_ResyncAppleFrameworkWrapperSliceIds", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_ResyncWrapperSliceIds_NotAppleFrameworkGated()
+        {
+            // The resync condition must NOT gate on AppleFramework mode — an
+            // x86_64-primary SwiftFramework wrapper needs the disk re-read just as much.
+            var condition = ExtractAttribute("_ResyncWrapperSliceIds", "Condition");
+            Assert.DoesNotContain("AppleFramework", condition);
+            // It gates instead on the wrapper module existing (mode-agnostic).
+            Assert.Contains("_SwiftBindingWrapperModuleName", condition);
+        }
+
+        [Fact]
+        public void Targets_ResyncWrapperSliceIds_RunsAfterWrapperCompileBeforePackValidation()
+        {
+            var openingTag = ExtractOpeningTag("_ResyncWrapperSliceIds");
+            // Must run after the SwiftFramework wrapper compile (the new generalized trigger),
+            // not only after the AppleFramework second-slice fold.
+            Assert.Contains("AfterTargets=", openingTag);
+            Assert.Contains("_CompileSwiftWrapper", openingTag);
+            // Must run before pack-slice validation so the resynced ids reach Guard 2a.
+            Assert.Contains("BeforeTargets=", openingTag);
+            Assert.Contains("_ValidateSwiftBindingPackSlices", openingTag);
+        }
+
+        [Fact]
+        public void Targets_ResyncWrapperSliceIds_GlobsBySimulatorSuffix()
+        {
+            // The glob must be arch-agnostic (match by the '-simulator' suffix) so it
+            // resolves whether the primary arch is arm64, x86_64, or a fat fold of both.
+            var body = ExtractTargetBlock("_ResyncWrapperSliceIds");
+            Assert.Contains("-name '*-simulator'", body);
+            Assert.Contains("! -name '*-simulator'", body);
+            Assert.Contains("_SwiftBindingSimulatorSliceId", body);
+            Assert.Contains("_SwiftBindingDeviceSliceId", body);
+        }
+
+        // ── P1-23(b): the SwiftUI bridge fattens to match the wrapper ───────────
+        // A fat arm64+x86_64 wrapper paired with an arm64-only bridge xcframework
+        // is dropped on x64-sim / Rosetta consumers (DllNotFound). The bridge compile
+        // must thread the same --target-architectures the wrapper does.
+
+        [Fact]
+        public void Targets_CompileBridge_ThreadsTargetArchitectures()
+        {
+            var body = ExtractTargetBlock("_CompileSwiftUIBridge");
+            // Scoped to the bridge block so this can't pass on the wrapper's own
+            // --target-architectures line (_CompileSwiftWrapper).
+            Assert.Contains("--target-architectures $(SwiftTargetArchitectures)", body);
+            Assert.Contains("'$(SwiftTargetArchitectures)' != ''", body);
+        }
+
         [Fact]
         public void Targets_HasSwiftBind010ErrorCode()
         {
@@ -1329,6 +1397,43 @@ namespace BindingsGeneration.Tests
                 "'$(_SwiftBindingPlatform)' == 'ios' AND '%(SwiftAppleFrameworkTarget.MinIOSVersion)' != ''",
                 StringComparison.Ordinal);
             Assert.True(iosOverrideIdx > cascadeIdx, "Per-platform overrides must come AFTER the legacy seed.");
+        }
+
+        // Returns the opening <Target …> tag text (everything up to the first '>')
+        // for the target whose Name attribute is `targetName`. None of the relevant
+        // target attributes (AfterTargets/BeforeTargets/Condition) contain a literal
+        // '>', so the first '>' reliably closes the opening element.
+        private static string ExtractOpeningTag(string targetName)
+        {
+            var anchor = TargetsContent.IndexOf($"Name=\"{targetName}\"", StringComparison.Ordinal);
+            Assert.True(anchor >= 0, $"Target '{targetName}' not found in Sdk.targets.");
+            var rest = TargetsContent.Substring(anchor);
+            var endOfTag = rest.IndexOf('>', StringComparison.Ordinal);
+            return rest.Substring(0, endOfTag);
+        }
+
+        // Returns the value of `attribute` from the opening tag of `targetName`.
+        private static string ExtractAttribute(string targetName, string attribute)
+        {
+            var tag = ExtractOpeningTag(targetName);
+            var key = $"{attribute}=\"";
+            var start = tag.IndexOf(key, StringComparison.Ordinal);
+            Assert.True(start >= 0, $"Attribute '{attribute}' not found on target '{targetName}'.");
+            start += key.Length;
+            var end = tag.IndexOf('"', start);
+            return tag.Substring(start, end - start);
+        }
+
+        // Returns the full <Target>…</Target> block (opening tag through closing tag)
+        // for `targetName`, so Contains assertions are scoped to a single target and
+        // can't accidentally match an identical string in a sibling target.
+        private static string ExtractTargetBlock(string targetName)
+        {
+            var anchor = TargetsContent.IndexOf($"Name=\"{targetName}\"", StringComparison.Ordinal);
+            Assert.True(anchor >= 0, $"Target '{targetName}' not found in Sdk.targets.");
+            var close = TargetsContent.IndexOf("</Target>", anchor, StringComparison.Ordinal);
+            Assert.True(close >= 0, $"Closing </Target> for '{targetName}' not found.");
+            return TargetsContent.Substring(anchor, close - anchor);
         }
 
         private static string FindRepoRoot()

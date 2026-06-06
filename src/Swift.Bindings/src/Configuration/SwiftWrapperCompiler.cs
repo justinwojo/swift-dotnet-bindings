@@ -1016,10 +1016,15 @@ namespace BindingsGeneration
             ILogger logger,
             ICommandRunner? commandRunner = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            string? resolvedArchitecture = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
+            // Rewrite the slice's arch (and arch-stamped slice ID) so a fat-fold's x86_64 pass lands in
+            // ios-x86_64-simulator, not the default ios-arm64-simulator — exactly like wrapper Compile.
+            if (!string.IsNullOrEmpty(resolvedArchitecture))
+                simSlice = simSlice.WithArchitecture(resolvedArchitecture);
             return CompileBridgeSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 simSlice, logger, commandRunner, additionalFrameworkSearchPaths);
         }
@@ -1043,8 +1048,12 @@ namespace BindingsGeneration
             var bridgeModuleName = $"{moduleName}Bridge";
 
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
-            var simSlice = pi.GetSlice(true);
-            var deviceSlice = pi.DeviceSlice;
+            // Override architecture from resolution so a fat-fold's per-arch pass writes a slice ID
+            // matching its CPU (ios-x86_64-simulator vs ios-arm64-simulator) — same as wrapper CompileAll.
+            var simSlice = pi.GetSlice(true).WithArchitecture(simulatorResolution.SelectedArchitecture);
+            var deviceSlice = deviceResolution != null
+                ? pi.DeviceSlice.WithArchitecture(deviceResolution.SelectedArchitecture)
+                : pi.DeviceSlice;
             var primaryAdditionalSearchPaths = !pi.HasSimulatorVariant && deviceAdditionalSearchPaths != null
                 ? deviceAdditionalSearchPaths
                 : simAdditionalSearchPaths;

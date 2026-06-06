@@ -941,10 +941,11 @@ namespace BindingsGeneration
                 }
                 finally
                 {
-                    // Always move the primary back into place. On a mid-merge throw (a failed extra
-                    // compile or lipo), MergeFatSlices fails before overwriting the primary binary
-                    // (it lipos to a temp and only then replaces), so the restored primary still
-                    // carries a valid primary-arch wrapper.
+                    // Always move the primary back into place. MergeFatSlices is transactional — it
+                    // builds the fat result in a staging copy and only swaps it in after the whole
+                    // merge succeeds — so a mid-merge throw (a failed extra compile or lipo) leaves the
+                    // primary tree byte-for-byte intact, and the restored primary still carries a valid
+                    // primary-arch wrapper with a matching single-arch plist.
                     if (Directory.Exists(primaryAside)) Directory.Move(primaryAside, wrapperXcfwPath);
                 }
             }
@@ -1249,13 +1250,33 @@ namespace BindingsGeneration
             string xcframeworkPath, string outputDirectory,
             string? platformStr, string? platformTargetStr,
             string? wrapperArchitectures, string[]? frameworkDependencies,
-            ILogger logger, PlatformInfo platformInfo)
+            ILogger logger, PlatformInfo platformInfo,
+            string? targetArchitectures = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
             {
                 logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
                 return 1;
+            }
+
+            // CPU target arch(es) for the bridge — mirrors the wrapper's --target-architectures so the
+            // {Module}Bridge.xcframework is fat (arm64 + x86_64) exactly when the wrapper is. A bridge
+            // shipped arm64-only re-introduces the same Rosetta/x64-sim DllNotFound the wrapper fat-fold
+            // fixes, because the SwiftUI bridge views P/Invoke into their own native slice. Decided into
+            // primaryArch + extraArchs once the source slice is resolved, below.
+            var autoMatchSource = string.Equals(targetArchitectures?.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
+            List<string> requestedArchs;
+            if (autoMatchSource)
+            {
+                requestedArchs = new List<string>(); // resolved from the source slice below
+            }
+            else
+            {
+                var parsed = ParseTargetArchitectures(targetArchitectures, logger);
+                if (parsed == null)
+                    return 1; // invalid arch token already logged
+                requestedArchs = parsed;
             }
 
             var platformTarget = XCFrameworkPlatformTarget.Simulator;
@@ -1288,6 +1309,19 @@ namespace BindingsGeneration
             }
 
             var moduleName = resolution.ModuleName;
+
+            // Decide the bridge's CPU arch passes from the SOURCE slice (same basis as the wrapper):
+            // x86_64 lives only in the simulator/macOS slice, so ResolveAutoArchBasis re-resolves the
+            // simulator slice even when --platform-target pinned the resolution to the device slice.
+            var (autoBasisArchs, autoBasisSliceId) = ResolveAutoArchBasis(
+                resolution, xcframeworkPath, outputDirectory, platformTarget, wrapperArchNormalized,
+                platformInfo, logger);
+            if (!TryDecideWrapperArchitectures(
+                    autoMatchSource, requestedArchs, autoBasisArchs,
+                    autoBasisSliceId, logger, out var primaryArch, out var extraArchs))
+            {
+                return 1; // explicit arch missing from source — already logged (SWIFTBIND052)
+            }
 
             // Check for bridge files first
             var bridgeFiles = SwiftWrapperCompiler.CollectBridgeSwiftFiles(outputDirectory);
@@ -1363,18 +1397,19 @@ namespace BindingsGeneration
                 .Select(d => d.DeviceFrameworkSearchPath!)
                 .ToList();
 
-            // Compile bridge
-            SwiftWrapperCompilationResult? compilationResult = null;
-            Exception? compilationException = null;
-            try
+            // Compiles the bridge for ONE requested CPU arch (null = historical preference). Re-resolves
+            // per arch so each pass uses the matching slice; CompileWrapperForArchitectures then lipo-folds
+            // the extra-arch builds into one fat {Module}Bridge.xcframework — the same fan-out the wrapper
+            // uses in RunCompileWrapperOnly's CompileForArch.
+            SwiftWrapperCompilationResult? CompileBridgeForArch(string? requestedArch)
             {
                 if (wrapperArchNormalized == "all")
                 {
                     var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
                         xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo,
-                        companionFrameworkPaths: frameworkDependencies);
+                        requestedArchitecture: requestedArch);
 
-                    compilationResult = SwiftWrapperCompiler.CompileBridgeAll(
+                    return SwiftWrapperCompiler.CompileBridgeAll(
                         outputDirectory, moduleName,
                         simResolution, deviceResolution, logger,
                         simAdditionalSearchPaths: simDepPaths,
@@ -1383,35 +1418,43 @@ namespace BindingsGeneration
                 }
                 else if (wrapperArchNormalized == "device")
                 {
-                    XCFrameworkResolution deviceResolution;
-                    try
-                    {
-                        deviceResolution = XCFrameworkResolver.Resolve(
-                            xcframeworkPath, outputDirectory,
-                            XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo,
-                            companionFrameworkPaths: frameworkDependencies);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError("Cannot compile device bridge: {Message}", ex.Message);
-                        return 1;
-                    }
+                    // Let a device-resolution failure propagate to the outer catch (bridge failure is
+                    // non-fatal; the outcome below logs it). Device slices are arm64-only, so this pass
+                    // never carries an x86_64 extra-arch fold.
+                    var deviceResolution = XCFrameworkResolver.Resolve(
+                        xcframeworkPath, outputDirectory,
+                        XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
 
-                    compilationResult = SwiftWrapperCompiler.CompileBridgeSlice(
+                    return SwiftWrapperCompiler.CompileBridgeSlice(
                         outputDirectory, moduleName,
                         deviceResolution.FrameworkSearchPath,
                         deviceResolution.DylibPath,
-                        platformInfo.DeviceSlice,
+                        platformInfo.DeviceSlice.WithArchitecture(deviceResolution.SelectedArchitecture),
                         logger, additionalFrameworkSearchPaths: deviceDepPaths);
                 }
                 else
                 {
-                    compilationResult = SwiftWrapperCompiler.CompileBridge(
+                    var simResolution = XCFrameworkResolver.Resolve(
+                        xcframeworkPath, outputDirectory,
+                        platformTarget, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
+
+                    return SwiftWrapperCompiler.CompileBridge(
                         outputDirectory, moduleName,
-                        resolution.FrameworkSearchPath, resolution.DylibPath, logger,
+                        simResolution.FrameworkSearchPath, simResolution.DylibPath, logger,
                         additionalFrameworkSearchPaths: simDepPaths,
-                        platformInfo: platformInfo);
+                        platformInfo: platformInfo,
+                        resolvedArchitecture: simResolution.SelectedArchitecture);
                 }
+            }
+
+            // Compile bridge
+            SwiftWrapperCompilationResult? compilationResult = null;
+            Exception? compilationException = null;
+            try
+            {
+                compilationResult = CompileWrapperForArchitectures(primaryArch, extraArchs, CompileBridgeForArch, logger);
             }
             catch (Exception ex)
             {
