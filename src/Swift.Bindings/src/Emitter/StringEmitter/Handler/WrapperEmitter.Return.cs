@@ -1337,6 +1337,14 @@ namespace BindingsGeneration
                 if (applyIdiomaticConversion && named.Name == "Foundation.Data")
                     return "byte[]";
 
+                // Foundation.Date → System.DateTimeOffset. Date's TypeRecord maps to the raw
+                // P/Invoke type "double" (Swift Date is a frozen struct wrapping a 2001-epoch
+                // Double), so without this special-case the element is surfaced as a bare double,
+                // diverging from the scalar DateProjection. Marshalling in GetTupleElementMarshalCode
+                // reads the double and applies the epoch conversion (only at top level).
+                if (applyIdiomaticConversion && named.Name == "Foundation.Date")
+                    return "System.DateTimeOffset";
+
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(named);
                 return typeRecord.CSharpTypeName.FullyQualifiedName;
             }
@@ -1491,6 +1499,12 @@ namespace BindingsGeneration
             // Foundation.Data → byte[] conversion (received as IntPtr to heap-allocated buffer)
             if (element is NamedTypeSpec dataElement && dataElement.Name == "Foundation.Data")
                 return $"var {resultName} = (*(Swift.Foundation.Data*)(void*){itemName}).ToByteArray();";
+
+            // Foundation.Date → System.DateTimeOffset conversion. The inline buffer holds the raw
+            // 2001-epoch Double (read via MarshalFromSwift<double>); mirror the scalar
+            // DateProjection's epoch conversion instead of surfacing the bare double.
+            if (element is NamedTypeSpec dateElement && dateElement.Name == "Foundation.Date")
+                return $"var {resultName} = {DateProjection.SwiftEpoch}.AddSeconds(SwiftMarshal.MarshalFromSwift<double>({itemName}));";
 
             // Use the computed P/Invoke type to determine marshalling
             if (pinvokeType == "IntPtr")

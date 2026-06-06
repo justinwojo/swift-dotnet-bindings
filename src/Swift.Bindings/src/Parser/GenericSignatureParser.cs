@@ -35,14 +35,15 @@ public class GenericSignatureParser
 
         var paramMap = genericParams.Zip(sugaredParams, (gen, sug) => (gen, sug)).ToDictionary(x => x.gen, x => x.sug);
 
-        var constraints = ExtractConstraints(genericSignature);
+        var (constraints, concretePinnedParams) = ExtractConstraints(genericSignature);
 
         return genericParams.Select(typeName =>
             new GenericArgumentDecl(
                 typeName,
                 paramMap[typeName],
                 constraints.Where(c => c.Path[0] == typeName && c.Path.Length == 1).ToList(),
-                constraints.Where(c => c.Path[0] == typeName && c.Path.Length > 1).ToList()
+                constraints.Where(c => c.Path[0] == typeName && c.Path.Length > 1).ToList(),
+                HasUnrepresentableConcreteSameTypePin: concretePinnedParams.Contains(typeName)
             )
         ).ToList();
     }
@@ -65,33 +66,57 @@ public class GenericSignatureParser
     /// Extracts the constraints from a generic signature.
     /// </summary>
     /// <param name="signature">The generic signature to extract constraints from.</param>
-    /// <returns>A list of constraints.</returns>
-    private static List<GenericParameterConformance> ExtractConstraints(string signature)
+    /// <returns>
+    /// The representable constraints, plus the set of root generic-parameter names that carried a
+    /// dropped same-type concrete pin (see <see cref="ParseConstraint"/>). The pin set feeds
+    /// <see cref="GenericArgumentDecl.HasUnrepresentableConcreteSameTypePin"/>.
+    /// </returns>
+    private static (List<GenericParameterConformance> Constraints, HashSet<string> ConcretePinnedParams)
+        ExtractConstraints(string signature)
     {
         var whereIndex = signature.IndexOf("where", StringComparison.OrdinalIgnoreCase);
         if (whereIndex == -1)
-            return new List<GenericParameterConformance>();
+            return (new List<GenericParameterConformance>(), new HashSet<string>(StringComparer.Ordinal));
 
         var constraintsSection = signature[(whereIndex + "where".Length)..];
         // Split at top-level commas only. A constructed-generic constraint target
         // (e.g. `KeyPath<Intent, Parameter>`) carries an inner comma that a naive
         // `Split(',')` would tear apart, producing fragments that throw downstream.
-        var constraints = SwiftTypeListText.SplitTopLevelCommas(constraintsSection);
+        var constraintClauses = SwiftTypeListText.SplitTopLevelCommas(constraintsSection);
 
         // ParseConstraint returns null for constraints it cannot represent (constructed
-        // generic targets); OfType drops those so a single unrepresentable constraint
-        // never propagates a throw that would silently drop the whole enclosing decl.
-        var parsedConstraints = constraints
-            .Select(ParseConstraint)
-            .OfType<GenericParameterConformance>();
+        // generic / non-qualified targets) so a single unrepresentable constraint never
+        // propagates a throw that would silently drop the whole enclosing decl. When the
+        // dropped constraint is a same-type pin to a concrete type, the root parameter is
+        // recorded so downstream admissibility gates still see the single-specialization
+        // confinement the dropped constraint expressed.
+        var parsed = new List<GenericParameterConformance>();
+        var concretePinnedParams = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var clause in constraintClauses)
+        {
+            var pc = ParseConstraint(clause, out var droppedConcretePinRoot);
+            if (pc != null)
+                parsed.Add(pc);
+            else if (droppedConcretePinRoot != null)
+                concretePinnedParams.Add(droppedConcretePinRoot);
+        }
 
-        return [.. parsedConstraints];
+        return (parsed, concretePinnedParams);
     }
 
     /// <summary>
     /// Parses a constraint clause into a Conformance object.
     /// </summary>
     /// <param name="clause">The constraint clause to parse.</param>
+    /// <param name="droppedConcretePinRoot">
+    /// Set to the root generic-parameter name when this clause is a dropped same-type (<c>==</c>)
+    /// constraint pinning that parameter to a concrete, non-constructed-generic target (e.g.
+    /// <c>RowDecoder == ()</c>). Such a clause confines the owning member to a single
+    /// specialization; the target is unrepresentable so the constraint itself is dropped, but the
+    /// confinement must survive for the open-constructor-erasure admissibility gate. Null for
+    /// representable constraints, protocol/layout constraints, and constructed-generic same-type
+    /// targets (family relationships, not single-specialization pins).
+    /// </param>
     /// <returns>
     /// A Conformance object, or null when the clause cannot be represented as a nominal
     /// conformance — specifically when the constraint target is a constructed generic
@@ -103,8 +128,10 @@ public class GenericSignatureParser
     /// <c>SwiftABIParser.HandleNode</c>, which swallows it and silently discards the entire
     /// enclosing decl rather than just the one constraint.
     /// </returns>
-    private static GenericParameterConformance? ParseConstraint(string clause)
+    private static GenericParameterConformance? ParseConstraint(string clause, out string? droppedConcretePinRoot)
     {
+        droppedConcretePinRoot = null;
+
         var parts = clause.Split(new[] { ":", "==" }, StringSplitOptions.TrimEntries);
         if (parts.Length != 2)
         {
@@ -114,11 +141,39 @@ public class GenericSignatureParser
         var target = parts[0].Split('.');
         var conformanceTarget = parts[1];
 
+        // A same-type (`==`) constraint pinning a parameter to a concrete, non-constructed-generic
+        // target (`RowDecoder == ()`) confines the owning member to one specialization. The target
+        // is dropped as unrepresentable below, but `droppedConcretePinRoot` carries the confinement
+        // forward so the open-ctor-erasure gate refuses a `_SBW_CI_`/GSF wrapper that would not
+        // compile against the unconstrained type. Constructed-generic same-type targets
+        // (`== Foo<τ_0_1>`) are excluded: they relate parameters (a family), and that open form
+        // already compiles, so flagging them would drop currently-working constructors.
+        bool isSameTypeConcretePin = clause.Contains("==") && !conformanceTarget.Contains('<');
+
         // A constructed-generic target carries angle brackets and is not a nominal type.
         // Drop the constraint rather than feeding it to FromModuleQualifiedName (which
         // throws on '<') or stripping it to a misleading outer-name conformance.
         if (conformanceTarget.Contains('<'))
             return null;
+
+        // Layout/marker keyword constraints (AnyObject, Sendable, Any, Copyable, ...) are not
+        // representable as a nominal SwiftTypeName, and they appear without module qualification.
+        // More generally, any non-module-qualified target would make FromModuleQualifiedName throw
+        // (it requires a '.'), and that throw propagates to SwiftABIParser.HandleNode, which
+        // discards the ENTIRE enclosing decl instead of just this one constraint. Drop the
+        // constraint (return null) — the soft loss of one constraint is preferable to losing the decl.
+        var simpleTarget = conformanceTarget.Split('.')[^1];
+        if (simpleTarget is "AnyObject" or "Sendable" or "Escapable"
+            or "Copyable" or "SendableMetatype" or "Any")
+        {
+            if (isSameTypeConcretePin) droppedConcretePinRoot = target[0];
+            return null;
+        }
+        if (!conformanceTarget.Contains('.'))
+        {
+            if (isSameTypeConcretePin) droppedConcretePinRoot = target[0];
+            return null;
+        }
 
         ConformanceKind kind = clause.Contains(":") ? ConformanceKind.Protocol : ConformanceKind.ConcreteType;
         return new GenericParameterConformance(target, SwiftTypeName.FromModuleQualifiedName(conformanceTarget), kind);

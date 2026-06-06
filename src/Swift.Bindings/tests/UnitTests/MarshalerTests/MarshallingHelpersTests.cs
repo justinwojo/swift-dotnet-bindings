@@ -486,6 +486,19 @@ public class MarshallingHelpersTests
         Assert.False(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
     }
 
+    [Fact]
+    public void IsOptionalObjCBridged_CoreMotionValueStruct_ReturnsFalse()
+    {
+        // CoreMotion is an OptionalFallback module with objcPrefix "CM", but CMAcceleration
+        // is a genuine C value struct registered in valueTypes. The IsKnownAppleValueType
+        // guard must veto the weak ObjC-class fallback so Optional<CMAcceleration> is NOT
+        // marshalled as ObjCBridged (which would emit GetINativeObject<CMAcceleration>/.Handle —
+        // CS0315/CS1061, the RealityFoundation regression).
+        var typeSpec = TypeSpecParser.Parse("Swift.Optional<CoreMotion.CMAcceleration>");
+        var db = new MockTypeDatabase();
+        Assert.False(MarshallingHelpers.IsOptionalObjCBridged(typeSpec, db));
+    }
+
     /// <summary>Mock database with ObjC type records for IsOptionalObjCBridged tests.</summary>
     private class MockTypeDatabaseWithObjC : ITypeDatabase
     {

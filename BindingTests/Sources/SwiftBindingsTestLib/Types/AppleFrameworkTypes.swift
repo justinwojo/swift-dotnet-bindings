@@ -24,6 +24,14 @@ public func isDateInPast(_ date: Date) -> Bool {
     return date < Date()
 }
 
+/// Date as a tuple element (A5 regression): returns the epoch-derived Date paired with the
+/// truncated epoch seconds. The Date element must surface on the C# side as
+/// System.DateTimeOffset with the same 2001-epoch conversion as the scalar Date path — not
+/// as a bare double. Exercises WrapperEmitter's tuple-element type + marshalling seams.
+public func dateEpochPair(_ seconds: Double) -> (date: Date, epoch: Int32) {
+    return (date: Date(timeIntervalSince1970: seconds), epoch: Int32(seconds))
+}
+
 // MARK: - TimeInterval (Double) Patterns
 // TimeInterval is a typealias for Double — common in Foundation APIs.
 

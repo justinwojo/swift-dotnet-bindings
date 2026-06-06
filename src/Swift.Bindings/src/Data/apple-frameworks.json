@@ -39,16 +39,12 @@
         "AVAudioFramePosition",
         "AVAudioPacketCount",
         "AVCaptureDevice.AutoFocusRangeRestriction",
-        "AVCaptureDevice.DeviceType",
         "AVCaptureDevice.FlashMode",
         "AVCaptureDevice.FocusMode",
         "AVCaptureDevice.Position",
         "AVCaptureDevice.TorchMode",
         "AVCaptureSession.Preset",
         "AVCaptureVideoOrientation",
-        "AVFileType",
-        "AVLayerVideoGravity",
-        "AVMediaType",
         "AVMetadataObject.ObjectType",
         "AVPlayer.Status",
         "AVPlayer.TimeControlStatus",
@@ -57,7 +53,11 @@
       "typeRemaps": {
         "AVURLAsset": "AVFoundation.AVUrlAsset",
         "AVMIDIPlayer": "AVFoundation.AVMidiPlayer",
-        "AVCaptureDevice.FocusMode": "AVFoundation.AVCaptureFocusMode"
+        "AVCaptureDevice.FocusMode": "AVFoundation.AVCaptureFocusMode",
+        "AVMediaType": "Foundation.NSString",
+        "AVFileType": "Foundation.NSString",
+        "AVLayerVideoGravity": "Foundation.NSString",
+        "AVCaptureDevice.DeviceType": "Foundation.NSString"
       }
     },
     {
@@ -212,30 +212,42 @@
       "module": "CoreMedia",
       "optionalFallback": true,
       "wrapperImportable": true,
+      "objcPrefixes": ["CM"],
       "valueTypes": ["CMTime", "CMTimeRange", "CMTimeMapping"]
     },
     {
       "module": "CoreMotion",
       "optionalFallback": true,
-      "wrapperImportable": true
+      "wrapperImportable": true,
+      "objcPrefixes": ["CM"],
+      "valueTypes": [
+        "CMAcceleration",
+        "CMRotationRate",
+        "CMQuaternion",
+        "CMMagneticField",
+        "CMCalibratedMagneticField",
+        "CMRotationMatrix"
+      ]
     },
     {
       "module": "CoreNFC",
       "optionalFallback": true,
       "wrapperImportable": true,
-      "objcPrefixes": ["NK"],
+      "objcPrefixes": ["NFC"],
       "platformUnavailable": ["tvOS", "macOS"]
     },
     {
       "module": "CoreSpotlight",
       "autoBridge": true,
       "optionalFallback": true,
-      "wrapperImportable": true
+      "wrapperImportable": true,
+      "objcPrefixes": ["CS"]
     },
     {
       "module": "CoreTelephony",
       "optionalFallback": true,
-      "wrapperImportable": true
+      "wrapperImportable": true,
+      "objcPrefixes": ["CT"]
     },
     {
       "module": "CoreText",
@@ -613,7 +625,11 @@
       "optionalFallback": true,
       "wrapperImportable": true,
       "objcPrefixes": ["NL"],
-      "valueTypes": ["NLLanguage", "NLTag", "NLTagScheme", "NLTokenUnit"]
+      "valueTypes": ["NLTag", "NLTokenUnit"],
+      "typeRemaps": {
+        "NLLanguage": "Foundation.NSString",
+        "NLTagScheme": "Foundation.NSString"
+      }
     },
     {
       "module": "Network",
@@ -644,7 +660,8 @@
       "module": "PDFKit",
       "autoBridge": true,
       "optionalFallback": true,
-      "wrapperImportable": true
+      "wrapperImportable": true,
+      "objcPrefixes": ["PDF"]
     },
     {
       "module": "PassKit",
@@ -744,16 +761,8 @@
       "objcPrefixes": ["CA"],
       "valueTypes": [
         "CAAutoresizingMask",
-        "CAContentsFormat",
-        "CACornerCurve",
         "CACornerMask",
-        "CADynamicRange",
         "CAEdgeAntialiasingMask",
-        "CAGradientLayerType",
-        "CAScroll",
-        "CATextLayerAlignmentMode",
-        "CATextLayerTruncationMode",
-        "CAToneMapMode",
         "CATransform3D"
       ],
       "typeRemaps": {
@@ -766,14 +775,14 @@
         "CACornerMask": "CoreAnimation.CACornerMask",
         "CAEdgeAntialiasingMask": "CoreAnimation.CAEdgeAntialiasingMask",
         "CAAutoresizingMask": "CoreAnimation.CAAutoresizingMask",
-        "CAContentsFormat": "CoreAnimation.CAContentsFormat",
-        "CACornerCurve": "CoreAnimation.CACornerCurve",
-        "CAGradientLayerType": "CoreAnimation.CAGradientLayerType",
-        "CATextLayerAlignmentMode": "CoreAnimation.CATextLayerAlignmentMode",
-        "CATextLayerTruncationMode": "CoreAnimation.CATextLayerTruncationMode",
-        "CAScroll": "CoreAnimation.CAScroll",
-        "CADynamicRange": "CoreAnimation.CADynamicRange",
-        "CAToneMapMode": "CoreAnimation.CAToneMapMode"
+        "CAContentsFormat": "Foundation.NSString",
+        "CACornerCurve": "Foundation.NSString",
+        "CAGradientLayerType": "Foundation.NSString",
+        "CATextLayerAlignmentMode": "Foundation.NSString",
+        "CATextLayerTruncationMode": "Foundation.NSString",
+        "CAScroll": "Foundation.NSString",
+        "CADynamicRange": "Foundation.NSString",
+        "CAToneMapMode": "Foundation.NSString"
       }
     },
     {
@@ -1007,7 +1016,8 @@
     },
     {
       "module": "WatchConnectivity",
-      "optionalFallback": true
+      "optionalFallback": true,
+      "objcPrefixes": ["WC"]
     },
     {
       "module": "WatchKit",
@@ -1052,6 +1062,7 @@
       "module": "_LocationEssentials",
       "autoBridge": true,
       "namespaceRemap": "CoreLocation",
+      "valueTypes": ["CLLocationCoordinate2D"],
       "typeRemaps": {
         "CLLocation": "CoreLocation.CLLocation",
         "CLLocationCoordinate2D": "CoreLocation.CLLocationCoordinate2D"

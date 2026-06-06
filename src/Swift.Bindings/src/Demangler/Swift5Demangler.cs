@@ -555,6 +555,10 @@ namespace BindingsGeneration.Demangling
                 switch (c2)
                 {
                     case 'a': return new Node(NodeKind.AsyncAnnotation);
+                    case 'b': return new Node(NodeKind.ConcurrentFunctionType);
+                    // Typed throws (`throws(E)`): the mangled error type precedes `YK`
+                    // and is sitting on top of the node stack; pop it as the annotation child.
+                    case 'K': return CreateWithChild(NodeKind.TypedThrowsAnnotation, PopTypeAndGetChild());
                     default:
                         PushBack();
                         PushBack();
@@ -1095,7 +1099,11 @@ namespace BindingsGeneration.Demangling
         Node PopFunctionType(NodeKind kind)
         {
             var funcType = new Node(kind);
-            AddChild(funcType, PopNode(NodeKind.ThrowsAnnotation));
+            // Pop function annotations in upstream order (top-of-stack first):
+            // throws/typed-throws, then @Sendable, then async. Each is optional;
+            // AddChild is a no-op when the corresponding annotation is absent.
+            AddChild(funcType, PopNode(NodeKind.ThrowsAnnotation) ?? PopNode(NodeKind.TypedThrowsAnnotation));
+            AddChild(funcType, PopNode(NodeKind.ConcurrentFunctionType));
             AddChild(funcType, PopNode(NodeKind.AsyncAnnotation));
             funcType = AddChild(funcType, PopFunctionParams(NodeKind.ArgumentTuple));
             funcType = AddChild(funcType, PopFunctionParams(NodeKind.ReturnType));
@@ -1145,7 +1153,11 @@ namespace BindingsGeneration.Demangling
                 return null;
 
             var parameterIndex = 0;
-            if (funcType.Children[parameterIndex].Kind == NodeKind.ThrowsAnnotation)
+            if (funcType.Children[parameterIndex].Kind == NodeKind.ThrowsAnnotation
+                || funcType.Children[parameterIndex].Kind == NodeKind.TypedThrowsAnnotation)
+                parameterIndex++;
+
+            if (funcType.Children[parameterIndex].Kind == NodeKind.ConcurrentFunctionType)
                 parameterIndex++;
 
             if (funcType.Children[parameterIndex].Kind == NodeKind.AsyncAnnotation)

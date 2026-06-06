@@ -82,65 +82,19 @@ internal class Swift5Reducer
                 },
             }
         },
+        // A single tolerant FunctionType rule (empty ChildRules → matches any FunctionType /
+        // NoEscapeFunctionType node) replaces the former four positional rules. The matcher is
+        // positional-prefix, so a node carrying a leading annotation child the fixed rules didn't
+        // enumerate (ConcurrentFunctionType from @Sendable, TypedThrowsAnnotation from typed throws,
+        // or any ordering combination of them with async/throws) matched NONE of the old rules and
+        // fell through to a TypeSpecReduction/ReductionError — silently disabling demangle-based
+        // detection for every such symbol. ConvertFunctionType reads ArgumentTuple/ReturnType from
+        // the END (they are always the final two children regardless of leading annotations) and
+        // derives async/throws from annotation PRESENCE, which is behavior-identical to the four
+        // old reducers for the un-annotated cases.
         new MatchRule() {
             Name = "FunctionType", NodeKindList = new List<NodeKind> () { NodeKind.FunctionType, NodeKind.NoEscapeFunctionType },
             Reducer = ConvertFunctionType,
-            ChildRules = new List<MatchRule> () {
-                new MatchRule () {
-                    Name = "Arguments", NodeKind = NodeKind.ArgumentTuple, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "ReturnType", NodeKind = NodeKind.ReturnType, Reducer = MatchRule.ErrorReducer
-                },
-            }
-        },
-        new MatchRule() {
-            Name = "FunctionType", NodeKindList = new List<NodeKind> () { NodeKind.FunctionType, NodeKind.NoEscapeFunctionType },
-            Reducer = ConvertFunctionTypeThrows,
-            ChildRules = new List<MatchRule> () {
-                new MatchRule () {
-                    Name = "ThrowsAnnotation", NodeKind = NodeKind.ThrowsAnnotation, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "Arguments", NodeKind = NodeKind.ArgumentTuple, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "ReturnType", NodeKind = NodeKind.ReturnType, Reducer = MatchRule.ErrorReducer
-                },
-            }
-        },
-        new MatchRule() {
-            Name = "FunctionType", NodeKindList = new List<NodeKind> () { NodeKind.FunctionType, NodeKind.NoEscapeFunctionType },
-            Reducer = ConvertFunctionTypeAsync,
-            ChildRules = new List<MatchRule> () {
-                new MatchRule () {
-                    Name = "AsyncAnnotation", NodeKind = NodeKind.AsyncAnnotation, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "Arguments", NodeKind = NodeKind.ArgumentTuple, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "ReturnType", NodeKind = NodeKind.ReturnType, Reducer = MatchRule.ErrorReducer
-                },
-            }
-        },
-        new MatchRule() {
-            Name = "FunctionType", NodeKindList = new List<NodeKind> () { NodeKind.FunctionType, NodeKind.NoEscapeFunctionType },
-            Reducer = ConvertFunctionTypeAsyncThrows,
-            ChildRules = new List<MatchRule> () {
-                new MatchRule () {
-                    Name = "ThrowsAnnotation", NodeKind = NodeKind.ThrowsAnnotation, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "AsyncAnnotation", NodeKind = NodeKind.AsyncAnnotation, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "Arguments", NodeKind = NodeKind.ArgumentTuple, Reducer = MatchRule.ErrorReducer
-                },
-                new MatchRule () {
-                    Name = "ReturnType", NodeKind = NodeKind.ReturnType, Reducer = MatchRule.ErrorReducer
-                },
-            }
         },
         new MatchRule() {
             Name = "Function", NodeKind = NodeKind.Function, Reducer = ConvertFunction,
@@ -523,7 +477,8 @@ internal class Swift5Reducer
     }
 
     /// <summary>
-    /// Convert a FunctionType node into a TypeSpecReduction
+    /// Convert a FunctionType node into a TypeSpecReduction, tolerant of any leading
+    /// annotation children.
     /// </summary>
     /// <param name="node">a FunctionType node</param>
     /// <param name="mangledName">the mangled name that generated the Node</param>
@@ -532,59 +487,41 @@ internal class Swift5Reducer
     {
         // What to expect here:
         // FunctionType
+        //    [annotation children: ThrowsAnnotation | TypedThrowsAnnotation |
+        //     ConcurrentFunctionType | AsyncAnnotation, in any combination]
         //    ArgumentTuple
         //        Type
         //    ReturnType
         //        Type
-
+        //
+        // The ArgumentTuple and ReturnType are ALWAYS the final two children regardless of how
+        // many annotations precede them, so they are read positionally from the end. async/throws
+        // are derived from the PRESENCE of the corresponding annotation child rather than a fixed
+        // index, which keeps this correct for every annotation combination Swift can mangle
+        // (e.g. @Sendable closures and typed throws, neither of which the old fixed rules matched).
         var noEscaping = node.Kind == NodeKind.NoEscapeFunctionType;
-        var argTuple = node.Children[0];
-        var @return = node.Children[1];
 
-        return ConvertFunctionAsyncThrows(argTuple, @return, false, false, noEscaping, mangledName);
-    }
+        if (node.Children.Count < 2)
+            return ReductionErrorLow(ExpectedButGot("FunctionType with ArgumentTuple and ReturnType children",
+                $"{node.Children.Count} children", mangledName), mangledName);
 
-    /// <summary>
-    /// Convert a FunctionType node that can throw into a TypeSpecReduction
-    /// </summary>
-    /// <param name="node">a FunctionType node</param>
-    /// <param name="mangledName">the mangled name that generated the Node</param>
-    /// <returns>A TypeSpecReduction</returns>
-    static IReduction ConvertFunctionTypeThrows(Node node, string mangledName)
-    {
-        // Expect:
-        // ThrowsAnnotation
-        // ArgumentTuple
-        // ReturnType
-        var noEscaping = node.Kind == NodeKind.NoEscapeFunctionType;
-        return ConvertFunctionAsyncThrows(node.Children[1], node.Children[2], false, true, noEscaping, mangledName);
-    }
+        var argTuple = node.Children[node.Children.Count - 2];
+        var @return = node.Children[node.Children.Count - 1];
+        if (argTuple.Kind != NodeKind.ArgumentTuple || @return.Kind != NodeKind.ReturnType)
+            return ReductionErrorLow(ExpectedButGot("FunctionType ending in ArgumentTuple and ReturnType",
+                $"{argTuple.Kind} and {@return.Kind}", mangledName), mangledName);
 
-    /// <summary>
-    /// Convert a FunctionType node that is async into a TypeSpecReduction
-    /// </summary>
-    /// <param name="node">a FunctionType node</param>
-    /// <param name="mangledName">the mangled name that generated the Node</param>
-    /// <returns>A TypeSpecReduction</returns>
-    static IReduction ConvertFunctionTypeAsync(Node node, string mangledName)
-    {
-        // Expect:
-        // AsyncAnnotation
-        // ArgumentTuple
-        // ReturnType
-        var noEscaping = node.Kind == NodeKind.NoEscapeFunctionType;
-        return ConvertFunctionAsyncThrows(node.Children[1], node.Children[2], true, false, noEscaping, mangledName);
-    }
+        var async = false;
+        var throws = false;
+        foreach (var child in node.Children)
+        {
+            if (child.Kind == NodeKind.AsyncAnnotation)
+                async = true;
+            else if (child.Kind == NodeKind.ThrowsAnnotation || child.Kind == NodeKind.TypedThrowsAnnotation)
+                throws = true;
+        }
 
-    static IReduction ConvertFunctionTypeAsyncThrows(Node node, string mangledName)
-    {
-        // Expect:
-        // AsyncAnnotation
-        // ThrowsAnnotation
-        // ArgumentTuple
-        // ReturnType
-        var noEscaping = node.Kind == NodeKind.NoEscapeFunctionType;
-        return ConvertFunctionAsyncThrows(node.Children[2], node.Children[3], true, true, noEscaping, mangledName);
+        return ConvertFunctionAsyncThrows(argTuple, @return, async, throws, noEscaping, mangledName);
     }
 
     /// <summary>

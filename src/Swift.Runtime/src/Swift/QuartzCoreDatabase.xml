@@ -13,29 +13,29 @@
         <entity managedNameSpace="CoreAnimation" managedTypeName="CAAutoresizingMask">
             <typedeclaration kind="struct" name="CAAutoresizingMask" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CAContentsFormat">
-            <typedeclaration kind="struct" name="CAContentsFormat" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CAContentsFormat" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CACornerCurve">
-            <typedeclaration kind="struct" name="CACornerCurve" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CACornerCurve" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CAGradientLayerType">
-            <typedeclaration kind="struct" name="CAGradientLayerType" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CAGradientLayerType" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CATextLayerAlignmentMode">
-            <typedeclaration kind="struct" name="CATextLayerAlignmentMode" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CATextLayerAlignmentMode" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CATextLayerTruncationMode">
-            <typedeclaration kind="struct" name="CATextLayerTruncationMode" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CATextLayerTruncationMode" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CAScroll">
-            <typedeclaration kind="struct" name="CAScroll" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CAScroll" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CADynamicRange">
-            <typedeclaration kind="struct" name="CADynamicRange" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CADynamicRange" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="CoreAnimation" managedTypeName="CAToneMapMode">
-            <typedeclaration kind="struct" name="CAToneMapMode" module="QuartzCore" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="CAToneMapMode" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
             <typedeclaration kind="class" name="CALayerContentsGravity" module="QuartzCore" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />

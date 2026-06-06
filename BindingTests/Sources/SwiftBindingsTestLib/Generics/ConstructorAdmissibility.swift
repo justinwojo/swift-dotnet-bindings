@@ -141,3 +141,44 @@ extension CtorAdmBox where Value.Element: CtorAdmCollectionish {
         self.init(tag: "rope", salt: ropeFlag ? 1 : 0)
     }
 }
+
+// MARK: - Facet (e): concrete same-type pin on an UNCONSTRAINED generic parent
+//
+// Reproduces the GRDB.TableAlias<RowDecoder> regression. Unlike facets (a)–(d),
+// the generic parameter here carries NO protocol constraint — there is no PAT to
+// enumerate conformers from, so CSM never produces a closed form. The class has
+// two inits:
+//
+//   * `init(tag:)`           — general, no `where` clause. The unconstrained type
+//                              genuinely has it, so the `_SBW_CI_` open erasure
+//                              MUST back it (ctor(string) present).
+//   * `init(pinnedSalt:)`    — confined to `RowDecoder == ()` by a same-type pin.
+//                              Valid ONLY for CtorAdmVoidPin<Void>.
+//
+// The pin's target `()` is unrepresentable, so GenericSignatureParser drops the
+// constraint. Pre-fix the now-apparently-unconstrained `init(pinnedSalt:)` flowed
+// to the `_SBW_CI_` open path (parent is a final generic class, no ctor param
+// references the parent generic param), emitting an unconditional
+// `extension CtorAdmVoidPin: _SBW_CI_{hash} {}` that requires `init(pinnedSalt:)`
+// on EVERY specialization → "type 'CtorAdmVoidPin<RowDecoder>' does not conform"
+// (the bare type has no such init), so the whole binding failed `swiftc`.
+//
+// Post-fix the parser records the dropped concrete same-type pin on the parameter
+// (`HasUnrepresentableConcreteSameTypePin`); the admissibility gate consumes it and
+// refuses open dispatch, exactly as it already refuses the module-qualified
+// `== Swift.Int` form. With no PAT for CSM and open erasure refused, the pinned
+// init has NO surface (ctor(nint) absent) while the general init still erases.
+//
+// Distinct C# parameter TYPES (tag→ctor(string), pinnedSalt→ctor(nint)) keep the
+// two inits reflection-distinguishable.
+public final class CtorAdmVoidPin<RowDecoder> {
+    public let tag: String
+
+    public init(tag: String) {
+        self.tag = tag
+    }
+
+    public init(pinnedSalt salt: Int) where RowDecoder == () {
+        self.tag = "void-\(salt)"
+    }
+}

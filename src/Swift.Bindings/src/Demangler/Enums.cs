@@ -264,6 +264,8 @@ public enum NodeKind
     AssociatedTypeDescriptor,
     ThrowsAnnotation,
     AsyncAnnotation,
+    ConcurrentFunctionType,
+    TypedThrowsAnnotation,
     EmptyList,
     FirstElementMarker,
     VariadicMarker,

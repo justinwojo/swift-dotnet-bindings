@@ -1576,6 +1576,52 @@ public class SwiftABIParserRuntimeTests
         Assert.Empty(result.ModuleDecl.Types);
     }
 
+    [Theory]
+    [InlineData("Optional", "Enum")]
+    [InlineData("Result", "Enum")]
+    [InlineData("Array", "Struct")]
+    [InlineData("Dictionary", "Struct")]
+    [InlineData("Set", "Struct")]
+    [InlineData("ClosedRange", "Struct")]
+    public void ParseModule_ForeignSwiftStdlibGeneric_IsSkipped(string typeName, string declKind)
+    {
+        // A third-party module that extends a runtime-provided Swift stdlib generic
+        // (e.g. `extension Swift.Optional : CustomStringConvertible where Wrapped == <x>`)
+        // surfaces a Swift.<Generic> node in its ABI. Swift.Optional/Result are enums,
+        // Array/Dictionary/Set/ClosedRange are structs — none route through the
+        // cross-module extension emitter (enum/non-frozen receivers are unsupported), so
+        // they would fall through the system-re-export keep path and materialize a local
+        // type. Emitting `public [static] partial class SwiftOptional<TWrapped>` shadows
+        // the runtime type Swift.SwiftOptional<T> (and SwiftArray/SwiftDictionary/...),
+        // breaking every unqualified `SwiftOptional<...>` reference in the generated
+        // assembly. The parser must drop the node outright — contrast
+        // ParseModule_SystemModuleReExport_UsesCorrectModuleQualification, where a
+        // non-generic Swift system type (KeyPath) is legitimately kept.
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+
+        var extensionMember = CreateNode(
+            kind: "Function",
+            declKind: "Func",
+            name: "described",
+            moduleName: "TestModule",
+            mangledName: "$s10TestModuleE9describedSSyF");
+
+        var stdlibGeneric = CreateNode(
+            kind: "TypeDecl",
+            declKind: declKind,
+            name: typeName,
+            moduleName: "Swift",
+            mangledName: $"$ss{typeName.Length}{typeName}{(declKind == "Enum" ? "O" : "V")}N",
+            children: new[] { extensionMember });
+
+        using var fixture = CreateParserWithNodes(importNode, stdlibGeneric);
+        var result = fixture.Parser.ParseModule();
+
+        // Neither the colliding type nor its extension member survives.
+        Assert.Empty(result.ModuleDecl.Types);
+        Assert.Empty(result.ModuleDecl.Methods);
+    }
+
     [Fact]
     public void ParseModule_DuplicateCrossModuleReExport_SkipsGracefully()
     {

@@ -110,6 +110,33 @@ public class ConstructorAdmissibilityTests
     }
 
     [Fact]
+    public void HasUnsatisfiableConstraint_True_ForDroppedConcreteSameTypePin()
+    {
+        // `final class TableAlias<RowDecoder> { init(name:) where RowDecoder == () }` — the `== ()`
+        // pin is dropped by GenericSignatureParser (unrepresentable target) but flagged on the
+        // parameter. The init is confined to TableAlias<Void>; an open `_SBW_CI_`/GSF wrapper
+        // against the unconstrained type would not compile, so the gate must refuse it (the
+        // GRDB.TableAlias `init(name:) where RowDecoder == ()` regression).
+        var parent = GenericClass("TableAlias", GenericParam("RowDecoder")); // unconstrained
+        var method = Ctor(ReturnArg(), Param("name", "Swift.Optional<Swift.String>"));
+        method.GenericParameters.Add(GenericParam("RowDecoder", concretePin: true));
+
+        Assert.True(ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+    }
+
+    [Fact]
+    public void HasUnsatisfiableConstraint_False_ForConcretePinOnMethodOwnParam()
+    {
+        // A concrete pin on a METHOD-own generic param (τ_1, not the parent's) is the method-generic
+        // dimension, not a parent-type-erasure concern — it must not trip the gate.
+        var parent = GenericClass("Box", GenericParam("Value"));
+        var method = Ctor(ReturnArg(), Param("x", "Swift.Int"));
+        method.GenericParameters.Add(GenericParam("U", concretePin: true));
+
+        Assert.False(ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+    }
+
+    [Fact]
     public void HasUnsatisfiableConstraint_False_ForMethodOwnGenericParam()
     {
         // A constraint on a METHOD-own generic param (τ_1) is the CSM/GSF method-generic
@@ -140,6 +167,44 @@ public class ConstructorAdmissibilityTests
         var method = Ctor(ReturnArg(), Param("x", "Swift.Int")); // no method generic params
 
         Assert.False(ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+    }
+
+    // ── Shared dropped-pin helper (consulted by BOTH the open gate and CSM) ─────────
+
+    [Fact]
+    public void HasUnrepresentableConcreteParentPin_True_ForParentLevelPinnedParam()
+    {
+        // `final class TableAlias<RowDecoder> { init(name:) where RowDecoder == () }` — the dropped
+        // `== ()` pin is flagged on the parent-level param. CSM consults this helper to refuse the
+        // init exactly as the open gate does: a CSM closed form closing over a different parameter
+        // would leave RowDecoder generic, and `()` is never a conformer CSM enumerates.
+        var parent = GenericClass("TableAlias", GenericParam("RowDecoder"));
+        var method = Ctor(ReturnArg(), Param("name", "Swift.String"));
+        method.GenericParameters.Add(GenericParam("RowDecoder", concretePin: true));
+
+        Assert.True(ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parent));
+    }
+
+    [Fact]
+    public void HasUnrepresentableConcreteParentPin_False_ForMethodOwnPinnedParam()
+    {
+        // A pin on a METHOD-own param (not a parent generic param) is the method-generic dimension,
+        // which CSM/GSF satisfy by closing over it — not an unsatisfiable parent confinement.
+        var parent = GenericClass("Box", GenericParam("Value"));
+        var method = Ctor(ReturnArg(), Param("x", "Swift.Int"));
+        method.GenericParameters.Add(GenericParam("U", concretePin: true));
+
+        Assert.False(ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parent));
+    }
+
+    [Fact]
+    public void HasUnrepresentableConcreteParentPin_False_WhenNoPin()
+    {
+        var parent = GenericClass("Box", GenericParam("Value"));
+        var method = Ctor(ReturnArg(), Param("x", "Swift.Int"));
+        method.GenericParameters.Add(GenericParam("Value")); // no pin
+
+        Assert.False(ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parent));
     }
 
     // ── Minimal model builders ─────────────────────────────────────────────────────
@@ -205,10 +270,12 @@ public class ConstructorAdmissibilityTests
     private static GenericArgumentDecl GenericParam(
         string name,
         GenericParameterConformance? generic = null,
-        GenericParameterConformance? assoc = null) =>
+        GenericParameterConformance? assoc = null,
+        bool concretePin = false) =>
         new(name, name,
             generic is null ? new List<GenericParameterConformance>() : new List<GenericParameterConformance> { generic },
-            assoc is null ? new List<GenericParameterConformance>() : new List<GenericParameterConformance> { assoc });
+            assoc is null ? new List<GenericParameterConformance>() : new List<GenericParameterConformance> { assoc },
+            concretePin);
 
     private static ClassDecl GenericClass(string name, params GenericArgumentDecl[] genericParams)
     {

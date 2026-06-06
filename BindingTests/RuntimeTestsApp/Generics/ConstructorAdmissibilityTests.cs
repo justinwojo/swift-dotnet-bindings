@@ -126,4 +126,35 @@ public class ConstructorAdmissibilityTests : TestBase
         AssertNull(ext.GetMethod(name, new[] { typeof(string) }),
             "CSM<CtorAdmRopeValue> SKIPS (_const constId:) on every closed form");
     }
+
+    // ── Facet (e): concrete same-type pin on an UNCONSTRAINED generic parent ───────
+    //
+    // GRDB.TableAlias<RowDecoder> regression. `init(pinnedSalt:) where RowDecoder == ()`
+    // is confined to CtorAdmVoidPin<Void>; the `== ()` pin's target is unrepresentable so
+    // GenericSignatureParser drops the constraint. Pre-fix the now-apparently-unconstrained
+    // init flowed to the `_SBW_CI_` open path, emitting
+    // `extension CtorAdmVoidPin: _SBW_CI_{hash} {}` requiring init(pinnedSalt:) on EVERY
+    // specialization → "type 'CtorAdmVoidPin<RowDecoder>' does not conform", failing the
+    // whole binding compile. Post-fix the dropped pin is flagged
+    // (HasUnrepresentableConcreteSameTypePin) and the admissibility gate refuses open
+    // dispatch. With no PAT for CSM, the pinned init has NO surface; the general init still
+    // erases — so reaching these assertions at all is the headline (pre-fix nothing linked).
+
+    public void TestVoidPin_GeneralInit_RoundTripsTag()
+    {
+        using var pin = new CtorAdmVoidPin<CtorAdmIntValue>("alias");
+        AssertEqual("alias", pin.Tag, "void-pin general (tag:) open _SBW_CI_ erasure round-trips tag");
+    }
+
+    public void TestVoidPin_PinnedInitSuppressed_GeneralInitEmitted()
+    {
+        var pinType = typeof(CtorAdmVoidPin<CtorAdmIntValue>);
+
+        AssertNotNull(
+            pinType.GetConstructor(new[] { typeof(string) }),
+            "void-pin general (tag:) init is emitted (open _SBW_CI_ erasure backs the unconstrained type)");
+        AssertNull(
+            pinType.GetConstructor(new[] { typeof(nint) }),
+            "void-pin (pinnedSalt:) `where RowDecoder == ()` init is suppressed (open dispatch refused)");
+    }
 }

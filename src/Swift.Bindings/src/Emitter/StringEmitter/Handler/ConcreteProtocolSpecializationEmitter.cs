@@ -2096,6 +2096,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
             return false;
         }
 
+        // A constructor that pins a parent generic parameter to an unrepresentable concrete type
+        // (`where RowDecoder == ()`) cannot be emitted as a CSM closed form either: the pin is
+        // dropped by GenericSignatureParser so the per-conformer constraint evaluation below never
+        // sees it, and a closed form closing over a DIFFERENT parameter leaves the pinned parameter
+        // generic (the `()` target is never an enumerated conformer). Refuse it the same way the
+        // open-erasure gate does, via the shared admissibility helper.
+        if (isConstructor &&
+            ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parentTypeDecl))
+        {
+            rejectReason = "constructor pins a parent generic parameter to an unrepresentable concrete type (`== ()`)";
+            return false;
+        }
+
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
         bool returnsGenericParam = !isVoidReturn &&

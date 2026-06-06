@@ -84,6 +84,12 @@ internal static class ConstructorAdmissibility
         if (!parentTypeDecl.IsGeneric || method.GenericParameters.Count == 0)
             return false;
 
+        // A dropped concrete same-type pin (`where RowDecoder == ()`) survives only as a flag and
+        // is invisible to the conformance-list walks below; check it up front via the shared
+        // helper so the open-erasure gate and CSM refuse it in lockstep.
+        if (HasUnrepresentableConcreteParentPin(method, parentTypeDecl))
+            return true;
+
         var parentParamNames = parentTypeDecl.GenericParameters
             .Select(p => p.TypeName)
             .ToHashSet(System.StringComparer.Ordinal);
@@ -112,6 +118,40 @@ internal static class ConstructorAdmissibility
                 if (!parentDeclared.Contains(ConstraintKey(c)))
                     return true;
         }
+        return false;
+    }
+
+    /// <summary>
+    /// True when an initializer pins a PARENT-level generic parameter to a concrete,
+    /// unrepresentable same-type target (<c>where RowDecoder == ()</c>). Such a pin is dropped by
+    /// <see cref="GenericSignatureParser"/> as unrepresentable, so it survives ONLY as
+    /// <see cref="GenericArgumentDecl.HasUnrepresentableConcreteSameTypePin"/> — invisible to the
+    /// conformance-list walks that both the open-ctor gate
+    /// (<see cref="HasUnsatisfiableParentGenericExtensionConstraint"/>) and CSM's per-conformer
+    /// constraint evaluation otherwise rely on.
+    ///
+    /// No erasure path can satisfy it, so every path must refuse it in lockstep:
+    ///   • the open <c>_SBW_CI_</c> / GSF form erases against the UNCONSTRAINED type, which Swift
+    ///     rejects ("does not conform" / "requires the types … be equivalent");
+    ///   • a CSM closed form closes over a DIFFERENT parameter, leaving the pinned parameter
+    ///     generic — and the unrepresentable target (e.g. <c>()</c>) is itself never a conformer
+    ///     CSM enumerates, so no closed form can pin it either.
+    /// This mirrors the module-qualified <c>== Swift.Int</c> form (which IS in GenericConformances
+    /// and is caught by the conformance walks); the unrepresentable form needs the flag because the
+    /// parser could not represent its target.
+    /// </summary>
+    public static bool HasUnrepresentableConcreteParentPin(MethodDecl method, TypeDecl parentTypeDecl)
+    {
+        if (!parentTypeDecl.IsGeneric || method.GenericParameters.Count == 0)
+            return false;
+
+        var parentParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet(System.StringComparer.Ordinal);
+
+        foreach (var gp in method.GenericParameters)
+            if (gp.HasUnrepresentableConcreteSameTypePin && parentParamNames.Contains(gp.TypeName))
+                return true;
         return false;
     }
 

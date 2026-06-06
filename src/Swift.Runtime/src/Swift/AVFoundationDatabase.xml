@@ -8,7 +8,7 @@
             <typedeclaration kind="class" name="AVCaptureSession" module="AVFoundation" mangledName="$sSo16AVCaptureSessionC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureVideoOrientation">
-            <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" />
+            <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureFocusMode">
             <typedeclaration kind="enum" name="AVCaptureDevice.FocusMode" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
@@ -16,8 +16,8 @@
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureAutoFocusRangeRestriction">
             <typedeclaration kind="struct" name="AVCaptureDevice.AutoFocusRangeRestriction" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureDeviceType">
-            <typedeclaration kind="struct" name="AVCaptureDevice.DeviceType" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="AVCaptureDevice.DeviceType" module="AVFoundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureFlashMode">
             <typedeclaration kind="struct" name="AVCaptureDevice.FlashMode" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
@@ -28,14 +28,14 @@
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureTorchMode">
             <typedeclaration kind="struct" name="AVCaptureDevice.TorchMode" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="AVFoundation" managedTypeName="AVFileTypes">
-            <typedeclaration kind="struct" name="AVFileType" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="AVFileType" module="AVFoundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="AVFoundation" managedTypeName="AVLayerVideoGravity">
-            <typedeclaration kind="struct" name="AVLayerVideoGravity" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="AVLayerVideoGravity" module="AVFoundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="AVFoundation" managedTypeName="AVMediaTypes">
-            <typedeclaration kind="struct" name="AVMediaType" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="AVMediaType" module="AVFoundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVPlayerStatus">
             <typedeclaration kind="struct" name="AVPlayer.Status" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />

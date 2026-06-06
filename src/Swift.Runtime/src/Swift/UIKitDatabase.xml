@@ -8,7 +8,7 @@
             <typedeclaration kind="class" name="UIColor" module="UIKit" mangledName="$sSo7UIColorC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIKeyboardType">
-            <typedeclaration kind="enum" name="UIKeyboardType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" />
+            <typedeclaration kind="enum" name="UIKeyboardType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIEdgeInsets">
             <typedeclaration kind="struct" name="UIEdgeInsets" module="UIKit" mangledName="$sSo12UIEdgeInsetsV" frozen="true" requiresMemoryManagement="false" />

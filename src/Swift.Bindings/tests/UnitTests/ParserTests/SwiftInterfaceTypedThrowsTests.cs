@@ -183,6 +183,83 @@ public class SwiftInterfaceTypedThrowsTests
         finally { File.Delete(path); }
     }
 
+    // --- P1-27 B1: depth-aware, string-literal-safe extraction ---
+    // The old extractor took the LAST `throws(` match on the line, which misfired on a
+    // function that returns a throwing closure (the closure's throws lives after the
+    // function's own depth-0 `->`) and on a `throws(` appearing inside a string literal.
+
+    [Fact]
+    public void GetTypedThrowsErrors_ReturnedThrowingClosure_NotMisattributed()
+    {
+        // makeHandler itself does NOT throw; it returns a closure that does. The closure's
+        // typed throws is after the function's depth-0 return arrow and must not be recorded.
+        var swiftInterface = """
+            public func makeHandler() -> (Swift.Int) throws(Module.HandlerError) -> Swift.Void
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetTypedThrowsErrors(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetTypedThrowsErrors_ReturnedThrowingClosure_Parenthesized_NotMisattributed()
+    {
+        // Same, with the returned closure fully parenthesized.
+        var swiftInterface = """
+            public func makeHandler() -> ((Swift.Int) throws(Module.HandlerError) -> Swift.Void)
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetTypedThrowsErrors(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetTypedThrowsErrors_FunctionThrowsAndReturnsClosure_ExtractsOwnError()
+    {
+        // The function's own typed throws comes BEFORE the depth-0 arrow and must still be
+        // extracted even though the return type is itself a closure.
+        var swiftInterface = """
+            public func parse(_ input: Swift.String) throws(Module.ParseError) -> (Swift.Int) -> Swift.Void
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetTypedThrowsErrors(path);
+            Assert.True(result.ContainsKey("parse(_:)"));
+            Assert.Equal("Module.ParseError", result["parse(_:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetTypedThrowsErrors_ThrowsInsideStringLiteral_NotMatched()
+    {
+        // A non-throwing function whose default-value string contains the text "throws(...)"
+        // must not be treated as typed-throwing.
+        var swiftInterface = """
+            public func describe(_ label: Swift.String = "throws(NotReal)") -> Swift.String
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetTypedThrowsErrors(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName() + ".swiftinterface";

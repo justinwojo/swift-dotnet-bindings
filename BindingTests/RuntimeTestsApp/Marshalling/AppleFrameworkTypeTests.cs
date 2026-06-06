@@ -102,6 +102,29 @@ public class AppleFrameworkTypeTests : TestBase
         TestLogger.Info($"ProcessOptionalDate(None) = \"{result}\"");
     }
 
+    public void TestDateInTuple()
+    {
+        // A5: a Foundation.Date element inside a returned tuple must surface as
+        // System.DateTimeOffset (epoch-converted), matching the scalar Date path — not a
+        // bare double. Epoch 0 → 1970-01-01T00:00:00Z.
+        var result = TestLibFunctions.DateEpochPair(0);
+        AssertEqual(0, result.epoch, "DateEpochPair epoch element");
+        AssertEqual(1970, result.date.Year, "DateEpochPair date element resolves to 1970");
+        AssertEqual(0L, result.date.ToUnixTimeSeconds(), "DateEpochPair date round-trips epoch 0");
+        TestLogger.Info($"DateEpochPair(0) = (date: {result.date:o}, epoch: {result.epoch})");
+    }
+
+    public void TestDateInTupleNonZeroEpoch()
+    {
+        // Non-zero epoch guards against a coincidental zero/default surfacing as a valid date.
+        // 1_000_000_000s after 1970 → 2001-09-09T01:46:40Z.
+        var result = TestLibFunctions.DateEpochPair(1_000_000_000);
+        AssertEqual(1_000_000_000, result.epoch, "DateEpochPair non-zero epoch element");
+        AssertEqual(1_000_000_000L, result.date.ToUnixTimeSeconds(), "DateEpochPair non-zero date round-trips");
+        AssertEqual(2001, result.date.Year, "DateEpochPair non-zero date resolves to 2001");
+        TestLogger.Info($"DateEpochPair(1e9) = (date: {result.date:o}, epoch: {result.epoch})");
+    }
+
     #endregion
 
     #region Optional TimeInterval (Double)

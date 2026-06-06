@@ -114,6 +114,17 @@ public static class SwiftInterfaceAccessParser
         @"(?:convenience\s+)?init\s*\(",
         RegexOptions.Compiled);
 
+    // Bare subscript requirement (no access modifier) inside a protocol body.
+    private static readonly Regex BareSubscriptRegex = new(
+        @"(?:static\s+)?subscript\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    // Detects whether a type declaration line declares a protocol (vs class/struct/enum/actor),
+    // for protocol-requirement scope tracking in GetInternalMembers.
+    private static readonly Regex TypeDeclIsProtocolRegex = new(
+        @"(?:public|internal|open)\s+(?:final\s+)?protocol\s+\w+",
+        RegexOptions.Compiled);
+
     // Detects any member-level declaration keyword (func/init/var/let/subscript/typealias/case/deinit)
     // anywhere on the line. Used by deferred-annotation logic to avoid carrying an annotation
     // forward when the same line already contains a member that consumes it.
@@ -2657,8 +2668,9 @@ public static class SwiftInterfaceAccessParser
 
         var lines = File.ReadAllLines(swiftInterfacePath);
 
-        // Track type context using a stack with associated brace depths
-        var typeStack = new Stack<(string Name, int Depth)>();
+        // Track type context using a stack with associated brace depths. IsProtocol records
+        // whether the scope is a protocol body, where requirements carry no access modifier.
+        var typeStack = new Stack<(string Name, int Depth, bool IsProtocol)>();
         int braceDepth = 0;
 
         // Multiline continuation state for public member collection.
@@ -2681,7 +2693,7 @@ public static class SwiftInterfaceAccessParser
             var typeMatch = TypeDeclRegex.Match(trimmed);
             if (typeMatch.Success && openBraces > 0)
             {
-                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth, TypeDeclIsProtocolRegex.IsMatch(trimmed)));
                 pushedScope = true;
             }
 
@@ -2698,7 +2710,9 @@ public static class SwiftInterfaceAccessParser
                     // so member keys must use the same format.
                     var dotIdx = qualifiedName.LastIndexOf('.');
                     var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Extensions (including protocol extensions) follow normal access rules —
+                    // their default-implementation members carry explicit modifiers.
+                    typeStack.Push((typeName, braceDepth, false));
                 }
             }
 
@@ -2780,7 +2794,7 @@ public static class SwiftInterfaceAccessParser
     /// </summary>
     private static void CollectPublicMember(
         string trimmed, string line,
-        Stack<(string Name, int Depth)> typeStack,
+        Stack<(string Name, int Depth, bool IsProtocol)> typeStack,
         int braceDepth,
         HashSet<string> publicMemberNames,
         out string? pendingFuncName,
@@ -2791,12 +2805,15 @@ public static class SwiftInterfaceAccessParser
         pendingType = null;
         pendingBuffer = null;
 
-        // Skip lines without public/open — most lines in the interface
-        if (!trimmed.Contains("public ") && !trimmed.Contains("open "))
-            return;
-
         // Skip compiler conditionals
         if (trimmed.StartsWith("#", StringComparison.Ordinal))
+            return;
+
+        // Protocol requirements carry no access modifier in .swiftinterface (their visibility
+        // derives from the enclosing protocol), so inside a protocol body we collect bare
+        // requirements via the bare member regexes below. Elsewhere, skip non-public lines.
+        bool inProtocol = typeStack.Count > 0 && typeStack.Peek().IsProtocol;
+        if (!trimmed.Contains("public ") && !trimmed.Contains("open ") && !inProtocol)
             return;
 
         // Strip leading annotations (e.g., @_Concurrency.MainActor, @objc, @discardableResult)
@@ -2890,6 +2907,66 @@ public static class SwiftInterfaceAccessParser
                 publicMemberNames.Add($"{currentType}.{printedName}");
             }
             return;
+        }
+
+        // Bare protocol requirements (no access modifier). Only reached inside a protocol body,
+        // where the access-modifier-bearing regexes above don't match. Mirrors their handling
+        // (multiline buffering, printed-name keying) without requiring public/open.
+        if (inProtocol)
+        {
+            var bareFuncMatch = BareFuncRegex.Match(effective);
+            if (bareFuncMatch.Success)
+            {
+                var funcName = bareFuncMatch.Groups[1].Value;
+                if (!HasMatchingCloseParen(line))
+                {
+                    pendingFuncName = funcName;
+                    pendingType = currentType;
+                    pendingBuffer = line;
+                    return;
+                }
+                var printedName = ExtractPrintedName(line, funcName);
+                var key = currentType != null ? $"{currentType}.{printedName}" : printedName;
+                publicMemberNames.Add(key);
+                return;
+            }
+
+            if (BareInitRegex.IsMatch(effective) && currentType != null)
+            {
+                if (!HasMatchingCloseParen(line))
+                {
+                    pendingFuncName = "init";
+                    pendingType = currentType;
+                    pendingBuffer = line;
+                    return;
+                }
+                var printedName = ExtractPrintedName(line, "init");
+                publicMemberNames.Add($"{currentType}.{printedName}");
+                return;
+            }
+
+            if (BareSubscriptRegex.IsMatch(effective) && currentType != null)
+            {
+                if (!HasMatchingCloseParen(line))
+                {
+                    pendingFuncName = "subscript";
+                    pendingType = currentType;
+                    pendingBuffer = line;
+                    return;
+                }
+                var printedName = ExtractPrintedName(line, "subscript");
+                publicMemberNames.Add($"{currentType}.{printedName}");
+                return;
+            }
+
+            var bareVarMatch = BareVarRegex.Match(effective);
+            if (bareVarMatch.Success)
+            {
+                var propName = bareVarMatch.Groups[1].Value;
+                var key = currentType != null ? $"{currentType}.{propName}" : propName;
+                publicMemberNames.Add(key);
+                return;
+            }
         }
     }
 
@@ -3770,12 +3847,13 @@ public static class SwiftInterfaceAccessParser
         Stack<(string Name, int Depth)> typeStack,
         Dictionary<string, string> result)
     {
-        // Check if this line has a typed throws pattern
-        var throwsMatch = TypedThrowsRegex.Match(line);
-        if (!throwsMatch.Success)
+        // Check if this line has a typed throws pattern. The function's OWN typed-throws
+        // clause sits at signature paren-depth 0, before the function-level return arrow.
+        // A naive first-match (or even last-match) would mis-attribute a closure parameter's
+        // `throws(E1)` (nested inside the param parens) or a return-closure's `throws`
+        // (after the `->`) as the function's error type.
+        if (!TryGetFunctionTypedThrowsErrorType(line, out var errorType))
             return;
-
-        var errorType = throwsMatch.Groups[1].Value.Trim();
 
         // Try func match
         var funcMatch = AnyFuncRegex.Match(line);
@@ -3803,6 +3881,71 @@ public static class SwiftInterfaceAccessParser
     }
 
     /// <summary>
+    /// Extracts the error type of a function/initializer's OWN typed-throws clause
+    /// (<c>throws(ErrorType)</c>). The clause appears at signature paren-depth 0, before the
+    /// function-level return arrow (<c>-&gt;</c>). Nested parens (closure-parameter effects) and
+    /// string literals are skipped so a parameter like <c>body: () throws(E1) -&gt; Void</c> does
+    /// not steal the function's own <c>throws(E2)</c>, and a return closure's <c>throws</c> (after
+    /// the depth-0 arrow) is not mistaken for the function's.
+    /// </summary>
+    private static bool TryGetFunctionTypedThrowsErrorType(string line, out string errorType)
+    {
+        errorType = string.Empty;
+        int depth = 0;
+        bool inString = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (inString)
+            {
+                if (c == '\\') { i++; continue; }
+                if (c == '"') inString = false;
+                continue;
+            }
+            switch (c)
+            {
+                case '"': inString = true; continue;
+                case '(' or '[' or '{': depth++; continue;
+                case ')' or ']' or '}': if (depth > 0) depth--; continue;
+            }
+            if (depth != 0)
+                continue;
+
+            // Function-level return arrow: a typed-throws after it belongs to the return
+            // closure, not this function.
+            if (c == '-' && i + 1 < line.Length && line[i + 1] == '>')
+                return false;
+
+            // The function's own "throws(ErrorType)" at signature depth 0.
+            if (c == 't'
+                && i + 6 <= line.Length
+                && string.CompareOrdinal(line, i, "throws", 0, 6) == 0)
+            {
+                bool boundaryBefore = i == 0 || (!char.IsLetterOrDigit(line[i - 1]) && line[i - 1] != '_');
+                char after = i + 6 < line.Length ? line[i + 6] : ' ';
+                bool boundaryAfter = !(char.IsLetterOrDigit(after) || after == '_');
+                if (boundaryBefore && boundaryAfter)
+                {
+                    int j = i + 6;
+                    while (j < line.Length && char.IsWhiteSpace(line[j])) j++;
+                    if (j < line.Length && line[j] == '(')
+                    {
+                        int close = line.IndexOf(')', j + 1);
+                        if (close > j + 1)
+                        {
+                            errorType = line.Substring(j + 1, close - j - 1).Trim();
+                            return errorType.Length > 0;
+                        }
+                    }
+                    // Untyped `throws` (no parenthesized error type) — nothing to capture.
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a line contains a func or init declaration.
     /// </summary>
     private static bool IsFuncOrInitLine(string trimmed)
@@ -3811,15 +3954,40 @@ public static class SwiftInterfaceAccessParser
     }
 
     /// <summary>
-    /// Checks if a line has unmatched open parentheses (multi-line signature).
+    /// Checks if a line has unmatched open parentheses (multi-line signature). Parens inside
+    /// string literals (e.g. a default parameter value <c>= ")"</c>) are ignored, mirroring
+    /// <see cref="CountBraces"/>'s string/escape handling — otherwise an unbalanced paren in a
+    /// string makes a single-line declaration look like a multi-line signature and swallows the
+    /// following declarations up to EOF.
     /// </summary>
     private static bool HasUnmatchedOpenParen(string line)
     {
         int depth = 0;
+        bool inString = false;
+        bool escape = false;
         for (int i = 0; i < line.Length; i++)
         {
-            if (line[i] == '(') depth++;
-            if (line[i] == ')') depth--;
+            char c = line[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+            if (c == '\\' && inString)
+            {
+                escape = true;
+                continue;
+            }
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+            if (!inString)
+            {
+                if (c == '(') depth++;
+                if (c == ')') depth--;
+            }
         }
         return depth > 0;
     }

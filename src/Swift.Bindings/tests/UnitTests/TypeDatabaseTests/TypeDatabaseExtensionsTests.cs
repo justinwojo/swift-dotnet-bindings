@@ -591,6 +591,22 @@ public class TypeDatabaseExtensionsTests
     [InlineData("QuartzCore.CAMediaTimingFunctionName", "Foundation", "NSString")]
     [InlineData("QuartzCore.CATransitionType", "Foundation", "NSString")]
     [InlineData("QuartzCore.CATransitionSubtype", "Foundation", "NSString")]
+    // QuartzCore: NSString typedefs reclassified by P1-26 A3 (were mis-modeled as value-type enums).
+    // In Swift these are `typealias X = String`-backed CF/NS string constants, not C enums, so they
+    // bridge to NSString rather than a CoreAnimation value type.
+    [InlineData("QuartzCore.CAContentsFormat", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CACornerCurve", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CAGradientLayerType", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CATextLayerAlignmentMode", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CATextLayerTruncationMode", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CAScroll", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CADynamicRange", "Foundation", "NSString")]
+    [InlineData("QuartzCore.CAToneMapMode", "Foundation", "NSString")]
+    // AVFoundation: String-constant typedefs reclassified by P1-26 A3 (same class as the CA* above).
+    [InlineData("AVFoundation.AVMediaType", "Foundation", "NSString")]
+    [InlineData("AVFoundation.AVFileType", "Foundation", "NSString")]
+    [InlineData("AVFoundation.AVLayerVideoGravity", "Foundation", "NSString")]
+    [InlineData("AVFoundation.AVCaptureDevice.DeviceType", "Foundation", "NSString")]
     public void GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
@@ -788,10 +804,9 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIControl.ContentVerticalAlignment")]
     [InlineData("UIKit.UIControl.ContentHorizontalAlignment")]
     [InlineData("UIKit.UIAccessibilityTraits")]
-    // AVFoundation enums
-    [InlineData("AVFoundation.AVMediaType")]
-    [InlineData("AVFoundation.AVFileType")]
-    [InlineData("AVFoundation.AVLayerVideoGravity")]
+    // AVFoundation enums. (AVMediaType / AVFileType / AVLayerVideoGravity were reclassified by
+    // P1-26 A3 as Foundation.NSString ObjC-bridged classes — see
+    // GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord.)
     [InlineData("AVFoundation.AVCaptureDevice.Position")]
     [InlineData("AVFoundation.AVCaptureDevice.FlashMode")]
     [InlineData("AVFoundation.AVCaptureDevice.TorchMode")]
@@ -855,19 +870,15 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIImage.RenderingMode", "UIKit", "UIImageRenderingMode")]
     [InlineData("UIKit.UIView.AnimationOptions", "UIKit", "UIViewAnimationOptions")]
     [InlineData("Photos.PHImageContentMode", "Photos", "PHImageContentMode")]
-    // QuartzCore value types (namespace remapped to CoreAnimation)
+    // QuartzCore value types (namespace remapped to CoreAnimation). Only genuine value-type
+    // enums/structs remain here; the CA* NSString typedefs (CAContentsFormat, CACornerCurve,
+    // CAGradientLayerType, CATextLayer{Alignment,Truncation}Mode, CAScroll, CADynamicRange,
+    // CAToneMapMode) were reclassified by P1-26 A3 as Foundation.NSString ObjC-bridged classes
+    // and now live in GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord.
     [InlineData("QuartzCore.CATransform3D", "CoreAnimation", "CATransform3D")]
     [InlineData("QuartzCore.CACornerMask", "CoreAnimation", "CACornerMask")]
     [InlineData("QuartzCore.CAEdgeAntialiasingMask", "CoreAnimation", "CAEdgeAntialiasingMask")]
     [InlineData("QuartzCore.CAAutoresizingMask", "CoreAnimation", "CAAutoresizingMask")]
-    [InlineData("QuartzCore.CAContentsFormat", "CoreAnimation", "CAContentsFormat")]
-    [InlineData("QuartzCore.CACornerCurve", "CoreAnimation", "CACornerCurve")]
-    [InlineData("QuartzCore.CAGradientLayerType", "CoreAnimation", "CAGradientLayerType")]
-    [InlineData("QuartzCore.CATextLayerAlignmentMode", "CoreAnimation", "CATextLayerAlignmentMode")]
-    [InlineData("QuartzCore.CATextLayerTruncationMode", "CoreAnimation", "CATextLayerTruncationMode")]
-    [InlineData("QuartzCore.CAScroll", "CoreAnimation", "CAScroll")]
-    [InlineData("QuartzCore.CADynamicRange", "CoreAnimation", "CADynamicRange")]
-    [InlineData("QuartzCore.CAToneMapMode", "CoreAnimation", "CAToneMapMode")]
     public async Task GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsCorrectName(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = await CreateDbWithXmlAsync(
@@ -1273,7 +1284,7 @@ public class TypeDatabaseExtensionsTests
     [Theory]
     [InlineData("AVFoundation.AVCaptureSession.Preset")]
     [InlineData("AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction")]
-    [InlineData("AVFoundation.AVCaptureDevice.DeviceType")]
+    // AVCaptureDevice.DeviceType reclassified by P1-26 A3 as Foundation.NSString ObjC-bridged class.
     [InlineData("AVFoundation.AVCaptureVideoOrientation")]
     [InlineData("UIKit.NSWritingDirection")]
     [InlineData("UIKit.UIKeyboardType")]
@@ -1708,7 +1719,6 @@ public class TypeDatabaseExtensionsTests
     [Theory]
     [InlineData("AVFoundation.AVCaptureDevice.FlashMode", "AVFoundation.AVCaptureFlashMode")]
     [InlineData("AVFoundation.AVPlayer.Status", "AVFoundation.AVPlayerStatus")]
-    [InlineData("AVFoundation.AVMediaType", "AVFoundation.AVMediaTypes")]
     public async Task TryGetTypeRecord_NewAVFoundation_ResolvesCorrectly(
         string swiftType, string expectedCSharp)
     {
@@ -1720,6 +1730,29 @@ public class TypeDatabaseExtensionsTests
         Assert.NotNull(record);
         Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
         Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
+    [Theory]
+    [InlineData("AVFoundation.AVMediaType")]
+    [InlineData("AVFoundation.AVFileType")]
+    [InlineData("AVFoundation.AVLayerVideoGravity")]
+    [InlineData("AVFoundation.AVCaptureDevice.DeviceType")]
+    public async Task TryGetTypeRecord_AVFoundationStringTypedef_ResolvesToNSString(string swiftType)
+    {
+        // P1-26 A3: AVMediaType / AVFileType / AVLayerVideoGravity / AVCaptureDevice.DeviceType are
+        // `struct X: RawRepresentable` String constant wrappers in the SDK, not value-type enums.
+        // Modeling them as blittable structs leaked a bogus wire type; they bridge to
+        // Foundation.NSString. The XML-loaded path must agree with the AppleFrameworkRegistry path
+        // (covered by GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord).
+        var typeDatabase = await CreateDbWithXmlAsync("AVFoundationDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from AVFoundationDatabase.xml");
+        Assert.NotNull(record);
+        Assert.Equal("Foundation.NSString", record!.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
     }
 
     // --- Photos new entries resolve correctly ---
@@ -1756,8 +1789,10 @@ public class TypeDatabaseExtensionsTests
     [InlineData("StoreKitDatabase.xml", "StoreKit.SKPaymentTransactionState", "StoreKit.SKPaymentTransactionState", TypeRecordKind.Enum)]
     [InlineData("StoreKitDatabase.xml", "StoreKit.SKError.Code", "StoreKit.SKError", TypeRecordKind.Enum)]
     [InlineData("SceneKitDatabase.xml", "SceneKit.SCNVector3", "SceneKit.SCNVector3", TypeRecordKind.Struct)]
-    [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLLanguage", "NaturalLanguage.NLLanguage", TypeRecordKind.Struct)]
-    [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLTagScheme", "NaturalLanguage.NLTagScheme", TypeRecordKind.Struct)]
+    // NLLanguage and NLTagScheme were reclassified by P1-26 A3 as Foundation.NSString ObjC-bridged
+    // classes (they are String-backed constant typedefs, not value-type enums) — see
+    // TryGetTypeRecord_NaturalLanguageStringTypedef_ResolvesToNSString below. Only the genuine
+    // value-type enum NLTokenUnit remains a NaturalLanguage struct here.
     [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLTokenUnit", "NaturalLanguage.NLTokenUnit", TypeRecordKind.Struct)]
     // Matter — NS_ENUM(uint8_t) and NS_OPTIONS(uint8_t) referenced from MatterSupport's
     // WiFiScanResult. WiFiBand is a real NS_ENUM (kind=enum, rawValueType=UInt8 → byte
@@ -1780,6 +1815,27 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
         Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
         Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    [Theory]
+    [InlineData("NaturalLanguage.NLLanguage")]
+    [InlineData("NaturalLanguage.NLTagScheme")]
+    public async Task TryGetTypeRecord_NaturalLanguageStringTypedef_ResolvesToNSString(string swiftType)
+    {
+        // P1-26 A3: NLLanguage / NLTagScheme are `struct NLLanguage: RawRepresentable` String
+        // constant wrappers in the SDK, not C enums. Modeling them as value-type structs leaked a
+        // bogus blittable struct; they must bridge to Foundation.NSString like the other String
+        // constant typedefs (CALayerContentsGravity etc.). The XML-loaded path must agree with the
+        // AppleFrameworkRegistry path (covered by GetTypeRecordOrAnyType_FoundationClass_*).
+        var typeDatabase = await CreateDbWithXmlAsync("NaturalLanguageDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from NaturalLanguageDatabase.xml");
+        Assert.NotNull(record);
+        Assert.Equal("Foundation.NSString", record!.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
     }
 
     [Fact]

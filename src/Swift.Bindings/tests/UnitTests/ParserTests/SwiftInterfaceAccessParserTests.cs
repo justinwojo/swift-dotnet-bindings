@@ -279,6 +279,109 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    // ===== P1-27 B5: bare protocol-requirement classification =====
+    // Protocol requirements carry NO access modifier in .swiftinterface (their visibility
+    // derives from the enclosing protocol). The negative-space detector treats any member
+    // absent from `publicMemberNames` as internal — so a bare requirement that isn't
+    // collected gets silently dropped from the generated protocol. These tests pin that
+    // bare requirements ARE collected as public (and NOT as internal) inside a protocol body.
+
+    [Fact]
+    public void GetInternalMembers_BareProtocolRequirements_CollectedAsPublic()
+    {
+        var swiftInterface = """
+            public protocol Service {
+              func fetch(id: Swift.Int) -> Swift.String
+              var identifier: Swift.Int { get }
+              init(name: Swift.String)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var internalMembers = SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+
+            // Bare requirements are visible (part of the public interface), never internal.
+            Assert.Contains("Service.fetch(id:)", publicMembers);
+            Assert.Contains("Service.identifier", publicMembers);
+            Assert.Contains("Service.init(name:)", publicMembers);
+
+            Assert.DoesNotContain("Service.fetch(id:)", internalMembers);
+            Assert.DoesNotContain("Service.identifier", internalMembers);
+            Assert.DoesNotContain("Service.init(name:)", internalMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetInternalMembers_BareProtocolRequirement_WithLeadingAnnotation_CollectedAsPublic()
+    {
+        // A bare requirement preceded by an attribute (the shape that motivated the fix:
+        // `@_Concurrency.MainActor func removeContent()`) must still be collected.
+        var swiftInterface = """
+            public protocol Removable {
+              @_Concurrency.MainActor func removeContent()
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Removable.removeContent()", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetInternalMembers_ObjcOptionalProtocolRequirements_CollectedAsPublic()
+    {
+        // `@objc optional` requirements: the annotation stripper removes `@objc`, leaving an
+        // `optional func`/`optional var` prefix. The bare regexes are unanchored `.Match()` calls,
+        // so they scan past the `optional` modifier and still collect the requirement — it is NOT
+        // dropped into the internal set by negative-space detection.
+        var swiftInterface = """
+            @objc public protocol Delegate {
+              @objc optional func didFinish()
+              @objc optional var count: Swift.Int { get }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var internalMembers = SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+
+            Assert.Contains("Delegate.didFinish()", publicMembers);
+            Assert.Contains("Delegate.count", publicMembers);
+            Assert.DoesNotContain("Delegate.didFinish()", internalMembers);
+            Assert.DoesNotContain("Delegate.count", internalMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetInternalMembers_BareMemberOutsideProtocol_NotCollectedAsPublic()
+    {
+        // The bare-collection path is gated on a protocol scope. A modifier-less member in a
+        // struct body (genuinely internal) must NOT be swept into the public set by the
+        // protocol fallback — otherwise the IsProtocol gate would be meaningless.
+        var swiftInterface = """
+            public struct Box {
+              func hiddenHelper() -> Swift.Int
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.DoesNotContain("Box.hiddenHelper()", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
     // ===== GetParameterNames Tests =====
 
     [Fact]

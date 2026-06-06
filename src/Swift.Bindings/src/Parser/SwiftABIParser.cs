@@ -929,6 +929,22 @@ namespace BindingsGeneration
                 !string.IsNullOrEmpty(moduleDecl.Name) &&
                 node.ModuleName != moduleDecl.Name)
             {
+                // Runtime-provided Swift stdlib generics (Optional / Array / Dictionary / Set /
+                // Result / ClosedRange) are supplied by Swift.Runtime as Swift.SwiftOptional<T>,
+                // Swift.SwiftArray<T>, etc. A third-party module that merely extends or re-exports
+                // one of them must NEVER materialize a local C# type for it: the emitter would
+                // render a colliding `public [static] partial class SwiftOptional<TWrapped>` that
+                // shadows the runtime type and breaks every unqualified `SwiftOptional<...>`
+                // reference in the generated assembly. The constraint-bearing extension that
+                // surfaces these nodes (e.g. `extension Swift.Optional : CustomStringConvertible
+                // where Wrapped == <unrepresentable>`) carries no members we can bind anyway, so
+                // drop the node outright rather than letting it reach any type-emission handler.
+                if (node.ModuleName == "Swift" && TypeDatabaseExtensions.IsKnownGenericType(node.Name))
+                {
+                    _logger.LogInformation($"Skipping foreign Swift stdlib generic '{node.Name}' (canonical module: Swift) — runtime-provided; a local type would shadow Swift.Swift{node.Name}<...>.");
+                    return null;
+                }
+
                 bool hasExtensionMembers = node.Children?.Any(child =>
                     !string.IsNullOrEmpty(child.ModuleName) && child.ModuleName == moduleDecl.Name) ?? false;
                 // Phase 2 of cross-module extension support: route both Class and Struct
