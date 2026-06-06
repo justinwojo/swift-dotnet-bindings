@@ -1639,11 +1639,18 @@ public static class WrapperValidation
     /// async methods — PWT passing is ABI-unsafe through the legacy path.</item>
     /// </list>
     ///
-    /// <para><b>Empirically working paths intentionally NOT flagged:</b> async methods on
-    /// generic class parents (<c>AsyncGenericContainer&lt;T&gt;.processAsync</c>,
-    /// <c>fetchOrThrow</c>) where the metatype is captured at instance-construction time
-    /// via the existing PWT machinery. Sync methods through the legacy path are also out of
-    /// scope here — they go through SB0001 / <see cref="HasNonBlittablePInvokeTypes"/>.</para>
+    /// <para><b>Handled elsewhere, not by this predicate:</b> async methods on generic
+    /// class parents (<c>AsyncGenericContainer&lt;T&gt;.processAsync</c>, <c>fetchOrThrow</c>)
+    /// are NOT serviced by this gate — they reach it with <see cref="MethodDecl.UsesWrapperLibrary"/>
+    /// set (a <c>@_silgen_name</c> async wrapper is emitted), so the wrapper-library early-return
+    /// above lets them past. They are an <b>ABI mismatch, not a working path</b>: the wrapper is
+    /// itself a generic instance method, so Swift passes <c>self</c> + the parent's type metadata
+    /// through the implicit self / metadata registers while the C# CallConvSwift P/Invoke hands
+    /// them over as trailing <c>IntPtr</c> args (TMetadata, _selfClass) — the registers hold
+    /// garbage and the call SIGSEGVs. They are suppressed at their source in
+    /// <see cref="MemberValidationPipeline"/> (P0-15, the parent-generic async gate next to the
+    /// CSM routing) so no live wrong-ABI method ships. Sync methods through the legacy path are
+    /// out of scope here — they go through SB0001 / <see cref="HasNonBlittablePInvokeTypes"/>.</para>
     ///
     /// <para><b>Out of scope:</b> the wrapper-library "symbol missing in wrapper dylib" case
     /// (<c>bug-0.10.0-generic-async-wrapper-symbol-missing</c> — MusicKit
@@ -1691,9 +1698,13 @@ public static class WrapperValidation
 
         // Method-level generics on async: `some Protocol` and explicit `<T>` parameters
         // require per-call metatype passing the legacy async path can't synthesise. Use
-        // HasMethodOwnGenericParameters to exclude parent-type generics (the parser folds
-        // the parent's generic signature into MethodDecl.GenericParameters), so plain async
-        // methods on `Container<T>` continue to flow through the legacy path.
+        // HasMethodOwnGenericParameters to scope this to METHOD-OWN generics (the parser folds
+        // the parent's generic signature into MethodDecl.GenericParameters, so MethodDecl.IsGeneric
+        // is true even for a method with no own generic). The bare parent-generic-only async shape
+        // (e.g. `Container<T>.processAsync()`) is NOT this predicate's responsibility: it is
+        // suppressed upstream by the P0-15 gate in MemberValidationPipeline.ValidateMethodEmission
+        // (or specialized via CSM routing) before emission ever reaches the direct path — so
+        // returning false for it here is correct and does NOT mean it "flows through the legacy path".
         if (HasMethodOwnGenericParameters(env.MethodDecl))
             return true;
 

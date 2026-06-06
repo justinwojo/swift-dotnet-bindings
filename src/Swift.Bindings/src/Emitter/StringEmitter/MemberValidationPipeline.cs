@@ -254,6 +254,32 @@ public class MemberValidationPipeline
                 "Routed to concrete CSM-async specialization (parent-only generic parent extension).");
         }
 
+        // Phase 4a (P0-15): async method on a generic parent that did NOT route to a
+        // CSM specialization above (unconstrained / non-specializable parent generic,
+        // e.g. AsyncGenericContainer<T> with an unbounded T). The open-generic async
+        // surface emits a @_silgen_name wrapper that is itself a generic instance method:
+        // Swift hands `self` and the parent's type metadata through the implicit
+        // self / generic-metadata registers, but the fixed C# CallConvSwift P/Invoke can
+        // only supply them as trailing IntPtr arguments (TMetadata, _selfClass). Those
+        // registers therefore hold garbage and the call SIGSEGVs at runtime — confirmed
+        // for AsyncGenericContainer<T>.processAsync / fetchOrThrow. Returning a plain
+        // (non-generic) Int32 from such a method does NOT make it safe: the return shape
+        // was never the problem, the receiver/metadata ABI is. Only the return-references-T
+        // case (Phase 3 above) was previously caught, so these slipped through as live
+        // wrong-ABI methods. Suppress so no crashing method ships. Method-own generics are
+        // a distinct (also-unbridged) shape left on their existing path. The correct
+        // long-term fix is a generic-static-dispatch @_cdecl async bridge that forwards
+        // TMetadata + self explicitly (the async analog of the storedValue property
+        // getter's _SBW_GSPG machinery) — tracked in §6.
+        if (!methodDecl.IsConstructor &&
+            methodDecl.IsAsync &&
+            methodDecl.ParentDecl is TypeDecl { IsGeneric: true } &&
+            !WrapperValidation.HasMethodOwnGenericParameters(methodDecl))
+        {
+            return ValidationResult.Skip(SkipReason.GenericTypeCallback,
+                "Async method on a generic parent: the wrapper needs the parent's type metadata and self in Swift's implicit registers, which a direct CallConvSwift P/Invoke cannot supply (ABI mismatch -> crash).");
+        }
+
         // Phase 4a (sync, generic parent): CSM emits concrete overloads as extension
         // methods on a {Type}{ParentConformer}CsmExtensions class. The open-generic
         // instance method on the parent class would shadow those extensions during C#

@@ -22,6 +22,20 @@ public abstract class TestBase
     private static readonly bool IsMacCatalystX64 =
         OperatingSystem.IsMacCatalyst() && RuntimeInformation.ProcessArchitecture == Architecture.X64;
 
+    /// <summary>
+    /// True when the current process runs on the Mono runtime — iOS/tvOS Simulator or Mac
+    /// Catalyst (JIT or interpreter). These are the only configurations that can hit the upstream
+    /// Mono "Issue 1" <c>!ji-&gt;async</c> JIT assertion (jit-info.c:918). False on macOS (CoreCLR)
+    /// and physical device (NativeAOT), neither of which is Mono. Used to honor
+    /// <see cref="SkipOnMonoJitAttribute"/> independently of the <c>--platform</c> CLI flag: the
+    /// harness launches the macOS run with <c>--platform simulator</c> too, so keying a Mono-JIT
+    /// skip off that flag would wrongly suppress it on CoreCLR. <c>SwiftRuntimeInfo.IsMonoRuntime</c>
+    /// recognizes the Simulator (via its "simulator" RID check) but misses <c>maccatalyst-*</c>
+    /// RIDs, so Catalyst is added via <see cref="OperatingSystem.IsMacCatalyst"/>.
+    /// </summary>
+    private static readonly bool IsMonoJitRuntime =
+        Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime || OperatingSystem.IsMacCatalyst();
+
     protected TestBase(TestResults results)
     {
         Results = results;
@@ -57,6 +71,17 @@ public abstract class TestBase
             if (method.SkipOnDevice != null && platform == TestPlatform.Device)
             {
                 Results.Skip(testName, $"Device: {method.SkipOnDevice}");
+                continue;
+            }
+
+            // Check method-level [SkipOnMonoJit] — skipped only when running on Mono (Simulator
+            // or Catalyst), where the upstream !ji->async JIT assertion (Issue 1) can fire. Runs
+            // on macOS (CoreCLR) and device (NativeAOT). Detected at runtime (IsMonoJitRuntime),
+            // NOT from the --platform flag, so it is not over-applied on the macOS run — which the
+            // harness also launches with --platform simulator. See SkipOnMonoJitAttribute.
+            if (method.SkipOnMonoJit != null && IsMonoJitRuntime)
+            {
+                Results.Skip(testName, $"MonoJit: {method.SkipOnMonoJit}");
                 continue;
             }
 

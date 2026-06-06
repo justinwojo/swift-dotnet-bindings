@@ -16,6 +16,21 @@ namespace SwiftBindings.TestDiscovery;
 [Generator]
 public class TestDiscoveryGenerator : IIncrementalGenerator
 {
+    /// <summary>
+    /// SBTD001: a discovered <c>Test*</c> method is declared <c>async void</c>. The discovery
+    /// invoker cannot await a <c>void</c>-returning method, so it returns before the async body
+    /// completes — every post-await assertion and exception is detached and the harness reports a
+    /// false PASS. Author the method as <c>async Task</c> (or plain sync) instead. Error severity
+    /// so the footgun fails the build rather than silently passing.
+    /// </summary>
+    private static readonly DiagnosticDescriptor AsyncVoidTestRule = new(
+        id: "SBTD001",
+        title: "Test method is 'async void'",
+        messageFormat: "Test method '{0}' is 'async void'; the discovery invoker cannot await it, so post-await assertions/exceptions are detached and the test falsely passes. Declare it 'async Task' (or remove 'async' if it has no await).",
+        category: "SwiftBindings.TestDiscovery",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Find all class declarations that inherit from TestBase
@@ -33,6 +48,19 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
                 .Cast<TestClassInfo>()
                 .OrderBy(c => c.Name)
                 .ToList();
+
+            // Fail the build on any `async void` test method — it would silently detach.
+            foreach (var cls in validClasses)
+            {
+                foreach (var method in cls.Methods)
+                {
+                    if (method.IsAsyncVoid)
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            AsyncVoidTestRule, Location.None, $"{cls.Name}.{method.Name}"));
+                    }
+                }
+            }
 
             spc.AddSource("TestRegistry.g.cs", GenerateTestRegistry(validClasses));
             spc.AddSource("TestManifest.g.cs", GenerateTestManifest(validClasses));
@@ -106,11 +134,18 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
             // Detect async methods (returns Task or ValueTask)
             var isAsync = IsAsyncMethod(method);
 
+            // `async void` test methods are fire-and-forget: the discovery-driven invoker
+            // returns before the async body completes, detaching every post-await assertion
+            // and exception so the harness reports a false PASS. They cannot be awaited, so we
+            // flag them for a build-time diagnostic rather than silently mis-running them.
+            var isAsyncVoid = method.IsAsync && method.ReturnsVoid;
+
             // Read method-level attributes
             var methodSkip = GetAttributeReason(method, "SkipAttribute");
             var methodSimSkip = GetAttributeReason(method, "SkipOnSimulatorAttribute");
             var methodDevSkip = GetAttributeReason(method, "SkipOnDeviceAttribute");
             var methodCatX64Skip = GetAttributeReason(method, "SkipOnCatalystX64Attribute");
+            var methodMonoJitSkip = GetAttributeReason(method, "SkipOnMonoJitAttribute");
 
             methods.Add(new TestMethodInfo(
                 method.Name,
@@ -118,7 +153,9 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
                 methodSkip,
                 methodSimSkip,
                 methodDevSkip,
-                methodCatX64Skip));
+                methodCatX64Skip,
+                methodMonoJitSkip,
+                isAsyncVoid));
         }
 
         if (methods.Count == 0)
@@ -223,7 +260,8 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
                 sb.AppendLine($"                    Skip: {QuoteOrNull(method.Skip)},");
                 sb.AppendLine($"                    SkipOnSim: {QuoteOrNull(method.SkipOnSim)},");
                 sb.AppendLine($"                    SkipOnDevice: {QuoteOrNull(method.SkipOnDevice)},");
-                sb.AppendLine($"                    SkipOnCatalystX64: {QuoteOrNull(method.SkipOnCatalystX64)}){(j < cls.Methods.Length - 1 ? "," : "")}");
+                sb.AppendLine($"                    SkipOnCatalystX64: {QuoteOrNull(method.SkipOnCatalystX64)},");
+                sb.AppendLine($"                    SkipOnMonoJit: {QuoteOrNull(method.SkipOnMonoJit)}){(j < cls.Methods.Length - 1 ? "," : "")}");
             }
 
             sb.AppendLine($"            }}){(i < classes.Count - 1 ? "," : "")}");
@@ -348,9 +386,11 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
         public string? SkipOnSim { get; }
         public string? SkipOnDevice { get; }
         public string? SkipOnCatalystX64 { get; }
+        public string? SkipOnMonoJit { get; }
+        public bool IsAsyncVoid { get; }
 
         public TestMethodInfo(string name, bool isAsync, string? skip, string? skipOnSim, string? skipOnDevice,
-            string? skipOnCatalystX64)
+            string? skipOnCatalystX64, string? skipOnMonoJit, bool isAsyncVoid)
         {
             Name = name;
             IsAsync = isAsync;
@@ -358,6 +398,8 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
             SkipOnSim = skipOnSim;
             SkipOnDevice = skipOnDevice;
             SkipOnCatalystX64 = skipOnCatalystX64;
+            SkipOnMonoJit = skipOnMonoJit;
+            IsAsyncVoid = isAsyncVoid;
         }
 
         public bool Equals(TestMethodInfo? other)
@@ -366,7 +408,9 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
             return Name == other.Name && IsAsync == other.IsAsync
                 && Skip == other.Skip && SkipOnSim == other.SkipOnSim
                 && SkipOnDevice == other.SkipOnDevice
-                && SkipOnCatalystX64 == other.SkipOnCatalystX64;
+                && SkipOnCatalystX64 == other.SkipOnCatalystX64
+                && SkipOnMonoJit == other.SkipOnMonoJit
+                && IsAsyncVoid == other.IsAsyncVoid;
         }
 
         public override bool Equals(object? obj) => Equals(obj as TestMethodInfo);

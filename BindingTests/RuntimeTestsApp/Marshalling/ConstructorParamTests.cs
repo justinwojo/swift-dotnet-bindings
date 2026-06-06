@@ -95,16 +95,26 @@ public class ConstructorParamTests : TestBase
 
     #region ValidatedName — Non-Frozen Failable Init
 
-    [Skip("ValidatedName.TryCreate not emitted — failable init on non-frozen struct not yet supported")]
     public void TestFailableInitSuccess()
     {
-        TestLogger.Info("Skipped: ValidatedName.TryCreate not emitted");
+        // init?(name:) succeeds for a non-empty name; the non-frozen struct projects to a
+        // class with a static bool TryCreate(name, out result) (Session 3 un-gated the feature).
+        var ok = ValidatedName.TryCreate("Ada", out var validated);
+        AssertTrue(ok, "ValidatedName.TryCreate succeeds for a non-empty name");
+        AssertNotNull(validated, "successful TryCreate yields a non-null result");
+        AssertEqual("Ada", validated.Name, "Name property round-trips the constructor value");
+        AssertTrue(validated.GetDescribe().Contains("Ada"), "describe() includes the validated name");
+        validated.Dispose();
+        TestLogger.Info("ValidatedName.TryCreate success passed");
     }
 
-    [Skip("ValidatedName.TryCreate not emitted — failable init on non-frozen struct not yet supported")]
     public void TestFailableInitFailure()
     {
-        TestLogger.Info("Skipped: ValidatedName.TryCreate not emitted");
+        // init?(name:) returns nil for an empty name → TryCreate returns false, result is null.
+        var ok = ValidatedName.TryCreate("", out var validated);
+        AssertFalse(ok, "ValidatedName.TryCreate fails for an empty name (init? returns nil)");
+        AssertNull(validated, "failed TryCreate yields a null result");
+        TestLogger.Info("ValidatedName.TryCreate failure passed");
     }
 
     #endregion

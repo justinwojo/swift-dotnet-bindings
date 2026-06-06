@@ -8,11 +8,23 @@ using Swift.Runtime;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Tests for async methods on generic types (callback hoisting) and async tuple returns
-/// with generic elements (GenericContext threading through the async tuple pipeline).
+/// Tests for async tuple returns with generic elements (GenericContext threading through
+/// the async tuple pipeline) and for the working surface of async-bearing generic types.
 ///
 /// Part A: AsyncTupleWorker — non-generic async tuple returns (regression).
-/// Part B: AsyncGenericContainer — async methods on generic types with hoisted callbacks.
+/// Part B: AsyncGenericContainer&lt;T&gt; — the synchronous, CallConvCdecl surface
+///         (construction + StoredValue generic-static-dispatch property) round-trips.
+///         Its async methods (processAsync / fetchOrThrow / fetchPair) are intentionally
+///         NOT bound: a @_silgen_name async wrapper on a generic-parent extension is itself
+///         a generic instance method, so Swift expects `self` + the parent's type metadata
+///         in the implicit self / metadata registers while a fixed CallConvSwift P/Invoke can
+///         only pass them as trailing IntPtr args — an ABI mismatch that SIGSEGVs. The
+///         generator suppresses those members at source (P0-15); the "properly suppressed"
+///         invariant is asserted in Swift.Bindings.Unit.Tests
+///         (MemberValidationPipelineTests.ValidateMethodEmission_AsyncOnGenericParent_*)
+///         rather than here, because a dropped member cannot be called from C#. The correct
+///         long-term fix is a generic-static-dispatch
+///         @_cdecl async bridge (the async analog of the StoredValue getter), tracked in §6.
 /// </summary>
 public class AsyncGenericTupleTests : TestBase
 {
@@ -40,50 +52,32 @@ public class AsyncGenericTupleTests : TestBase
 
     #endregion
 
-    #region AsyncGenericContainer — Async on generic types (hoisted callbacks)
+    #region AsyncGenericContainer<T> — working CallConvCdecl surface survives async suppression
 
-    // AsyncGenericContainer<T> requires T : ISwiftObject (Swift generic class).
-    // Note: fetchPair() returning (T, Int32) is correctly skipped — its return type
-    // references the parent generic param T, which [UnmanagedCallersOnly] callbacks can't handle.
-    //
-    // The non-generic async tuple pipeline (AsyncTupleWorker above) works end-to-end.
-    // These generic-type async methods compile correctly at the C# level but fail at
-    // runtime because @_silgen_name on a generic type's extension method is stripped by
-    // the Swift compiler — it cannot export a fixed symbol for a function that depends on
-    // generic specialization. Fixing this requires @_cdecl wrappers with explicit type
-    // metadata forwarding, which is separate from the non-generic async tuple work.
+    // The async members of AsyncGenericContainer<T> are ABI-unsafe on the legacy
+    // open-generic surface and are suppressed by the generator (see class summary +
+    // AsyncGenericParentSuppressionTests). This test guards that the suppression is
+    // surgical: the type's synchronous, generic-static-dispatch CallConvCdecl surface
+    // (constructor + StoredValue) still binds and round-trips through the same parent
+    // type metadata the async path could not thread.
 
-    [Skip("Generic type async: @_silgen_name on generic extension stripped by Swift compiler — needs @_cdecl with explicit type metadata forwarding")]
-    public async Task TestAsyncGenericContainer_ProcessAsync()
+    public Task TestAsyncGenericContainer_StoredValueRoundTrips()
     {
         var container = new AsyncGenericContainer<NumberItem>(new NumberItem(42));
-        var result = await WithTimeout(container.ProcessAsync(), DefaultAsyncTimeout);
-        AssertEqual(42, result, "ProcessAsync should return 42");
-        TestLogger.Info($"AsyncGenericContainer<NumberItem>.ProcessAsync() = {result}");
+        var stored = container.StoredValue;
+        AssertEqual(42, stored.Value, "StoredValue should round-trip the constructor payload");
+        AssertEqual("number:42", stored.Label, "StoredValue payload should expose its Swift-computed label");
+        TestLogger.Info($"AsyncGenericContainer<NumberItem>.StoredValue.Value = {stored.Value}");
+        return Task.CompletedTask;
     }
 
-    [Skip("Generic type async: @_silgen_name on generic extension stripped by Swift compiler — needs @_cdecl with explicit type metadata forwarding")]
-    public async Task TestAsyncGenericContainer_FetchOrThrow_Success()
+    public Task TestAsyncGenericContainer_StoredValueSetter()
     {
-        var container = new AsyncGenericContainer<NumberItem>(new NumberItem(0));
-        var result = await WithTimeout(container.FetchOrThrowAsync(false), DefaultAsyncTimeout);
-        AssertEqual(77, result, "FetchOrThrow(false) should return 77");
-        TestLogger.Info($"AsyncGenericContainer<NumberItem>.FetchOrThrow(false) = {result}");
-    }
-
-    [Skip("Generic type async: @_silgen_name on generic extension stripped by Swift compiler — needs @_cdecl with explicit type metadata forwarding")]
-    public async Task TestAsyncGenericContainer_FetchOrThrow_Throws()
-    {
-        var container = new AsyncGenericContainer<NumberItem>(new NumberItem(0));
-        try
-        {
-            await WithTimeout(container.FetchOrThrowAsync(true), DefaultAsyncTimeout);
-            throw new AssertionException("Expected SwiftException but no exception was thrown");
-        }
-        catch (SwiftException ex)
-        {
-            TestLogger.Info($"FetchOrThrow(true) threw SwiftException: {ex.Message}");
-        }
+        var container = new AsyncGenericContainer<NumberItem>(new NumberItem(1));
+        container.StoredValue = new NumberItem(99);
+        AssertEqual(99, container.StoredValue.Value, "StoredValue setter should replace the payload");
+        TestLogger.Info($"AsyncGenericContainer<NumberItem>.StoredValue after set = {container.StoredValue.Value}");
+        return Task.CompletedTask;
     }
 
     #endregion

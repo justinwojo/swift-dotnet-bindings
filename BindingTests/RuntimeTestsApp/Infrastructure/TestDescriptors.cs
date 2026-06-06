@@ -26,4 +26,5 @@ public record TestMethodDescriptor(
     string? Skip,
     string? SkipOnSim,
     string? SkipOnDevice,
-    string? SkipOnCatalystX64 = null);
+    string? SkipOnCatalystX64 = null,
+    string? SkipOnMonoJit = null);

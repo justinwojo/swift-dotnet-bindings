@@ -1251,11 +1251,14 @@ namespace BindingsGeneration
                 return;
             }
 
-            // ABI-unsafe direct PInvoke scaffold (Bundle 02): the predicate is wired up here
-            // so Bundle 7 can refine the trigger and switch the skip on. The predicate
-            // returns false in Bundle 02 to avoid over-firing on simple-signature async
-            // methods on generic class parents that empirically work with the legacy
-            // CallConvSwift direct-PInvoke path. See WrapperValidation.IsSkippedWrapperDirectPInvoke.
+            // ABI-unsafe direct PInvoke gate: fires for async methods that reach the legacy
+            // CallConvSwift direct-PInvoke path carrying a feature it cannot service correctly
+            // (method-level generics, async closure/existential params). Async methods on a
+            // generic *parent* are NOT caught here — they arrive with UsesWrapperLibrary set
+            // (a @_silgen_name wrapper is emitted) and are suppressed at their source in
+            // MemberValidationPipeline (P0-15), because that wrapper's self + parent-type
+            // metadata cannot be threaded through a fixed CallConvSwift signature.
+            // See WrapperValidation.IsSkippedWrapperDirectPInvoke.
             if (!isAccessor && WrapperValidation.IsSkippedWrapperDirectPInvoke(methodEnv))
             {
                 ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature,

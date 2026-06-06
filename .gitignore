@@ -279,3 +279,7 @@ src/Swift.Bindings/tests/IntegrationTests/StaticMethods/
 src/Swift.Bindings/tests/IntegrationTests/Structs/
 src/Swift.Bindings/tests/IntegrationTests/UnsafeBufferPointer/
 src/Swift.Bindings/tests/IntegrationTests/UnsafePointer/
+
+# Python bytecode caches (build/scripts/*.py)
+__pycache__/
+*.pyc

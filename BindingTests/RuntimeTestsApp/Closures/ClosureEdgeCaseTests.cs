@@ -221,7 +221,15 @@ public class ClosureEdgeCaseTests : TestBase
 
     #region Throwing Closures — Success Paths
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion")]
+    // These run on BOTH simulator and device. A throwing-closure *parameter* is pure
+    // CallConvCdecl end to end: the entry P/Invoke is an SBW_ @_cdecl wrapper and the
+    // managed callback is [UnmanagedCallersOnly(CallConvCdecl)] (verify in
+    // output/SwiftBindingsTestLib.cs — e.g. PInvoke_callThrowingClosure_* and
+    // s_callThrowingClosure_arg0_*_Callback). There is no CallConvSwift frame to unwind
+    // through, so Mono Issue 1 (!ji->async) cannot apply — and the structurally identical
+    // non-primitive-return siblings (CallThrowingWithParam, NonFrozenReturn) already run
+    // unskipped and pass. The prior blanket [SkipOnSimulator] cited Issue 1 on a path with
+    // no CallConvSwift P/Invoke; removed under Track-M4 gate hygiene.
     public void TestThrowingClosureSuccess()
     {
         // () throws -> Int32 — use raw SwiftResult overload
@@ -240,7 +248,6 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"CallThrowingWithParam success = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion")]
     public void TestThrowingVoidSuccess()
     {
         // () throws -> Void — use raw SwiftResult overload
@@ -250,7 +257,6 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"CallThrowingVoid success = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion")]
     public void TestThrowingBoolSuccess()
     {
         // (Int32) throws -> Bool — use raw SwiftResult overload
@@ -272,7 +278,10 @@ public class ClosureEdgeCaseTests : TestBase
     // Swift side, where the outer test function's do/catch turns it into a sentinel — so the
     // round trip is observable from C# with no process abort (P0-01).
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — primitive-return callback with SwiftError* triggers !ji->async assertion; runs under NativeAOT")]
+    // Runs on BOTH simulator and device: same pure-CallConvCdecl path as the success
+    // cases above. The managed delegate throws, the [UnmanagedCallersOnly(CallConvCdecl)]
+    // callback catches it and mints a Swift error via SBW_CreateError — the exception
+    // never unwinds into native, so there is no CallConvSwift frame and no Issue-1 surface.
     public void TestThrowingClosure_DelegateThrows_GracefulFault()
     {
         // () throws -> Int32 — C# delegate throws instead of returning a SwiftResult.

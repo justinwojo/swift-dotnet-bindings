@@ -640,8 +640,38 @@ def main():
             except OSError:
                 pass
         return decl_map
-    
-    
+
+
+    def get_runtime_tested_names():
+        """Collect identifiers referenced by the RuntimeTestsApp C# test sources.
+
+        The coverage matrix derives a feature's "passing" status from Swift-source existence
+        plus generator skips — it does NOT prove a runtime test actually exercises the feature.
+        This scans BindingTests/RuntimeTestsApp/**/*.cs and returns the set of identifiers it
+        references, so build_feature_status can flag features whose Swift declarations appear in
+        no runtime test at all. Heuristic (a name reference is not proof of an asserting test),
+        so it only drives a warning, never a hard failure.
+        """
+        runtime_dir = os.path.join(os.getcwd(), 'RuntimeTestsApp')
+        names = set()
+        if not os.path.isdir(runtime_dir):
+            return names
+        ident = re.compile(r'[A-Za-z_]\w*')
+        for root, dirs, filenames in os.walk(runtime_dir):
+            # Skip build output — only hand-written test sources count as coverage.
+            dirs[:] = [d for d in dirs if d not in ('obj', 'bin')]
+            for f in filenames:
+                if not f.endswith('.cs'):
+                    continue
+                try:
+                    with open(os.path.join(root, f)) as fh:
+                        for m in ident.finditer(fh.read()):
+                            names.add(m.group(0))
+                except OSError:
+                    pass
+        return names
+
+
     # Per-feature declaration ownership for files hosting multiple features.
     # Maps feature_name -> set of declaration names (types and top-level functions).
     # Only required when multiple features share a source file; features not listed
@@ -932,6 +962,11 @@ def main():
         file_decl_names = {}
         for decl_name, rel_file in decl_map.items():
             file_decl_names.setdefault(rel_file, set()).add(decl_name)
+
+        # Identifiers actually referenced by RuntimeTestsApp/*.cs, for runtime-coverage
+        # cross-reference (a "passing" feature whose declarations appear in no runtime test
+        # has no runtime coverage despite a clean binding).
+        runtime_names = get_runtime_tested_names()
     
         # Build set of declaration names actually present in ABI JSON.
         abi_decl_names = set()
@@ -957,6 +992,7 @@ def main():
         must_pass_passing = 0
         must_pass_degraded = 0
         must_pass_compiled_out = 0
+        must_pass_passing_untested = 0
         known_unsupported_total = 0
         known_unsupported_with_test = 0
         known_unsupported_compiled_out = 0
@@ -1050,6 +1086,17 @@ def main():
                     else:
                         test_status = "missing"
     
+                # Runtime-coverage cross-reference (heuristic): does any RuntimeTestsApp/*.cs
+                # reference one of this feature's Swift declarations? Anchor on the feature's
+                # owned declarations when known, else every declaration in its source file.
+                # None = no declaration anchor (e.g. SwiftUI-bridged types) → coverage unknown.
+                feat_decls = set(FEATURE_DECLARATIONS.get(feature_name) or ())
+                if not feat_decls:
+                    feat_decls = file_decl_names.get(actual_path, set())
+                runtime_tested = bool(feat_decls & runtime_names) if feat_decls else None
+                if status == "must_pass" and test_status == "passing" and runtime_tested is False:
+                    must_pass_passing_untested += 1
+
                 entry = {
                     "name": feature_name,
                     "category": info["name"],
@@ -1057,6 +1104,7 @@ def main():
                     "test_file": actual_path,
                     "test_exists": file_exists,
                     "test_status": test_status,
+                    "runtime_tested": runtime_tested,
                 }
                 if skips:
                     entry["binding_skips"] = [
@@ -1084,6 +1132,7 @@ def main():
                 "degraded": must_pass_degraded,
                 "compiled_out": must_pass_compiled_out,
                 "missing": must_pass_missing,
+                "passing_untested": must_pass_passing_untested,
             },
             "known_unsupported": {
                 "total": known_unsupported_total,
@@ -1200,6 +1249,17 @@ def main():
                 print(f"      {s['kind']} {s['name']}: {s['reason']}")
             if len(skips) > 3:
                 print(f"      ... and {len(skips) - 3} more")
+
+    mp_untested = mp.get('passing_untested', 0)
+    if mp_untested > 0:
+        print(f"\n*** WARNING: {mp_untested} 'passing' must-pass feature(s) have NO runtime test in "
+              f"RuntimeTestsApp (binding generated cleanly, but no test references their declarations) ***")
+        untested = [f for f in features
+                    if f.get("test_status") == "passing"
+                    and f.get("status") == "must_pass"
+                    and f.get("runtime_tested") is False]
+        for f in untested:
+            print(f"  - {f['name']} ({f['category']}): {f['test_file']}")
     
     print(f"\nOutput: {output_path}")
     

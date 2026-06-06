@@ -2827,9 +2827,13 @@ public class AbiSafetyTests
         // AsyncGenericContainer<T>.processAsync() shape: the parent class is generic, but
         // the method itself has no own generic params. The parser folds the parent's generic
         // signature into MethodDecl.GenericParameters, so MethodDecl.IsGeneric is true even
-        // though there is no method-own generic to plumb. Predicate must use
-        // HasMethodOwnGenericParameters and return false here so the legacy direct path keeps
-        // working for plain async methods on generic types.
+        // though there is no method-own generic to plumb. This predicate scopes to method-own
+        // generics via HasMethodOwnGenericParameters and returns false here — the bare
+        // parent-generic-only async shape is owned UPSTREAM by the P0-15 gate in
+        // MemberValidationPipeline (suppressed) or by CSM specialization routing, not by the
+        // legacy direct path; this predicate is simply not the one that decides that case.
+        // (See IsSkippedWrapperDirectPInvoke_AsyncOnGenericParentWithMethodOwnGeneric_ReturnsTrue
+        // for the combined parent+method-own shape this predicate DOES own.)
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2847,6 +2851,45 @@ public class AbiSafetyTests
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncOnGenericParentWithMethodOwnGeneric_ReturnsTrue()
+    {
+        // Box<T>.load<U: SomeProtocol>(_ u: U) async -> Int32 shape: BOTH a generic parent
+        // (T, folded into MethodDecl.GenericParameters by the parser) AND a method-own generic
+        // (U). This is the interaction between two gates: the parent-generic async gate (P0-15 in
+        // MemberValidationPipeline) deliberately EXCLUDES method-own-generic methods (its predicate
+        // is `!HasMethodOwnGenericParameters`), leaving this combined shape to THIS predicate.
+        // UsesWrapperLibrary stays false for it in the real pipeline (the async-generic bridge bails
+        // on a generic parent before emitting a @_silgen_name wrapper, and the cdecl method-wrapper
+        // emitter bails on method-own generics), so the predicate does NOT early-return on the
+        // wrapper-library branch — it must fall through to the method-own-generics check and skip,
+        // so no live wrong-ABI method ships. This pins that line so a future reorder of the gate (or
+        // a change to HasMethodOwnGenericParameters) can't silently let the combined shape leak past
+        // P0-15 AND this predicate into a live CallConvSwift P/Invoke.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("load", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        // Parser folds the parent's T into the method's generic signature; U is method-own.
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+            new GenericArgumentDecl("U", "U", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Sanity: the shape really does carry a method-own generic distinct from the parent's,
+        // so it is excluded by P0-15 and must be caught here instead.
+        Assert.True(WrapperValidation.HasMethodOwnGenericParameters(method));
+        Assert.True(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
     }
 
     [Fact]

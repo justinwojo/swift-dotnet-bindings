@@ -324,13 +324,60 @@ public class SkipOnDeviceAttribute : Attribute
 /// <see cref="System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture"/>;
 /// no enum/CLI-flag plumbing required, so the attribute is a strict superset of the
 /// previous skip surface.
+///
+/// Method-level only. Unlike the CLI-flag-keyed <see cref="SkipOnSimulatorAttribute"/> /
+/// <see cref="SkipOnDeviceAttribute"/> (which <c>TestDiscoveryGenerator</c> also reads at
+/// class scope), this runtime-detected skip is honored only per-method in
+/// <c>TestBase.RunAllTestsAsync</c>; a class-level annotation would be silently ignored and
+/// the class would still run. Restricting the target to <see cref="AttributeTargets.Method"/>
+/// makes that a compile error instead of a footgun.
 /// </summary>
-[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+[AttributeUsage(AttributeTargets.Method)]
 public class SkipOnCatalystX64Attribute : Attribute
 {
     public string Reason { get; }
 
     public SkipOnCatalystX64Attribute(string reason)
+    {
+        Reason = reason;
+    }
+}
+
+/// <summary>
+/// Marks tests that crash specifically under the <b>Mono</b> runtime (the upstream
+/// <c>!ji-&gt;async</c> JIT assertion at <c>jit-info.c:918</c>, a.k.a. "Issue 1", fired during a
+/// signal-handler unwind through a CallConvSwift frame). Skipped wherever the process runs on
+/// Mono — iOS/tvOS Simulator <b>and</b> Mac Catalyst — and runs everywhere else: macOS (CoreCLR)
+/// and physical device (NativeAOT), neither of which can hit a Mono assertion.
+///
+/// This is distinct from <see cref="SkipOnSimulatorAttribute"/>, which is keyed off the
+/// <c>--platform simulator</c> CLI flag. The harness passes <c>--platform simulator</c> for the
+/// macOS and Catalyst runs too (they share the "no native runtime dylib" property), so a plain
+/// [SkipOnSimulator] would <em>also</em> suppress the test on macOS — where it provably cannot
+/// crash because CoreCLR is not Mono. To avoid that false suppression, a Mono-JIT skip is
+/// detected at <b>runtime</b> (see <c>TestBase.IsMonoJitRuntime</c>) rather than from the CLI
+/// flag, mirroring the existing <see cref="SkipOnCatalystX64Attribute"/> precedent. Note that
+/// <c>SwiftRuntimeInfo.IsMonoRuntime</c> alone is insufficient: its RID check only recognizes
+/// "simulator" RIDs and misses <c>maccatalyst-*</c>, so the predicate must also consult
+/// <see cref="OperatingSystem.IsMacCatalyst"/>.
+///
+/// The reason MUST name the specific CallConvSwift entry-point symbol (<c>$s…</c>) on the test's
+/// own path — enforced by <c>Issue1SkipAttributionTests</c> in the generator unit tests.
+///
+/// Method-level only (same rationale as <see cref="SkipOnCatalystX64Attribute"/>): this skip is
+/// runtime-detected and honored per-method in <c>TestBase.RunAllTestsAsync</c>. Class-level skips
+/// are wired only for the CLI-flag-keyed <see cref="SkipOnSimulatorAttribute"/> /
+/// <see cref="SkipOnDeviceAttribute"/> (read at class scope by <c>TestDiscoveryGenerator</c>), so a
+/// class-level <c>[SkipOnMonoJit]</c> would be silently ignored and the class would still run on
+/// Mono — the exact crash this attribute exists to prevent. <see cref="AttributeTargets.Method"/>
+/// makes the unsupported usage a compile error.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class SkipOnMonoJitAttribute : Attribute
+{
+    public string Reason { get; }
+
+    public SkipOnMonoJitAttribute(string reason)
     {
         Reason = reason;
     }

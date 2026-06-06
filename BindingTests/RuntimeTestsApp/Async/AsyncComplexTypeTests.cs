@@ -319,9 +319,13 @@ public class AsyncComplexTypeTests : TestBase
     #region X1: AsyncStream<Int32> (primitive element type)
     // The real coverage for this fix is the compile-check step: generated code references
     // SwiftAsyncStream<int> which wouldn't compile without removing the ISwiftObject constraint.
-    // Runtime testing is blocked by the class-level [Skip] (async DllImport targets wrong module).
+    // The async stream ITERATION targets the wrong DllImport module (Tier 3), so only the
+    // synchronous construction below is exercised at runtime — there is no class-level [Skip].
 
-    public async void TestAsyncValueSourceCreation()
+    // NOTE: must NOT be `async void` — the discovery invoker cannot await it, so any failure
+    // would detach and falsely pass (now enforced by SBTD001 in TestDiscoveryGenerator). There is
+    // no await here, so a plain sync method is correct.
+    public void TestAsyncValueSourceCreation()
     {
         var source = new AsyncValueSource();
         AssertNotNull(source, "AsyncValueSource created");

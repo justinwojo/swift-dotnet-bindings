@@ -734,16 +734,26 @@ public class BasicThrowingTests : TestBase
 
     #region S1: NonEmptyString Failable Init (non-frozen struct projected as class)
 
-    [Skip("NonEmptyString.TryCreate not emitted — failable init on non-frozen struct not yet supported")]
     public void TestNonEmptyStringSuccess()
     {
-        TestLogger.Info("Skipped: NonEmptyString.TryCreate not emitted");
+        // init?(_:) succeeds for a non-empty string; the non-frozen struct projects to a class
+        // with a static bool TryCreate(@string, out result) (Session 3 un-gated the feature).
+        var ok = NonEmptyString.TryCreate("hello", out var s);
+        AssertTrue(ok, "NonEmptyString.TryCreate succeeds for a non-empty string");
+        AssertNotNull(s, "successful TryCreate yields a non-null result");
+        AssertEqual("hello", s.Value, "Value round-trips the constructor string");
+        AssertEqual(5, s.Length, "Length reflects the Swift-computed character count");
+        s.Dispose();
+        TestLogger.Info("NonEmptyString.TryCreate success passed");
     }
 
-    [Skip("NonEmptyString.TryCreate not emitted — failable init on non-frozen struct not yet supported")]
     public void TestNonEmptyStringFailure()
     {
-        TestLogger.Info("Skipped: NonEmptyString.TryCreate not emitted");
+        // init?(_:) returns nil for an empty string → TryCreate returns false, result is null.
+        var ok = NonEmptyString.TryCreate("", out var s);
+        AssertFalse(ok, "NonEmptyString.TryCreate fails for an empty string (init? returns nil)");
+        AssertNull(s, "failed TryCreate yields a null result");
+        TestLogger.Info("NonEmptyString.TryCreate failure passed");
     }
 
     #endregion

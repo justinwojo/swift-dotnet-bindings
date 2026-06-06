@@ -20,10 +20,20 @@ namespace RuntimeTestsApp.Closures;
 /// gate. The compile gate alone proves the regression is fixed; these runtime tests
 /// additionally exercise the value round-trip.
 ///
-/// The closure-invoking tests are <see cref="SkipOnSimulatorAttribute"/> because a callback
-/// carrying a `SwiftError*` out-parameter trips the Mono JIT `!ji-&gt;async` assertion
-/// (upstream Issue 1) — they run under NativeAOT on device. The nil-path and default-param
-/// tests never invoke a managed callback, so they run everywhere.
+/// All the optional/Cdecl-routed members here — `RunWithOptionalModifier`, the
+/// `OptionalThrowingModifierHolder` initializer, the optional `OnComplete` setter, and the
+/// `RunStoredModifier`/`RunOnComplete` methods — bind through SBW_ `@_cdecl` wrappers with
+/// `[UnmanagedCallersOnly(CallConvCdecl)]` callbacks (verify in output/SwiftBindingsTestLib.cs).
+/// They have no CallConvSwift frame, so Mono Issue 1 (`!ji-&gt;async`) cannot apply and they run
+/// on BOTH simulator and device.
+///
+/// The ONE remaining simulator skip is <see cref="TestHolder_SetValidator_DelegateThrows_GracefulFault"/>:
+/// the NON-optional `Validator` setter is the YouTubePlayerKit `HtmlProvider` bypass site that
+/// emits a genuine CallConvSwift P/Invoke (`$s…OptionalThrowingModifierHolderC9validatoryyKcvs`,
+/// `SwiftSelf` self, `delegate* unmanaged[Swift]` callback) instead of routing through the
+/// `@_cdecl` wrapper — so it is the only path here with a CallConvSwift frame. The durable fix is
+/// to funnel that setter through a wrapper (tracked in REMEDIATION-PLAN §6); until then it runs
+/// under NativeAOT on device only.
 /// </summary>
 public class OptionalThrowingVoidClosureTests : TestBase
 {
@@ -70,7 +80,6 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     #region Closure invocation — success paths (managed callback with SwiftError*)
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion; runs under NativeAOT")]
     public void TestRunWithOptionalModifier_Success()
     {
         // Alamofire shape with a supplied closure that cooperatively succeeds. Exercises the
@@ -82,7 +91,6 @@ public class OptionalThrowingVoidClosureTests : TestBase
         TestLogger.Info($"RunWithOptionalModifier(success) = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion; runs under NativeAOT")]
     public void TestHolder_InitModifier_Success()
     {
         // YTPK `init(htmlProvider:)` shape: an optional throwing-void closure supplied at
@@ -95,7 +103,6 @@ public class OptionalThrowingVoidClosureTests : TestBase
         TestLogger.Info($"InitModifier RunStoredModifier(9) = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion; runs under NativeAOT")]
     public void TestHolder_SetOnComplete_Success()
     {
         // Settable OPTIONAL throwing-void closure property (optional closure-setter branch).
@@ -116,7 +123,9 @@ public class OptionalThrowingVoidClosureTests : TestBase
     // (the symbol the regression stripped) rather than letting it unwind into native Swift
     // (SIGABRT). The Swift `do/catch` then yields the sentinel false.
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion; runs under NativeAOT")]
+    // Runs everywhere: RunWithOptionalModifier is a pure-CallConvCdecl SBW_ wrapper with a
+    // [UnmanagedCallersOnly(CallConvCdecl)] callback that catches the managed throw and mints
+    // a Swift error — no CallConvSwift frame, so no Issue-1 surface.
     public void TestRunWithOptionalModifier_DelegateThrows_GracefulFault()
     {
         var result = TestLibFunctions.RunWithOptionalModifier(
@@ -126,7 +135,8 @@ public class OptionalThrowingVoidClosureTests : TestBase
         TestLogger.Info($"RunWithOptionalModifier(delegate throws) = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion; runs under NativeAOT")]
+    // CallConvSwift entry point on this path: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs
+    [SkipOnMonoJit("upstream Issue 1 (!ji->async, jit-info.c:918) — the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator + Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs")]
     public void TestHolder_SetValidator_DelegateThrows_GracefulFault()
     {
         // Settable NON-OPTIONAL throwing-void closure property — the YTPK `HtmlProvider`

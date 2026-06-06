@@ -230,13 +230,14 @@ public class OptionalMarshallingTests : TestBase
     // must avoid the inline byte-read path (which assumes a trailing discriminant byte
     // and is wrong for class TValue where Optional<T> reuses the pointer's spare bits).
     //
-    // [SkipOnSimulator]: the getters/peek() path goes through a raw CallConvSwift P/Invoke
+    // [SkipOnMonoJit]: the getters/peek() path goes through a raw CallConvSwift P/Invoke
     // (no @_cdecl wrapper — Swift forbids @_cdecl on generic-param-bearing functions, and
     // an unconstrained TValue gives no protocol witness to dispatch through). The
     // (SwiftIndirectResult, IntPtr, SwiftSelf) signature trips Mono's JIT first-call
-    // !ji->async assertion (upstream Issue 1). NativeAOT (device) handles this signature
-    // shape and is the gate for these cases. Constructor uses (SwiftIndirectResult, IntPtr…
-    // IntPtr) without SwiftSelf so it does not hit the same path.
+    // !ji->async assertion (upstream Issue 1) on the Simulator and Catalyst (both Mono).
+    // macOS (CoreCLR) and NativeAOT (device) handle this signature shape and are the gate for
+    // these cases. Constructor uses (SwiftIndirectResult, IntPtr… IntPtr) without SwiftSelf so
+    // it does not hit the same path.
 
     public void TestOptionalGenericHolderStoredSome()
     {
@@ -323,7 +324,8 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalGenericHolder<LargeValueStruct> Stored round-trip preserved all 6 Int64 fields");
     }
 
-    [SkipOnSimulator("Mono JIT crashes resolving Optional<LargeStruct> generic metadata in GetPeek readback (upstream Issue 1 — !ji->async at jit-info.c:918)")]
+    // CallConvSwift entry point on this path: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa
+    [SkipOnMonoJit("Mono JIT crashes resolving Optional<LargeStruct> generic metadata in GetPeek readback (upstream Issue 1 — !ji->async at jit-info.c:918). The OptionalGenericHolder<T> type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator + Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa")]
     public void TestOptionalGenericHolderLargeStructPeek()
     {
         // GetPeek hits the SwiftOptional<TValue> readback path for a 48-byte payload —

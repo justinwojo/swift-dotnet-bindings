@@ -1001,13 +1001,15 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidateMethodEmission_PureAsyncInGenericType_Emits()
+    public void ValidateMethodEmission_PureAsyncNoGenericParent_Emits()
     {
-        // Phase 3: Pure async method (no closure params) in generic type now passes —
-        // callbacks are hoisted to the non-generic helper class.
+        // Phase 3: Pure async method (no closure params) whose parent is NOT a generic
+        // type passes — the completion callback is hoisted to the non-generic helper class
+        // and the call has no parent-type metadata to thread. (A generic *parent* is a
+        // different story: see ValidateMethodEmission_AsyncOnGenericParent_* below, P0-15.)
         var typeDatabase = CreateTypeDatabase();
         var method = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
-        method.IsAsync = true;
+        method.IsAsync = true; // ParentDecl stays null → no generic-parent ABI hazard
 
         var pipeline = new MemberValidationPipeline(typeDatabase);
         var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
@@ -1015,6 +1017,64 @@ public class MemberValidationPipelineTests
         var result = pipeline.ValidateMethodEmission(method, validationCtx);
 
         Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_AsyncOnGenericParent_PlainReturn_ReturnsSkip()
+    {
+        // P0-15: AsyncGenericContainer<T>.processAsync shape — an async instance method on
+        // a non-specializable (unconstrained) generic parent returning a plain, non-generic
+        // Int. The open-generic @_silgen_name async wrapper is itself a generic instance
+        // method, so Swift passes `self` + the parent's type metadata through the implicit
+        // self / metadata registers while a fixed CallConvSwift P/Invoke can only hand them
+        // over as trailing IntPtr args → ABI mismatch → SIGSEGV. Returning a non-generic Int
+        // does NOT make it safe (the receiver/metadata ABI is the problem, not the return
+        // shape), so the previous return-references-T-only gate let it ship live. Must skip.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("AsyncGenericContainer", moduleDecl, isGeneric: true);
+
+        var method = CreateMethod("processAsync", new NamedTypeSpec("Swift.Int"));
+        method.IsAsync = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("AsyncGenericContainer_PInvoke", new[] { "T" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.Contains("generic parent", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ThrowingAsyncOnGenericParent_PlainReturn_ReturnsSkip()
+    {
+        // P0-15: AsyncGenericContainer<T>.fetchOrThrow(shouldFail:) shape — throwing async
+        // on an unconstrained generic parent with a Bool param and a plain Int return. The
+        // throws/param shape is irrelevant; the receiver + parent-T metadata still cannot be
+        // threaded through the fixed CallConvSwift P/Invoke. Must skip just like processAsync.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("AsyncGenericContainer", moduleDecl, isGeneric: true);
+
+        var method = CreateMethodWithArgs("fetchOrThrow", new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        method.IsAsync = true;
+        method.Throws = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("AsyncGenericContainer_PInvoke", new[] { "T" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.Contains("generic parent", result.Details!);
     }
 
     [Fact]
