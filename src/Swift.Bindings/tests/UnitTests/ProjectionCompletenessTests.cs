@@ -316,6 +316,24 @@ public class OptionalAppleFallbackTests
     }
 
     [Fact]
+    public void Project_ArrayOfNonUIKitObjCClass_ReturnsArrayProjection()
+    {
+        // Array<AVFoundation.AVAsset> — AVFoundation is an auto-bridged Apple module (NOT
+        // Foundation/UIKit), AVAsset is an unresolved ObjC class with an "AV" prefix and is not
+        // a registered value type. The element-fallback must use the full optional-fallback
+        // module set, not just Foundation/UIKit; otherwise element projection returns null and
+        // the whole [AVAsset] member is silently dropped from the binding.
+        var element = new NamedTypeSpec("AVFoundation.AVAsset");
+        var array = new NamedTypeSpec("Swift.Array", element);
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(array, ctx);
+
+        Assert.NotNull(projection);
+        Assert.Contains("IReadOnlyList", projection!.PublicType);
+    }
+
+    [Fact]
     public void Project_ArrayOfNonObjCAppleType_ReturnsNull()
     {
         // Array<StoreKit.Transaction> — StoreKit is Apple but Transaction lacks ObjC prefix
@@ -355,9 +373,14 @@ public class OptionalAppleFallbackTests
     }
 
     [Fact]
-    public void Project_ArrayOfNonUIKitAppleType_ReturnsNull()
+    public void Project_ArrayOfObjCPrefixedValueType_ReturnsNull()
     {
-        // Array<PassKit.PKPaymentNetwork> — PassKit is Apple but not UIKit/Foundation
+        // Array<PassKit.PKPaymentNetwork> — value-type guard canary. PassKit IS in the
+        // optional-fallback module set and PKPaymentNetwork has the "PK" ObjC prefix, so the
+        // module + prefix gates both pass. It must STILL be null because PKPaymentNetwork is a
+        // registered Apple value type — bridging it as an ObjC class would emit the wrong ARC
+        // shape. This pins the !IsKnownAppleValueType guard: an ObjC prefix alone is not proof
+        // of a class.
         var element = new NamedTypeSpec("PassKit.PKPaymentNetwork");
         var array = new NamedTypeSpec("Swift.Array", element);
         var ctx = CreateContext();

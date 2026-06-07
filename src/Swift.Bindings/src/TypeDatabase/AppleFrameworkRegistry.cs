@@ -43,7 +43,6 @@ internal static class AppleFrameworkRegistry
     // accidentally re-classify real ObjC types whose modules haven't yet had their
     // prefix list backfilled (e.g. AppKit's NS-prefixed types).
     private static readonly Dictionary<string, string[]> _perModuleObjcPrefixes;
-    private static readonly HashSet<string> _knownModulesForElements;
     private static readonly HashSet<string> _netUnavailableTypes;
     private static readonly Dictionary<string, string> _packageIds;
     // Union of every module name that appears in apple-frameworks.json, regardless of
@@ -93,9 +92,6 @@ internal static class AppleFrameworkRegistry
         [JsonProperty("platformUnavailable")]
         public string[]? PlatformUnavailable { get; set; }
 
-        [JsonProperty("knownModuleForElements")]
-        public bool KnownModuleForElements { get; set; }
-
         [JsonProperty("valueTypes")]
         public string[]? ValueTypes { get; set; }
 
@@ -128,7 +124,6 @@ internal static class AppleFrameworkRegistry
         _compileImportSourceModules = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         _typeNameRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
-        _knownModulesForElements = new HashSet<string>(StringComparer.Ordinal);
         _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
         _packageIds = new Dictionary<string, string>(StringComparer.Ordinal);
         _perModuleObjcPrefixes = new Dictionary<string, string[]>(StringComparer.Ordinal);
@@ -172,9 +167,6 @@ internal static class AppleFrameworkRegistry
                 }
                 sources.Add(def.Module);
             }
-
-            if (def.KnownModuleForElements)
-                _knownModulesForElements.Add(def.Module);
 
             if (def.ObjcPrefixes != null && def.ObjcPrefixes.Length > 0)
             {
@@ -552,9 +544,6 @@ internal static class AppleFrameworkRegistry
     /// </summary>
     public static bool IsNetUnavailableType(string moduleQualifiedName) =>
         _netUnavailableTypes.Contains(moduleQualifiedName);
-
-    public static bool IsKnownModuleForElements(string moduleName) =>
-        _knownModulesForElements.Contains(moduleName);
 
     /// <summary>
     /// Returns the NuGet package ID for a Swift module if one is registered in

@@ -470,19 +470,6 @@ public class AppleFrameworkRegistryTests
         Assert.Equal(expected, AppleFrameworkRegistry.IsKnownObjCRootClass(name));
     }
 
-    // --- IsKnownModuleForElements ---
-
-    [Theory]
-    [InlineData("UIKit", true)]
-    [InlineData("Foundation", true)]
-    [InlineData("AVFoundation", false)]
-    [InlineData("QuartzCore", false)]
-    [InlineData("", false)]
-    public void IsKnownModuleForElements_ReturnsExpected(string module, bool expected)
-    {
-        Assert.Equal(expected, AppleFrameworkRegistry.IsKnownModuleForElements(module));
-    }
-
     // --- IsModuleAvailableOnPlatform ---
 
     [Theory]
@@ -1138,15 +1125,6 @@ public class AppleFrameworkRegistryTests
                 $"'{module}' is annotated platformUnavailable on {platformString} but " +
                 $"IsModuleAvailableOnPlatform reports it AVAILABLE.");
         }
-    }
-
-    [Fact]
-    public void JsonLoaded_KnownModulesForElements_AreCorrect()
-    {
-        Assert.True(AppleFrameworkRegistry.IsKnownModuleForElements("UIKit"));
-        Assert.True(AppleFrameworkRegistry.IsKnownModuleForElements("Foundation"));
-        Assert.False(AppleFrameworkRegistry.IsKnownModuleForElements("AVFoundation"));
-        Assert.False(AppleFrameworkRegistry.IsKnownModuleForElements("CoreData"));
     }
 
     [Fact]

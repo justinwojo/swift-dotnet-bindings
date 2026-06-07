@@ -577,8 +577,14 @@ public class TypeProjectionFactory
 
     /// <summary>
     /// Fallback projection for collection element types that are unresolved Apple ObjC classes.
-    /// Uses a broader module set than the Optional fallback (includes UIKit/Foundation)
-    /// because collection elements are projected by value — no Optional ABI parity concern.
+    /// Uses the SAME module set + guards as the Optional ObjC fallback above
+    /// (<see cref="AppleFrameworkRegistry.IsOptionalFallbackModule"/> + <c>!IsKnownAppleValueType</c>
+    /// + <c>!IsNestedType</c> + <c>!IsPointerType</c> + <c>HasObjCClassPrefix</c>) so an unresolved
+    /// ObjC class in any auto-bridged Apple module — not just Foundation/UIKit — round-trips inside
+    /// Array/Set/Dictionary instead of failing element projection and silently dropping the whole
+    /// member (e.g. <c>[AVFoundation.AVAsset]</c>). The value-type guard is load-bearing: an ObjC
+    /// prefix alone does not prove a class (e.g. <c>PassKit.PKPaymentNetwork</c> is a value type
+    /// with a PK prefix), and bridging a value type here would emit the wrong ARC shape.
     /// Returns ObjCBridgedProjection if the element is an ObjC class, null otherwise.
     /// </summary>
     private static ITypeProjection? TryProjectObjCElement(TypeSpec elementTypeSpec)
@@ -589,7 +595,8 @@ public class TypeProjectionFactory
             !IsStdlibContainer(elemNamed.Name) &&
             !AppleFrameworkRegistry.IsPointerType(elemNamed.Name) &&
             !AppleFrameworkRegistry.IsNestedType(elemNamed.Name) &&
-            AppleFrameworkRegistry.IsKnownModuleForElements(elemNamed.Module) &&
+            !TypeDatabaseExtensions.IsKnownAppleValueType(elemNamed) &&
+            AppleFrameworkRegistry.IsOptionalFallbackModule(elemNamed.Module) &&
             AppleFrameworkRegistry.HasObjCClassPrefix(elemNamed.Name))
         {
             // Same Swift→.NET typeRemap step as the Optional fallback above: prefer the

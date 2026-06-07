@@ -60,11 +60,6 @@
             "items": { "type": "string", "enum": ["tvOS", "macOS", "iOS", "MacCatalyst"] },
             "description": "Platforms where this module is entirely unavailable"
           },
-          "knownModuleForElements": {
-            "type": "boolean",
-            "default": false,
-            "description": "Whether this module is known for container element type resolution"
-          },
           "valueTypes": {
             "type": "array",
             "items": { "type": "string" },

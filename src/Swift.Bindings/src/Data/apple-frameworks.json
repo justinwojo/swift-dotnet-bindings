@@ -293,7 +293,6 @@
       "autoBridge": true,
       "optionalFallback": true,
       "objcPrefixes": ["NS"],
-      "knownModuleForElements": true,
       "valueTypes": [
         "Data",
         "Date",
@@ -886,7 +885,6 @@
       "wrapperImportable": true,
       "objcPrefixes": ["UI"],
       "platformUnavailable": ["macOS"],
-      "knownModuleForElements": true,
       "valueTypes": [
         "NSDirectionalEdgeInsets",
         "NSLayoutConstraint.Relation",
