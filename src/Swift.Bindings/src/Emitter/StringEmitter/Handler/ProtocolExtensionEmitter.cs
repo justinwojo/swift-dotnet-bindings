@@ -296,39 +296,80 @@ public static class ProtocolExtensionEmitter
 
         // Check projected C# signature collision — Swift overloads with different labels
         // (e.g., verify(_:expectedData:) vs verify(_:for:)) may produce identical C# signatures.
+        // Route BOTH sides through the canonical projected-key builder
+        // (IHandler.GetProjectedCSharpMethodKey) so the extension default's key applies the
+        // SAME Optional<class-like> identity strip, param-type normalization, and
+        // sibling-property/Self-returning/parent-name renames that the conforming type's own
+        // methods get during the main dedup loop. A hand-rolled key here diverged:
+        // OptionalProjection.PublicType keeps the trailing '?' on an Optional<class> param while
+        // the canonical key strips it for reference types — so an extension default with an
+        // Optional<class> param (Kingfisher ImageTransformable shape) keyed as `Attach(Other?)`
+        // never matched an existing `Attach(Other)` method, slipped past this gate, and B15
+        // disambiguation emitted a spurious second member (Attach2).
         {
-            bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
-            var csMethodName = NameProvider.GetPublicMethodName(extMethod.MethodName, isAsync: false,
-                hasReturnValue: hasReturnValue, parameterCount: parameters.Count);
-            var projParamTypes = new List<string>();
-            foreach (var (_, paramTypeSpec, _) in parameters)
-            {
-                var factory = new TypeProjectionFactory();
-                var projection = factory.Project(paramTypeSpec, new ProjectionContext
-                {
-                    TypeDatabase = typeDatabase,
-                    IsParameter = true
-                });
-                projParamTypes.Add(projection?.PublicType ?? paramTypeSpec.ToString());
-            }
-            var projectedKey = $"{csMethodName}({string.Join(",", projParamTypes)})";
+            // The synthetic MethodDecl isn't built until after all gates pass; build a
+            // side-effect-free keying decl now (NOT added to conformingType.Methods) so the
+            // extension's key is computed exactly like the conforming type's methods.
+            //
+            // We deliberately key with BuildSyntheticMethodDecl even though the closure-only path
+            // INJECTS via BuildClosureSyntheticMethodDecl. The two builders differ in just two ways,
+            // NEITHER of which changes the projected key for any method that reaches this gate:
+            //   1. Param resolution: BuildClosureSyntheticMethodDecl runs ResolveSelfElement over the
+            //      closure's params (Self.Element → τ_0_0); BuildSyntheticMethodDecl leaves them raw.
+            //      But the EC-17 gate above (ContainsAssociatedTypeReference / ContainsRawGenericTypeParam,
+            //      which recurse INTO closure args) already rejected every param containing `Self.X`,
+            //      an associated-type ref, or a raw τ generic — so ResolveSelfElement is a no-op on
+            //      every param that survives to here, and both builders produce identical param specs.
+            //   2. Method-level generics: BuildClosureSyntheticMethodDecl adds the method's τ_1_X
+            //      generics to GenericParameters. But GetProjectedCSharpMethodKey projects closure
+            //      args via TypeProjectionFactory WITHOUT a generic context (ProjectionContext carries
+            //      only TypeDatabase + IsParameter), so GenericParameters never influences the key.
+            // Net: the canonical key is identical under either builder for reachable methods, pinned by
+            // ProtocolExtensionEmitterTests.ClosureParamReferencingSelfElement_RejectedBeforeInjection_*.
+            // If EC-17 is ever taught to resolve (not reject) Self.X params, switch this to
+            // BuildClosureSyntheticMethodDecl so the key stays faithful to the emitted signature.
+            var keyingDecl = BuildSyntheticMethodDecl(
+                moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName,
+                symbolName, isThrowsEarly, useCdecl);
 
-            // Compute projected keys for existing methods
-            var existingProjectedKeys = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var m in conformingType.Methods)
+            // Thread the SAME sibling-property set the main dedup loop uses (ClassHandler /
+            // StructHandler build it and pass it into GetProjectedCSharpMethodKey) to BOTH gate
+            // sides — the Foo→FooMethod property-collision rename is part of the projected name,
+            // so a builder that drops it produces a key that won't line up with the emitted name.
+            var siblingPropertyNames = BuildSiblingPropertyNames(conformingType, typeDatabase);
+
+            string projectedKey;
+            try
             {
-                if (m.IsAccessor || m.IsConstructor) continue;
-                try
-                {
-                    existingProjectedKeys.Add(BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase));
-                }
-                catch { /* skip unresolvable methods */ }
+                projectedKey = BaseHandler.GetProjectedCSharpMethodKey(
+                    keyingDecl, typeDatabase, logger, siblingPropertyNames);
             }
-            if (existingProjectedKeys.Contains(projectedKey))
+            catch
             {
-                logger.LogDebug("Skipping extension method {Type}.{Method}: projected C# signature collision ({Key})",
-                    typeName, extMethod.MethodName, projectedKey);
-                return;
+                // Unresolvable extension key — don't reject; let emission proceed and rely on
+                // the main loop's B15 dedup as a backstop.
+                projectedKey = string.Empty;
+            }
+
+            if (!string.IsNullOrEmpty(projectedKey))
+            {
+                var existingProjectedKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var m in conformingType.Methods)
+                {
+                    if (m.IsAccessor || m.IsConstructor) continue;
+                    try
+                    {
+                        existingProjectedKeys.Add(BaseHandler.GetProjectedCSharpMethodKey(
+                            m, typeDatabase, logger, siblingPropertyNames));
+                    }
+                    catch { /* skip unresolvable methods */ }
+                }
+                if (existingProjectedKeys.Contains(projectedKey))
+                {
+                    logger.LogDebug("Skipping extension method {Type}.{Method}: projected C# signature collision ({Key})",
+                        typeName, extMethod.MethodName, projectedKey);
+                    return;
+                }
             }
         }
 
@@ -2175,6 +2216,26 @@ public static class ProtocolExtensionEmitter
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
             IsMainActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
         };
+    }
+
+    /// <summary>
+    /// Rebuilds the sibling-property/nested-type name set that ClassHandler / StructHandler
+    /// thread into the main dedup loop's <see cref="BaseHandler.GetProjectedCSharpMethodKey"/>
+    /// (ClassHandler.cs collects it from <c>Properties</c> + nested <c>Types</c>). The
+    /// projected-key gate must use the same set so its key matches the authoritative emitted
+    /// name (the <c>Foo</c>→<c>FooMethod</c> property-collision rename is folded into the name).
+    /// </summary>
+    private static IReadOnlySet<string> BuildSiblingPropertyNames(
+        TypeDecl conformingType, ITypeDatabase typeDatabase)
+    {
+        var propertyRenames = NameProvider.ComputePropertyRenames(conformingType, typeDatabase);
+        var set = new HashSet<string>(conformingType.Properties.Select(p =>
+            NameProvider.GetFinalMemberName(
+                NameProvider.GetPropertyName(p.Name, conformingType.Name), propertyRenames)));
+        // Nested type names collide with method names in C# (CS0102).
+        foreach (var nestedType in conformingType.Types)
+            set.Add(NameProvider.ToPascalCase(nestedType.Name));
+        return set;
     }
 
     /// <summary>

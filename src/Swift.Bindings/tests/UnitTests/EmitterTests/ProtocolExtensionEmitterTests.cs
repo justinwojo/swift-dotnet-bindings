@@ -195,6 +195,109 @@ public class ProtocolExtensionEmitterTests
         Assert.True(ctx.IsWrapperSymbolRegistered("SBW_ClassB_ping"));
     }
 
+    // ─── Bug 3: projected-key parity with the canonical dedup builder ──
+
+    [Fact]
+    public void OptionalClassParam_ProjectsOntoExistingMethodSignature_NotInjected()
+    {
+        // Kingfisher ImageTransformable shape: a protocol-extension default whose param is
+        // Optional<SomeClass> projects to the SAME C# signature as an existing conforming-type
+        // method taking that class — nullable annotations on reference types are erased for C#
+        // overload resolution. The projected-key gate must route BOTH sides through the canonical
+        // builder (IHandler.GetProjectedCSharpMethodKey) so the Optional<class> identity strip
+        // applies symmetrically. The old hand-rolled key kept the trailing '?' on the extension
+        // side only, so the collision slipped past the gate and B15 emitted a spurious second
+        // member (Attach2).
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetupWithAdditionalClass(
+            "TestModule", "MyClass", "TestProtocol", "OtherClass");
+
+        // Existing ABI method: attach(from: OtherClass?) -> Void. A DIFFERENT external label
+        // ("from") than the extension's ("using") so the Swift-overload-aware gate (which keys
+        // off labels) does NOT short-circuit — the projected-key gate is what must catch it.
+        const string existingMangled = "$s10TestModule7MyClassC6attachyyAA10OtherClassCSgF";
+        var existing = new MethodDecl
+        {
+            Name = "attach",
+            MangledName = existingMangled,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null },
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.OtherClass")),
+                    Name = "from",
+                    PrivateName = "from",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = conformingType,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = conformingType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        conformingType.Methods.Add(existing);
+
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("attach", "public func attach(using other: TestModule.OtherClass?)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        // The extension default projects onto the existing method's C# signature → it must be
+        // dropped, leaving only the original ABI method (no spurious Attach2).
+        Assert.Single(conformingType.Methods);
+        // The survivor is the original ABI method, not an injected synthetic: synthetics carry
+        // a StructuralIdentityKey and the protocol-ext symbol as their mangled name.
+        Assert.Null(conformingType.Methods[0].StructuralIdentityKey);
+        Assert.Equal(existingMangled, conformingType.Methods[0].MangledName);
+    }
+
+    [Fact]
+    public void ClosureParamReferencingSelfElement_RejectedBeforeInjection_KeepsProjectedKeyGateSafe()
+    {
+        // The projected-key collision gate builds its preflight keying decl with the non-closure
+        // BuildSyntheticMethodDecl (which leaves params raw), while the closure-injection path uses
+        // BuildClosureSyntheticMethodDecl (which RESOLVES Self.Element → τ_0_0 inside the closure
+        // arg). Those two builders only diverge on a param that contains `Self.X`; this test pins
+        // the invariant that makes keying with the simpler builder correct: EC-17 (the
+        // unresolved-generic/associated-type param gate) rejects ANY param containing `Self.X` —
+        // including inside a closure — BEFORE the projected-key gate runs. So no Self.-bearing param
+        // ever reaches the gate, ResolveSelfElement is therefore always a no-op on the params that
+        // do reach it, and the canonical key (which ignores GenericParameters for closure args)
+        // computes identically for both builders. If EC-17 is ever taught to resolve rather than
+        // reject `Self.X` params, this test goes red and the keying decl must switch to
+        // BuildClosureSyntheticMethodDecl to stay faithful to the emitted signature.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "Observable", "ObservableType");
+
+        // Generic conformer with an Element associated type → τ_0_0 (so Self.Element COULD be
+        // resolved, were the method ever to reach the resolution path).
+        conformingType.GenericParameters.Add(new GenericArgumentDecl(
+            TypeName: "τ_0_0",
+            SugaredTypeName: "Element",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+
+        // The closure arg `(Self.Element) -> Bool` IS bridgeable (Self. arg + Bool return both pass
+        // IsClosureBridgeable), so the cdecl-compat gate lets it through — only EC-17 stops it.
+        var extMethods = CreateExtensionMethodDict("TestModule.ObservableType",
+            CreateExtMethod("observe", "public func observe(using callback: (Self.Element) -> Swift.Bool)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        // Rejected outright — not injected at all (a Self.-bearing closure default never reaches the
+        // projected-key gate, so the gate's raw-param keying decl is always correct for it).
+        Assert.Empty(conformingType.Methods);
+        Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
+    }
+
     // ─── Helper Methods ──────────────────────────────────────────────
 
     /// <summary>
