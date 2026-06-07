@@ -187,14 +187,21 @@ public class ExistentialProjection : ITypeProjection
         return GetParameterElementConversion(elementVar);
     }
 
-    // Non-owning by design: this element conversion is reused by BOTH owned collection-element
-    // returns AND borrowed Swift->C# receiver-callback parameter wraps
-    // (GetReceiverExistentialSetterConversion). A receiver parameter is +0 guaranteed — Swift
-    // retains ownership and MarshalFromSwift bitwise-reads the container without a retain — so
-    // adopting it would run a value-witness Destroy on storage Swift still owns (over-release /
-    // UAF). Owned scalar returns balance their +1 through GetReturnPlan; owned OPTIONAL existential
-    // returns use GetOwnedReturnElementConversion below. The owned collection-element +1 stays a
-    // pre-existing deferred wire-carrier gap pending per-collection copy-then-destroy verification.
+    // Non-owning by design: this element conversion is reused by borrowed reads — non-owned forward
+    // returns AND the +0 borrowed SCALAR receiver-callback arms (the standalone-existential and
+    // Optional<existential> arms of GetReceiverExistentialSetterConversion). A scalar receiver
+    // parameter is +0 guaranteed — Swift retains ownership and MarshalFromSwift bitwise-reads the
+    // container without a retain — so adopting it would run a value-witness Destroy on storage Swift
+    // still owns (over-release / UAF). The receiver-callback COLLECTION arms (array/dict element
+    // reads) do NOT use this form: they materialize via a +1 move-out (subscript getter
+    // InitializeWithCopy / entry-enumerator MarshalMovedValueFromSlot), so they route the existential
+    // leaf through GetOwnedReturnElementConversion (ownsContainer: true) below to adopt+release that
+    // moved-out +1 — see ProtocolProxyEmitter.Receivers.GetReceiver*Conversion, gated by
+    // ClassBoundExistentialCollectionLeakProbeTests. Owned scalar returns balance their +1 through
+    // GetReturnPlan; owned OPTIONAL existential and owned EC1 collection-element returns use
+    // GetOwnedReturnElementConversion below. Non-EC1 collection leaves (opaque / composition /
+    // bare-any) fall back to this non-owning form there (OwnsContainerArg empty) — the per-collection
+    // copy-then-destroy case still pending verification (see GetArrayElementCarrierConversion).
     public string? GetReturnElementConversion(string elementVar) =>
         _isBareAny
             ? $"ExistentialContainer0.Unbox({elementVar})"

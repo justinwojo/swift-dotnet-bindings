@@ -50,6 +50,42 @@ internal class TestRetryingKeyProvider : IRetryingKeyProvider
 }
 
 /// <summary>
+/// C# implementation of ITagBatchProcessor — a closure method whose non-closure
+/// param is a TOP-LEVEL <c>[Int32]</c> array. Captures the received array so the
+/// test can assert the array VALUE round-tripped element-for-element (a regression
+/// would surface as a garbage length / element-buffer misread, since the Swift
+/// extension previously passed <c>&amp;tagsCopy</c> — the array-to-pointer
+/// conversion — instead of the array value).
+/// </summary>
+internal class TestTagBatchProcessor : ITagBatchProcessor
+{
+    public int ProcessCallCount { get; private set; }
+    public int[] LastTags { get; private set; } = System.Array.Empty<int>();
+
+    public void Process(IEnumerable<int> tags, Action completion)
+    {
+        ProcessCallCount++;
+        LastTags = tags.ToArray();
+        completion();
+    }
+}
+
+internal class TestAmountProcessor : IAmountProcessor
+{
+    public int ProcessCallCount { get; private set; }
+    public long LastAmountTimesHundred { get; private set; }
+
+    public void Process(Foundation.NSDecimalNumber amount, Action completion)
+    {
+        ProcessCallCount++;
+        // Capture two fractional digits as an integer so the assertion never leans on
+        // double == ; if the ObjC pointer is misread, DoubleValue dereferences garbage.
+        LastAmountTimesHundred = (long)System.Math.Round(amount.DoubleValue * 100);
+        completion();
+    }
+}
+
+/// <summary>
 /// C# implementation of IEventDelegate for testing proxy wrapping.
 /// `OnComplete` is now a real receiver — it stores the incoming Action so
 /// tests can assert the closure crossed the Swift→C# boundary and (when invoked) the
@@ -1374,6 +1410,53 @@ public class ProtocolClosureSkipTests : TestBase
         AssertEqual("v42", impl.LastVersion, "First value param round-tripped");
         AssertEqual(3, impl.LastAttempt, "Second value param round-tripped");
         AssertEqual(30, consumer.LastResult, "Closure callback delivered the int payload back to Swift");
+    }
+
+    // A closure method whose non-closure param is a TOP-LEVEL `[Int32]` routes through
+    // EmitClosureMethodImplementation. Passing `&tagsCopy` to the UnsafeRawPointer vtable
+    // slot fires Swift's array-to-pointer conversion and hands the receiver the element-buffer
+    // pointer instead of the array value, so the materialized SwiftArray reads garbage (or
+    // crashes). The fix routes the array through an explicitly-typed pointer
+    // (UnsafeRawPointer(tagsCopyPtr)); this asserts every element round-trips.
+    public void TestTagBatchProcessorProxy_ArrayParamRoundTrips()
+    {
+        var impl = new TestTagBatchProcessor();
+        var proxy = new TagBatchProcessorProxy(impl);
+
+        var driver = new TagBatchDriver();
+        driver.Processor = proxy;
+        driver.Dispatch(new[] { 7, 11, 42, -5 });
+
+        AssertEqual(1, impl.ProcessCallCount, "Swift drove the C# impl's Process once");
+        AssertEqual(4, impl.LastTags.Length, "Array value param length round-tripped (not an element-buffer misread)");
+        AssertEqual(7, impl.LastTags[0], "tags[0] round-tripped");
+        AssertEqual(11, impl.LastTags[1], "tags[1] round-tripped");
+        AssertEqual(42, impl.LastTags[2], "tags[2] round-tripped");
+        AssertEqual(-5, impl.LastTags[3], "tags[3] round-tripped");
+        AssertEqual(1, driver.CompletionFireCount, "Completion fired exactly once back into Swift");
+    }
+
+    // A closure method whose non-closure param is an ObjC-bridgeable VALUE type (`Decimal`)
+    // routes through EmitClosureMethodImplementation. The proxy receiver materializes the
+    // param via GetNSObject<NSDecimalNumber>, so it expects an ObjC pointer; the plain
+    // `&amountCopy` form would pass the raw Swift struct bytes, which the receiver then
+    // misreads as an ObjC pointer. The fix bridges Decimal via `as AnyObject` + passUnretained
+    // (mirroring the non-closure URLProcessorDelegate fan-out); this asserts the value
+    // round-trips. Decimal (not URL) is deliberate: URL is NSURL-backed so its first word IS
+    // the bridged pointer and the buggy path accidentally survives; Decimal's first word is
+    // mantissa data, so the buggy path crashes — making this a genuine regression guard.
+    public void TestAmountProcessorProxy_ObjCBridgeableParamRoundTrips()
+    {
+        var impl = new TestAmountProcessor();
+        var proxy = new AmountProcessorProxy(impl);
+
+        var driver = new AmountProcessorDriver();
+        driver.Processor = proxy;
+        driver.Dispatch(new Foundation.NSDecimalNumber("123.45"));
+
+        AssertEqual(1, impl.ProcessCallCount, "Swift drove the C# impl's Process once");
+        AssertEqual(12345, (int)impl.LastAmountTimesHundred, "Decimal value param round-tripped (not Swift mantissa bytes misread as an ObjC pointer)");
+        AssertEqual(1, driver.CompletionFireCount, "Completion fired exactly once back into Swift");
     }
 
     #endregion

@@ -321,6 +321,25 @@ public static class SwiftSourceStripper
         // cast). Stripped otherwise because nothing referenced it before this test, so the conformance and
         // its witness-table entry must survive stripping.
         "MutableMarkerMapGridHolder",
+        // Closure-method arg-marshalling gate: the requirement is
+        // `func process(tags: [Int32], completion: @escaping () -> Void)` — a TOP-LEVEL `Array`
+        // value param alongside a dispatchable closure param, so it routes through
+        // EmitClosureMethodImplementation. A C# class implements TagBatchProcessor and is vended to
+        // Swift through TagBatchDriver.dispatch, so Get_EveryProtocol_TagBatchProcessor_WitnessTable
+        // must resolve; Swift then calls the method through the EveryProtocol vtable and the closure
+        // path must pass the array VALUE (not its element-buffer pointer) so the receiver
+        // materializes [Int32] correctly. Stripped otherwise because nothing referenced it before
+        // this test, so the conformance and its witness-table entry must survive stripping.
+        "TagBatchProcessor",
+        // Same closure-method arg-marshalling gate, ObjC-bridgeable value param:
+        // `func process(amount: Decimal, completion: @escaping () -> Void)`. Routes through
+        // EmitClosureMethodImplementation, which must bridge Decimal via `as AnyObject` so the
+        // receiver's GetNSObject<NSDecimalNumber> reads an ObjC pointer (not the raw Swift struct
+        // bytes — Decimal has no pointer at word 0, so the buggy path hard-crashes). A C# class
+        // implements AmountProcessor and is vended to Swift through AmountProcessorDriver.dispatch,
+        // so Get_EveryProtocol_AmountProcessor_WitnessTable must resolve; stripped otherwise
+        // because nothing referenced it before this test.
+        "AmountProcessor",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

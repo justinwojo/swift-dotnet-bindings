@@ -3529,7 +3529,7 @@ public class ProtocolProxyEmitterTests
     public void EmitProxyClass_MethodReceiver_ArrayOfExistential_UsesExistentialContainerNotAnyType()
     {
         // Root cause fix: Array<any Protocol> in receiver param must use
-        // MarshalFromSwift<SwiftArray<Swift.Runtime.ExistentialContainer1>> not SwiftArray<AnyType>.
+        // MarshalFromSwiftObject<SwiftArray<Swift.Runtime.ExistentialContainer1>> not SwiftArray<AnyType>.
         // Before fix, GetCSharpTypeName(forAbiMarshalling:true) skipped TypeProjectionFactory and
         // fell through to BoundGenericsHandler which unconditionally converts existentials to AnyType.
         var protocol = CreateSimpleProtocol("DataProtocol");
@@ -3549,7 +3549,11 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_process_0", output);
-        Assert.Contains("MarshalFromSwift<SwiftArray<Swift.Runtime.ExistentialContainer1>>", output);
+        // Behavior, not helper name: the ABI marshal type must be the existential CONTAINER
+        // (SwiftArray<ExistentialContainer1>), never SwiftArray<AnyType>. The marshalling helper
+        // is MarshalFromSwiftObject (reference-type wrapper → NewFromPayload); asserting the
+        // container type stays correct across that helper split.
+        Assert.Contains("SwiftArray<Swift.Runtime.ExistentialContainer1>", output);
         Assert.DoesNotContain("SwiftArray<Swift.AnyType>", output);
         Assert.DoesNotContain("SwiftArray<AnyType>", output);
     }
@@ -3558,7 +3562,7 @@ public class ProtocolProxyEmitterTests
     public void EmitProxyClass_MethodReceiver_DictionaryWithExistentialValue_UsesExistentialContainer()
     {
         // Dictionary<String, any Protocol> in receiver param must use
-        // MarshalFromSwift<SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer1>> not AnyType.
+        // MarshalFromSwiftObject<SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer1>> not AnyType.
         RegisterSwiftString();
         var protocol = CreateSimpleProtocol("MapProtocol");
         var method = CreateMethodDecl("update");
@@ -3578,7 +3582,10 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_update_0", output);
-        Assert.Contains("MarshalFromSwift<SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer1>>", output);
+        // Behavior, not helper name: ABI marshal type is the existential CONTAINER value
+        // (SwiftDictionary<SwiftString, ExistentialContainer1>), never AnyType. Emitted via
+        // MarshalFromSwiftObject (reference-type wrapper).
+        Assert.Contains("SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer1>", output);
         Assert.DoesNotContain("AnyType", output.Substring(output.IndexOf("Receive_update_0")));
     }
 
@@ -3644,7 +3651,11 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_layers_set", output);
-        Assert.Contains("MarshalFromSwift<SwiftArray<Swift.Runtime.ExistentialContainer1>>", output);
+        // Behavior, not helper name: the ABI marshal type must be the existential CONTAINER
+        // (SwiftArray<ExistentialContainer1>), never SwiftArray<AnyType>. The marshalling helper
+        // is MarshalFromSwiftObject (reference-type wrapper → NewFromPayload); asserting the
+        // container type stays correct across that helper split.
+        Assert.Contains("SwiftArray<Swift.Runtime.ExistentialContainer1>", output);
         Assert.DoesNotContain("SwiftArray<AnyType>", output);
     }
 
@@ -3840,7 +3851,9 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_lookup_0", output);
-        Assert.Contains("MarshalFromSwift<SwiftDictionary<Swift.Runtime.ExistentialContainer1, SwiftString>>", output);
+        // Behavior, not helper name: existential as dictionary KEY → ABI marshal type is
+        // SwiftDictionary<ExistentialContainer1, SwiftString>, never AnyType. Via MarshalFromSwiftObject.
+        Assert.Contains("SwiftDictionary<Swift.Runtime.ExistentialContainer1, SwiftString>", output);
         Assert.DoesNotContain("AnyType", output.Substring(output.IndexOf("Receive_lookup_0")));
     }
 

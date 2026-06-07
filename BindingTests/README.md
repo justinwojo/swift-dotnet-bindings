@@ -1,172 +1,117 @@
 # BindingTests
 
-Comprehensive test suite for the Swift Bindings generator. Tests are organized into two layers that answer distinct questions about correctness.
+BindingTests are the repository's end-to-end ABI and runtime gate. Unit tests catch generator logic bugs; BindingTests catch generated-code compile failures, ABI mismatches, calling-convention bugs, marshalling crashes, and lifetime mistakes that unit tests cannot prove.
 
-## Two-Layer Test Model
+## What This Directory Contains
 
-### Layer 1: Generator/Coverage Tests
+- `Sources/SwiftBindingsTestLib/` - Swift test library used as generator input.
+- `RuntimeTestsApp/` - iOS simulator/device runtime tests.
+- `RuntimeTestsApp.MacCatalyst/` - Mac Catalyst runner.
+- `RuntimeTestsApp.tvOS/` - tvOS simulator runner.
+- `output/` - generated bindings and reports from the latest BindingTests generation pass.
+- `build/` and `obj/` - build artifacts and framework slices.
 
-**Question answered**: "Did we generate the right C# code from the Swift ABI?"
+## Current Workflow
 
-- **Scripts**: `build-and-test.sh`, `generate-coverage-report.sh`
-- **What it does**: Builds the Swift test library (`SwiftBindingsTestLib`) as an xcframework, runs the binding generator against it, and produces a coverage report tracking which Swift features emitted successfully.
-- **Output**: `output/SwiftBindingsTestLib.cs` (generated bindings), `output/binding-report.json` (skip details), `output/coverage-matrix.json` (feature coverage)
-- **A failure means**: Generator bug in the parser, marshaler, or emitter. The generator either crashed, produced invalid C#, or skipped a member it should have handled.
+Use Nuke from the repository root. Do not use the old shell-script workflow.
 
-### Layer 2: Runtime ABI/Marshalling Tests
+| Command | Purpose |
+|---|---|
+| `nuke binding-tests` | Default inner loop: regenerate, compile, build app, run iOS Simulator runtime tests. |
+| `nuke binding-tests --compile-only` | Compile gate only: regenerate + compile-check; no app build or runtime execution. Fail-closed by default. |
+| `nuke binding-tests --skip-regen` | Reuse existing generated bindings, build/run runtime tests. |
+| `nuke binding-tests --skip-build` | Reuse existing app build, install/run only. |
+| `nuke binding-tests --class-filter NAME` | Run one runtime test class in the simulator path. |
+| `nuke binding-tests --device` | Run physical iOS device / NativeAOT path. |
+| `nuke binding-tests --macos` | Run macOS path. |
+| `nuke binding-tests --catalyst` | Run Mac Catalyst path. |
+| `nuke binding-tests --tvos` | Run tvOS simulator path. |
+| `nuke binding-tests --permissive` | Opt out of compile-only fail-closed behavior for local exploration. |
 
-**Question answered**: "Does the generated C# code actually work at runtime?"
+Platform flags compose. For example, `nuke binding-tests --sim --device` runs both simulator and device paths.
 
-- **Script**: `run-runtime-tests.sh`
-- **What it does**: Regenerates bindings (Layer 1), compiles the `RuntimeTestsApp` iOS simulator app against them, deploys to a simulator, and runs the test suite.
-- **Output**: Console output with pass/fail per test, overall `TEST SUCCESS` or `TEST FAILURE` marker
-- **A failure means**: Interop bug — marshalling produces wrong values, memory management is incorrect, ABI calling conventions don't match, or SafeHandle lifecycle is broken.
-
-### When to Run Each
-
-| Scenario | Layer 1 | Layer 2 |
-|----------|---------|---------|
-| Changed parser/marshaler/emitter code | Yes | Yes (after Layer 1 passes) |
-| Added new Swift test files | Yes | If runtime tests exist for the feature |
-| Changed runtime C# test code only | No | Yes (with `--skip-regen`) |
-| Pre-merge validation | Yes | Yes |
-
-## Running the Tests
-
-### Layer 1
+For generator, parser, emitter, or marshaler changes, the usual sequence is:
 
 ```bash
-cd BindingTests
-
-# Full pipeline: build xcframework + generate bindings
-./build-and-test.sh
-
-# Generate coverage report (requires bindings to exist)
-./generate-coverage-report.sh
+nuke test
+nuke binding-tests --compile-only
+nuke binding-tests --skip-regen
 ```
 
-### Layer 2
+Add `nuke binding-tests --device` when changes touch calling conventions, struct marshalling, P/Invoke signatures, or a NativeAOT-specific skip. `nuke validate` is not a routine BindingTests step; run it only for larger/cross-cutting generator changes, pre-release sweeps, or a specific real-world library canary.
 
-```bash
-cd BindingTests
+## Output Files
 
-# Run on iOS Simulator (default) — skips [MonoJitCrash] and [Skip] tests
-./run-runtime-tests.sh
+Normal generation output includes:
 
-# Skip binding regeneration (use existing bindings)
-./run-runtime-tests.sh --skip-regen
+- `output/SwiftBindingsTestLib.cs` - generated C# bindings.
+- `output/SwiftBindingsTestLib.SwiftUIBridge.swift` - generated SwiftUI bridge when applicable.
+- `output/binding-report.json` - binding completeness and skip details.
+- `output/binding-emission-report.json` - emission-time diagnostics and rejection details.
+- `output/binding-artifact-manifest.json` - artifact manifest used to rederive reports.
 
-# Run on physical iPhone (NativeAOT) — runs [MonoJitCrash] tests, skips [Skip]
-./run-runtime-tests.sh --platform device
-
-# Run a single test class
-./run-runtime-tests.sh --class BlittableRoundTripTests --skip-regen
-
-# Custom timeout
-./run-runtime-tests.sh --timeout 120
-
-# Flake detection (each test runs 3x)
-./run-runtime-tests.sh --flake-detect
-```
-
-### Full Validation Sequence
-
-After any generator code change:
-
-```bash
-# 1. Unit tests
-./run-tests.sh
-
-# 2. Layer 1 coverage
-cd BindingTests
-./build-and-test.sh
-./generate-coverage-report.sh
-
-# 3. Layer 2 runtime
-./run-runtime-tests.sh
-```
-
-## Test Classification
-
-Tests are classified by attributes instead of tiers:
-
-| Attribute | Simulator | Device (NativeAOT) | Use Case |
-|-----------|-----------|---------------------|----------|
-| *(none)* | Runs | Runs | Default — all working tests |
-| `[MonoJitCrash]` | Skipped | Runs | Mono JIT crash (jit-info.c:918, non-blittable CallConvSwift) |
-| `[Skip("reason")]` | Skipped | Skipped | Generator bugs, missing entry points — broken everywhere |
-| `[Slow]` | Runs | Runs | Stress/concurrency tests (just a marker) |
+`output/coverage-matrix.json` is not produced by normal `nuke binding-tests`. It is emitted only when `build/scripts/coverage-report.py` is run manually with ABI JSON and `binding-report.json`.
 
 ## Runtime Test Architecture
 
-The `RuntimeTestsApp/` is an iOS simulator application with a discovery-based test runner:
+Runtime tests extend `TestBase`. Discovery is descriptor-based through `TestDiscoveryGenerator`, not runtime reflection enumeration. The runner receives `--platform simulator|device`; macOS and Catalyst currently use simulator-mode runner semantics where relevant, while runtime-detected attributes handle Mono-specific and Catalyst-x64-specific skips.
 
-- All test classes extend `TestBase` and are auto-discovered via reflection
-- Tests use `[MonoJitCrash]`, `[Skip("reason")]`, or `[Slow]` attributes for classification
-- The `--platform simulator|device` CLI argument controls which tests are skipped
-- Infrastructure in `RuntimeTestsApp/Infrastructure/` provides assertion helpers, GC utilities, lifetime tracking, and structured logging
+Common test directories:
 
-### Test Categories
+- `RuntimeTestsApp/Marshalling/` - type round trips, optionals, strings, enums, structs, classes.
+- `RuntimeTestsApp/Lifetime/` - retain/release, ownership, dispose safety, GC stress.
+- `RuntimeTestsApp/Closures/` - escaping/non-escaping closures, throwing closures, callback lifetimes.
+- `RuntimeTestsApp/Async/` - async method and callback patterns.
+- `RuntimeTestsApp/Generics/` - generic types, constraints, specialization behavior.
+- `RuntimeTestsApp/Protocols/` - witness dispatch, existentials, protocol proxies.
+- `RuntimeTestsApp/CrossModule/` - cross-module bindings and existential behavior.
+- `RuntimeTestsApp/SwiftUIBridge/` - SwiftUI bridge behavior.
+- `RuntimeTestsApp/Infrastructure/` - `TestBase`, descriptors, assertions, logging, results, skip attributes.
 
-```
-RuntimeTestsApp/
-├── Marshalling/          # Type round-trip tests (blittable, string, enum, class)
-├── Lifetime/             # Retain/release, dispose safety, access-after-dispose
-├── Concurrency/          # Parallel operations, GC pressure, stress tests
-├── Async/                # Async method tests
-├── Closures/             # Closure marshalling (escaping, @convention(c))
-├── ErrorHandling/        # Throwing methods, typed throws
-├── Generics/             # Generic type tests (including hand-crafted ABI tests)
-├── Metadata/             # Existential metadata tests
-├── Operators/            # Operator overloading, struct equality
-├── Patterns/             # Builder, composition, static factory, struct-backed enum
-├── Protocols/            # Protocol witness dispatch, existential boxing
-├── Properties/           # Subscripts, static singletons
-├── Collections/          # Constructor collections, dictionary constructors
-├── SwiftUIBridge/        # SwiftUI bridge tests (gated by #if SWIFTUI_BRIDGE)
-└── Infrastructure/       # TestBase, TestResults, TestLogger, LifetimeTracker
-```
+## Test Classification
 
-## Toolchain Requirements
+Tests are classified by attributes. Prefer fixing generator/runtime bugs over adding skips.
 
-| Component | Version | Notes |
-|-----------|---------|-------|
-| .NET SDK | 10.0.x | `global.json` at repo root sets base version with `latestMajor` roll-forward |
-| Xcode | 16.0+ | Swift 6.0 toolchain required for test library compilation |
-| macOS | 14.0+ (Sonoma) | Required for .NET 10 iOS workload |
-| iOS Simulator | 17.0+ | Runtime target for Layer 2 tests |
+| Attribute | Behavior | Use case |
+|---|---|---|
+| none | Runs everywhere the target path executes. | Default for working tests. |
+| `[Skip("reason")]` | Always skipped. | Known project bug, missing entry point, or unsupported generated surface that is broken everywhere. |
+| `[SkipOnSimulator("reason")]` | Skips simulator-mode paths, runs on device. | CLI-platform-specific simulator limitation. |
+| `[SkipOnDevice("reason")]` | Skips physical device / NativeAOT path, runs on simulator. | Device-specific or NativeAOT-specific limitation. |
+| `[SkipOnMonoJit("reason")]` | Method-level only; skips wherever the process runs on Mono. | Confirmed Mono runtime limitation such as filed Issue 1. |
+| `[SkipOnCatalystX64("reason")]` | Method-level only; skips Mac Catalyst x64. | Confirmed Catalyst-x64 instability covered by upstream Issue 4. |
+| `[Slow]` | Marker only; still runs. | Stress or long-running tests. |
+| `[MonoJitCrash]` | Deprecated; do not use. | Historical only. Diagnose the root cause and use a narrow current attribute only for confirmed limitations. |
 
-Ensure the iOS Simulator runtime is installed via Xcode. The `run-runtime-tests.sh` script will attempt to boot an iPhone 16 or iPhone 15 simulator if none is already running.
+Before classifying a runtime crash as upstream, verify the generated C# P/Invoke exactly matches the Swift `@_cdecl` wrapper: calling convention, parameter count, parameter types, library name, and entry point symbol. Most historical "upstream" crashes were generator/runtime bugs.
 
-## Understanding Coverage Report Output
+Confirmed upstream issues are cataloged in `src/docs/Future/upstream-issues-README.md` and `src/docs/Future/upstream-issue-*.md`. The authoritative classification memory is `feedback_mono_jit_blame.md`.
 
-After running `./generate-coverage-report.sh`, you'll see:
+## Adding Coverage
 
-```
-Must-pass features: 92/93 passing, 1 degraded, 0 missing
-Known-unsupported features: 47/52 have tests (5 compiled out)
-```
+When fixing or adding generator behavior, add the Swift pattern to `Sources/SwiftBindingsTestLib/` and add matching runtime assertions under the appropriate `RuntimeTestsApp/` domain. Test files are organized by domain, not by milestone or session.
 
-- **must_pass / passing**: Feature has Swift test code and all binding members emitted successfully.
-- **must_pass / degraded**: Some binding members were skipped. The WARNING section shows which members and why.
-- **must_pass / missing**: No test file exists (should not happen).
-- **known_unsupported**: Features the generator intentionally doesn't handle yet (actors, property wrappers, etc.).
+Useful habits before writing runtime tests:
 
-## Test Profiles
+1. Regenerate and inspect `output/SwiftBindingsTestLib.cs` first.
+2. Identify non-blittable parameters, missing entry points, and generated wrapper symbols before running slow gates.
+3. Use default/no attribute for tests expected to run everywhere.
+4. Use targeted `[SkipOn*]` only for confirmed platform/runtime limitations.
+5. Capture slow command output once and inspect the saved log instead of rerunning just to see more lines.
 
-| Profile | Command | What Runs | Crash Tolerance |
-|---------|---------|-----------|-----------------|
-| **PR Gate** | `./run-tests.sh` | Unit + integration + compile gate + baselines + runtime (simulator) | Any crash is a regression  |
-| **Device** | `./run-runtime-tests.sh --platform device` | All tests including `[MonoJitCrash]` on NativeAOT | `[Skip]` tests still skipped |
+## Debugging Runtime Failures
 
-### PR Gate (`./run-tests.sh`)
+When a test crashes or returns wrong values:
 
-The primary validation command. Runs in ~10 minutes:
+1. Add diagnostic logging first; do not iterate blindly.
+2. Compare the generated C# P/Invoke declaration with the Swift `@_cdecl` wrapper in `output/SwiftBindingsTestLib.swift`.
+3. Isolate constructor vs getter/setter failures by hardcoding known Swift wrapper values when useful.
+4. Confirm the wrapper symbol was not stripped: check the generated Swift file and `nm -g` on the compiled framework.
+5. If the same approach fails repeatedly, step back and question the hypothesis.
 
-1. **Unit tests** — xUnit tests (parser, marshaler, emitter, type database)
-2. **Integration tests** — end-to-end binding generation tests
-3. **BindingTests Layer 1** — build xcframework, regenerate bindings, compile-check, coverage report
-4. **Baseline checks** — generator exit code, degraded count, compiled-out count, strip count
-5. **BindingTests Layer 2** — runtime tests on iOS Simulator (skips `[MonoJitCrash]` and `[Skip]`)
+## Toolchain Notes
 
-On simulator, all MonoJitCrash-prone tests are skipped. Any crash is treated as a regression.
+- .NET SDK: 10.0.x, governed by `global.json`.
+- macOS + Xcode are required for Apple-platform BindingTests.
+- iOS simulator runtime is required for the default `nuke binding-tests` path.
+- Device runs require a reachable physical iOS device.

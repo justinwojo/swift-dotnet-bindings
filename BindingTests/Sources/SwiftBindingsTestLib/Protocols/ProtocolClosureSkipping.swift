@@ -490,3 +490,62 @@ public class RetryingKeyConsumer {
         })
     }
 }
+
+/// Array value param + trailing void closure. Locks the closure-method
+/// arg-marshalling path for a TOP-LEVEL `Array` value param: passing `&tagsCopy`
+/// to the `UnsafeRawPointer` vtable slot fires Swift's array-to-pointer conversion
+/// and hands the C# receiver a pointer to the element buffer instead of the array
+/// value (same root cause as nested existential-collection corruption). The value
+/// param must round-trip element-for-element; the completion confirms the closure
+/// half still fires.
+public protocol TagBatchProcessor {
+    func process(tags: [Int32], completion: @escaping () -> Void)
+}
+
+public class TagBatchDriver {
+    public var processor: (any TagBatchProcessor)?
+    public var completionFireCount: Int32 = 0
+
+    public init() {
+        self.processor = nil
+    }
+
+    public func dispatch(tags: [Int32]) {
+        processor?.process(tags: tags, completion: { [weak self] in
+            self?.completionFireCount += 1
+        })
+    }
+}
+
+/// ObjC-bridgeable VALUE param (`Decimal`) + trailing void closure. Locks the
+/// closure-method arg-marshalling path for an ObjC-bridgeable value param: the
+/// proxy receiver materializes `Decimal` via `GetNSObject<NSDecimalNumber>`, so it
+/// expects an ObjC pointer. The plain `&amountCopy` form hands the receiver the raw
+/// Swift struct bytes, which it misreads as an ObjC pointer → corruption. The Swift
+/// caller must bridge via `as AnyObject` + `Unmanaged.passUnretained(...).toOpaque()`
+/// — the same treatment the non-closure `URLProcessorDelegate.processURL(url:)`
+/// fan-out already gets.
+///
+/// `Decimal` (not `URL`) is the deliberate choice: `URL` is NSURL-backed, so its
+/// first word *is* the bridged pointer and `&urlCopy` accidentally survives the bug.
+/// `Decimal` is ~20 bytes of inline mantissa with no pointer at word 0, so the
+/// buggy path reads mantissa bits as an `NSDecimalNumber*` → a real crash. The value
+/// param must round-trip; the completion confirms the closure half still fires.
+public protocol AmountProcessor {
+    func process(amount: Decimal, completion: @escaping () -> Void)
+}
+
+public class AmountProcessorDriver {
+    public var processor: (any AmountProcessor)?
+    public var completionFireCount: Int32 = 0
+
+    public init() {
+        self.processor = nil
+    }
+
+    public func dispatch(amount: Decimal) {
+        processor?.process(amount: amount, completion: { [weak self] in
+            self?.completionFireCount += 1
+        })
+    }
+}

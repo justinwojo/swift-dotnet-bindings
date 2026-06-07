@@ -408,4 +408,67 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
             }
         }
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // RECEIVER direction (Swift→C# reverse dispatch): Swift builds a class-bound existential
+    // collection and passes it INTO a C# protocol impl as a method parameter. The generated
+    // EveryProtocol receiver materializes each element by MOVING it out of the SwiftDictionary at +1
+    // (.ToDictionary's entry enumerator → MarshalMovedValueFromSlot), the SAME independent +1 the
+    // owned-RETURN probes above adopt. The impl retains nothing, so unlike the owned-return probes
+    // NOTHING is explicitly disposed — every adopted +1 and every intermediate carrier must drain
+    // through GC finalization. A receiver value proxy built WITHOUT `ownsContainer: true` skips its
+    // finalizer release (the finalizer is gated on `_ownsContainer`), orphaning one MarkerImpl +1 per
+    // materialized value (non-zero live count → leak). The owning form adopts and releases it.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>A pure C# <see cref="INestedMarkerMapConsumer"/> that retains nothing — it sums the
+    /// buried marker ids and returns, so every materialized proxy and intermediate carrier is
+    /// garbage the instant <c>Consume</c> returns.</summary>
+    private sealed class LeakProbeNestedMarkerMapConsumer : INestedMarkerMapConsumer
+    {
+        public nint Consume(IEnumerable<IDictionary<string, IMarker>> grid)
+        {
+            nint total = 0;
+            foreach (var row in grid)
+                foreach (var marker in row.Values)
+                    total += marker.GetMarkerId();
+            return total;
+        }
+    }
+
+    /// <summary>
+    /// RECEIVER method-param <c>[[String: any Marker]]</c> (the FirebaseFirestore <c>mapMerge</c> shape,
+    /// audit L229): Swift builds a grid of fresh <c>MarkerImpl</c> conformers and passes it into the C#
+    /// impl through the generated receiver, which materializes each inner dictionary's existential value
+    /// by moving it out at +1. Because the impl never disposes anything, the moved-out +1 is released
+    /// ONLY if the materialized value proxy adopted it (<c>ownsContainer: true</c>) and its finalizer
+    /// runs. A non-owning value proxy orphans one <c>MarkerImpl</c> +1 per buried value (the receiver
+    /// element-conversion leak), surfacing here as a non-zero live count after the finalizers drain.
+    /// </summary>
+    public void TestNestedMarkerMapConsumerReceiverReleasesValues()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        const int outerPerCall = 3;
+        const int innerPerOuter = 2;
+        DriveNestedMarkerMapConsumerRepeatedly(50, outerPerCall, innerPerOuter);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("reverse-dispatch [[String: any Marker]] method param must adopt+release each moved-out value cell's +1 (receiver value proxy needs ownsContainer:true so its finalizer releases the orphaned MarkerImpl retain)");
+        TestLogger.Info($"RECEIVER [[String: any Marker]] param: 50 calls x {outerPerCall} maps x {innerPerOuter} buried class-bound existentials all released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void DriveNestedMarkerMapConsumerRepeatedly(int iterations, int outer, int inner)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            // The impl retains nothing; the consumer, the materialized grid, and every value proxy are
+            // garbage the moment DriveNestedMarkerMapConsumer returns. No explicit Dispose — the adopted
+            // +1s and the SwiftArray/SwiftDictionary carrier +1s all drain through GC finalization.
+            var consumer = new LeakProbeNestedMarkerMapConsumer();
+            TestLibFunctions.DriveNestedMarkerMapConsumer(consumer, outer, inner);
+        }
+    }
 }

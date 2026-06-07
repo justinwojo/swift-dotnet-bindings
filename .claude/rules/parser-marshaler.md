@@ -8,7 +8,7 @@ paths:
 # Parser & Marshaler Patterns
 
 ## Overflow Operators (P0 Bug Pattern)
-Operators `&<<`, `&>>`, `&<<=`, `&>>=`, `&+`, `&-`, `&*` MUST be in parser's `_operators` set to route through `CreateOperatorDecl` → `OperatorHandler.IsSupportedOperator()` rejection. Without this, they route to `CreateMethodDecl` and produce invalid C# identifiers.
+Operators `&<<`, `&>>`, `&<<=`, `&>>=`, `&+`, `&-`, `&*` MUST be recognized by the parser's `_operatorChars` / `IsOperatorName()` path so they route through `CreateOperatorDecl` → `OperatorHandler.IsSupportedOperator()` rejection. Without this, they route to `CreateMethodDecl` and produce invalid C# identifiers.
 
 ## Internal Member Detection (`@usableFromInline internal`)
 `IsNodeModuleInternal()` three-layer detection:

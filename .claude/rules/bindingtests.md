@@ -24,9 +24,12 @@ Platform flags compose (`--sim --device` runs both). Inner-loop shortcuts: `--sk
 - `output/SwiftBindingsTestLib.cs` — Generated C# bindings
 - `output/SwiftBindingsTestLib.SwiftUIBridge.swift` — Generated SwiftUI bridge
 - `output/binding-report.json` — Binding completeness report
-- `output/coverage-matrix.json` — Feature coverage matrix
+- `output/binding-emission-report.json` — Emission-time diagnostics and rejection detail
+- `output/binding-artifact-manifest.json` — Artifact manifest used to rederive reports
 
 ## Coverage Report
+`output/coverage-matrix.json` is NOT produced by normal `nuke binding-tests`; it is emitted only when `build/scripts/coverage-report.py` is run manually with ABI JSON + `binding-report.json`.
+
 Feature statuses: **passing** (goal), **degraded** (some members skipped), **missing** (no test), **compiled_out** (guarded by #if)
 
 Skip reasons and fix areas:
@@ -43,11 +46,15 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 
 ## Runtime Test Patterns
 - Tests in `RuntimeTestsApp/` — iOS simulator app, discovery-based runner
-- Tests extend `TestBase`, auto-discovered via reflection. Test attributes:
+- Tests extend `TestBase`; discovery is descriptor-based (`TestDiscoveryGenerator`), not runtime reflection enumeration. Test attributes:
   - **Default** (no attribute) — runs on both simulator and device
   - **`[Skip("reason")]`** — always skipped (generator bugs, missing entry points)
+  - **`[SkipOnSimulator("reason")]`** — skipped on simulator/CLI simulator mode, runs on device
+  - **`[SkipOnDevice("reason")]`** — skipped on device, runs on simulator
+  - **`[SkipOnMonoJit("reason")]`** — method-level only; skipped wherever the process runs on Mono
+  - **`[SkipOnCatalystX64("reason")]`** — method-level only; skipped on Mac Catalyst x64
   - **`[Slow]`** — stress tests, always runs
-  - **`[MonoJitCrash]`** — DEPRECATED, do not use. All Mono crashes are our bugs. Use `[Skip]` with a specific reason instead.
+  - **`[MonoJitCrash]`** — DEPRECATED, do not use. Diagnose the root cause; use a targeted `[SkipOn*]` only for confirmed platform/runtime limitations, otherwise fix the generator/runtime bug or use `[Skip]` with a specific bug reason.
 - Properties return `SwiftString` (call `.ToString()`); methods return `string` directly
 - `--class-filter NAME` runs only the named test class (exact match, case-insensitive)
 - `--platform simulator|device` selects execution mode (default: simulator)
@@ -59,10 +66,10 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - `EventHandler` name collides with `System.EventHandler` — use `using SwiftEventHandler = SwiftBindingsTestLib.EventHandler`
 
 ## Active Mono/Runtime Limitations (affects test classification)
-- **NEVER use `[MonoJitCrash]`** — all Mono JIT crashes were traced to our own bugs. If a test crashes on simulator, diagnose the root cause in our generator/runtime code and either fix it or use `[Skip("specific bug description")]`.
+- **NEVER use `[MonoJitCrash]`** — if a test crashes under Mono, diagnose the root cause first. Most historical "Mono crashes" were generator/runtime bugs. If the crash matches a confirmed upstream limitation, use the narrowest current attribute (`[SkipOnMonoJit]`, `[SkipOnCatalystX64]`, `[SkipOnSimulator]`, or `[SkipOnDevice]`) with a specific reason; otherwise fix it or use `[Skip("specific bug description")]` for a known project bug.
 - **ALL runtime crashes are guilty-until-proven-innocent**: The same skepticism applies to ALL crash classifications, not just `[MonoJitCrash]`. Before labeling anything "upstream Mono" or "upstream NativeAOT", verify the generated C# P/Invoke matches the Swift @_cdecl wrapper exactly: calling convention (`CallConvCdecl` vs `CallConvSwift`), parameter count, parameter types, library name, entry point. Most "upstream" crashes turn out to be wrapper connection bugs.
-- **Confirmed upstream issues** are documented in `src/docs/Future/upstream-issues-README.md` (filing guide) with one file per issue at `src/docs/Future/upstream-issue-{01,02,03}-*.md`. Only 4 confirmed behaviours: Mono JIT async assertion (filed Issue 1), Mono+NativeAOT non-blittable rejection (filed Issue 2), Mono `Set.insert` DONE_BLOCKING (filed Issue 3), and the `SwiftSelf<SafeHandle>` async-lifetime tracking-comment item (no standalone filing). Everything else has been our bug. The authoritative confirmed-issues list lives in memory at `feedback_mono_jit_blame.md`; consult it before classifying any crash as upstream.
-- Test attributes: no attribute (runs everywhere), `[Skip("reason")]` (always skipped), `[SkipOnSimulator("reason")]` (skipped on Mono simulator, runs on NativeAOT device), `[SkipOnDevice("reason")]` (skipped on NativeAOT device, runs on Mono simulator), `[Slow]` (stress tests)
+- **Confirmed upstream issues** are documented in `src/docs/Future/upstream-issues-README.md` (filing guide) with one file per filed issue at `src/docs/Future/upstream-issue-*.md`. Current filed issues: Issue 1 (Mono JIT async assertion), Issue 2 (non-blittable CallConvSwift rejection), Issue 3 (Mono `Set.insert` DONE_BLOCKING), and Issue 4 (Mono Catalyst x64 instability). The `SwiftSelf<SafeHandle>` async-lifetime item is tracked as a non-standalone note. Everything else has been our bug. The authoritative confirmed-issues list lives in memory at `feedback_mono_jit_blame.md`; consult it before classifying any crash as upstream.
+- Test attributes: no attribute (runs everywhere), `[Skip("reason")]` (always skipped), `[SkipOnSimulator("reason")]` (skipped on simulator mode, runs on device), `[SkipOnDevice("reason")]` (skipped on device, runs on simulator mode), `[SkipOnMonoJit("reason")]` (method-level Mono runtime skip), `[SkipOnCatalystX64("reason")]` (method-level Mac Catalyst x64 skip), `[Slow]` (stress tests)
 - Optional array on frozen struct → "Not enough bits" layout mismatch → `[Skip]`
 - SafeHandle arg through CallConvSwift → non-blittable error → `[Skip("SafeHandle non-blittable in CallConvSwift")]`
 - Class inheritance+protocol → entry points not exported from dylib → `[Skip]`
@@ -76,7 +83,7 @@ When a runtime test crashes (SIGSEGV, SIGKILL, Mono JIT assertion):
 2. **Check generated code matches the wrapper** — verify C# P/Invoke calling convention, parameter count, and types match the Swift @_cdecl wrapper. Use `grep` on `output/SwiftBindingsTestLib.cs` and `output/SwiftBindingsTestLib.swift`.
 3. **Isolate constructor vs getter** — if a property reads wrong after construction, hardcode the Swift wrapper to pass `nil`/a known value and see if the getter still returns the wrong thing. This tells you which side is broken.
 4. **Check if the wrapper was stripped** — the build script silently strips Swift functions that fail compilation. After a build, `grep` the output `.swift` file for the @_cdecl symbol AND check `nm -g` on the compiled framework to confirm the symbol exists.
-5. **Run `nuke validate` after any generator change** — emission pipeline changes (especially to OptionalProjection, WrapperEmitter.Marshalling, PInvokeEmitter) can cause regressions on third-party libraries. Catch them early.
+5. **Run the validation gate the change warrants** — `nuke test` + `nuke binding-tests` are the everyday generator/runtime signals. `nuke validate` is opt-in for larger or cross-cutting generator/emitter changes, pre-release sweeps, or when a real-world library canary is needed.
 6. **Don't iterate more than 3 times on the same approach** — if 3 attempts at the same strategy don't work, step back and question the hypothesis. The root cause is probably elsewhere.
 
 ## Emission Pipeline Dual-Path Hazard
@@ -85,7 +92,7 @@ When a runtime test crashes (SIGSEGV, SIGKILL, Mono JIT assertion):
 ## Runtime Test Pre-Flight (saves 20+ min)
 Before writing runtime tests for a new batch:
 1. Read generated C# bindings for the types — identify non-blittable params, missing entry points
-2. Pre-assign attributes: default (blittable), `[MonoJitCrash]` (CallConvSwift/non-blittable), `[Skip]` (missing entry points)
+2. Pre-assign attributes: default (expected to run everywhere), targeted `[SkipOn*]` only for confirmed platform/runtime limitations, `[Skip]` for missing entry points or known generator bugs
 3. Copy `using` directives from existing test file
 4. Fix ALL failures at once — analyze full failure list first
 5. Never run slow test scripts multiple times — capture once, grep saved output

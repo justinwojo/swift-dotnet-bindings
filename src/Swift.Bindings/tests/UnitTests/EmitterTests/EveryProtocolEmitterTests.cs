@@ -3072,6 +3072,40 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitProtocolExtension_DispatchableClosurePlusObjCBridgeableValueParam_BridgesViaAnyObject()
+    {
+        // A dispatchable @escaping () -> Void closure alongside an ObjC-bridgeable value
+        // param (e.g. Foundation.Decimal) must marshal that param through the ObjC bridge
+        // (`as AnyObject` / passUnretained → opaque pointer), NOT as `var amountCopy = amount`
+        // raw Swift struct bytes. The C# receiver materializes the param via GetNSObject<T>
+        // (expecting an ObjC pointer); passing raw struct bytes corrupts it. This mirrors the
+        // ObjC-bridgeable arm in the non-closure method fan-out (EmitMethodImplementation).
+        var foundation = new ModuleTypeDatabase("Foundation", "/fake/Foundation.framework/Foundation");
+        var decimalName = SwiftTypeName.FromModuleQualifiedName("Foundation.Decimal");
+        foundation.RegisterType(decimalName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDecimalNumber"),
+            SwiftTypeName = decimalName,
+            MetadataAccessor = "$s10Foundation7DecimalVMa",
+            Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct,
+        });
+        _typeDatabase.AddModuleDatabase(foundation);
+
+        var protocol = CreateSimpleProtocol("AmountProcessor");
+        protocol.Methods.Add(CreateMethodWithDispatchableClosureAndNonClosureValueParam(
+            "process", "completion", new NamedTypeSpec("Foundation.Decimal"), "amount"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Dispatched (not rejected) and bridged through the ObjC arm, not the raw-bytes path.
+        Assert.DoesNotContain("closure method 'process' cannot be dispatched", output);
+        Assert.Contains("let amountNS = amount as AnyObject", output);
+        Assert.Contains("Unmanaged.passUnretained(amountNS).toOpaque()", output);
+        Assert.DoesNotContain("var amountCopy = amount", output);
+    }
+
+    [Fact]
     public void EmitProtocolVtableStruct_OptionalClosureParam_IncludesVtableField()
     {
         // Optional<Closure> is dispatchable in 4b — vtable field emitted as a closure slot.
@@ -4084,8 +4118,11 @@ public class EveryProtocolEmitterTests
 
         var output = EmitConformance(protocol);
 
-        // The function body should use backtick escaping for the value reference
-        Assert.Contains($"var {keyword}Copy = `{keyword}`", output);
+        // The function body should use backtick escaping for the value reference. A Swift.String
+        // param is stored through an explicitly-typed pointer (RequiresExplicitValuePointer — avoids
+        // the implicit string-to-pointer conversion), so the escaped reference appears as the
+        // initialize(to:) source rather than a `var xCopy = x` assignment.
+        Assert.Contains($"initialize(to: `{keyword}`)", output);
         // The function signature should use the keyword as a parameter label (valid Swift)
         Assert.Contains($"{keyword}: Swift.String", output);
     }
@@ -4098,7 +4135,8 @@ public class EveryProtocolEmitterTests
 
         var output = EmitConformance(protocol);
 
-        Assert.Contains("var fileNameCopy = fileName", output);
+        // A non-keyword Swift.String param flows unescaped through the explicit-pointer storage.
+        Assert.Contains("initialize(to: fileName)", output);
         Assert.DoesNotContain("`fileName`", output);
     }
 

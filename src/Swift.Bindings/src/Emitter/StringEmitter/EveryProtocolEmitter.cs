@@ -2668,7 +2668,7 @@ public class EveryProtocolEmitter
         writer.WriteLine("}");
     }
 
-    private static void EmitSetterCallSite(SwiftWriter writer, PropertyDecl property,
+    private void EmitSetterCallSite(SwiftWriter writer, PropertyDecl property,
         ProtocolDecl ownerProto, string fnExpr, string branchVtableExpr, bool isObjCBridgeableSetter)
     {
         // Box `self` as the OWNER's protocol type, not the dispatching branch's (for properties
@@ -2686,6 +2686,20 @@ public class EveryProtocolEmitter
                 let newValueNS = newValue as AnyObject
                 var newValueRef = Unmanaged.passUnretained(newValueNS).toOpaque()
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
+                """);
+        }
+        else if (RequiresExplicitValuePointer(property.SwiftTypeSpec))
+        {
+            // Array/String setter value: route through an explicitly-typed pointer so Swift's
+            // implicit array/string-to-pointer conversion does not hand the C# receiver a
+            // pointer to the element buffer / UTF-8 bytes. See RequiresExplicitValuePointer.
+            var swiftType = GetSwiftTypeName(property.SwiftTypeSpec);
+            writer.WriteLines($$"""
+                var selfProto: {{protoName}} = self
+                let newValuePtr = UnsafeMutablePointer<{{swiftType}}>.allocate(capacity: 1)
+                newValuePtr.initialize(to: newValue)
+                defer { newValuePtr.deinitialize(count: 1); newValuePtr.deallocate() }
+                {{fnExpr}}({{branchVtableExpr}}, &selfProto, UnsafeRawPointer(newValuePtr))
                 """);
         }
         else
@@ -2876,14 +2890,14 @@ public class EveryProtocolEmitter
             var soloVtable = GetVtableInstanceName(soloProto);
             var soloProtoName = soloProto.SwiftTypeName.ModuleQualifiedName;
             writer.WriteLine($"var selfProto: {soloProtoName} = self");
-            writer.WriteLine("var newValueCopy = newValue");
+            var soloNewValueRef = EmitSubscriptSetterValueSetup(writer, subscript.ReturnTypeSpec);
             EmitSubscriptArgCopies(writer, subscript.IndexParameters);
             writer.WriteLine($"{soloVtable}.func_subscript_{soloIndex}_set!(");
-            writer.WriteLine($"    {soloVtable}.csVTHandle, &selfProto, &newValueCopy{argRefs})");
+            writer.WriteLine($"    {soloVtable}.csVTHandle, &selfProto, {soloNewValueRef}{argRefs})");
         }
         else
         {
-            writer.WriteLine("var newValueCopy = newValue");
+            var newValueRef = EmitSubscriptSetterValueSetup(writer, subscript.ReturnTypeSpec);
             EmitSubscriptArgCopies(writer, subscript.IndexParameters);
             // Owner-typed box for every branch (branches[0] IS the owner — ComputeSubscriptEmissionPlans
             // Prepends(owner)). Box type is behaviorally immaterial; see EmitMethodFanOutBody.
@@ -2897,7 +2911,7 @@ public class EveryProtocolEmitter
                 writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.func_subscript_{branchIndex}_set {{");
                 writer.Indent++;
                 writer.WriteLine($"var selfProto: {ownerProtoName} = self");
-                writer.WriteLine($"fn({branchVtable}.csVTHandle, &selfProto, &newValueCopy{argRefs})");
+                writer.WriteLine($"fn({branchVtable}.csVTHandle, &selfProto, {newValueRef}{argRefs})");
                 writer.Indent--;
                 writer.Write("} ");
             }
@@ -2918,15 +2932,74 @@ public class EveryProtocolEmitter
     /// returns a single string with hard-coded inter-line indentation tailored to the
     /// historic heredoc emission path.
     /// </summary>
-    private static void EmitSubscriptArgCopies(SwiftWriter writer, IReadOnlyList<ArgumentDecl> parameters)
+    private void EmitSubscriptArgCopies(SwiftWriter writer, IReadOnlyList<ArgumentDecl> parameters)
     {
         // Internal names are always `arg{i}` (see EmitSubscriptImplementation for why subscripts
-        // get synthetic internal names rather than re-using the external label).
+        // get synthetic internal names rather than re-using the external label). Array/String
+        // index params route through an explicitly-typed pointer (BuildArgRefs mirrors this
+        // exact predicate to stay aligned). See RequiresExplicitValuePointer.
         for (int i = 0; i < parameters.Count; i++)
         {
             var internalName = $"arg{i}";
-            writer.WriteLine($"var {internalName}Copy = {internalName}");
+            if (RequiresExplicitValuePointer(parameters[i].SwiftTypeSpec))
+            {
+                foreach (var line in BuildValueStorageSetup(
+                    $"{internalName}CopyPtr", GetSwiftTypeName(parameters[i].SwiftTypeSpec), internalName))
+                    writer.WriteLine(line);
+            }
+            else
+            {
+                writer.WriteLine($"var {internalName}Copy = {internalName}");
+            }
         }
+    }
+
+    /// <summary>
+    /// True when taking <c>&amp;local</c> of a value of this Swift type triggers Swift's implicit
+    /// array-to-pointer / string-to-pointer conversion in argument position — i.e. the static type
+    /// is exactly <c>Array</c>, <c>ContiguousArray</c>, or <c>String</c>. Passing such an
+    /// <c>&amp;x</c> to an <c>UnsafeRawPointer</c> vtable parameter hands the C# receiver a pointer
+    /// to the element buffer / UTF-8 bytes instead of the value, corrupting every read (root cause
+    /// of nested class-bound existential collection corruption in EveryProtocol reverse dispatch).
+    /// Such values must be routed through an explicitly-typed <c>UnsafeMutablePointer</c> so the
+    /// conversion does not fire. The conversion is a property of the static top-level type only —
+    /// <c>Optional&lt;Array&gt;</c>, <c>Dictionary</c>, and structs containing arrays are unaffected.
+    /// </summary>
+    private static bool RequiresExplicitValuePointer(TypeSpec? spec)
+        => spec is NamedTypeSpec nts &&
+           (nts.Name == "Swift.Array" || nts.Name == "Swift.ContiguousArray" || nts.Name == "Swift.String");
+
+    /// <summary>
+    /// Emits the three setup lines that allocate, initialize, and (via <c>defer</c>) free a typed
+    /// pointer holding a copy of <paramref name="sourceExpr"/>. The call site passes
+    /// <c>UnsafeRawPointer(<paramref name="ptrName"/>)</c> — an explicit conversion that suppresses
+    /// the implicit array/string-to-pointer conversion (see <see cref="RequiresExplicitValuePointer"/>).
+    /// Mirrors the existing return-side idiom (<c>UnsafeMutablePointer&lt;T&gt;.allocate</c> +
+    /// <c>initialize(to:)</c>) used by the witness getters.
+    /// </summary>
+    private static string[] BuildValueStorageSetup(string ptrName, string swiftType, string sourceExpr) => new[]
+    {
+        $"let {ptrName} = UnsafeMutablePointer<{swiftType}>.allocate(capacity: 1)",
+        $"{ptrName}.initialize(to: {sourceExpr})",
+        $"defer {{ {ptrName}.deinitialize(count: 1); {ptrName}.deallocate() }}",
+    };
+
+    /// <summary>
+    /// Emits the <c>newValue</c> local setup for a subscript setter and returns the call-site
+    /// reference expression. Array/String values route through an explicitly-typed pointer (see
+    /// <see cref="RequiresExplicitValuePointer"/>); every other type keeps the historic
+    /// <c>var newValueCopy = newValue</c> + <c>&amp;newValueCopy</c> shape.
+    /// </summary>
+    private string EmitSubscriptSetterValueSetup(SwiftWriter writer, TypeSpec valueType)
+    {
+        if (RequiresExplicitValuePointer(valueType))
+        {
+            foreach (var line in BuildValueStorageSetup("newValuePtr", GetSwiftTypeName(valueType), "newValue"))
+                writer.WriteLine(line);
+            return "UnsafeRawPointer(newValuePtr)";
+        }
+        writer.WriteLine("var newValueCopy = newValue");
+        return "&newValueCopy";
     }
 
     // Subscript external-label resolution is centralized in NameProvider.GetSubscriptExternalLabel.
@@ -3452,24 +3525,39 @@ public class EveryProtocolEmitter
         // The C# side uses GetNSObject<T>() which expects a valid ObjC pointer.
         var argPassList = new List<string>();
         var argRefList = new List<string>();
+        var argWritebackSources = new List<string>(); // parallel to internalNames: inout writeback RHS
         for (int i = 0; i < internalNames.Count; i++)
         {
             var paramName = internalNames[i];
             var param = method.CSSignature[i + 1]; // +1 to skip return type
+            var escapedParam = NameProvider.EscapeSwiftKeyword(paramName);
             bool isObjCBridgeable = IsObjCBridgeableParam(param.SwiftTypeSpec);
             if (isObjCBridgeable)
             {
                 // Bridge Swift value type → ObjC object, pass pointer to the opaque reference.
                 // C# MarshalFromSwift<IntPtr> reads the 8-byte pointer, then GetNSObject<T> resolves it.
-                var escapedParam = NameProvider.EscapeSwiftKeyword(paramName);
                 argPassList.Add($"let {paramName}NS = {escapedParam} as AnyObject");
                 argPassList.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
+                argWritebackSources.Add($"{paramName}Copy");
+            }
+            else if (RequiresExplicitValuePointer(param.SwiftTypeSpec))
+            {
+                // `&array` / `&string` passed to an UnsafeRawPointer vtable parameter triggers
+                // Swift's implicit array/string-to-pointer conversion, handing the C# receiver a
+                // pointer to the element buffer / UTF-8 bytes instead of the value. Route through
+                // an explicitly-typed pointer so the receiver reads the value. See
+                // RequiresExplicitValuePointer.
+                var ptrName = $"{paramName}CopyPtr";
+                argPassList.AddRange(BuildValueStorageSetup(ptrName, GetSwiftTypeName(param.SwiftTypeSpec), escapedParam));
+                argRefList.Add($"UnsafeRawPointer({ptrName})");
+                argWritebackSources.Add($"{ptrName}.pointee");
             }
             else
             {
-                argPassList.Add($"var {paramName}Copy = {NameProvider.EscapeSwiftKeyword(paramName)}");
+                argPassList.Add($"var {paramName}Copy = {escapedParam}");
                 argRefList.Add($"&{paramName}Copy");
+                argWritebackSources.Add($"{paramName}Copy");
             }
         }
         var argRefs = argRefList.Count > 0 ? ", " + string.Join(", ", argRefList) : "";
@@ -3483,7 +3571,7 @@ public class EveryProtocolEmitter
             var param = method.CSSignature[i + 1]; // +1 to skip return type
             if (param.IsInOut)
             {
-                writebackLines.Add($"{NameProvider.EscapeSwiftKeyword(internalNames[i])} = {internalNames[i]}Copy");
+                writebackLines.Add($"{NameProvider.EscapeSwiftKeyword(internalNames[i])} = {argWritebackSources[i]}");
             }
         }
         var writebackCode = writebackLines.Count > 0 ? "\n        " + string.Join("\n        ", writebackLines) : "";
@@ -3814,6 +3902,43 @@ public class EveryProtocolEmitter
                     argRefList.Add(fnVar);
                     argRefList.Add(ctxVar);
                 }
+            }
+            else if (IsObjCBridgeableParam(param.SwiftTypeSpec))
+            {
+                // ObjC-bridgeable value types (URL, URLRequest, Data, Date, …) must be bridged
+                // to their ObjC object and passed as an opaque reference: the proxy receiver
+                // reads the slot via `MarshalFromSwift<IntPtr>` then `GetNSObject<T>`, so it
+                // expects an ObjC pointer, NOT the raw Swift struct bytes. The plain `&{p}Copy`
+                // form below would hand the receiver the value bytes, which it then misreads as
+                // an ObjC pointer → corruption. Mirror the non-closure method fan-out's
+                // ObjC-bridgeable arm (see EmitMethodImplementation; IsObjCBridgeableParam) — but
+                // WITHOUT its `argWritebackSources` entry, since the dispatchable-closure path
+                // rejects inout params (IsDispatchableClosureMethod) and never writes back.
+                // Reachable for the gate-admitted shape `f(amount: Decimal, completion: @escaping ...)`:
+                // one dispatchable closure param plus non-closure value params. Pinned by
+                // TestAmountProcessorProxy_ObjCBridgeableParamRoundTrips, which uses Decimal (not
+                // URL): URL is NSURL-backed, so its first word IS the bridged pointer and the buggy
+                // `&urlCopy` path accidentally survives; Decimal's first word is mantissa data, so
+                // the buggy path reads it as an ObjC pointer and crashes — a genuine guard.
+                passLines.Add($"let {paramName}NS = {escapedParam} as AnyObject");
+                passLines.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                argRefList.Add($"&{paramName}Ref");
+            }
+            else if (RequiresExplicitValuePointer(param.SwiftTypeSpec))
+            {
+                // `&array` / `&string` passed to an UnsafeRawPointer vtable parameter triggers
+                // Swift's implicit array/string-to-pointer conversion, handing the C# receiver a
+                // pointer to the element buffer / UTF-8 bytes instead of the value. Route through
+                // an explicitly-typed pointer so the receiver reads the value — same treatment as
+                // the non-closure method fan-out (see EmitMethodImplementation) and
+                // RequiresExplicitValuePointer. Reachable here for the Stripe-shaped
+                // `f(withAPIVersion: String, completion: @escaping ...)` case the closure-method
+                // gate (IsDispatchableClosureMethod) explicitly admits: one dispatchable closure
+                // param plus zero or more non-closure value params. (A top-level Array value param
+                // crashes without this; pinned by TestTagBatchProcessorProxy_ArrayParamRoundTrips.)
+                var ptrName = $"{paramName}CopyPtr";
+                passLines.AddRange(BuildValueStorageSetup(ptrName, GetSwiftTypeName(param.SwiftTypeSpec), escapedParam));
+                argRefList.Add($"UnsafeRawPointer({ptrName})");
             }
             else
             {
@@ -5112,7 +5237,11 @@ public class EveryProtocolEmitter
         var refs = new List<string>();
         for (int i = 0; i < parameters.Count; i++)
         {
-            refs.Add($"&arg{i}Copy");
+            // Mirror EmitSubscriptArgCopies' predicate exactly so the setup and the call-site ref
+            // stay aligned for Array/String index params. See RequiresExplicitValuePointer.
+            refs.Add(RequiresExplicitValuePointer(parameters[i].SwiftTypeSpec)
+                ? $"UnsafeRawPointer(arg{i}CopyPtr)"
+                : $"&arg{i}Copy");
         }
         return refs.Count > 0 ? ", " + string.Join(", ", refs) : "";
     }

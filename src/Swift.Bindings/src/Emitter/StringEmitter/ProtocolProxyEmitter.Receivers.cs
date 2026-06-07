@@ -1312,8 +1312,16 @@ public partial class ProtocolProxyEmitter
             new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
         if (projection is not DictionaryProjection dict) return null;
 
-        var keyConv = dict.KeyProjection.GetReturnElementConversion("kvp.Key");
-        var valConv = dict.ValueProjection.GetReturnElementConversion("kvp.Value");
+        // Owned (+1) element conversions: materializing this receiver param via .ToDictionary()
+        // drives SwiftDictionary's entry enumerator, whose MarshalMovedValueFromSlot MOVES each key
+        // and value out of its slot at +1 (the source dict keeps its own independent +1, so adoption
+        // never double-frees). An existential leaf must therefore adopt+release that moved-out +1 on
+        // Dispose/finalize or it leaks; GetOwnedReturnElementConversion appends `ownsContainer: true`
+        // for it and is a no-op (== non-owning form) for every scalar/non-existential leaf. The
+        // non-owning GetReturnElementConversion stays reserved for the +0 borrowed SCALAR receiver
+        // path (GetReceiverExistentialSetterConversion's standalone arm).
+        var keyConv = dict.KeyProjection.GetOwnedReturnElementConversion("kvp.Key");
+        var valConv = dict.ValueProjection.GetOwnedReturnElementConversion("kvp.Value");
 
         // SwiftDictionary<K,V> implements IReadOnlyDictionary, not IDictionary.
         // Receiver params need IDictionary, so always materialize via .ToDictionary().
@@ -1575,7 +1583,10 @@ public partial class ProtocolProxyEmitter
 
     private string? GetReceiverArraySetterConversion(ArrayProjection arr, string varName)
     {
-        var elemConv = arr.ElementProjection.GetReturnElementConversion("e");
+        // Owned (+1): the .AsProjected element read drives SwiftArray's subscript getter, whose
+        // InitializeWithCopy moves each element out at +1 (audit P1-07/P1-08) — an existential leaf
+        // must adopt+release it. GetOwnedReturnElementConversion is a no-op for non-existential leaves.
+        var elemConv = arr.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
             return $"{varName}.AsProjected(e => {elemConv})";
         return null;  // SwiftArray<T> IS IReadOnlyList<T> — no conversion needed
@@ -1583,7 +1594,10 @@ public partial class ProtocolProxyEmitter
 
     private string? GetReceiverSetSetterConversion(SetProjection set, string varName)
     {
-        var elemConv = set.ElementProjection.GetReturnElementConversion("e");
+        // Owned (+1): enumerating the SwiftSet moves each element out at +1; an existential leaf must
+        // adopt it. (Set<any P> is ill-formed in Swift, so this is a no-op in practice — GetOwned*
+        // falls back to the non-owning form for the Hashable scalar leaves a Set can actually hold.)
+        var elemConv = set.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
             return $"{varName}.Select(e => {elemConv}).ToHashSet()";
         return null;  // SwiftSet<T> IS IReadOnlySet<T> — no conversion needed
@@ -1591,8 +1605,11 @@ public partial class ProtocolProxyEmitter
 
     private string? GetReceiverDictSetterConversion(DictionaryProjection dict, string varName)
     {
-        var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
-        var valConv = dict.ValueProjection.GetReturnElementConversion("v");
+        // Owned (+1): the setter materialization moves each key/value out of the SwiftDictionary at +1
+        // (entry enumerator / indexer) — a buried existential leaf (e.g. [String: [String: any P]])
+        // must adopt+release it. No-op for non-existential leaves; see GetReceiverDictionaryConversion.
+        var keyConv = dict.KeyProjection.GetOwnedReturnElementConversion("k");
+        var valConv = dict.ValueProjection.GetOwnedReturnElementConversion("v");
         if (keyConv == null && valConv == null) return null;
         // Reuse DictionaryProjection.BuildAsProjected so the invariant value-slot cast (CastValueSelectorBody)
         // is applied identically here: a settable [String: [String: any P]] property feeds the converted
@@ -1849,20 +1866,25 @@ public partial class ProtocolProxyEmitter
             return $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : ({publicType}?){wrapExpr})";
         }
 
-        // Array<existential>
+        // Array<existential> — COLLECTION element, NOT the scalar standalone arm above. The
+        // .AsProjected read moves each element out of the SwiftArray at +1 (subscript getter
+        // InitializeWithCopy), so the existential leaf must adopt+release it via the owned form;
+        // the +0 borrowed standalone/Optional arms above deliberately keep the non-owning form.
         if (projection is ArrayProjection arrProj && arrProj.ElementProjection is ExistentialProjection arrExist)
         {
             var publicType = arrExist.PublicType;
-            var elemConv = arrExist.GetReturnElementConversion("c");
+            var elemConv = arrExist.GetOwnedReturnElementConversion("c");
             return $"{varName}.AsProjected<{publicType}>(c => {elemConv})";
         }
 
-        // Dictionary<K, existential>
+        // Dictionary<K, existential> — COLLECTION value, moved out of the SwiftDictionary at +1 by
+        // .ToDictionary()'s entry enumerator (MarshalMovedValueFromSlot), so the existential value
+        // leaf adopts+releases it via the owned form (no-op for the scalar key leaf).
         if (projection is DictionaryProjection dictProj && dictProj.ValueProjection is ExistentialProjection dictExist)
         {
             var publicType = dictExist.PublicType;
-            var valConv = dictExist.GetReturnElementConversion("kvp.Value");
-            var keyConv = dictProj.KeyProjection.GetReturnElementConversion("kvp.Key");
+            var valConv = dictExist.GetOwnedReturnElementConversion("kvp.Value");
+            var keyConv = dictProj.KeyProjection.GetOwnedReturnElementConversion("kvp.Key");
             var keyExpr = keyConv ?? "kvp.Key";
             return $"{varName}.ToDictionary(kvp => {keyExpr}, kvp => ({publicType}){valConv})";
         }

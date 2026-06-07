@@ -189,8 +189,12 @@ public class NestedClassBoundExistentialTests : TestBase
         {
             nint total = 0;
             foreach (var row in grid)
+            {
                 foreach (var marker in row.Values)
+                {
                     total += marker.GetMarkerId();
+                }
+            }
             return total;
         }
     }
@@ -203,7 +207,6 @@ public class NestedClassBoundExistentialTests : TestBase
     /// compile-time CS1503 against the impl's <c>IDictionary</c> param; this runtime round-trip proves
     /// the concrete universal-donor dictionary both compiles AND carries the right values across the wire.
     /// </summary>
-    [Skip("Collection-typed reverse-dispatch param materialization unimplemented: enumerating a Swift-built SwiftArray<SwiftDictionary<SwiftString, ClassExistentialContainer1>> in the EveryProtocol receiver SIGSEGVs in libswiftCore BridgeObjectBox::initializeWithCopy from SwiftArray.get_Item(0) — the receiver-path outer-array subscript retains a garbage bridge-object word at element[0]. Forward (C#->Swift param) and C# getter (WRITE) paths pass; only Swift->C# materialization of nested existential-valued collections crashes. Next-session work.")]
     public void TestDriveNestedMarkerMapConsumerReverseDispatch()
     {
         var consumer = new CSharpNestedMarkerMapConsumer();
@@ -246,7 +249,6 @@ public class NestedClassBoundExistentialTests : TestBase
     /// <c>IReadOnlyDictionary</c> value slot; this runtime round-trip proves the hoisted invariant-slot cast
     /// both compiles AND carries the right values through the SET-then-GET path (0+1+1000+1001+2000+2001).
     /// </summary>
-    [Skip("Collection-typed reverse-dispatch setter materialization unimplemented: assigning a Swift-built dict-of-dict existential grid through the EveryProtocol receiver setter SIGSEGVs on the same nested-collection materialization path as TestDriveNestedMarkerMapConsumerReverseDispatch (BridgeObjectBox::initializeWithCopy retaining a garbage bridge-object word). Next-session work.")]
     public void TestWriteAndSumMarkerMapGridReverseDispatchSetter()
     {
         var holder = new CSharpMutableMarkerMapGridHolder();
@@ -274,7 +276,6 @@ public class NestedClassBoundExistentialTests : TestBase
     /// proves the buried 16-byte carriers stride correctly through the dict layer in the RETURN direction and
     /// that the inner dictionary header survives the outer-array element extraction.
     /// </summary>
-    [Skip("Owned-return materialization of nested existential-valued collections unimplemented: enumerating a Swift-returned SwiftArray<SwiftDictionary<SwiftString, ClassExistentialContainer1>> SIGSEGVs in BridgeObjectBox::initializeWithCopy from SwiftArray.get_Item(0) — same root cause as TestDriveNestedMarkerMapConsumerReverseDispatch (outer-array subscript retains a garbage bridge-object word at element[0]). Durable forward-return repro for the next-session fix.")]
     public void TestMakeTrackedMarkerArrayOfMapsReturnEnumerate()
     {
         var grid = TestLibFunctions.MakeTrackedMarkerArrayOfMaps(3, 2);
@@ -299,7 +300,6 @@ public class NestedClassBoundExistentialTests : TestBase
     /// so it exercises the dict-value move-out path. Summing every buried value across every outer key proves
     /// the inner dictionary header survives outer-dictionary value extraction.
     /// </summary>
-    [Skip("Owned-return materialization of nested existential-valued collections unimplemented: enumerating a Swift-returned SwiftDictionary<SwiftString, SwiftDictionary<SwiftString, ClassExistentialContainer1>> hits the same nested-collection materialization SIGSEGV as TestMakeTrackedMarkerArrayOfMapsReturnEnumerate (BridgeObjectBox::initializeWithCopy retaining a garbage bridge-object word). Durable forward-return repro for the next-session fix.")]
     public void TestMakeTrackedMarkerMapOfMapsReturnEnumerate()
     {
         var grid = TestLibFunctions.MakeTrackedMarkerMapOfMaps(3, 2);
