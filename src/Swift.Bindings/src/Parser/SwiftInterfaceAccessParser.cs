@@ -43,7 +43,7 @@ public static class SwiftInterfaceAccessParser
 
     // Regex for internal func declarations
     private static readonly Regex InternalFuncRegex = new(
-        @"internal\s+(?:final\s+)?(?:static\s+)?func\s+(\w+)\s*\(",
+        @"internal\s+(?:final\s+)?(?:static\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func\s+(\w+)\s*\(",
         RegexOptions.Compiled);
 
     // Regex for internal var/let declarations
@@ -84,7 +84,7 @@ public static class SwiftInterfaceAccessParser
     // extension's @available floor onto the operator decl, and the @_cdecl equality
     // wrapper compiles at the type's lower @available than the conformance requires.
     private static readonly Regex PublicFuncRegex = new(
-        @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+|[/=\-+!*%<>&|^~?.]+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func\s+(\w+|[/=\-+!*%<>&|^~?.]+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     // Regex for public/open var/let declarations (for member-level actor isolation detection)
@@ -103,7 +103,7 @@ public static class SwiftInterfaceAccessParser
     //   var identifier: Int { get }
     // Used as fallbacks when PublicFuncRegex/PublicVarRegex/PublicInitRegex don't match.
     private static readonly Regex BareFuncRegex = new(
-        @"(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:static\s+|class\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     private static readonly Regex BareVarRegex = new(
@@ -156,7 +156,7 @@ public static class SwiftInterfaceAccessParser
 
     // Broader regex for public func — handles nonisolated, @objc, and other prefixes.
     private static readonly Regex BroadPublicFuncRegex = new(
-        @"(?:^|\s)(?:public|open)\s+(?:(?:final|static|class|mutating|nonmutating|override)\s+)*func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:^|\s)(?:public|open)\s+(?:(?:final|static|class|mutating|nonmutating|consuming|borrowing|override)\s+)*func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     // Broader regex for public init — handles convenience and other prefixes.
@@ -1247,7 +1247,7 @@ public static class SwiftInterfaceAccessParser
 
     // Regex for public/open func in extension (captures function name)
     private static readonly Regex ExtensionFuncRegex = new(
-        @"(?:@\S+\s+)*(?:public|open)\s+(?:static\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:@\S+\s+)*(?:public|open)\s+(?:static\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     // Regex for public/open var in extension (captures property name)
@@ -3642,7 +3642,7 @@ public static class SwiftInterfaceAccessParser
     // Regex for any func declaration (public, open, or no access modifier in extension scope)
     // Captures the function name. Handles static, class, final, mutating modifiers.
     private static readonly Regex AnyFuncRegex = new(
-        @"(?:(?:public|open|internal)\s+)?(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:(?:public|open|internal)\s+)?(?:final\s+)?(?:static\s+|class\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     // Regex for init declarations

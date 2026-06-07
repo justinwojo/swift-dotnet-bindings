@@ -31,7 +31,7 @@ internal sealed class SwiftInterfaceContextTracker
 
     // Regex for public/open func declarations
     private static readonly Regex PublicFuncRegex = new(
-        @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     // Regex for public/open var/let declarations.
@@ -53,7 +53,7 @@ internal sealed class SwiftInterfaceContextTracker
     // silently elided. UNANCHORED so leading attribute prefixes
     // (e.g. `@objc optional func foo()`) and the `optional` modifier match.
     private static readonly Regex ProtocolFuncRegex = new(
-        @"(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:static\s+|class\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     private static readonly Regex ProtocolVarRegex = new(

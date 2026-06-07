@@ -1,7 +1,7 @@
 # Confirmed Audit Survivors — Actionable Fix Backlog
 
 **Date captured:** 2026-06-07
-**Status:** Open. Not yet fixed. Captured for a future session.
+**Status:** Survivors #1, #2, #3 FIXED. One residual item remains: **#2b** (noncopyable `consuming`/`borrowing` *self* wrapper), split out from #2 after tracing the original "durable gate" to a different root cause. See the priority table.
 **Provenance:** Code-trace verification (Claude, read-only) of the High-impact "still latent" items in `grok-phase2-remaining-hardening-candidates.md` (see its §0 Verification Log for the full verdict table) and `grok-audit.md` (see its top "Verification status" callout).
 
 ---
@@ -18,13 +18,14 @@ The two Grok docs (`grok-audit.md`, `grok-phase2-remaining-hardening-candidates.
 
 ## Priority summary
 
-| # | Bug | Symptom | Fix size | Recommended order |
+| # | Bug | Symptom | Fix size | Status |
 |---|---|---|---|---|
-| 1 | `ProtocolExtensionEmitter` hand-rolled overload key | **CS0111** — consumer can't build the binding | route through canonical key builder | 2nd |
-| 2 | `consuming`/`borrowing` missing from public-func regexes | public noncopyable methods degrade to `[Obsolete]` SB0001 raw `CallConvSwift` (ABI risk) | add 2 keywords to ~6 regexes | **1st** (cheapest, already degrading output) |
-| 3 | Collection-element ObjC fallback (Foundation+UIKit only) | **silent** member *drop* for `Array<ObjC-class>` from other modules | widen a module set (data) | 3rd |
+| 1 | `ProtocolExtensionEmitter` hand-rolled overload key | **CS0111** — consumer can't build the binding | route through canonical key builder | **FIXED** (commit `313b2a2d`) |
+| 2 | `consuming`/`borrowing` missing from public-func regexes | non-`public`-keyword noncopyable methods (`@inlinable internal`, bare protocol reqs, protocol-extension defaults) mis-classified module-internal → SB0001 raw `CallConvSwift` | add 2 keywords to 8 regexes (2 files) | **FIXED** (parser + unit tests) |
+| 2b | Noncopyable `consuming`/`borrowing` **self** wrapper not emitted | the 6 BindingTests noncopyable instance methods degrade to SB0001 `CallConvSwift` (works today, but ABI-risky) | parser + model + emitter feature | **OPEN** (see below) |
+| 3 | Collection-element ObjC fallback (Foundation+UIKit only) | **silent** member *drop* for `Array<ObjC-class>` from other modules | widen a module set (data) | **FIXED** (commit `76608c2a`) |
 
-Suggested sequence: **#2 → #1 → #3** (cheapest/highest-confidence first).
+The original three are done; #2 split into a parser fix (#2, fixed) and a separately-rooted emitter feature (#2b, open) once the durable-gate methods were traced to a different cause — see the §"Correction" note under Survivor #2.
 
 ---
 
@@ -69,32 +70,40 @@ Generated C# ends up with two `UIImage Transform(UIImage? source)` declarations 
 
 ---
 
-## Survivor #2 — `consuming`/`borrowing` missing from public-func regexes → SB0001 degradation
+## Survivor #2 — `consuming`/`borrowing` missing from public-func regexes → SB0001 degradation  ✅ FIXED
 
-**Where:** `src/Swift.Bindings/src/.../SwiftInterfaceAccessParser.cs` — `BroadPublicFuncRegex` at **`:158-160`**:
-```csharp
-@"(?:^|\s)(?:public|open)\s+(?:(?:final|static|class|mutating|nonmutating|override)\s+)*func\s+(\w+)\s*(?:<[^>]*>\s*)?\("
-```
-The modifier alternation is `final|static|class|mutating|nonmutating|override` — **`consuming` and `borrowing` are absent.** The same gap must be fixed in lockstep across the sibling regexes: `InternalFuncRegex`, `PublicFuncRegex`, `BareFuncRegex`, `ExtensionFuncRegex`, `AnyFuncRegex` (any regex that recognizes a method-modifier position).
+**Where:** `src/Swift.Bindings/src/Parser/SwiftInterfaceAccessParser.cs` — `BroadPublicFuncRegex` plus the sibling func regexes (`InternalFuncRegex`, `PublicFuncRegex`, `BareFuncRegex`, `ExtensionFuncRegex`, `AnyFuncRegex`), **and** `SwiftInterfaceContextTracker.cs` (`PublicFuncRegex`, `ProtocolFuncRegex` — found by the cross-file grep, not in the original doc). The modifier alternation was `final|static|class|mutating|nonmutating|override` — **`consuming` and `borrowing` were absent** from the modifier slot in all 8 regexes.
 
-**Trace (why it degrades):**
-1. `public consuming func consume() -> Swift.Int32` → `BroadPublicFuncRegex` does **not** match → `"…consume()"` never added to `publicMemberNames`.
-2. `IsInternalFromPublicMemberNames(...)` → key absent while other members present → returns `true` → `methodDecl.IsModuleInternal = true`.
-3. `MemberValidationPipeline` → `CanEmitMember(isModuleInternal: true)` → `false` → `WrapperDecision.CannotWrap`.
-4. Emits a direct `CallConvSwift` P/Invoke with `[Obsolete("No @_cdecl wrapper…", DiagnosticId = "SB0001")]` — an **ABI-risky degraded member** instead of a proper `@_cdecl` wrapper.
+**Fix applied:** added `consuming`/`borrowing` to the modifier alternation in all 8 regexes. Covered by a `[Theory]` suite in `SwiftInterfaceAccessParserTests.cs` (`GetInternalMembers_*OwnershipModifier*`) exercising public-struct, open-static, bare-protocol-requirement, and extension shapes for both modifiers — verified red before the fix, green after. `nuke test` and the `nuke binding-tests --compile-only` gate pass.
 
-**Observable today (already happening):** `BindingTests/output/SwiftBindingsTestLib.cs:~80230` shows `Consume()` emitted with the SB0001 `[Obsolete]` + raw `CallConvSwift` P/Invoke (`$s…UniqueResourceV7consume…`).
+**Trace (why it degraded):** `public consuming func consume()` failed `BroadPublicFuncRegex` → never added to `publicMemberNames` → `IsInternalFromPublicMemberNames(...)` returned `true` → `IsModuleInternal = true` → `CanEmitMember(isModuleInternal: true)` = `false` → degraded SB0001 `CallConvSwift`.
 
-**Scope:** 6 methods in BindingTests (`UniqueResource`, `FileHandle`, `TrackedResource`); 48 occurrences in `Swift.swiftmodule`, 13 in `Synchronization.swiftmodule`, 4 in `Swift.System.swiftmodule`; present in `Testing.framework`. Noncopyable types (`consuming`/`borrowing`) are a growing modern-Swift surface.
+**Real reach of this fix:** the negative-space (swiftinterface-text) internal detector only flips members that **lack an explicit access keyword** — `@inlinable internal consuming func`, bare protocol requirements, and protocol-extension defaults. Methods written `public consuming func …` carry `declAttributes: ["…","AccessControl"]` in the ABI JSON and are classified public by the ABI-JSON path regardless of the regex, so the regex fix does **not** change their output. Scope of the *latent* bug it does fix: 48 occurrences in `Swift.swiftmodule`, 13 in `Synchronization.swiftmodule`, 4 in `Swift.System.swiftmodule`, plus `Testing.framework` — wherever an ownership-modified func appears without a leading `public`/`open` keyword.
 
-**NOT bugs (already verified):** `override` IS in the alternation (refuted). Leading `nonisolated` is stripped before the regex (`:2838`, mitigated). The `IsModuleInternal` public-overload false positive is already guarded (`SwiftABIParser.cs:687`). Don't touch these.
+**NOT bugs (already verified):** `override` IS in the alternation. Leading `nonisolated` is stripped before the regex (mitigated). The `IsModuleInternal` public-overload false positive is already guarded (`SwiftABIParser.cs`). Don't touch these.
 
-**Fix:** Add `consuming` and `borrowing` to the modifier alternation group in all the func regexes listed above. Trivial and low-risk.
+### Correction — the doc's original "durable gate" was mis-attributed
 
-**Tests:**
-- Unit theory feeding `public consuming func consume()` / `public borrowing func inspect()` → assert recognized as public (`!IsModuleInternal`) and a cdecl wrapper is chosen (not SB0001).
-- The 6 existing BindingTests methods become the durable runtime gate: after the fix they should get real `@_cdecl` wrappers. **This is a calling-convention change** (raw `CallConvSwift` → `@_cdecl` wrapper) — run `nuke binding-tests --device` (NativeAOT) in addition to sim, per CLAUDE.md guidance for CC/marshalling changes.
-- ⚠️ After editing the generator, **rebuild the Debug binary** (`dotnet build src/Swift.Bindings/src -c Debug`) before regen — `nuke binding-tests`/`validate` run the generator from `bin/Debug/` and won't rebuild a stale dll (memory `feedback_stale_release_binary_masks_regen.md`).
+The original write-up claimed the 6 BindingTests methods (`UniqueResource.consume/inspect`, `FileHandle.close/getDescriptor/isOpen`, `TrackedResource.peek`) were the runtime gate for this regex and "after the fix should get real `@_cdecl` wrappers." **That is false.** Those 6 are all written `public consuming/borrowing func`, so (per the paragraph above) the regex never gated them — their SB0001 has a *separate* root cause, captured as **Survivor #2b** below. The `~80230` `Consume()` SB0001 observation in the original doc is real but is a #2b symptom, not a #2 one.
+
+---
+
+## Survivor #2b — noncopyable `consuming`/`borrowing` **self** instance methods don't get a `@_cdecl` wrapper  (OPEN)
+
+**Symptom:** the 6 noncopyable instance methods above emit an `[Obsolete(… SB0001)]` + raw `CallConvSwift` P/Invoke to the mangled Swift symbol instead of a `CallConvCdecl` `SBW_…` wrapper. They **work today** at runtime via `CallConvSwift` (their `OwnershipTests`/`NegativePathTests` runtime cases are not skipped) — so this is ABI *hardening*, not a live crash. But it carries real double-free risk if fixed naively (these are `~Copyable` types with `deinit`).
+
+**Verified root cause (code-traced 2026-06-07):**
+1. **Ownership is dropped at parse time.** `SwiftABIParser.cs:2001` stores `IsMutating = node.funcSelfKind == "Mutating"` only. `funcSelfKind: "Consuming"` / `"Borrowing"` are discarded — `MethodDecl` has no `IsConsuming`/`IsBorrowing`. Confirmed in the ABI JSON: the `consume` node carries `"funcSelfKind": "Consuming"`.
+2. **Self-reconstruction copies a `~Copyable` value.** `MethodWrapperEmitter.cs:500-501`: for a noncopyable parent, `selfRef = self_.assumingMemoryBound(to: T.self).pointee`. `.pointee` is a borrow; calling a **`consuming`** method on it requires *ownership*, so Swift rejects the wrapper (illegal consume of a borrow). `ShouldEmitWrapper` returns true and a wrapper IS emitted, but it fails Swift compilation and is removed by the build's give-up/strip loop (compile log: "Compilation attempt 1 failed — stripping… N total stripped"); the C# then degrades to `CallConvSwift`. (`borrowing` self may compile via `.pointee`, but rides the same stale-strip path.)
+
+**Fix shape (when picked up):**
+- Add `IsConsuming`/`IsBorrowing` to `MethodDecl`; parse them from `funcSelfKind` in `SwiftABIParser.cs` (and the accessor path at `:2470` if relevant). Keep the two readers of any new flag in sync.
+- In `MethodWrapperEmitter` self-reconstruction: **consuming self** → take ownership out of the buffer (`…assumingMemoryBound(to:).move()`), then **mark the C# `SwiftSafeHandle` consumed** so a later `Dispose()` is a no-op — exactly the handle-consumed contract the `TrackedResource` *parameter* path already implements (see `Noncopyable.swift` P0-06 comment). **borrowing self** → a true borrow through the pointer with no copy.
+- Verify the exact Swift form via SIL (memory `feedback_verify_swift_abi_sil.md`) and an independent CLI consult before committing — ownership errors here are double-frees.
+- **Calling-convention change** → gate on `nuke binding-tests --device` (NativeAOT) in addition to sim, per CLAUDE.md.
+- ⚠️ Rebuild the Debug generator binary (`dotnet build src/Swift.Bindings/src -c Debug`) before regen — the gates run from `bin/Debug/` and won't rebuild a stale dll (memory `feedback_stale_release_binary_masks_regen.md`).
+
+**Durable gate:** the existing `OwnershipTests`/`NegativePathTests` cases that call `GetInspect()`/`Consume()` on `UniqueResource`/`FileHandle`/`TrackedResource` — assert they round-trip AND that the generated C# uses `CallConvCdecl` (no SB0001) after the fix. Add a `deinit`-runs-exactly-once probe for `consuming` self (mirror the `TrackedResource` parameter probe) to catch the double-free.
 
 ---
 

@@ -4194,4 +4194,100 @@ public class DisposeBag {
     }
 
     #endregion
+
+    #region Ownership modifiers (consuming / borrowing)
+
+    // Noncopyable-type methods carry `consuming`/`borrowing` ownership modifiers in the
+    // same syntactic slot as `mutating`. If the public-func regexes don't recognize them,
+    // the member is absent from `publicMemberNames`, negative-space detection flags it as
+    // module-internal, and it degrades to a raw CallConvSwift P/Invoke with an SB0001
+    // [Obsolete] instead of getting a proper @_cdecl wrapper.
+    [Theory]
+    [InlineData("consuming")]
+    [InlineData("borrowing")]
+    public void GetInternalMembers_PublicOwnershipModifierFunc_CollectedAsPublic(string modifier)
+    {
+        var swiftInterface = $$"""
+            public struct UniqueResource : ~Swift.Copyable {
+              public {{modifier}} func consume() -> Swift.Int32
+              public func plain() -> Swift.Int32
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var internalMembers = SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("UniqueResource.consume()", publicMembers);
+            Assert.DoesNotContain("UniqueResource.consume()", internalMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("consuming")]
+    [InlineData("borrowing")]
+    public void GetInternalMembers_OpenStaticOwnershipModifierFunc_CollectedAsPublic(string modifier)
+    {
+        // The modifier sits after `static`; the broad regex must still recognize it.
+        var swiftInterface = $$"""
+            open class Resource {
+              open {{modifier}} func snapshot() -> Swift.Int32
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Resource.snapshot()", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("consuming")]
+    [InlineData("borrowing")]
+    public void GetInternalMembers_BareProtocolOwnershipRequirement_CollectedAsPublic(string modifier)
+    {
+        // Bare protocol requirement (no access modifier) with an ownership modifier.
+        var swiftInterface = $$"""
+            public protocol Lifecycle {
+              {{modifier}} func finish() -> Swift.Int32
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var internalMembers = SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Lifecycle.finish()", publicMembers);
+            Assert.DoesNotContain("Lifecycle.finish()", internalMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("consuming")]
+    [InlineData("borrowing")]
+    public void GetInternalMembers_OwnershipModifierInExtension_CollectedAsPublic(string modifier)
+    {
+        var swiftInterface = $$"""
+            public struct UniqueResource : ~Swift.Copyable {
+            }
+            extension MyModule.UniqueResource {
+              public {{modifier}} func close() -> Swift.Int32
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("UniqueResource.close()", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
 }
