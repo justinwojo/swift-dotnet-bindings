@@ -7,6 +7,19 @@
 
 ---
 
+## Verification status — Claude, 2026-06-07
+
+A follow-up **code-trace verification pass** (read-only; not a compile/runtime repro for most) re-checked the 8 highest-impact "still latent" High clusters from `grok-phase2-remaining-hardening-candidates.md` against current source. **Most resolved as false-positive, already-mitigated, or latent-but-unreachable on real bindings** — Apple short-prefixes (MT/SC/SL), enum width-truncation, co-gater brace-walker, parser comment/string blindness, SwiftUI reserved-name collisions, SwiftUI ObjC-closure UAF/leak, and demangler Ya/Yb/YK. These should **not** be re-chased without new evidence.
+
+**Three real, reachable survivors** remain (all SHOULD-FIX-SOON; none a launch-blocking process crash) — worth a fixture/compile-probe + fix before release:
+1. **`ProtocolExtensionEmitter` hand-rolled overload key** → CS0111 consumer compile break on protocol-extension defaults with `Optional<class>` params (`ProtocolExtensionEmitter.cs:300-314`); Kingfisher `ImageTransformable` shape.
+2. **`consuming` / `borrowing` missing from public-func regexes** → public noncopyable methods degrade to `[Obsolete]` SB0001 raw `CallConvSwift` (ABI risk); already degrading 6 methods in committed BindingTests output (`SwiftInterfaceAccessParser.cs:158`).
+3. **Collection-element ObjC fallback (Foundation+UIKit only vs 62 Optional-fallback modules)** → silent member DROP for `Array<unregistered-ObjC-class>` from non-Foundation/UIKit modules (`TypeProjectionFactory.cs:584`).
+
+Full per-item verdict table: `grok-phase2-remaining-hardening-candidates.md` §0. Per the "verify before fixing" rule, the 3 survivors should be reproduced with a fixture before any fix.
+
+---
+
 ## 1. Confirmation of counts and structure
 
 **User understanding is accurate and directly supported by the source docs.**

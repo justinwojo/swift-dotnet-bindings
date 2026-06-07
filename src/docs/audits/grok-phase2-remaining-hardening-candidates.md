@@ -16,7 +16,37 @@
 
 ---
 
+## 0. Verification Log — Claude, 2026-06-07 (code-trace, read-only)
+
+Follow-up read-only **code-trace verification** of the High-impact "still latent" items below, re-checked against current source on 2026-06-07. *Code-trace level — not a compile/runtime repro for most.* The **3 real survivors** should be reproduced with a fixture before any fix (per "verify before fixing — no patch-on-suspicion"). The rest resolved as **false-positive / already-mitigated / latent-but-unreachable** and should not be re-chased without new evidence.
+
+| Item (§) | Grok | Verified verdict (2026-06-07, code-trace) | Disposition |
+|---|---|---|---|
+| Co-gater brace-walker no string/comment state (§1) | High | No-state real, **reachability OVERSTATED** — generated C# can't carry unbalanced braces in strings/comments (wouldn't compile); ~350K lines checked (`CSharpWrapperCoGater.cs` FindBlockEnd/BuildLineToTypeMap) | DEFER + fragility note |
+| Apple SwiftUI bridge 2nd-slice atomicity (§1) | High | **Not re-verified** — interrupt/partial-failure recovery gap, not a clean-build defect | Backlog (low release urgency) |
+| Short/missing Apple prefixes MT/SC/SL (§2) | High | **REFUTED** — `prefix+IsUpper(next)` ⇒ MT⊇MTL, SC⊇SCN; all classify correctly (`AppleFrameworkRegistry.cs:422`) | False positive |
+| Enum kind/rawValueType width truncation (§2) | High | **REFUTED** — `kind="struct"` is correct for NS_TYPED_ENUM Swift structs; real enums map Int→long / UInt8→byte (`EnumHandler.SimpleEnum.cs:26`) | False positive |
+| Value-vs-ObjC misclass UAF (§2) | High | **OVERSTATED** — guarded by DB + valueTypes; residual is data-completeness for *unbound* types (`TypeDatabaseExtensions.cs:533`) | Maintenance |
+| Collection-element fallback 2-vs-62 modules (§2) | Med | **CONFIRMED — silent member DROP** (not corruption): `Array<unregistered ObjC class>` from a non-Foundation/UIKit module → method omitted (`TypeProjectionFactory.cs:584`) | **REAL — should-fix** |
+| Gate parity ObjCRooted/generic/pointer (§2) | Med | **OVERSTATED** — by-design (ObjCRooted ⇒ `SwiftOptional<T>`), documented (`constraints.md:31`) | False positive |
+| `consuming`/`borrowing` modifier gap (§3) | High | **CONFIRMED** — missing from public-func regexes ⇒ method mis-flagged internal ⇒ degrades to `[Obsolete]` SB0001 raw `CallConvSwift` (ABI risk); 6 already degraded in committed BindingTests output, 65 in iOS SDK (`SwiftInterfaceAccessParser.cs:158`) | **REAL — should-fix** |
+| `override` / `nonisolated` gaps (§3) | High | **REFUTED / mitigated** — `override` is in the regex; leading `nonisolated` is stripped (`:159` / `:2838`) | False positive |
+| IsModuleInternal public-overload FP (§3) | High | **ALREADY-MITIGATED** (`SwiftABIParser.cs:687`) | Mitigated |
+| Parser brace/comment/string blindness (§3) | High | Single-line string state exists; **reachability REFUTED** — 0 poison hits across 608 real `.swiftinterface` files (compiler strips bodies/comments) | DEFER (maintenance) |
+| Demangler Ya/Yb/YK/other Y* (§3) | High | **REFUTED / mitigated** — digit-guard sufficient, Yb/YK handled. `DefaultIndicies` typo is real but **zero runtime impact** (`Swift5Demangler.cs:740`) | False positive (typo trivial) |
+| Interface-vs-proxy / subscript keys (§4) | High | **Mitigated / refuted** — subscript keys byte-identical; main paths use the shared helper | Mitigated |
+| **ProtocolExtensionEmitter hand-rolled key (§4)** | High | **CONFIRMED — CS0111**: skips `Optional<class>` `?`-strip + propertyNames vs `IHandler.GetProjectedCSharpMethodKey` (`cs:300-314` vs `:323`); Kingfisher `ImageTransformable` shape | **REAL — should-fix** |
+| Subscript WasEmitted ancestor gap (§4) | High | **ALREADY-MITIGATED** — ABI JSON carries inherited reqs (`SwiftABIParser.cs:1097`) | Mitigated |
+| SwiftUI reserved-name collision (§5) | High | **ALREADY-MITIGATED** — all paths via `SyntheticNameScope` (P0-13 / P1-22) | Mitigated |
+| Typed-closure/Result/frozen-ref/async Bound* ObjC (§5) | High | **ALREADY-MITIGATED** — `withExtendedLifetime` + `defer` dealloc + UCO `FailFast` on every trampoline | Mitigated (1 shape lacks runtime test) |
+
+**Net:** 3 real reachable survivors (all SHOULD-FIX-SOON, none a launch-blocking process crash): collection-element member-drop (§2), `consuming`/`borrowing` SB0001 degradation (§3), ProtocolExtension CS0111 (§4). Everything else above is false-positive / mitigated / unreachable on current source.
+
+---
+
 ## 1. Packaging / Wrapper / SDK / Bridge / Arch / Co-gater (M2 + related M1/M4 deferreds + §6)
+
+> **✅ Verified 2026-06-07 (Claude, code-trace):** Co-gater brace-walker — *no string/comment state confirmed, but reachability **overstated***: generated C# never contains unbalanced braces inside string/comment literals (it wouldn't compile), checked across ~350K lines of output → latent-but-unreachable, DEFER (worth a one-line fragility comment in `CSharpWrapperCoGater.cs`). Apple SwiftUI 2nd-slice atomicity — *not re-verified*; it's an interrupt/partial-failure recovery gap, not a clean-build defect → backlog. See §0.
 
 These have the highest direct user impact for "real bindings" consumers (third-party SwiftUI-bridged packages, Apple-framework bindings with Views, packed NuGets, x64-sim/Rosetta/Catalyst consumers). Can produce DllNotFound (missing/wrong-arch bridge slice or dangling P/Invoke after strip), pack hard-errors, or build failures in consumer targets.
 
@@ -47,6 +77,8 @@ These have the highest direct user impact for "real bindings" consumers (third-p
 ---
 
 ## 2. TypeDatabase / Apple Classification / Projection Parity (M3 + related)
+
+> **✅ Verified 2026-06-07 (Claude, code-trace):** Short Apple prefixes (MT/SC/SL), enum kind/rawValueType width-truncation, and gate-parity divergences are **false positives** — `prefix+IsUpper(next)` makes `MT`⊇`MTL`; `kind="struct"` is correct for NS_TYPED_ENUM Swift structs; the ObjCRooted-vs-IntPtr split is by-design (`constraints.md:31`). value-vs-ObjC misclass is a **data-completeness maintenance** gap (DB + valueTypes must stay in sync), not a logic bug. **Real survivor:** collection-element fallback (only Foundation+UIKit vs 62 Optional-fallback modules) → **silent member DROP** for `Array<unregistered-ObjC-class>` from non-Foundation/UIKit modules (`TypeProjectionFactory.cs:584`); fix = widen `_knownModulesForElements`. See §0.
 
 Silent drops or wrong marshalling on real Apple framework surfaces (validate libs + any consumer of CoreNFC, CoreMedia, Metal, SceneKit, Social, AVFoundation enums, NaturalLanguage, ManagedSettings, simd, Foundation typedefs, etc.). Can cause member loss or ARC/UAF for NSString-typedefs / ObjC-bridged values.
 
@@ -80,6 +112,8 @@ Silent drops or wrong marshalling on real Apple framework surfaces (validate lib
 
 ## 3. Parser / Demangler / Internal Detection / GenericSignature (A8 + C1 overlap)
 
+> **✅ Verified 2026-06-07 (Claude, code-trace):** `override`/`nonisolated`, the IsModuleInternal public-overload false positive, parser comment/string blindness, and demangler Ya/Yb/YK are **false positives or unreachable** (parser blindness: 0 poison hits across 608 real `.swiftinterface` files; `DefaultIndicies` typo is real but **zero runtime impact**). **Real survivor:** `consuming` / `borrowing` are missing from the public-func regexes (`SwiftInterfaceAccessParser.cs:158`) → those public methods are mis-flagged internal → degrade to `[Obsolete]` SB0001 raw `CallConvSwift` (ABI risk) instead of an `@_cdecl` wrapper; already degrading 6 methods in committed BindingTests output, 65 occurrences in the iOS SDK noncopyable stdlib. Fix = add `consuming`/`borrowing` to the modifier alternation across the Broad/Internal/Public/Bare/Extension/Any func regexes. See §0.
+
 Affects public/internal classification (wrong wrappers against internal symbols), decl drops, wrong error types, mangling-based signals (async/variadic), and scope (public/internal + actor-isolated extraction). Compile-invisible until a real lib hits the poison shape.
 
 **High**
@@ -108,6 +142,8 @@ Affects public/internal classification (wrong wrappers against internal symbols)
 
 ## 4. Key / Dedup / Override / WasEmitted Invariants (C2 + C1 overlap)
 
+> **✅ Verified 2026-06-07 (Claude, code-trace):** Interface-vs-proxy keys, the subscript key inline reimplementation, and the subscript-WasEmitted ancestor gap are **mitigated / refuted** — subscript keys are byte-identical between `EveryProtocolEmitter` and `ProtocolProxyEmitter.Receivers`, and ABI JSON already carries inherited requirements. **Real survivor:** `ProtocolExtensionEmitter`'s hand-rolled overload key (`cs:300-314`) diverges from `IHandler.GetProjectedCSharpMethodKey` (`:323`) — it skips `Optional<class>` `?`-stripping and propertyNames → **CS0111** consumer compile break on protocol-extension defaults whose param is `Optional<class>` and which a conforming class also implements (Kingfisher `ImageTransformable` shape). A very narrow sibling — `EmitDispatchableClosureReturningMethodReceiver` using `propertyNames: null` (`Receivers.cs:491`) — is DEFER. See §0.
+
 Can produce CS0111 (duplicate members), CS0535 (proxy doesn't implement declared member), or silent wrong override slot binding (especially same-module + suffix/rename + inheritance + property collision + async).
 
 **High**
@@ -125,6 +161,8 @@ Can produce CS0111 (duplicate members), CS0535 (proxy doesn't implement declared
 ---
 
 ## 5. SwiftUI Bridge (M1 + C1 identifier hazards + M4 overlap)
+
+> **✅ Verified 2026-06-07 (Claude, code-trace):** All M1 items here are **already-mitigated** — async/sync reserved-name collisions (`userData`/`onError`/`handle`/`session`…) route through `SyntheticNameScope` (P0-13 / P1-22); the typed-closure / Result / frozen-ref / async `Bound*` ObjC paths use `withExtendedLifetime` + `defer` dealloc + a UCO `FailFast` guard on every trampoline. One shape — `FrozenWithMemory` (ClassWithBufferStruct) as a closure arg — is emission-correct but has no runtime test (test-coverage gap, not a defect). See §0.
 
 Compile breaks or runtime traps/leaks/crashes for any real SwiftUI-bridged binding (public `View` conformance, async views, BoundEnum state/updaters/modifiers/arrays/optionals, ObjC-bridged structs like URL/Data in inits/closures, user-chosen labels colliding with internals).
 

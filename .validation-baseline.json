@@ -951,9 +951,9 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2556,
+      "pass": 2753,
       "fail": 0,
-      "skip": 48,
+      "skip": 32,
       "crash": 0
     },
     "device": {
