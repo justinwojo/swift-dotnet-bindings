@@ -590,9 +590,10 @@ public static class ProtocolExtensionClosureBridge
         }
         else
         {
-            // Use MarshalBorrowedFromSwift for ISwiftObject types (classes, generic params).
-            // Callback parameters are borrowed references — prevents double-release.
-            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalBorrowedFromSwift<{csharpType}>(__p{index});");
+            // ISwiftObject types (classes, generic params) — callback parameters are borrowed
+            // references. A class arg takes an owning +1 so an explicit Dispose in the callback
+            // body balances it; value wrappers keep the borrowed path. See BorrowedCallbackArgMarshal.
+            csWriter.WriteLine($"var __a{index} = {env.ClosureHandler.BorrowedCallbackArgMarshal(argType, csharpType, $"__p{index}")};");
         }
     }
 

@@ -218,17 +218,15 @@ public class DictionaryProjection : ITypeProjection
     /// Dispose or it leaks; the source dictionary keeps its own independent +1, so adoption never
     /// double-frees. Existential keys/values use the owning form; everything else — and the shared
     /// non-owning <see cref="GetReturnElementConversion"/> reused for borrowed reads — stays +0.
-    /// Mirrors ArrayProjection.OwnedReturnElementConversion.
+    /// Nested container keys/values recurse through <see cref="GetOwnedReturnElementConversion"/> so
+    /// an existential leaf inside an inner container still adopts its moved +1. Mirrors
+    /// ArrayProjection.OwnedReturnElementConversion.
     /// </summary>
     private string? OwnedReturnKeyConversion(string keyVar)
-        => _keyProjection is ExistentialProjection existKey
-            ? existKey.GetOwnedReturnElementConversion(keyVar)
-            : _keyProjection.GetReturnElementConversion(keyVar);
+        => _keyProjection.GetOwnedReturnElementConversion(keyVar);
 
     private string? OwnedReturnValueConversion(string valVar)
-        => _valueProjection is ExistentialProjection existVal
-            ? existVal.GetOwnedReturnElementConversion(valVar)
-            : _valueProjection.GetReturnElementConversion(valVar);
+        => _valueProjection.GetOwnedReturnElementConversion(valVar);
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
@@ -276,31 +274,147 @@ public class DictionaryProjection : ITypeProjection
     /// Builds the AsProjected call matching SwiftDictionary runtime API overloads:
     /// - Value-only: AsProjected(Func&lt;TValue,TResult&gt; valueSelector)
     /// - Key+value: AsProjected(Func&lt;TKey,TResultKey&gt; keySelector, Func&lt;TResultKey,TKey&gt; reverseKeySelector, Func&lt;TValue,TResultValue&gt; valueSelector)
+    /// When the value projection yields a CONCRETE collection (a nested Dictionary's <c>ToDictionary</c> or a
+    /// Set's <c>ToHashSet</c>), the value selector is cast to the value's <see cref="ITypeProjection.PublicType"/>
+    /// so <c>AsProjected</c> infers the declared <c>IReadOnlyDictionary&lt;K, IReadOnly…&gt;</c> rather than
+    /// <c>IReadOnlyDictionary&lt;K, Dictionary&lt;…&gt;&gt;</c> — the outer value slot is INVARIANT, so the concrete
+    /// inner type triggers CS0266 without it. This is the top-level counterpart to the per-value cast in
+    /// <see cref="GetReturnElementConversion"/> (which handles the same hazard one level down). Other value
+    /// kinds need no cast: existentials self-cast to their interface, Arrays project through covariant
+    /// <c>IReadOnlyList</c>, and scalars already carry their declared type.
+    /// <para>
+    /// <c>internal</c> so the EveryProtocol receiver setter path
+    /// (<c>ProtocolProxyEmitter.GetReceiverDictSetterConversion</c>) reuses the SAME invariant-slot cast:
+    /// a settable <c>[String: [String: any P]] { get set }</c> property assigns the converted value into
+    /// the impl's <c>IReadOnlyDictionary&lt;…, IReadOnlyDictionary&lt;…&gt;&gt;</c> setter param, whose value slot is
+    /// invariant — so the bare concrete-donor selector body would be CS0266 there too.
+    /// </para>
     /// </summary>
-    private string BuildAsProjected(string? keyConv, string? valConv)
+    internal string BuildAsProjected(string? keyConv, string? valConv)
     {
+        var valBody = CastValueSelectorBody(valConv);
         if (keyConv != null)
         {
             var reverseKeyConv = _keyProjection.GetParameterElementConversion("k") ?? "k";
-            var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
+            var valSelector = valBody != null ? $"v => {valBody}" : "v => v";
             return $".AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
         }
-        if (valConv != null)
+        if (valBody != null)
         {
-            return $".AsProjected(v => {valConv})";
+            return $".AsProjected(v => {valBody})";
         }
         return ".AsProjected(v => v)";
     }
 
     /// <summary>
+    /// Wraps a value-selector body in a cast to the value's public interface type when (and only when) the
+    /// value projection is a CONTAINER (Array/Dictionary/Set) — see <see cref="BuildAsProjected"/>. The outer
+    /// dictionary value slot is INVARIANT, so the value must surface its EXACT declared public type: a nested
+    /// Dictionary/Set element conversion yields a concrete <c>Dictionary</c>/<c>HashSet</c>, and a nested Array
+    /// yields <c>IReadOnlyList&lt;concreteInner&gt;</c> when its own elements are concrete collections (e.g.
+    /// <c>[String: [[String: Any]]]</c> → <c>IReadOnlyList&lt;Dictionary&lt;…&gt;&gt;</c>). Both differ from the
+    /// declared <c>IReadOnlyList&lt;IReadOnlyDictionary&lt;…&gt;&gt;</c> / <c>IReadOnly…</c> value type, so without
+    /// the cast <c>AsProjected</c> infers a value type the invariant outer dictionary rejects with CS0266. The
+    /// cast is always legal (covariant <c>IReadOnlyList&lt;out T&gt;</c> reference conversion, or identity).
+    /// Existential values self-cast to their interface and scalars already carry their declared type, so neither
+    /// needs this — restricting to containers avoids a redundant double cast.
+    /// </summary>
+    private string? CastValueSelectorBody(string? valConv)
+    {
+        if (valConv == null)
+            return null;
+        return _valueProjection is ArrayProjection or DictionaryProjection or SetProjection
+            ? $"({_valueProjection.PublicType}){valConv}"
+            : valConv;
+    }
+
+    /// <summary>
+    /// Per-element conversion for the PARAMETER/WRITE direction when this Dictionary is itself an
+    /// element of an OUTER container (e.g. the inner dict of <c>[[String: any P]]</c>). Mirrors
+    /// <see cref="ArrayProjection.GetParameterElementConversion"/>: a single-expression
+    /// <c>FromDictionary(... .Select(kvp => new KeyValuePair&lt;rawK, rawV&gt;(keyConv, valConv)))</c>
+    /// that recursively narrows existential / nested-container keys and values to their wire carriers
+    /// so an outer Array/Dictionary/Set can build <c>SwiftArray&lt;SwiftDictionary&lt;…&gt;&gt;</c> with each
+    /// inner dictionary already converted. Without this override DictionaryProjection inherited the
+    /// <see cref="ITypeProjection.GetParameterElementConversion"/> null default, so a dict nested under
+    /// an array passed unconverted C# dictionaries straight into
+    /// <c>SwiftArray&lt;SwiftDictionary&lt;…&gt;&gt;.FromEnumerable</c> (CS1503; audit L229 forward-path gap that
+    /// the symmetric return-direction recursion already closed). The intermediate inner
+    /// SwiftDictionary is disposed by the OUTER container's materialize+dispose pass
+    /// (<see cref="ElementRequiresDisposal"/>); nesting deeper than two levels shares the array
+    /// sibling's single-expression no-dispose limitation.
+    /// </summary>
+    public string? GetParameterElementConversion(string elementVar)
+    {
+        // ObjC bridge: nested dictionary → NSDictionary (received as NSObject by the outer
+        // container, cf. ToNSObject). Mirror BuildObjCBridgeParameterPlan as a single expression.
+        if (UsesObjCContainerBridge)
+        {
+            var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
+            var valToNS = ToNSObject(_valueProjection, "kvp.Value");
+            return $"Foundation.NSDictionary.FromObjectsAndKeys({elementVar}.Select(kvp => {valToNS}).ToArray(), {elementVar}.Select(kvp => {keyToNS}).ToArray())";
+        }
+
+        var rawK = _keyProjection.SwiftContainerGenericType;
+        var rawV = ParamValueCarrierType;
+        var keyConv = _keyProjection.GetParameterElementConversion("kvp.Key");
+        var valConv = ParamValueConversion("kvp.Value");
+        // Same typed-wrapper skip rule as BuildContainerSetup: when the wire carrier already equals
+        // the C# public type, FromDictionary wants the wrapper directly (applying a conversion would
+        // downgrade the slot's stride). Mirrors ArrayProjection.GetParameterElementConversion.
+        var skipKeyConv = keyConv != null && rawK == _keyProjection.PublicType;
+        var skipValConv = valConv != null && rawV == _valueProjection.PublicType;
+        var effectiveKeyConv = skipKeyConv ? null : keyConv;
+        var effectiveValConv = skipValConv ? null : valConv;
+        if (effectiveKeyConv != null || effectiveValConv != null)
+        {
+            var keyExpr = effectiveKeyConv ?? "kvp.Key";
+            var valExpr = effectiveValConv ?? "kvp.Value";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({elementVar}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
+        }
+        return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({elementVar})";
+    }
+
+    /// <summary>
     /// Element-level conversion for when this Dictionary appears inside a container (e.g., Array&lt;Dictionary&gt;).
-    /// Converts SwiftDictionary&lt;K,V&gt; → IDictionary&lt;PublicK,PublicV&gt; via .ToDictionary() with
-    /// key/value conversion lambdas, using explicit public type casts for invariant Dictionary covariance.
+    /// Converts SwiftDictionary&lt;K,V&gt; → a CONCRETE <c>Dictionary&lt;PublicK,PublicV&gt;</c> via .ToDictionary()
+    /// with per-key/value public-type casts (each leaf still surfaces its declared interface).
+    /// The whole expression is deliberately NOT cast to <see cref="PublicType"/> (<c>IReadOnlyDictionary</c>):
+    /// a concrete <c>Dictionary&lt;K,V&gt;</c> is the universal donor — assignable to BOTH the read-only
+    /// <c>IReadOnlyDictionary</c> (covariant/forward-return consumers) AND the mutable <c>IDictionary</c>
+    /// (reverse-dispatch receiver params whose impl method takes <c>IEnumerable&lt;IDictionary&gt;</c>). Casting
+    /// to <c>IReadOnlyDictionary</c> here destroys that dual assignability and breaks the receiver path with
+    /// CS1503 (an <c>IReadOnlyDictionary</c> is not an <c>IDictionary</c>, and array covariance can't bridge it).
+    /// The INVARIANT-slot cast is therefore applied by the consumer instead, via one of two mechanisms: the
+    /// per-value <c>({valPubType})</c> cast at the <c>ToDictionary</c> line below — which fires when an OUTER
+    /// dict's <c>GetReturnElementConversion</c> wraps this dict as its value (the nested-dict-in-dict ToDictionary
+    /// recursion) — and <see cref="CastValueSelectorBody"/> (called from <see cref="BuildAsProjected"/>) for the
+    /// <c>AsProjected</c> selector paths (top-level return container conversion and the receiver dict setter).
+    /// (The Array sibling needs no per-element cast — <c>IReadOnlyList&lt;out T&gt;</c> is covariant.)
     /// </summary>
     public string? GetReturnElementConversion(string elementVar)
     {
         var keyConv = _keyProjection.GetReturnElementConversion("kvp.Key");
         var valConv = _valueProjection.GetReturnElementConversion("kvp.Value");
+        var keyExpr = keyConv ?? "kvp.Key";
+        var valueExpr = valConv ?? "kvp.Value";
+        var keyPubType = _keyProjection.PublicType;
+        var valPubType = _valueProjection.PublicType;
+        return $"{elementVar}.ToDictionary(kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+    }
+
+    /// <summary>
+    /// Owned-return element conversion for when this Dictionary is itself an element of an OWNED
+    /// outer container. Mirrors <see cref="GetReturnElementConversion"/> but threads the OWNED
+    /// key/value conversions (<see cref="OwnedReturnKeyConversion"/>/<see cref="OwnedReturnValueConversion"/>)
+    /// so an existential leaf nested under this dictionary adopts its moved +1 instead of leaking it.
+    /// Yields the same CONCRETE universal-donor <c>Dictionary</c> as <see cref="GetReturnElementConversion"/>
+    /// (no top-level <c>IReadOnlyDictionary</c> cast); the invariant-slot cast is the consumer's job.
+    /// </summary>
+    public string? GetOwnedReturnElementConversion(string elementVar)
+    {
+        var keyConv = OwnedReturnKeyConversion("kvp.Key");
+        var valConv = OwnedReturnValueConversion("kvp.Value");
         var keyExpr = keyConv ?? "kvp.Key";
         var valueExpr = valConv ?? "kvp.Value";
         var keyPubType = _keyProjection.PublicType;

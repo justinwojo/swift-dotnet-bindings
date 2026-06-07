@@ -262,6 +262,15 @@ public static class SwiftSourceStripper
         // above) so the borrowed witness is never stripped out from under the peer.
         "MixedFanAsyncOwner",
         "MixedFanSyncPeer",
+        // Intra-protocol async/sync effect-overload (audit §6 #12, Kingfisher parity). A
+        // SINGLE protocol declares both `intraEffectTag(_:) -> Int32` and
+        // `intraEffectTag(_:) async -> Int32`, occupying two distinct vtable slots. The C#
+        // proxy implements both members; IntraProtocolEffectOverloadTests reverse-dispatches
+        // the SYNC requirement through `any IntraEffectTagged` via callIntraEffectTagSync, so
+        // the EveryProtocol conformance and Get_EveryProtocol_IntraEffectTagged_WitnessTable
+        // must survive stripping for the existential-construction P/Invoke to resolve. This is
+        // the intra-protocol twin of the AsyncRefineModifierBase/SyncRefineModifier pair above.
+        "IntraEffectTagged",
         // Audit P1-08 WRITE direction: a C# class implements MarkerProvider and is vended
         // to Swift through consumeMarkerProvider. The marshaller wraps the C# conformer in
         // the EveryProtocol-backed proxy, so Get_EveryProtocol_MarkerProvider_WitnessTable
@@ -282,6 +291,36 @@ public static class SwiftSourceStripper
         // get-only property) and is only stripped because nothing referenced it before this
         // test, so both the conformance and its witness-table getter must survive stripping.
         "MarkerMapProvider",
+        // Audit L229 nested sibling: same WRITE/reverse-dispatch direction as MarkerProvider but the
+        // requirement is `var markerGrid: [[any Marker]] { get }` (a NESTED class-bound existential
+        // collection). A C# class implements NestedMarkerProvider and is vended to Swift through
+        // consumeNestedMarkerProvider, so Get_EveryProtocol_NestedMarkerProvider_WitnessTable must
+        // resolve; Swift then reads the getter's [[any Marker]] grid back through the EveryProtocol
+        // vtable, exercising the recursive owned-adoption receiver conversion. Stripped otherwise
+        // because nothing referenced it before this test, so the conformance and its witness-table
+        // getter must survive stripping.
+        "NestedMarkerProvider",
+        // Audit L229 READ/method-param sibling of NestedMarkerProvider: the requirement is
+        // `func consume(grid: [[String: any Marker]]) -> Int` (a NESTED class-bound existential
+        // collection as an incoming METHOD PARAM, not a getter). A C# class implements
+        // NestedMarkerMapConsumer and is vended to Swift through driveNestedMarkerMapConsumer, so
+        // Get_EveryProtocol_NestedMarkerMapConsumer_WitnessTable must resolve; Swift then calls the
+        // method through the EveryProtocol vtable and the generated receiver materializes the
+        // [[String: any Marker]] param (Swift→C# READ) before handing it to the C# impl — the exact
+        // FirebaseFirestore mapMerge([[String: Any]]) reverse-dispatch path. Stripped otherwise
+        // because nothing referenced it before this test, so the conformance and its witness-table
+        // entry must survive stripping.
+        "NestedMarkerMapConsumer",
+        // Audit L229 SETTER sibling: the requirement is a SETTABLE
+        // `var markerMapGrid: [String: [String: any Marker]] { get set }` (a NESTED class-bound existential
+        // dictionary VALUE). A C# class implements MutableMarkerMapGridHolder and is vended to Swift through
+        // writeAndSumMarkerMapGrid, so Get_EveryProtocol_MutableMarkerMapGridHolder_WitnessTable must
+        // resolve; Swift ASSIGNS the dict-of-dict grid through the EveryProtocol vtable SETTER (the receiver
+        // setter converts the SwiftDictionary into the impl's invariant
+        // IReadOnlyDictionary<…, IReadOnlyDictionary<…>> param — CS0266 without the shared invariant-slot
+        // cast). Stripped otherwise because nothing referenced it before this test, so the conformance and
+        // its witness-table entry must survive stripping.
+        "MutableMarkerMapGridHolder",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

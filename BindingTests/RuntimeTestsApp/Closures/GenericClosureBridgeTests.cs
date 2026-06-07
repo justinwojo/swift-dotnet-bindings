@@ -111,27 +111,29 @@ public class GenericClosureBridgeTests : TestBase
     // layer by GenericClosureBridgeEmitterTests.TryEmit_UserParamNamedCdecl_* /
     // TryEmit_UserParamNamedUnderscoreSelf_* (assert `cdecl`→`__cdecl` and `_self`→`___self`
     // transitive renames in the generated Swift) plus the compile gate (the renamed wrappers
-    // compile — a collision would be an "invalid redeclaration" → stripped symbol). A *runtime*
-    // round-trip of these methods would be a nice extra proof, but the entire GenericClosureBridge
-    // runtime path is blocked by a pre-existing, orthogonal self-register ABI defect (logged in
-    // REMEDIATION-PLAN §6, out of Session 2's UCO/synthetic-name cluster): the generated C#
-    // P/Invoke passes the receiver via `SwiftSelf` (the Swift self/context register, CallConvSwift),
-    // but the Swift `@_silgen_name` *free-function* wrapper declares `_self`/`___self` as a regular
-    // trailing parameter and reads it from a normal GPR the C# side never set → garbage `self` →
-    // SIGABRT (mono GC-safe-region transition) / SIGSEGV on every call. This defect predates Session
-    // 2 (it reproduces on `read`, which has no synthetic-name collision at all, so the synthetic-name
-    // guard is not implicated) and affects only `DatabaseReader.read*`, which had no prior runtime
-    // coverage — nothing else regresses. The four tests below stay [Skip] until §6 lands; the SIGABRT
-    // fires *inside* the native call, meaning the P/Invoke resolved — itself implicit proof the
-    // renamed-synthetic wrappers compiled.
+    // compile — a collision would be an "invalid redeclaration" → stripped symbol). The four
+    // round-trip tests below are the *runtime* proof, unblocked once the two REMEDIATION-PLAN §6
+    // GenericClosureBridge defects were fixed:
+    //   (1) Self-register ABI: the Swift `@_silgen_name` wrapper is a *free function* that takes the
+    //       receiver as an ordinary trailing parameter (a regular GPR), but the C# P/Invoke declared
+    //       it `SwiftSelf self_` (pinned to the self register x20 under CallConvSwift) — the wrapper
+    //       read garbage from a GPR the C# side never set. Fixed by emitting the receiver as a plain
+    //       `IntPtr __self`, which lands in the regular-GPR slot the wrapper expects (the `$s…` entry
+    //       point keeps the call on CallConvSwift, so a throwing method's `out SwiftError` still maps
+    //       to the error register x21).
+    //   (2) Class-typed return: the result is written into a caller-owned `resultBuf` via
+    //       `MarshalToSwift` (an `InitializeWithCopy` that stores the object pointer *inside* the
+    //       buffer at +1), then read back. The old read passed the buffer *address* to
+    //       `MarshalFromSwift<T>`, so for a class `T` the wrapper's handle became the buffer address,
+    //       which the `finally` then freed → use-after-free on first member access. Fixed by reading
+    //       via `MarshalMovedValueFromSlot<T>`, which dereferences the slot for a true class, reads
+    //       bytes for POD, and copy-then-Destroys for non-POD structs — transferring the slot's +1.
 
     /// <summary>
     /// Baseline for the GenericClosureBridge void path (method-generic, noescape, throwing closure
     /// with a non-closure class param). Identity-forwards the param into the closure; its Name must
-    /// round-trip. Blocked by the §6 self-register ABI defect (garbage `self` → SIGABRT in the mono
-    /// GC-safe-region transition during the call). Unskip when §6 lands.
+    /// round-trip. Exercises the §6 self-register ABI fix (receiver passed as a regular-GPR IntPtr).
     /// </summary>
-    [Skip("REMEDIATION-PLAN §6: GenericClosureBridge passes the receiver via SwiftSelf (self register) but the @_silgen_name free-function wrapper reads _self as a regular GPR param → garbage self → SIGABRT. Pre-existing, affects all GenericClosureBridge runtime calls.")]
     public void TestGenericRead_RoundTrips()
     {
         using var source = new DatabaseReader("primary");
@@ -145,10 +147,9 @@ public class GenericClosureBridgeTests : TestBase
     /// <summary>
     /// P1-22 (C1): user param `cdecl` collides with the GenericClosureBridge synthetic func-ptr
     /// local (`let cdecl = unsafeBitCast(...)`), which the guard renames to `__cdecl` (asserted at
-    /// the emitter layer in GenericClosureBridgeEmitterTests). The runtime round-trip is blocked by
-    /// the §6 self-register ABI defect, not the guard. Unskip when §6 lands.
+    /// the emitter layer in GenericClosureBridgeEmitterTests). This is the runtime proof: the
+    /// renamed wrapper round-trips the user `cdecl` param through the closure.
     /// </summary>
-    [Skip("REMEDIATION-PLAN §6: GenericClosureBridge self-register ABI defect (SwiftSelf vs free-function _self GPR param) → garbage self → SIGABRT. Guard verified at emitter layer; runtime blocked.")]
     public void TestGenericCdeclParamCollision_RoundTrips()
     {
         using var source = new DatabaseReader("primary");
@@ -162,10 +163,10 @@ public class GenericClosureBridgeTests : TestBase
     /// <summary>
     /// P1-22 (C1): user param `_self` collides with the GenericClosureBridge synthetic self-pointer
     /// param, which the guard renames transitively to `___self` (asserted at the emitter layer in
-    /// GenericClosureBridgeEmitterTests). The runtime round-trip is blocked by the §6 self-register
-    /// ABI defect, not the guard. Unskip when §6 lands.
+    /// GenericClosureBridgeEmitterTests). This is the runtime proof: the renamed wrapper round-trips
+    /// the user `_self` param through the closure — and the receiver (now a regular-GPR `__self`)
+    /// coexists with the user param `_self` without collision.
     /// </summary>
-    [Skip("REMEDIATION-PLAN §6: GenericClosureBridge self-register ABI defect (SwiftSelf vs free-function _self GPR param) → garbage self → SIGABRT. Guard verified at emitter layer; runtime blocked.")]
     public void TestGenericSelfParamCollision_RoundTrips()
     {
         using var source = new DatabaseReader("primary");
@@ -177,23 +178,18 @@ public class GenericClosureBridgeTests : TestBase
     }
 
     /// <summary>
-    /// REMEDIATION-PLAN §6 (out of Session 2's UCO/synthetic-name cluster): the GenericClosureBridge
-    /// generic-RETURN overload (<c>Read&lt;T&gt;(Func&lt;…,T&gt;, …)</c>) carries a *second*,
-    /// independent defect on top of the self-register ABI one — it marshals a class-typed result
-    /// incorrectly. The C# emission writes the closure result into a caller-owned <c>resultBuf</c>
-    /// via <c>MarshalToSwift</c> (an <c>InitializeWithCopy</c> that stores the object pointer *inside*
-    /// the buffer), then reads it back with <c>MarshalFromSwift&lt;T&gt;(new IntPtr(resultBuf))</c>.
-    /// For a class <c>T</c>, <c>MarshalFromSwift</c> hands its argument straight to
-    /// <c>NewFromPayload</c> as the object pointer — so the returned wrapper's handle becomes the
-    /// <c>resultBuf</c> *address*, which the method's <c>finally</c> then frees; the first member
-    /// access dereferences freed memory. The correct read must dereference the buffer for a class
-    /// (and copy for value-type / existential / SwiftString), which the internal
-    /// <c>MarshalMovedValueFromSlot&lt;T&gt;</c> already does — exposing that shape to generated code
-    /// is new public runtime surface with its own cross-shape test matrix, hence §6 not Session 2.
-    /// Unskip when both §6 defects land.
+    /// The GenericClosureBridge generic-RETURN overload (<c>Read&lt;T&gt;(Func&lt;…,T&gt;, …)</c>)
+    /// with a class-typed <c>T</c>. The closure result is written into a caller-owned
+    /// <c>resultBuf</c> via <c>MarshalToSwift</c> (an <c>InitializeWithCopy</c> that stores the
+    /// object pointer *inside* the buffer at +1); the read-back goes through
+    /// <c>MarshalMovedValueFromSlot&lt;T&gt;</c>, which dereferences the slot for a true class (the
+    /// buffer *contains* the object pointer, it is not itself the instance) and transfers the +1 to
+    /// the returned wrapper. Regression guard for the §6 class-return buffer-deref fix: the old
+    /// <c>MarshalFromSwift&lt;T&gt;(new IntPtr(resultBuf))</c> handed the buffer *address* to
+    /// <c>NewFromPayload</c>, so the wrapper's handle became the buffer address — freed by the
+    /// method's <c>finally</c> → use-after-free on the first member access.
     /// </summary>
-    [Skip("REMEDIATION-PLAN §6: GenericClosureBridge has two independent defects — (1) self-register ABI mismatch (SwiftSelf vs free-function _self GPR param) blocking all calls, and (2) generic class-typed return marshals the result-buffer address via MarshalFromSwift<T> instead of dereferencing it. Both need fixing before this round-trips.")]
-    public void TestGenericRead_ClassReturn_SkipPendingBufferDerefFix()
+    public void TestGenericRead_ClassReturn_RoundTrips()
     {
         using var source = new DatabaseReader("primary");
         using var reader = new DatabaseReader("outer");

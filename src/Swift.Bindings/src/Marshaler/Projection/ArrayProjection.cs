@@ -215,14 +215,12 @@ public class ArrayProjection : ITypeProjection
     /// Existential elements therefore use the owning <c>new Proxy(e, ownsContainer: true)</c> form;
     /// every other element — and the shared <see cref="GetReturnElementConversion"/>, which is also
     /// reused for borrowed receiver-callback parameter reads — keeps the non-owning +0 form.
-    /// Mirrors OptionalProjection.GetReturnPlan's existential-inner branch. (Nested existential
-    /// collections, e.g. <c>[[any P]]</c>, still project non-owning — a pre-existing deeper gap,
-    /// not a regression introduced here.)
+    /// Mirrors OptionalProjection.GetReturnPlan's existential-inner branch. Nested existential
+    /// collections (e.g. <c>[[any P]]</c>) recurse through <see cref="GetOwnedReturnElementConversion"/>
+    /// so the owning adoption threads down to the existential leaf inside the inner container.
     /// </summary>
     private string? OwnedReturnElementConversion(string elementVar)
-        => _elementProjection is ExistentialProjection existElem
-            ? existElem.GetOwnedReturnElementConversion(elementVar)
-            : _elementProjection.GetReturnElementConversion(elementVar);
+        => _elementProjection.GetOwnedReturnElementConversion(elementVar);
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
@@ -313,6 +311,23 @@ public class ArrayProjection : ITypeProjection
         }
 
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
+        var selector = elemConversion != null ? $"e => {elemConversion}" : "e => e";
+        return $"{elementVar}.AsProjected({selector})";
+    }
+
+    /// <summary>
+    /// Owned-return element conversion for when this Array is itself an element of an OWNED outer
+    /// container (e.g. the inner array of <c>[[any P]]</c>). Mirrors <see cref="GetReturnElementConversion"/>
+    /// but threads the OWNED inner selector (<see cref="OwnedReturnElementConversion"/>) so an
+    /// existential leaf nested under this array adopts its moved +1 instead of leaking it. ObjC-bridged
+    /// elements carry no existential move-out +1 to adopt, so they keep the non-owning form.
+    /// </summary>
+    public string? GetOwnedReturnElementConversion(string elementVar)
+    {
+        if (UsesObjCContainerBridge)
+            return GetReturnElementConversion(elementVar);
+
+        var elemConversion = OwnedReturnElementConversion("e");
         var selector = elemConversion != null ? $"e => {elemConversion}" : "e => e";
         return $"{elementVar}.AsProjected({selector})";
     }

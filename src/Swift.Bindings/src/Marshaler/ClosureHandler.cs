@@ -1855,6 +1855,28 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Builds the borrowed-marshal expression for a closure/callback argument received from Swift
+    /// (the Swift side hands it over with <c>passUnretained</c>, i.e. +0).
+    /// <para>
+    /// Reference (class) types route through <see cref="Swift.Runtime.InteropServices.SwiftMarshal.MarshalBorrowedClassFromSwift{T}"/>,
+    /// which takes a real <c>+1</c> (<c>Arc.UnknownObjectRetain</c>) and builds an <b>owning</b> wrapper, so an explicit
+    /// <c>Dispose</c> in the user's callback body — and the wrapper's SafeHandle finalizer — both balance that retain.
+    /// The older <c>MarshalBorrowedFromSwift</c> SuppressFinalize-only path over-releases the borrowed <c>+0</c> handle when the
+    /// wrapper is finalized on NativeAOT, where its reflection-based <c>Payload</c> finalizer suppression is trimmed away
+    /// for app-assembly types — a use-after-free of the borrowed object (device GenericClosureBridge crash / audit P1-02).
+    /// </para>
+    /// Non-class types (read-and-discard <c>SwiftString</c>/<c>Data</c>, value wrappers, ObjC-bridged) keep the borrowed path;
+    /// they are never surfaced to the user for <c>Dispose</c> and have no ARC <c>+1</c> to over-release.
+    /// </summary>
+    /// <param name="argType">The Swift type of the closure argument.</param>
+    /// <param name="csType">The resolved C# wrapper type name.</param>
+    /// <param name="ptrExpr">The expression yielding the borrowed pointer (e.g. <c>args[0]</c>, <c>__p1</c>).</param>
+    public string BorrowedCallbackArgMarshal(TypeSpec argType, string csType, string ptrExpr)
+        => IsClassType(argType)
+            ? $"SwiftMarshal.MarshalBorrowedClassFromSwift<{csType}>({ptrExpr})"
+            : $"SwiftMarshal.MarshalBorrowedFromSwift<{csType}>({ptrExpr})";
+
+    /// <summary>
     /// Checks if a type is a simple enum (no-payload) in the type database.
     /// Simple enums pass as their underlying integer type in closure callbacks.
     /// </summary>

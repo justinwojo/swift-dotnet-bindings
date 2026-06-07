@@ -254,10 +254,12 @@ public partial class ProtocolProxyEmitter
 
                 // String property: local MarshalFromSwift<SwiftString> uses Unsafe.Read which
                 // can't construct a managed SwiftString from raw Swift memory. Use runtime marshaller.
+                // Reference-backed collection wrappers (SwiftArray/SwiftDictionary/SwiftSet) hit the same
+                // Unsafe.Read-on-a-managed-ref hazard and route through GetReceiverRawMaterialization.
                 var marshalExpr = classCopyOut
                     ?? (IsStringTypeSpec(property.SwiftTypeSpec)
                         ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
-                        : $"MarshalFromSwift<{abiTypeName}>(valuePtr)");
+                        : GetReceiverRawMaterialization(abiTypeName, "valuePtr", property.SwiftTypeSpec));
 
                 var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
                 if (setterSiblings == null || setterSiblings.Count == 0)
@@ -694,7 +696,7 @@ public partial class ProtocolProxyEmitter
                     else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string indexClassCopyOut)
                         writer.WriteLine($"var index{i} = {indexClassCopyOut};");
                     else
-                        writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
+                        writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
                 }
 
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
@@ -781,12 +783,12 @@ public partial class ProtocolProxyEmitter
                     var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
                     if (subscriptSetterConv != null)
                     {
-                        writer.WriteLine($"var rawValue = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                        writer.WriteLine($"var rawValue = {GetReceiverRawMaterialization(returnTypeName, "valuePtr", subscript.ReturnTypeSpec)};");
                         writer.WriteLine($"var value = {subscriptSetterConv};");
                     }
                     else
                     {
-                        writer.WriteLine($"var value = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                        writer.WriteLine($"var value = {GetReceiverRawMaterialization(returnTypeName, "valuePtr", subscript.ReturnTypeSpec)};");
                     }
                 }
 
@@ -802,7 +804,7 @@ public partial class ProtocolProxyEmitter
                     else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string setterIndexClassCopyOut)
                         writer.WriteLine($"var index{i} = {setterIndexClassCopyOut};");
                     else
-                        writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
+                        writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
                 }
 
                 var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
@@ -999,9 +1001,15 @@ public partial class ProtocolProxyEmitter
         // marshals via MarshalToSwiftBuffer<T>(...). When a return conversion is present
         // the carrier is e.g. SwiftOptional<bool> (8 bytes) — using `Unsafe.SizeOf<bool?>`
         // (2 bytes) here would hand Swift a too-small buffer and corrupt the boundary.
-        bool isStringMethodReturnForNullPath = hasReturn && !method.IsAsync && IsStringTypeSpec(returnType!);
+        // Async receivers run the SYNC-ABI witness slot: the Swift witness reads the unwrapped
+        // value T, and the success path blocks the Task to produce T (see asyncResultUnwrap below).
+        // So size the dead-impl null buffer by the SAME unwrapped-T carrier the success path
+        // marshals — async is treated exactly like sync here, not special-cased to skip the
+        // conversion sizing (which would desync the null buffer from the success carrier for an
+        // existential/ObjC async return, the invariant Codex P1 #1 guards).
+        bool isStringMethodReturnForNullPath = hasReturn && IsStringTypeSpec(returnType!);
         string? methodReturnConvForSizing = null;
-        if (hasReturn && !method.IsAsync)
+        if (hasReturn)
         {
             methodReturnConvForSizing = GetReceiverExistentialGetterConversion("result", returnType!)
                 ?? GetReceiverGetterConversion("result", returnType!);
@@ -1120,7 +1128,7 @@ public partial class ProtocolProxyEmitter
             // implement IDictionary, so we must use .ToDictionary() for eager materialization.
             else if (GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec) is string receiverDictConversion)
             {
-                writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                writer.WriteLine($"var {rawArgName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
                 writer.WriteLine($"var {argName} = {receiverDictConversion};");
             }
             else
@@ -1128,12 +1136,12 @@ public partial class ProtocolProxyEmitter
                 var setterConversion = GetReceiverSetterConversion(rawArgName, param.SwiftTypeSpec);
                 if (setterConversion != null)
                 {
-                    writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                    writer.WriteLine($"var {rawArgName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
                     writer.WriteLine($"var {argName} = {setterConversion};");
                 }
                 else
                 {
-                    writer.WriteLine($"var {argName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                    writer.WriteLine($"var {argName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
                 }
             }
             argNames.Add(argName);
@@ -1161,18 +1169,32 @@ public partial class ProtocolProxyEmitter
 
         // Return-conversion metadata is emitter-side (not generated output); compute it once so the
         // eager-impl path and every sibling-fallback lookup block share the identical conversion.
-        // String returns use Utf8Slice encoding to avoid ARC issues with SwiftString (skip async —
-        // their C# return is Task<string>, not string). The existential→getter fallback covers
-        // ObjC-bridgeable, Date, NativeRemapped, etc.; without it a return of e.g. Foundation.NSUrl
-        // would write a managed reference via MarshalToSwiftBuffer instead of extracting the .Handle
-        // ObjC pointer Swift expects (also skipped for async: the C# return is Task<T>, not T).
-        bool isStringMethodReturn = hasReturn && !method.IsAsync && IsStringTypeSpec(returnType!);
+        // String returns use Utf8Slice encoding to avoid ARC issues with SwiftString. The
+        // existential→getter fallback covers ObjC-bridgeable, Date, NativeRemapped, etc.; without
+        // it a return of e.g. Foundation.NSUrl would write a managed reference via
+        // MarshalToSwiftBuffer instead of extracting the .Handle ObjC pointer Swift expects.
+        // Async receivers satisfy the async requirement through the sync-ABI witness slot: the impl
+        // call below blocks the Task (asyncResultUnwrap) so `result` is the unwrapped T, and these
+        // T-shaped conversions then apply exactly as for a sync return. (Earlier this path skipped
+        // the conversions for async because `result` was a Task<T>; the unwrap makes that
+        // special-casing wrong — Swift reads T, so a String/ObjC async return MUST be converted.)
+        bool isStringMethodReturn = hasReturn && IsStringTypeSpec(returnType!);
         string? returnConv = null;
         if (hasReturn && !isStringMethodReturn)
         {
             returnConv = GetReceiverExistentialGetterConversion("result", returnType!)
-                ?? (method.IsAsync ? null : GetReceiverGetterConversion("result", returnType!));
+                ?? GetReceiverGetterConversion("result", returnType!);
         }
+
+        // Async protocol requirements are satisfied via the SYNC-ABI witness slot (the async witness
+        // ABI hits the Mono reverse-async assertion, Issue 1), so the C# impl returns Task<T> (or
+        // Task) while the Swift witness reads the unwrapped T (or void). Block on the Task so the
+        // sync witness body marshals T, not the Task object — without this the receiver would
+        // MarshalToSwiftBuffer(Task<T>) and silently corrupt the return ABI. Mirrors the
+        // forward-closure async-bridge idiom (Func<Task<T>> → .GetAwaiter().GetResult()). UCO
+        // receivers carry no SynchronizationContext, so blocking cannot self-deadlock. Async is
+        // gated out of the sibling-fallback path above, so the unwrap is only needed below.
+        string asyncResultUnwrap = method.IsAsync ? ".GetAwaiter().GetResult()" : string.Empty;
 
         if (useMethodSiblingFallback)
         {
@@ -1198,7 +1220,7 @@ public partial class ProtocolProxyEmitter
         }
         else if (hasReturn)
         {
-            writer.WriteLine($"var result = impl.{pascalMethodName}({argsString});");
+            writer.WriteLine($"var result = impl.{pascalMethodName}({argsString}){asyncResultUnwrap};");
             if (isStringMethodReturn)
             {
                 writer.WriteLine("return MarshalStringToUtf8Slice(result);");
@@ -1215,7 +1237,7 @@ public partial class ProtocolProxyEmitter
         }
         else
         {
-            writer.WriteLine($"impl.{pascalMethodName}({argsString});");
+            writer.WriteLine($"impl.{pascalMethodName}({argsString}){asyncResultUnwrap};");
         }
 
         EmitUcoGuardCloseFailFast(writer);
@@ -1458,6 +1480,45 @@ public partial class ProtocolProxyEmitter
     /// their existing <c>MarshalFromSwift&lt;IntPtr&gt;</c> + GetNSObject path. Returns the full RHS marshal
     /// expression, or <c>null</c> for any non-class param (caller keeps its own path).
     /// </summary>
+    /// <summary>
+    /// Raw materialization of a reverse-dispatch receiver parameter/value from its borrowed Swift slot.
+    /// Reference-backed <c>ISwiftObject</c> collection wrappers (<c>SwiftArray</c>/<c>SwiftDictionary</c>/
+    /// <c>SwiftSet</c>) arrive as the address of a borrowed value slot holding the storage pointer; the
+    /// proxy-local <c>MarshalFromSwift&lt;T&gt;</c> (<c>Unsafe.Read&lt;T&gt;</c>) would reinterpret that
+    /// storage pointer as a managed reference → garbage ref → NullReferenceException /
+    /// <c>swift_abortRetainOverflow</c> SIGABRT. Materialize those via the runtime helper
+    /// (<c>NewFromPayload</c> → <c>InitializeWithCopy</c>, a +1 owned copy of the borrowed slot whose
+    /// finalizer rebalances the retain), exactly as the string param/value path and the forward return
+    /// path already do. Blittable values and value-type existential containers keep the local
+    /// <c>Unsafe.Read</c> fast path (<c>Unsafe.Read</c> is correct for value types).
+    /// </summary>
+    private string GetReceiverRawMaterialization(string abiTypeName, string slotExpr, TypeSpec? typeSpec)
+    {
+        if (ReceiverParamNeedsObjectMarshal(typeSpec))
+            return $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<{abiTypeName}>({slotExpr})";
+        return $"MarshalFromSwift<{abiTypeName}>({slotExpr})";
+    }
+
+    /// <summary>
+    /// True when a receiver parameter's ABI carrier is a reference-backed <c>ISwiftObject</c> collection
+    /// wrapper (<c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>) that must be materialized through
+    /// <c>NewFromPayload</c> rather than <c>Unsafe.Read</c>. The top-level projection KIND is the reliable
+    /// discriminator (strings are already special-cased upstream; classes go through the copy-out helper).
+    /// </summary>
+    private bool ReceiverParamNeedsObjectMarshal(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null) return false;
+        var projection = s_projectionFactory.Project(typeSpec,
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
+        return projection switch
+        {
+            ArrayProjection => true,
+            DictionaryProjection => true,
+            SetProjection => true,
+            _ => false
+        };
+    }
+
     private string? GetReceiverClassCopyOutExpr(string slotExpr, TypeSpec? typeSpec)
     {
         if (typeSpec == null) return null;
@@ -1533,13 +1594,12 @@ public partial class ProtocolProxyEmitter
         var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
         var valConv = dict.ValueProjection.GetReturnElementConversion("v");
         if (keyConv == null && valConv == null) return null;
-        if (keyConv != null)
-        {
-            var reverseKeyConv = dict.KeyProjection.GetParameterElementConversion("k") ?? "k";
-            var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
-            return $"{varName}.AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
-        }
-        return $"{varName}.AsProjected(v => {valConv})";
+        // Reuse DictionaryProjection.BuildAsProjected so the invariant value-slot cast (CastValueSelectorBody)
+        // is applied identically here: a settable [String: [String: any P]] property feeds the converted
+        // value into an IReadOnlyDictionary<…, IReadOnlyDictionary<…>> setter param whose value slot is
+        // invariant, so a bare concrete-donor inner selector body would be CS0266 (same hazard the forward
+        // return path solved). For non-container values BuildAsProjected emits the exact prior shape unchanged.
+        return $"{varName}{dict.BuildAsProjected(keyConv, valConv)}";
     }
 
     private string? GetReceiverOptionalSetterConversion(OptionalProjection opt, string varName)

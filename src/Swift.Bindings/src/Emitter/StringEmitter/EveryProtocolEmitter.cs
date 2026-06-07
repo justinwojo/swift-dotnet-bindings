@@ -1372,6 +1372,11 @@ public class EveryProtocolEmitter
         // Emit method implementations
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        // Tracks emitted EveryProtocol witness-body signatures (async-omitted full signatures)
+        // so each rendered Swift `func` body appears at most once per extension. Distinct from
+        // methodIndices, which is async-SENSITIVE and allocates a separate vtable slot per
+        // effect-overloaded requirement. See the intra-protocol effect-overload guard below.
+        var emittedBodySignatures = new HashSet<string>();
         var protoQNameForMethods = GetProtocolFallbackKey(protocolDecl);
         foreach (var method in protocolDecl.Methods)
         {
@@ -1427,8 +1432,24 @@ public class EveryProtocolEmitter
                 continue;
             }
 
-            // Only emit method implementation for new methods (not within-protocol duplicates)
-            if (isNewMethod)
+            // Only emit method implementation for new methods (not within-protocol duplicates).
+            //
+            // Intra-protocol effect-overload guard (audit §6 #12): a single protocol may declare
+            // BOTH a sync and an async method sharing name + parameter types + return type — Swift
+            // effectful overloading produces two DISTINCT witness-table requirements. The slot key
+            // (GetMethodKey) is async-sensitive, so each gets its OWN vtable slot and `isNewMethod`
+            // is true for both. But the EveryProtocol witness BODY rendered for each is the
+            // IDENTICAL sync-shaped `func m(...) -> T`: EmitMethodImplementation suppresses the
+            // `async` keyword on the pure-Swift carrier path (a sync witness satisfies an async
+            // requirement), so emitting both bodies is an invalid Swift redeclaration. Gate the body
+            // on the async-omitted full signature (== the rendered witness signature) so it emits at
+            // most ONCE per protocol; the single sync body's sibling fan-out already covers both
+            // slots. The async slot still exists for the C# interface/proxy layout — only its
+            // duplicate Swift body is suppressed. This is a no-op for every other shape: a
+            // return-type-only same-protocol conflict already has `isNewMethod == false` for the
+            // second method (return-insensitive GetMethodKey), and genuine overloads have distinct
+            // full signatures, so HashSet.Add returns true.
+            if (isNewMethod && emittedBodySignatures.Add(fullSignature))
             {
                 // Closure methods on the dispatch surface get a real implementation that
                 // extracts (fnPtr, ctx) and forwards to C# through the expanded cdecl
@@ -5160,8 +5181,14 @@ public class EveryProtocolEmitter
         //   pageViewController(_:viewControllerBeforeViewController:)
         //   pageViewController(_:viewControllerAfterViewController:)
         // which have the same name and parameter types but different labels.
+        // The async effect is part of the key: `func m()` and `func m() async` are distinct Swift
+        // witness-table requirements occupying separate vtable slots, so this builder (which the
+        // EveryProtocol wrapper's methodIndices, extension-body loop, and dispatch enumerator all
+        // key off) must allocate the async overload its own slot rather than aliasing it onto the
+        // sync one — matching ProtocolSignatureHelper.GetMethodSignatureKey's default.
+        var asyncSuffix = method.IsAsync ? ":async" : "";
         return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p =>
-            (p.GetSwiftName() ?? p.Name) + ":" + (p.SwiftTypeSpec?.ToString() ?? ""))) + ")";
+            (p.GetSwiftName() ?? p.Name) + ":" + (p.SwiftTypeSpec?.ToString() ?? ""))) + ")" + asyncSuffix;
     }
 
     private static string GetSubscriptKey(SubscriptDecl subscript, int index)

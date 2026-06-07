@@ -1572,9 +1572,11 @@ public static class MethodClosureBridge
                  env.TypeDatabase.TryGetTypeRecord(innerClassSpec, out var innerClassRec))
         {
             // Optional<Class/ObjC> — Swift passed nil as IntPtr.Zero; non-nil is a borrowed ref.
-            // MarshalBorrowedFromSwift suppresses the finalizer (caller owns lifetime).
+            // A class inner takes an owning +1 so an explicit Dispose in the callback body balances
+            // it; ObjC/value inners keep the borrowed path. See BorrowedCallbackArgMarshal.
             var innerCs = innerClassRec.CSharpTypeName.FullyQualifiedName;
-            csWriter.WriteLine($"{csharpType} __a{index} = __p{index} == IntPtr.Zero ? null : SwiftMarshal.MarshalBorrowedFromSwift<{innerCs}>(__p{index});");
+            var optBorrow = env.ClosureHandler.BorrowedCallbackArgMarshal(innerClassSpec, innerCs, $"__p{index}");
+            csWriter.WriteLine($"{csharpType} __a{index} = __p{index} == IntPtr.Zero ? null : {optBorrow};");
         }
         else if (env.ClosureHandler.IsComplexEnum(argType))
         {
@@ -1588,10 +1590,11 @@ public static class MethodClosureBridge
         }
         else
         {
-            // Bound generics / classes come as IntPtr — marshal via MarshalBorrowedFromSwift.
-            // Callback parameters are borrowed references from Swift (the caller owns them).
-            // MarshalBorrowedFromSwift suppresses the finalizer to prevent double-release.
-            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalBorrowedFromSwift<{csharpType}>(__p{index});");
+            // Bound generics / classes come as IntPtr. Callback params are borrowed references from
+            // Swift (the caller owns them). A class arg takes an owning +1 so an explicit Dispose in
+            // the callback body — and the wrapper finalizer — both balance it; bound-generic value
+            // wrappers keep the borrowed path. See BorrowedCallbackArgMarshal.
+            csWriter.WriteLine($"var __a{index} = {env.ClosureHandler.BorrowedCallbackArgMarshal(argType, csharpType, $"__p{index}")};");
         }
     }
 

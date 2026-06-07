@@ -244,6 +244,215 @@ public class ComplexProjectionTests
 
     #endregion
 
+    #region §6 #6 — Nested existential collection owned-return
+
+    // An owned existential return (read out of an sret/out buffer that is then raw-freed) must adopt
+    // Swift's moved +1 so the proxy releases on Dispose — `ownsContainer: true`. Before the fix, the
+    // owned path on Array/Set/Dictionary recursed into the element only when the element was DIRECTLY an
+    // ExistentialProjection; a NESTED container element ([[any P]], [Set<any P>], …) fell through to the
+    // shared non-owning GetReturnElementConversion, so the inner existential leaked its moved +1. The fix
+    // adds GetOwnedReturnElementConversion to every container so the owned selector recurses all the way
+    // down. These tests pin: (a) the nested owned path stamps ownsContainer:true on the leaf, and (b) the
+    // shared non-owning path stays borrowed (no over-release of borrowed receiver reads).
+
+    private static ExistentialProjection DescribableExistential()
+        => new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
+
+    [Fact]
+    public void NestedOwnedReturn_ArrayOfExistential_StampsOwnsContainer()
+    {
+        // [any P] : the single-level owned element conversion wraps each proxy as owned.
+        var proj = new ArrayProjection(DescribableExistential(), isParameter: false);
+        var owned = proj.GetOwnedReturnElementConversion("e");
+
+        Assert.Contains("AsProjected", owned);
+        Assert.Contains("new DescribableProxy(e, ownsContainer: true)", owned);
+    }
+
+    [Fact]
+    public void NestedOwnedReturn_ArrayOfArrayOfExistential_InnerLeafOwns()
+    {
+        // [[any P]] : the OUTER owned element conversion must recurse through the inner array's OWNED
+        // conversion so the existential leaf two levels down still adopts its +1. This is the exact
+        // regression: pre-fix the inner array fell to the non-owning path and dropped ownsContainer.
+        var inner = new ArrayProjection(DescribableExistential(), isParameter: false);
+        var outer = new ArrayProjection(inner, isParameter: false);
+        var owned = outer.GetOwnedReturnElementConversion("e");
+
+        Assert.NotNull(owned);
+        Assert.Contains("new DescribableProxy(e, ownsContainer: true)", owned);
+        // Doubly nested: an AsProjected inside an AsProjected.
+        Assert.Equal(2, CountOccurrences(owned, "AsProjected"));
+    }
+
+    [Fact]
+    public void NestedOwnedReturn_ArrayOfArrayOfExistential_SharedPathStaysBorrowed()
+    {
+        // The shared non-owning GetReturnElementConversion (used for borrowed receiver-callback wraps,
+        // +0 guaranteed) must NOT adopt — otherwise a borrowed nested read over-releases.
+        var inner = new ArrayProjection(DescribableExistential(), isParameter: false);
+        var outer = new ArrayProjection(inner, isParameter: false);
+        var borrowed = outer.GetReturnElementConversion("e");
+
+        Assert.DoesNotContain("ownsContainer: true", borrowed);
+        Assert.Contains("new DescribableProxy(e)", borrowed);
+    }
+
+    [Fact]
+    public void NestedOwnedReturn_SetOfExistential_StampsOwnsContainer()
+    {
+        // Set<any P> : owned element conversion materializes via ToHashSet with the owned leaf wrap.
+        var proj = new SetProjection(DescribableExistential(), isParameter: false);
+        var owned = proj.GetOwnedReturnElementConversion("e");
+
+        Assert.Contains("ToHashSet()", owned);
+        Assert.Contains("new DescribableProxy(e, ownsContainer: true)", owned);
+    }
+
+    [Fact]
+    public void NestedOwnedReturn_ArrayOfSetOfExistential_InnerLeafOwns()
+    {
+        // [Set<any P>] : cross-container recursion — the array's owned path threads the set's owned path,
+        // which threads the existential's owned leaf.
+        var innerSet = new SetProjection(DescribableExistential(), isParameter: false);
+        var outer = new ArrayProjection(innerSet, isParameter: false);
+        var owned = outer.GetOwnedReturnElementConversion("e");
+
+        Assert.Contains("ToHashSet()", owned);
+        Assert.Contains("new DescribableProxy(e, ownsContainer: true)", owned);
+    }
+
+    [Fact]
+    public void NestedOwnedReturn_DictionaryValueExistential_StampsOwnsContainer()
+    {
+        // [K: any P] : the value projection's owned leaf wrap must thread through ToDictionary.
+        var dict = new DictionaryProjection(new BlittableProjection("Int64"), DescribableExistential(), isParameter: false);
+        var owned = dict.GetOwnedReturnElementConversion("e");
+
+        Assert.Contains(".ToDictionary(", owned);
+        Assert.Contains("new DescribableProxy(kvp.Value, ownsContainer: true)", owned);
+    }
+
+    [Fact]
+    public void NestedReturn_DictionaryWithExistentialValue_ElementConversion_IsUniversalDonorConcreteDictionary()
+    {
+        // FirebaseFirestore [[String: any P]] reverse-dispatch regression. The dictionary element
+        // conversion MUST stay a CONCRETE Dictionary<,> (no leading IReadOnlyDictionary cast): the
+        // concrete type is the universal donor, assignable to BOTH IReadOnlyDictionary (covariant /
+        // forward-return consumers) AND IDictionary (a receiver param whose impl takes
+        // IEnumerable<IDictionary>). A leading (IReadOnlyDictionary) cast breaks the receiver path
+        // with CS1503. Per-leaf public-type casts remain (existential value → IDescribable).
+        var innerDict = new DictionaryProjection(new StringProjection(), DescribableExistential(), isParameter: false);
+        var conv = innerDict.GetReturnElementConversion("e");
+
+        Assert.NotNull(conv);
+        Assert.StartsWith("e.ToDictionary(", conv);
+        // No leading interface cast on the dictionary itself — it must remain the concrete donor.
+        Assert.False(conv!.StartsWith("(", System.StringComparison.Ordinal));
+        // The existential value is still cast to its public interface inside the selector.
+        Assert.Contains("(IDescribable)", conv);
+    }
+
+    [Fact]
+    public void NestedOwnedReturn_DictionaryWithExistentialValue_OwnedElementConversion_IsUniversalDonorConcreteDictionary()
+    {
+        // The owned-return element path (used when this dictionary is itself an element of an OWNED
+        // outer container) stays the same concrete universal donor as the borrowed path above — no
+        // leading IReadOnlyDictionary cast — while still adopting the existential leaf's moved +1.
+        var innerDict = new DictionaryProjection(new StringProjection(), DescribableExistential(), isParameter: false);
+        var conv = innerDict.GetOwnedReturnElementConversion("e");
+
+        Assert.NotNull(conv);
+        Assert.StartsWith("e.ToDictionary(", conv);
+        Assert.False(conv!.StartsWith("(", System.StringComparison.Ordinal));
+        Assert.Contains("new DescribableProxy(kvp.Value, ownsContainer: true)", conv);
+    }
+
+    [Fact]
+    public void TopLevelReturn_DictionaryOfDictionary_AsProjectedValueSelector_CastsToReadOnlyInterface()
+    {
+        // ObjectMapper [String: [String: any P]] return: the invariant-slot cast that used to live on
+        // the inner element conversion is now applied by the OUTER dictionary's AsProjected value
+        // selector. The outer value slot (IReadOnlyDictionary<string, IReadOnlyDictionary<...>>) is
+        // INVARIANT, so the concrete inner Dictionary produced by ToDictionary must be cast to its
+        // IReadOnlyDictionary PublicType in the selector or AsProjected infers the wrong TResult (CS0266).
+        var outerDict = new DictionaryProjection(
+            new StringProjection(),
+            new DictionaryProjection(new StringProjection(), DescribableExistential(), isParameter: false),
+            isParameter: false);
+        var plan = outerDict.GetReturnPlan("__res", ReturnStrategy.IndirectResult);
+
+        Assert.Contains(".AsProjected(", plan.PInvokeExpression);
+        // The value selector wraps the inner concrete dictionary in its read-only interface type.
+        Assert.Contains("(IReadOnlyDictionary<string, IDescribable>)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void TopLevelReturn_DictionaryOfArrayOfDictionary_AsProjectedValueSelector_CastsToReadOnlyListInterface()
+    {
+        // The exact ObjectMapper [String: [[String: any P]]] return regression. The outer dictionary value
+        // is an ARRAY of dictionaries. The array element conversion yields IReadOnlyList<concrete Dictionary>
+        // (covariance absorbs the concrete inner dict for the array itself), but the OUTER dictionary value
+        // slot is INVARIANT, so the array value must be cast to its EXACT IReadOnlyList<IReadOnlyDictionary<…>>
+        // public type in the selector or AsProjected infers IReadOnlyList<Dictionary<…>> and the invariant
+        // outer dictionary rejects it with CS0266. The cast is legal via the covariant IReadOnlyList<out T>.
+        var outerDict = new DictionaryProjection(
+            new StringProjection(),
+            new ArrayProjection(
+                new DictionaryProjection(new StringProjection(), DescribableExistential(), isParameter: false),
+                isParameter: false),
+            isParameter: false);
+        var plan = outerDict.GetReturnPlan("__res", ReturnStrategy.IndirectResult);
+
+        Assert.Contains(".AsProjected(", plan.PInvokeExpression);
+        // The value selector wraps the inner array (of concrete dictionaries) in its declared read-only
+        // list-of-read-only-dictionary public type.
+        Assert.Contains("(IReadOnlyList<IReadOnlyDictionary<string, IDescribable>>)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void NestedReturn_ArrayOfDictionary_ElementConversion_NoCastNeeded_Covariant()
+    {
+        // Asymmetry contrast: an Array element conversion does NOT prefix a PublicType cast — the
+        // outer IReadOnlyList<out T> is covariant, so a concrete inner Dictionary is absorbed. This
+        // pins the reason the Dictionary path needs the cast and the Array path must not grow one.
+        var arr = new ArrayProjection(
+            new DictionaryProjection(new StringProjection(), DescribableExistential(), isParameter: false),
+            isParameter: false);
+        var conv = arr.GetReturnElementConversion("e");
+
+        Assert.NotNull(conv);
+        // The array element conversion is the bare covariant AsProjected form — no leading
+        // (IReadOnlyList<...>) cast — unlike the invariant Dictionary path above.
+        Assert.StartsWith("e.AsProjected(", conv);
+        Assert.False(conv!.StartsWith("(", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NestedOwnedReturn_TopLevelReturnPlan_ArrayOfArrayOfExistential_OwnsInnerLeaf()
+    {
+        // The real emission site: a method returning [[any P]] builds its return plan from the OWNED
+        // element conversion, so the inner existential leaf is adopted (not leaked).
+        var inner = new ArrayProjection(DescribableExistential(), isParameter: false);
+        var outer = new ArrayProjection(inner, isParameter: false);
+        var plan = outer.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.Contains("new DescribableProxy(e, ownsContainer: true)", plan.PInvokeExpression);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0, i = 0;
+        while ((i = haystack.IndexOf(needle, i, System.StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            i += needle.Length;
+        }
+        return count;
+    }
+
+    #endregion
+
     #region ArrayProjection
 
     [Fact]

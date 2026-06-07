@@ -135,6 +135,112 @@ public class BoundGenericsHandlerTests
 
     #endregion
 
+    #region Nested Existential Container Admission Gate (audit L229 scoping)
+
+    // These pin IsContainerWithSupportedDirectExistential — the admission gate broadened by audit
+    // L229 to support nested existential CONTAINERS. The recursion must admit genuine nested
+    // Array/Dictionary leaves but MUST NOT descend into an Optional-wrapped existential element,
+    // which lowers to the same Array<Optional<existential>> ABI shape as a variadic
+    // ExpressibleByArrayLiteral init (GRDB.StatementArguments) that the @_cdecl wrapper cannot
+    // forward. Bare Any keeps these focused on the gate's container/Optional shape decisions
+    // (IsValidExistentialForContainer short-circuits on bare Any, so no TypeRecord setup is needed).
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ArrayOfArrayOfAny_Admitted()
+    {
+        // Array<Array<Any>> — genuine nested container leaf.
+        var spec = BuildArrayOf(BuildArrayOf(new ProtocolListTypeSpec()));
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ArrayOfDictionaryOfAny_Admitted()
+    {
+        // Array<Dictionary<String, Any>> — nested container in the array element.
+        var spec = BuildArrayOf(BuildDictOf(new NamedTypeSpec("Swift.String"), new ProtocolListTypeSpec()));
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_DictionaryValueArrayOfAny_Admitted()
+    {
+        // Dictionary<String, Array<Any>> — nested container in the VALUE slot.
+        var spec = BuildDictOf(new NamedTypeSpec("Swift.String"), BuildArrayOf(new ProtocolListTypeSpec()));
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_DictionaryValueDictionaryOfAny_Admitted()
+    {
+        // Dictionary<String, Dictionary<String, Any>> — ObjectMapper's [String:[String:any P]] shape.
+        var inner = BuildDictOf(new NamedTypeSpec("Swift.String"), new ProtocolListTypeSpec());
+        var spec = BuildDictOf(new NamedTypeSpec("Swift.String"), inner);
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ArrayOfOptionalOfAny_NotAdmitted()
+    {
+        // Array<Optional<Any>> — element is an Optional-wrapped existential, NOT a genuine nested
+        // Array/Dictionary leaf. Admitting it would route GRDB.StatementArguments'
+        // init(arrayLiteral:) variadic-lowered [any P?] through a normal constructor wrapper and
+        // emit an uncompilable @_cdecl call. Regression guard for the gate narrowing.
+        var spec = BuildArrayOf(BuildOptionalOf(new ProtocolListTypeSpec()));
+        Assert.False(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_DictionaryValueOptionalOfAny_NotAdmitted()
+    {
+        // Dictionary<String, Optional<Any>> — value is an Optional-wrapped existential, same
+        // exclusion as the Array case: not a genuine nested container leaf.
+        var spec = BuildDictOf(new NamedTypeSpec("Swift.String"), BuildOptionalOf(new ProtocolListTypeSpec()));
+        Assert.False(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_OptionalOuterOfArrayOfAny_StillAdmitted()
+    {
+        // Optional<Array<Any>> — the OUTER Optional branch is untouched by the gate narrowing; an
+        // Optional-wrapped supported container is still admitted. Only the element/value RECURSION
+        // is restricted, never the top-level Optional unwrap.
+        var spec = BuildOptionalOf(BuildArrayOf(new ProtocolListTypeSpec()));
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_DirectOptionalOfAny_StillAdmitted()
+    {
+        // Optional<Any> — direct existential in an Optional is a long-standing supported pattern;
+        // the gate narrowing does not touch it.
+        var spec = BuildOptionalOf(new ProtocolListTypeSpec());
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    private static NamedTypeSpec BuildArrayOf(TypeSpec element)
+    {
+        var arr = new NamedTypeSpec("Swift.Array");
+        arr.GenericParameters.Add(element);
+        return arr;
+    }
+
+    private static NamedTypeSpec BuildDictOf(TypeSpec key, TypeSpec value)
+    {
+        var dict = new NamedTypeSpec("Swift.Dictionary");
+        dict.GenericParameters.Add(key);
+        dict.GenericParameters.Add(value);
+        return dict;
+    }
+
+    private static NamedTypeSpec BuildOptionalOf(TypeSpec inner)
+    {
+        var opt = new NamedTypeSpec("Swift.Optional");
+        opt.GenericParameters.Add(inner);
+        return opt;
+    }
+
+    #endregion
+
     #region IsBoundGeneric Tests
 
     [Fact]

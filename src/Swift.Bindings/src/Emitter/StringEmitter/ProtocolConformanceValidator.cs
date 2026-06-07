@@ -811,13 +811,16 @@ public class ProtocolConformanceValidator
     /// </summary>
     private MethodDecl? FindMatchingMethod(TypeDecl type, MethodDecl protoMethod, ProtocolDecl protocolContext)
     {
-        var protoKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolContext);
+        // Concrete-conformance matching stays async-agnostic (includeAsyncEffect: false) to preserve
+        // the existing lenient witness matching — both sides of the comparison must opt out so a
+        // requirement and its witness key alike regardless of the async effect.
+        var protoKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolContext, includeAsyncEffect: false);
 
         foreach (var ancestor in GetEmittableAncestors(type))
         {
             var match = ancestor.Methods.FirstOrDefault(m =>
                 !m.IsConstructor && m.MethodType != MethodType.Static &&
-                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null) == protoKey);
+                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null, includeAsyncEffect: false) == protoKey);
             if (match != null)
                 return match;
         }
@@ -855,13 +858,14 @@ public class ProtocolConformanceValidator
     /// </summary>
     private MethodDecl? FindMatchingStaticMethod(TypeDecl type, MethodDecl protoMethod, ProtocolDecl protocolContext)
     {
-        var protoKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolContext);
+        // Async-agnostic concrete matching, same rationale as FindMatchingMethod — both sides opt out.
+        var protoKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolContext, includeAsyncEffect: false);
 
         foreach (var ancestor in GetEmittableAncestors(type))
         {
             var match = ancestor.Methods.FirstOrDefault(m =>
                 !m.IsConstructor && m.MethodType == MethodType.Static &&
-                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null) == protoKey);
+                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null, includeAsyncEffect: false) == protoKey);
             if (match != null)
                 return match;
         }

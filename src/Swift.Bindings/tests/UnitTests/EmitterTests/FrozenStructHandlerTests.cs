@@ -491,6 +491,223 @@ public class FrozenStructHandlerTests
 
     #endregion
 
+    #region §6 #5 — Sub-word Optional by-value layout mismatch (HasSubWordOptionalLayoutMismatch)
+
+    // A by-value frozen struct (NOT projected as a Buffer-backed class) emits each Optional<primitive>
+    // field as a whole 8-byte IntPtr word, but Swift packs sub-word optionals tighter. When that pushes
+    // a later field to a different byte offset than Swift's packed layout, a by-value cdecl pass reads
+    // the field from the wrong slot and corrupts it — so we must skip. The predicate simulates BOTH
+    // layouts field-by-field and fires ONLY on per-field START-OFFSET divergence (a count of sub-word
+    // optionals is neither necessary nor sufficient — confirmed independently by Codex + Grok).
+
+    [Fact]
+    public void SubWordOptionalMismatch_BoolOptThenInt32Opt_OffsetDiverges_Skips()
+    {
+        // Swift: Bool? @0(size1,a1), Int32? @4(size5,a4). C#: @0(word8), @8(word8). Second field
+        // offset 4≠8 → the classic divergence; a by-value pass would read Int32? from the wrong word.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("BoolThenInt32",
+            ("flag", OptionalOf("Swift.Bool")),
+            ("count", OptionalOf("Swift.Int32")));
+
+        Assert.True(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_IntOptThenInt32Opt_SecondOffsetDiverges_Skips()
+    {
+        // Swift: Int? @0(size9,a8), Int32? @12(size5,a4). C#: @0(word16), @16(word8). Second field
+        // offset 12≠16 → diverges even though Int? itself is whole-word (the sub-word Int32? is what packs).
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("IntThenInt32",
+            ("big", OptionalOf("Swift.Int")),
+            ("count", OptionalOf("Swift.Int32")));
+
+        Assert.True(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_NonOptionalInt32ThenBoolOpt_OffsetDiverges_Skips()
+    {
+        // Swift: Int32 @0(size4,a4), Bool? @4(size1,a1). C#: Int32 @0(size4), Bool? @8(word8). The
+        // trailing optional's C# 8-alignment pushes it to offset 8 vs Swift's 4 — a non-optional leading
+        // field does not make a following sub-word optional safe (Codex/Grok mixed-field witness).
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("Int32ThenBool",
+            ("count", new NamedTypeSpec("Swift.Int32")),
+            ("flag", OptionalOf("Swift.Bool")));
+
+        Assert.True(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void OverPaddedOptionalMismatch_Int64OptThenInt8_WholeWordValueOptional_Skips()
+    {
+        // Codex review repro. Int64? is a WHOLE-WORD value optional: Int64 uses every bit so Swift
+        // appends a separate tag byte → size 9, align 8. C# emits two IntPtr words = 16B. The following
+        // Int8 lands at Swift @9 but C# @16 → corrupting by-value divergence. The pre-fix gate
+        // (swiftAlign < IntPtr.Size) missed this because Int64? aligns to 8; the over-pad gate
+        // (csSize 16 != swiftSize 9) catches it.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("Int64OptThenInt8",
+            ("a", OptionalOf("Swift.Int64")),
+            ("b", new NamedTypeSpec("Swift.Int8")));
+
+        Assert.True(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void OverPaddedOptionalMismatch_DoubleOptThenInt8_WholeWordValueOptional_Skips()
+    {
+        // Double? is likewise tag-extended to 9B align8 (no extra inhabitants for the nil case), so a
+        // following Int8 diverges (Swift @9 vs C# @16) exactly like Int64?.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("DoubleOptThenInt8",
+            ("a", OptionalOf("Swift.Double")),
+            ("b", new NamedTypeSpec("Swift.Int8")));
+
+        Assert.True(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void OverPaddedOptionalMismatch_Int64OptThenInt64_EightAlignedFieldRepairs_NoSkip()
+    {
+        // Guard rail against over-firing: Int64? @0(size9→word16), then Int64 @ AlignUp(9,8)=16 (Swift)
+        // and AlignUp(16,8)=16 (C#) — the following field's own 8-alignment swallows the 9→16 over-pad,
+        // so offsets coincide and the struct lays out identically. Must NOT skip.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("Int64OptThenInt64",
+            ("a", OptionalOf("Swift.Int64")),
+            ("b", new NamedTypeSpec("Swift.Int64")));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_SingleInt32Opt_TailPaddingAbsorbs_NoSkip()
+    {
+        // Swift: Int32? @0(size5,a4,stride8). C#: @0(word8). Offsets AND stride both 0/8 — the extra 3
+        // C# bytes land in Swift's tail padding. A lone sub-word optional must NOT be skipped.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("SingleInt32",
+            ("count", OptionalOf("Swift.Int32")));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_TwoInt32Opt_OffsetsCoincide_NoSkip()
+    {
+        // Swift: Int32? @0, Int32? @8 (AlignUp(5,4)=8). C#: @0, @8. Every offset coincides — Swift's
+        // inter-field padding exactly equals the C# inflation, so a count-based "≥2 sub-word" rule would
+        // wrongly skip this. Offset-divergence predicate correctly passes it.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("TwoInt32",
+            ("a", OptionalOf("Swift.Int32")),
+            ("b", OptionalOf("Swift.Int32")));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_BoolOptThenIntOpt_LargeAlignRepairsGap_NoSkip()
+    {
+        // Swift: Bool? @0(size1), Int? @8 (AlignUp(1,8)=8). C#: @0, @8. The leading sub-word optional's
+        // slack is swallowed by the next field's 8-byte alignment gate on BOTH sides — offsets match.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("BoolThenInt",
+            ("flag", OptionalOf("Swift.Bool")),
+            ("big", OptionalOf("Swift.Int")));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_LoneBoolOpt_StrideOnlyDifference_NoSkip()
+    {
+        // Swift: Bool? @0(size1,stride1). C#: @0(word8,stride8). Offsets match (both 0); only the STRIDE
+        // differs (1 vs 8). By design we fire ONLY on offset divergence — a stride-only difference is
+        // absorbed by the ≤16-byte register classification + emitted Size= attribute, and skipping it
+        // would over-suppress correctly-passing single-optional structs.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("LoneBool",
+            ("flag", OptionalOf("Swift.Bool")));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_ProjectedAsClass_Excluded_NoSkip()
+    {
+        // The SAME diverging Bool?+Int32? field shape, but registered as a frozen-with-memory struct
+        // (RequiresMemoryManagement) → projected as a Buffer-backed class, pointer-passed as an opaque
+        // Buffer that Swift fills via accessors. It never lowers through a by-value ABI, so the by-value
+        // guard must NOT fire (that is HasIndeterminateBufferLayout's domain).
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("ClassProjected",
+            ("flag", OptionalOf("Swift.Bool")),
+            ("count", OptionalOf("Swift.Int32")));
+        db.AddOutOfModuleTypes(new[]
+        {
+            (s.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ClassProjected"),
+                SwiftTypeName = s.SwiftTypeName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_IndeterminateField_BailsConservatively_NoSkip()
+    {
+        // A sub-word optional FOLLOWED by a field whose layout is not precisely derivable (an unregistered
+        // nested value-struct typed field — neither optional nor a fixed-width primitive). The simulator
+        // cannot place the second field, so it bails (preserve existing behavior) rather than guess —
+        // even though a sub-word optional is present.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("WithOpaque",
+            ("flag", OptionalOf("Swift.Bool")),
+            ("inner", new NamedTypeSpec("TestModule.Inner")));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void SubWordOptionalMismatch_AllWholeWordPrimitives_NoSubWordParticipant_NoSkip()
+    {
+        // Int? + Int? : both whole-word (size9→word16, align8). No sub-word optional participates, so the
+        // gate rail (anySubWordOptional) keeps it from ever firing regardless of offsets.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithStoredFields("TwoInt",
+            ("a", OptionalOf("Swift.Int")),
+            ("b", OptionalOf("Swift.Int")));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    private static NamedTypeSpec OptionalOf(string innerSwiftName)
+        => new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(innerSwiftName));
+
+    private static StructDecl CreateFrozenStructWithStoredFields(
+        string name, params (string fieldName, TypeSpec spec)[] fields)
+    {
+        var s = CreateFrozenStructDecl(name);
+        foreach (var (fieldName, spec) in fields)
+        {
+            var prop = CreatePropertyDecl(fieldName, "Swift.Int", hasStorage: true);
+            prop.SwiftTypeSpec = spec;
+            s.Properties.Add(prop);
+        }
+        return s;
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static StructDecl CreateFrozenStructDecl(string name, string moduleName = "TestModule")

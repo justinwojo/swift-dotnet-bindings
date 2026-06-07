@@ -67,6 +67,60 @@ public class ReturnPathTests : TestBase
 
     #endregion
 
+    #region StringArgTransformFactory — Closure Return with String arg (invoke-thunk)
+
+    public void TestStringArgTransformFactoryConstruction()
+    {
+        var factory = new StringArgTransformFactory(factor: 2);
+        AssertNotNull(factory, "StringArgTransformFactory constructed");
+        TestLogger.Info("StringArgTransformFactory construction passed");
+    }
+
+    /// <summary>
+    /// Returned closure takes a String arg. The invoke thunk must convert the
+    /// incoming string to Swift.SwiftString and marshal it through a retaining
+    /// value-witness copy — previously emitted GetTypeMetadataOrThrow&lt;string&gt;()
+    /// which throws at runtime. Closure returns utf8-length * factor.
+    /// </summary>
+    public void TestStringArgTransformFactoryClosureReturn()
+    {
+        var factory = new StringArgTransformFactory(factor: 2);
+        var lengthOf = factory.MakeStringLength();
+        AssertNotNull(lengthOf, "MakeStringLength returned non-null");
+        var result = lengthOf("hello");
+        AssertEqual(10, result, "lengthOf(\"hello\") = 5 * 2");
+        TestLogger.Info($"StringArgTransformFactory.MakeStringLength()(\"hello\") = {result}");
+    }
+
+    #endregion
+
+    #region DataArgTransformFactory — Closure Return with Data arg (invoke-thunk)
+
+    public void TestDataArgTransformFactoryConstruction()
+    {
+        var factory = new DataArgTransformFactory(factor: 3);
+        AssertNotNull(factory, "DataArgTransformFactory constructed");
+        TestLogger.Info("DataArgTransformFactory construction passed");
+    }
+
+    /// <summary>
+    /// Returned closure takes a Foundation.Data arg. The invoke thunk must
+    /// convert the incoming byte[] via Swift.Foundation.Data.FromByteArray —
+    /// previously emitted GetTypeMetadataOrThrow&lt;byte[]&gt;() which throws.
+    /// Closure returns byte-count * factor.
+    /// </summary>
+    public void TestDataArgTransformFactoryClosureReturn()
+    {
+        var factory = new DataArgTransformFactory(factor: 3);
+        var byteCount = factory.MakeByteCount();
+        AssertNotNull(byteCount, "MakeByteCount returned non-null");
+        var result = byteCount(new byte[] { 1, 2, 3, 4 });
+        AssertEqual(12, result, "byteCount([4 bytes]) = 4 * 3");
+        TestLogger.Info($"DataArgTransformFactory.MakeByteCount()([4]) = {result}");
+    }
+
+    #endregion
+
     #region OptionalHandlerFactory — Optional<Closure> Return
 
     public void TestOptionalHandlerFactoryConstruction()

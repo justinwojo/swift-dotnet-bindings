@@ -745,10 +745,15 @@ public class ThirdPartyValidationFixTestsV3
     }
 
     [Fact]
-    public void ArrayException_NestedExistential_StillSkipped()
+    public void ArrayException_NestedExistential_NowAdmittedViaRecursion()
     {
-        // Array<Dictionary<String, any P>> has a nested existential inside the Dictionary element.
-        // The dedicated Array existential handling only covers direct elements. Nested cases still skipped.
+        // Audit L229: nested existential collections are now admitted. Array<Dictionary<String, any P>>
+        // buries the existential one container deep (inside the Dictionary value). The admission gate
+        // recurses through the Array element into the Dictionary value, finds the supported existential,
+        // and admits the whole shape — TypeProjectionFactory then builds nested projections whose every
+        // direction (forward param, owned/forward return, receiver getter/setter) threads the existential
+        // adoption down to the buried leaf. Pre-fix this returned false (direct-element-only), dropping
+        // the member; the BindingTests AoD fixtures (List<Dictionary<string, IMarker>>) are the durable gate.
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
         var handler = new BoundGenericsHandler(typeDatabase);
 
@@ -759,12 +764,33 @@ public class ThirdPartyValidationFixTestsV3
         var arrayOfDict = new NamedTypeSpec("Swift.Array");
         arrayOfDict.GenericParameters.Add(innerDict);
 
-        // TryGetFirstExistentialTypeArgument detects the nested existential
+        // Detection still finds the nested existential...
         Assert.True(handler.TryGetFirstExistentialTypeArgument(arrayOfDict, out var existentialFound));
         Assert.Contains("MixpanelType", existentialFound);
 
-        // But IsContainerWithSupportedDirectExistential rejects it — element is Dict, not existential
-        Assert.False(handler.IsContainerWithSupportedDirectExistential(arrayOfDict));
+        // ...and the gate now ADMITS it by recursing Array element -> Dictionary value -> existential.
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(arrayOfDict));
+    }
+
+    [Fact]
+    public void DictionaryException_NestedExistential_NowAdmittedViaRecursion()
+    {
+        // Symmetric recursion direction (audit L229): Dictionary<String, Array<any P>> buries the
+        // existential inside the Array that sits in the Dictionary's VALUE slot. The gate recurses
+        // Dictionary value -> Array element -> existential. Key position stays non-existential (String).
+        var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
+        var handler = new BoundGenericsHandler(typeDatabase);
+
+        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var innerArray = new NamedTypeSpec("Swift.Array");
+        innerArray.GenericParameters.Add(existentialParam);
+        var dictOfArray = new NamedTypeSpec("Swift.Dictionary");
+        dictOfArray.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictOfArray.GenericParameters.Add(innerArray);
+
+        Assert.True(handler.TryGetFirstExistentialTypeArgument(dictOfArray, out var existentialFound));
+        Assert.Contains("MixpanelType", existentialFound);
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(dictOfArray));
     }
 
     [Fact]

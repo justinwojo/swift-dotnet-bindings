@@ -265,23 +265,42 @@ public class BoundGenericsHandler
             return IsContainerWithSupportedDirectExistential(inner);
         }
 
-        // Array<any P> — element must be directly existential
+        // Array<any P> — element directly existential, OR Array<<nested supported container>>
+        // (e.g. Array<Array<any P>>, Array<Dictionary<K, any P>>). The nested case recurses (audit
+        // L229) but ONLY into genuine Array/Dictionary leaves (see IsNestedExistentialContainer):
+        // TypeProjectionFactory builds a nested ArrayProjection whose every direction —
+        // forward param (GetParameterElementConversion), forward/owned return
+        // (GetReturnElementConversion / GetOwnedReturnElementConversion), and the protocol-receiver
+        // getter/setter (which fall back to the projection's recursive conversions when the
+        // single-level existential fast paths in ProtocolProxyEmitter.Receivers return null) —
+        // threads the existential adoption down to the buried leaf. Real-world libs DO exercise this
+        // (ObjectMapper's [String: [String: any P]] returns; GRDB nested dictionaries), so it is
+        // covered by validate as well as the BindingTests owned-return LifetimeTracker probe +
+        // reverse-dispatch/param round-trip fixtures.
         if (MarshallingHelpers.IsSwiftArray(outerNamedType) &&
-            outerNamedType.GenericParameters.Count > 0 &&
-            _existentialHandler.IsExistential(outerNamedType.GenericParameters[0]))
+            outerNamedType.GenericParameters.Count > 0)
         {
-            return IsValidExistentialForContainer(outerNamedType.GenericParameters[0]);
+            var elementSpec = outerNamedType.GenericParameters[0];
+            if (_existentialHandler.IsExistential(elementSpec))
+                return IsValidExistentialForContainer(elementSpec);
+            if (IsNestedExistentialContainer(elementSpec))
+                return true;
         }
 
         // Dictionary<K, any P> — only VALUE position (GenericParameters[1]) may be existential.
         // Key position (GenericParameters[0]) is not allowed (Swift requires Hashable,
-        // ExistentialContainer is not Hashable). Reject if key is also existential.
+        // ExistentialContainer is not Hashable). Reject if key is also existential. The VALUE may
+        // also be a nested supported container (e.g. Dictionary<K, Array<any P>>) — recurse, again
+        // only into genuine Array/Dictionary leaves (see IsNestedExistentialContainer).
         if (MarshallingHelpers.IsSwiftDictionary(outerNamedType) &&
             outerNamedType.GenericParameters.Count > 1 &&
-            _existentialHandler.IsExistential(outerNamedType.GenericParameters[1]) &&
             !_existentialHandler.IsExistential(outerNamedType.GenericParameters[0]))
         {
-            return IsValidExistentialForContainer(outerNamedType.GenericParameters[1]);
+            var valueSpec = outerNamedType.GenericParameters[1];
+            if (_existentialHandler.IsExistential(valueSpec))
+                return IsValidExistentialForContainer(valueSpec);
+            if (IsNestedExistentialContainer(valueSpec))
+                return true;
         }
 
         // KeyPath family (KeyPath, PartialKeyPath, WritableKeyPath, ReferenceWritableKeyPath) —
@@ -324,6 +343,27 @@ public class BoundGenericsHandler
 
         return false;
     }
+
+    /// <summary>
+    /// The nested-container recursion (audit L229) admits a buried existential ONLY through genuine
+    /// nested Array/Dictionary leaves — <c>Array&lt;Array&lt;any P&gt;&gt;</c>,
+    /// <c>Array&lt;Dictionary&lt;K, any P&gt;&gt;</c>, <c>Dictionary&lt;K, Array&lt;any P&gt;&gt;</c>,
+    /// <c>Dictionary&lt;K, Dictionary&lt;K2, any P&gt;&gt;</c>. It must NOT descend into an Optional-wrapped
+    /// existential element (e.g. <c>Array&lt;Optional&lt;any P&gt;&gt;</c>): that lowers to the SAME
+    /// <c>Array&lt;Optional&lt;existential&gt;&gt;</c> ABI shape as a variadic array-literal initializer
+    /// (<c>ExpressibleByArrayLiteral</c>'s <c>init(arrayLiteral: Element...)</c> → <c>Array&lt;Element&gt;</c>),
+    /// which the @_cdecl wrapper cannot forward — it would pass <c>[T]</c> where <c>T...</c> is required, and
+    /// the variadic guards in ConstructorWrapperEmitter/MethodHandler key off <c>HasVariadicParameter</c>,
+    /// which such an init does not carry, so an uncompilable wrapper would be emitted (GRDB.StatementArguments).
+    /// The top-level Optional branch in <see cref="IsContainerWithSupportedDirectExistential"/> still admits an
+    /// Optional OUTER container; only the element/value RECURSION is restricted here. (Optional-of-existential
+    /// element support needs variadic-init handling that is out of scope; until then it stays unadmitted as at
+    /// baseline.)
+    /// </summary>
+    private bool IsNestedExistentialContainer(TypeSpec spec)
+        => spec is NamedTypeSpec named &&
+           (MarshallingHelpers.IsSwiftArray(named) || MarshallingHelpers.IsSwiftDictionary(named)) &&
+           IsContainerWithSupportedDirectExistential(named);
 
     /// <summary>
     /// Validates that an existential TypeSpec is supported for use inside a container:

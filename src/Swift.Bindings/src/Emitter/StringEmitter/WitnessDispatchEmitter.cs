@@ -2432,7 +2432,13 @@ public class WitnessDispatchEmitter
 
     private static string GetMethodKey(MethodDecl method)
     {
-        return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p => p.SwiftTypeSpec?.ToString() ?? "")) + ")";
+        // The async effect is part of the key so `func m()` and `func m() async` each get their
+        // own witness-accessor symbol. They are distinct Swift witness-table requirements; an
+        // async-insensitive key would drop the second method before it is assigned an index,
+        // emitting only one `_cdecl` accessor for the pair (mirrors
+        // ProtocolSignatureHelper.GetMethodSignatureKey's default and EveryProtocolEmitter.GetMethodKey).
+        var asyncSuffix = method.IsAsync ? ":async" : "";
+        return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p => p.SwiftTypeSpec?.ToString() ?? "")) + ")" + asyncSuffix;
     }
 
     #endregion

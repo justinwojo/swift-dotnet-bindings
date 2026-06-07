@@ -172,12 +172,12 @@ public class SetProjection : ITypeProjection
     /// release that retain on Dispose or it leaks; the source set keeps its own independent +1, so
     /// adoption never double-frees. Existential elements use the owning form; every other element —
     /// and the shared non-owning <see cref="GetReturnElementConversion"/> reused for borrowed reads —
-    /// stays +0. Mirrors ArrayProjection.OwnedReturnElementConversion.
+    /// stays +0. Nested container elements recurse through <see cref="GetOwnedReturnElementConversion"/>
+    /// so an existential leaf inside an inner container still adopts its moved +1. Mirrors
+    /// ArrayProjection.OwnedReturnElementConversion.
     /// </summary>
     private string? OwnedReturnElementConversion(string elementVar)
-        => _elementProjection is ExistentialProjection existElem
-            ? existElem.GetOwnedReturnElementConversion(elementVar)
-            : _elementProjection.GetReturnElementConversion(elementVar);
+        => _elementProjection.GetOwnedReturnElementConversion(elementVar);
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
@@ -260,6 +260,23 @@ public class SetProjection : ITypeProjection
         }
 
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
+        if (elemConversion != null)
+            return $"{elementVar}.Select(e => {elemConversion}).ToHashSet()";
+        return null;
+    }
+
+    /// <summary>
+    /// Owned-return element conversion for when this Set is itself an element of an OWNED outer
+    /// container. Mirrors <see cref="GetReturnElementConversion"/> but threads the OWNED inner
+    /// selector (<see cref="OwnedReturnElementConversion"/>) so an existential leaf nested under this
+    /// set adopts its moved +1 instead of leaking it. ObjC-bridged elements keep the non-owning form.
+    /// </summary>
+    public string? GetOwnedReturnElementConversion(string elementVar)
+    {
+        if (UsesObjCContainerBridge)
+            return GetReturnElementConversion(elementVar);
+
+        var elemConversion = OwnedReturnElementConversion("e");
         if (elemConversion != null)
             return $"{elementVar}.Select(e => {elemConversion}).ToHashSet()";
         return null;

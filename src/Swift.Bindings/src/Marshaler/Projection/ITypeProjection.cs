@@ -76,6 +76,17 @@ public interface ITypeProjection
     string? GetReturnElementConversion(string elementVar) => null;
 
     /// <summary>
+    /// Owned-return variant of <see cref="GetReturnElementConversion"/>: the element conversion used
+    /// when this projection is an element of an OWNED container return (an Array/Dictionary/Set
+    /// indexer or enumerator that moves each element out of its slot at +1). Existential elements
+    /// adopt that moved +1 via an owning proxy; nested container elements recurse so owned-ness
+    /// threads all the way down to the existential leaf; every other leaf falls back to the shared
+    /// non-owning <see cref="GetReturnElementConversion"/> (+0). Default = the non-owning form, so
+    /// only the container and existential projections override.
+    /// </summary>
+    string? GetOwnedReturnElementConversion(string elementVar) => GetReturnElementConversion(elementVar);
+
+    /// <summary>
     /// Whether elements produced by GetParameterElementConversion require disposal.
     /// When true, container projections emit disposal code in finally blocks.
     /// </summary>

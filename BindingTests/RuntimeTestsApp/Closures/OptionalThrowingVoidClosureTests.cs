@@ -115,6 +115,95 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     #endregion
 
+    #region Closure RETURN direction — throwing getter with by-value struct arg (§6 #4)
+
+    // These exercise the OTHER direction of the same struct-arg throwing-closure shape: the
+    // `configValidator` gettable property hands C# a delegate backed by a Swift func-ptr, and each
+    // C# invocation marshals the by-value `RequestConfig` struct TO Swift through that func-ptr. This
+    // is the REMEDIATION-PLAN §6 #4 defect: the throwing-closure RETURN invoker previously emitted a
+    // bare `_arg0` struct value into a `void*`/struct-pointer func-ptr slot → CS1503 at the compile
+    // gate. The fix routes the struct arg through the same metadata + buffer + MarshalToSwift prologue
+    // the non-throwing struct-param closure paths use; compiling these tests proves the CS1503 is gone,
+    // and the round-trip below proves the struct argument reaches Swift intact.
+
+    public void TestHolder_ConfigValidator_Success_StructArgRoundTrips()
+    {
+        // Reading the property returns a `Func<RequestConfig, SwiftResult<SwiftVoid, SwiftError>>`
+        // whose body is a Swift closure. Invoking it with a positive timeout records the value into
+        // the holder, so `LastObservedTimeout` proves the by-value struct argument round-tripped TO
+        // Swift through the throwing-closure RETURN invoker (the §6 #4 marshalling fix).
+        var holder = new OptionalThrowingModifierHolder();
+        var validator = holder.ConfigValidator;
+        AssertNotNull(validator, "configValidator getter returns a non-null delegate");
+
+        var result = validator(new RequestConfig(42));
+        AssertTrue(result.IsSuccess, "Positive timeout does not throw → SwiftResult.IsSuccess");
+        AssertFalse(result.IsFailure, "Positive timeout is not the failure case");
+        AssertEqual(42, holder.LastObservedTimeout,
+            "By-value RequestConfig struct arg round-tripped TO Swift through the throwing-closure return func-ptr");
+        TestLogger.Info($"ConfigValidator(42) success; LastObservedTimeout = {holder.LastObservedTimeout}");
+    }
+
+    public void TestHolder_ConfigValidator_NonPositive_SurfacesError()
+    {
+        // Same returned delegate, failure branch: a non-positive timeout makes the Swift closure
+        // `throw ConfigError.invalidTimeout`. The throwing-closure return invoker must surface that as
+        // a SwiftResult.Failure (via the errorOut pointer), never an unhandled native unwind. The
+        // struct arg still had to marshal correctly for Swift to evaluate the `<= 0` guard.
+        var holder = new OptionalThrowingModifierHolder();
+        var validator = holder.ConfigValidator;
+
+        var result = validator(new RequestConfig(0));
+        AssertTrue(result.IsFailure, "Non-positive timeout throws → SwiftResult.IsFailure");
+        AssertFalse(result.IsSuccess, "Non-positive timeout is not the success case");
+        AssertEqual(0, holder.LastObservedTimeout,
+            "Throwing branch never reached the assignment, so LastObservedTimeout is unchanged");
+        TestLogger.Info($"ConfigValidator(0) failure surfaced as SwiftResult; LastObservedTimeout = {holder.LastObservedTimeout}");
+    }
+
+    #endregion
+
+    #region Closure RETURN direction — NON-throwing getter with by-value struct arg (§6 #4 non-throwing twin)
+
+    // The §6 #4 fix routes struct-arg closure RETURNS through the @_cdecl invoke thunk for BOTH
+    // throwing and non-throwing closures. Before the fix, a non-throwing struct-arg closure return
+    // was dispatched to the raw `delegate* unmanaged[Swift]` lambda struct path (an untested latent
+    // SIGSEGV — native calls from a display-class method crash Mono JIT with !ji->async). These guard
+    // the non-throwing reroute through the safe CallConvCdecl invoker class, covering both the
+    // non-frozen (NativeMemory + InitializeWithCopy) and frozen (stackalloc + MarshalToSwift) branches.
+
+    public void TestHolder_ConfigEcho_NonFrozenStructArg_RoundTrips()
+    {
+        // Non-frozen `RequestConfig` arg through the non-throwing return invoker: the buffer is
+        // heap-allocated, InitializeWithCopy'd from the C# class payload, passed to the Cdecl thunk,
+        // then Destroy+Free'd. The echoed Int32 proves the struct argument reached Swift intact.
+        var holder = new OptionalThrowingModifierHolder();
+        var echo = holder.ConfigEcho;
+        AssertNotNull(echo, "configEcho getter returns a non-null delegate");
+
+        var result = echo(new RequestConfig(99));
+        AssertEqual(99, result,
+            "Non-frozen RequestConfig struct arg round-tripped TO Swift through the non-throwing closure-return invoker");
+        TestLogger.Info($"ConfigEcho(99) = {result}");
+    }
+
+    public void TestHolder_PointEcho_FrozenStructArg_RoundTrips()
+    {
+        // Frozen `FrozenPoint` arg through the non-throwing return invoker: the buffer is stackalloc'd
+        // and MarshalToSwift'd (no heap cleanup). The summed coordinates prove the struct argument
+        // reached Swift intact via the frozen marshalling branch.
+        var holder = new OptionalThrowingModifierHolder();
+        var echo = holder.PointEcho;
+        AssertNotNull(echo, "pointEcho getter returns a non-null delegate");
+
+        var result = echo(new FrozenPoint(3.0, 4.0));
+        AssertEqual(7.0, result,
+            "Frozen FrozenPoint struct arg round-tripped TO Swift through the non-throwing closure-return invoker");
+        TestLogger.Info($"PointEcho((3,4)) = {result}");
+    }
+
+    #endregion
+
     #region Closure invocation — graceful fault (managed delegate throws)
 
     // These cover the direction where the C# delegate *throws* a managed exception instead of

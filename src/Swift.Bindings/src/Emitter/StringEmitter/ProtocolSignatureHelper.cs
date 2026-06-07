@@ -35,7 +35,17 @@ internal static class ProtocolSignatureHelper
     /// <summary>
     /// Creates a unique signature key for a method based on name and parameter types.
     /// </summary>
-    public static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+    /// <param name="includeAsyncEffect">
+    /// When true (the default), a method's <c>async</c> effect is part of the key, so a
+    /// protocol's <c>func m()</c> and <c>func m() async</c> overloads produce DISTINCT keys.
+    /// This is load-bearing for every vtable/interface slot-allocation and requirement-dedup
+    /// caller: the two are separate Swift witness-table requirements occupying separate slots,
+    /// and an async-insensitive key would alias the async overload onto the sync slot — dropping
+    /// a C# member and, worse, drifting the proxy's slot count from Swift's StructLayout. Only the
+    /// lenient concrete-conformance matchers (<c>FindMatchingMethod</c>/<c>FindMatchingStaticMethod</c>)
+    /// pass <c>false</c> to preserve their existing async-agnostic witness matching.
+    /// </param>
+    public static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null, bool includeAsyncEffect = true)
     {
         var paramTypes = new List<string>();
         // Skip first element (return type) in CSSignature
@@ -62,7 +72,8 @@ internal static class ProtocolSignatureHelper
                 paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
             }
         }
-        return $"{methodDecl.Name}({string.Join(",", paramTypes)})";
+        var asyncSuffix = includeAsyncEffect && methodDecl.IsAsync ? ":async" : "";
+        return $"{methodDecl.Name}({string.Join(",", paramTypes)}){asyncSuffix}";
     }
 
     /// <summary>

@@ -40,6 +40,49 @@ public class TransformFactory {
     }
 }
 
+// MARK: - Closure Return with metadata-remapped by-value struct arg
+
+/// Class returning a closure that takes a `String` argument — exercises the
+/// invoke-thunk arg-marshalling path for a frozen struct whose C# projection is
+/// metadata-less (`Swift.String` → `string`). The thunk must convert the
+/// incoming `string` to `Swift.SwiftString` and marshal it through a retaining
+/// value-witness copy rather than calling `GetTypeMetadataOrThrow<string>()`,
+/// which throws at runtime. Tracked as a finding from the §6 audit.
+public class StringArgTransformFactory {
+    public let factor: Int32
+
+    public init(factor: Int32) {
+        self.factor = factor
+    }
+
+    /// Returns an escaping closure taking a `String`. The closure returns the
+    /// UTF-8 length of the string multiplied by the stored factor, so the C#
+    /// test can assert a value round-trip across the boundary.
+    public func makeStringLength() -> (String) -> Int32 {
+        let f = factor
+        return { s in Int32(s.utf8.count) * f }
+    }
+}
+
+/// Class returning a closure that takes a `Foundation.Data` argument — exercises
+/// the same invoke-thunk arg-marshalling path for `Foundation.Data` → `byte[]`
+/// (also metadata-less). The thunk must convert via
+/// `Swift.Foundation.Data.FromByteArray(byte[])`, not `GetTypeMetadataOrThrow<byte[]>()`.
+public class DataArgTransformFactory {
+    public let factor: Int32
+
+    public init(factor: Int32) {
+        self.factor = factor
+    }
+
+    /// Returns an escaping closure taking `Data`. The closure returns the byte
+    /// count multiplied by the stored factor.
+    public func makeByteCount() -> (Data) -> Int32 {
+        let f = factor
+        return { d in Int32(d.count) * f }
+    }
+}
+
 // MARK: - Optional<Closure> Return
 
 /// Class with method returning Optional closure — exercises

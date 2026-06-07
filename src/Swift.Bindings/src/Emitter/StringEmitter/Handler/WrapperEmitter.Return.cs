@@ -220,9 +220,9 @@ namespace BindingsGeneration
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                             ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
-                        else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
+                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                        else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
+                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else
                             ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
@@ -406,9 +406,9 @@ namespace BindingsGeneration
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                             ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
-                        else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
+                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                        else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
+                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else
                             ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
@@ -731,14 +731,16 @@ namespace BindingsGeneration
                         ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
                     }
                     // Use non-frozen struct marshalling if any parameter is a non-frozen struct
-                    // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy)
-                    else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
+                    // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy).
+                    // Skipped when an invoke thunk is available — the thunk's CallConvCdecl invoker
+                    // marshals struct args itself and avoids the raw delegate* unmanaged[Swift] call.
+                    else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                     {
                         ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                     }
                     // Use frozen struct marshalling if any parameter is a frozen struct
-                    // (uses stackalloc for stack allocation)
-                    else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
+                    // (uses stackalloc for stack allocation). Also skipped when a thunk is available.
+                    else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                     {
                         ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                     }

@@ -86,6 +86,24 @@ public class DatabaseReader {
     public func readWithSelf<T>(_self: DatabaseReader, _ block: (DatabaseReader) throws -> T) rethrows -> T {
         return try block(_self)
     }
+
+    /// Invokes the closure — which writes its `+1` result into the GenericClosureBridge resultBuf —
+    /// and then throws on its own. This is the throw-AFTER-callback exception path: unlike `read` /
+    /// `readWithCdecl` / `readWithSelf` (which `rethrows`, so they only throw when the closure itself
+    /// threw and therefore never wrote a result), this `throws` independently after a SUCCESSFUL
+    /// closure invocation, so the bridge's resultBuf holds an unconsumed `+1` when the C# side takes
+    /// the Swift-error path. The generated returning bridge must value-witness Destroy that buffer on
+    /// the error path or the closure result leaks once per call. Drives the GCB leak probe.
+    public func readThenThrow<T>(from source: DatabaseReader, _ block: (DatabaseReader) throws -> T) throws -> T {
+        _ = try block(source)
+        throw DatabaseReadError.afterRead
+    }
+}
+
+/// Error thrown by `DatabaseReader.readThenThrow` after a successful closure invocation, exercising
+/// the GenericClosureBridge throw-after-callback exception cleanup path.
+public enum DatabaseReadError: Error {
+    case afterRead
 }
 
 // MARK: - Swift.String as MCB non-closure param (Stripe pattern)

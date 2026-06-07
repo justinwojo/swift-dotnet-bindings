@@ -173,7 +173,11 @@ internal static class KvoExtensionEmitter
             csWriter.Indent++;
             csWriter.WriteLine("var gch = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
             csWriter.WriteLine($"var handler = (global::System.Action<{className}, {csType}>)gch.Target!;");
-            csWriter.WriteLine($"var obj = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalBorrowedFromSwift<{className}>(selfPtr);");
+            // The observed object is surfaced to the user's handler and is always a class reference.
+            // MarshalBorrowedClassFromSwift takes an owning +1 (isa-aware, so ObjC-rooted KVO classes
+            // retain correctly) so the wrapper balances on Dispose/finalize instead of over-releasing
+            // a borrowed handle on NativeAOT. See ClosureHandler.BorrowedCallbackArgMarshal.
+            csWriter.WriteLine($"var obj = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalBorrowedClassFromSwift<{className}>(selfPtr);");
             csWriter.WriteLine("handler(obj, newValue);");
             csWriter.Indent--;
             csWriter.WriteLine("}");

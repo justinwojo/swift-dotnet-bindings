@@ -124,10 +124,12 @@ public static partial class ClosureEmitter
             {
                 callArgs.Add($"arg{argIndex} != 0");
             }
-            else if (closureHandler.IsComplexEnum(arg))
+            else if (closureHandler.IsComplexEnum(arg) || IsInvokeThunkStructArg(arg, closureHandler))
             {
-                // Complex enum: @_cdecl receives UnsafeMutableRawPointer, closure expects enum type.
-                // Load the enum value from the pointer using assumingMemoryBound.
+                // Complex enum / by-value struct: @_cdecl receives UnsafeMutableRawPointer,
+                // closure expects the value type. Reload the value from the buffer pointer
+                // via assumingMemoryBound(to:).pointee — a value-witness copy that retains
+                // (for non-frozen) and leaves the caller's buffer intact.
                 var swiftTypeName = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
                 callArgs.Add($"arg{argIndex}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
             }
@@ -287,6 +289,11 @@ public static partial class ClosureEmitter
             // is safe and avoids CS0214 unsafe context requirement
             if (csType == "void*" && closureHandler.IsComplexEnum(arg))
                 csType = "nint";
+            // By-value structs marshal through a buffer pointer (the Swift thunk param is
+            // UnsafeMutableRawPointer); pass it as nint regardless of the struct's own
+            // C# projection (a frozen struct's blittable projection would otherwise be by-value).
+            if (IsInvokeThunkStructArg(arg, closureHandler))
+                csType = "nint";
             pinvokeParams.Add($"{csType} arg{argIndex}");
             argIndex++;
         }
@@ -326,29 +333,84 @@ public static partial class ClosureEmitter
         // types. The delegate is created via method group (no display class in call chain).
         var invokerClassName = GetInvokerClassName(helperMethodName);
 
-        // Build Invoke method params with C# delegate types (not P/Invoke types)
+        // Build Invoke method params with C# delegate types (not P/Invoke types).
+        // By-value struct args are marshalled into a Swift-layout buffer and passed as a
+        // buffer pointer — the Swift thunk reloads via assumingMemoryBound(to:).pointee.
+        // Three flavours:
+        //   • Frozen value struct → stackalloc + MarshalToSwift (no heap, no cleanup).
+        //   • Non-frozen struct   → heap buffer + value-witness InitializeWithCopy.
+        //   • String / Foundation.Data → project to string/byte[] which have NO Swift
+        //     TypeMetadata, so the generic GetTypeMetadataOrThrow<string>()/<byte[]>() path
+        //     throws at runtime. Convert to the metadata-bearing runtime value (SwiftString /
+        //     Foundation.Data) first, then marshal its inline Swift representation into a heap
+        //     buffer via the value-witness retaining copy (MarshalToSwift).
+        // Heap buffers (non-frozen + String/Data) are declared before the try, allocated
+        // INSIDE it, and Destroy+Free'd in a null-guarded finally so an alloc failure on a
+        // later arg never leaks an earlier arg's buffer (the buffer carries its own +1 from
+        // the retaining copy and must always be released). AllocZeroed makes a Destroy on a
+        // partially-initialised buffer safe (zeroed reference fields release as nil no-ops).
         var invokeParams = new List<string>();
         var invokeCallArgs = new List<string> { "_funcPtr", "_ctx" };
+        var heapPreTry = new List<string>();    // declarations visible to both try and finally
+        var heapInTry = new List<string>();     // allocations + initialisation (inside try, before body)
+        var heapCleanup = new List<string>();   // null-guarded Destroy+Free (finally)
+        var frozenPrologue = new List<string>(); // frozen stackalloc setup (no cleanup needed)
         int invArgIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var csType = closureHandler.TranslateTypeSpecToCSharp(arg);
             invokeParams.Add($"{csType} _arg{invArgIndex}");
-            invokeCallArgs.Add(GetSwiftInvokeArgExpression(arg, invArgIndex, closureHandler, useNintCast: true));
+            if (IsInvokeThunkStructArg(arg, closureHandler))
+            {
+                int i = invArgIndex;
+                if (IsMetadataRemappedValueStructArg(arg))
+                {
+                    var (conv, helperType) = GetMetadataRemappedConversion(arg, i);
+                    heapPreTry.Add($"using var _arg{i}Swift = {conv};");
+                    heapPreTry.Add($"byte* _arg{i}Buffer = null;");
+                    heapPreTry.Add($"var _arg{i}Metadata = Swift.Runtime.SwiftObjectHelper<{helperType}>.GetTypeMetadata();");
+                    heapInTry.Add($"_arg{i}Buffer = (byte*)NativeMemory.AllocZeroed((nuint)_arg{i}Metadata.Size, (nuint)_arg{i}Metadata.Stride);");
+                    heapInTry.Add($"var _arg{i}Span = new Span<byte>(_arg{i}Buffer, (int)_arg{i}Metadata.Size);");
+                    heapInTry.Add($"((Swift.Runtime.ISwiftObject)_arg{i}Swift).MarshalToSwift(ref _arg{i}Span);");
+                    heapCleanup.Add($"if (_arg{i}Buffer != null) {{ _arg{i}Metadata.ValueWitnessTable->Destroy((void*)_arg{i}Buffer, _arg{i}Metadata); NativeMemory.Free(_arg{i}Buffer); }}");
+                    invokeCallArgs.Add($"(nint)_arg{i}Buffer");
+                }
+                else if (closureHandler.IsNonFrozenStruct(arg))
+                {
+                    heapPreTry.Add($"byte* _arg{i}Buffer = null;");
+                    heapPreTry.Add($"var _arg{i}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csType}>();");
+                    heapInTry.Add($"_arg{i}Buffer = (byte*)NativeMemory.AllocZeroed((nuint)_arg{i}Metadata.Size, (nuint)_arg{i}Metadata.Stride);");
+                    heapInTry.Add($"_arg{i}Metadata.ValueWitnessTable->InitializeWithCopy((void*)_arg{i}Buffer, (void*)_arg{i}.Payload.DangerousGetHandle(), _arg{i}Metadata);");
+                    heapCleanup.Add($"if (_arg{i}Buffer != null) {{ _arg{i}Metadata.ValueWitnessTable->Destroy((void*)_arg{i}Buffer, _arg{i}Metadata); NativeMemory.Free(_arg{i}Buffer); }}");
+                    invokeCallArgs.Add($"(nint)_arg{i}Buffer");
+                }
+                else
+                {
+                    frozenPrologue.Add($"var _arg{i}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csType}>();");
+                    frozenPrologue.Add($"byte* _arg{i}Buffer = stackalloc byte[(int)_arg{i}Metadata.Size];");
+                    frozenPrologue.Add($"var _arg{i}Span = new Span<byte>(_arg{i}Buffer, (int)_arg{i}Metadata.Size);");
+                    frozenPrologue.Add($"SwiftMarshal.MarshalToSwift(_arg{i}, ref _arg{i}Span);");
+                    invokeCallArgs.Add($"(nint)_arg{i}Buffer");
+                }
+            }
+            else
+            {
+                invokeCallArgs.Add(GetSwiftInvokeArgExpression(arg, invArgIndex, closureHandler, useNintCast: true));
+            }
             invArgIndex++;
         }
         var invokeParamsString = string.Join(", ", invokeParams);
         var invokeCallArgsString = string.Join(", ", invokeCallArgs);
+        var hasStructArg = heapPreTry.Count > 0 || frozenPrologue.Count > 0;
 
         // Build return type and invoke body with C# delegate types. Throwing closures
         // wrap the call in SwiftResult<T, SwiftError>: the user's delegate is typed
         // `Func<..., SwiftResult<T, SwiftError>>` (cf. ClosureHandler.GetCSharpDelegateType).
         string csReturnType;
         string invokeBody;
-        // Throwing closures need `unsafe` on the Invoke method to construct
-        // `SwiftError` from the raw error pointer (`SwiftError` only exposes a
-        // `void*` constructor; `Value` is read-only).
-        var invokeModifier = isThrowing ? "internal unsafe" : "internal";
+        // Throwing closures need `unsafe` to construct `SwiftError` from the raw error
+        // pointer; struct args need it for stackalloc/NativeMemory/value-witness pointers.
+        var invokeModifier = (isThrowing || hasStructArg) ? "internal unsafe" : "internal";
         if (isThrowing)
         {
             // The success/Void/class transformations mirror the non-throwing branch — the
@@ -444,6 +506,27 @@ public static partial class ClosureEmitter
             invokeBody = $"return {helperMethodName}({invokeCallArgsString});";
         }
 
+        // By-value struct args: emit the marshalling prologue ahead of the thunk call.
+        // Heap buffers (non-frozen + String/Data) declare null pointers before a try, allocate
+        // and initialise inside it, and Destroy+Free in a null-guarded finally (the early
+        // `return`s inside invokeBody run through finally). Frozen stackalloc args carry no
+        // cleanup and only need their prologue ahead of the call.
+        if (hasStructArg)
+        {
+            if (heapCleanup.Count > 0)
+            {
+                var preTryStr = string.Join(" ", heapPreTry);
+                var inTryStr = string.Join(" ", heapInTry.Concat(frozenPrologue));
+                var cleanupStr = string.Join(" ", heapCleanup);
+                invokeBody = $"{preTryStr} try {{ {inTryStr} {invokeBody} }} finally {{ {cleanupStr} }}";
+            }
+            else
+            {
+                var prologueStr = string.Join(" ", frozenPrologue);
+                invokeBody = $"{prologueStr} {invokeBody}";
+            }
+        }
+
         // `_retainHolder` keeps the SwiftEscapingClosure wrapper alive for as long as the
         // invoker (and therefore the user-visible delegate built from `Invoke` as a method
         // group) is reachable. Without it, the wrapper goes out of scope after the receiver
@@ -491,7 +574,9 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Checks if a type is compatible as an invoke thunk argument.
-    /// Primitives and simple enums pass directly. Complex enums pass via pointer.
+    /// Primitives and simple enums pass directly. Complex enums and by-value
+    /// structs pass via pointer (the @_cdecl thunk param is UnsafeMutableRawPointer
+    /// and the body reloads the value via assumingMemoryBound(to:).pointee).
     /// </summary>
     private static bool IsInvokeThunkCompatibleArg(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
@@ -502,7 +587,63 @@ public static partial class ClosureEmitter
         // Complex enums: C# extracts payload handle, Swift loads from pointer
         if (closureHandler.IsComplexEnum(typeSpec))
             return true;
+        // By-value structs (frozen or non-frozen): C# marshals into a buffer and
+        // passes the pointer; Swift reloads via assumingMemoryBound(to:).pointee.
+        // This keeps struct-arg closure returns on the safe CallConvCdecl invoker
+        // path instead of the raw delegate* unmanaged[Swift] lambda, which SIGSEGVs
+        // when invoked from a display-class method on Mono JIT / NativeAOT.
+        if (IsInvokeThunkStructArg(typeSpec, closureHandler))
+            return true;
         return false;
+    }
+
+    /// <summary>
+    /// Whether a closure argument is a by-value Swift struct that the invoke thunk
+    /// marshals through a buffer pointer (frozen → stackalloc + MarshalToSwift,
+    /// non-frozen → NativeMemory + InitializeWithCopy/Destroy). Primitives are
+    /// excluded even though stdlib primitives are frozen structs — they pass by value.
+    /// Optionals and generics are already excluded by IsFrozenStruct/IsNonFrozenStruct.
+    /// </summary>
+    internal static bool IsInvokeThunkStructArg(TypeSpec typeSpec, ClosureHandler closureHandler)
+    {
+        if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
+            return false;
+        return closureHandler.IsFrozenStruct(typeSpec) || closureHandler.IsNonFrozenStruct(typeSpec);
+    }
+
+    /// <summary>
+    /// Whether a by-value struct arg is a stdlib/Foundation value type whose C# projection
+    /// (Swift.String → string, Foundation.Data → byte[]) carries NO Swift TypeMetadata, so
+    /// the generic GetTypeMetadataOrThrow path throws at runtime. These are the only two
+    /// frozen value structs that project to a metadata-less C# type — every other frozen
+    /// remap (Date/UUID) projects to a generated struct that does carry metadata, and
+    /// Foundation.Data is the sole frozen struct with a nativeType= remap.
+    /// </summary>
+    private static bool IsMetadataRemappedValueStructArg(TypeSpec typeSpec)
+        => WitnessDispatchEmitter.IsStringType(typeSpec)
+           || (typeSpec is NamedTypeSpec { Name: "Foundation.Data" });
+
+    /// <summary>
+    /// Returns the (conversion expression, runtime helper type) used to marshal a
+    /// metadata-remapped value struct arg: the C# projection is converted to the
+    /// metadata-bearing runtime value (SwiftString / Foundation.Data) so MarshalToSwift can
+    /// write its inline Swift representation into the invoke-thunk buffer. Mirrors the String
+    /// return path in ClosureEmitter.cs.
+    /// </summary>
+    private static (string conversion, string helperType) GetMetadataRemappedConversion(TypeSpec typeSpec, int argIndex)
+    {
+        if (WitnessDispatchEmitter.IsStringType(typeSpec))
+            // Swift.SwiftString lives in Swift.Runtime, which every generated binding already
+            // references — no Apple supplement dependency needed.
+            return ($"new Swift.SwiftString(_arg{argIndex})", "Swift.SwiftString");
+        // Foundation.Data → byte[]: build a metadata-bearing Foundation.Data from the bytes.
+        // The closure-delegate translation maps Foundation.Data straight to byte[]
+        // (ClosureHandler), bypassing the projection path that records the supplement reference
+        // (TypeProjectionFactory:324). Record it here so a module whose ONLY Foundation.Data use
+        // is a returned-closure argument still emits the SwiftBindings.Apple PackageReference;
+        // otherwise the generated invoker references Swift.Foundation.Data with no project ref.
+        AppleSupplementReferences.Record("Foundation.Data");
+        return ($"Swift.Foundation.Data.FromByteArray(_arg{argIndex})", "Swift.Foundation.Data");
     }
 
     /// <summary>

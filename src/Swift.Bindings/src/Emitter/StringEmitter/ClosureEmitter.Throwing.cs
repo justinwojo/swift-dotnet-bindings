@@ -232,13 +232,72 @@ public static partial class ClosureEmitter
         var parametersString = string.Join(", ", parameters);
         var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
 
-        // Build argument list for invoking the Swift function
+        // Build argument list for invoking the Swift function. A by-value struct arg cannot be
+        // passed as a bare C# value into the func-ptr's struct-pointer/void* slot (CS1503) — it
+        // needs the same metadata + buffer + MarshalToSwift prologue the non-throwing struct-param
+        // closure paths emit. This mirrors the invoke-thunk path's three-list structure
+        // (ClosureEmitter.InvokeThunk.cs) so the two stay consistent:
+        //   • Frozen value struct → stackalloc + MarshalToSwift (no heap, no cleanup).
+        //   • Non-frozen struct   → heap buffer + value-witness InitializeWithCopy.
+        //   • String / Foundation.Data → project to string/byte[], which carry NO Swift
+        //     TypeMetadata, so the generic GetTypeMetadataOrThrow<string>()/<byte[]>() path
+        //     throws at runtime. Convert to the metadata-bearing runtime value (SwiftString /
+        //     Foundation.Data) first, then marshal its inline Swift representation into a heap
+        //     buffer via the value-witness retaining copy (MarshalToSwift).
+        // Heap buffers (non-frozen + String/Data) are declared null BEFORE the try, allocated
+        // INSIDE it, and Destroy+Free'd in a null-guarded finally so an alloc/InitializeWithCopy
+        // failure on a later arg never leaks an earlier arg's buffer (each buffer carries its own
+        // +1 from the retaining copy and must always be released). AllocZeroed makes a Destroy on
+        // a partially-initialised buffer safe (zeroed reference fields release as nil no-ops).
+        // Every other arg kind (class, ObjC-bridged, enum, bool, protocol, tuple) is handled by
+        // GetSwiftInvokeArgExpression, which already renders the correct func-ptr-slot expression.
         var invokeArgs = new List<string>();
+        var heapPreTry = new List<string>();     // declarations visible to both try and finally
+        var heapInTry = new List<string>();      // allocations + init (inside try, before the call)
+        var heapCleanup = new List<string>();    // null-guarded Destroy+Free (finally)
+        var frozenPrologue = new List<string>(); // frozen stackalloc setup (no cleanup)
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex, closureHandler);
-            invokeArgs.Add(argExpr);
+            if (IsInvokeThunkStructArg(arg, closureHandler))
+            {
+                int i = argIndex;
+                if (IsMetadataRemappedValueStructArg(arg))
+                {
+                    var (conv, helperType) = GetMetadataRemappedConversion(arg, i);
+                    heapPreTry.Add($"using var _arg{i}Swift = {conv};");
+                    heapPreTry.Add($"byte* _arg{i}Buffer = null;");
+                    heapPreTry.Add($"var _arg{i}Metadata = Swift.Runtime.SwiftObjectHelper<{helperType}>.GetTypeMetadata();");
+                    heapInTry.Add($"_arg{i}Buffer = (byte*)NativeMemory.AllocZeroed((nuint)_arg{i}Metadata.Size, (nuint)_arg{i}Metadata.Stride);");
+                    heapInTry.Add($"var _arg{i}Span = new Span<byte>(_arg{i}Buffer, (int)_arg{i}Metadata.Size);");
+                    heapInTry.Add($"((Swift.Runtime.ISwiftObject)_arg{i}Swift).MarshalToSwift(ref _arg{i}Span);");
+                    heapCleanup.Add($"if (_arg{i}Buffer != null) {{ _arg{i}Metadata.ValueWitnessTable->Destroy((void*)_arg{i}Buffer, _arg{i}Metadata); NativeMemory.Free(_arg{i}Buffer); }}");
+                    invokeArgs.Add($"_arg{i}Buffer");
+                }
+                else if (closureHandler.IsNonFrozenStruct(arg))
+                {
+                    var csharpType = closureHandler.TranslateTypeSpecToCSharp(arg);
+                    heapPreTry.Add($"byte* _arg{i}Buffer = null;");
+                    heapPreTry.Add($"var _arg{i}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
+                    heapInTry.Add($"_arg{i}Buffer = (byte*)NativeMemory.AllocZeroed((nuint)_arg{i}Metadata.Size, (nuint)_arg{i}Metadata.Stride);");
+                    heapInTry.Add($"_arg{i}Metadata.ValueWitnessTable->InitializeWithCopy((void*)_arg{i}Buffer, (void*)_arg{i}.Payload.DangerousGetHandle(), _arg{i}Metadata);");
+                    heapCleanup.Add($"if (_arg{i}Buffer != null) {{ _arg{i}Metadata.ValueWitnessTable->Destroy((void*)_arg{i}Buffer, _arg{i}Metadata); NativeMemory.Free(_arg{i}Buffer); }}");
+                    invokeArgs.Add($"_arg{i}Buffer");
+                }
+                else
+                {
+                    var csharpType = closureHandler.TranslateTypeSpecToCSharp(arg);
+                    frozenPrologue.Add($"var _arg{i}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
+                    frozenPrologue.Add($"byte* _arg{i}Buffer = stackalloc byte[(int)_arg{i}Metadata.Size];");
+                    frozenPrologue.Add($"var _arg{i}Span = new Span<byte>(_arg{i}Buffer, (int)_arg{i}Metadata.Size);");
+                    frozenPrologue.Add($"SwiftMarshal.MarshalToSwift(_arg{i}, ref _arg{i}Span);");
+                    invokeArgs.Add($"_arg{i}Buffer");
+                }
+            }
+            else
+            {
+                invokeArgs.Add(GetSwiftInvokeArgExpression(arg, argIndex, closureHandler));
+            }
             argIndex++;
         }
         // Add error out parameter
@@ -265,6 +324,29 @@ public static partial class ClosureEmitter
                     var _swiftSelf = new SwiftSelf((void*)_closureWrapper.Context.ToPointer());
                     SwiftError _error = default;
             """);
+
+        // Marshal by-value struct args into Swift buffers. Heap buffers (non-frozen + String/Data)
+        // declare null pointers before a try, allocate and initialise inside it, and Destroy+Free
+        // in a null-guarded finally (the call's early returns run that finally). Frozen stackalloc
+        // args carry no cleanup and only need their prologue ahead of the call.
+        foreach (var preTryLine in heapPreTry)
+        {
+            csWriter.WriteLine(preTryLine);
+        }
+        var hasHeapCleanup = heapCleanup.Count > 0;
+        if (hasHeapCleanup)
+        {
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            foreach (var inTryLine in heapInTry)
+            {
+                csWriter.WriteLine(inTryLine);
+            }
+        }
+        foreach (var frozenLine in frozenPrologue)
+        {
+            csWriter.WriteLine(frozenLine);
+        }
 
         if (hasReturn)
         {
@@ -316,6 +398,20 @@ public static partial class ClosureEmitter
 
                         return {{resultType}}.FromSuccess(Swift.SwiftVoid.Value);
                 """);
+        }
+
+        // Close the try and free heap struct buffers after the call — runs on both the
+        // error-return and success-return paths, and on any exception thrown in between.
+        if (hasHeapCleanup)
+        {
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            foreach (var cleanupLine in heapCleanup)
+            {
+                csWriter.WriteLine(cleanupLine);
+            }
+            csWriter.WriteLine("}");
         }
 
         csWriter.WriteLines("""

@@ -461,6 +461,216 @@ public func makeTrackedMarkerMap(count: Int) -> [String: any Marker] {
     return result
 }
 
+// MARK: - NESTED owned-return class-bound existential collections (audit L229 recursive adoption)
+//
+// The two factories above return a SINGLE-level owned collection of class-bound existentials, so the
+// owned-return projection reaches the existential leaf in one hop (`ArrayProjection` /
+// `DictionaryProjection` → `ExistentialProjection`). L229 fixed the case where the existential is buried
+// UNDER one or more intermediate collection layers: `[[any Marker]]` and `[String: [any Marker]]`. The
+// owned-return path must thread the owns:true adoption RECURSIVELY through every intermediate layer
+// (`GetOwnedReturnElementConversion` calling the inner projection's `GetOwnedReturnElementConversion`)
+// until it reaches the existential leaf — before the fix the recursion stopped at the outer layer's
+// default (non-owning) element conversion, so every inner-collection existential cell orphaned its +1
+// (leak) on owned return. These nested factories drive the runtime ARC balance for that recursion: each
+// leaf is a FRESH `MarkerImpl` feeding the shared `LifetimeTracker`, so after C# disposes every
+// materialized proxy and every intermediate carrier the live count must return to 0.
+
+/// NESTED OWNED-RETURN: an owned `[[any Marker]]` — `outer` inner arrays, each of `inner` fresh tracked
+/// conformers. Exercises `ArrayProjection.GetOwnedReturnElementConversion` recursing through the inner
+/// `ArrayProjection` down to `ExistentialProjection` (owns:true adoption at the buried leaf).
+public func makeTrackedMarkerArrayOfArrays(outer: Int, inner: Int) -> [[any Marker]] {
+    var result: [[any Marker]] = []
+    result.reserveCapacity(outer)
+    for o in 0..<outer {
+        var row: [any Marker] = []
+        row.reserveCapacity(inner)
+        for i in 0..<inner { row.append(MarkerImpl(mid: o * 1000 + i)) }
+        result.append(row)
+    }
+    return result
+}
+
+/// NESTED OWNED-RETURN, Dictionary-of-arrays sibling: an owned `[String: [any Marker]]` — `outer` keys,
+/// each mapping to an inner array of `inner` fresh tracked conformers. Exercises
+/// `DictionaryProjection.GetOwnedReturnElementConversion` recursing through the value `ArrayProjection`
+/// down to `ExistentialProjection` (owns:true adoption at the buried value-array leaf).
+public func makeTrackedMarkerMapOfArrays(outer: Int, inner: Int) -> [String: [any Marker]] {
+    var result: [String: [any Marker]] = [:]
+    for o in 0..<outer {
+        var row: [any Marker] = []
+        row.reserveCapacity(inner)
+        for i in 0..<inner { row.append(MarkerImpl(mid: o * 1000 + i)) }
+        result["k\(o)"] = row
+    }
+    return result
+}
+
+/// NESTED OWNED-RETURN, Array-of-dictionaries sibling: an owned `[[String: any Marker]]` — `outer` inner
+/// dictionaries, each mapping `inner` keys to fresh tracked conformers. Exercises
+/// `ArrayProjection.GetOwnedReturnElementConversion` recursing through the element
+/// `DictionaryProjection` down to `ExistentialProjection` (owns:true adoption at the buried value leaf).
+/// This is the dict-as-INNER-container combo (`Array<Dictionary<String, any Marker>>`): the AoA/DoA
+/// factories above only ever nest an Array, so this is the fixture that proves the admission gate's
+/// recursion is symmetric over a Dictionary in the buried position (audit L229).
+public func makeTrackedMarkerArrayOfMaps(outer: Int, inner: Int) -> [[String: any Marker]] {
+    var result: [[String: any Marker]] = []
+    result.reserveCapacity(outer)
+    for o in 0..<outer {
+        var row: [String: any Marker] = [:]
+        for i in 0..<inner { row["k\(i)"] = MarkerImpl(mid: o * 1000 + i) }
+        result.append(row)
+    }
+    return result
+}
+
+/// NESTED OWNED-RETURN, Dictionary-of-dictionaries: an owned `[String: [String: any Marker]]` — `outer`
+/// keys, each mapping to an inner `[String: any Marker]` of `inner` fresh tracked conformers. This is the
+/// fixture the AoA/DoA/AoM siblings above MISS: the buried existential sits in an INVARIANT
+/// `IReadOnlyDictionary` value slot (the outer container is a Dictionary, not a covariant `IReadOnlyList`),
+/// so the inner `DictionaryProjection` element conversion must surface its declared
+/// `IReadOnlyDictionary<string, IMarker>` interface — emitting a bare concrete `Dictionary<…>` value there
+/// is a CS0266 (audit L229; the shape that regressed ObjectMapper's `[String: [String: any P]]` returns).
+/// Exercises `DictionaryProjection.GetOwnedReturnElementConversion` recursing through the value
+/// `DictionaryProjection` down to `ExistentialProjection` (owns:true adoption at the buried value leaf).
+public func makeTrackedMarkerMapOfMaps(outer: Int, inner: Int) -> [String: [String: any Marker]] {
+    var result: [String: [String: any Marker]] = [:]
+    for o in 0..<outer {
+        var row: [String: any Marker] = [:]
+        for i in 0..<inner { row["k\(i)"] = MarkerImpl(mid: o * 1000 + i) }
+        result["g\(o)"] = row
+    }
+    return result
+}
+
+/// NESTED OWNED-RETURN, three-level Dictionary→Array→Dictionary: an owned
+/// `[String: [[String: any Marker]]]` — `outer` keys, each mapping to a `mid`-element array of inner
+/// `[String: any Marker]` dictionaries of `inner` fresh tracked conformers. This is the EXACT shape that
+/// regressed FirebaseFirestore/ObjectMapper's `[String: [[String: any P]]]` returns (audit L229): the
+/// outer Dictionary VALUE slot is INVARIANT, and its value is an Array whose elements are concrete inner
+/// dictionaries, so the buried `IReadOnlyList<Dictionary<…>>` the array conversion yields must be cast to
+/// its declared `IReadOnlyList<IReadOnlyDictionary<…>>` public type in the outer dictionary's AsProjected
+/// value selector — a bare value there is a CS0266. The MapOfMaps sibling above only nests a Dictionary
+/// directly under the invariant value slot; this one proves the cast also reaches through an intermediate
+/// covariant Array. Exercises `DictionaryProjection.BuildAsProjected`'s container-value cast recursing
+/// through the value `ArrayProjection` → element `DictionaryProjection` → `ExistentialProjection`.
+public func makeTrackedMarkerMapOfArrayOfMaps(outer: Int, mid: Int, inner: Int) -> [String: [[String: any Marker]]] {
+    var result: [String: [[String: any Marker]]] = [:]
+    for o in 0..<outer {
+        var rows: [[String: any Marker]] = []
+        rows.reserveCapacity(mid)
+        for m in 0..<mid {
+            var row: [String: any Marker] = [:]
+            for i in 0..<inner { row["k\(i)"] = MarkerImpl(mid: o * 10000 + m * 100 + i) }
+            rows.append(row)
+        }
+        result["g\(o)"] = rows
+    }
+    return result
+}
+
+/// PARAM direction, Array-of-dictionaries: C# passes a `[[String: any Marker]]`; this sums `markerId()`
+/// across every value of every inner dictionary. Proves the forward (C#→Swift) build of a
+/// `SwiftArray<SwiftDictionary<SwiftString, ClassExistentialContainer1>>` — the dict-as-inner-container
+/// param recursion the admission gate now allows (audit L229 forward-path sibling of `sumNestedMarkerGrid`).
+public func sumNestedMarkerMapGrid(_ xs: [[String: any Marker]]) -> Int {
+    var total = 0
+    for row in xs { for (_, m) in row { total += m.markerId() } }
+    return total
+}
+
+// MARK: - NESTED `[[any Marker]]` PARAM + WRITE/reverse-dispatch (audit L229 forward-path siblings)
+//
+// The owned-return factories above cover Swift→C# nested owned return. These cover the other two
+// directions the nested-existential admission relaxation enables: a `[[any Marker]]` PARAM
+// (C#→Swift, recursive ArrayProjection.GetParameterElementConversion building a nested
+// SwiftArray<SwiftArray<ClassExistentialContainer1>>) and a `[[any Marker]]` protocol-getter WRITE
+// requirement implemented in C# and read back by Swift through the EveryProtocol receiver (the
+// receiver getter conversion recurses to mint an owned class carrier per buried leaf). Each consumer
+// sums `markerId()` across the WHOLE grid (every inner element, not just [0]) so a wrong nested
+// stride surfaces as a crash or wrong sum rather than a lucky element[0] hit.
+
+/// PARAM direction: C# passes a `[[any Marker]]`; this sums `markerId()` across every element of every
+/// inner array. A single-level stride bug or a dropped inner layer would crash or undercount.
+public func sumNestedMarkerGrid(_ xs: [[any Marker]]) -> Int {
+    var total = 0
+    for row in xs { for m in row { total += m.markerId() } }
+    return total
+}
+
+/// WRITE/reverse-dispatch requirement: a C# class implements `markerGrid`; Swift reads the nested grid
+/// back through the generated EveryProtocol receiver, exercising the recursive receiver getter
+/// conversion (owned class carrier minted per buried existential leaf).
+public protocol NestedMarkerProvider {
+    var markerGrid: [[any Marker]] { get }
+}
+
+/// Swift consumer reading a `NestedMarkerProvider`'s `markerGrid` (whoever implements it, including a
+/// C# implementation reached through its proxy) and summing the ids across the whole nested grid.
+public func consumeNestedMarkerProvider(_ p: NestedMarkerProvider) -> Int {
+    var total = 0
+    for row in p.markerGrid { for m in row { total += m.markerId() } }
+    return total
+}
+
+/// REVERSE-DISPATCH METHOD-PARAM requirement, Array-of-dictionaries: a C# class implements
+/// `consume(grid:)`; Swift builds a `[[String: any Marker]]` and calls the method through the generated
+/// EveryProtocol receiver, which materializes the incoming param (Swift→C# READ) before handing it to the
+/// C# impl. This is the EXACT shape that regressed FirebaseFirestore's `mapMerge([[String: Any]])`
+/// receiver (audit L229): the receiver reads the array-of-dictionary param via the RETURN-direction
+/// element conversion, so each inner dictionary must stay the CONCRETE universal-donor `Dictionary<…>`
+/// (assignable to the impl's `IEnumerable<IDictionary<…>>` param via array covariance) — a read-only
+/// `IReadOnlyDictionary` value there is a CS1503. The getter-based `NestedMarkerProvider` above exercises
+/// the WRITE direction; this is its READ/method-param sibling, the path the getter cannot cover.
+public protocol NestedMarkerMapConsumer {
+    func consume(grid: [[String: any Marker]]) -> Int
+}
+
+/// Swift driver that builds an `outer`×`inner` `[[String: any Marker]]` grid of fresh tracked conformers
+/// and passes it into a `NestedMarkerMapConsumer` (whoever implements it, including a C# implementation
+/// reached through its EveryProtocol proxy), returning whatever the consumer computes.
+public func driveNestedMarkerMapConsumer(_ c: NestedMarkerMapConsumer, outer: Int, inner: Int) -> Int {
+    var grid: [[String: any Marker]] = []
+    grid.reserveCapacity(outer)
+    for o in 0..<outer {
+        var row: [String: any Marker] = [:]
+        for i in 0..<inner { row["k\(i)"] = MarkerImpl(mid: o * 1000 + i) }
+        grid.append(row)
+    }
+    return c.consume(grid: grid)
+}
+
+/// REVERSE-DISPATCH SETTER requirement, nested-container existential dictionary VALUE: a C# class
+/// implements a SETTABLE `[String: [String: any Marker]]` property; Swift builds a dict-of-dict grid and
+/// ASSIGNS it through the generated EveryProtocol receiver SETTER. The setter materializes the incoming
+/// SwiftDictionary and converts it to the impl's idiomatic
+/// `IReadOnlyDictionary<String, IReadOnlyDictionary<String, IMarker>>` setter param — whose outer VALUE
+/// slot is INVARIANT. Before the receiver-setter shared the forward-return invariant-slot cast, the inner
+/// dictionary's concrete `Dictionary<…>` value selector body inferred
+/// `IReadOnlyDictionary<String, Dictionary<…>>` and the generated setter was a compile-time CS0266. This is
+/// the SETTER sibling of the getter-based `NestedMarkerProvider` and the method-param `NestedMarkerMapConsumer`
+/// — the one reverse-dispatch direction for a nested-container existential dict value that neither covers.
+public protocol MutableMarkerMapGridHolder: AnyObject {
+    var markerMapGrid: [String: [String: any Marker]] { get set }
+}
+
+/// Swift driver that builds an `outer`×`inner` `[String: [String: any Marker]]` grid of fresh tracked
+/// conformers, ASSIGNS it into the holder's settable property (exercising the receiver SETTER), then reads
+/// it back through the getter and sums every buried marker id across the whole grid (so a wrong nested
+/// stride or a dropped inner layer surfaces rather than a lucky hit).
+public func writeAndSumMarkerMapGrid(_ h: MutableMarkerMapGridHolder, outer: Int, inner: Int) -> Int {
+    var grid: [String: [String: any Marker]] = [:]
+    grid.reserveCapacity(outer)
+    for o in 0..<outer {
+        var row: [String: any Marker] = [:]
+        for i in 0..<inner { row["k\(i)"] = MarkerImpl(mid: o * 1000 + i) }
+        grid["g\(o)"] = row
+    }
+    h.markerMapGrid = grid
+    var total = 0
+    for (_, row) in h.markerMapGrid { for (_, m) in row { total += m.markerId() } }
+    return total
+}
+
 // MARK: - PARAM/WRITE OPAQUE (non-class-bound) `[any P]` / `[String: any P]` element ownership
 //
 // The class-bound PARAM/WRITE fixtures above (`sumMarkerIds`, `MarkerProvider`) drive the 16-byte

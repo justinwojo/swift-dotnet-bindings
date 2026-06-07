@@ -303,7 +303,7 @@ public static class SwiftMarshal
     /// <typeparam name="T">The element/key/value type occupying the slot.</typeparam>
     /// <param name="slot">Address of the initialized value slot. For classes it holds the object pointer.</param>
     /// <param name="metadata">Runtime metadata for <typeparamref name="T"/>: detects a true class and drives the ADOPT/COPY value-witness <c>Destroy</c>.</param>
-    internal static unsafe T MarshalMovedValueFromSlot<T>(void* slot, TypeMetadata metadata)
+    public static unsafe T MarshalMovedValueFromSlot<T>(void* slot, TypeMetadata metadata)
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
             && !typeof(T).IsValueType

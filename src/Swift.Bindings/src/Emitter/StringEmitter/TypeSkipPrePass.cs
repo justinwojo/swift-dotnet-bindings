@@ -119,6 +119,21 @@ public static class TypeSkipPrePass
             return true;
         }
 
+        // Condition 4: frozen value struct (by-value, not Buffer-projected) whose sub-word
+        // Optional<primitive> fields are emitted as whole 8-byte IntPtr words, placing a stored field
+        // at a different byte offset than the Swift packed layout. Mirrors FrozenStructHandler's
+        // early skip — without it, members passing or returning the struct by value would reference a
+        // type that is never emitted (and a by-value pass would corrupt the field).
+        if (typeDecl is StructDecl byValueStructDecl &&
+            FrozenStructHandler.HasSubWordOptionalLayoutMismatch(byValueStructDecl, typeDatabase))
+        {
+            ReportCollector.RecordTypeSkipped(
+                typeDecl,
+                SkipReason.IndeterminateStructLayout,
+                "Frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission diverges from the Swift packed field offsets; a by-value pass would corrupt the field.");
+            return true;
+        }
+
         return false;
     }
 }

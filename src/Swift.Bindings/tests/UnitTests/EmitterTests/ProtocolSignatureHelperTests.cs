@@ -48,6 +48,74 @@ public class ProtocolSignatureHelperTests
 
     #endregion
 
+    #region §6 #12 — Intra-protocol async/sync vtable-slot keys
+
+    [Fact]
+    public void GetMethodSignatureKey_SyncVsAsync_SameNameSameParams_DifferentKeysByDefault()
+    {
+        // A single protocol may declare BOTH `func m()` and `func m() async`
+        // (effectful overloading — two distinct witness-table requirements that
+        // occupy two separate vtable slots). The slot-allocation key MUST be
+        // async-sensitive by default, else the async overload aliases onto the
+        // sync slot: a dropped C# member AND proxy slot-count drift vs Swift.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var sync = CreateMethodWithParam("refresh", "Swift.Int", moduleDecl, isAsync: false);
+        var async = CreateMethodWithParam("refresh", "Swift.Int", moduleDecl, isAsync: true);
+
+        var syncKey = ProtocolSignatureHelper.GetMethodSignatureKey(sync, typeDatabase);
+        var asyncKey = ProtocolSignatureHelper.GetMethodSignatureKey(async, typeDatabase);
+
+        Assert.NotEqual(syncKey, asyncKey);
+        Assert.EndsWith(":async", asyncKey);
+        Assert.DoesNotContain(":async", syncKey);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_SyncVsAsync_IncludeAsyncEffectFalse_SameKey()
+    {
+        // The lenient concrete-conformance matchers (FindMatchingMethod /
+        // FindMatchingStaticMethod) pass includeAsyncEffect: false so a sync
+        // witness can still satisfy an async requirement. Under that opt-out the
+        // two overloads must collapse to the identical key on BOTH comparison sides.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var sync = CreateMethodWithParam("refresh", "Swift.Int", moduleDecl, isAsync: false);
+        var async = CreateMethodWithParam("refresh", "Swift.Int", moduleDecl, isAsync: true);
+
+        var syncKey = ProtocolSignatureHelper.GetMethodSignatureKey(sync, typeDatabase, includeAsyncEffect: false);
+        var asyncKey = ProtocolSignatureHelper.GetMethodSignatureKey(async, typeDatabase, includeAsyncEffect: false);
+
+        Assert.Equal(syncKey, asyncKey);
+        Assert.DoesNotContain(":async", asyncKey);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_DistinctParams_DifferByParamsRegardlessOfAsync()
+    {
+        // Async-sensitivity must not mask ordinary param-based distinction: a sync
+        // method and an async method with DIFFERENT params still produce different
+        // keys (the async suffix is additive, never a substitute for param identity).
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var syncInt = CreateMethodWithParam("load", "Swift.Int", moduleDecl, isAsync: false);
+        var asyncString = CreateMethodWithParam("load", "Swift.String", moduleDecl, isAsync: true);
+
+        var k1 = ProtocolSignatureHelper.GetMethodSignatureKey(syncInt, typeDatabase);
+        var k2 = ProtocolSignatureHelper.GetMethodSignatureKey(asyncString, typeDatabase);
+
+        Assert.NotEqual(k1, k2);
+        // Even with the async effect erased they remain distinct (params differ).
+        Assert.NotEqual(
+            ProtocolSignatureHelper.GetMethodSignatureKey(syncInt, typeDatabase, includeAsyncEffect: false),
+            ProtocolSignatureHelper.GetMethodSignatureKey(asyncString, typeDatabase, includeAsyncEffect: false));
+    }
+
+    #endregion
+
     #region P1 Fix — isParameter + Native Remapping
 
     [Fact]
@@ -966,7 +1034,7 @@ public class ProtocolSignatureHelperTests
         };
     }
 
-    private static MethodDecl CreateMethodWithParam(string name, string paramTypeName, ModuleDecl moduleDecl)
+    private static MethodDecl CreateMethodWithParam(string name, string paramTypeName, ModuleDecl moduleDecl, bool isAsync = false)
     {
         return new MethodDecl
         {
@@ -1001,7 +1069,7 @@ public class ProtocolSignatureHelperTests
             ParentDecl = null,
             ModuleDecl = moduleDecl,
             Throws = false,
-            IsAsync = false,
+            IsAsync = isAsync,
             Visibility = Visibility.Public
         };
     }

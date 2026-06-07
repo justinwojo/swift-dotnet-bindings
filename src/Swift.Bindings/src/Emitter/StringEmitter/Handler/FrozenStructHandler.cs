@@ -114,6 +114,26 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Frozen value struct (by-value, NOT Buffer-projected) whose emitted IntPtr-word optional
+            // fields place a stored field at a different byte offset than the true Swift packed layout.
+            // Optional<primitive> backing is rounded up to whole 8-byte words, but Swift packs sub-word
+            // optionals tighter (Bool?=1B align1, Int32?=5B align4, …); when such an optional precedes
+            // another field the next field's Swift offset (packed) and C# offset (8-aligned word)
+            // diverge, so a by-value cdecl pass reads that field's bytes from the wrong slot and
+            // corrupts the value. Fail closed and skip rather than emit a corrupting binding (a precise
+            // sub-word Buffer emitter is future work). Mirrored in TypeSkipPrePass so members passing or
+            // returning the struct by value are pruned in the same pass.
+            if (HasSubWordOptionalLayoutMismatch(structDecl, env.TypeDatabase))
+            {
+                const string detail = "frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission places a stored field at a different byte offset than the Swift packed layout; a by-value pass would read the field from the wrong slot and corrupt it.";
+                ReportCollector.RecordTypeSkipped(structDecl, SkipReason.IndeterminateStructLayout, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.IndeterminateStructLayout, detail);
+                _logger.LogWarning(
+                    "Skipping frozen struct '{TypeName}' - sub-word Optional field packing makes the by-value C# layout diverge from Swift.",
+                    structDecl.Name);
+                return;
+            }
+
             // Create P/Invoke helper context for generic types (to avoid CS7042).
             // Pre-flatten conformances against the type database so the metadata-accessor
             // emitter can render the correct PWT plumbing.
@@ -564,6 +584,150 @@ namespace BindingsGeneration
 
             return false;
         }
+
+        /// <summary>
+        /// True when <paramref name="structDecl"/> is a frozen struct projected as a BY-VALUE C# struct
+        /// (NOT <see cref="MarshallingHelpers.IsFrozenStructProjectedAsClass"/>) whose emitted backing
+        /// fields place at least one stored field at a different byte offset than the true Swift layout.
+        ///
+        /// <para><c>Optional&lt;primitive&gt;</c> fields are emitted as whole 8-byte <c>IntPtr</c> words
+        /// (<see cref="EmitIntPtrFields"/>), but Swift packs many optionals tighter than their emitted
+        /// word. Two distinct ways an optional over-pads: (a) sub-word optionals (Bool?=1B align1,
+        /// Int8?=2B, Int16?=3B align2, Int32?/Float?=5B align4, …); and (b) tag-extended whole-word VALUE
+        /// optionals (Int?/Int64?/UInt64?/Double?=9B align8 — the payload uses every bit, so Swift appends
+        /// a separate tag byte and rounds to a 16-byte stride, while C# emits two IntPtr words = 16B at
+        /// offset granularity 8). In BOTH cases the Swift inline size (9 or sub-word) is smaller than the
+        /// emitted IntPtr backing (8 or 16). When such an over-padded optional precedes another stored
+        /// field, the next field's Swift offset (packed) and C# offset (word-aligned) diverge, so a
+        /// by-value cdecl pass reads that field's bytes from the wrong register/stack slot and corrupts the
+        /// value. We fail closed and skip rather than emit a corrupting binding.</para>
+        ///
+        /// <para>Detection simulates BOTH layouts field-by-field — a count of over-padded optionals is
+        /// neither necessary nor sufficient: a lone Int32? and two adjacent Int32? both lay out
+        /// identically in C# and Swift, while Bool?+Int32?, Int?+Int32?, and Int64?+Int8 diverge. Only
+        /// per-field START OFFSET divergence is treated as a defect: it is unconditionally corrupting (a
+        /// field's bytes land in the wrong slot) independent of ABI register-padding. A pure trailing-stride
+        /// difference with all offsets equal is absorbed by the ≤16-byte register classification (and by the
+        /// emitted <c>[StructLayout(Size=…)]</c> when live metadata is present), so it is intentionally NOT
+        /// a skip trigger — that would over-suppress 1–3 byte single-optional structs that pass correctly.
+        /// The over-pad signal is <c>csSize != swiftSize</c> (NOT alignment), so a whole-word value optional
+        /// such as <c>Int64?</c> that pushes a following field is caught; only reference-width optionals
+        /// (<c>String?</c>/<c>class?</c> — exactly one 8-byte word, no tag byte, <c>csSize == swiftSize</c>)
+        /// and typed-only structs are unaffected. Bails (no skip) on any field whose layout is not precisely
+        /// derivable, preserving existing behavior. Mirrored in <see cref="TypeSkipPrePass"/>. (Method name
+        /// retains the historical "SubWord" label; it now covers every over-padded optional.)</para>
+        /// </summary>
+        internal static bool HasSubWordOptionalLayoutMismatch(StructDecl structDecl, ITypeDatabase typeDatabase)
+        {
+            // By-value risk only: a frozen-with-memory struct is pointer-passed as an opaque Buffer that
+            // Swift fills via accessors, so its over-sized Buffer never lowers through a by-value ABI.
+            if (typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord) &&
+                MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                return false;
+
+            int swiftCursor = 0, csCursor = 0;
+            bool anyOverPaddedOptional = false;
+            bool offsetDiverged = false;
+            foreach (PropertyDecl propertyDecl in structDecl.Properties)
+            {
+                if (!propertyDecl.HasStorage)
+                    continue;
+                if (!TryGetFrozenFieldLayout(propertyDecl.SwiftTypeSpec, typeDatabase,
+                        out int swiftSize, out int swiftAlign, out int csSize, out int csAlign,
+                        out bool isOverPaddedOptional))
+                    return false; // layout not precisely derivable → preserve existing behavior (no skip)
+
+                anyOverPaddedOptional |= isOverPaddedOptional;
+
+                int swiftOffset = AlignUp(swiftCursor, swiftAlign);
+                int csOffset = AlignUp(csCursor, csAlign);
+                if (swiftOffset != csOffset)
+                    offsetDiverged = true;
+
+                swiftCursor = swiftOffset + swiftSize;
+                csCursor = csOffset + csSize;
+            }
+
+            // Fire only when an over-padded optional actually participates AND a field offset diverges;
+            // offset divergence cannot arise without an over-padded optional, so the gate is a guard rail.
+            return anyOverPaddedOptional && offsetDiverged;
+        }
+
+        /// <summary>
+        /// Resolves the Swift and emitted-C# inline (size, alignment) of a frozen struct stored field
+        /// for <see cref="HasSubWordOptionalLayoutMismatch"/>. Returns false when the field's layout is
+        /// not precisely derivable (an indeterminate-size field, or a non-primitive typed field such as a
+        /// nested value struct), so the caller can preserve existing behavior rather than guess.
+        /// </summary>
+        private static bool TryGetFrozenFieldLayout(
+            TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase,
+            out int swiftSize, out int swiftAlign, out int csSize, out int csAlign, out bool isOverPaddedOptional)
+        {
+            swiftSize = swiftAlign = csSize = csAlign = 0;
+            isOverPaddedOptional = false;
+
+            switch (ClassifyFrozenStructField(fieldTypeSpec, typeDatabase, out int byteSize))
+            {
+                case FrozenFieldLayoutKind.IntPtrFields:
+                    // Optional<T> / reference-managed field emitted as whole 8-byte IntPtr words.
+                    swiftSize = byteSize;
+                    csSize = IntPtr.Size * ((byteSize + IntPtr.Size - 1) / IntPtr.Size);
+                    csAlign = IntPtr.Size;
+                    if (!TryGetSwiftFieldAlignment(fieldTypeSpec, typeDatabase, out swiftAlign))
+                        return false;
+                    // Over-pad = the emitted IntPtr backing is larger than the Swift inline size — the
+                    // sole way C#/Swift field offsets can diverge. This catches BOTH sub-word optionals
+                    // (Bool?/Int32?, align<8) AND tag-extended whole-word value optionals (Int64?/Int?/
+                    // Double?=9B → 16B word). A reference-width optional (String?/class?=8B) has
+                    // csSize==swiftSize and never shifts a following field, so it is correctly excluded.
+                    isOverPaddedOptional = csSize != swiftSize;
+                    return true;
+
+                case FrozenFieldLayoutKind.TypedField:
+                    // Only fixed-width primitives have a known C#/Swift-matching layout (size == align).
+                    // A non-primitive typed field (nested value struct, etc.) is not analyzable → bail.
+                    if (!TryGetFixedWidthPrimitiveSize(fieldTypeSpec, out int primSize))
+                        return false;
+                    swiftSize = swiftAlign = csSize = csAlign = primSize;
+                    return true;
+
+                default: // Indeterminate — handled by HasIndeterminateBufferLayout; do not analyze here.
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Resolves a frozen struct stored field's Swift inline alignment: Optional&lt;T&gt; aligns to
+        /// T's alignment (a fixed-width primitive aligns to its own size; a reference/class type is
+        /// pointer-aligned). Returns false for any inner type whose alignment is not known here.
+        /// </summary>
+        private static bool TryGetSwiftFieldAlignment(TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, out int align)
+        {
+            align = IntPtr.Size;
+            var inner = fieldTypeSpec;
+            if (fieldTypeSpec is NamedTypeSpec opt &&
+                opt.Name == "Swift.Optional" &&
+                opt.GenericParameters.Count == 1)
+                inner = opt.GenericParameters[0];
+
+            // Fixed-width primitive: Swift alignment == its size (Bool=1, Int16=2, Int32=4, Int64/Double=8).
+            if (TryGetFixedWidthPrimitiveSize(inner, out int primSize))
+            {
+                align = primSize;
+                return true;
+            }
+            // Reference-managed / class inner: pointer-aligned.
+            if (typeDatabase.TryGetTypeRecord(inner, out var rec) &&
+                ((rec.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 || rec.Kind == TypeRecordKind.Class))
+            {
+                align = IntPtr.Size;
+                return true;
+            }
+            return false; // unknown alignment → caller bails (no skip)
+        }
+
+        private static int AlignUp(int value, int alignment)
+            => alignment <= 1 ? value : (value + alignment - 1) / alignment * alignment;
 
         /// <summary>
         /// Computes the inline size of Optional&lt;T&gt; for frozen struct Buffer fields.

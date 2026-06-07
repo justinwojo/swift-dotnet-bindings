@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using Xunit;
@@ -211,6 +212,163 @@ public class GenericClosureBridgeEmitterTests
         Assert.Contains("@_silgen_name", swResult);
         Assert.Contains("@_cdecl", swResult);
         Assert.Contains("SBW_CreateError", swResult);
+    }
+
+    [Fact]
+    public void TryEmit_GenericClosureReturn_GuardsResultBufExceptionPath()
+    {
+        // The returning bridge has the Swift callback write the closure result (+1) into resultBuf,
+        // then MarshalMovedValueFromSlot consumes it. That consume leaves the slot intact on every
+        // throw path (by contract), so a throw before the +1 is adopted leaves an unconsumed +1 in
+        // resultBuf. The outer finally must value-witness Destroy it before the raw AlignedFree —
+        // otherwise the conformer / COW-storage +1 leaks (same shape as the SwiftArray/Dictionary
+        // slotLive guards).
+        //
+        // Regression (Codex+Grok r2 Medium): liveness must be marked the instant the callback writes
+        // resultBuf, NOT after the post-P/Invoke Swift-error check. The Swift wrapper passes the same
+        // resultBuf to the closure callback, so a generic method that invokes the closure (populating
+        // the slot) and THEN throws would, under the old "set live after the error check" shape, exit
+        // via the error throw with the +1 still in resultBuf and the finally skipping Destroy → leak.
+        // Asserts the live-set is emitted inside the invoke delegate (after MarshalToSwift, before the
+        // _XC P/Invoke and its error-check throw), that a prior +1 is released before a re-invoke
+        // overwrite, and that the finally Destroys an unconsumed slot before freeing.
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+
+        // Closure: (Database) throws -> τ_0_0 — concrete class input, generic (class) return. The
+        // resultBuf exception-path guard is emitted in the returning path regardless of Throws; the
+        // throwing shape is used here because it is the eligible-bridge shape in this minimal harness.
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0"))
+        {
+            Throws = true
+        };
+        var closureArg = CreateArg("block", closureSpec, moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s4GRDB8Database4readyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                closureArg
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        var handled = GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl, ctx);
+        Assert.True(handled);
+
+        var csResult = csOutput.ToString();
+
+        // Liveness flag is set (in the delegate) and cleared (after the moved read adopts the +1).
+        Assert.Contains("resultSlotLive = true;", csResult);
+        Assert.Contains("resultSlotLive = false;", csResult);
+        // The delegate releases any prior +1 before overwriting on a re-invoke, then writes, then marks live.
+        Assert.Contains("if (resultSlotLive) SwiftMarshal.DestroyWireBufferRetains(resBufPtr, metadata);", csResult);
+        Assert.Contains("SwiftMarshal.MarshalToSwift(result, ref resBufSpan);", csResult);
+        // The finally releases an unconsumed slot's +1 via the non-generic wire-buffer destroy.
+        Assert.Contains("if (resultSlotLive) SwiftMarshal.DestroyWireBufferRetains((IntPtr)resultBuf, metadata);", csResult);
+
+        // Exactly one live-set, emitted inside the invoke delegate after the write and BEFORE the
+        // Swift-error-check throw. This is the regression guard: the old shape set liveness AFTER the
+        // error check, so a generic method that invoked the closure then threw leaked the +1.
+        var liveSetIdx = csResult.IndexOf("resultSlotLive = true;", StringComparison.Ordinal);
+        Assert.Equal(liveSetIdx, csResult.LastIndexOf("resultSlotLive = true;", StringComparison.Ordinal));
+        var delegateMarshalIdx = csResult.IndexOf("SwiftMarshal.MarshalToSwift(result, ref resBufSpan);", StringComparison.Ordinal);
+        var preOverwriteDestroyIdx = csResult.IndexOf("if (resultSlotLive) SwiftMarshal.DestroyWireBufferRetains(resBufPtr, metadata);", StringComparison.Ordinal);
+        var errThrowIdx = csResult.IndexOf("throw new SwiftRuntimeException", StringComparison.Ordinal);
+        Assert.True(preOverwriteDestroyIdx >= 0 && preOverwriteDestroyIdx < delegateMarshalIdx,
+            "the prior-+1 release must precede the MarshalToSwift overwrite in the invoke delegate");
+        Assert.True(delegateMarshalIdx < liveSetIdx,
+            "liveness must be marked after the callback writes resultBuf");
+        Assert.True(errThrowIdx > liveSetIdx,
+            "liveness must be set before the Swift-error-check throw so a throw-after-callback releases the +1");
+
+        // Ordering: the value-witness Destroy must precede the raw AlignedFree (release the +1, then
+        // free the buffer) — freeing first would lose the slot the Destroy needs to read.
+        var destroyIdx = csResult.IndexOf("(IntPtr)resultBuf, metadata);", StringComparison.Ordinal);
+        var freeIdx = csResult.IndexOf("NativeMemory.AlignedFree(resultBuf)", destroyIdx, StringComparison.Ordinal);
+        Assert.True(destroyIdx >= 0 && freeIdx > destroyIdx,
+            "value-witness Destroy must be emitted before the raw AlignedFree in the result-buffer finally");
+    }
+
+    [Fact]
+    public void TryEmit_ClassClosureArg_UsesOwningBorrowedClassMarshal()
+    {
+        // A class-typed closure argument is handed to Swift with passUnretained (+0) and surfaced to
+        // the user's closure body, where it may be Disposed. It must marshal via the OWNING
+        // MarshalBorrowedClassFromSwift (real +1 that Dispose/finalize both balance), not the
+        // SuppressFinalize-only MarshalBorrowedFromSwift — whose reflection-based finalizer
+        // suppression is trimmed on NativeAOT, over-releasing the borrowed object (device SIGTRAP).
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+
+        // Closure: (Database) throws -> τ_0_0 — TestModule.Database is registered as a class.
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0"))
+        {
+            Throws = true
+        };
+        var closureArg = CreateArg("block", closureSpec, moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s4GRDB8Database4readyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                closureArg
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        var handled = GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl, ctx);
+        Assert.True(handled);
+
+        var csResult = csOutput.ToString();
+        Assert.Contains("SwiftMarshal.MarshalBorrowedClassFromSwift<TestModule.Database>", csResult);
+        Assert.DoesNotContain("SwiftMarshal.MarshalBorrowedFromSwift<TestModule.Database>", csResult);
     }
 
     #endregion

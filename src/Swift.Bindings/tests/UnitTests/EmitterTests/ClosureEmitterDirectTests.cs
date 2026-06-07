@@ -1739,6 +1739,502 @@ public class ClosureEmitterDirectTests
         Assert.False(ClosureEmitter.IsInvokeThunkCompatibleReturn(unknownType, closureHandler));
     }
 
+    // --- By-value struct args through the invoke thunk (§6 #4) -------------------------
+    // A closure RETURNED from Swift that takes a by-value struct argument must route
+    // through the @_cdecl invoke thunk, not the raw `delegate* unmanaged[Swift]` lambda
+    // (which SIGSEGVs on Mono JIT / NativeAOT when invoked from a display-class method).
+    // These pin the gate (CanUseInvokeThunk), the Swift-side struct reload, and the C#
+    // frozen (stackalloc + MarshalToSwift) vs non-frozen (InitializeWithCopy + Destroy/Free)
+    // marshalling that the invoker class emits.
+
+    [Fact]
+    public void IsInvokeThunkStructArg_CdeclPrimitive_ReturnsFalse()
+    {
+        // Stdlib primitives (Int32, Double, …) are frozen structs but pass BY VALUE — the
+        // struct-arg buffer path must exclude them or it would wrap an `int` in a heap copy.
+        var typeDatabase = CreateTypeDatabaseWithStructArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(ClosureEmitter.IsInvokeThunkStructArg(new NamedTypeSpec("Swift.Int32"), closureHandler));
+        Assert.True(ClosureEmitter.IsInvokeThunkStructArg(new NamedTypeSpec("CoreGraphics.CGSize"), closureHandler));
+        Assert.True(ClosureEmitter.IsInvokeThunkStructArg(new NamedTypeSpec("TestModule.ResilientConfig"), closureHandler));
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_FrozenStructArg_PrimitiveReturn_ReturnsTrue()
+    {
+        // (CGSize) -> Int32 — a frozen struct arg must NOT disqualify the invoke thunk.
+        var typeDatabase = CreateTypeDatabaseWithStructArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGSize"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_NonFrozenStructArg_PrimitiveReturn_ReturnsTrue()
+    {
+        // (ResilientConfig) -> Int32 — a NON-frozen struct arg must also stay on the thunk path.
+        var typeDatabase = CreateTypeDatabaseWithStructArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ResilientConfig"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_StructArg_ReloadsViaAssumingMemoryBound()
+    {
+        // The @_cdecl thunk receives the struct arg as UnsafeMutableRawPointer and must reload
+        // the value via assumingMemoryBound(to: T.self).pointee before invoking the closure —
+        // NOT pass the raw pointer (which would be the wrong Swift type) and NOT pass `arg0` bare.
+        var typeDatabase = CreateTypeDatabaseWithStructArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGSize"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        // Struct arg arrives as a raw pointer …
+        Assert.Contains("arg0: UnsafeMutableRawPointer", result);
+        // … and is reloaded as the module-qualified Swift value type before the call.
+        Assert.Contains("arg0.assumingMemoryBound(to: CoreGraphics.CGSize.self).pointee", result);
+        Assert.Contains("return _closure(arg0.assumingMemoryBound(to: CoreGraphics.CGSize.self).pointee)", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_FrozenStructArg_EmitsStackallocMarshalling()
+    {
+        // Frozen struct arg: the P/Invoke param is nint (buffer pointer), and the invoker
+        // marshals the struct into a stack buffer via MarshalToSwift before calling the thunk.
+        var typeDatabase = CreateTypeDatabaseWithStructArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGSize"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        // P/Invoke passes the struct as a buffer pointer, not by value.
+        Assert.Contains("nint arg0", result);
+        // Frozen marshalling: stackalloc + MarshalToSwift, NOT a heap copy.
+        Assert.Contains("stackalloc byte[(int)_arg0Metadata.Size]", result);
+        Assert.Contains("SwiftMarshal.MarshalToSwift(_arg0, ref _arg0Span)", result);
+        Assert.Contains("(nint)_arg0Buffer", result);
+        // Struct marshalling forces an unsafe Invoke method.
+        Assert.Contains("internal unsafe", result);
+        // Frozen path must NOT use the non-frozen heap-copy machinery.
+        Assert.DoesNotContain("NativeMemory.Alloc", result);
+        Assert.DoesNotContain("InitializeWithCopy", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_NonFrozenStructArg_EmitsInitializeWithCopyAndCleanup()
+    {
+        // Non-frozen struct arg: the invoker heap-allocates a Swift-layout buffer, copies the
+        // value in via the value-witness table, and Destroy+Free's it in a finally so the early
+        // `return` inside the body still runs cleanup (no leak).
+        var typeDatabase = CreateTypeDatabaseWithStructArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ResilientConfig"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("nint arg0", result);
+        // Non-frozen marshalling: heap-allocate + value-witness copy in.
+        Assert.Contains("NativeMemory.Alloc", result);
+        Assert.Contains("InitializeWithCopy", result);
+        Assert.Contains("(nint)_arg0Buffer", result);
+        // Cleanup must run through finally (the body returns early).
+        Assert.Contains("try {", result);
+        Assert.Contains("finally {", result);
+        Assert.Contains("Destroy", result);
+        Assert.Contains("NativeMemory.Free(_arg0Buffer)", result);
+        // Non-frozen path must NOT use the frozen stack path.
+        Assert.DoesNotContain("stackalloc", result);
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_StringArg_PrimitiveReturn_ReturnsTrue()
+    {
+        // (String) -> Int32 — Swift.String is a frozen value struct, so the closure must stay
+        // on the invoke-thunk path (the documented Codex High #1 repro shape).
+        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_StringArg_ConvertsViaSwiftStringNotMetadataThrow()
+    {
+        // Codex High #1: Swift.String projects to C# `string`, which has NO Swift TypeMetadata.
+        // The generic GetTypeMetadataOrThrow<string>() path throws at runtime before the closure
+        // is ever invoked. The invoker must instead convert to the metadata-bearing SwiftString
+        // and marshal its inline Swift representation into a heap buffer (then Destroy+Free it).
+        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        // Swift.SwiftString lives in Swift.Runtime (always referenced), so the String arg path
+        // must NOT pull in the Apple supplement — only the Foundation.Data path does.
+        AppleSupplementReferences.Reset();
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        // The broken generic-metadata path must be gone.
+        Assert.DoesNotContain("GetTypeMetadataOrThrow<string>", result);
+        // String pulls in no Apple supplement dependency.
+        Assert.DoesNotContain("Foundation.Data", AppleSupplementReferences.Current);
+        // Metadata-bearing conversion + value-witness marshalling.
+        Assert.Contains("new Swift.SwiftString(_arg0)", result);
+        Assert.Contains("Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata()", result);
+        Assert.Contains("MarshalToSwift(ref _arg0Span)", result);
+        Assert.Contains("(nint)_arg0Buffer", result);
+        // String carries a +1 from the retaining copy → buffer MUST be Destroy+Free'd.
+        Assert.Contains("try {", result);
+        Assert.Contains("finally {", result);
+        Assert.Contains("Destroy", result);
+        Assert.Contains("NativeMemory.Free(_arg0Buffer)", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_DataArg_ConvertsViaFromByteArrayNotMetadataThrow()
+    {
+        // Codex High #1 (Data variant): Foundation.Data projects to C# `byte[]`, which has no
+        // Swift TypeMetadata. Convert to the metadata-bearing Foundation.Data via FromByteArray.
+        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Foundation.Data"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        // Codex r2 Medium: the invoke-thunk Data path references Swift.Foundation.Data, which
+        // lives in the SwiftBindings.Apple supplement. The csproj emitter only adds that
+        // PackageReference when the supplement dependency is recorded — verify this path records
+        // it (the closure-delegate translation bypasses the projection path that normally would).
+        AppleSupplementReferences.Reset();
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.DoesNotContain("GetTypeMetadataOrThrow<byte[]>", result);
+        Assert.Contains("Swift.Foundation.Data.FromByteArray(_arg0)", result);
+        Assert.Contains("Swift.Runtime.SwiftObjectHelper<Swift.Foundation.Data>.GetTypeMetadata()", result);
+        Assert.Contains("MarshalToSwift(ref _arg0Span)", result);
+        Assert.Contains("NativeMemory.Free(_arg0Buffer)", result);
+        // The Apple supplement dependency must be recorded so the consumer csproj references it.
+        Assert.Contains("Foundation.Data", AppleSupplementReferences.Current);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_MultipleHeapStructArgs_AllocInsideTryWithNullGuardedCleanup()
+    {
+        // Grok High #1: with N>1 heap struct args, the prologue allocations must sit INSIDE the
+        // try so a later arg's alloc failure cannot leak an earlier arg's buffer. Buffer pointers
+        // are declared null before the try and the finally Destroy+Free's only the non-null ones.
+        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // (ResilientConfig, ResilientConfig) -> Int32 — two non-frozen heap buffers.
+        var closureTypeSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("TestModule.ResilientConfig"),
+                new NamedTypeSpec("TestModule.ResilientConfig")
+            }),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        // Both buffers declared null BEFORE the try.
+        Assert.Contains("byte* _arg0Buffer = null;", result);
+        Assert.Contains("byte* _arg1Buffer = null;", result);
+        // Allocation happens INSIDE the try (after `try {`), not before it.
+        var tryIdx = result.IndexOf("try {", StringComparison.Ordinal);
+        var alloc0Idx = result.IndexOf("_arg0Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
+        var alloc1Idx = result.IndexOf("_arg1Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
+        Assert.True(tryIdx >= 0 && alloc0Idx > tryIdx, "arg0 allocation must be inside the try block");
+        Assert.True(alloc1Idx > tryIdx, "arg1 allocation must be inside the try block");
+        // Cleanup is null-guarded so a never-allocated buffer is not Destroyed.
+        Assert.Contains("if (_arg0Buffer != null)", result);
+        Assert.Contains("if (_arg1Buffer != null)", result);
+    }
+
+    [Fact]
+    public void EmitThrowingClosureReturnMarshalling_StringArgFallback_ConvertsViaSwiftStringNotMetadataThrow()
+    {
+        // Codex+Grok Medium: the THROWING closure return fallback (the inline-lambda path taken
+        // when CanUseInvokeThunk is false — no invoke-thunk entry point passed) marshalled a
+        // Swift.String arg via the same generic GetTypeMetadataOrThrow<string>() path the
+        // invoke-thunk path already avoids. `string` carries no Swift TypeMetadata, so the
+        // returned throwing closure threw on first invoke. The fallback must convert to the
+        // metadata-bearing SwiftString and marshal its inline representation into a heap buffer
+        // (then Destroy+Free it), exactly like the invoke-thunk path.
+        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int32")) { Throws = true };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        // Swift.SwiftString lives in Swift.Runtime (always referenced) — the String arg path must
+        // NOT pull in the Apple supplement; only the Foundation.Data path does.
+        AppleSupplementReferences.Reset();
+
+        // No invoke-thunk entry point/helper → the inline-lambda fallback is emitted.
+        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+
+        var result = output.ToString();
+        // The broken generic-metadata path must be gone.
+        Assert.DoesNotContain("GetTypeMetadataOrThrow<string>", result);
+        // String pulls in no Apple supplement dependency.
+        Assert.DoesNotContain("Foundation.Data", AppleSupplementReferences.Current);
+        // Metadata-bearing conversion + value-witness marshalling.
+        Assert.Contains("new Swift.SwiftString(_arg0)", result);
+        Assert.Contains("Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata()", result);
+        Assert.Contains("MarshalToSwift(ref _arg0Span)", result);
+        // String carries a +1 from the retaining copy → buffer MUST be Destroy+Free'd in a finally.
+        Assert.Contains("byte* _arg0Buffer = null;", result);
+        Assert.Contains("finally", result);
+        Assert.Contains("if (_arg0Buffer != null)", result);
+        Assert.Contains("NativeMemory.Free(_arg0Buffer)", result);
+    }
+
+    [Fact]
+    public void EmitThrowingClosureReturnMarshalling_DataArgFallback_ConvertsViaFromByteArrayNotMetadataThrow()
+    {
+        // Data variant of the throwing-fallback metadata-remap fix: Foundation.Data projects to
+        // C# `byte[]` (no Swift TypeMetadata). The fallback must build the metadata-bearing
+        // Foundation.Data via FromByteArray and record the Apple supplement dependency so the
+        // consumer csproj references it (the closure-delegate translation bypasses the projection
+        // path that normally records it).
+        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Foundation.Data"),
+            new NamedTypeSpec("Swift.Int32")) { Throws = true };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        AppleSupplementReferences.Reset();
+
+        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+
+        var result = output.ToString();
+        Assert.DoesNotContain("GetTypeMetadataOrThrow<byte[]>", result);
+        Assert.Contains("Swift.Foundation.Data.FromByteArray(_arg0)", result);
+        Assert.Contains("Swift.Runtime.SwiftObjectHelper<Swift.Foundation.Data>.GetTypeMetadata()", result);
+        Assert.Contains("MarshalToSwift(ref _arg0Span)", result);
+        Assert.Contains("NativeMemory.Free(_arg0Buffer)", result);
+        // The Apple supplement dependency must be recorded so the consumer csproj references it.
+        Assert.Contains("Foundation.Data", AppleSupplementReferences.Current);
+    }
+
+    [Fact]
+    public void EmitThrowingClosureReturnMarshalling_MultipleHeapStructArgsFallback_AllocInsideTryWithNullGuardedCleanup()
+    {
+        // Codex+Grok Medium: the throwing fallback allocated non-frozen heap buffers in the
+        // prologue BEFORE the try, so a later arg's InitializeWithCopy failure leaked an earlier
+        // arg's buffer. Buffers must be declared null before the try, allocated INSIDE it, and
+        // Destroy+Free'd in a null-guarded finally — matching the invoke-thunk path.
+        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // (ResilientConfig, ResilientConfig) throws -> Int32 — two non-frozen heap buffers.
+        var closureTypeSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("TestModule.ResilientConfig"),
+                new NamedTypeSpec("TestModule.ResilientConfig")
+            }),
+            new NamedTypeSpec("Swift.Int32")) { Throws = true };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+
+        var result = output.ToString();
+        // Both buffers declared null BEFORE the try.
+        Assert.Contains("byte* _arg0Buffer = null;", result);
+        Assert.Contains("byte* _arg1Buffer = null;", result);
+        // Allocation happens INSIDE the try, not before it.
+        var tryIdx = result.IndexOf("try", StringComparison.Ordinal);
+        var alloc0Idx = result.IndexOf("_arg0Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
+        var alloc1Idx = result.IndexOf("_arg1Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
+        Assert.True(tryIdx >= 0 && alloc0Idx > tryIdx, "arg0 allocation must be inside the try block");
+        Assert.True(alloc1Idx > tryIdx, "arg1 allocation must be inside the try block");
+        // Cleanup is null-guarded so a never-allocated buffer is not Destroyed.
+        Assert.Contains("if (_arg0Buffer != null)", result);
+        Assert.Contains("if (_arg1Buffer != null)", result);
+    }
+
+    /// <summary>
+    /// TypeDatabase with a frozen primitive (Int32), a frozen struct (CGSize), and a
+    /// non-frozen struct (TestModule.ResilientConfig) — covers the three invoke-thunk
+    /// struct-arg classifications: by-value primitive, frozen-buffer, non-frozen-heap.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithStructArgs()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var cgModule = new ModuleTypeDatabase("CoreGraphics", "/usr/lib/swift/libswiftCoreGraphics.dylib");
+        cgModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGSize"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "CGSize"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGSize"),
+                MetadataAccessor = "$sSo6CGSizeVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(cgModule);
+
+        // Non-frozen struct: Kind=Struct, no Frozen flag, NativeTypeName null → projects as a
+        // C# class with a .Payload SafeHandle (ClassWithOpaquePayload).
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/libTestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ResilientConfig"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ResilientConfig"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ResilientConfig"),
+                MetadataAccessor = "$s10TestModule15ResilientConfigVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// TypeDatabase covering the metadata-remapped frozen value structs that project to
+    /// metadata-less C# types: Swift.String → string, Foundation.Data → byte[]. Also carries
+    /// a non-frozen struct (ResilientConfig) for the N&gt;1 heap-arg leak guard.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithStringDataArgs()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        // Swift.String: frozen + RequiresMemoryManagement, projects to C# `string` (no metadata).
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // Foundation.Data: frozen struct WITH a nativeType remap, projects to C# `byte[]`.
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Foundation", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "$s10Foundation4DataVMa",
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData"),
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/libTestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ResilientConfig"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ResilientConfig"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ResilientConfig"),
+                MetadataAccessor = "$s10TestModule15ResilientConfigVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
     #endregion
 
     #region String callback marshalling

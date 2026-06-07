@@ -21,13 +21,15 @@ import Foundation
 // optional and non-optional settable properties — every bypass site the handler-layer
 // error-mint registration now covers.
 //
-// NOTE: the struct-argument shape `(RequestConfig) throws -> Void` is used only on the
+// NOTE: the struct-argument shape `(RequestConfig) throws -> Void` is exercised on BOTH the
 // *parameter* direction (free function + initializer), where the C# delegate is marshalled
-// TO Swift. Settable closure *properties* additionally generate a getter-invoker that reads
-// the closure back FROM Swift; the throwing getter-invoker does not yet marshal by-value
-// struct arguments (logged in REMEDIATION-PLAN §6 as a separate, different-shape defect), so
-// the property shapes here use the arg-free `() throws -> Void` form to stay focused on the
-// wrapper-symbol regression this fixture exists to gate.
+// TO Swift, AND the *return* direction (the `configValidator` gettable property below), where
+// the closure is read back FROM Swift and its by-value struct argument is marshalled TO Swift
+// through the func-ptr each time the returned delegate is invoked. The return direction was
+// the REMEDIATION-PLAN §6 #4 defect: the throwing-closure RETURN invoker emitted a bare
+// `_arg0` struct value into a `void*`/struct-pointer func-ptr slot (CS1503 at the compile
+// gate). It now emits the same metadata + buffer + MarshalToSwift prologue the non-throwing
+// struct-param closure paths use, so `configValidator` is the durable gate for that fix.
 
 /// Stand-in value type for the closure's input (URLRequest / HtmlProvider).
 public struct RequestConfig {
@@ -36,6 +38,10 @@ public struct RequestConfig {
         self.timeout = timeout
     }
 }
+
+// The `configValidator` closure throws `ConfigError.invalidTimeout` (declared in
+// Initializers/Throwing.swift) for a non-positive timeout — driving the throwing branch of the
+// throwing-closure RETURN invoker (§6 #4).
 
 /// Free function with an OPTIONAL throwing-void closure parameter defaulting to nil —
 /// the Alamofire `Session.upload(…requestModifier:)` shape (the `_optbuf` native-forward
@@ -111,5 +117,43 @@ public final class OptionalThrowingModifierHolder {
         } catch {
             return false
         }
+    }
+
+    /// Last `timeout` observed by a successful `configValidator` invocation — lets a C# caller
+    /// confirm the by-value `RequestConfig` struct argument round-tripped TO Swift through the
+    /// returned throwing closure's func-ptr.
+    public var lastObservedTimeout: Int32 = 0
+
+    /// GETTABLE throwing-closure property whose closure takes a by-value struct argument and throws
+    /// — the REMEDIATION-PLAN §6 #4 return-direction shape. Reading this property hands C# a delegate
+    /// backed by a Swift func-ptr; each C# invocation marshals the `RequestConfig` struct TO Swift
+    /// through that func-ptr (the path whose throwing-return invoker previously emitted a bare struct
+    /// value into a `void*` func-ptr slot → CS1503). The closure throws for a non-positive timeout and
+    /// otherwise records the timeout so the round-trip is observable.
+    public var configValidator: (RequestConfig) throws -> Void {
+        return { config in
+            if config.timeout <= 0 {
+                throw ConfigError.invalidTimeout
+            }
+            self.lastObservedTimeout = config.timeout
+        }
+    }
+
+    /// NON-THROWING gettable closure with a by-value NON-FROZEN struct argument and a primitive
+    /// return — the non-throwing twin of `configValidator`. The §6 #4 fix routes struct-arg closure
+    /// RETURNS through the @_cdecl invoke thunk for BOTH throwing and non-throwing closures, so the
+    /// non-throwing struct-arg return no longer takes the raw `delegate* unmanaged[Swift]` lambda
+    /// struct path (an untested latent SIGSEGV on Mono JIT / NativeAOT). Echoes the timeout so the
+    /// `RequestConfig` round-trip TO Swift is observable from the returned `Int32`.
+    public var configEcho: (RequestConfig) -> Int32 {
+        return { config in config.timeout }
+    }
+
+    /// NON-THROWING gettable closure with a by-value `@frozen` struct argument — exercises the
+    /// invoke thunk's frozen-struct marshalling branch (C# stackalloc + MarshalToSwift) rather than
+    /// the non-frozen InitializeWithCopy branch `configEcho` drives. Returns the sum of the point's
+    /// coordinates so the `FrozenPoint` round-trip TO Swift is observable.
+    public var pointEcho: (FrozenPoint) -> Double {
+        return { point in point.x + point.y }
     }
 }

@@ -1676,6 +1676,57 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_AsyncMethodReceiver_UnwrapsTaskBeforeMarshalling()
+    {
+        // Forward witness dispatch is disabled for async (test above), but the REVERSE-dispatch
+        // receiver still satisfies the async requirement through the sync-ABI witness slot: the
+        // C# impl returns Task<T> while the Swift witness reads the unwrapped T. The receiver must
+        // block the Task and marshal T — emitting MarshalToSwiftBuffer(Task<T>) directly hands
+        // Swift a managed Task object header where it expects the value, silently corrupting the
+        // return ABI. Asserts the unwrap is present and that the marshalled value is `result`
+        // (the unwrapped value), never the Task.
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetchValue",
+            MangledName = "$sfetchValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverBody = ExtractMethodBody(output, "private static IntPtr Receive_fetchValue_0(");
+        // The Task is blocked synchronously so `result` is the unwrapped value the sync witness reads.
+        Assert.Contains(".GetAwaiter().GetResult()", receiverBody);
+        Assert.Contains("MarshalToSwiftBuffer(result)", receiverBody);
+        // The impl call itself must carry the unwrap (not a bare Task assignment). With the fix the
+        // call reads `impl.FetchValueAsync().GetAwaiter().GetResult()`, so the bare-Task form
+        // `FetchValueAsync();` (call immediately terminated) must never appear.
+        Assert.Contains("impl.FetchValueAsync()", receiverBody);
+        Assert.DoesNotContain("FetchValueAsync();", receiverBody);
+    }
+
+    [Fact]
     public void EmitProxyClass_ThrowingVoidMethod_EmitsErrorOutCheck()
     {
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
