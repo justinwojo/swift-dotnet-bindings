@@ -3106,6 +3106,109 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitProtocolExtension_InOutObjCBridgeableParam_EmitsTrapStubNotDispatch()
+    {
+        // An inout ObjC-bridgeable param (inout Decimal) cannot round-trip the mutated value
+        // back across the ObjC bridge — neither the Swift caller arm nor the C# receiver wires
+        // the writeback. The method must route to a fatalError trap stub (requirement satisfied,
+        // dispatch refused) rather than EmitMethodImplementation's writeback, which would
+        // reference an `amountCopy` the ObjC arm never declares and fail to compile.
+        var foundation = new ModuleTypeDatabase("Foundation", "/fake/Foundation.framework/Foundation");
+        var decimalName = SwiftTypeName.FromModuleQualifiedName("Foundation.Decimal");
+        foundation.RegisterType(decimalName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDecimalNumber"),
+            SwiftTypeName = decimalName,
+            MetadataAccessor = "$s10Foundation7DecimalVMa",
+            Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct,
+        });
+        _typeDatabase.AddModuleDatabase(foundation);
+
+        var protocol = CreateSimpleProtocol("AmountMutator");
+        protocol.Methods.Add(CreateMethodWithInOutParam("update", "amount", new NamedTypeSpec("Foundation.Decimal")));
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Routed to the trap stub: inout signature rendered + fatalError, NOT the broken dispatch
+        // (no dangling amountCopy/amountRef writeback).
+        Assert.Contains("inout ObjC-bridgeable parameter cannot be dispatched", output);
+        Assert.Contains("amount: inout", output);
+        Assert.DoesNotContain("amountCopy", output);
+        Assert.DoesNotContain("amountRef", output);
+    }
+
+    [Fact]
+    public void EmitProtocolVtableStruct_InOutObjCBridgeableParam_RetainsVtableSlot()
+    {
+        // The inout ObjC-bridgeable method routes its witness body to a fatalError trap stub, but
+        // — unlike the Self-typed / generic / non-dispatchable-closure stub categories that skip
+        // their slot — it deliberately KEEPS its vtable slot. The trapping witness never reads the
+        // slot and the C# receiver compiles via the ordinary objc-param path, so retaining it keeps
+        // the Swift vtable struct and the C# vtable buffer in lock-step. Pin that decision so a
+        // future "tidy-up" that adds a slot skip here without the matching C#-side skip can't
+        // silently desync the two layouts.
+        var foundation = new ModuleTypeDatabase("Foundation", "/fake/Foundation.framework/Foundation");
+        var decimalName = SwiftTypeName.FromModuleQualifiedName("Foundation.Decimal");
+        foundation.RegisterType(decimalName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDecimalNumber"),
+            SwiftTypeName = decimalName,
+            MetadataAccessor = "$s10Foundation7DecimalVMa",
+            Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct,
+        });
+        _typeDatabase.AddModuleDatabase(foundation);
+
+        var protocol = CreateSimpleProtocol("AmountMutator");
+        protocol.Methods.Add(CreateMethodWithInOutParam("update", "amount", new NamedTypeSpec("Foundation.Decimal")));
+
+        var output = EmitVtableStruct(protocol);
+
+        Assert.Contains("func_update_0", output);
+    }
+
+    private static MethodDecl CreateMethodWithInOutParam(string name, string paramLabel, TypeSpec paramType)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = paramLabel,
+                    SwiftTypeSpec = paramType,
+                    PrivateName = paramLabel,
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    [Fact]
     public void EmitProtocolVtableStruct_OptionalClosureParam_IncludesVtableField()
     {
         // Optional<Closure> is dispatchable in 4b — vtable field emitted as a closure slot.

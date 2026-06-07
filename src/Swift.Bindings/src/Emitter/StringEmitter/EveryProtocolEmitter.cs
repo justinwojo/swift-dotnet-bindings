@@ -581,6 +581,15 @@ public class EveryProtocolEmitter
                 // Skip vtable fields for mixed-generic protocols — all members get stubs
                 if (isMixedGenericProtocol)
                     continue;
+                // A method with an inout ObjC-bridgeable param also gets a fatalError trap stub
+                // (see the body pass + EmitInOutObjCBridgeableMethodStub) but, unlike the four
+                // categories above, intentionally KEEPS its vtable slot. The trapping witness
+                // never reads the slot and the C# receiver compiles via the ordinary objc-param
+                // path (it drops the inout), so the slot is dead-but-harmless and both the Swift
+                // vtable struct and the C# vtable buffer stay in lock-step. Skipping it would
+                // require a matching skip here, in ProtocolVtableMembers.IncludesMethod (which
+                // would need TypeDatabase threaded through its call sites), and in ProtocolHandler's
+                // same-module skip set — deferred (see roadmap) as disproportionate to a cosmetic slot.
                 // Only emit vtable field for new methods (not duplicates)
                 EmitMethodVtableField(writer, method, protocolDecl, idx, emittedFields, closureHandler);
             }
@@ -1492,6 +1501,15 @@ public class EveryProtocolEmitter
                 else if (isMixedGenericProtocol)
                 {
                     EmitClosureMethodStub(writer, method);
+                }
+                // An inout ObjC-bridgeable param (inout URL/URLRequest/Decimal) would need the
+                // mutated ObjC pointer bridged back into the Swift value type after the vtable
+                // call — a writeback path neither the Swift caller arm nor the C# receiver
+                // implements. Emit a trap stub so the requirement is satisfied, rather than the
+                // dangling-var writeback EmitMethodImplementation would otherwise produce.
+                else if (MethodHasInOutObjCBridgeableParam(method))
+                {
+                    EmitInOutObjCBridgeableMethodStub(writer, method);
                 }
                 else
                 {
@@ -3411,6 +3429,60 @@ public class EveryProtocolEmitter
         writer.WriteLine($"public func {method.Name}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
         writer.WriteLine($"fatalError(\"EveryProtocol: Self-typed method '{method.Name}' cannot be dispatched through vtable\")");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// True when any parameter is both <c>inout</c> and an ObjC-bridgeable value type
+    /// (URL/URLRequest/Decimal). The reverse-dispatch path cannot write the mutated value
+    /// back across the ObjC bridge, so such methods get a trap stub instead.
+    /// </summary>
+    private bool MethodHasInOutObjCBridgeableParam(MethodDecl method)
+    {
+        for (int i = 1; i < method.CSSignature.Count; i++) // skip return at [0]
+        {
+            var param = method.CSSignature[i];
+            if (param.IsInOut && IsObjCBridgeableParam(param.SwiftTypeSpec))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Emits a fatalError() stub for a method with an inout ObjC-bridgeable parameter. The
+    /// witness satisfies the protocol requirement but traps if dispatched, because bridging the
+    /// mutated ObjC pointer back into the Swift value type is not wired on either side.
+    /// </summary>
+    private void EmitInOutObjCBridgeableMethodStub(SwiftWriter writer, MethodDecl method)
+    {
+        var parameters = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var paramTypeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var externalLabel = GetSwiftParameterLabel(param, i);
+            var internalName = GetSwiftParameterName(param, i);
+            var inoutPrefix = param.IsInOut ? "inout " : "";
+            if (externalLabel == "_")
+                parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
+            else if (externalLabel == internalName)
+                parameters.Add($"{internalName}: {inoutPrefix}{paramTypeName}");
+            else
+                parameters.Add($"{externalLabel} {internalName}: {inoutPrefix}{paramTypeName}");
+        }
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        var asyncDecl = method.IsAsync ? " async" : "";
+        var throwsDecl = method.Throws ? " throws" : "";
+        var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
+
+        writer.WriteLine($"public func {method.Name}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.Indent++;
+        writer.WriteLine($"fatalError(\"EveryProtocol: method '{method.Name}' with an inout ObjC-bridgeable parameter cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
