@@ -191,6 +191,15 @@ jobs:
       - name: Build and test bindings (strict + coverage + baselines)
         run: dotnet nuke binding-tests --strict --compile-only
 
+      - name: Validate Issue 1 skip attribution
+        env:
+          SWIFT_BINDINGS_REQUIRE_GENERATED_BINDINGTESTS_OUTPUT: true
+        run: >
+          dotnet test src/Swift.Bindings/tests/UnitTests
+          --configuration Debug
+          --filter "FullyQualifiedName=BindingsGeneration.Tests.Issue1SkipAttributionTests.EveryIssue1Skip_NamesACallConvSwiftEntryPoint_OnItsOwnPath"
+          --logger "trx;LogFileName=issue1-skip-attribution.trx"
+
       - name: Generate coverage report
         working-directory: BindingTests
         run: >
