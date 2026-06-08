@@ -43,7 +43,7 @@ public class Issue1SkipAttributionTests
     // The generated test library's module name — too generic to prove path-specificity on its own.
     private const string ModuleName = "SwiftBindingsTestLib";
 
-    [Fact]
+    [SkippableFact]
     public void EveryIssue1Skip_NamesACallConvSwiftEntryPoint_OnItsOwnPath()
     {
         var repoRoot = LocateRepoRoot();
@@ -51,7 +51,11 @@ public class Issue1SkipAttributionTests
         var generatedBindings = Path.Combine(repoRoot, "BindingTests", "output", "SwiftBindingsTestLib.cs");
 
         Assert.True(Directory.Exists(runtimeTestsDir), $"RuntimeTestsApp not found at {runtimeTestsDir}");
-        Assert.True(File.Exists(generatedBindings), $"Generated bindings not found at {generatedBindings}");
+        var generatedBindingsExist = File.Exists(generatedBindings);
+        if (RequireGeneratedBindingsOutput())
+            Assert.True(generatedBindingsExist, $"Generated bindings not found at {generatedBindings}");
+        Skip.IfNot(generatedBindingsExist,
+            $"Generated bindings not found at {generatedBindings}; run `nuke binding-tests --compile-only` first.");
 
         HashSet<string> callConvSwiftSymbols = ExtractCallConvSwiftEntryPoints(File.ReadAllText(generatedBindings));
 
@@ -239,4 +243,10 @@ public class Issue1SkipAttributionTests
         Assert.NotNull(dir);
         return dir!.FullName;
     }
+
+    private static bool RequireGeneratedBindingsOutput()
+        => string.Equals(
+            System.Environment.GetEnvironmentVariable("SWIFT_BINDINGS_REQUIRE_GENERATED_BINDINGTESTS_OUTPUT"),
+            "true",
+            System.StringComparison.OrdinalIgnoreCase);
 }
