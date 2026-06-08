@@ -28,7 +28,7 @@ public class SimpleEnumDemotionTests
         };
 
         // Generic class with protocol conformance constraint on U (requires ISwiftObject-like behavior)
-        var genericClass = CreateClassDecl("ScanningResult", "TestModule");
+        var genericClass = CreateClassDecl("ConstrainedBox", "TestModule");
         genericClass.GenericParameters = new List<GenericArgumentDecl>
         {
             new GenericArgumentDecl("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
@@ -38,13 +38,13 @@ public class SimpleEnumDemotionTests
             }, new List<GenericParameterConformance>()),
         };
 
-        // Property with bound generic type: ScanningResult<String, AlertType>
+        // Property with bound generic type: ConstrainedBox<String, AlertType>
         var boundGenericProp = new PropertyDecl
         {
             Name = "result",
             ParentDecl = genericClass,
             ModuleDecl = moduleDecl,
-            SwiftTypeSpec = new NamedTypeSpec("TestModule.ScanningResult",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.ConstrainedBox",
                 new NamedTypeSpec("Swift.String"),
                 new NamedTypeSpec("TestModule.AlertType")),
             HasStorage = true,
@@ -56,7 +56,7 @@ public class SimpleEnumDemotionTests
         var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl>
         {
             [new NamedTypeSpec("TestModule.AlertType")] = enumDecl,
-            [new NamedTypeSpec("TestModule.ScanningResult")] = genericClass,
+            [new NamedTypeSpec("TestModule.ConstrainedBox")] = genericClass,
         };
 
         var typeDatabase = new TypeDatabase();
@@ -74,6 +74,69 @@ public class SimpleEnumDemotionTests
         Assert.True(result.ModuleDatabase.TryGetTypeRecord(swiftTypeName, out var record));
         Assert.False(record!.Flags.HasFlag(TypeRecordFlags.SimpleEnum),
             "Simple enum used as constrained generic type argument should be demoted");
+    }
+
+    [Fact]
+    public void SimpleEnumAtDroppedMarkerConstrainedPosition_IsDemoted()
+    {
+        // The regression mechanism end-to-end: a generic parameter constrained only by a
+        // module-qualified marker (`where U : Swift.Sendable`) has that marker dropped by the parser,
+        // leaving GenericConformances EMPTY but HasDroppedNominalMarkerConstraint set. The demotion
+        // gate must still treat the position as constrained, so a simple enum used there is demoted to
+        // a class. Without the flag the empty conformance list would read as unconstrained and the enum
+        // would regress to a bare C# enum that cannot implement its protocol's interface.
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var enumDecl = CreateEnumDecl("AlertType", "TestModule", isFrozen: true);
+        enumDecl.Cases = new List<EnumCaseDecl>
+        {
+            new EnumCaseDecl { Name = "info", MangledName = "$s_info", ParentDecl = null, ModuleDecl = null },
+        };
+
+        var genericClass = CreateClassDecl("ConstrainedBox", "TestModule");
+        genericClass.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+            // U carried `: Swift.Sendable`, dropped by the parser → empty conformances, flag set.
+            new GenericArgumentDecl("τ_0_1", "U", new List<GenericParameterConformance>(), new List<GenericParameterConformance>(),
+                HasDroppedNominalMarkerConstraint: true),
+        };
+
+        var boundGenericProp = new PropertyDecl
+        {
+            Name = "result",
+            ParentDecl = genericClass,
+            ModuleDecl = moduleDecl,
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.ConstrainedBox",
+                new NamedTypeSpec("Swift.String"),
+                new NamedTypeSpec("TestModule.AlertType")),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+        };
+        genericClass.Properties.Add(boundGenericProp);
+
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl>
+        {
+            [new NamedTypeSpec("TestModule.AlertType")] = enumDecl,
+            [new NamedTypeSpec("TestModule.ConstrainedBox")] = genericClass,
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var processor = new ModuleProcessor(
+            "TestModule",
+            "/tmp/dummy.dylib",
+            "TestModule",
+            typeDecls,
+            typeDatabase,
+            NullLogger.Instance);
+
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AlertType");
+        Assert.True(result.ModuleDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.False(record!.Flags.HasFlag(TypeRecordFlags.SimpleEnum),
+            "Simple enum at a dropped-marker-constrained generic position should be demoted");
     }
 
     [Fact]

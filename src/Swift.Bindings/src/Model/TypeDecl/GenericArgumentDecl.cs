@@ -21,10 +21,21 @@ namespace BindingsGeneration;
 /// <see cref="ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint"/> directly;
 /// this flag restores parity for the dropped non-qualified case.
 /// </param>
+/// <param name="HasDroppedNominalMarkerConstraint">
+/// True when this parameter carried a module-qualified protocol-kind marker constraint
+/// (e.g. <c>where U : Swift.Sendable</c>) that the parser drops as an unrepresentable nominal
+/// conformance. Before that drop existed, such a constraint surfaced as a real
+/// <see cref="GenericParameterConformance"/>, so it counted toward the enum-demotion gate
+/// (<c>ModuleProcessor.HasProtocolConstraintAtPosition</c>), which keys off "param has any
+/// conformance". This flag preserves that signal: a simple enum used at a position whose Swift
+/// parameter is constrained must still demote to a class, since the dropped marker does not make
+/// the position constraint-free.
+/// </param>
 public record GenericArgumentDecl(
     string TypeName,
     string SugaredTypeName,
     List<GenericParameterConformance> GenericConformances,
     List<GenericParameterConformance> AssosiatedTypeConformances,
-    bool HasUnrepresentableConcreteSameTypePin = false
+    bool HasUnrepresentableConcreteSameTypePin = false,
+    bool HasDroppedNominalMarkerConstraint = false
 );

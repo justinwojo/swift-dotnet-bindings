@@ -325,4 +325,79 @@ public class GenericSignatureParserTests
 
         Assert.Equal(expectedFlag, result[0].HasUnrepresentableConcreteSameTypePin);
     }
+
+    // --- Dropped module-qualified marker conformances (`where U : Swift.Sendable`) are flagged ---
+    // Dropping the unrepresentable marker (B3) also erases the only conformance the parameter carried,
+    // so the enum-demotion gate (ModuleProcessor.HasProtocolConstraintAtPosition, which keys off "param
+    // has any conformance") stops firing and a simple enum used at that position is no longer demoted to
+    // a class. A raw-value enum that conforms to a protocol but is used at such a position then regresses
+    // from a class to a bare C# enum, which cannot implement that protocol's interface. The flag
+    // preserves the "position is constrained" signal so demotion still fires.
+
+    [Fact]
+    public void ParseGenericSignature_DropsModuleQualifiedMarker_FlagsParameter()
+    {
+        // A two-parameter generic `Outer<T, U> where U : Swift.Sendable`: the marker is dropped (no
+        // representable nominal conformance) but the parameter is flagged as marker-constrained.
+        var genericSig = "<τ_0_0, τ_0_1 where τ_0_1 : Swift.Sendable>";
+        var sugaredSig = "<T, U where U : Swift.Sendable>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(genericSig, sugaredSig);
+
+        Assert.Equal(2, result.Count);
+        Assert.Empty(result[1].GenericConformances);                 // unrepresentable marker dropped
+        Assert.True(result[1].HasDroppedNominalMarkerConstraint);    // demotion signal preserved
+        Assert.False(result[0].HasDroppedNominalMarkerConstraint);   // unconstrained param unaffected
+    }
+
+    [Theory]
+    // Module-qualified protocol-kind marker dropped as a `:` conformance → flagged so the enum-demotion
+    // gate still treats the position as constrained.
+    [InlineData("τ_0_0 : Swift.Sendable", true)]
+    [InlineData("τ_0_0 : Swift.Copyable", true)]
+    [InlineData("τ_0_0 : Swift.SendableMetatype", true)]
+    [InlineData("τ_0_0 : Swift.BitwiseCopyable", true)]
+    // Bare (non-module-qualified) marker keyword → not flagged: no nominal conformance was ever
+    // representable, and an unqualified position is genuinely constraint-free for demotion purposes.
+    [InlineData("τ_0_0 : Sendable", false)]
+    [InlineData("τ_0_0 : AnyObject", false)]
+    // Same-type pin to a marker keyword → the concrete-pin path, not the nominal-marker path.
+    [InlineData("τ_0_0 == Any", false)]
+    // A real representable conformance survives as a constraint and is not a "dropped marker".
+    [InlineData("τ_0_0 : Swift.Equatable", false)]
+    // A user protocol from a NON-stdlib module that merely shares a marker name is a real nominal
+    // conformance, NOT a dropped marker: it survives below, so the "dropped marker" flag stays false.
+    [InlineData("τ_0_0 : SomeModule.Sendable", false)]
+    [InlineData("τ_0_0 : SomeModule.Copyable", false)]
+    public void ParseGenericSignature_DroppedNominalMarkerFlag_OnlySetForModuleQualifiedMarkerConformance(string constraint, bool expectedFlag)
+    {
+        // τ_0_1 is declared so the bare param==param case has a referent; the simpler cases ignore it.
+        var sig = $"<τ_0_0, τ_0_1 where {constraint}>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        Assert.Equal(expectedFlag, result[0].HasDroppedNominalMarkerConstraint);
+    }
+
+    [Theory]
+    // A protocol from a non-stdlib module that happens to be named after a Swift marker keyword is a
+    // real protocol carrying a witness table. The marker-drop is module-qualified (mirroring
+    // IsStdlibMarkerProtocol everywhere else), so the conformance is KEPT as a normal nominal
+    // constraint rather than silently dropped — and the parameter is NOT flagged as a dropped marker
+    // because nothing was dropped (the surviving GenericConformances already feed the demotion gate).
+    [InlineData("SomeModule.Sendable")]
+    [InlineData("SomeModule.Copyable")]
+    [InlineData("App.Escapable")]
+    public void ParseGenericSignature_UserProtocolNamedAfterMarker_KeptAsRealConformance(string conformanceTarget)
+    {
+        var sig = $"<τ_0_0 where τ_0_0 : {conformanceTarget}>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        var conformance = Assert.IsType<GenericParameterConformance>(Assert.Single(result[0].GenericConformances));
+        Assert.Equal(ConformanceKind.Protocol, conformance.Kind);
+        Assert.Equal(conformanceTarget, conformance.ConformanceTarget.ModuleQualifiedName);
+        // Nothing was dropped, so the "dropped marker" compensation flag must stay false.
+        Assert.False(result[0].HasDroppedNominalMarkerConstraint);
+    }
 }

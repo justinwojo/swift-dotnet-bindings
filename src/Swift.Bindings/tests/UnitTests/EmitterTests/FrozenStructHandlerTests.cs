@@ -663,6 +663,32 @@ public class FrozenStructHandlerTests
     }
 
     [Fact]
+    public void SubWordOptionalMismatch_NonFrozenStruct_Excluded_NoSkip()
+    {
+        // Regression guard: the SAME diverging sub-word optional field shape (two `Bool?` stored
+        // properties), but on a NON-frozen struct. A non-frozen struct is projected as
+        // ClassWithOpaquePayload (an opaque SafeHandle, pointer-passed and filled by Swift accessors) and
+        // never lowers through a by-value ABI, so sub-word packing cannot corrupt it. The by-value gate
+        // must NOT fire — otherwise the struct is added to the TypeSkipPrePass skip set that
+        // ReferencesUnsupportedModule consults, silently dropping the struct's own constructor/factories
+        // even though the type itself still emits. The decl-level IsFrozen flag is the discriminator.
+        var db = new TypeDatabase();
+        var s = CreateNonFrozenStructDecl("NonFrozenTwoBoolOpt");
+        foreach (var (fieldName, spec) in new (string, TypeSpec)[]
+                 {
+                     ("animate", OptionalOf("Swift.Bool")),
+                     ("silent", OptionalOf("Swift.Bool")),
+                 })
+        {
+            var prop = CreatePropertyDecl(fieldName, "Swift.Int", hasStorage: true);
+            prop.SwiftTypeSpec = spec;
+            s.Properties.Add(prop);
+        }
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
     public void SubWordOptionalMismatch_IndeterminateField_BailsConservatively_NoSkip()
     {
         // A sub-word optional FOLLOWED by a field whose layout is not precisely derivable (an unregistered

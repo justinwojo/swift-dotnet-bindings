@@ -957,9 +957,9 @@
       "crash": 0
     },
     "device": {
-      "pass": 2570,
+      "pass": 2775,
       "fail": 0,
-      "skip": 33,
+      "skip": 20,
       "crash": 0
     },
     "macos": {

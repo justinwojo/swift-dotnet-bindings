@@ -969,8 +969,12 @@ namespace BindingsGeneration
                     {
                         var genericParam = typeDecl.GenericParameters[paramIndex];
                         // If the parameter has any protocol conformances, the enum needs
-                        // ISwiftObject (which maps to C# interface constraints)
-                        return genericParam.GenericConformances.Count > 0;
+                        // ISwiftObject (which maps to C# interface constraints). A module-qualified
+                        // marker constraint (e.g. `U : Swift.Sendable`) is dropped from
+                        // GenericConformances but still makes the position non-constraint-free, so a
+                        // simple enum argument there must demote (HasDroppedNominalMarkerConstraint).
+                        return genericParam.GenericConformances.Count > 0
+                            || genericParam.HasDroppedNominalMarkerConstraint;
                     }
                     // Parameter index out of range — conservative demotion
                     return true;
@@ -1014,7 +1018,7 @@ namespace BindingsGeneration
                             }
                         }
 
-                        // Recurse into nested generics (e.g., Array<ScanningResult<T, MyEnum>>)
+                        // Recurse into nested generics (e.g., Array<ConstrainedBox<T, MyEnum>>)
                         CollectGenericArgsFromTypeSpec(genericParam, result);
                     }
                 }

@@ -35,7 +35,7 @@ public class GenericSignatureParser
 
         var paramMap = genericParams.Zip(sugaredParams, (gen, sug) => (gen, sug)).ToDictionary(x => x.gen, x => x.sug);
 
-        var (constraints, concretePinnedParams) = ExtractConstraints(genericSignature);
+        var (constraints, concretePinnedParams, markerConstrainedParams) = ExtractConstraints(genericSignature);
 
         return genericParams.Select(typeName =>
             new GenericArgumentDecl(
@@ -43,7 +43,8 @@ public class GenericSignatureParser
                 paramMap[typeName],
                 constraints.Where(c => c.Path[0] == typeName && c.Path.Length == 1).ToList(),
                 constraints.Where(c => c.Path[0] == typeName && c.Path.Length > 1).ToList(),
-                HasUnrepresentableConcreteSameTypePin: concretePinnedParams.Contains(typeName)
+                HasUnrepresentableConcreteSameTypePin: concretePinnedParams.Contains(typeName),
+                HasDroppedNominalMarkerConstraint: markerConstrainedParams.Contains(typeName)
             )
         ).ToList();
     }
@@ -71,12 +72,12 @@ public class GenericSignatureParser
     /// dropped same-type concrete pin (see <see cref="ParseConstraint"/>). The pin set feeds
     /// <see cref="GenericArgumentDecl.HasUnrepresentableConcreteSameTypePin"/>.
     /// </returns>
-    private static (List<GenericParameterConformance> Constraints, HashSet<string> ConcretePinnedParams)
+    private static (List<GenericParameterConformance> Constraints, HashSet<string> ConcretePinnedParams, HashSet<string> MarkerConstrainedParams)
         ExtractConstraints(string signature)
     {
         var whereIndex = signature.IndexOf("where", StringComparison.OrdinalIgnoreCase);
         if (whereIndex == -1)
-            return (new List<GenericParameterConformance>(), new HashSet<string>(StringComparer.Ordinal));
+            return (new List<GenericParameterConformance>(), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal));
 
         var constraintsSection = signature[(whereIndex + "where".Length)..];
         // Split at top-level commas only. A constructed-generic constraint target
@@ -92,16 +93,19 @@ public class GenericSignatureParser
         // confinement the dropped constraint expressed.
         var parsed = new List<GenericParameterConformance>();
         var concretePinnedParams = new HashSet<string>(StringComparer.Ordinal);
+        var markerConstrainedParams = new HashSet<string>(StringComparer.Ordinal);
         foreach (var clause in constraintClauses)
         {
-            var pc = ParseConstraint(clause, out var droppedConcretePinRoot);
+            var pc = ParseConstraint(clause, out var droppedConcretePinRoot, out var droppedNominalMarkerRoot);
             if (pc != null)
                 parsed.Add(pc);
             else if (droppedConcretePinRoot != null)
                 concretePinnedParams.Add(droppedConcretePinRoot);
+            else if (droppedNominalMarkerRoot != null)
+                markerConstrainedParams.Add(droppedNominalMarkerRoot);
         }
 
-        return (parsed, concretePinnedParams);
+        return (parsed, concretePinnedParams, markerConstrainedParams);
     }
 
     /// <summary>
@@ -128,9 +132,10 @@ public class GenericSignatureParser
     /// <c>SwiftABIParser.HandleNode</c>, which swallows it and silently discards the entire
     /// enclosing decl rather than just the one constraint.
     /// </returns>
-    private static GenericParameterConformance? ParseConstraint(string clause, out string? droppedConcretePinRoot)
+    private static GenericParameterConformance? ParseConstraint(string clause, out string? droppedConcretePinRoot, out string? droppedNominalMarkerRoot)
     {
         droppedConcretePinRoot = null;
+        droppedNominalMarkerRoot = null;
 
         var parts = clause.Split(new[] { ":", "==" }, StringSplitOptions.TrimEntries);
         if (parts.Length != 2)
@@ -157,16 +162,33 @@ public class GenericSignatureParser
             return null;
 
         // Layout/marker keyword constraints (AnyObject, Sendable, Any, Copyable, ...) are not
-        // representable as a nominal SwiftTypeName, and they appear without module qualification.
-        // More generally, any non-module-qualified target would make FromModuleQualifiedName throw
-        // (it requires a '.'), and that throw propagates to SwiftABIParser.HandleNode, which
+        // representable as a nominal SwiftTypeName. They appear EITHER unqualified (a bare keyword,
+        // which would make FromModuleQualifiedName throw — it requires a '.') OR qualified by the
+        // standard library module (`Swift.Sendable`). Any non-module-qualified target that reached
+        // FromModuleQualifiedName would throw and propagate to SwiftABIParser.HandleNode, which
         // discards the ENTIRE enclosing decl instead of just this one constraint. Drop the
         // constraint (return null) — the soft loss of one constraint is preferable to losing the decl.
-        var simpleTarget = conformanceTarget.Split('.')[^1];
-        if (simpleTarget is "AnyObject" or "Sendable" or "Escapable"
-            or "Copyable" or "SendableMetatype" or "Any")
+        //
+        // The match is module-qualified, mirroring IsStdlibMarkerProtocol everywhere else: a
+        // protocol from a NON-stdlib module that merely shares one of these names
+        // (`SomeModule.Sendable`) is a real user protocol carrying a witness table, so it must NOT
+        // be dropped — it falls through to the nominal-conformance path below, which both keeps the
+        // conformance and (via GenericConformances.Count) feeds the enum-demotion gate naturally.
+        var lastDot = conformanceTarget.LastIndexOf('.');
+        var simpleTarget = lastDot >= 0 ? conformanceTarget[(lastDot + 1)..] : conformanceTarget;
+        var markerModule = lastDot >= 0 ? conformanceTarget[..lastDot] : null;
+        // The protocol-kind markers match IsStdlibMarkerProtocol (Sendable/Escapable/Copyable/
+        // SendableMetatype/BitwiseCopyable); AnyObject and Any are added here because they are
+        // unrepresentable layout/keyword constraints the parser must also drop, not nominal protocols.
+        var isStdlibMarkerName = simpleTarget is "AnyObject" or "Sendable" or "Escapable"
+            or "Copyable" or "SendableMetatype" or "BitwiseCopyable" or "Any";
+        if (isStdlibMarkerName && markerModule is null or "Swift")
         {
             if (isSameTypeConcretePin) droppedConcretePinRoot = target[0];
+            // A module-qualified protocol-kind marker (e.g. `Swift.Sendable`) was a nominal
+            // GenericParameterConformance before this drop existed; the enum-demotion gate keys
+            // off "param has any conformance", so record the root to preserve that signal.
+            else if (clause.Contains(":") && conformanceTarget.Contains('.')) droppedNominalMarkerRoot = target[0];
             return null;
         }
         if (!conformanceTarget.Contains('.'))

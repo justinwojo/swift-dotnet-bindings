@@ -619,8 +619,21 @@ namespace BindingsGeneration
         /// </summary>
         internal static bool HasSubWordOptionalLayoutMismatch(StructDecl structDecl, ITypeDatabase typeDatabase)
         {
-            // By-value risk only: a frozen-with-memory struct is pointer-passed as an opaque Buffer that
-            // Swift fills via accessors, so its over-sized Buffer never lowers through a by-value ABI.
+            // By-value risk applies ONLY to a struct projected BY VALUE — a FROZEN struct (the decl
+            // carries the @frozen marker, exactly the gate FrozenStructHandlerFactory.Handles keys off).
+            // A NON-frozen struct is projected as ClassWithOpaquePayload (an opaque SafeHandle that is
+            // pointer-passed and filled by Swift accessors) and never lowers through a by-value ABI, so
+            // sub-word packing cannot corrupt it. The original guard only excluded the Buffer-class case
+            // below, so a non-frozen struct with sub-word Optional<primitive> fields (e.g. two `Bool?`
+            // stored properties) wrongly satisfied the gate and was added to the TypeSkipPrePass skip set
+            // that ReferencesUnsupportedModule consults — silently dropping the struct's own constructor
+            // and static factories even though the type itself still emits.
+            if (!structDecl.IsFrozen)
+                return false;
+
+            // A frozen struct with ref-type fields is projected as a Buffer-backed class
+            // (ClassWithBufferStruct): pointer-passed as an opaque Buffer Swift fills via accessors, so
+            // its over-sized Buffer likewise never lowers through a by-value ABI.
             if (typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord) &&
                 MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 return false;
