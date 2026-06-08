@@ -834,7 +834,7 @@ partial class Build
                 ReportBindingTestResults();
 
                 // Layer B trend gate: parse skip markers from generated `.cs`
-                // and diff against `.skip-surface-baseline.json`. Gated on
+                // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested
                 // (CI integration-branch gate; bundle worktrees can opt in).
                 // Compile-only path is the right host because that's where

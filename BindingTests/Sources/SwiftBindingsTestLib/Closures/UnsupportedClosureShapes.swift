@@ -10,7 +10,7 @@ import Foundation
 // distinct rejection branch in `ClosureHandler.IsSupportedClosure` /
 // `IsSupportedClosureReturnType`; together they pin the *current* state of
 // `// Unsupported: ... closure signature not yet supported` markers so any future fix
-// is forced to ratchet `.skip-surface-baseline.json` downward in the same commit.
+// is forced to ratchet `build/baselines/skip-surface-baseline.json` downward in the same commit.
 //
 // Mapping to consumer-library sites:
 //   Shape OptionalExistentialReturn  →  Nuke `DataLoader.init(validate: …(URLResponse) -> (any Error)?)`

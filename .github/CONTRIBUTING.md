@@ -50,7 +50,7 @@ Do **not** pass `-p:EnableDefaultCompileItems=false` on the command line — it 
 1. Add an entry to `build/validation-libraries.json`. Schema varies by `mode` — `apple-framework`, `source`, `binary`, `manual`. Copy the shape of an existing entry of the same mode.
 2. `nuke fetch --filter NewLib`
 3. `nuke validate --filter NewLib`
-4. Run full `nuke validate` to refresh `.validation-baseline.json`.
+4. Run full `nuke validate` to refresh `build/baselines/validation-baseline.json`.
 
 For SPM-only third-party libraries, use [`spm-to-xcframework`](https://github.com/justinwojo/spm-to-xcframework) rather than writing custom build scripts.
 
@@ -68,7 +68,7 @@ The [wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) covers cons
 Open an issue first for anything beyond a trivial fix — generator internals change frequently and a quick discussion avoids wasted effort on both sides.
 
 - Every change ships with tests at the right layer (generator unit / runtime unit / end-to-end BindingTests). `CLAUDE.md` describes which layer matches what kind of change.
-- `nuke test` and the relevant `nuke binding-tests` / `nuke validate` runs must pass before submitting; no regressions in `.validation-baseline.json`.
+- `nuke test` and the relevant `nuke binding-tests` / `nuke validate` runs must pass before submitting; no regressions in `build/baselines/validation-baseline.json`.
 - Keep PRs focused — one logical change, no incidental refactors.
 
 ## License

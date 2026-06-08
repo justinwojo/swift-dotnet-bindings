@@ -92,7 +92,8 @@ partial class Build : NukeBuild
     AbsolutePath BindingTestsDir => RootDirectory / "BindingTests";
     AbsolutePath LibrariesDir => RootDirectory / ".libraries";
     AbsolutePath ManifestPath => RootDirectory / "build" / "validation-libraries.json";
-    AbsolutePath BaselinePath => RootDirectory / ".validation-baseline.json";
+    AbsolutePath BaselinesDir => RootDirectory / "build" / "baselines";
+    AbsolutePath BaselinePath => BaselinesDir / "validation-baseline.json";
 
     // --- Resolved platform ---
     ApplePlatform ResolvedPlatform => ApplePlatform.FromName(Platform);

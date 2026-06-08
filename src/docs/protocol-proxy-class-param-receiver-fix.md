@@ -573,7 +573,7 @@ weakening of the assertion:
 | `nuke binding-tests --skip-regen` (sim/Mono), full suite | **2555 pass, 0 fail, 44 skip** (baseline 2535 → 2555, +20 from the new fixtures) |
 | `nuke binding-tests --device` (NativeAOT), full suite | **2569 pass, 0 fail, 30 skip** (baseline 2546 → 2569, +23) |
 | `nuke test` → `Swift.Bindings.Unit.Tests` | **0 fail** (incl. the updated `EnumHandlerOutputTests` adopt-the-copy assertions + async-emitter unit tests) |
-| `nuke validate` (cross-cutting emitter sweep) | _(see commit gate — baseline ≥ prior; version-stamp artifacts reverted, `.validation-baseline.json` kept)_ |
+| `nuke validate` (cross-cutting emitter sweep) | _(see commit gate — baseline ≥ prior; version-stamp artifacts reverted, `build/baselines/validation-baseline.json` kept)_ |
 
 ## Fix A — `Optional<@objc-rooted-class>` return over-retain (resolved)
 

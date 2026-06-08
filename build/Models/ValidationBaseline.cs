@@ -9,7 +9,7 @@ using System.Text.Json.Serialization;
 using Nuke.Common.IO;
 
 /// <summary>
-/// Typed model for .validation-baseline.json.
+/// Typed model for build/baselines/validation-baseline.json.
 /// Tracks compile gate results per library for regression detection.
 /// </summary>
 public record ValidationBaseline

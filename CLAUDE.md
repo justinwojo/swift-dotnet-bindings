@@ -100,7 +100,7 @@ Unit tests catch logic bugs. **BindingTests** catch ABI mismatches, calling-conv
 | Test infrastructure only | No | Just the target touched | No |
 | Docs / research / external repos | No | No | No |
 
-**Zero-regression policy**: BindingTests pass count and unit test pass count must be ≥ baseline before committing — these are the per-commit gates. `.validation-baseline.json` (`cs_compile` + `swift_compile`) only needs to be ≥ baseline *when you actually run `nuke validate`*; if you didn't run validate this change, you don't need to defend against it. No "will fix later" for the gates that ran.
+**Zero-regression policy**: BindingTests pass count and unit test pass count must be ≥ baseline before committing — these are the per-commit gates. `build/baselines/validation-baseline.json` (`cs_compile` + `swift_compile`) only needs to be ≥ baseline *when you actually run `nuke validate`*; if you didn't run validate this change, you don't need to defend against it. No "will fix later" for the gates that ran.
 
 ## Known Issues
 

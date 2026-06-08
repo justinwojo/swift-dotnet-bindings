@@ -21,8 +21,7 @@ one count-based gate muddles the signal.
 
 The gate parses mechanically-detectable skip markers from the generator's
 `.cs` output and aggregates them by `(source-file, marker-kind, normalized-reason)`.
-The committed baseline file is `.skip-surface-baseline.json` at the repository
-root.
+The committed baseline file is `build/baselines/skip-surface-baseline.json`.
 
 Markers parsed today:
 
@@ -46,5 +45,5 @@ The ratchet semantics are:
 
 When you populate a snippet that introduces a new authored skip-key, run
 `nuke binding-tests --compile-only --skip-surface` and let it fail; that's the
-diff to copy into `.skip-surface-baseline.json` as the same commit's
+diff to copy into `build/baselines/skip-surface-baseline.json` as the same commit's
 ratchet update.

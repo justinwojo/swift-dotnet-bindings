@@ -1,6 +1,6 @@
 # Roadmap
 
-This doc covers longer-term themes, blocked items, and lower-priority ideas. Live baseline counts live in `.validation-baseline.json`; per-library status lives with each package.
+This doc covers longer-term themes, blocked items, and lower-priority ideas. Live baseline counts live in `build/baselines/validation-baseline.json`; per-library status lives with each package.
 
 > **Every skipped test is guilty until proven innocent.** There are exactly 4 confirmed upstream .NET runtime behaviours — see `Blocked` section below + memory `feedback_mono_jit_blame.md`. If a crash doesn't match one of these, it's our bug.
 

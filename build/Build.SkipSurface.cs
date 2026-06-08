@@ -4,11 +4,11 @@
 // Build.SkipSurface.cs — Layer B "skip-surface" trend gate.
 //
 // Parses mechanically-detectable skip markers from generated `.cs` output and
-// diffs against `.skip-surface-baseline.json`. Wired as a post-step in the
-// `binding-tests` --compile-only path (gated by --skip-surface) so the gate
-// runs against fresh generator output. Authoring scope and ratchet semantics
-// are documented in src/docs/0.10.0-fix-plan.md §"Layer B — skip-surface trend
-// gate, on authored corpus".
+// diffs against `build/baselines/skip-surface-baseline.json`. Wired as a
+// post-step in the `binding-tests` --compile-only path (gated by
+// --skip-surface) so the gate runs against fresh generator output. Authoring
+// scope and ratchet semantics are documented in src/docs/0.10.0-fix-plan.md
+// §"Layer B — skip-surface trend gate, on authored corpus".
 //
 // The corpus the gate scans is:
 //   1. The wider BindingTests-generated output under `BindingTests/output/`,
@@ -36,10 +36,10 @@ using Serilog;
 
 partial class Build
 {
-    [Parameter("Run the Layer B skip-surface trend gate against .skip-surface-baseline.json")]
+    [Parameter("Run the Layer B skip-surface trend gate against build/baselines/skip-surface-baseline.json")]
     readonly bool SkipSurface;
 
-    AbsolutePath SkipSurfaceBaselinePath => RootDirectory / ".skip-surface-baseline.json";
+    AbsolutePath SkipSurfaceBaselinePath => BaselinesDir / "skip-surface-baseline.json";
 
     AbsolutePath SurfaceAreaDir => BindingTestsDir / "Sources" / "SurfaceArea";
 
@@ -224,7 +224,7 @@ partial class Build
 
     // ---- Manual baseline reseeder ---------------------------------------
     //
-    // Seeds .skip-surface-baseline.json from the current generator output.
+    // Seeds build/baselines/skip-surface-baseline.json from the current generator output.
     // Run once when this scaffolding lands; thereafter, bundles edit the file
     // by hand to record their downward deltas in the same commit as the fix.
     //
