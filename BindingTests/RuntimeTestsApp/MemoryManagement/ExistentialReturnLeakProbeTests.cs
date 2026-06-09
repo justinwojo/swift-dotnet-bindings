@@ -376,4 +376,104 @@ public class ExistentialReturnLeakProbeTests : TestBase
         }
         (box as IDisposable)?.Dispose();        // release the enum's own stored +1
     }
+
+    // --- Finalizer-path probes (no Dispose) ---------------------------------
+    //
+    // The probes above all release the owned EC2 composition existential via an
+    // explicit Dispose on the consumer thread. These instead ABANDON the owned
+    // proxy without ever calling Dispose, so cleanup is driven through the GC
+    // finalizer (~Proxy → ReleaseAdoptedSwiftContainer → value-witness Destroy).
+    //
+    // That finalizer-thread destroy is the #1 confirmed crash class (upstream
+    // Issue 1): a DIRECT CallConvSwift VWT->Destroy from the GC finalizer thread
+    // crashes Mono with the !ji->async assertion after CallConvSwift JIT
+    // contamination. The single-protocol (EC1) proxy already dodges this by
+    // routing its finalizer destroy through the SBW_VWTDestroy @_cdecl trampoline
+    // (DestroyWireBufferRetainsFinalizerSafe); the composition (EC2+) proxy must
+    // do the same. A crash here kills the whole run, so "completes + no leak" is
+    // the assertion — and the boxed case forces a real value-witness-table walk
+    // (heap box), the strongest exercise of the finalizer-thread hazard.
+    //
+    // create-and-abandon runs in a [MethodImpl(NoInlining)] helper so the last
+    // proxy is not left GC-rooted on the test method's frame under Mono's
+    // conservative stack scan.
+
+    /// <summary>
+    /// <c>any Nameable &amp; Ageable</c> (EC2) owned returns wrapping a tracked CLASS, abandoned
+    /// WITHOUT Dispose so the GC finalizer (<c>~Proxy</c>) drives the adopted container's
+    /// value-witness Destroy. The destroy must route through the finalizer-safe
+    /// <c>SBW_VWTDestroy</c> trampoline — a direct <c>CallConvSwift</c> VWT call from the
+    /// finalizer thread crashes Mono (<c>!ji-&gt;async</c>). Completing the run with a balanced
+    /// live count proves the composition proxy adopts the EC2+ EC1 finalizer-safe contract.
+    /// </summary>
+    public void TestCompositionExistentialFinalizerReleasesInlinePayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        AbandonNameableAgeable(200);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) finalizer-driven release must not crash or orphan the payload's retain");
+        TestLogger.Info("any Nameable & Ageable: 200 abandoned returns finalizer-released their inline class payload");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AbandonNameableAgeable(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+            _ = TestLibFunctions.MakeTrackedNameableAgeable(i);
+    }
+
+    /// <summary>
+    /// <c>any Nameable &amp; Ageable</c> (EC2) owned returns wrapping a BOXED value-type conformer
+    /// (five embedded tracked refs push it past the 3-word inline buffer), abandoned WITHOUT
+    /// Dispose. The GC finalizer must drive the EC2 container's value-witness Destroy through the
+    /// heap box — a full VWT walk on the finalizer thread, the strongest exercise of the
+    /// <c>!ji-&gt;async</c> hazard — releasing the box and all five refs. Completing with a
+    /// balanced live count proves the finalizer-safe destroy reaches a boxed payload too.
+    /// </summary>
+    public void TestCompositionExistentialFinalizerReleasesBoxedPayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        AbandonBoxedNameableAgeable(50);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) boxed-payload finalizer-driven release must not crash or orphan the box's retains");
+        TestLogger.Info("any Nameable & Ageable boxed: 50 abandoned returns x 5 embedded refs all finalizer-released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AbandonBoxedNameableAgeable(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+            _ = TestLibFunctions.MakeBoxedTrackedNameableAgeable(i);
+    }
+
+    /// <summary>
+    /// <c>(any Nameable &amp; Ageable)?</c> (EC2) owned returns — the decomposed OPTIONAL
+    /// composition-existential emission site, also routed through the EC2 composition proxy —
+    /// abandoned WITHOUT Dispose. Guards that the optional owned-return path's proxy releases
+    /// its adopted container through the same finalizer-safe destroy.
+    /// </summary>
+    public void TestOptionalCompositionExistentialFinalizerReleasesPayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        AbandonNameableAgeableOptional(200);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("(any Nameable & Ageable)? (EC2) finalizer-driven release must not crash or orphan the payload's retain");
+        TestLogger.Info("(any Nameable & Ageable)?: 200 abandoned present returns finalizer-released their inline class payload");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AbandonNameableAgeableOptional(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+            _ = TestLibFunctions.MakeTrackedNameableAgeableOptional(true, i);
+    }
 }

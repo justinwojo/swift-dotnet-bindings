@@ -1,13 +1,24 @@
 # Regression matrix wall-clock — speed-up plan
 
+> **Status (parked).** **Round 1 is done** — cell parallelization landed
+> 2026-06-01 at ~3.8× speedup (19:59 vs ~75 min baseline), the structural win.
+> **Round 2 is lower priority and not scheduled**: every remaining item is
+> diminishing returns against a 20-min baseline for a gate that runs only a
+> handful of times per release, and several add shared-state hazards (stale
+> caches, cross-step crash misattribution) to a *regression* gate where a
+> false-green costs more than the minutes saved. Reopen only if a future matrix
+> expansion pushes wall-clock back past ~40 min and it starts hurting — and even
+> then, measure the tail first (the doc already says so). The Round 1 follow-ups
+> (F1–F4) are kept as foot-gun documentation for anyone touching the harness.
+
 `nuke RegressionValidate` (Step 2 of the `/regression-validation` skill, run from
 `swift-dotnet-packages`) currently takes ~1h15m on an M-series Mac for the full
 0.12.0 matrix (~30 cells across ios-sim, ios-device, macos, maccatalyst,
 tvos-sim). On a high-core machine that's mostly idle silicon — the matrix
 runs strictly serially.
 
-This doc is the plan of record: **Round 1** is the next implementation step,
-**Round 2** is gated on Round 1's measured results.
+This doc was the plan of record: **Round 1** was the implementation step (done),
+**Round 2** is gated on Round 1's measured results (parked — see Status above).
 
 ## Baseline (0.12.0 rerun on 2026-05-31)
 

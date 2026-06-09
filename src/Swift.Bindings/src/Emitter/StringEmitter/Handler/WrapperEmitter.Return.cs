@@ -265,7 +265,7 @@ namespace BindingsGeneration
                                 // Owned return: the property getter read the inner existential out of the
                                 // decomposed (payload, hasValue) buffer at +1 and the buffer is freed in the
                                 // finally, so the proxy is the sole surviving retain and must release it on
-                                // Dispose/finalize (ownsContainer: true, EC1 only) or the payload's +1 leaks.
+                                // Dispose/finalize (ownsContainer: true) or the payload's +1 leaks.
                                 proxyCtorExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList)}(_container{OwnedExistentialCtorArg(containerType)})";
                             else
                                 proxyCtorExpr = "_container"; // fallback — no proxy available
@@ -459,8 +459,8 @@ namespace BindingsGeneration
                     var proxyIR = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
                     // Owned return: Swift wrote the existential into the indirect-result buffer
                     // at +1, so the proxy adopts the container and releases it on Dispose.
-                    // Only single-protocol (EC1) proxies expose the ownership-aware ctor;
-                    // composition proxies (EC2+) use a separate 1-arg ctor.
+                    // Both single-protocol (EC1) and composition (EC2+) proxies expose the
+                    // ownership-aware ctor (the arg is gated on the container TYPE, not protocol count).
                     csWriter.WriteLine($"return new {proxyIR}(existentialResult{OwnedExistentialCtorArg(containerType)});");
                     return;
                 }
@@ -514,7 +514,7 @@ namespace BindingsGeneration
                 // NotSupportedException at runtime. Ownership matches the decomposed-property path:
                 // the Swift wrapper wrote the inner existential at +1 (initializeMemory), the bitwise
                 // container copy does not re-retain, and the buffer's plain NativeMemory.Free (no VWT
-                // Destroy) leaves that +1 intact, so the proxy adopts it (ownsContainer: true, EC1 only)
+                // Destroy) leaves that +1 intact, so the proxy adopts it (ownsContainer: true)
                 // and releases it on Dispose/finalize — otherwise the payload's +1 leaks.
                 if (_env.MethodDecl.IsAccessor && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
                 {
@@ -603,7 +603,7 @@ namespace BindingsGeneration
                     {
                         // Owned return: Swift returned the inner existential at +1 in the marshalled
                         // SwiftOptional; the well-known wrapper adopts and releases it on Dispose/finalize
-                        // (ownsContainer: true, EC1 only) or the payload's +1 leaks.
+                        // (ownsContainer: true) or the payload's +1 leaks.
                         csWriter.WriteLines($$"""
                             var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
                             if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
@@ -614,8 +614,8 @@ namespace BindingsGeneration
                     {
                         var proxyName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
                         // Owned return: Swift returned the inner existential at +1 in the marshalled
-                        // SwiftOptional; the proxy adopts and releases it on Dispose (ownsContainer: true,
-                        // EC1 only) or the payload's +1 leaks.
+                        // SwiftOptional; the proxy adopts and releases it on Dispose
+                        // (ownsContainer: true) or the payload's +1 leaks.
                         csWriter.WriteLines($$"""
                             var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
                             if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
@@ -782,7 +782,7 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
                 { csWriter.WriteLine($"return new {wk}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return; }
                 var proxy = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
-                // Owned return: +1 existential read out of the @_cdecl result buffer (EC1 only).
+                // Owned return: +1 existential read out of the @_cdecl result buffer (EC1 or EC2+ composition).
                 csWriter.WriteLine($"return new {proxy}(existentialResult{OwnedExistentialCtorArg(containerType)});");
                 return;
             }
@@ -824,7 +824,7 @@ namespace BindingsGeneration
                 }
 
                 var proxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
-                // Owned return: Swift returned the existential at +1 (EC1 only).
+                // Owned return: Swift returned the existential at +1 (EC1 or EC2+ composition).
                 var nonCdeclContainerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
                 csWriter.WriteLine($"return new {proxyClassName}({ReturnLocalName}{OwnedExistentialCtorArg(nonCdeclContainerType)});");
                 return;
@@ -849,7 +849,7 @@ namespace BindingsGeneration
                     else
                     {
                         var optProxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
-                        // Owned return: Swift returned the inner existential at +1 (EC1 only); the proxy
+                        // Owned return: Swift returned the inner existential at +1 (EC1 or EC2+ composition); the proxy
                         // adopts and releases it on Dispose or the payload's +1 leaks.
                         csWriter.WriteLine($"return new {optProxyClassName}({ReturnLocalName}{OwnedExistentialCtorArg(containerType)});");
                     }

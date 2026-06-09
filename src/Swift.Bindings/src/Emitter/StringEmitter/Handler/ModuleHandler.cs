@@ -1947,7 +1947,14 @@ namespace BindingsGeneration
                         fixed ({{containerType}}* containerPtr = &_swiftContainer)
                         {
                             var existentialMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(_swiftContainer.Count);
-                            Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)containerPtr, existentialMetadata);
+                            // This body runs from BOTH Dispose (user thread) and the GC finalizer
+                            // (~Proxy). A direct VWT Destroy (CallConvSwift) from the finalizer
+                            // thread crashes Mono with the !ji->async assertion after CallConvSwift
+                            // JIT contamination — the same hazard the single-protocol (EC1) proxy
+                            // dodges (ProtocolProxyEmitter.SwiftObject.cs) and the class-bound proxy
+                            // dodges via Arc.UnknownObjectReleaseFinalizerSafe. Route through the
+                            // SBW_VWTDestroy @_cdecl trampoline, which is safe from either thread.
+                            Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetainsFinalizerSafe((IntPtr)containerPtr, existentialMetadata);
                         }
                     }
                     catch

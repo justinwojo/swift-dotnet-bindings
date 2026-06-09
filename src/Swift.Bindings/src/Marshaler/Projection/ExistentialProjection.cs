@@ -117,9 +117,10 @@ public class ExistentialProjection : ITypeProjection
             expression = _proxyClassName != null
                 // Owned return: Swift transfers the existential at +1, so the proxy adopts
                 // the container and releases it on Dispose/finalize (ownsContainer: true).
-                // Only single-protocol (EC1) proxies expose the ownership-aware ctor;
-                // multi-protocol composition proxies (EC2+, emitted by ModuleHandler with an
-                // empty Dispose) are a separate release mechanism and keep their 1-arg ctor.
+                // Both single-protocol (EC1) and multi-protocol composition (EC2+, emitted by
+                // ModuleHandler) proxies expose this ownership-aware ctor and run a real
+                // Dispose + finalizer; OwnsContainerArg is gated on the container TYPE, not
+                // the protocol count.
                 ? $"new {_proxyClassName}({resultName}{OwnsContainerArg})"
                 : _publicType == "object"
                     ? resultName
@@ -219,8 +220,11 @@ public class ExistentialProjection : ITypeProjection
     /// so the only surviving retain lives in the proxy) and releases it on Dispose/finalize.
     /// Used only by owned OPTIONAL existential returns (<c>OptionalProjection</c>); the borrowed
     /// receiver-callback path keeps the non-owning <see cref="GetReturnElementConversion"/>.
-    /// Falls back to the non-owning form for bare-<c>any</c>/no-proxy and non-EC1 containers
-    /// (<see cref="OwnsContainerArg"/> is empty for those), which have no single-proxy +1 to adopt.
+    /// Falls back to the non-owning form for bare-<c>any</c>/no-proxy containers, which have no
+    /// single-proxy +1 to adopt. For a proxy-backed container <see cref="OwnsContainerArg"/> is
+    /// gated on the container TYPE (EC1 through EC8, via
+    /// <see cref="ExistentialHandler.IsOwnedExistentialContainerType"/>), not on protocol count —
+    /// so composition (EC2+) proxies adopt the +1 here exactly like single-protocol (EC1) ones.
     /// </summary>
     public string? GetOwnedReturnElementConversion(string elementVar) =>
         !_isBareAny && _proxyClassName != null
