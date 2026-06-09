@@ -20,8 +20,7 @@ namespace RuntimeTestsApp.Marshalling;
 ///       the conditional <c>Measurement : Comparable where UnitType : Dimension</c>
 ///       conformance descriptor to resolve the Bound's Comparable witness table.</item>
 ///   </list>
-/// Runs on simulator (Mono) and device (NativeAOT): the WorkoutKit consumer validates
-/// §4 on the simulator lane, so this gate must too.
+/// Runs on simulator (Mono) and device (NativeAOT).
 /// </summary>
 public class MeasurementConstructionTests : TestBase
 {

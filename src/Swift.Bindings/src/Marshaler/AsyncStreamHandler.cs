@@ -121,7 +121,8 @@ public class AsyncStreamHandler
     /// returnable as <c>IAsyncEnumerable&lt;IReadOnlyList&lt;X&gt;&gt;</c> via
     /// <c>IAsyncEnumerable&lt;out T&gt;</c> covariance and the inheritance
     /// <c>SwiftArray&lt;T&gt; : IReadOnlyList&lt;T&gt;</c>. See
-    /// <c>gap-0.10.0-swiftarray-at-api-boundary.md</c>.
+    /// Swift collection containers are substituted for standard .NET read-only abstractions
+    /// at the public API boundary (SwiftArray → IReadOnlyList, etc.).
     /// </summary>
     private string TranslatePublicElementTypeToCSharp(TypeSpec typeSpec)
     {

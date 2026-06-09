@@ -109,7 +109,7 @@ public class EnumObjCBridgedPayloadTests : TestBase
 
     #endregion
 
-    #region Optional<Array<URL>> double-wrapped payload (Codex P2 regression)
+    #region Optional<Array<URL>> double-wrapped payload (regression)
 
     public void TestMaybeLoadAllFactoryAcceptsURLArray()
     {

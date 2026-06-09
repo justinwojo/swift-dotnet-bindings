@@ -348,7 +348,7 @@ public func scalePoint(_ point: NonFrozenPoint, by factor: Double) -> NonFrozenP
 }
 
 // MARK: - IEnumerable<NonFrozenStruct> sync round-trip
-// Regression coverage for `bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…` Defect A.
+// Regression coverage for IEnumerable<NonFrozenStruct> raw-IntPtr packing defect A.
 // The wrapper expects `Array<NonFrozenPoint>` storage (contiguous payload bytes per slot,
 // not 1-word IntPtr handles). The sync paths exercise SwiftArray<NonFrozenPoint>
 // FromEnumerable / AsProjected via VWT InitializeWithCopy / NewFromPayload.
@@ -366,7 +366,7 @@ public func scalePoints(_ points: [NonFrozenPoint], by factor: Double) -> [NonFr
 }
 
 // MARK: - Set parameter with empty-literal default (StoreKit Product.purchase pattern)
-// Regression coverage for `gap-0.10.0-swift-set-parameter-becomes-ienumerable-default-lost.md`.
+// Regression coverage for the Set-parameter projection and empty-literal default loss bug.
 // Pre-fix the parameter projects as `IEnumerable<nint>` (fidelity loss — Set's uniqueness
 // invariant is dropped at the API boundary) and the `= []` default is silently dropped
 // (consumer must construct an empty enumerable explicitly). Post-fix the parameter
@@ -489,7 +489,7 @@ public func makeIndexedSeriesString() -> IndexedSeries<String> {
     return IndexedSeries(items: ["alpha", "beta", "gamma", "delta"], metadata: "four-strings")
 }
 
-// MARK: - Eightbyte Grouping: {Int8×5, Int64, Int64} by-value return (P0-07)
+// MARK: - Eightbyte Grouping: {Int8×5, Int64, Int64} by-value return
 
 /// A 24-byte frozen struct whose five leading `Int8` fields share the first eightbyte while the two
 /// `Int64` fields each own a full eightbyte — laid out `[b0..b4 + 3 pad][first][second]`. swiftcc
@@ -525,7 +525,7 @@ public func makeByteQuintWide(b0: Int8, b1: Int8, b2: Int8, b3: Int8, b4: Int8, 
     return ByteQuintWide(b0: b0, b1: b1, b2: b2, b3: b3, b4: b4, first: first, second: second)
 }
 
-// MARK: - Indirect-return static factory: sret pointer survives the metatype accessor (P0-08)
+// MARK: - Indirect-return static factory: sret pointer survives the metatype accessor
 
 /// A 40-byte frozen struct (five `Int64` fields) returned by value. Exceeding 32 bytes, it is returned
 /// indirectly through the x8 sret buffer pointer under both conventions. Paired with the static factory

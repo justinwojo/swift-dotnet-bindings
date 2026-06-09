@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - Protocol-bag KeyPath singleton fixture (Session 4 protocol-bag extension)
+// MARK: - Protocol-bag KeyPath singleton fixture
 //
-// The original Session 4 fixture (`KeyPathSingletons.swift`) covers the
-// nested-concrete-struct shape: `MockBookSession4.LibraryFilter` is a stored-
-// property struct directly nested inside the conformer.
+// The `KeyPathSingletons.swift` fixture covers the nested-concrete-struct shape:
+// `MockBookSession4.LibraryFilter` is a stored-property struct directly nested
+// inside the conformer.
 //
 // MusicKit, in contrast, exposes its associated-type bag through a typealias
 // to a module-scope PROTOCOL:
@@ -17,8 +17,8 @@
 //
 // Property requirements on a `public protocol` are abstract — `HasStorage == false`
 // — but `\Protocol.requirement` is a valid Swift KeyPath literal that the runtime
-// resolves through the conforming type's witness table at use time. The
-// Session 4 broadening admits this shape via two mechanisms:
+// resolves through the conforming type's witness table at use time. The protocol-bag
+// extension admits this shape via two mechanisms:
 //
 // 1. `KeyPathSingletonEmitter.FindBagDecl` branches 3 & 4 resolve the
 //    typealias against module-scope types (not just nested types).
@@ -61,7 +61,7 @@ public protocol ProtocolBag_MovieFilter {
 
 // MARK: Closed conformers (the "extension Album: MusicLibraryRequestable" analogue)
 //
-// The `typealias` indirection is the trigger for Session 4's broadening —
+// The `typealias` indirection is the trigger for protocol-bag broadening —
 // Album.LibraryFilter is *not* a nested struct, it's a typealias to a module-
 // scope protocol. ProtocolBag_Book / ProtocolBag_Movie mirror that shape.
 
@@ -82,7 +82,7 @@ public struct ProtocolBag_Movie: ProtocolBag_Filterable {
 // References `KeyPath<Item.Filter, *>` to register demand; the emitter walks
 // each closed conformer's substituted Filter (a module-scope protocol bag) and
 // emits a typed singleton per requirement. The method bodies are placeholders;
-// Session 4 demand walking inspects signatures only.
+// the demand walk inspects signatures only.
 
 public struct ProtocolBag_Request<Item: ProtocolBag_Filterable> {
     public init() {}
@@ -133,10 +133,10 @@ public struct ProtocolBag_MovieFilterImpl: ProtocolBag_MovieFilter {
 
 // MARK: Concrete consumers — round-trip a singleton back through Swift
 //
-// Session 6c Blocker D lifted the bound-generic-existential gate to admit
-// `KeyPath<any P, V>` directly, so the consumer parameter type is now the
-// natural typed-existential shape (`KeyPath<ProtocolBag_BookFilter, V>`)
-// instead of the previous `Swift.AnyKeyPath + as!` workaround.
+// The bound-generic-existential gate was widened to admit `KeyPath<any P, V>`
+// directly, so the consumer parameter type is now the natural typed-existential
+// shape (`KeyPath<ProtocolBag_BookFilter, V>`) instead of the previous
+// `Swift.AnyKeyPath + as!` workaround.
 //
 // The `filter` parameter still takes the CONCRETE impl type — this sidesteps
 // the *independent* existential-direct-parameter gate (lifting `any P` as a

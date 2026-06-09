@@ -1,16 +1,16 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - CSM KeyPath-as-method-param fixture (Session 6b — Phase 1)
+// MARK: - CSM KeyPath-as-method-param fixture
 //
-// Phase 1 of 6b adds `KeyPathFamily` as a first-class `ParamAbiCategory` so the
+// This fixture adds `KeyPathFamily` as a first-class `ParamAbiCategory` so the
 // CSM (Concrete Specialization Machinery) emitter can accept `KeyPath<Root, Value>`
 // parameters on PAT-constrained generic-parent methods and route them through
 // `DangerousGetHandle()` rather than the broken `((ISwiftObject)x).SwiftHandle`
 // PayloadHandle arm (the KeyPath family is SafeHandle-backed, not ISwiftObject).
 //
-// This fixture isolates that wiring from the more intricate A1/A3 substitution
-// work (Phase 2). The KeyPath's Root is a **top-level concrete struct**
+// This fixture isolates that wiring from the more intricate τ_0_0-rooted
+// substitution work. The KeyPath's Root is a **top-level concrete struct**
 // (`CsmKp_ConcreteFilter`) rather than `T.Filter` — so the pairing-generic
 // substitution gate (`HasNonGenericParamReferencingGeneric`) does NOT fire on
 // this fixture by design. What it DOES exercise:
@@ -28,7 +28,7 @@
 //     and reconstructs it via `Unmanaged<KeyPath<CsmKp_ConcreteFilter, String>>
 //     .fromOpaque(_kp).takeUnretainedValue()`.
 //
-// Phase 2 (separate commit) lifts the τ_0_0-rooted shape (`KeyPath<T.Filter, V>`).
+// A later change lifts the τ_0_0-rooted shape (`KeyPath<T.Filter, V>`).
 
 // MARK: PAT + closed conformers (the parent-bag plumbing)
 
@@ -50,7 +50,7 @@ public struct CsmKp_ConformerB: CsmKp_Filterable {
 //
 // Deliberately NOT nested under a conformer. With this shape, the `Bag<T>.count`
 // param tree is `KeyPath<CsmKp_ConcreteFilter, String>` — no `τ_0_0` reference.
-// Phase 2 will introduce a conformer-nested variant that exercises substitution.
+// A future change will introduce a conformer-nested variant that exercises substitution.
 
 public struct CsmKp_ConcreteFilter {
     public var title: Swift.String
@@ -67,19 +67,18 @@ public struct CsmKp_Bag<T: CsmKp_Filterable> {
     public init() {}
 
     public func count(matching keyPath: KeyPath<CsmKp_ConcreteFilter, Swift.String>) -> Swift.Int {
-        // Body irrelevant to Phase-1 emission — but pick something observable so
-        // the round-trip test can verify the keypath was reached and applied.
+        // Body is observable so the round-trip test can verify the keypath was reached and applied.
         let probe = CsmKp_ConcreteFilter(title: T.displayName)
         return probe[keyPath: keyPath].count
     }
 }
 
-// MARK: KeyPath factory — origination of the typed KP without depending on Session 4
+// MARK: KeyPath factory — origination of the typed KP
 //
-// `CsmKp_ConcreteFilter` is top-level (not conformer-nested), so the Session 4
-// typed-singleton-emission demand walk does not fire for it (Session 4 emits
-// only for conformer-nested bags). C# instead calls this factory to obtain a
-// `KeyPath<CsmKp_ConcreteFilter, String>` via the existing Session 3 OUT path.
+// `CsmKp_ConcreteFilter` is top-level (not conformer-nested), so the
+// typed-singleton-emission demand walk does not fire for it (the typed-singleton
+// emitter walks only conformer-nested bags). C# instead calls this factory to
+// obtain a `KeyPath<CsmKp_ConcreteFilter, String>` via the standard OUT path.
 
 public class CsmKp_KeyPathFactory {
     public class func makeTitlePath() -> KeyPath<CsmKp_ConcreteFilter, Swift.String> {

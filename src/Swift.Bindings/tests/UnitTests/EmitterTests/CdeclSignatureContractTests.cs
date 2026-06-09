@@ -156,7 +156,7 @@ public class CdeclSignatureContractTests
     [Fact]
     public void MethodWithOnlyEmptyTupleParam_IncludesArguments()
     {
-        // Regression (P1-09 follow-on): a method whose only non-debug parameter is
+        // Regression: a method whose only non-debug parameter is
         // Void/empty-tuple — the shape of result-builder overloads like
         // `buildPartialBlock(first: Void)` (TipKit's Tips.GroupBuilder) — must still
         // run the Arguments phase. A Void parameter contributes no @_cdecl ABI

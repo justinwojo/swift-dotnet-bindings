@@ -204,7 +204,7 @@ namespace BindingsGeneration
                 typeDatabase, context.PInvokeHelperContext, emissionCtx,
                 parentType: null, moduleDecl: null, siblingPropertyNames, conductor);
 
-            // P1-21: reserve collision-suffix overrides' adopted ancestor names up front so the
+            // Reserve collision-suffix overrides' adopted ancestor names up front so the
             // disambiguation in the main loop is declaration-order independent (see method doc).
             PreReserveAdoptedOverrideNames(
                 sortedDecl, pipeline, validationCtx, typeDatabase, siblingPropertyNames,
@@ -280,7 +280,7 @@ namespace BindingsGeneration
                     // namespace" idiom. Emit it as a real C# nested namespace
                     // so consumers can write `using BlinkID.BlinkIDSDK;` instead
                     // of `using static BlinkID.BlinkIDSDK;` or fully-qualifying
-                    // every type. See bug-0.10.0-namespace-facade-as-static-class.md.
+                    // every type — a namespace facade must emit as a namespace, not a class.
                     if (NamespaceFacadeDetector.IsNamespaceFacade(structDecl))
                     {
                         NamespaceFacadeEmitter.Emit(
@@ -347,7 +347,7 @@ namespace BindingsGeneration
                     // Emit as a real C# nested namespace instead of the
                     // default `static partial class` so consumers see a
                     // first-class namespace rather than a member-access
-                    // container. See bug-0.10.0-namespace-facade-as-static-class.md.
+                    // container — a namespace facade must emit as a namespace, not a class.
                     if (NamespaceFacadeDetector.IsNamespaceFacade(enumDecl))
                     {
                         NamespaceFacadeEmitter.Emit(
@@ -459,8 +459,9 @@ namespace BindingsGeneration
                             // would land directly above whatever is emitted next and read
                             // as if it applied to that working member. Record the skip in
                             // report.json (the audit trail) but suppress the source-level
-                            // comment (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md
-                            // Site 3: Lottie `AnimationKeypath(IEnumerable<string>)`).
+                            // comment — a collision-suppressed unsupported annotation landing above a
+                            // working member (e.g. Lottie `AnimationKeypath(IEnumerable<string>)`) would
+                            // mislead readers.
                             _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
                             ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
                             continue;
@@ -487,7 +488,7 @@ namespace BindingsGeneration
                         // Pass property names and P/Invoke helper context to the method environment
                         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
                         env.CollisionIndex = collisionIndex;
-                        // P1-21 (Scenario A): a derived override of one collision-suffixed base overload
+                        // Scenario A: a derived override of one collision-suffixed base overload
                         // must adopt the ancestor slot's emitted name (resolved by full Swift selector,
                         // labels included) — otherwise it recomputes a suffix-free name from its own
                         // single-method class body and binds to the WRONG base slot (silent mis-dispatch).
@@ -496,7 +497,7 @@ namespace BindingsGeneration
                         // No-op for non-overrides and for overrides whose names already match the slot.
                         env.AdoptedOverrideCSharpName = TryResolveAdoptedOverrideName(env);
 
-                        // P1-21 (Scenario C, dedup parity — in-loop fallback): the override added only
+                        // Scenario C (dedup parity — in-loop fallback): the override added only
                         // its LOCALLY computed key (`Process`) to emittedProjectedSignatures at the Add()
                         // above, but it EMITS under the adopted name (`Process2`). A sibling that projects
                         // to the adopted name (e.g. `process2(_:)` → `Process2`) must disambiguate to the
@@ -560,7 +561,7 @@ namespace BindingsGeneration
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-            // P1-21: thread the sibling-property set so the key's name component applies the
+            // Thread the sibling-property set so the key's name component applies the
             // same Foo→FooMethod / Foo→WithFoo property-collision rename that the authoritative
             // emitted name (MethodEnvironment.CSharpMethodName, which passes SiblingPropertyNames)
             // applies. Without it, two Swift members that emit the same renamed C# name register
@@ -696,7 +697,7 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// P1-21 (declaration-order independence): reserve the adopted ancestor-slot names of same-module
+        /// Declaration-order independence: reserve the adopted ancestor-slot names of same-module
         /// collision-suffix overrides BEFORE the main emission loop, so that a natural sibling projecting
         /// to the same adopted name (e.g. <c>process2(_:)</c> → <c>Process2</c>) disambiguates to the next
         /// free suffix (<c>Process22</c>) regardless of which is declared first. Without this, an override

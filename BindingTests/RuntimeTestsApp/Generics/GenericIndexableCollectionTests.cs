@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Session 5 (0.11.0 regression): generic struct with Collection conformance
+/// Generic struct with Collection conformance
 /// members declared in a separate <c>extension</c> block (matching MusicKit's
 /// <c>MusicItemCollection&lt;MusicItemType&gt;</c> shape). Multiple sibling
 /// overloads share a base Swift name (<c>index</c>, <c>formIndex</c>) but

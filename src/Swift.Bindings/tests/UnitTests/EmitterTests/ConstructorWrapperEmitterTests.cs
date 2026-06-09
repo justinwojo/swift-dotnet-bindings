@@ -1042,7 +1042,7 @@ public class ConstructorWrapperEmitterTests
         // CdeclParamMapper splits each into (ptr, len) and the managed side exposes
         // ReadOnlySpan<byte> (read-only) / Span<byte> (mutable). Regression guard
         // against a refactor that accidentally names either alongside the unsupported
-        // typed-buffer-pointer variants. See unsafe-mutable-raw-buffer-pointer.md.
+        // typed-buffer-pointer variants.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         var parentDecl = CreateStructDecl("MyType", moduleDecl);
         var method = new MethodDecl

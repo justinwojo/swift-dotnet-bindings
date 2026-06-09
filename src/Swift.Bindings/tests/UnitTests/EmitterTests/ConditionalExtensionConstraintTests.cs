@@ -523,7 +523,7 @@ public class ConditionalExtensionConstraintTests
     #region Marker Protocol Gate Split Tests
 
     /// <summary>
-    /// Session 2: well-known runtime-only marker protocols (Sendable / Copyable / Escapable /
+    /// Well-known runtime-only marker protocols (Sendable / Copyable / Escapable /
     /// SendableMetatype / _Concurrency.Actor) MUST be dropped from generic where clauses but
     /// MUST NOT block the method itself. These tests lock in the gate split — if either gate
     /// regresses, real-world libraries (Alamofire / GRDB / Kingfisher / Nuke) either fail to

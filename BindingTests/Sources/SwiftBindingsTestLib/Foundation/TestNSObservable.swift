@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - KVO observable target (Session 7 Cluster A)
+// MARK: - KVO observable target
 
 /// NSObject subclass with @objc dynamic stored properties so the runtime
 /// KVO machinery can observe them. Each property exercises a different
@@ -28,7 +28,7 @@ public func makeTestNSObservable() -> TestNSObservable {
 
 /// Mutator helpers — C# test uses these instead of writing the
 /// properties from C# (Tj dispatch for @objc dynamic properties is
-/// the variable we are NOT trying to validate this session).
+/// the variable we are NOT trying to validate here).
 public func mutateCounter(_ obj: TestNSObservable, _ value: Int) {
     obj.counter = value
 }

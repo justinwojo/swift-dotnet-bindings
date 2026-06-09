@@ -14,7 +14,7 @@ public class TupleHandler
     private readonly ExistentialHandler _existentialHandler;
 
     /// <summary>
-    /// Maximum number of tuple elements supported in Phase 1.
+    /// Maximum number of tuple elements supported.
     /// C# ValueTuple supports up to 7 elements natively; beyond that requires nesting.
     /// </summary>
     public const int MaxSupportedTupleElements = 7;
@@ -50,8 +50,8 @@ public class TupleHandler
         argumentDecl.SwiftTypeSpec is TupleTypeSpec tuple && !tuple.IsEmptyTuple ? tuple : null;
 
     /// <summary>
-    /// Determines whether the tuple is a supported type for Phase 1.
-    /// Phase 1 supports:
+    /// Determines whether the tuple is a supported type.
+    /// Supported tuples have:
     /// - Maximum 7 tuple elements
     /// - Only frozen/primitive element types
     /// - No nested tuples
@@ -66,7 +66,7 @@ public class TupleHandler
         if (tupleTypeSpec.IsEmptyTuple)
             return false;
 
-        // Maximum 7 elements in Phase 1
+        // Maximum 7 elements (C# ValueTuple limit)
         if (tupleTypeSpec.Elements.Count > MaxSupportedTupleElements)
             return false;
 

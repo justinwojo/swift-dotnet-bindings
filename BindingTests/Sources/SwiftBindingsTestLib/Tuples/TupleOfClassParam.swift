@@ -5,12 +5,11 @@ import Foundation
 
 // MARK: - Tuple-of-class-element parameter (negative fixture)
 //
-// Mirrors the RichTextKit `RichTextImageConfiguration(maxImageSize:)` pattern that
-// surfaced the bug pinned by MemberValidationPipeline Phase 5b: a non-frozen
-// public struct projected as a C# class (with `.Payload`) used as an element of
-// a tuple parameter. The standard PInvokeEmitter tuple path emits the parameter
-// as `ValueTuple<IntPtr, IntPtr>`, but the call site has the raw class tuple and
-// no per-element handle extraction — CS1503 at compile time.
+// Mirrors the RichTextKit `RichTextImageConfiguration(maxImageSize:)` pattern: a
+// non-frozen public struct projected as a C# class (with `.Payload`) used as an
+// element of a tuple parameter. The standard PInvokeEmitter tuple path emits the
+// parameter as `ValueTuple<IntPtr, IntPtr>`, but the call site has the raw class
+// tuple and no per-element handle extraction — CS1503 at compile time.
 //
 // The gate must SKIP the broken constructor while keeping the rest of the type
 // usable (default ctor + other accessors).
@@ -27,8 +26,8 @@ public struct TupleClassElementSize {
 }
 
 /// Wrapper class whose tuple-parameterized constructor must be skipped by the
-/// generator (Phase 5b). The default constructor and other accessors must still
-/// be reachable from C#.
+/// generator. The default constructor and other accessors must still be reachable
+/// from C#.
 public class TupleOfClassParamHost {
     public let label: String
     private let storedWidth: Int32
@@ -41,7 +40,7 @@ public class TupleOfClassParamHost {
     }
 
     /// THIS constructor must be skipped — tuple-of-class parameter has no
-    /// per-element marshalling support yet. Phase 5b gate.
+    /// per-element marshalling support yet.
     public init(label: String, maxSize: (width: TupleClassElementSize, height: TupleClassElementSize)) {
         self.label = label
         self.storedWidth = maxSize.width.width

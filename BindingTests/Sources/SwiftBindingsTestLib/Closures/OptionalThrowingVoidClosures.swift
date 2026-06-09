@@ -5,14 +5,14 @@ import Foundation
 
 // MARK: - Optional Throwing-Void Closure Parameters (Alamofire / YouTubePlayerKit shape)
 //
-// Regression guard for REMEDIATION-PLAN §6: an *optional* escaping throwing closure
-// returning Void as a method/init parameter — `((T) throws -> Void)? = nil`. The C#
-// binding emits a throwing-closure callback whose catch block mints a Swift error via
-// the per-module helper `SBW_CreateError_{module}`. When that helper went unregistered
-// by wrapper-emit — on the native `_optbuf`/default-parameter/non-optional-setter paths
-// that forward the closure to Swift without funneling through the closure-adapter — the
-// wrapper-symbol contract gate rejected the callback's P/Invoke, the co-gater stripped
-// the `[UnmanagedCallersOnly]` callback method, and its one-line `s_<cb> = &<cb>` field
+// Regression guard for the optional escaping throwing closure returning Void as a
+// method/init parameter — `((T) throws -> Void)? = nil`. The C# binding emits a
+// throwing-closure callback whose catch block mints a Swift error via the per-module
+// helper `SBW_CreateError_{module}`. When that helper went unregistered by wrapper-emit
+// — on the native `_optbuf`/default-parameter/non-optional-setter paths that forward the
+// closure to Swift without funneling through the closure-adapter — the wrapper-symbol
+// contract gate rejected the callback's P/Invoke, the co-gater stripped the
+// `[UnmanagedCallersOnly]` callback method, and its one-line `s_<cb> = &<cb>` field
 // plus the `new SwiftClosureData((IntPtr)s_<cb>, …)` call-site dangled → CS0103
 // "name does not exist." These shapes broke Alamofire (`Session.upload(…requestModifier:)`)
 // and YouTubePlayerKit (`init(htmlProvider:)` + the `HtmlProvider` setter) at the
@@ -26,10 +26,10 @@ import Foundation
 // TO Swift, AND the *return* direction (the `configValidator` gettable property below), where
 // the closure is read back FROM Swift and its by-value struct argument is marshalled TO Swift
 // through the func-ptr each time the returned delegate is invoked. The return direction was
-// the REMEDIATION-PLAN §6 #4 defect: the throwing-closure RETURN invoker emitted a bare
-// `_arg0` struct value into a `void*`/struct-pointer func-ptr slot (CS1503 at the compile
-// gate). It now emits the same metadata + buffer + MarshalToSwift prologue the non-throwing
-// struct-param closure paths use, so `configValidator` is the durable gate for that fix.
+// a throwing-closure RETURN defect: the invoker emitted a bare `_arg0` struct value into a
+// `void*`/struct-pointer func-ptr slot (CS1503 at the compile gate). It now emits the same
+// metadata + buffer + MarshalToSwift prologue the non-throwing struct-param closure paths
+// use, so `configValidator` is the durable gate for that fix.
 
 /// Stand-in value type for the closure's input (URLRequest / HtmlProvider).
 public struct RequestConfig {
@@ -41,7 +41,7 @@ public struct RequestConfig {
 
 // The `configValidator` closure throws `ConfigError.invalidTimeout` (declared in
 // Initializers/Throwing.swift) for a non-positive timeout — driving the throwing branch of the
-// throwing-closure RETURN invoker (§6 #4).
+// throwing-closure RETURN invoker.
 
 /// Free function with an OPTIONAL throwing-void closure parameter defaulting to nil —
 /// the Alamofire `Session.upload(…requestModifier:)` shape (the `_optbuf` native-forward
@@ -124,12 +124,12 @@ public final class OptionalThrowingModifierHolder {
     /// returned throwing closure's func-ptr.
     public var lastObservedTimeout: Int32 = 0
 
-    /// GETTABLE throwing-closure property whose closure takes a by-value struct argument and throws
-    /// — the REMEDIATION-PLAN §6 #4 return-direction shape. Reading this property hands C# a delegate
-    /// backed by a Swift func-ptr; each C# invocation marshals the `RequestConfig` struct TO Swift
-    /// through that func-ptr (the path whose throwing-return invoker previously emitted a bare struct
-    /// value into a `void*` func-ptr slot → CS1503). The closure throws for a non-positive timeout and
-    /// otherwise records the timeout so the round-trip is observable.
+    /// GETTABLE throwing-closure property whose closure takes a by-value struct argument and throws.
+    /// Reading this property hands C# a delegate backed by a Swift func-ptr; each C# invocation
+    /// marshals the `RequestConfig` struct TO Swift through that func-ptr (the throwing-return
+    /// invoker previously emitted a bare struct value into a `void*` func-ptr slot → CS1503). The
+    /// closure throws for a non-positive timeout and otherwise records the timeout so the
+    /// round-trip is observable.
     public var configValidator: (RequestConfig) throws -> Void {
         return { config in
             if config.timeout <= 0 {
@@ -140,8 +140,8 @@ public final class OptionalThrowingModifierHolder {
     }
 
     /// NON-THROWING gettable closure with a by-value NON-FROZEN struct argument and a primitive
-    /// return — the non-throwing twin of `configValidator`. The §6 #4 fix routes struct-arg closure
-    /// RETURNS through the @_cdecl invoke thunk for BOTH throwing and non-throwing closures, so the
+    /// return — the non-throwing twin of `configValidator`. The fix routes struct-arg closure RETURNS
+    /// through the @_cdecl invoke thunk for BOTH throwing and non-throwing closures, so the
     /// non-throwing struct-arg return no longer takes the raw `delegate* unmanaged[Swift]` lambda
     /// struct path (an untested latent SIGSEGV on Mono JIT / NativeAOT). Echoes the timeout so the
     /// `RequestConfig` round-trip TO Swift is observable from the returned `Int32`.

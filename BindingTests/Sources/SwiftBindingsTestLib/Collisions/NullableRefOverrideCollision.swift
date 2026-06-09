@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Nullable-reference-erasure override collision (P1-21 Scenario A)
+// MARK: - Nullable-reference-erasure override collision
 //
 // Complements Collisions/SameModuleOverrideCollision.swift, which exercises the LABEL-based
 // collision trigger (process(first:) / process(second:)). This file exercises the OTHER B15

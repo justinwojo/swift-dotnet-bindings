@@ -201,7 +201,7 @@ public class InternalTypeReferenceWalkerTests
         // OtherModule.Outer.Internal — outer is qualified to a DIFFERENT module.
         // The inner link's NamedTypeSpec carries no module prefix, but the chain is
         // rooted in a foreign module — short-name fallback must NOT fire against the
-        // current module's internal set. This is the exact regression Codex flagged.
+        // current module's internal set. This is the exact regression guarded here.
         var nested = NamedWithInner("OtherModule.Outer", "Internal");
         var method = Method(nested);
         Assert.False(InternalTypeReferenceWalker.SignatureReachesInternalType(

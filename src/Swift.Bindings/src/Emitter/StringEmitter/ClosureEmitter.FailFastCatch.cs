@@ -9,7 +9,7 @@ public static partial class ClosureEmitter
     /// Emits the <c>catch</c> block for a NON-throwing closure
     /// <c>[UnmanagedCallersOnly]</c> callback (Void or Bool return) that invokes a managed
     /// delegate, using the line-oriented <see cref="CSharpWriter"/> at the caller's current
-    /// indent. This is the single source of truth for the P0-01 non-throwing-closure fault
+    /// indent. This is the single source of truth for the non-throwing-closure fault
     /// policy shared by the closure-bridge emitters (MethodClosureBridge, NestedClosureBridge,
     /// ProtocolExtensionClosureBridge); the WrapperEmitter/ClosureEmitter sibling sites emit
     /// the identical shape via string literals.

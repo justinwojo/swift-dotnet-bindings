@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Bug 16 regression coverage: protocols whose requirement set includes a
+/// Regression coverage: protocols whose requirement set includes a
 /// `@_spi`-protected member round-trip cleanly through the binding pipeline.
 ///
 /// Under the current toolchain, `swift-api-digester` and the swiftinterface
@@ -23,7 +23,7 @@ public class SpiRequirementProtocolSkipTests : TestBase
 {
     public SpiRequirementProtocolSkipTests(TestResults results) : base(results) { }
 
-    #region Bug 16 — Wrapper compile + round-trip
+    #region @_spi requirement — Wrapper compile + round-trip
 
     public void TestConsumerConstruction()
     {
@@ -56,7 +56,7 @@ public class SpiRequirementProtocolSkipTests : TestBase
 
     #endregion
 
-    #region Bug 16 — Proxy emission invariant
+    #region @_spi requirement — Proxy emission invariant
 
     public void TestProtocolProxyIsEmitted()
     {

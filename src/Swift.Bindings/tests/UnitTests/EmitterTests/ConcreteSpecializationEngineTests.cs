@@ -2103,7 +2103,7 @@ public class ConcreteSpecializationEngineTests
     [Fact]
     public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafMismatches_Rejects()
     {
-        // The Bug 3 pathology: the bilateral filter previously skipped Protocol-kind
+        // The bilateral filter previously skipped Protocol-kind
         // entries unconditionally, so an EntityCollection conformer with Element=UInt8
         // sailed through and produced a wrapper body referencing the wrong insert overload.
         // With a class target registered in the TypeDatabase, mismatched Elements must reject.
@@ -2150,7 +2150,7 @@ public class ConcreteSpecializationEngineTests
     public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafIsSubclass_Accepts()
     {
         // Swift class subtype admits subclasses: `where S.Element : Animal` accepts `[Dog]`
-        // when `Dog : Animal`. Exact-name match alone (the first cut of Bug 3) would falsely
+        // when `Dog : Animal`. Exact-name match alone would falsely
         // reject this. With both records resolvable in typeDatabase, the filter walks the
         // conformer Element's SuperclassTypeName chain and accepts when expected appears.
         var db = new ResolvingTypeDatabase();
@@ -2227,7 +2227,7 @@ public class ConcreteSpecializationEngineTests
         // we couldn't index when generating the consumer module). With expected
         // resolvable as a class but declared not, we cannot prove subclass relationship.
         // Fail-closed mirrors the broader "unverifiable cross-module class target"
-        // semantics of the original Bug 3 fix.
+        // semantics of the original bilateral-filter fix.
         var db = new ResolvingTypeDatabase();
         db.Register(SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Animal"),
             "SwiftBindingsTestLib", "Animal", TypeRecordKind.Class);

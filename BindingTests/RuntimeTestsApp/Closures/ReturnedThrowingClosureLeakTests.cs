@@ -22,7 +22,7 @@ namespace RuntimeTestsApp.Closures;
 /// CallConvSwift call from a display-class method (SIGSEGV), misread as the
 /// Mono <c>!ji->async</c> assertion. Wiring the cdecl invoke thunk
 /// (<c>WrapperEmitter.Return.cs</c>) removed the crash, so the prior
-/// <c>[SkipOnSimulator]</c> is gone (Track-M4:105).
+/// <c>[SkipOnSimulator]</c> is gone.
 /// </summary>
 public class ReturnedThrowingClosureLeakTests : TestBase
 {
@@ -56,7 +56,7 @@ public class ReturnedThrowingClosureLeakTests : TestBase
     /// Swift-returned <c>() throws -> Int32</c> that returns normally must surface to C#
     /// as <see cref="SwiftResult{T,E}.IsSuccess"/> carrying the value. Together the two
     /// prove the returned-throwing-closure path routes through the CallConvCdecl invoker
-    /// (both directions), not the crashing inline CallConvSwift lambda (Track-M4:105).
+    /// (both directions), not the crashing inline CallConvSwift lambda.
     /// </summary>
     public void TestReturnedNeverThrowingClosureSurfacesSuccess()
     {

@@ -216,7 +216,7 @@ public class CliOptions
         aliases: new[] { "--emit-apple-types-manifest" },
         description: "Emit-apple-types-manifest mode: ingest one or more Apple Xcode SDK ABI JSON dumps and write the " +
                      "SwiftBindings.Apple metadata manifest to -o. Requires --apple-abi-json and --apple-include-types. " +
-                     "See src/Swift.Bindings.Sdk/tools/apple-types-manifest/README.md.",
+                     "Pairs with --apple-include-types and --apple-abi-json.",
         getDefaultValue: () => false);
 
     public Option<string[]> AppleAbiJson { get; } = new(
@@ -310,7 +310,7 @@ public class CliOptions
     public Option<string> InterfaceFactsProducer { get; } = new(
         aliases: new[] { "--interface-facts-producer" },
         description: "Producer used to extract supplementary facts from .swiftinterface files. " +
-                     "'auto' (default, M2 S3): uses 'swift-syntax' on Darwin when the host binary is " +
+                     "'auto' (default): uses 'swift-syntax' on Darwin when the host binary is " +
                      "locatable, falls back to 'regex' on non-Darwin or when the binary is missing. " +
                      "'swift-syntax': shells out to the SwiftInterfaceParser host binary (built by " +
                      "`nuke compile`) for the full 24-fact set. Hard-fails on any host-binary " +
@@ -318,7 +318,7 @@ public class CliOptions
                      "drift-signal, and silently falling back to regex would mask migration bugs. " +
                      "Hard-fails on non-Darwin where the binary cannot run. 'regex': legacy " +
                      "SwiftInterfaceAccessParser only — kept available for one release cycle for " +
-                     "parity diffing and emergency rollback. Removed in M2 S4.",
+                     "parity diffing and emergency rollback.",
         getDefaultValue: () => "auto");
 
     public Option<bool> Help { get; } = new(aliases: new[] { "-h", "--help" }, "Display a help message.");

@@ -97,10 +97,10 @@ public class DefaultParameterOverloadEmitterTests
     [Fact]
     public void BuildOverloadDecl_PreservesOwnershipOnKeptParam()
     {
-        // P0-06 regression: Ownership is an intrinsic, position-independent property of a
-        // parameter. A `consuming` (Owned) parameter that survives into a trimmed
-        // default-overload must keep Ownership.Owned — otherwise it reverts to Default and
-        // routes off the .move()/MarkConsumed path → double-free.
+        // Regression: Ownership is an intrinsic, position-independent property of a parameter.
+        // A `consuming` (Owned) parameter that survives into a trimmed default-overload must
+        // keep Ownership.Owned — otherwise it reverts to Default and routes off the
+        // .move()/MarkConsumed path → double-free.
         // Repro shape: func f(_ resource: consuming TrackedResource, flags: Int = 0).
         var resource = CreateArg("resource", hasDefault: false);
         resource.Ownership = ParameterOwnership.Owned;

@@ -3,14 +3,14 @@
 
 import Foundation
 
-// MARK: - Intra-protocol async/sync effect overload (audit §6 #12)
+// MARK: - Intra-protocol async/sync effect overload
 //
 // A SINGLE protocol declaring BOTH a sync and an async method that share name +
 // params + return TYPE — `func m(_:) -> Int32` AND `func m(_:) async -> Int32`.
 // This is valid Swift: effectful overloading makes them two DISTINCT witness-table
 // requirements occupying two SEPARATE vtable slots.
 //
-// Pre-fix bug (§6 #12): the three intra-protocol method-identity keys
+// Pre-fix bug: the three intra-protocol method-identity keys
 // (`EveryProtocolEmitter.GetMethodKey`, `WitnessDispatchEmitter.GetMethodKey`,
 // `ProtocolSignatureHelper.GetMethodSignatureKey`) keyed only `name(labels:types)`
 // with NO `async` axis, so the two requirements COLLAPSED onto ONE slot. The async

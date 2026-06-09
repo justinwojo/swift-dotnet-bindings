@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Namespace-facade fixture (Bundle 04 #3)
+// MARK: - Namespace-facade fixture
 //
 // Mirrors the BlinkID 7.7.0 `BlinkIDSDK` shape locally so the
 // namespace-facade emission can be observed end-to-end inside
@@ -17,7 +17,7 @@ import Foundation
 // `using SwiftBindingsTestLib.LocalFacade;` resolves the nested types
 // natively.
 //
-// See `bug-0.10.0-namespace-facade-as-static-class.md`.
+// Pre-fix, the namespace facade was emitted as a `partial static class` rather than a real C# namespace.
 
 /// Top-level public struct used purely to scope nested types — no inits,
 /// no stored properties, no instance/static members. Matches the strict

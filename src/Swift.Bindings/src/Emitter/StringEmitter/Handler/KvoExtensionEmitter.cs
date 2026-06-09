@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 7 — Emits Foundation KVO observe(_:options:changeHandler:) bridges
+/// Emits Foundation KVO observe(_:options:changeHandler:) bridges
 /// for <c>@objc dynamic</c> stored properties on NSObject-rooted Swift classes.
 ///
 /// <para>

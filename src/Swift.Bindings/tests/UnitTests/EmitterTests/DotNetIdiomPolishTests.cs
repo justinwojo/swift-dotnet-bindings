@@ -522,7 +522,7 @@ public class DotNetIdiomPolishTests
         // Add an instance method so EveryProtocolEmitter emits SetFetchable_vtable
         // (and ProtocolProxyEmitter therefore emits the proxy class). Without an
         // implementable member the proxy is correctly suppressed by
-        // bug-0.10.0-proxy-vtable-setters-not-exported guarding — this test exercises
+        // the vtable-setter-not-exported guard — this test exercises
         // namespace placement, so it needs a non-empty protocol.
         var methodDecl = new MethodDecl
         {

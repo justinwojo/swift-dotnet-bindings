@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Audit P1-08, Dictionary sibling: class-bound (`: GestureHostBase`) `[String: any Marker]`
+/// Dictionary sibling: class-bound (`: GestureHostBase`) `[String: any Marker]`
 /// dictionaries crossing C# ↔ Swift. The array fix routed the SwiftArray element carrier through the
 /// 16-byte <c>ClassExistentialContainer1</c>; the equivalent dictionary VALUE paths still built
 /// <c>SwiftDictionary&lt;_, ExistentialContainer1&gt;</c> (40-byte value slots). Because the existential

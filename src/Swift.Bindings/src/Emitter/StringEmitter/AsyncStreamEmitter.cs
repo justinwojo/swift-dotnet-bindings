@@ -200,7 +200,8 @@ public static class AsyncStreamEmitter
     {
         // Public element type — substitutes Swift collection containers
         // (SwiftArray<T> → IReadOnlyList<T>, etc.) for the consumer-facing
-        // IAsyncEnumerable<T> return. See gap-0.10.0-swiftarray-at-api-boundary.md.
+        // IAsyncEnumerable<T> return by substituting Swift collection containers for
+        // standard .NET read-only abstractions at the public API.
         var publicElementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
         // Channel storage type — keeps SwiftArray<T> etc. so SwiftAsyncStream<TElement>'s
         // SwiftMarshal.MarshalFromSwift<TElement> in OnElement can deserialize the Swift

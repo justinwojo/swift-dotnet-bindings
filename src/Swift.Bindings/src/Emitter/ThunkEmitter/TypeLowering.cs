@@ -37,7 +37,7 @@ public record TypeLoweringResult(
 /// Maps Swift types to physical ARM64 register slots following the Swift calling convention (swiftcc).
 /// This is the foundation for generating native ARM64 thunks that bridge cdecl ↔ swiftcc.
 ///
-/// Key rules (verified empirically — see RESEARCH.md in the experiments worktree):
+/// Key rules (verified empirically against the Swift calling convention):
 /// - Scalars: Int/UInt/pointer → 1 integer slot. Float/Double → 1 float slot. Bool → 1 integer slot (1 byte).
 /// - Structs: Recursively flatten fields. Count total slots (int + float combined).
 /// - 4-slot limit: If total slots > 4, the value is passed indirectly via x8 pointer.

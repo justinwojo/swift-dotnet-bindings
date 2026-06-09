@@ -18,9 +18,9 @@ namespace BindingsGeneration.Tests;
 /// .swiftinterface inputs through the regex producer and the SwiftSyntax producer
 /// and asserts every fact SwiftSyntax covers comes out byte-equal.
 /// <para/>
-/// Session 3 brings SwiftSyntax to 100% fact coverage (24/24) — every fact this
+/// SwiftSyntax provides 100% fact coverage (24/24) — every fact this
 /// test exercises is now produced by SwiftSyntax. The remaining role of the regex
-/// producer is the per-release rollback / parity diff path; M2 S4 retires it.
+/// producer is the per-release rollback / parity diff path.
 /// <para/>
 /// SKIP BEHAVIOR: when the SwiftInterfaceParser host binary isn't built, every
 /// fact in the test class is skipped instead of failing — `dotnet test` is a no-op
@@ -30,7 +30,7 @@ namespace BindingsGeneration.Tests;
 public class InterfaceFactsProducerParityTests
 {
     /// <summary>
-    /// Corpus for the MainActor parity gate inherited from M2 Session 1. Every entry
+    /// Corpus for the MainActor parity gate. Every entry
     /// is one the regex parser is documented to handle correctly today, so any
     /// divergence between the two producers is a real regression.
     /// </summary>
@@ -609,7 +609,7 @@ public class InterfaceFactsProducerParityTests
                 "}\n" },
         };
 
-    /// <summary>Protocol-names corpus (M2 S4). Mirrors `ProtocolDeclRegex` shape:
+    /// <summary>Protocol-names corpus. Mirrors `ProtocolDeclRegex` shape:
     /// <c>(?:public|open)\s+protocol\s+(\w+)</c>. Internal protocols, modifier-prefixed
     /// protocols, and backtick-escaped names are excluded by the regex; SwiftSyntax must
     /// match.</summary>
@@ -641,7 +641,7 @@ public class InterfaceFactsProducerParityTests
                 "public protocol Available {}\n" },
         };
 
-    /// <summary>Extension-member-candidate corpus (M2 S4). Exercises every shape the
+    /// <summary>Extension-member-candidate corpus. Exercises every shape the
     /// regex producer's `GetExtensionMemberCandidates` walker fires on, plus shapes it
     /// deliberately rejects.</summary>
     public static IEnumerable<object[]> ExtensionMemberCandidatesCorpus =>
@@ -778,7 +778,7 @@ public class InterfaceFactsProducerParityTests
                 "}\n" },
         };
 
-    /// <summary>ProtocolExtensionMethods derivation corpus (M2 S4). Verifies the dictionary
+    /// <summary>ProtocolExtensionMethods derivation corpus. Verifies the dictionary
     /// derived from `ExtensionMemberCandidates` + `ProtocolNames` parity-matches between
     /// producers (both producers route through the same first-dot-stripped lookup).</summary>
     public static IEnumerable<object[]> ProtocolExtensionMethodsCorpus =>
@@ -837,7 +837,7 @@ public class InterfaceFactsProducerParityTests
             var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
             var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
 
-            // Coverage: SwiftSyntax declares MainActorTypes + MainActorTypePositions in Session 1+.
+            // Coverage: SwiftSyntax declares MainActorTypes + MainActorTypePositions.
             Assert.Contains(InterfaceFactKind.MainActorTypes, swiftSyntax.CoveredFacts);
             Assert.Contains(InterfaceFactKind.MainActorTypePositions, swiftSyntax.CoveredFacts);
 

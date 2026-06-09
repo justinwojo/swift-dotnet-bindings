@@ -109,7 +109,7 @@ public record ValidationBaseline
     /// <summary>
     /// Compares current results against baseline, returns regressions and improvements.
     /// A library "passes" if it compiles standalone (ok/known_errors) OR via dep gate (dep_compile=ok).
-    /// Matches the bash regression detector in validate-libraries.sh Phase 5.
+    /// Matches the bash regression detector in validate-libraries.sh.
     /// </summary>
     public (IReadOnlyList<string> Regressions, IReadOnlyList<string> Improvements,
             IReadOnlyList<string> Drift) Compare(

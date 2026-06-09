@@ -9,22 +9,19 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Round 5 Session 5 regression: Apple's <c>WeatherKit.Forecast&lt;Element&gt;</c>
-/// constrains <c>Element</c> by <c>Decodable &amp; Encodable &amp; Equatable
-/// &amp; Sendable</c> — three non-marker PWTs that carry Self requirements AND
-/// push (1 metadata + 3 PWTs) &gt; 3 register slots, flipping the parent type's
-/// metadata accessor into buffer-mode ABI. The Session 3 Collection-witness
-/// fallback bailed on exactly that shape: the thin-mode metadata helper
-/// PAC-trapped, and the PwtEntries gate rejected non-resolvable (descriptor-only)
-/// Self-requirement conformances.
+/// Apple's <c>WeatherKit.Forecast&lt;Element&gt;</c> constrains <c>Element</c> by
+/// <c>Decodable &amp; Encodable &amp; Equatable &amp; Sendable</c> — three non-marker PWTs
+/// that carry Self requirements AND push (1 metadata + 3 PWTs) &gt; 3 register slots, flipping
+/// the parent type's metadata accessor into buffer-mode ABI. The Collection-witness fallback
+/// previously bailed on exactly that shape: the thin-mode metadata helper PAC-trapped, and the
+/// PwtEntries gate rejected non-resolvable (descriptor-only) Self-requirement conformances.
 ///
 /// <see cref="ForecastSeriesTests"/> covers the thin-mode-resolvable variant
 /// (CollectibleItem, 0 Self requirements, 1 PWT ≤ 3 slots). This fixture
 /// exercises the Apple-exact shape: three Self-requirement PWTs, private
-/// storage, witness-backed projection only. If the Round 5 Session 5 rewrite of
-/// <c>CollectionProjectionEmitter</c> regresses (thin-mode helper returns, PWT
-/// gate returns, or parent metadata hand-off breaks), these tests surface the
-/// regression before Apple's surface silently loses iteration again.
+/// storage, witness-backed projection only. If the <c>CollectionProjectionEmitter</c> rewrite
+/// regresses (thin-mode helper returns, PWT gate returns, or parent metadata hand-off breaks),
+/// these tests surface the regression before Apple's surface silently loses iteration again.
 ///
 /// These tests exercise four properties the Apple surface depends on:
 ///   1. <c>Count</c> matches the number of elements inserted.
@@ -55,7 +52,7 @@ public class AppleShapedForecastTests : TestBase
         // wrapper (SBW_CollProj_subscript_…). For this Apple-shaped fixture,
         // the wrapper receives the parent type metadata directly from C# (via
         // SwiftObjectHelper<AppleShapedForecast<IdentifiableCoin>>.GetTypeMetadata),
-        // NOT through a thin-mode dlsym helper — that's the Session 5 fix.
+        // NOT through a thin-mode dlsym helper.
         using var forecast = Functions.MakeAppleShapedForecast(
             firstId: "mon", secondId: "tue", thirdId: "wed");
 

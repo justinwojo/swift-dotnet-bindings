@@ -8,7 +8,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Per-strategy unit tests for the M4 Session 2 migration. Each strategy is
+/// Per-strategy unit tests for the resolver migration. Each strategy is
 /// exercised in isolation — direct construction and a single
 /// <see cref="IResolutionStrategy.TryResolve"/> call — so the test focuses on
 /// the strategy's claim contract rather than dispatch ordering. Dispatch
@@ -43,8 +43,7 @@ public class StrategyTests
         // no Self requirement) projects cleanly to `IDotLottieCacheProvider` through
         // the standard existential proxy. Emitting `[UnsupportedSwiftType("Existential
         // type fallback", …)]` on a member whose body uses the working proxy is
-        // build-noise that hides genuine obsoletes
-        // (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md Site 1).
+        // build-noise that hides genuine obsoletes.
         var db = new TypeDatabase();
         var module = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
         var protoName = SwiftTypeName.FromModuleQualifiedName("Lottie.DotLottieCacheProvider");

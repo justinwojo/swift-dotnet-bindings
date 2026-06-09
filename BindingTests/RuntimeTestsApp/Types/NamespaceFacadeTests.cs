@@ -24,16 +24,14 @@ using SwiftBindingsTestLib;
 // be applied to types"). Downstream consumers (CryptoKit, Nuke, BlinkID)
 // historically wrote `using static Module.Facade;` against the old
 // `partial class` shape and broke at the 0.11.0 cutover. The replacement
-// is the plain `using SwiftBindingsTestLib.LocalFacade;` directives below
-// — see S6 in `0.11.0-session-plan.md`.
+// is the plain `using SwiftBindingsTestLib.LocalFacade;` directives below.
 using SwiftBindingsTestLib.LocalFacade;
 using SwiftBindingsTestLib.LocalFacadeEnum;
 
 namespace RuntimeTestsApp.Types;
 
 /// <summary>
-/// Regression coverage for
-/// <c>bug-0.10.0-namespace-facade-as-static-class.md</c> (Bundle 04 #3).
+/// Regression coverage for the namespace-facade-as-static-class emission bug.
 /// Swift modules that use the canonical "uninhabited type as namespace"
 /// idiom — a top-level <c>public struct</c>/<c>enum</c> with no inits,
 /// no stored properties, and no instance/static members, used purely to

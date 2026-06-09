@@ -7,8 +7,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Bundle 05 #3 (MultiSpecialization drops generic property accessors)
-/// regression coverage. Pre-fix, properties defined on
+/// Regression coverage for MultiSpecialization dropping generic property accessors.
+/// Pre-fix, properties defined on
 /// <c>extension Foo where Param == Concrete</c> blocks of a generic
 /// type were skipped wholesale with skip reason
 /// <c>MultiSpecialization</c> whenever more than one <c>where Param ==
@@ -41,7 +41,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         using var alpha = TestLibFunctions.MakeBundle05ContainerAlpha(7);
         var tag = alpha.GetAlphaTag();
         AssertEqual("alpha-7", tag,
-            "Bundle 05 #3: Bundle05Container<Bundle05SpecKeyA>.alphaTag must " +
+            "Bundle05Container<Bundle05SpecKeyA>.alphaTag must " +
             "surface as a callable C# extension method that round-trips the Swift " +
             "specialization's body. A 'MultiSpecialization' regression would " +
             "drop GetAlphaTag and produce CS0103/CS1061 at compile time.");
@@ -56,7 +56,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         using var beta = TestLibFunctions.MakeBundle05ContainerBeta(11);
         var tag = beta.GetBetaTag();
         AssertEqual("beta-11", tag,
-            "Bundle 05 #3: Bundle05Container<Bundle05SpecKeyB>.betaTag must " +
+            "Bundle05Container<Bundle05SpecKeyB>.betaTag must " +
             "surface independently of the alpha specialization. Each specialization " +
             "monomorphizes to its own Swift symbol; the multispec fix keeps both " +
             "extensions reachable without dedup-skipping either.");
@@ -68,8 +68,8 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
     /// <see cref="Bundle05DescriptorPayload"/>, a non-frozen Swift struct,
     /// which forces the generator down
     /// <c>ConstrainedExtensionEmitter.CEReturnShape.NonFrozenStruct</c> —
-    /// the exact path Codex round 1 flagged for use-after-free / double-
-    /// free on disposal. Pre-fix the wrapper allocated an indirect-result
+    /// a path prone to use-after-free / double-free on disposal.
+    /// Pre-fix the wrapper allocated an indirect-result
     /// buffer, called <c>SwiftMarshal.MarshalFromSwift&lt;T&gt;(buffer)</c>
     /// (which transfers ownership of <c>buffer</c> to the returned
     /// SafeHandle), then freed <c>buffer</c> in <c>finally</c> — leaving
@@ -95,7 +95,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
                 "freed before MarshalFromSwift took ownership.");
 
             AssertEqual(42, descriptor.Id,
-                "Bundle 05 #3: Bundle05DescriptorPayload.id must read back as 42 " +
+                "Bundle05DescriptorPayload.id must read back as 42 " +
                 "(matching MakeBundle05ContainerAlpha(42)). A use-after-free on the " +
                 "indirect-result buffer would either crash on this read or return " +
                 "uninitialized memory, since the buffer would have been Freed in the " +
@@ -138,7 +138,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         // Swift epoch (2001-01-01 UTC) + 60 seconds = 2001-01-01 00:01:00 UTC.
         var expected = new DateTimeOffset(2001, 1, 1, 0, 1, 0, TimeSpan.Zero);
         AssertEqual(expected, date,
-            "Bundle 05 #3: Foundation.Date constrained-extension property must " +
+            "Foundation.Date constrained-extension property must " +
             "round-trip as System.DateTimeOffset relative to the Swift " +
             "reference epoch (2001-01-01 UTC). A regression in the FoundationDate " +
             "shape (e.g. routing through the indirect-result path or using a " +
@@ -186,7 +186,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         for (int i = 0; i < 16; i++)
         {
             AssertEqual(expected[i], bytes[i],
-                $"Bundle 05 #3: UUID byte {i} must round-trip as 0x{expected[i]:X2}. " +
+                $"UUID byte {i} must round-trip as 0x{expected[i]:X2}. " +
                 "A regression in the FoundationUUID shape (wrong indirect-result " +
                 "alignment, missing initializeMemory, or a byte-swap inside the " +
                 "*(Guid*)buffer cast) would scramble one or more positions in this array.");
@@ -212,9 +212,9 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         using var alpha = TestLibFunctions.MakeBundle05ContainerAlpha(99);
         var label = alpha.ComputeAlphaLabel();
         AssertEqual("alpha-label-99", label,
-            "Bundle 05 #3 (Fix J): Bundle05Container<Bundle05SpecKeyA>.computeAlphaLabel() " +
+            "Bundle05Container<Bundle05SpecKeyA>.computeAlphaLabel() " +
             "must surface as a callable C# extension method that round-trips through the " +
-            "constrained-extension METHOD emission path. Pre-Fix-J the emitter only " +
+            "constrained-extension METHOD emission path. Pre-fix the emitter only " +
             "iterated `typeDecl.Properties`; method-shape multispec siblings were dropped.");
     }
 
@@ -229,8 +229,8 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         using var beta = TestLibFunctions.MakeBundle05ContainerBeta(101);
         var label = beta.ComputeBetaLabel();
         AssertEqual("beta-label-101", label,
-            "Bundle 05 #3 (Fix J): per-specialization mangling for the method-shape " +
-            "multispec must keep alpha and beta method extensions reachable at distinct " +
+            "Per-specialization mangling for the constrained-extension method-shape " +
+            "must keep alpha and beta method extensions reachable at distinct " +
             "Swift symbols. A regression that conflated them would break either side " +
             "(or both — same name, different concrete types is exactly the multispec gap).");
     }
@@ -248,7 +248,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
     {
         var rank = SwiftBindingsTestLib_DBundle05Container_SwiftBindingsTestLib_DBundle05SpecKeyAExtensions.DefaultAlphaRank();
         AssertEqual(17, rank,
-            "Bundle 05 #3 (Fix J): static-factory method shape must emit on the per-spec " +
+            "Static-factory method shape on a constrained extension must emit on the per-spec " +
             "extensions class with no `this` receiver and round-trip the Swift body's " +
             "literal value (17). A regression that dropped static methods would surface " +
             "as a CS0117 (no such member) at compile time.");
@@ -262,7 +262,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
     {
         var rank = SwiftBindingsTestLib_DBundle05Container_SwiftBindingsTestLib_DBundle05SpecKeyBExtensions.DefaultBetaRank();
         AssertEqual(23, rank,
-            "Bundle 05 #3 (Fix J): beta static-factory must reach C# at its own mangled " +
+            "Beta static-factory must reach C# at its own mangled " +
             "symbol (23). Combined with the alpha case, a single test would not catch " +
             "a per-spec symbol-conflation regression that broke only one side.");
     }
@@ -301,7 +301,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
                 "null result would imply the substituted indirect-result buffer was " +
                 "freed before MarshalFromSwift took ownership.");
             AssertEqual(7, payload.Id,
-                "Bundle 05 #3 (Fix J): open-generic-return shape must substitute the " +
+                "Open-generic-return shape must substitute the " +
                 "parent's open generic parameter with the concrete specialization at emit " +
                 "time and round-trip the substituted return value through the per-spec " +
                 "extension method. Pre-fix this surface skipped under AnyTypeFallback.");
@@ -329,7 +329,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         using var alpha = TestLibFunctions.MakeBundle05ContainerAlpha(8);
         var bytes = alpha.GetAlphaHeaderData();
         AssertEqual(8, bytes.Length,
-            "Bundle 05 #3: Foundation.Data.count must round-trip as 8 " +
+            "Foundation.Data.count must round-trip as 8 " +
             "(matching MakeBundle05ContainerAlpha(8)). A regression in the " +
             "FoundationData shape (e.g. wrong indirect-result alignment or " +
             "ToByteArray called on a freed buffer) would crash or return an " +

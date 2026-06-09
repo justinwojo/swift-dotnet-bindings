@@ -166,7 +166,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("CoreLocation.CLLocationCoordinate2D", true)]
     [InlineData("CoreLocation.CLAuthorizationStatus", true)]
     // NLLanguage / NLTagScheme are NSString-typedef RawRepresentable structs — reclassified
-    // by P1-26 A4 as Foundation.NSString-bridged classes, so no longer "known value types".
+    // as Foundation.NSString-bridged classes, so no longer "known value types".
     [InlineData("NaturalLanguage.NLLanguage", false)]
     [InlineData("NaturalLanguage.NLTagScheme", false)]
     // NLTokenUnit stays a genuine integer-backed enum value type.
@@ -199,8 +199,8 @@ public class AppleFrameworkRegistryTests
     // picks them up from MatterDatabase.xml as proper enum/struct records.
     [InlineData("Matter.MTRNetworkCommissioningWiFiBand", true)]
     [InlineData("Matter.MTRNetworkCommissioningWiFiSecurity", true)]
-    // CoreMotion C value structs. P1-26 added CoreMotion to the OptionalFallback
-    // module set with objcPrefix "CM"; without these valueTypes entries the weak
+    // CoreMotion C value structs. CoreMotion is in the OptionalFallback module set
+    // with objcPrefix "CM"; without these valueTypes entries the weak
     // ObjC-class gate (IsOptionalFallbackModule + HasObjCClassPrefix) projects
     // Optional<CMAcceleration> as ObjCBridged and emits GetINativeObject<CMAcceleration>
     // / .Handle (CS0315/CS1061) — the RealityFoundation regression. These are
@@ -398,7 +398,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("Vision.VNRequest", true)]
     // CoreNFC: prefix corrected from the wrong "NK" to "NFC" so NFC* classes are recognized.
     [InlineData("CoreNFC.NFCNDEFMessage", true)]
-    // Modules whose ObjC class prefixes were missing entirely (P1-26 A3).
+    // Modules whose ObjC class prefixes were missing entirely.
     [InlineData("CoreMedia.CMSampleBuffer", true)]
     [InlineData("CoreMotion.CMMotionManager", true)]
     [InlineData("CoreSpotlight.CSSearchableItem", true)]
@@ -572,8 +572,8 @@ public class AppleFrameworkRegistryTests
     {
         // The genuine OptionSet/struct value types remain blittable and map to the
         // CoreAnimation namespace. The NSString-typedef RawRepresentable structs
-        // (CAContentsFormat, CACornerCurve, ...) are NOT value types — P1-26 A4 reclassified
-        // them as Foundation.NSString-bridged classes; see JsonLoaded_AllTypeNameRemaps_ArePresent.
+        // (CAContentsFormat, CACornerCurve, ...) are NOT value types — reclassified
+        // as Foundation.NSString-bridged classes; see JsonLoaded_AllTypeNameRemaps_ArePresent.
         var quartzCoreTypes = new[]
         {
             "QuartzCore.CATransform3D", "QuartzCore.CACornerMask",
@@ -753,7 +753,7 @@ public class AppleFrameworkRegistryTests
             "AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction",
             "AVFoundation.AVCaptureDevice.FocusMode",
             // AVCaptureDevice.DeviceType / AVMediaType / AVFileType / AVLayerVideoGravity are
-            // NSString-typedef RawRepresentable structs — reclassified by P1-26 A4 as
+            // NSString-typedef RawRepresentable structs — reclassified as
             // Foundation.NSString-bridged classes, no longer value types.
             "AVFoundation.AVCaptureDevice.Position",
             "AVFoundation.AVCaptureDevice.FlashMode", "AVFoundation.AVCaptureDevice.TorchMode",
@@ -841,7 +841,7 @@ public class AppleFrameworkRegistryTests
             "PhotosUI.PHPickerResult", "PhotosUI.PHPickerFilter",
             // QuartzCore — only the genuine OptionSet/struct value types remain. The
             // NSString-typedef RawRepresentable structs (CAContentsFormat, CACornerCurve, ...)
-            // are reclassified by P1-26 A4 as Foundation.NSString-bridged classes.
+            // are reclassified as Foundation.NSString-bridged classes.
             "QuartzCore.CATransform3D", "QuartzCore.CACornerMask",
             "QuartzCore.CAEdgeAntialiasingMask", "QuartzCore.CAAutoresizingMask",
             // CoreLocation
@@ -849,7 +849,7 @@ public class AppleFrameworkRegistryTests
             "CoreLocation.CLAccuracyAuthorization", "CoreLocation.CLLocationDirection",
             "CoreLocation.CLLocationDistance", "CoreLocation.CLLocationDegrees",
             // NaturalLanguage — NLLanguage / NLTagScheme are NSString-typedef structs reclassified
-            // by P1-26 A4 as Foundation.NSString-bridged classes; NLTag (string-constant static
+            // as Foundation.NSString-bridged classes; NLTag (string-constant static
             // class) and NLTokenUnit (integer enum) remain off the Class-bridged path.
             "NaturalLanguage.NLTag", "NaturalLanguage.NLTokenUnit",
             // CoreML
@@ -947,14 +947,14 @@ public class AppleFrameworkRegistryTests
             ["AVFoundation.AVURLAsset"] = "AVFoundation.AVUrlAsset",
             ["AVFoundation.AVMIDIPlayer"] = "AVFoundation.AVMidiPlayer",
             ["AVFoundation.AVCaptureDevice.FocusMode"] = "AVFoundation.AVCaptureFocusMode",
-            // NSString-typedef RawRepresentable structs (P1-26 A4): remap to Foundation.NSString
+            // NSString-typedef RawRepresentable structs: remap to Foundation.NSString
             // so they bridge as strings rather than synthesizing non-existent AVFoundation classes.
             // Mirrors the QuartzCore CA* treatment below; AVFoundationDatabase.xml carries the same.
             ["AVFoundation.AVMediaType"] = "Foundation.NSString",
             ["AVFoundation.AVFileType"] = "Foundation.NSString",
             ["AVFoundation.AVLayerVideoGravity"] = "Foundation.NSString",
             ["AVFoundation.AVCaptureDevice.DeviceType"] = "Foundation.NSString",
-            // NaturalLanguage NSString-typedef RawRepresentable structs (P1-26 A4): remap to
+            // NaturalLanguage NSString-typedef RawRepresentable structs: remap to
             // Foundation.NSString so the no-XML registry path agrees with NaturalLanguageDatabase.xml
             // (which models them as Foundation.NSString-bridged classes) instead of auto-bridging
             // them to a non-existent NaturalLanguage.NLLanguage / NLTagScheme.
@@ -970,7 +970,7 @@ public class AppleFrameworkRegistryTests
             ["QuartzCore.CACornerMask"] = "CoreAnimation.CACornerMask",
             ["QuartzCore.CAEdgeAntialiasingMask"] = "CoreAnimation.CAEdgeAntialiasingMask",
             ["QuartzCore.CAAutoresizingMask"] = "CoreAnimation.CAAutoresizingMask",
-            // NSString-typedef RawRepresentable structs (P1-26 A4): remap to Foundation.NSString
+            // NSString-typedef RawRepresentable structs: remap to Foundation.NSString
             // so they bridge as strings rather than synthesizing non-existent CoreAnimation enums.
             ["QuartzCore.CAContentsFormat"] = "Foundation.NSString",
             ["QuartzCore.CACornerCurve"] = "Foundation.NSString",
@@ -1063,7 +1063,7 @@ public class AppleFrameworkRegistryTests
             ("Module.NLTagger", true),     // NL
             ("Module.SNRequest", true),    // SN
             ("Module.MTRSetupPayload", true), // MTR (Matter framework)
-            // P1-26 A1/A3: CoreNFC's prefix corrected from the bogus "NK" to "NFC", and the
+            // CoreNFC's prefix corrected from the bogus "NK" to "NFC", and the
             // previously-missing CM / CS / CT / PDF / WC class prefixes were registered.
             ("Module.NFCNDEFMessage", true), // NFC (was incorrectly "NK")
             ("Module.CMSampleBuffer", true), // CM (CoreMedia / CoreMotion)
@@ -1260,8 +1260,8 @@ public class AppleFrameworkRegistryTests
 
     [Theory]
     // RealityKit declares ["RE"]: Swift-only protocols/classes whose names don't
-    // start with RE must NOT be classified as ObjC. This is the Session 5 P1 bug —
-    // SynchronizationPeerID was wrongly filtered out of effective protocols.
+    // start with RE must NOT be classified as ObjC. SynchronizationPeerID
+    // was wrongly filtered out of effective protocols before this fix.
     [InlineData("RealityKit", "RealityKit.SynchronizationPeerID", false)]
     [InlineData("RealityKit", "RealityKit.MultipeerConnectivityService", false)]
     [InlineData("RealityKit", "RealityKit.Entity", false)]
@@ -1297,13 +1297,13 @@ public class AppleFrameworkRegistryTests
     // prefix list waits to be backfilled.
     [InlineData("AppKit", "AppKit.NSWindow", true)]
     [InlineData("AppKit", "AppKit.SomeSwiftType", true)]
-    // CoreSpotlight / PDFKit (P1-26 A3) declare a strict per-module prefix gate now: a
+    // CoreSpotlight / PDFKit declare a strict per-module prefix gate now: a
     // prefix-matching class bridges, a non-matching Swift sibling does not.
     [InlineData("CoreSpotlight", "CoreSpotlight.CSSearchableItem", true)]
     [InlineData("CoreSpotlight", "CoreSpotlight.SomeSwiftType", false)]
     [InlineData("PDFKit", "PDFKit.PDFDocument", true)]
     [InlineData("PDFKit", "PDFKit.SomeSwiftType", false)]
-    // _LocationEssentials (P1-26 A6): CLLocationCoordinate2D is BOTH a value type and a remap.
+    // _LocationEssentials: CLLocationCoordinate2D is BOTH a value type and a remap.
     // The value-type exclusion runs before the typeRemap gate, so the coordinate struct is NOT
     // force-classified as an ObjC class, while its sibling CLLocation (remap-only) still bridges.
     [InlineData("_LocationEssentials", "_LocationEssentials.CLLocationCoordinate2D", false)]

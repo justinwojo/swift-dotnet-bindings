@@ -308,7 +308,7 @@ public class CollisionTests : TestBase
 
     #endregion
 
-    #region SyntheticParamCollider (P1-22: user param spelled like an @_cdecl synthetic binding)
+    #region SyntheticParamCollider (user param spelled like an @_cdecl synthetic binding)
 
     // These exercise the highest-severity arm of the synthetic-name collision class: a USER
     // parameter spelled exactly like a synthetic binding the generator injects into the

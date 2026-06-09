@@ -81,7 +81,7 @@ public struct SecureStore {
     }
 }
 
-// MARK: - Phase 4 plain-throws → SwiftException<TError> cascade
+// MARK: - Plain-throws → SwiftException<TError> cascade
 
 /// Plain `async throws` (NOT typed-throws) free function that throws MathError on
 /// division by zero, and `MathError.overflow` for `a == Int32.min, b == -1`.
@@ -107,7 +107,7 @@ public func plainThrowsAsyncRetrieve(key: String) async throws -> Int32 {
     return Int32(key.count)
 }
 
-// MARK: - Phase 4 Layer 5 breadth fixtures
+// MARK: - Layer 5 cascade breadth fixtures
 
 /// Plain `async throws` function that throws a complex enum (associated values).
 /// Exercises the Layer 5 ownership-transfer branch of the cascade dispatcher:

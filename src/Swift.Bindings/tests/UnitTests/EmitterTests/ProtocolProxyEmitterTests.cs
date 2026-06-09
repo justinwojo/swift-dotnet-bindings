@@ -77,7 +77,6 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_InheritsAvailabilityFromProtocol()
     {
-        // Repro for bug-0.10.0-protocol-proxy-class-doesnt-inherit-available.md.
         // The proxy class declaration should inherit the source protocol's
         // [SupportedOSPlatform] so consumer call sites under a lower iOS
         // baseline don't trip CA1416 against the proxy's internal calls.
@@ -205,7 +204,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_NoSetVtableTrampoline_EmitsNoOpInitializeVtable()
     {
-        // bug-0.10.0-proxy-vtable-setters-not-exported (Bundle 02 fix). When the wrapper
+        // When the wrapper
         // module did NOT call MarkSetVtableEmitted for this protocol — the marker /
         // composition shape where EveryProtocolEmitter records the conformance but emits
         // no Set<Protocol>_vtable Swift trampoline — the proxy class MUST still be emitted
@@ -476,7 +475,7 @@ public class ProtocolProxyEmitterTests
         // which copies the struct's payload bytes by value via VWT.InitializeWithCopy.
         // Lowering to .Payload.DangerousGetHandle() would type-mismatch the SwiftOptional
         // generic parameter and emit Dictionary<nint, …>-shaped bugs at the same ABI
-        // boundary as bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-….
+        // boundary as described for raw ISwiftStruct IntPtr dictionary bugs.
         _typeDatabase.AddOutOfModuleTypes(new[]
         {
             (SwiftTypeName.FromModuleQualifiedName("TestModule.MyConfig"), new TypeRecord
@@ -514,7 +513,7 @@ public class ProtocolProxyEmitterTests
         // Receivers read only the first existential word (handle) and look the proxy
         // up via TryGetProxy(handle, ...) so unregistered handles produce a safe
         // default return rather than throwing across the [UnmanagedCallersOnly]
-        // boundary (Codex P0 / P1 #3 regression guard). Reading the full
+        // boundary (regression guard). Reading the full
         // ExistentialContainer1 (5 words) over-reads stack memory when Swift passes
         // a class-bound (2-word) existential for EveryObjCProtocol-rooted proxies.
         //
@@ -528,7 +527,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_ReceiverGuardsAgainstDeadImpl()
     {
-        // Codex P0: if the impl is GC'd while Swift still holds a strong retain on
+        // If the impl is GC'd while Swift still holds a strong retain on
         // the proxy, the weak _csharpImpl unwrap returns null. Generated receivers
         // must detect that and return a default value instead of dereferencing.
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
@@ -542,7 +541,7 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("if (impl is null)", output);
         Assert.Contains("AllocZeroed", output);
         // After the guard, dispatch uses the local `impl` — NOT `proxy._csharpImpl!`
-        // (the bang-dereference was the exact bug Codex flagged).
+        // (the bang-dereference was the exact bug guarded here).
         Assert.DoesNotContain("proxy._csharpImpl!", output);
     }
 
@@ -1435,8 +1434,8 @@ public class ProtocolProxyEmitterTests
         // same key "update(Swift.AnyType)" → only one proxy class method emitted
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "public void Update("));
 
-        // H2 Bug 3: Verify receiver count matches interface method count (no orphaned receivers).
-        // Before H2, receivers used GetMethodKey (ToString-based) producing different keys
+        // Verify receiver count matches interface method count (no orphaned receivers).
+        // Before the fix, receivers used GetMethodKey (ToString-based) producing different keys
         // for closure vs array params, while interface used GetMethodSignatureKey (TypeDB-based)
         // collapsing both to AnyType. This mismatch caused orphaned receivers → CS1503.
         var receiverCount = EmitterTestHelpers.CountOccurrences(output, "static void Receive_update_");
@@ -1446,7 +1445,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_ClosureAndArrayParams_ReceiverMatchesInterfaceDedup()
     {
-        // H2 Bug 3: Two methods "finish(output:)" (closure param) and "finish(withBytes:)" (array param)
+        // Two methods "finish(output:)" (closure param) and "finish(withBytes:)" (array param)
         // both resolve to AnyType through ProtocolSignatureHelper. Interface dedup correctly
         // emits a single method. After H2 fix, receiver/vtable/staticinit also use the same
         // key function, so receiver count matches interface count (1, not 2).
@@ -2099,8 +2098,8 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_DisposeUnregistersFromSwiftObjectRegistry()
     {
-        // Dispose unregisters the proxy from the strong registry. The Codex P1 #3
-        // concern (subsequent Swift callbacks throwing through [UnmanagedCallersOnly])
+        // Dispose unregisters the proxy from the strong registry. The concern that
+        // subsequent Swift callbacks may throw through [UnmanagedCallersOnly]
         // is mitigated by the null-safe receiver guards added in the same fix —
         // see EmitProxyClass_ReceiverGuardsAgainstDeadImpl.
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
@@ -2844,7 +2843,7 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
-    #region P0 — Receiver ABI Type Marshalling (Codex review fix)
+    #region Receiver ABI Type Marshalling
 
     [Fact]
     public void EmitProxyClass_SetterReceiver_String_UsesRuntimeMarshal()
@@ -3966,7 +3965,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_PropertySetterReceiver_ClassValue_UsesCopyOut()
     {
-        // Issue #40 / P1-01, non-optional class property setter site (the method-param fix at
+        // Issue #40, non-optional class property setter site (the method-param fix at
         // ProtocolProxyEmitter.Receivers.cs:240). A Swift-class value arrives as the address of a
         // borrowed slot holding the heap pointer; the setter receiver must copy it out (deref +
         // ObjC-aware retain) rather than Unsafe.Read-ing the slot word as a managed reference.
@@ -3985,7 +3984,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_SubscriptGetterReceiver_ClassIndex_UsesCopyOut()
     {
-        // Issue #40 / P1-01, subscript getter index site (Receivers.cs:669). A Swift-class index
+        // Issue #40, subscript getter index site (Receivers.cs:669). A Swift-class index
         // arrives as the address of a borrowed slot; the getter receiver must copy it out, not
         // Unsafe.Read it. ObjC-rooted variant exercises the swift_unknownObjectRetain dispatch.
         RegisterObjCRootedClass("KidozError");
@@ -4024,7 +4023,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_SubscriptSetterReceiver_ClassValueAndIndex_UsesCopyOut()
     {
-        // Issue #40 / P1-01, subscript setter value site (Receivers.cs:748) AND index site
+        // Issue #40, subscript setter value site (Receivers.cs:748) AND index site
         // (Receivers.cs:775) in one shape: a class element type and a class index type. Both the
         // set value (valuePtr) and the index (arg0) must copy out from the borrowed slot.
         RegisterClass("MyPayload");
@@ -4822,7 +4821,7 @@ public class ProtocolProxyEmitterTests
         // Vtable-slot-collision regression for closure-skipped methods.
         //
         // Swift's EveryProtocolEmitter emits a `fatalError` stub for non-dispatchable closure
-        // methods (Session 4a — only `() -> Void` shape dispatches; everything else still
+        // methods (only `() -> Void` shape dispatches; everything else still
         // bypasses the vtable). Because Swift's stub bypasses the vtable, the Swift vtable
         // struct has no slot for the method. The C# proxy MUST mirror that omission — if C#
         // declared a field for the skipped method, every subsequent slot would shift one

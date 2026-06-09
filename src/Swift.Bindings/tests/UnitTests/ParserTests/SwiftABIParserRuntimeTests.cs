@@ -1310,7 +1310,7 @@ public class SwiftABIParserRuntimeTests
     [Fact]
     public void ParseModule_ForeignStruct_WithExtensionMembersFromCurrentModule_IsRouted()
     {
-        // Phase 2 of the cross-module-extension fix routes Class AND Struct receivers
+        // The cross-module-extension fix routes Class AND Struct receivers
         // through CrossModuleExtensionEmitter. Struct receivers use @_cdecl trampolines
         // that read self via `assumingMemoryBound(to: T.self).pointee`, so the parser
         // keeps the foreign struct in the current module's Types list when the foreign

@@ -909,7 +909,7 @@ public class AsyncSwiftWrapperTests
         // The holder pattern should retain via Arc.UnknownObjectRetain, not DangerousAddRef.
         // UnknownObjectRetain isa-dispatches (swift_retain for this pure-Swift Pipeline self,
         // objc_retain for an @objc:NSObject-rooted self); the paired cleanup release uses the
-        // matching UnknownObjectRelease so @objc-rooted self stays balanced (issue #40 / P1-01).
+        // matching UnknownObjectRelease so @objc-rooted self stays balanced (issue #40).
         Assert.Contains("Arc.UnknownObjectRetain(_selfPtr)", csOutput);
         Assert.DoesNotContain("Arc.Retain(_selfPtr)", csOutput);
 
@@ -923,7 +923,7 @@ public class AsyncSwiftWrapperTests
     [Fact]
     public void AsyncWrapper_ObjCRootedInstanceMethod_SelfRetainUsesUnknownObjectRetain()
     {
-        // issue #40 / P1-01: when the async instance method lives on an @objc:NSObject-rooted
+        // issue #40: when the async instance method lives on an @objc:NSObject-rooted
         // Swift class, the holder must keep self alive with Arc.UnknownObjectRetain — NOT the
         // pure-Swift-only Arc.Retain (swift_retain). swift_retain on an NSObject-rooted heap
         // pointer touches the wrong refcount word; UnknownObjectRetain isa-dispatches to
@@ -946,10 +946,10 @@ public class AsyncSwiftWrapperTests
     [Fact]
     public void AsyncWrapper_NonFrozenStructInstanceMethod_NoDangerousAddRefLeak()
     {
-        // Bug 0.10.0 (Codex round 1 finding): for async non-frozen struct instance methods,
+        // For async non-frozen struct instance methods,
         // EmitSafeHandleAddRef must NOT emit `_payload.DangerousAddRef(ref success)` because
         // EmitSafeHandleRelease returns early on async paths. The DeferredSafeHandleRelease
-        // holder (added in 0.10.0 Bundle 01) is the sole +1 ownership end-to-end: its ctor
+        // holder is the sole +1 ownership end-to-end: its ctor
         // calls DangerousAddRef, the async cleanup loop calls DangerousRelease. A duplicate
         // pre-call AddRef would never be released, pinning the SafeHandle open forever and
         // preventing the VWT Destroy + free in ReleaseHandle.
@@ -966,7 +966,7 @@ public class AsyncSwiftWrapperTests
     [Fact]
     public void AsyncWrapper_NonSimpleEnumInstanceMethod_NoDangerousAddRefLeak()
     {
-        // Bug 0.10.0 (Codex round 1 finding): same shape as struct receiver but for enum.
+        // Same shape as struct receiver but for enum.
         // Non-simple enums use _payload SafeHandle like structs. The pre-call AddRef must
         // be skipped on async paths so DeferredSafeHandleRelease is the sole +1 ownership.
         var csOutput = GenerateAsyncEnumInstanceMethodCSharp();

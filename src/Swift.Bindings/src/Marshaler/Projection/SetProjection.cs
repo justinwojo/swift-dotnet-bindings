@@ -12,7 +12,8 @@ namespace BindingsGeneration;
 ///   system communicates the Swift `Set&lt;T&gt;` uniqueness invariant to consumers — passing
 ///   a `List` or `T[]` would silently dedupe inside the Swift wrapper, hiding bugs at the
 ///   API boundary. Callers wanting a quick conversion can use `.ToHashSet()` on any
-///   IEnumerable. See `gap-0.10.0-swift-set-parameter-becomes-ienumerable-default-lost.md`.
+///   IEnumerable. Using IReadOnlySet communicates the Swift Set uniqueness invariant; passing
+///   a List or array would silently dedupe inside the Swift wrapper.
 /// Return direction: MarshalFromSwift + ToHashSet with element conversion lambda.
 /// </summary>
 public class SetProjection : ITypeProjection
@@ -61,8 +62,8 @@ public class SetProjection : ITypeProjection
         // FromEnumerable then dispatches to ISwiftObject.MarshalToSwift per element, which
         // copies the struct's payload bytes by value via VWT into each contiguous slot.
         // Applying the per-element conversion (e.g. e.Payload.DangerousGetHandle()) would
-        // silently downgrade the storage to 1-word IntPtr slots — same ABI-mismatch class
-        // as bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…. Mirrors ArrayProjection.
+        // silently downgrade the storage to 1-word IntPtr slots, causing an ABI mismatch
+        // where the Swift side expects the full struct layout. Mirrors ArrayProjection.
         var skipPerElementConversion = elemConversion != null
             && rawElem == _elementProjection.PublicType;
         var needsConversion = elemConversion != null && !skipPerElementConversion;
@@ -167,7 +168,7 @@ public class SetProjection : ITypeProjection
     }
 
     /// <summary>
-    /// P1-07: element conversion for the OWNED-return directions only. SwiftSet's iterator moves
+    /// Element conversion for the OWNED-return directions only. SwiftSet's iterator moves
     /// each element out of the slot at +1 (MarshalMovedValueFromSlot), so the adopting proxy must
     /// release that retain on Dispose or it leaks; the source set keeps its own independent +1, so
     /// adoption never double-frees. Existential elements use the owning form; every other element —
@@ -186,7 +187,7 @@ public class SetProjection : ITypeProjection
             return BuildObjCBridgeReturnPlan(resultName);
 
         var rawElem = _elementProjection.MarshalFromSwiftType;
-        // P1-07: owned-return direction — existential elements are adopted at +1 (see
+        // Owned-return direction — existential elements are adopted at +1 (see
         // OwnedReturnElementConversion). Mirrors GetReturnContainerConversion and
         // ArrayProjection/DictionaryProjection.GetReturnPlan; the shared non-owning
         // GetReturnElementConversion stays reserved for borrowed receiver reads.

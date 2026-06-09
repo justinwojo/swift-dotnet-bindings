@@ -341,8 +341,7 @@ public class TypeResolverTests
         // swiftinterface scanner never materializes it as a type record, so without
         // this strategy the closure-parameter gate at ClosureHandler.cs rejects every
         // signature that names it — eg RealityFoundation's AudioGenerator PlayAudio
-        // render handler. See src/docs/apple-framework-gaps/03-proxy-callback.md
-        // (RC-CLOSURE).
+        // render handler.
         var typeDatabase = LoadDatabaseWithPrimitive("Swift.Int32", "Int32", "$ss5Int32V");
         var strategy = new PrimitiveAliasStrategy();
 

@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Async-overload collision under a property-forced rename (P1-21 class)
+// MARK: - Async-overload collision under a property-forced rename
 //
 // Extends the property-rename concern (PropertyMethodCollision.swift) into the ASYNC dedup path. A
 // stored property `data` forces the same-named methods to rename (`Data` → `DataMethod`). The type

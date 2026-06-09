@@ -19,9 +19,8 @@ import Foundation
 // doesn't have to rely on Foundation's `Named`-like protocol surface.
 //
 // The C# test invokes both methods via the generated binding and checks
-// pass-through / derived values. Per CLAUDE.md ("assert behavior, not
-// implementation details") we do not check the generated C# method
-// signature — the test passes if invoking the Swift side returns the
+// pass-through / derived values. The tests assert behavior, not
+// implementation details — they pass if invoking the Swift side returns the
 // expected value regardless of whether the generator emits the opaque
 // parameter as a constrained generic or as object-fallback.
 

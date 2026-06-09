@@ -70,10 +70,10 @@ public class AsyncTask {
     }
 }
 
-// MARK: - Async String Returns (Phase 58 Regression Test)
+// MARK: - Async String Returns (Regression Test)
 
 /// Struct with async methods returning String values.
-/// Phase 58 fixed async String callback marshalling (UTF-8 handling).
+/// Regression guard for async String callback marshalling (UTF-8 handling).
 public struct AsyncStringWorker {
     public let prefix: String
 
@@ -112,10 +112,10 @@ public struct AsyncStringWorker {
     }
 }
 
-// MARK: - Async Array Returns (Phase 59 Regression Test)
+// MARK: - Async Array Returns (Regression Test)
 
 /// Struct with async methods returning Array<String> values.
-/// Phase 59 fixed async Array<String> callback marshalling (buffer serialization).
+/// Regression guard for async Array<String> callback marshalling (buffer serialization).
 public struct AsyncArrayWorker {
     public let identifier: String
 
@@ -160,10 +160,10 @@ public struct AsyncArrayWorker {
     }
 }
 
-// MARK: - Async Complex Type Returns (Phase 60 Regression Test)
+// MARK: - Async Complex Type Returns (Regression Test)
 
 /// Struct with async methods returning complex types (enum, struct, class).
-/// Phase 60 fixed async complex type callback marshalling (OpaquePointer handling).
+/// Regression guard for async complex type callback marshalling (OpaquePointer handling).
 public struct AsyncComplexWorker {
     public let workerId: String
 
@@ -267,7 +267,7 @@ public class AsyncOptionalContainerWorker {
     }
 }
 
-/// Bug 8 regression: top-level (non-optional) async returns of
+/// Regression: top-level (non-optional) async returns of
 /// `Array<ObjCBridgeable>` / `Set<ObjCBridgeable>` / `[Key: ObjCBridgeable]` previously
 /// emitted CS1503 because `EmitAsyncWrapperForCollection` declared
 /// `var _collection = SwiftMarshal.MarshalFromSwift<SwiftArray<NSUrl>>(resultPtr);`

@@ -7,7 +7,7 @@ namespace BindingsGeneration;
 
 /// <summary>
 /// Async-specific bridge generation for SwiftUI Views with async dependency chains.
-/// Phase 4: Explicit support for BlinkIDUXView pattern only.
+/// Explicit support for BlinkIDUXView pattern only.
 /// </summary>
 public static partial class SwiftUIBridgeEmitter
 {
@@ -458,7 +458,7 @@ public static partial class SwiftUIBridgeEmitter
         // Create function (async factory)
         EmitDataDrivenAsyncCreate(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern, emissionContext);
 
-        // S5 audited (Tier C): SwiftUI async-pattern GetViewController in `_direct_helper` bucket. Per-view `prefix` + fixed `_GetViewController` suffix — at most one per bridge.
+        // SwiftUI async-pattern GetViewController in `_direct_helper` bucket. Per-view `prefix` + fixed `_GetViewController` suffix — at most one per bridge.
         // GetViewController function
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
@@ -483,7 +483,7 @@ public static partial class SwiftUIBridgeEmitter
         // loop spins. The postReleaseFreeFn trampoline frees any GCHandles the C# side
         // packed into handleBuffer — invoked strictly AFTER Unmanaged.release so Swift
         // session state cannot dereference a stale handle.
-        // S5 audited (Tier C): SwiftUI async-pattern Free in `_direct_helper` bucket. Per-view `prefix` + fixed `_Free` suffix — at most one per bridge.
+        // SwiftUI async-pattern Free in `_direct_helper` bucket. Per-view `prefix` + fixed `_Free` suffix — at most one per bridge.
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(");
@@ -663,7 +663,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         var chain = pattern.ConstructionChain;
 
-        // P0-13: the trailing synthetic params (onReady/onError/onResult/userData) collide with a
+        // The trailing synthetic params (onReady/onError/onResult/userData) can collide with a
         // user-flattened param of the same name → Swift "invalid redeclaration". Dedup the SYNTHETIC
         // names against the flattened param names; the no-collision case yields the original names
         // (zero churn for existing views).
@@ -675,7 +675,7 @@ public static partial class SwiftUIBridgeEmitter
             resultName = asyncNames.Reserve("onResult");
         var udName = asyncNames.Reserve("userData");
 
-        // S5 audited (Tier C): SwiftUI async-pattern Create in `_direct_helper` bucket. Per-view `prefix` + fixed `_Create` suffix — at most one per bridge.
+        // SwiftUI async-pattern Create in `_direct_helper` bucket. Per-view `prefix` + fixed `_Create` suffix — at most one per bridge.
         // @_cdecl signature with flattened params + callbacks
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Create");
         sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");
@@ -753,7 +753,7 @@ public static partial class SwiftUIBridgeEmitter
                 if (param.Kind == AsyncFlatParamKind.BoundType)
                     sb.AppendLine($"    let {param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
                 else if (param.IsObjCBridgeable) // BoundStruct, ObjC-bridgeable
-                    // P0-04: ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
+                    // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
                     sb.AppendLine($"    let {param.Name} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
                 else // BoundStruct
                     sb.AppendLine($"    let {param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
@@ -766,7 +766,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.Kind == AsyncFlatParamKind.BoundEnum)
             {
-                // P0-03: out-of-range raw value reports via onError and returns instead of trapping.
+                // Out-of-range raw value reports via onError and returns instead of trapping.
                 sb.AppendLine($"    guard let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.Name}) else {{");
                 sb.AppendLine($"        if let {errorName} = {errorName} {{");
                 sb.AppendLine($"            let msg = \"Invalid raw value for {param.BridgeTypeName}\"");
@@ -934,7 +934,7 @@ public static partial class SwiftUIBridgeEmitter
                 csParamNames.Add(param.Name);
             }
         }
-        // P0-13: dedup the synthetic trailing param names against the user-derived
+        // Dedup the synthetic trailing param names against the user-derived
         // extern param identifiers — two params named e.g. `userData` is CS0100. The
         // extern is called positionally, so renaming the synthetic side is sufficient;
         // the no-collision case yields the original names (zero churn for existing views).
@@ -1091,8 +1091,7 @@ public static partial class SwiftUIBridgeEmitter
         // Dispose pattern with finalizer: GC-driven cleanup is the only fallback when a
         // SwiftUI consumer constructs a session and stores it on a struct View without
         // a using/explicit-Dispose handshake. Without the finalizer, both the +1-retained
-        // native session pointer and the pinned state GCHandle leak permanently. Pairs with
-        // bug-0.10.0-swiftui-bridge-session-missing-finalizer.
+        // native session pointer and the pinned state GCHandle leak permanently.
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
         sb.AppendLine("            Dispose(disposing: true);");
@@ -1132,7 +1131,7 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
-    /// Data-driven C# CreateAsync factory emission (Phase 2B).
+    /// Data-driven C# CreateAsync factory emission.
     /// Parameters and P/Invoke call are derived from the construction chain model.
     /// </summary>
     private static void EmitDataDrivenCreateAsyncFactory(
@@ -1167,8 +1166,8 @@ public static partial class SwiftUIBridgeEmitter
         }
         requiredParams.AddRange(optionalParams);
 
-        // P1-22 (async surface): CreateAsync hardcodes bookkeeping locals (tcs/state/stateHandle
-        // and the readyPtr/errorPtr/resultPtr function pointers). A flattened init param projecting
+        // CreateAsync hardcodes bookkeeping locals (tcs/state/stateHandle and the
+        // readyPtr/errorPtr/resultPtr function pointers). A flattened init param projecting
         // to one of those names would shadow the local → CS0136. Escape the SYNTHETIC name through
         // a scope seeded with the factory's user-facing param identifiers. No collision → zero churn.
         var asyncFactoryUserNames = new List<string>(pattern.FlattenedParams.Select(p => p.Name));

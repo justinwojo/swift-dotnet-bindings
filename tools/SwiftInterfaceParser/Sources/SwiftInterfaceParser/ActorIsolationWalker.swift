@@ -491,9 +491,8 @@ final class ActorIsolationWalker: SyntaxVisitor {
             // `nonisolated(unsafe)` because the `(` after `nonisolated` breaks the
             // `\s+keyword` requirement. SwiftSyntax sees both forms as the same modifier
             // and would correctly emit them. To preserve byte-equal parity with the
-            // regex through the M2 migration, we DROP `nonisolated(unsafe)` matches —
-            // see m2-semantic-cliffs.md (cliff #1). M2 S4 will fix this when retiring
-            // the regex.
+            // regex parser, we DROP `nonisolated(unsafe)` matches — this is a known
+            // semantic cliff that will be fixed when the regex parser is retired.
             if modifier.name.text == "nonisolated" {
                 if let detail = modifier.detail, detail.detail.text == "unsafe" {
                     continue

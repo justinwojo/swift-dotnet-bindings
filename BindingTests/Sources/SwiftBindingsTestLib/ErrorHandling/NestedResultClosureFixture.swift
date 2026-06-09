@@ -5,8 +5,8 @@ import Foundation
 
 // MARK: - Nested-class + Result<Self, any Error> / ((any Error)?) closure shape
 //
-// Mirrors Stripe's `PaymentSheet.FlowController` shape (Bug 1 in
-// `bug-0.10.0-missingwrappersymbol-after-wrapper-emit.md`):
+// Mirrors Stripe's `PaymentSheet.FlowController` shape, which exhibited a
+// missing-wrapper-symbol failure after wrapper emit:
 //
 //   public class PaymentSheet {
 //       public class FlowController {

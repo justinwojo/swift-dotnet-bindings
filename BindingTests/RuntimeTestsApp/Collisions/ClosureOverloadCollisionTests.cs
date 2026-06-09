@@ -30,7 +30,7 @@ public class ClosureOverloadCollisionTests : TestBase
     public void TestCollectionProcessorSetOverload()
     {
         // process(unique: Set<String>) → Process(IReadOnlySet<string>).
-        // After Bundle 04 #9, Set parameters project as `IReadOnlySet<T>` (was
+        // Set parameters now project as `IReadOnlySet<T>` (was
         // `IEnumerable<T>` pre-fix), so the array and set overloads no longer collide
         // on their C# signature — both are emitted as natural `Process` overloads
         // disambiguated by parameter type.
@@ -72,7 +72,7 @@ public class ClosureOverloadCollisionTests : TestBase
         typeof(TestLibFunctions))]
     public void TestTransformCollectionBothOverloadsExist()
     {
-        // After Bundle 04 #9, the array and set overloads project to distinct C# types
+        // Array and set overloads now project to distinct C# types
         // (`IEnumerable<string>` vs `IReadOnlySet<string>`) and emit as natural overloads
         // rather than collide and require a `2` suffix.
         var arrayOverload = typeof(TestLibFunctions).GetMethod(

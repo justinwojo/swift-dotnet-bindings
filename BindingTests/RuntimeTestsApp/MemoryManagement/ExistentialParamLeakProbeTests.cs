@@ -9,14 +9,14 @@ namespace RuntimeTestsApp.MemoryManagement;
 
 /// <summary>
 /// Mirror image of <see cref="ExistentialReturnLeakProbeTests"/>: a value-type conformer
-/// passed from C# INTO a Swift <c>any P</c> PARAMETER (audit P1-03). The generated C#
+/// passed from C# INTO a Swift <c>any P</c> PARAMETER. The generated C#
 /// marshalling calls <c>ExistentialContainerFactory.GetOrCreate(value, out owns)</c>; for a
 /// boxable value conformer this freshly boxes the payload at +1 (an inline
 /// <c>InitializeWithCopy</c> for a small conformer, or a <c>swift_allocBox</c> for one that
 /// overflows the 3-word inline buffer). Every Swift existential parameter is
 /// <c>@in_guaranteed</c> (borrowed — the callee reads via <c>load</c>/<c>.pointee</c> and never
 /// releases the caller's buffer), so the C# caller owns that +1 and MUST run the existential
-/// value-witness destroy after the call. Before the P1-03 fix nothing released it, leaking the
+/// value-witness destroy after the call. Before the fix nothing released it, leaking the
 /// embedded <see cref="LifetimeTracker"/>-tracked refs per call.
 ///
 /// One probe per emission mechanism that boxes an EC1 existential parameter through
@@ -35,7 +35,7 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// tracked refs — and structures the leak around a surviving C# owner: the same two refs are
 /// retained by the owner AND by each per-call box, so a leaked box-retain pins them alive even
 /// after the owner is disposed (live count never returns to 0). A borrowed proxy/class conformer
-/// reports <c>owns == false</c> and must NOT be destroyed (would over-release, audit P0-09/P0-10);
+/// reports <c>owns == false</c> and must NOT be destroyed (would over-release);
 /// the value-conformer probes here drive the owning (<c>owns == true</c>) branch.
 ///
 /// The alloc/dispose loops run in <c>[MethodImpl(NoInlining)]</c> helpers so no stale stack slot

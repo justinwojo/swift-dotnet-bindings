@@ -7,7 +7,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// P1-26 A5: a <c>Foundation.Date</c> element inside a returned tuple must be surfaced as
+/// A <c>Foundation.Date</c> element inside a returned tuple must be surfaced as
 /// <c>System.DateTimeOffset</c> (matching the scalar <see cref="DateProjection"/>), not as the
 /// bare <c>double</c> that Date's raw P/Invoke type would otherwise leak. The double divergence
 /// was: the scalar return path applied the 2001-epoch conversion while the tuple-element path

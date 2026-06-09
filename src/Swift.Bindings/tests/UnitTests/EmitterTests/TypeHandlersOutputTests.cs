@@ -158,8 +158,8 @@ public class TypeHandlersOutputTests
         // typeof(IEquatable<Keyframe<T>>). To keep IEquatable emitted on a generic, the
         // type's Equatable conformance must be unconditional in C# terms — i.e. T must be
         // constrained to Equatable. EquatableConformanceHelper drops typed equality on
-        // generic conditional Equatable to fix
-        // bug-0.10.0-unconditional-equatable-on-conditional-swift-generic. Register
+        // generic conditional Equatable so that IEquatable<Foo<T>> is not emitted when
+        // the C# generic-parameter constraints do not guarantee T's witness. Register
         // Swift.Equatable as a Protocol so the constraint resolves cleanly through the
         // PWT/where-clause emitters.
         var typeDatabase = new TypeDatabase();

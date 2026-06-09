@@ -150,7 +150,7 @@ public class SimdDefaultCtorHolder {
 // ClassWithOpaquePayload (a C# class backed by a SafeHandle, returned via SwiftIndirectResult),
 // the same C# shape it gives RealityKit.Transform.
 //
-// This is the §5a repro. The crux is multiple SIMD parameters passed BY VALUE. The single-param
+// Crash repro: multiple SIMD parameters passed BY VALUE. The single-param
 // `init(basis: simd_float4x4)` ctor marshals its argument through a buffer pointer (`@_cdecl`
 // CallConvCdecl wrapper) and works. But `init(scale:rotation:translation:)` — three SIMD values
 // (a mix of bound-generic `SIMD3<Float>` and the C-imported `simd_quatf`) — binds directly to the
@@ -163,14 +163,14 @@ public struct SimdDefaultCtorStruct {
     public var rotation: simd_quatf
     public var translation: simd_float3
 
-    // Multiple SIMD params by value — the §5a crash shape (mirrors Transform(scale:rotation:translation:)).
+    // Multiple SIMD params by value — the crash shape (mirrors Transform(scale:rotation:translation:)).
     public init(scale: simd_float3, rotation: simd_quatf, translation: simd_float3) {
         self.scale = scale
         self.rotation = rotation
         self.translation = translation
     }
 
-    // Note on the parser half of the §5a fix: the real RealityKit.Transform.init is `@inlinable
+    // Note on the parser half of the fix: the real RealityKit.Transform.init is `@inlinable
     // public`, which swift-api-digester records (for system frameworks) as declAttributes
     // ['Inlinable'] with NO AccessControl — the signal that made the parser mis-classify it as
     // module-internal and drop the @_cdecl wrapper. That exact ABI shape is NOT reproducible from a

@@ -595,7 +595,7 @@ public static class ForeignTypeExtensionEmitter
         var swiftParams = new List<string>();
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
-        // P1-22: compute the source-local wrapper bindings ONCE (sanitize + reserved-escape against
+        // Compute the source-local wrapper bindings ONCE (sanitize + reserved-escape against
         // the injected `self_` and siblings) so the signature decls below and the call-arg loop later
         // index the SAME names — recomputing per loop and escaping only one would desync the wrapper.
         var paramNames = ComputeForeignExtParamNames(compatibleParams);
@@ -674,7 +674,7 @@ public static class ForeignTypeExtensionEmitter
 
             var (label, typeSpec, _, _) = allParameters[i];
             // Same escaped binding the signature emitted (compatible params share order) — never
-            // recompute here, or a P1-22 escape applied above would desync from the call body.
+            // recompute here, or a reserved-escape applied above would desync from the call body.
             var paramName = paramNames[compatIdx++];
 
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
@@ -1284,12 +1284,12 @@ public static class ForeignTypeExtensionEmitter
 
     /// <summary>
     /// Computes the source-local Swift wrapper binding name for each compatible param: sanitize the
-    /// label (or a type-derived name when the label is <c>_</c>), then P1-22 reserved-escape it
+    /// label (or a type-derived name when the label is <c>_</c>), then reserved-escape it
     /// against the injected synthetics the wrapper adds to the same signature (<c>self_</c>, …) and
     /// its siblings. The method-wrapper signature loop and the call-arg loop MUST index into this one
     /// list so the <c>_ {name}:</c> decls and the body's <c>{name}</c> references stay in lockstep;
     /// recomputing per loop and escaping only one would desync the wrapper, and swiftc would silently
-    /// strip it from the dylib (runtime EntryPointNotFoundException — the P1-22 collision class).
+    /// strip it from the dylib (runtime EntryPointNotFoundException).
     /// </summary>
     private static List<string> ComputeForeignExtParamNames(
         List<(string label, TypeSpec typeSpec, string swiftType, bool hasDefault)> parameters)

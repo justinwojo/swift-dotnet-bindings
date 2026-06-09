@@ -284,10 +284,10 @@ public class ForeignTypeExtensionEmitterTests
     [Fact]
     public void EmitSwiftWrappers_UserParamNamedSelf_EscapedAgainstInjectedReceiver()
     {
-        // P1-22 (foreign-type-extension path): a user parameter literally named `self_` collides
-        // with the receiver pointer the wrapper injects (`_ self_: UnsafeMutableRawPointer`). Without
-        // the reserved-escape in ComputeForeignExtParamNames, the wrapper declares `self_` twice;
-        // swiftc rejects it and the entry point is silently dropped from the dylib (runtime
+        // Foreign-type-extension path: a user parameter literally named `self_` collides with the
+        // receiver pointer the wrapper injects (`_ self_: UnsafeMutableRawPointer`). Without the
+        // reserved-escape in ComputeForeignExtParamNames, the wrapper declares `self_` twice; swiftc
+        // rejects it and the entry point is silently dropped from the dylib (runtime
         // EntryPointNotFoundException). The fix escapes the user binding to `__self_`.
         var ctx = new ModuleEmissionContext();
         var moduleDecl = CreateModuleDecl();

@@ -31,15 +31,14 @@ internal sealed class ExistentialStrategy : IResolutionStrategy
             // degradation. Suppress the synthetic fallback so the wrapper doesn't get
             // an `[UnsupportedSwiftType("Existential type fallback", …)]` annotation
             // that contradicts the strongly-typed projection.
-            // (gap-0.10.0-everyprotocol-and-existentials.md Cases 1 + 2.)
+            // (Constrained existential Cases 1 + 2: concrete-arg `any P<X>` and plain `any P`.)
             //
             // Plain (no-generic-args) existentials over a real protocol with no
             // associated types and no Self requirement also project cleanly to
             // `IP` through the standard existential proxy. Suppress the fallback
             // there too — emitting `[UnsupportedSwiftType("Existential type fallback", …)]`
             // on a member whose body uses the working proxy is build-noise that
-            // hides genuine obsoletes (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md
-            // Site 1: Lottie `DotLottieFile.NamedAsync(…, IDotLottieCacheProvider?, …)`).
+            // hides genuine obsoletes (e.g. Lottie `DotLottieFile.NamedAsync(…, IDotLottieCacheProvider?, …)`).
             TypeDatabaseExtensions.AnyTypeFallbackInfo? fallback =
                 HasResolvableConcreteGenericArgs(named, context.Database) ||
                 IsProjectablePlainExistential(named, context.Database)
@@ -110,7 +109,7 @@ internal sealed class ExistentialStrategy : IResolutionStrategy
             return false;
 
         // Mirror the AssociatedTypeCount arity gate from ExistentialHandler.TryResolveExistentialGenericArgs
-        // (gap-0.10.0-everyprotocol-and-existentials.md, Cases 1+2). Primary-associated-type sugar
+        // (constrained existential Cases 1+2). Primary-associated-type sugar
         // lets `any P<X, Y>` reference a 3-AT protocol with fewer args than the interface arity —
         // ExistentialHandler correctly bails to AnyType in that case, but without this gate the
         // strategy would still suppress the `[UnsupportedSwiftType("Existential type fallback", …)]`

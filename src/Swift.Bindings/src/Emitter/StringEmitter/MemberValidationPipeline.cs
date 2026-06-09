@@ -16,25 +16,25 @@ namespace BindingsGeneration;
 /// not a reimplementation.
 ///
 /// Gate ordering in ValidateMethodEmission:
-///   Phase 1 — Suppression gates (cheapest, no type resolution):
+///   Gate 1 — Suppression gates (cheapest, no type resolution):
 ///     1. @_spi protection
 ///     2. Implicit+overriding constructor
 ///     3. Synthesized protocol member
-///   Phase 2 — Closure + module gates (via ShouldSkipMethodEmission):
+///   Gate 2 — Closure + module gates (via ShouldSkipMethodEmission):
 ///     4. Synthesized Codable (Encoder/Decoder)
 ///     5. Unsupported closure parameters (B20)
 ///     6. SwiftUI/Combine references (B19)
 ///     7. Async tuple with non-simple enum (C6)
-///   Phase 3 — Generic type callback gate (thunk closure in PInvokeHelperContext):
+///   Gate 3 — Generic type callback gate (thunk closure in PInvokeHelperContext):
 ///     8. Constructor: closure requiring thunk in generic type
 ///     9. Method: closure thunk or async in generic type (with bridge eligibility exceptions)
-///   Phase 4 — Protocol constraint gate (non-constructor only):
+///   Gate 4 — Protocol constraint gate (non-constructor only):
 ///     10. Constraints on protocols with associated types or self requirements
-///   Phase 5 — Bound generic gates (non-accessor only):
+///   Gate 5 — Bound generic gates (non-accessor only):
 ///     11. Bare generic usage in signature
 ///     12. Non-ISwiftObject bound generic type argument
 ///     13. Unsatisfied generic constraint
-///   Phase 6 — Generic constructor own params (constructor only):
+///   Gate 6 — Generic constructor own params (constructor only):
 ///     14. C# does not support generic constructors with method-own type parameters
 ///
 /// Existential type argument checks remain in handlers because they are interleaved
@@ -60,7 +60,7 @@ public class MemberValidationPipeline
     /// </summary>
     public ValidationResult ValidateMethodEmission(MethodDecl methodDecl, ValidationContext? context)
     {
-        // ── Phase 1: Suppression gates (cheapest, no type resolution) ──
+        // ── Gate 1: Suppression gates (cheapest, no type resolution) ──
 
         // 1. @_spi protection
         if (methodDecl.IsSpiProtected)
@@ -103,14 +103,14 @@ public class MemberValidationPipeline
             return ValidationResult.Skip(SkipReason.UnsupportedSignature,
                 "Method declares a variadic generic parameter pack (`each ...` / `repeat each ...`) which has no C# equivalent.");
 
-        // ── Phase 2: Closure + module gates (via ShouldSkipMethodEmission) ──
+        // ── Gate 2: Closure + module gates (via ShouldSkipMethodEmission) ──
         // Catches: synthesized Codable, unsupported closures (B20), SwiftUI/Combine refs (B19),
         // C6 async tuple with non-simple enum
         var methodSkipReason = MemberEmissionValidator.ShouldSkipMethodEmission(methodDecl, _typeDatabase, out var methodSkipDetails);
         if (methodSkipReason != null)
             return ValidationResult.Skip(methodSkipReason.Value, methodSkipDetails ?? "");
 
-        // ── Phase 3: Generic type callback gate (thunk closure in PInvokeHelperContext) ──
+        // ── Gate 3: Generic type callback gate (thunk closure in PInvokeHelperContext) ──
         // Methods/constructors in generic types that need [UnmanagedCallersOnly] callbacks
         // can't be emitted because callbacks can't be hoisted to the generic helper class.
         if (context?.PInvokeHelperContext != null)
@@ -181,7 +181,7 @@ public class MemberValidationPipeline
             }
         }
 
-        // ── Phase 3b: Method-own generic async callback gate ──
+        // ── Gate 3b: Method-own generic async callback gate ──
         // Async methods emit a [UnmanagedCallersOnly] completion callback whose body
         // references the return-type generics via MarshalFromSwift<T>. The callback
         // lands at class scope (non-generic parent) or in a non-generic PInvokeHelper
@@ -208,10 +208,10 @@ public class MemberValidationPipeline
             }
         }
 
-        // ── Phase 4: Protocol constraint gate (non-constructor only) ──
-        // Constructors don't check this — C# generic constructors are caught in Phase 6.
+        // ── Gate 4: Protocol constraint gate (non-constructor only) ──
+        // Constructors don't check this — C# generic constructors are caught in Gate 6.
 
-        // Phase 4a: CSM intercept. When a method is eligible for CSM-async specialization,
+        // Gate 4a: CSM intercept. When a method is eligible for CSM-async specialization,
         // skip the unspecialized generic emission so only the concrete overloads appear.
         // Fires for async methods whose constraint protocol has hint conformers — these
         // wouldn't be caught by HasUnsupportedProtocolConstraints when the protocol is
@@ -231,7 +231,7 @@ public class MemberValidationPipeline
                 "Routed to concrete CSM-async specialization.");
         }
 
-        // Phase 4a (async, generic parent — parent-only): mirrors the sync-generic-parent
+        // Gate 4a (async, generic parent — parent-only): mirrors the sync-generic-parent
         // intercept below, but for async methods with zero method-own generic parameters
         // whose return type substitutes through the parent's associated-type table
         // (e.g. `func respond() async -> Item.Response` on `struct Bag<Item: AsyncBagItem>`).
@@ -241,9 +241,9 @@ public class MemberValidationPipeline
         // callers into the broken open-generic path. Suppress the open-generic emission.
         //
         // Scoped tight: fires only for parent-only async on generic parents. Closed-conformer
-        // async (no parent generics) goes through Phase 4a's first slot above; async methods
+        // async (no parent generics) goes through Gate 4a's first slot above; async methods
         // with method-own generics on generic parents fall through and emit their normal
-        // open-generic surface — they're out of Session 5 scope.
+        // open-generic surface — not handled by this path.
         if (!methodDecl.IsConstructor &&
             methodDecl.ParentDecl is TypeDecl parentTypeForAsyncGenericParent &&
             context?.EmissionContext.SpecializationEngine is { } specEngineForAsyncGenericParent &&
@@ -254,7 +254,7 @@ public class MemberValidationPipeline
                 "Routed to concrete CSM-async specialization (parent-only generic parent extension).");
         }
 
-        // Phase 4a (P0-15): async method on a generic parent that did NOT route to a
+        // Gate 4a: async method on a generic parent that did NOT route to a
         // CSM specialization above (unconstrained / non-specializable parent generic,
         // e.g. AsyncGenericContainer<T> with an unbounded T). The open-generic async
         // surface emits a @_silgen_name wrapper that is itself a generic instance method:
@@ -265,12 +265,12 @@ public class MemberValidationPipeline
         // for AsyncGenericContainer<T>.processAsync / fetchOrThrow. Returning a plain
         // (non-generic) Int32 from such a method does NOT make it safe: the return shape
         // was never the problem, the receiver/metadata ABI is. Only the return-references-T
-        // case (Phase 3 above) was previously caught, so these slipped through as live
+        // case (Gate 3 above) was previously caught, so these slipped through as live
         // wrong-ABI methods. Suppress so no crashing method ships. Method-own generics are
         // a distinct (also-unbridged) shape left on their existing path. The correct
         // long-term fix is a generic-static-dispatch @_cdecl async bridge that forwards
         // TMetadata + self explicitly (the async analog of the storedValue property
-        // getter's _SBW_GSPG machinery) — tracked in §6.
+        // getter's _SBW_GSPG machinery).
         if (!methodDecl.IsConstructor &&
             methodDecl.IsAsync &&
             methodDecl.ParentDecl is TypeDecl { IsGeneric: true } &&
@@ -280,7 +280,7 @@ public class MemberValidationPipeline
                 "Async method on a generic parent: the wrapper needs the parent's type metadata and self in Swift's implicit registers, which a direct CallConvSwift P/Invoke cannot supply (ABI mismatch -> crash).");
         }
 
-        // Phase 4a (sync, generic parent): CSM emits concrete overloads as extension
+        // Gate 4a (sync, generic parent): CSM emits concrete overloads as extension
         // methods on a {Type}{ParentConformer}CsmExtensions class. The open-generic
         // instance method on the parent class would shadow those extensions during C#
         // overload resolution (instance methods win over extensions), routing callers
@@ -304,15 +304,13 @@ public class MemberValidationPipeline
                 "Routed to concrete CSM-sync specialization (generic parent extension).");
         }
 
-        // Session 6c Route C — per-V keypath-sort suppression. A method with a
-        // method-own unconstrained V that appears only in a KeyPath Value slot
-        // rooted at the parent's PAT associated-type bag would otherwise fall
-        // into the GenericProtocolConstraint rejection below. Route C handles
-        // this shape by emitting one closed-V Sort overload per
-        // (conformer x distinct projectable V) onto a sibling extension class
-        // (see KeyPathBagValueSpecializationEmitter). Suppress the open-V
-        // parent-body emission so the C# surface holds only the closed
-        // overloads.
+        // Per-V keypath-sort suppression. A method with a method-own unconstrained V
+        // that appears only in a KeyPath Value slot rooted at the parent's PAT
+        // associated-type bag would otherwise fall into the GenericProtocolConstraint
+        // rejection below. KeyPathBagValueSpecializationEmitter handles this shape by
+        // emitting one closed-V Sort overload per (conformer x distinct projectable V)
+        // onto a sibling extension class. Suppress the open-V parent-body emission so the
+        // C# surface holds only the closed overloads.
         if (!methodDecl.IsConstructor &&
             methodDecl.ParentDecl is TypeDecl parentTypeForRouteC &&
             RouteCSortShapeEligibility.IsRouteCSortShapeEligible(methodDecl, parentTypeForRouteC, out _))
@@ -360,7 +358,7 @@ public class MemberValidationPipeline
                 $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is out of scope for ConstrainedExtensionEmitter (initial scope: zero-argument sync non-throwing public methods). Method has parameters, async/throws, or non-public visibility.");
         }
 
-        // ── Phase 5: Bound generic gates (non-accessor only) ──
+        // ── Gate 5: Bound generic gates (non-accessor only) ──
         // Accessors skip these checks — MethodHandler wraps the accessor check in `if (!isAccessor)`.
         // Only checks that are pure skip gates; existential type arg checks stay in handlers
         // because they accumulate state for bypass/bridge fallback logic.
@@ -399,7 +397,7 @@ public class MemberValidationPipeline
             }
         }
 
-        // ── Phase 5b: Tuple parameters with P/Invoke-vs-C# element type mismatch ──
+        // ── Gate 5b: Tuple parameters with P/Invoke-vs-C# element type mismatch ──
         // PInvokeEmitter emits tuple params as ValueTuple<P/Invoke types>, while the
         // public-facing C# signature uses ValueTuple<idiomatic types>. When element
         // P/Invoke type is IntPtr but C# type is a class/struct (e.g., a non-frozen
@@ -408,7 +406,7 @@ public class MemberValidationPipeline
         //
         // The CdeclTuple buffer path (PInvokeEmitter ~L517) already gates this via
         // IsCdeclSafeTuple (primitives only). The standard ValueTuple path has no such
-        // gate — it just emits broken code. This Phase mirrors the closure-side check
+        // gate — it just emits broken code. This gate mirrors the closure-side check
         // (TupleHandler.HasClosureUnsafeTupleElements) at the method/ctor level.
         var tupleHandler = new TupleHandler(_typeDatabase);
         foreach (var argument in methodDecl.CSSignature.Skip(1))
@@ -423,7 +421,7 @@ public class MemberValidationPipeline
             }
         }
 
-        // ── Phase 6: Generic constructor own params (constructor only) ──
+        // ── Gate 6: Generic constructor own params (constructor only) ──
         // C# does not support generic constructors. If the constructor has method-own
         // generic parameters (not inherited from the parent type), skip it.
         if (methodDecl.IsConstructor && methodDecl.IsGeneric)
@@ -729,7 +727,7 @@ public class MemberValidationPipeline
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
                 return "unsupported_closure_params";
             // Constructors still reject all async closures — the async-closure bridge
-            // (Session A) is wired only through the async method wrapper path.
+            // is wired only through the async method wrapper path.
             if (env.MethodDecl.CSSignature.Skip(1)
                     .Where(env.ClosureHandler.IsClosure)
                     .Any(arg =>

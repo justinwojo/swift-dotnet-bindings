@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Regression tests for sibling-protocol METHOD dispatch (audit item 1, Bug #2) —
+/// Regression tests for sibling-protocol METHOD dispatch —
 /// the method analog of <see cref="SiblingPropertyDispatchTests"/>.
 ///
 /// Shape: two class-bound protocols (SiblingMethodOwner, SiblingMethodPeer)
@@ -115,7 +115,7 @@ public class SiblingMethodDispatchTests : TestBase
             "Argument-bearing shared method via Owner existential round-trips arg + dispatches to C# impl");
     }
 
-    // MARK: - Sibling-method NAME divergence (Codex r1 Medium)
+    // MARK: - Sibling-method NAME divergence
     //
     // SiblingNameOwner also declares a `collidingTag` property colliding with its
     // `collidingTag(_:)` method, so its interface renames the method to

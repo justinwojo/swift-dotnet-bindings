@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Bug 17 regression coverage: when a protocol declares a `__`-prefixed
+/// Regression coverage: when a protocol declares a `__`-prefixed
 /// requirement that DOES survive into the ABI JSON, the gate that skips
 /// EveryProtocol conformance for digester-stripped requirements must NOT fire.
 /// The proxy class, the C# interface, and the EveryProtocol witness for the
@@ -22,7 +22,7 @@ public class HiddenRequirementProtocolSkipTests : TestBase
 {
     public HiddenRequirementProtocolSkipTests(TestResults results) : base(results) { }
 
-    #region Bug 17 — Wrapper compile + round-trip
+    #region __-prefixed requirement — Wrapper compile + round-trip
 
     public void TestConsumerConstruction()
     {
@@ -59,7 +59,7 @@ public class HiddenRequirementProtocolSkipTests : TestBase
 
     #endregion
 
-    #region Bug 17 — Proxy emission invariant
+    #region __-prefixed requirement — Proxy emission invariant
 
     public void TestProtocolProxyIsEmitted()
     {

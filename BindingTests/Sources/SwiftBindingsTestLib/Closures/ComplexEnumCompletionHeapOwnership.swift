@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - S-4 round-2: complex-enum completion heap-ownership pin
+// MARK: - Complex-enum completion heap-ownership pin
 //
 // Mirrors the closure-adapter shape adjacent to StripeCardScan's completion
 // wrappers: a class instance method with non-closure prelude params plus a

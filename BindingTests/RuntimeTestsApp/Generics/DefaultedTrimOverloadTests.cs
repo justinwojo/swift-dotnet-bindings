@@ -9,8 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Phase 3a coverage for option (b) of
-/// <c>gap-0.10.0-generic-method-default-overload-missing.md</c>: the
+/// Coverage for option (b) of the generic-method default-overload gap: the
 /// <c>DefaultParameterOverloadEmitter.TryEmitOverloads</c> tail call wired
 /// into both CSM-sync and CSM-async emission paths.
 ///

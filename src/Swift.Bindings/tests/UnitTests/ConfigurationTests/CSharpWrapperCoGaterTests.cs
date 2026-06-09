@@ -2989,7 +2989,7 @@ namespace BindingsGeneration.Tests
         // catch block calls it, the one-line function-pointer field "s_<cb> = &<cb>;", and the
         // survivor(s) that read the field. The whole chain must strip symmetrically — the field
         // and its readers are NOT block members of the stripped callback, so before Step B2 they
-        // dangled and produced CS0103. (REMEDIATION-PLAN §6 defect b.)
+        // dangled and produced CS0103.
 
         [Fact]
         public void Process_OrphanedCallbackField_StripsFieldReaderAndForwarder()
@@ -3308,7 +3308,7 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region N. DllImport + static-extern shape (P0-14)
+    #region N. DllImport + static-extern shape
 
     // The co-gater historically only recognized the [LibraryImport]+partial P/Invoke
     // shape. Four emitters (AppEntityKeyPathSingletonEmitter, KeyPathBagValueSpecializationEmitter,

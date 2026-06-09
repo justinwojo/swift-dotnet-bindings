@@ -7,17 +7,17 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.KeyPath;
 
 /// <summary>
-/// Phase-1 CSM end-to-end gate for the new <c>KeyPathFamily</c> ABI category.
+/// CSM end-to-end gate for the <c>KeyPathFamily</c> ABI category.
 ///
 /// <para>The Swift fixture (<c>CsmKeyPathParam.swift</c>) defines a PAT
 /// <c>CsmKp_Filterable</c> with two closed conformers (<c>CsmKp_ConformerA</c>,
 /// <c>CsmKp_ConformerB</c>) and a parent <c>CsmKp_Bag&lt;T: CsmKp_Filterable&gt;</c>
 /// whose <c>count(matching:)</c> method takes a
 /// <c>KeyPath&lt;CsmKp_ConcreteFilter, String&gt;</c>. The Root is a **top-level
-/// concrete struct** rather than <c>T.Filter</c>, so Phase 1 isolates A2
+/// concrete struct** rather than <c>T.Filter</c>, isolating
 /// (KeyPathFamily category + DangerousGetHandle emission + Unmanaged.fromOpaque
-/// reconstruction in the Swift wrapper) without touching A1's pairing-generic
-/// substitution work (Phase 2).</para>
+/// reconstruction in the Swift wrapper) without touching pairing-generic
+/// substitution work.</para>
 ///
 /// <para>Asserts:</para>
 /// <list type="bullet">
@@ -60,7 +60,7 @@ public class CsmKeyPathParamTests : TestBase
     }
 
     // ---------------------------------------------------------------------------------------
-    // KeyPath origination — Session 3 OUT path bind for the typed factory
+    // KeyPath origination — OUT path bind for the typed factory
     // ---------------------------------------------------------------------------------------
 
     public void TestKeyPathFactory_MakeTitlePath_ReturnsTypedKeyPath()

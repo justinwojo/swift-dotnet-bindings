@@ -49,7 +49,7 @@ namespace BindingsGeneration
         // calls `Arc.Release(errorPtr)` to balance the retain. Mutually exclusive
         // with the other typed-error shapes.
         private readonly bool typedErrorIsClassDirectAsync;
-        // Phase 4 plain-throws → typed-exception cascade: true when this is a plain-throws
+        // Plain-throws → typed-exception cascade: true when this is a plain-throws
         // async method (Throws but not HasTypedThrows) AND the module has registered error
         // types via ErrorEnumRegistryEmitter. Drives the 6-param cascade-dispatch wire format.
         private readonly bool useCascadeErrorCallback;
@@ -83,7 +83,7 @@ namespace BindingsGeneration
         // Tracks existential container heap allocations for cleanup in the finally block.
         // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
         // OwnsVar is the name of the runtime owns-bit local (non-null only for the EC1 GetOrCreate
-        // path, the only one that can freshly box a value conformer at +1 — audit P1-03); when set,
+        // path, the only one that can freshly box a value conformer at +1); when set,
         // the finally runs the existential value-witness destroy gated on that bit before freeing.
         private readonly List<ExistentialHeapInfo> _existentialHeapNames = new();
 
@@ -184,7 +184,7 @@ namespace BindingsGeneration
                 }
             }
 
-            // Phase 4 plain-throws cascade: distinct from useTypedErrorCallback (which handles
+            // Plain-throws cascade: distinct from useTypedErrorCallback (which handles
             // statically-typed `throws(T)`). A plain `async throws` method fires the cascade
             // path only when the module has at least one Error-conforming type registered via
             // ErrorEnumRegistryEmitter — otherwise there's nothing to cascade against and the
@@ -660,7 +660,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// True when an existential parameter routes through the EC1 <c>GetOrCreate</c> path, which
-        /// can freshly box a value-type conformer at +1 (audit P1-03). EC2+ compositions and
+        /// can freshly box a value-type conformer at +1. EC2+ compositions and
         /// well-known existentials (e.g. <c>AnyError</c>/EC0) instead take the borrowed
         /// <c>GetExistentialContainer()</c> cast and never own a destroyable +1 at the call site.
         /// Mirrors the branch in <see cref="EmitExistentialContainerMarshalling"/>.
@@ -824,7 +824,7 @@ namespace BindingsGeneration
 
             foreach (var info in _existentialHeapNames)
             {
-                // P1-03: a value conformer boxed at +1 by GetOrCreate leaks unless balanced. The
+                // A value conformer boxed at +1 by GetOrCreate leaks unless balanced. The
                 // @in_guaranteed callee borrowed the buffer, so the existential value-witness destroy
                 // (uniform across inline vs. swift_allocBox) must run AFTER the native call, gated on
                 // the runtime owns-bit so borrowed proxy containers are never over-released. The
@@ -857,7 +857,7 @@ namespace BindingsGeneration
         /// On that path the @_cdecl wrapper moved the value out of the C# buffer with <c>.move()</c>
         /// (see <see cref="CdeclParamMapper"/>) and Swift ran the value's deinit exactly once;
         /// MarkConsumed tells the owning <c>SwiftSafeHandle</c> to free the now-empty buffer WITHOUT a
-        /// second value-witness Destroy. Without it the value is destroyed twice (P0-06, SIGABRT).
+        /// second value-witness Destroy. Without it the value is destroyed twice (SIGABRT).
         /// The predicate mirrors CdeclParamMapper's non-copyable branch exactly (Owned ownership +
         /// <c>TypeRecordFlags.NonCopyable</c>) and is gated on the @_cdecl wrapper path, so the
         /// MarkConsumed call is emitted iff the paired <c>.move()</c> was emitted.

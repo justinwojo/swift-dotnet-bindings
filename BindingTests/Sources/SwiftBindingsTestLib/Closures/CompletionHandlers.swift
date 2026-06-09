@@ -41,7 +41,7 @@ public func computeValue(completion: @escaping (Int32) -> Void) {
     completion(99)
 }
 
-// MARK: - Bug 3 Case 1: existential-param + completion handler (Stripe shape)
+// MARK: - Existential-param + completion handler (Stripe shape)
 
 /// Models the Stripe Payments shape that originally leaked an existential heap
 /// allocation per call: a method whose non-closure parameter list contains an
@@ -55,7 +55,7 @@ public protocol Bug3PaymentContext {
     var contextLabel: String { get }
 }
 
-/// Default implementation used by the Bug 3 Case 1 test.
+/// Default implementation used by the existential-param completion-handler test.
 public final class Bug3DefaultPaymentContext: Bug3PaymentContext {
     public init() {}
     public var contextLabel: String { "ctx-default" }

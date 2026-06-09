@@ -7,17 +7,16 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.KeyPath;
 
 /// <summary>
-/// Session 6c Route C — end-to-end tests for per-(conformer x distinct projectable V)
-/// Sort overload emission.
+/// End-to-end tests for per-(conformer x distinct projectable V) Sort overload emission.
 ///
 /// <para>What this exercises:</para>
 /// <list type="bullet">
 ///   <item>Closed-V overloads exist — the emitter produces one C# Sort overload per
 ///   distinct projectable Value type on <c>RouteC_AlbumSortProperties</c>
 ///   (String, nint, bool).</item>
-///   <item>KeyPath param accepts the Session 4 typed singleton — Route C's
+///   <item>KeyPath param accepts the typed singleton — Route C's
 ///   <c>unsafeDowncast(anyKP, to: KeyPath&lt;Bag, V&gt;.self)</c> round-trips a heap
-///   KP produced by Session 4's singleton trampoline.</item>
+///   KP produced by the singleton trampoline.</item>
 ///   <item>Dispatch arrives — the Swift method writes a deterministic description
 ///   of (keypath, ascending) into <c>RouteC_SortTracker.LastDescription</c>; we
 ///   verify the format.</item>
@@ -31,8 +30,7 @@ namespace RuntimeTestsApp.KeyPath;
 /// pattern (<c>as! any _SBW_PG_*</c>) crashes when the receiver is a constrained
 /// generic class (<c>&lt;Item: RouteC_Filterable&gt;</c>) — Swift's runtime
 /// conformance lookup for the retroactive conditional conformance fails. That's
-/// a separate wrapper-emitter bug outside Session 6c scope; tracked in
-/// <c>src/docs/Future/property-getter-constrained-generic.md</c>.
+/// a separate wrapper-emitter bug tracked for a future fix.
 /// </para>
 /// </summary>
 public class KeyPathRouteCTests : TestBase

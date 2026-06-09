@@ -792,7 +792,7 @@ public class ClosureCdeclEmitterTests
 
     #endregion
 
-    #region Codex Review Regression Tests
+    #region Regression Tests
 
     [Fact]
     public void NeedsClosureCdeclWrapper_MethodWithAsyncThrowingAndRegularClosure_ReturnsFalse()

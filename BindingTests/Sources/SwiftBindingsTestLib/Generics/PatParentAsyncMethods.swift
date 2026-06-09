@@ -1,14 +1,12 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Regression fixture for the parent-only ASYNC CSM gap (Session 5 of the
-// keypath subsystem). This is the async sibling of `PatParentOnlyMethods.swift`
-// (Session 2): both pin a generic struct with PAT constraints whose instance
-// methods have ZERO method-own generic parameters, the shape that
-// `MusicLibraryRequest<T>.response()` exercises in MusicKit.
+// Regression fixture for the parent-only ASYNC CSM gap. This is the async
+// sibling of `PatParentOnlyMethods.swift`: both pin a generic struct with PAT
+// constraints whose instance methods have ZERO method-own generic parameters,
+// the shape that `MusicLibraryRequest<T>.response()` exercises in MusicKit.
 //
-// Before this session, the async CSM path hard-rejected generic parents at
-// three sites:
+// Before the fix, the async CSM path hard-rejected generic parents at three sites:
 //   1. `PassesAsyncMethodLevelGuards` — `parentTypeDecl.IsGeneric` blanket
 //      rejection
 //   2. `EmitConcreteSpecializationsForGenericParent` — `if (method.IsAsync)
@@ -18,7 +16,7 @@
 //
 // All three lift in lockstep, scoped to parent-only async (no method-own
 // generics), via a new `IsCsmAsyncEligibleForGenericParent` predicate
-// (mirrors Session 2's `IsCsmSyncEligibleForGenericParent`) plus a narrow
+// (mirrors `IsCsmSyncEligibleForGenericParent`) plus a narrow
 // hand-rolled async emission site inside the existing per-conformer
 // `*CsmExtensions` class. The async harness lives inline so the return-type
 // substitution (`Item.Response` → `StringResponse`) closes BEFORE the

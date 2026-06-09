@@ -9,8 +9,7 @@ namespace RuntimeTestsApp.Generics;
 
 /// <summary>
 /// Exercises the buffer-mode type-metadata accessor ABI (indirect-buffer parameter
-/// passing used when metadata + PWT args exceed three — see
-/// <c>src/docs/runtime-metadata.md</c>). A thin-mode mismatch here PAC-traps on
+/// passing used when metadata + PWT args exceed three). A thin-mode mismatch here PAC-traps on
 /// arm64e at first use, so these tests materialize the concrete specializations
 /// and call <c>SwiftObjectHelper&lt;T&gt;.GetTypeMetadata()</c> to force the
 /// accessor to fire end-to-end.

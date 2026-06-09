@@ -163,7 +163,7 @@ public static class ConstructorWrapperEmitter
     }
 
     /// <summary>
-    /// Checks whether any closure parameter is an async closure. Session A's
+    /// Checks whether any closure parameter is an async closure. The
     /// async-closure bridge routes only through the method-wrapper path; all
     /// async closures on constructors are still rejected here.
     /// </summary>
@@ -284,8 +284,7 @@ public static class ConstructorWrapperEmitter
     /// structs that can't be represented in the @_cdecl C ABI and don't yet have cross-ABI
     /// marshalling. UnsafeRawBufferPointer and UnsafeMutableRawBufferPointer are NOT treated
     /// as unsupported — CdeclParamMapper splits both into (ptr, len) at the @_cdecl boundary
-    /// and the C# side exposes ReadOnlySpan&lt;byte&gt; / Span&lt;byte&gt;. See
-    /// src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.
+    /// and the C# side exposes ReadOnlySpan&lt;byte&gt; / Span&lt;byte&gt;.
     /// </summary>
     internal static bool HasUnsupportedBufferPointerParameter(MethodEnvironment env)
     {
@@ -356,11 +355,10 @@ public static class ConstructorWrapperEmitter
         if (parentTypeDecl == null) return;
 
         var symbolName = methodDecl.MangledName; // Already set to cdecl symbol by caller
-        // S5 audited (Tier B): the constructor bucket is structurally distinct from the
-        // method/property/subscript buckets — no other emitter ever registers a constructor
-        // mangled name. The cdecl symbol is unique per overload by construction, so the
-        // per-kind dedup gate is collision-safe without routing through the structural-
-        // identity registry.
+        // The constructor bucket is structurally distinct from the method/property/subscript
+        // buckets — no other emitter ever registers a constructor mangled name. The cdecl
+        // symbol is unique per overload by construction, so the per-kind dedup gate is
+        // collision-safe without routing through the structural-identity registry.
         if (!ctx.TryAddConstructorWrapperSymbol(symbolName))
             return; // Already emitted
 
@@ -418,7 +416,7 @@ public static class ConstructorWrapperEmitter
                 case CdeclPhase.Arguments:
                     var closureParamCount = keptArgs.Count(env.ClosureHandler.IsClosure);
                     // Sibling bindings so a reserved-name escape (e.g. `tag`→`__tag`) also dodges a
-                    // SIBLING user param literally named `__tag` (the user-vs-sibling half of P1-22).
+                    // SIBLING user param literally named `__tag` (the user-vs-sibling reserved-name collision class).
                     var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
                     for (int i = 0; i < keptArgs.Count; i++)
                     {
@@ -941,7 +939,7 @@ public static class ConstructorWrapperEmitter
         }
 
         int argIndex = 0;
-        // Sibling bindings so a reserved-name escape also dodges a sibling user param (P1-22).
+        // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
         for (int i = 0; i < keptArgs.Count; i++)
         {
@@ -1152,7 +1150,7 @@ public static class ConstructorWrapperEmitter
         else
         {
             // Struct: write to resultPtr via initializeMemory(as:repeating:count:).
-            // Per constraints.md ("BitwiseCopyable in Swift 6+"): for non-bitwise-copyable
+            // For non-bitwise-copyable
             // structs (those with class fields), initializeMemory properly handles ARC
             // retain/release on unbound NativeMemory.Alloc'd buffers. The cross-host fault
             // (doc 14 hypothesis 3) is in metadata-resolution, not reconstruction shape, so
@@ -1398,10 +1396,9 @@ public static class ConstructorWrapperEmitter
         var moduleName = parentTypeDecl.SwiftTypeName.Module;
         var symbolName = GetOptionalTagSymbolName(moduleName, parentTypeDecl.Name);
 
-        // S5 audited (Tier C): singleton helper per (module, type). The fixed
-        // `SBW_GetOptionalTag_` prefix is uniquely shaped and cannot alias any
-        // method/property/constructor wrapper symbol; the per-kind helper dedup
-        // gate is sufficient.
+        // Singleton helper per (module, type). The fixed `SBW_GetOptionalTag_` prefix
+        // is uniquely shaped and cannot alias any method/property/constructor wrapper
+        // symbol; the per-kind helper dedup gate is sufficient.
         if (!ctx.TryAddOptionalTagHelperSymbol(symbolName))
             return; // Already emitted for this type
 

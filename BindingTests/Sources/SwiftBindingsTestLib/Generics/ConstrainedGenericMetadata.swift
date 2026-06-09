@@ -9,7 +9,6 @@
 // Swift ABI requires one PWT per protocol conformance after the type-metadata
 // args, in declaration-order grouped, lex-sorted within each generic param.
 //
-// For background see src/docs/constrained-generic-metadata-witness-tables.md.
 // The previous workaround was a fragile lazy `_payloadSize` field initializer
 // that masked an arm64e PAC trap; these tests guard the correct ABI fix.
 

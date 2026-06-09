@@ -244,7 +244,7 @@ public class ComplexProjectionTests
 
     #endregion
 
-    #region §6 #6 — Nested existential collection owned-return
+    #region Nested existential collection owned-return
 
     // An owned existential return (read out of an sret/out buffer that is then raw-freed) must adopt
     // Swift's moved +1 so the proxy releases on Dispose — `ownsContainer: true`. Before the fix, the
@@ -863,7 +863,7 @@ public class ComplexProjectionTests
     [Fact]
     public void Optional_AnyError_DirectReturnPlan_BoxedPointer()
     {
-        // Bug 0.10.0 (DataLoader.Validate uninitialized buffer): `(any Error)?` is the
+        // DataLoader.Validate pattern — `(any Error)?` is the
         // ONE existential optional that's NOT 5-word-container-via-sret. `any Error` is
         // class-bound (boxed reference, MemoryLayout = 8). Swift returns `Optional<(any
         // Error)>` directly in x0 with nil = IntPtr.Zero. The wrapper must construct
@@ -958,7 +958,7 @@ public class ComplexProjectionTests
         // The tagged-optional slot's `Some` payload holds an ISwiftObject, which is
         // copied into Swift's Array<Optional<TStruct>> storage by value via VWT.
         // Lowering Some to a raw IntPtr would silently downgrade the slot to a
-        // 1-word handle — see bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-….
+        // 1-word handle instead of the typed struct wrapper.
         var inner = new NonFrozenStructProjection("Tips.Rule");
         var proj = new OptionalProjection(inner);
         var conv = proj.GetParameterElementConversion("e");

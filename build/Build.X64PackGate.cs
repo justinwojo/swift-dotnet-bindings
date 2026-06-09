@@ -3,9 +3,9 @@
 //
 // Build.X64PackGate.cs — x86_64 packaging + Rosetta runtime gate (Layer 1)
 //
-// The Session 2 gate for Intel-mac (x86_64) support. Where X64ThunkGate proves
-// the bare cdecl->swiftcc thunk ABI in isolation (manual P/Invokes, no
-// Swift.Runtime), this gate proves the *packaged* binding contract end to end:
+// Intel-mac (x86_64) packaging gate. Where X64ThunkGate proves the bare
+// cdecl->swiftcc thunk ABI in isolation (manual P/Invokes, no Swift.Runtime),
+// this gate proves the *packaged* binding contract end to end:
 //
 //   1. Build a multi-platform FAT (arm64+x86_64) source xcframework from the
 //      committed X64PackFixture.swift, with slices for every Apple platform
@@ -22,13 +22,8 @@
 //      from a net10.0-macos app with RuntimeIdentifier=osx-x64, run it under
 //      `arch -x86_64`, and assert the Swift round-trip returns correctly while
 //      ProcessArchitecture reports X64. Then repeat with osx-arm64 and assert
-//      arm64 is unchanged.
-//
-// This is the doc's Session 2 gate verbatim: "build a binding from a third-party
-// xcframework with an x86_64 macOS slice, pack it, consume from an osx-x64 app,
-// run under Rosetta, assert correct; arm64 unchanged. The other three RIDs get a
-// build/slice/package gate here." The runtime gates for Catalyst / iOS-sim /
-// tvOS-sim x86_64 are S3/S4.
+//      arm64 is unchanged. The runtime gates for Catalyst / iOS-sim / tvOS-sim
+//      x86_64 are covered by X64SimGate.
 //
 // Not part of `nuke test`/`nuke binding-tests`: needs the macOS SDK, the Apple
 // .NET workload's osx-x64 runtime pack, and Rosetta. Opt-in: `nuke X64PackGate`.

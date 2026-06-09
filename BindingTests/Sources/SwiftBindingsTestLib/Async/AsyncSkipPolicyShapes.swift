@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Async + skip-policy shapes (Bug 0.10.0 — direct-CallConvSwift PInvoke for skipped wrapper)
+// MARK: - Async + skip-policy shapes (direct-CallConvSwift PInvoke for skipped wrapper)
 //
 // These shapes pin the skip behaviour added by `WrapperValidation.IsSkippedWrapperDirectPInvoke`.
 // In xcframework mode, async methods that DON'T receive a @_cdecl wrapper but carry one of:

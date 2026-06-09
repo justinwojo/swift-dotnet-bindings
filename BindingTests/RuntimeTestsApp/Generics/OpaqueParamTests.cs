@@ -27,8 +27,8 @@ namespace RuntimeTestsApp.Generics;
 ///
 /// Assertions are pure observable pass-through: the C# caller
 /// constructs a Swift conformer, invokes the method, and verifies the
-/// returned value. Per CLAUDE.md we do not inspect the generated C#
-/// method signature to avoid coupling the test to the emitter's internal
+/// returned value. We assert behavior, not the generated C# method
+/// signature, to avoid coupling the test to the emitter's internal
 /// lowering strategy.
 /// </summary>
 public class OpaqueParamTests : TestBase
@@ -68,7 +68,7 @@ public class OpaqueParamTests : TestBase
     }
 
     /// <summary>
-    /// Bundle 05 #1 (some-protocol over-broad) regression: when Swift
+    /// Regression for the some-protocol over-broad constraint: when Swift
     /// declares <c>some OpaqueDescribable</c> at parameter position the
     /// generator must emit the bound protocol type as a generic-parameter
     /// constraint. Pre-fix the constraint synthesizer dropped the protocol
@@ -110,7 +110,7 @@ public class OpaqueParamTests : TestBase
 
         AssertTrue(
             constraints.Any(c => c == typeof(IOpaqueDescribable)),
-            "Bundle 05 #1: generic-parameter constraint set must include IOpaqueDescribable. " +
+            "Generic-parameter constraint set must include IOpaqueDescribable. " +
             "Without it the over-broad ISwiftObject-only constraint allows mismatched " +
             "ISwiftObject types to compile and crash at runtime when Swift's witness-table " +
             "lookup fails.");

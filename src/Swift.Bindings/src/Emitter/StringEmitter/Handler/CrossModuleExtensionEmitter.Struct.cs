@@ -541,7 +541,7 @@ public static partial class CrossModuleExtensionEmitter
         SimpleEnumLowering? returnEnumLowering)
     {
         // Seed each param's sibling-aware Swift binding before any SwiftBindingName read, so a
-        // reserved-name escape (__resultPtr/self_) also dodges a sibling user binding (P1-22).
+        // reserved-name escape (__resultPtr/self_) also dodges a sibling user binding.
         // StructParamInfo is a record struct, so re-seat each entry via `with`.
         var siblingBindings = CollectTrampolineSiblingBindings(parameters.Select(p => p.Name));
         for (int i = 0; i < parameters.Count; i++)
@@ -960,8 +960,8 @@ public static partial class CrossModuleExtensionEmitter
         string? ResolvedSwiftBinding = null)
     {
         // Swift @_cdecl binding spelling: escapes Name when it collides with a synthetic
-        // injected into the trampoline signature (__resultPtr/self_) OR a sibling user binding
-        // (P1-22). Positional FFI lets the Swift binding differ from the C# param name (Name); the
+        // injected into the trampoline signature (__resultPtr/self_) OR a sibling user binding.
+        // Positional FFI lets the Swift binding differ from the C# param name (Name); the
         // external Swift call label is the original arg label, so this rename is source-local and
         // safe. Uses the sibling-aware ResolvedSwiftBinding once seeded, else the synthetic-only
         // escape.

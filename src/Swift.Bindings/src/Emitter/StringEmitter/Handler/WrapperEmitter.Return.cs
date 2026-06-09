@@ -1087,7 +1087,7 @@ namespace BindingsGeneration
             csWriter.Indent++;
             csWriter.WriteLine($"var _tupleMetaPtr = {ReturnMetadataName}.AsTupleMetadata();");
 
-            // Phase 1: Read each element from the buffer into a typed local matching the
+            // Step 1: Read each element from the buffer into a typed local matching the
             // P/Invoke type. The Swift @_cdecl wrapper writes the entire tuple inline via
             // `resultPtr.initializeMemory(as: TupleType.self)`, so ALL elements are inline
             // in the buffer — regardless of whether they're primitives, structs, or classes.
@@ -1121,7 +1121,7 @@ namespace BindingsGeneration
                 rawNames.Add(rawName);
             }
 
-            // Phase 2: Apply projection-aware marshalling via GetTupleElementMarshalCode.
+            // Step 2: Apply projection-aware marshalling via GetTupleElementMarshalCode.
             // This handles all element type conversions (Optional<ObjC>, Array<T>, String,
             // Foundation.Data, simple enums, ObjC bridged, etc.) — same logic as the
             // non-@_cdecl tuple return path in EmitTupleReturnMarshalling.

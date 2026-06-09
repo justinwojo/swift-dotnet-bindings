@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Initializers;
 
 /// <summary>
-/// P0-05: a throwing CLASS constructor places the swifterror-out pointer in the FIRST integer
+/// A throwing CLASS constructor places the swifterror-out pointer in the FIRST integer
 /// register, AHEAD of the value arguments — so on the cdecl side <c>lo</c>/<c>hi</c> shift up one
 /// register. The thunk must capture the error-out from the leading register and shift the value
 /// arguments back down for swiftcc. The earlier bug read the error pointer as the first value

@@ -133,8 +133,8 @@ public class AvailabilityPropagationTests : TestBase
         var baseType = typeof(AvailabilityBase);
         // Match by substring: the generator PascalCases and may prefix verbs
         // (`futureExtensionMethod` → `GetFutureExtensionMethod`). We do not
-        // pin the exact emitted name — CLAUDE.md says assert behavior, not
-        // the emitter's naming strategy — but the token "FutureExtensionMethod"
+        // pin the exact emitted name — we assert behavior, not the emitter's
+        // naming strategy — but the token "FutureExtensionMethod"
         // must survive in whatever form the generator lands on.
         var methods = baseType.GetMethods(BindingFlags.Instance | BindingFlags.Public)
             .Where(m => m.Name.Contains("FutureExtensionMethod"))
@@ -161,9 +161,8 @@ public class AvailabilityPropagationTests : TestBase
     }
 
     // ---------------------------------------------------------------------
-    // Family-F sub-shapes — Layer A coverage of the bug shapes documented in
-    // bug-0.10.0-spurious-obsolete-on-recommended-overload.md. Synthetic
-    // fixtures live in BindingTests/Sources/SwiftBindingsTestLib/EdgeCases/
+    // Family-F sub-shapes — Layer A coverage of the spurious-Obsolete-on-recommended-overload
+    // bug shapes. Synthetic fixtures live in BindingTests/Sources/SwiftBindingsTestLib/EdgeCases/
     // AvailabilityFamilyF.swift.
     // ---------------------------------------------------------------------
 

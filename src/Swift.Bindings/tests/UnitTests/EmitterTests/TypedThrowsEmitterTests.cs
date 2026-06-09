@@ -128,7 +128,7 @@ public class TypedThrowsEmitterTests
             hasTypedThrows: true,
             errorTypeName: "TestModule.ParseError");
 
-        // Phase 4 unified wire: 6-param delegate
+        // Unified wire: 6-param delegate
         // (errorPtr?, errorSize, msgPtr?, isCancellation, _sbwTask, errorTypeId).
         Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, int, void", csOutput);
         // Typed-throws body still marshals from the static error type and frees the
@@ -155,7 +155,7 @@ public class TypedThrowsEmitterTests
             isAsync: true,
             hasTypedThrows: false);
 
-        // Phase 4 unified wire: even untyped throws emit the 6-param delegate. The C#
+        // Even untyped throws emit the 6-param delegate. The C#
         // body still constructs a bare SwiftException (no marshalling of the payload
         // pointers, which the Swift catch fills with nil/0). Test fixture has no
         // registered error types, so the cascade gate is also off — pure untyped.
@@ -197,7 +197,7 @@ public class TypedThrowsEmitterTests
             errorTypeName: "TestModule.ParseError",
             isFreeFunction: true);
 
-        // Phase 4 unified wire: same 6-param shape across all three paths.
+        // Same 6-param shape across all three paths.
         Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, int, void", csOutput);
         Assert.Contains("MarshalFromSwift<TestModule.ParseError>", csOutput);
         Assert.Contains("SBW_Free(errorPtr)", csOutput);

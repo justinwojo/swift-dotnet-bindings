@@ -595,7 +595,7 @@ public class ConcreteSpecializationEngine
     {
         var result = new List<SpecializableMethod>();
 
-        // Session 2: resolve parent-generic specializable params when the parent is
+        // Resolve parent-generic specializable params when the parent is
         // generic. All parent generics MUST have hint-resolved conformers — partial
         // resolution would produce half-specialized Swift wrappers whose `self_`
         // conversion references unresolved type parameters. When any parent generic is

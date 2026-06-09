@@ -5,8 +5,8 @@ import Foundation
 
 // MARK: - Static method returning `(any Error)?`
 //
-// Layer-A regression for the Bundle 03 PInvoke-vs-body sret-shape drift bug
-// (`bug-0.10.0-dataloader-validate-uninitialized-buffer.md`). Mirrors
+// Regression for the PInvoke-vs-body sret-shape drift bug
+// (uninitialized sret buffer for optional-error return). Mirrors
 // Nuke 13.0.5's `static func validate(response:) -> (any Error)?` shape:
 //
 //   - direct CallConvSwift (no @_cdecl wrapper, no native thunk, no

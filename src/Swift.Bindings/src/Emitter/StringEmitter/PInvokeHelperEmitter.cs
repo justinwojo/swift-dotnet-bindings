@@ -15,7 +15,7 @@ public sealed record HelperPwtEntry(
     string GenericParamCsName,
     /// <summary>The simple protocol name (e.g. "AnyInterpolatable", "Hashable").</summary>
     string ProtocolName,
-    /// <summary>The fully-qualified protocol name (e.g. "Lottie.AnyInterpolatable") — used as the lex sort key per runtime-metadata.md spec.</summary>
+    /// <summary>The fully-qualified protocol name (e.g. "Lottie.AnyInterpolatable") — used as the lex sort key for witness-table ordering.</summary>
     string ProtocolModuleQualifiedName,
     /// <summary>True when the protocol can be projected as a static C# interface (no associated types or Self requirements and present in the TypeDatabase).</summary>
     bool IsResolvable,
@@ -79,7 +79,7 @@ public class PInvokeHelperContext
     /// Pre-flattened protocol witness-table entries for the type's generic parameters,
     /// in the order Swift's metadata accessor expects: all metadata first (declaration
     /// order), then all PWTs grouped by generic param then sorted lexicographically by
-    /// protocol module-qualified name, per runtime-metadata.md.
+    /// protocol module-qualified name.
     /// </summary>
     public IReadOnlyList<HelperPwtEntry> PwtEntries { get; }
 
@@ -98,12 +98,12 @@ public class PInvokeHelperContext
 
     /// <summary>
     /// True when the type's metadata accessor uses the indirect-buffer ABI
-    /// (total of metadata + PWT params exceeds 3, per runtime-metadata.md).
+    /// (total of metadata + PWT params exceeds 3).
     /// <see cref="AddMetadataAccessorDeclaration"/> consults this to pick between the
     /// thin multi-argument P/Invoke (&lt;= 3) and a buffer-mode pair (private P/Invoke
     /// taking a single <c>IntPtr</c> buffer + a managed wrapper that stackallocs the
     /// buffer using the thin-mode parameter shape so every existing call site keeps
-    /// working unchanged). See <c>src/docs/runtime-metadata.md</c>.
+    /// working unchanged).
     /// </summary>
     public bool ExceedsRegisterArgumentThreshold { get; }
 
@@ -213,8 +213,8 @@ public class PInvokeHelperContext
     }
 
     /// <summary>
-    /// Pre-flattens per-parameter conformances per the runtime-metadata.md ordering
-    /// rule: walk generic params in declaration order, and for each param walk its
+    /// Pre-flattens per-parameter conformances in the order Swift's metadata accessor
+    /// expects: walk generic params in declaration order, and for each param walk its
     /// conformances sorted lex by ConformanceTarget.ModuleQualifiedName.
     /// </summary>
     private static (IReadOnlyList<HelperPwtEntry> entries, bool exceedsThreshold,
@@ -399,7 +399,7 @@ public class PInvokeHelperContext
             }
         }
 
-        // runtime-metadata.md: when (num_metadata + num_pwts) > 3, the metadata
+        // When (num_metadata + num_pwts) > 3, the metadata
         // accessor signature switches to the indirect-buffer ABI (the symbol takes
         // a single const void * const * buffer of arg pointers instead of separate
         // register args). AddMetadataAccessorDeclaration routes to the buffer-mode
@@ -521,9 +521,8 @@ public class PInvokeHelperContext
     /// <summary>
     /// Returns the parameter declarations for the **type metadata accessor** P/Invoke
     /// — metadata args for every generic parameter (declaration order) followed by one
-    /// PWT arg per resolvable protocol conformance, sorted per
-    /// runtime-metadata.md (lex by module-qualified protocol name within each generic
-    /// param). All params are <c>IntPtr</c> to avoid the Mono CallConvSwift JIT crash
+    /// PWT arg per resolvable protocol conformance, sorted lex by module-qualified
+    /// protocol name within each generic param. All params are <c>IntPtr</c> to avoid the Mono CallConvSwift JIT crash
     /// (jit-info.c:918) and to keep one shared signature shape.
     /// </summary>
     public IReadOnlyList<string> GetTypeMetadataAccessorParameterDeclarations()

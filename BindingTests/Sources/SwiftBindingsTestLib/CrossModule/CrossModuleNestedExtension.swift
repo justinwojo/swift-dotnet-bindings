@@ -3,7 +3,7 @@
 
 import SwiftBindingsTestLibDependency
 
-// SDK 0.11.0 R2 — S-3 fixture: nested type DECLARED INSIDE an extension of a
+// SDK 0.11.0 R2 — nested type DECLARED INSIDE an extension of a
 // FOREIGN-MODULE type, then used as an enum-case payload in this module.
 //
 // Stripe shape reproduction:
@@ -14,7 +14,7 @@ import SwiftBindingsTestLibDependency
 //     }
 //   ...and an enum whose case payloads reference those nested types.
 //
-// Before the S-3 emitter fix, CrossModuleExtensionEmitter only recursed nested
+// Before the emitter fix, CrossModuleExtensionEmitter only recursed nested
 // types for the struct-receiver path, so class-receiver extensions silently
 // dropped the nested-type definitions. The downstream enum cases then lost
 // their factories (no Completed(...)) and extractors (no TryGetCompleted),

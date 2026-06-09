@@ -191,8 +191,7 @@ partial class Build
     /// regenerated and consumed as part of the app build; honoring
     /// <c>--skip-build</c> with smoke enabled would run the previous session's
     /// app bundle (pinned to whatever Swift.Runtime version built it) against
-    /// the current in-tree Swift.Runtime — the stale-AOT footgun originally
-    /// documented in <c>src/docs/0.8.0-storekit2-exploration.md</c>. Every new
+    /// the current in-tree Swift.Runtime — the stale-AOT footgun. Every new
     /// smoke flag registered in <see cref="GetActiveSmokeFlags"/> is covered
     /// automatically — callers do not need to update this guard.
     /// </summary>
@@ -211,7 +210,7 @@ partial class Build
             "per-framework smoke snapshots are regenerated and consumed as part of the app " +
             "build, so skipping the build would leave the previous app bundle pinned to " +
             "whatever Swift.Runtime version built it. That is the stale-AOT footgun " +
-            "documented in src/docs/0.8.0-storekit2-exploration.md. Drop --skip-build or " +
+            "Drop --skip-build or " +
             "drop the smoke flag and rerun.");
     }
 
@@ -2104,7 +2103,7 @@ partial class Build
                     .Count(l => l.Contains("[PASS]"));
                 Log.Error("");
                 Log.Error("Mono JIT crash detected on simulator ({PassCount} tests passed before crash).", passCount);
-                Log.Error("This crash is a regression — diagnose the root cause (see CLAUDE.md).");
+                Log.Error("This crash is a regression — diagnose the root cause.");
             }
             else if (deviceLog.Contains("EXC_BAD_ACCESS") || deviceLog.Contains("SIGABRT"))
             {

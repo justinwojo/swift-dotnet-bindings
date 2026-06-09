@@ -151,7 +151,7 @@ public class CompositeProjectionTests
         // Per-element conversion for an opaque [any P] PARAM must mint/donate an OWNED carrier
         // (CreateOwnedExistential1) rather than aliasing the proxy's only +1 via GetOrCreate: the
         // Swift array element write is __owned (consuming) and the carrier's value-witness destroy
-        // would over-release a borrowed alias (audit P1-08 opaque sibling). The wrap-fallback is the
+        // would over-release a borrowed alias (opaque sibling). The wrap-fallback is the
         // proxy ctor, retained so a suppressed-proxy site can downgrade to the no-fallback overload.
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains(".Select(", firstLine.Code);
@@ -495,7 +495,7 @@ public class CompositeProjectionTests
     [Fact]
     public void ObjCRootedClassProjection_KeywordParamName_ProducesValidCompoundNames()
     {
-        // P1 from Codex review: ObjCRootedClassProjection builds _{paramName}_ptr locals.
+        // ObjCRootedClassProjection builds _{paramName}_ptr locals.
         // With keyword param "@in", this produced "_@in_ptr" (invalid — @ mid-identifier).
         // Fix: strip verbatim prefix for compound names, keep @ for parameter references.
         var proj = new ObjCRootedClassProjection("UIKit.UIView");

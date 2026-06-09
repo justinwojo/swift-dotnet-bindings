@@ -28,7 +28,7 @@ namespace BindingsGeneration.Tests;
 /// stubs landed, none of these protocols had TypeRecords and the executor return
 /// type failed resolution — meaning the accessor was rejected by
 /// <c>MemberEmissionValidator.CanEmitProperty</c> with <c>SkipReason.UnsupportedType</c>
-/// and Session 3's actor-isolated thunk had no metadata to consume.
+/// and the actor-isolated thunk had no metadata to consume.
 ///
 /// The fix lives in <c>SwiftDatabase.xml</c> (marker protocols) and the new
 /// <c>_ConcurrencyDatabase.xml</c> (Actor / GlobalActor / UnownedSerialExecutor),
@@ -181,8 +181,8 @@ public class ActorMetadataParserTests
         var executorProp = Assert.Single(actor.Properties, p => p.Name == "unownedExecutor");
 
         // The return type must demangle/parse to _Concurrency.UnownedSerialExecutor —
-        // not get short-circuited to AnyType or dropped entirely. Session 3 inspects this
-        // identity to wire `assumeIsolated` against the right accessor symbol.
+        // not get short-circuited to AnyType or dropped entirely. The actor-isolated thunk
+        // wires `assumeIsolated` against this accessor symbol.
         var typeSpec = Assert.IsType<NamedTypeSpec>(executorProp.SwiftTypeSpec);
         Assert.Equal("_Concurrency.UnownedSerialExecutor", typeSpec.Name);
     }

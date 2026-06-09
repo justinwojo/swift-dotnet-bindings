@@ -8,8 +8,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.ErrorHandling;
 
 /// <summary>
-/// Layer-A regression for the Bundle 03 PInvoke-vs-body sret-shape drift bug
-/// (<c>bug-0.10.0-dataloader-validate-uninitialized-buffer.md</c>).
+/// Regression for the PInvoke-vs-body sret-shape drift bug
+/// (uninitialized sret buffer for Optional&lt;any Error&gt; return).
 ///
 /// Mirrors Nuke 13.0.5's
 /// <c>static func validate(response:) -> (any Error)?</c> shape: a direct-

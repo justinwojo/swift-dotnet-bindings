@@ -938,7 +938,7 @@ public class ProtocolHandlerOutputTests
 
     #endregion
 
-    #region Async-Void Method Naming Regression (Codex P1)
+    #region Async-Void Method Naming Regression
 
     [Fact]
     public void Emit_AsyncVoidMethod_NoGetPrefix()
@@ -1047,7 +1047,7 @@ public class ProtocolHandlerOutputTests
 
     #endregion
 
-    #region Protocol Parameter Name Normalization (Codex P1)
+    #region Protocol Parameter Name Normalization
 
     [Fact]
     public void Emit_ProtocolMethodWithArg0_UsesTypeDerivedName()
@@ -1292,7 +1292,7 @@ public class ProtocolHandlerOutputTests
 
     #endregion
 
-    #region Subscript Parameter Normalization (Codex P1)
+    #region Subscript Parameter Normalization
 
     [Fact]
     public void Emit_InterfaceSubscript_ValueParam_SanitizedToAvoidCS0316()

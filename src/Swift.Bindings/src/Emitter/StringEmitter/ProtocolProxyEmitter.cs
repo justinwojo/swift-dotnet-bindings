@@ -50,7 +50,7 @@ public partial class ProtocolProxyEmitter
 
     /// <summary>
     /// True when the corresponding EveryProtocol conformance was emitted on the
-    /// NSObject-rooted <c>EveryObjCProtocol</c> helper class (S-2 NSObjectProtocol-only
+    /// NSObject-rooted <c>EveryObjCProtocol</c> helper class (NSObjectProtocol-only
     /// path). The proxy's static ctor and instance ctor must then call the matching
     /// <c>SBW_CreateEveryObjCProtocol</c> / <c>SBW_GetMetadata_EveryObjCProtocol</c> /
     /// <c>SBW_SetEveryObjCProtocolDeinitCallback</c> P/Invokes instead of the
@@ -181,7 +181,9 @@ public partial class ProtocolProxyEmitter
         // local vtable — instance method dispatch goes through _swiftContainer.WitnessTable,
         // populated by the existential ctor. The C#-impl→Swift path won't function (no callbacks
         // registered) but the read-only path compiles AND runs correctly. See
-        // bug-0.10.0-proxy-vtable-setters-not-exported.md.
+        // The vtable setter trampoline may be absent for certain protocols (marker,
+        // static-only-requirement, noncopyable), and the proxy emitter must not call
+        // Set{Protocol}_vtable in that case or it will throw EntryPointNotFoundException.
         //
         // (Protocols whose conformance was SKIPPED — Self requirement, noncopyable
         // member, static method/property requirement, etc. — do not reach this emitter:
@@ -203,7 +205,7 @@ public partial class ProtocolProxyEmitter
             _logger.LogDebug($"Emitting proxy class for {protocolDecl.Name} with no-op InitializeVtable: EveryProtocolEmitter did not emit Set{protocolDecl.Name}_vtable; only Swift→C# wrap path will function.");
         }
 
-        // S-2: pick the NSObject-rooted helper symbols when EveryProtocolEmitter routed
+        // Pick the NSObject-rooted helper symbols when EveryProtocolEmitter routed
         // this protocol through EveryObjCProtocol. The proxy P/Invoke names and entry
         // points all switch to the matching SBW_*EveryObjCProtocol* symbols.
         // Failure B: pick the Entity-rooted helper symbols when EveryProtocolEmitter

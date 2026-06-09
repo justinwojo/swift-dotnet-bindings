@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.AppIntents;
 
 /// <summary>
-/// Session 8 promotion smoke for the AppIntents framework. Exercises the
+/// Promotion smoke for the AppIntents framework. Exercises the
 /// MockBook AppEntity fixture (BindingTests/Sources/SwiftBindingsTestLib/
 /// AppIntents/MockAppEntity.swift) end-to-end across the @_cdecl boundary.
 ///
@@ -25,7 +25,7 @@ namespace RuntimeTestsApp.AppIntents;
 ///
 /// What this does NOT validate: per-property KeyPath singletons for
 /// AppEntity conformers (<c>EntityProperty.init&lt;Entity&gt;(getter:)</c>
-/// shape). Session 4's KeyPathSingletonEmitter walks closed conformers of a
+/// shape). The KeyPathSingletonEmitter walks closed conformers of a
 /// PAT-constrained generic parent's associated-type bag; AppEntity-rooted
 /// KeyPaths are method-own generics on initializer extensions, which is a
 /// different emitter shape and follow-up work.
@@ -109,14 +109,14 @@ public class MockAppEntityTests : TestBase
     }
 
     // ---------------------------------------------------------------------------------------
-    // Session 8b: AppEntity KeyPath singletons
+    // AppEntity KeyPath singletons
     //
     // MockBookAppEntityKeyPaths.{Id,Title,PageCount} are WritableKeyPath
     // singletons rooted DIRECTLY on the closed AppEntity conformer (not on a
-    // nested bag, as in Session 4). They are originated by Swift @_cdecl
-    // trampolines and surface as C# `public static` properties. These tests
-    // assert the container resolves, the singletons carry the right
-    // Root/Value/flavor, and they round-trip through Swift consumers.
+    // nested bag). They are originated by Swift @_cdecl trampolines and surface
+    // as C# `public static` properties. These tests assert the container resolves,
+    // the singletons carry the right Root/Value/flavor, and they round-trip through
+    // Swift consumers.
     // ---------------------------------------------------------------------------------------
 
     public void TestAppEntityKeyPaths_IdSingleton_NonNull()
@@ -142,8 +142,8 @@ public class MockAppEntityTests : TestBase
 
     public void TestAppEntityKeyPaths_RootedOnConformerItself()
     {
-        // Unlike Session 4 (rooted on a nested LibraryFilter bag), the AppEntity
-        // singletons are rooted on the conformer type directly. The static type
+        // The AppEntity singletons are rooted on the conformer type directly (not on a
+        // nested bag). The static type
         // is WritableKeyPath<MockBook, *> because all three properties are `var`.
         var title = MockBookAppEntityKeyPaths.Title;
         AssertTrue(

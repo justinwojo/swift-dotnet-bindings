@@ -92,7 +92,7 @@ public class OrphanedGetterShapeTests : TestBase
         AssertEqual(0, elements.Count, "Array<NonFrozenStruct> getter — empty");
     }
 
-    /// Regression test for bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-serialization.
+    /// Regression test for IEnumerable&lt;NonFrozenStruct&gt; raw-IntPtr packing in the C#→Swift parameter direction.
     /// Exercises the C#→Swift parameter direction for <c>IEnumerable&lt;NonFrozenStruct&gt;</c>:
     /// the Swift wrapper reinterprets the buffer as <c>Array&lt;OrphanedGetterElement&gt;</c>,
     /// so the C# side must pack each element's payload bytes by value via

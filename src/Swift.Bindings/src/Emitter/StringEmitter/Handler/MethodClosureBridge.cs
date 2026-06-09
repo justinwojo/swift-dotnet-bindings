@@ -120,7 +120,7 @@ public static class MethodClosureBridge
         if (closureArgs.Count == 0) return false;
 
         // Key gate: ONLY activate when at least one closure arg is a bound generic type,
-        // a complex enum (D1: heap allocation), or an any Swift.Error existential (pointer ABI via
+        // a complex enum (heap allocation), or an any Swift.Error existential (pointer ABI via
         // ExistentialContainer1). Otherwise the normal @_cdecl path handles it.
         if (!hasBoundGenericInClosure && !hasComplexEnumInClosure && !hasErrorExistentialInClosure)
             return false;
@@ -190,12 +190,12 @@ public static class MethodClosureBridge
                 // doesn't silently rename the first symbol from bare MCB_{hash} to MCB_{hash}_0.
                 var cbName = $"MCB_{mangledHash}_{closureIndex}";
                 // Optional<Closure>: delegate is nullable on C# side; Swift adapter must
-                // pass nil to the target method when funcPtr is nil. Per constraints.md,
-                // Optional closures are always escaping (GCHandle still leaked on non-nil path).
+                // pass nil to the target method when funcPtr is nil. Optional closures are
+                // always escaping in Swift (GCHandle still leaked on non-nil path).
                 var isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
-                // Escaping (or Optional<closure>, which is always escaping per constraints.md)
+                // Escaping (or Optional<closure>, which is always escaping in Swift)
                 // closures get a Swift-ARC owner-token box around the GCHandle context so
-                // the GCHandle is freed when Swift releases the closure (Bug 1 Cat 3 / Bug 3 Case 2).
+                // the GCHandle is freed when Swift releases the closure.
                 var isEffectivelyEscaping = WrapperValidation.IsEffectivelyEscaping(
                     cts, arg.SwiftTypeSpec, env.ClosureHandler);
 
@@ -236,7 +236,7 @@ public static class MethodClosureBridge
         // (Cdecl + SBW_ and Swift + SBSW_), so both branches must register or the
         // matching P/Invoke would throw WrapperSymbolContractException.
         var bridgeSilgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName);
-        // S5 audited (Tier B): the bridge symbol is keyed on the closure type's
+        // the bridge symbol is keyed on the closure type's
         // CallbackBaseName, not the method's own mangled name. That namespace is owned
         // exclusively by MethodClosureBridge / NestedClosureBridge and cannot collide
         // with any method/property/constructor wrapper. Per-kind method bucket is safe.
@@ -300,7 +300,7 @@ public static class MethodClosureBridge
         IReadOnlyDictionary<int, string> Adapter);
 
     /// <summary>
-    /// P1-22 (C1): the @_cdecl wrapper hardcodes synthetic Swift identifiers (<c>self_</c>,
+    /// The @_cdecl wrapper hardcodes synthetic Swift identifiers (<c>self_</c>,
     /// <c>selfObj</c>, per-closure <c>cdecl</c>/<c>cdecl{N}</c> and <c>_box_{N}</c>). A user
     /// param spelled the same — e.g. <c>func run(self_: Int, _ cb: …)</c> — would otherwise
     /// produce an "invalid redeclaration" and the generator would emit broken Swift at
@@ -410,7 +410,7 @@ public static class MethodClosureBridge
             swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
         }
 
-        // P1-22 (C1): the @_cdecl wrapper hardcodes synthetic Swift identifiers
+        // The @_cdecl wrapper hardcodes synthetic Swift identifiers
         // (`self_`, `selfObj`, per-closure `cdecl`/`cdecl{N}` and `_box_{N}`). A user
         // param spelled the same (`func run(self_: Int, _ cb: …)`) would produce an
         // `invalid redeclaration` and the generator would emit broken Swift at exit 0.
@@ -488,7 +488,7 @@ public static class MethodClosureBridge
         // Optional closures defer cdecl reconstruction to inside their `.map` adapter so
         // we never force-unwrap a nil funcPtr when the caller passed null.
         // For escaping non-Optional closures, also wrap the GCHandle context in a Swift
-        // ARC-owned `_SBClosureCtx` box (Bug 1 Cat 3 / Bug 3 Case 2). The adapter closure
+        // ARC-owned `_SBClosureCtx` box. The adapter closure
         // captures `_box_X` via its capture list so the box's lifetime tracks the closure's;
         // when Swift releases the closure, the box's deinit upcalls the C# free callback.
         foreach (var ci in closures)
@@ -593,7 +593,7 @@ public static class MethodClosureBridge
                     }
                     else if (env.ClosureHandler.IsComplexEnum(argType))
                     {
-                        // D1: Complex enums use heap allocation — C# takes ownership via SwiftSafeHandle
+                        // Complex enums use heap allocation — C# takes ownership via SwiftSafeHandle
                         heapAllocArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
                     }
                     else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is { hasRawValue: true } enumInfo)
@@ -658,7 +658,7 @@ public static class MethodClosureBridge
                         cdeclCall += " != 0";
 
                     // Escaping closures explicitly capture the owner-token box so its lifetime
-                    // tracks the stored closure (Bug 1 Cat 3 / Bug 3 Case 2).
+                    // tracks the stored closure.
                     var captureList = ci.IsEffectivelyEscaping ? $"[{boxNames[ci.Index]}] " : "";
                     var observeBox = ci.IsEffectivelyEscaping ? $"_ = {boxNames[ci.Index]}; " : "";
                     var closureParamStr = string.Join(", ", analysis.paramDecls);
@@ -713,7 +713,7 @@ public static class MethodClosureBridge
         var closureByArg = closures.ToDictionary(c => c.Arg);
         var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
 
-        // P1-22 (C1): this emits into the SAME Swift function scope as EmitSwiftWrapper, so
+        // This emits into the SAME Swift function scope as EmitSwiftWrapper, so
         // it MUST derive the identical synthetic-name mapping. ComputeSyntheticNames is a
         // pure function of (closures, passableNonClosureParams) — the same inputs both
         // methods receive — so the `cdecl`/`_box_N` names here match the box declarations
@@ -741,7 +741,7 @@ public static class MethodClosureBridge
             // map closure using the locally bound pointer.
             var adapterType = ci.IsOptional ? $"({closureType})?" : closureType;
 
-            // Escaping closures explicitly capture the owner-token box (Bug 1 Cat 3 / Bug 3 Case 2).
+            // Escaping closures explicitly capture the owner-token box.
             // Capture list pulls `_box_N` into the stored closure so Swift ARC tracks its lifetime;
             // when Swift releases the closure, the box's deinit upcalls the C# free callback.
             var captureList = ci.IsEffectivelyEscaping ? $"[{synth.Box[ci.Index]}] " : "";
@@ -800,12 +800,12 @@ public static class MethodClosureBridge
             if (observeBoxLine != null)
                 swiftWriter.WriteLine($"{bodyBaseIndent}{observeBoxLine}");
 
-            // D1: Heap allocations sit outside any if-let branch — they're independent of
+            // Heap allocations sit outside any if-let branch — they're independent of
             // optional-existential nil-vs-not and C# takes ownership either way (VWT Destroy
             // + NativeMemory.Free on disposal). Duplicating them per-branch would leak.
             // MCB's only heap-alloc branch is the IsComplexEnum case at line ~464; the broader
             // owning-vs-borrowing split for the non-MCB Swift wrapper lives in
-            // ClosureEmitter.SwiftWrapper.cs. See bug-0.10.0-swift-wrapper-payload-buffer-leak.md.
+            // ClosureEmitter.SwiftWrapper.cs handles the owning-vs-borrowing split for the non-MCB case.
             foreach (var (idx, swiftType) in analysis.heapAllocArgs)
             {
                 swiftWriter.WriteLine($"{bodyBaseIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
@@ -1024,7 +1024,7 @@ public static class MethodClosureBridge
         {
             // Bool return → Func<..., bool>
             innerTypeArgs.Add("bool");
-            // P0-01: resolve the delegate from the GCHandle *inside* the guarded try. A bad or
+            // Resolve the delegate from the GCHandle *inside* the guarded try. A bad or
             // already-freed handle makes handle.Target throw; if that ran before the try the
             // exception would unwind out of the [UnmanagedCallersOnly] frame into the Swift
             // @_cdecl caller → SIGABRT. Inside the try it routes through FailFast instead.
@@ -1040,7 +1040,7 @@ public static class MethodClosureBridge
         }
         else
         {
-            // Void return → Action<...>. P0-01: resolve the delegate inside the try (see the
+            // Void return → Action<...>. Resolve the delegate inside the try (see the
             // bool branch) so a bad/freed handle faults via FailFast, not a SIGABRT escape.
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
@@ -1138,7 +1138,7 @@ public static class MethodClosureBridge
         bool usesSwiftCallingConvention = isGenericParent && isInstance;
         if (isInstance)
         {
-            // P1-22 (C1): the trailing self param hardcodes `self_`; a user non-closure param
+            // The trailing self param hardcodes `self_`; a user non-closure param
             // projected to the same name would be a CS0100 duplicate (the closure pair names
             // are already `__`-prefixed synthetics, so only a user `self_` can collide). Guard
             // it against the other P/Invoke param names. Call-site args are positional, so the

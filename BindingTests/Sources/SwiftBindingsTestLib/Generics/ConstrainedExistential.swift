@@ -5,9 +5,9 @@ import Foundation
 
 // MARK: - Generic protocol existentials (`any P<X>`)
 //
-// Layer A coverage for `gap-0.10.0-everyprotocol-and-existentials.md` Cases 1
-// and 2: a parameterised protocol used as a constrained existential. Before
-// the fix the projection collapsed to `Swift.AnyType` for any protocol whose
+// Layer A coverage for parameterised protocols used as constrained existentials
+// (Cases 1 and 2): a parameterised protocol used as a constrained existential.
+// Before the fix the projection collapsed to `Swift.AnyType` for any protocol whose
 // `GenericParameters.Count > 0`, even when every argument was a concrete
 // `NamedTypeSpec` — silently dropping the strongly-typed surface that
 // real-world Apple SDK APIs (AsyncSequence<Sample>, EventStream<UIEvent>, …)

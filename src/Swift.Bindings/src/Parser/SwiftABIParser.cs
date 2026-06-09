@@ -947,7 +947,7 @@ namespace BindingsGeneration
 
                 bool hasExtensionMembers = node.Children?.Any(child =>
                     !string.IsNullOrEmpty(child.ModuleName) && child.ModuleName == moduleDecl.Name) ?? false;
-                // Phase 2 of cross-module extension support: route both Class and Struct
+                // Cross-module extension support: route both Class and Struct
                 // receivers through CrossModuleExtensionEmitter. Class receivers use direct
                 // CallConvSwift dispatch against the foreign module's Swift symbol (SwiftSelf
                 // routes via x20 with a class pointer). Struct receivers add @_cdecl trampolines

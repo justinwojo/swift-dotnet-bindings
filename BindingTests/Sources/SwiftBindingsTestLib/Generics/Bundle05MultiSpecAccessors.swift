@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Bundle 05 #3 regression — MultiSpecialization drops generic property accessors
+// MARK: - MultiSpecialization drops generic property accessors
 //
 // Properties defined on `extension Foo where Param == Concrete` blocks
 // of a generic type were being skipped wholesale with skip reason
@@ -64,7 +64,7 @@ public struct Bundle05Container<Key> {
 /// `@frozen` so the binding emit picks the
 /// `CEReturnShape.NonFrozenStruct` indirect-result path — the same
 /// path StoreKit2's `VerificationResult.headerData` (Foundation.Data)
-/// flows through. This is the path the Bundle 05 ownership fix
+/// flows through. This is the path the constrained-extension ownership fix
 /// (ConstrainedExtensionEmitter NonFrozenStruct shape, success-path
 /// no-Free → catch-only Free) actually changed; without a fixture
 /// here the round-1 use-after-free / double-free would not be caught
@@ -117,7 +117,7 @@ extension Bundle05Container where Key == Bundle05SpecKeyB {
 // MARK: Foundation value-type return-shape accessors
 //
 // Cover the three Foundation frozen value-type return shapes the
-// multispecialization fix needs after Bundle 05 — `Date` (Double-by-value
+// multispecialization fix needs — `Date` (Double-by-value
 // at the ABI boundary; epoch-arithmetic to System.DateTimeOffset on the
 // C# side), `UUID` (16-byte indirect-result; reinterpreted as
 // System.Guid), and `Data` (16-byte indirect-result; projected as byte[]

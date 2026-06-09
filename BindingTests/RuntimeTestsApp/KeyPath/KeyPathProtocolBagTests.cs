@@ -8,12 +8,12 @@ namespace RuntimeTestsApp.KeyPath;
 
 /// <summary>
 /// Protocol-bag variant of <see cref="KeyPathSingletonTests"/>. Where the original
-/// Session 4 fixture pins a <c>typealias</c> to a NESTED concrete struct
+/// fixture pins a <c>typealias</c> to a NESTED concrete struct
 /// (<c>MockBookSession4.LibraryFilter</c>), this fixture pins to a MODULE-SCOPE
 /// PROTOCOL — the shape MusicKit exposes through
 /// <c>typealias LibraryFilter = MusicKit.LibraryAlbumFilter</c>.
 ///
-/// <para>The Session 4 emitter's broadening for this shape lives in two places:</para>
+/// <para>The emitter broadening for this shape lives in two places:</para>
 /// <list type="number">
 ///   <item><see cref="KeyPathSingletonEmitter.FindBagDecl"/> branches 3 &amp; 4 resolve
 ///   typealiases that target module-scope types in addition to nested types.</item>
@@ -174,7 +174,7 @@ public class KeyPathProtocolBagTests : TestBase
     // ---------------------------------------------------------------------------------------
     // Round-trip through a Swift consumer (the IN-path proof for protocol-bag shape)
     //
-    // After Session 6c Blocker D, the C# singleton is passed as typed
+    // The C# singleton is passed as typed
     // `Swift.KeyPath<IProtocolBag_*Filter, TValue>` directly — no `Swift.AnyKeyPath` boxing
     // and no Swift-side `as!` cast. The Swift body upcasts only the receiver
     // (`filter as ProtocolBag_*Filter`), which is required by Swift's typed-KeyPath

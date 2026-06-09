@@ -758,7 +758,7 @@ public class TypeProjectionFactoryTests
 
     #endregion
 
-    #region Bug 15a — Optional<typealias-to-primitive>
+    #region Optional<typealias-to-primitive>
 
     [Fact]
     public void Project_FoundationTimeInterval_ResolvesToDouble()
@@ -767,7 +767,7 @@ public class TypeProjectionFactoryTests
         // the alias name in NamedTypeSpec when it's nested inside Optional (parsed via
         // printedName instead of CreateTypeSpec). Without the typealias fallback, DB lookup
         // misses (no TypeRecord for an alias) and Optional<TimeInterval> drops to
-        // Swift.SwiftOptional<IntPtr> instead of double?. Bug 15a fix.
+        // Swift.SwiftOptional<IntPtr> instead of double?.
         var typeSpec = new NamedTypeSpec("Foundation.TimeInterval");
         var ctx = CreateContext();
 
@@ -845,7 +845,7 @@ public class TypeProjectionFactoryTests
 
     #endregion
 
-    #region Bug 15b — Optional<generic-param> with sugared parameter name
+    #region Optional<generic-param> with sugared parameter name
 
     [Fact]
     public void Project_SugaredGenericParamName_ResolvesViaContext()
@@ -854,7 +854,7 @@ public class TypeProjectionFactoryTests
         // (e.g., "Value", "Element", "SignedType") directly as TypeNominal names instead of
         // the τ_0_0 form. IsGenericTypeParameter's shape check would miss "Value" (multi-char,
         // no τ_ prefix), so the factory must trust GenericContext.TryResolve as the
-        // authoritative signal. Bug 15b fix.
+        // authoritative signal.
         var ctx = new ProjectionContext
         {
             TypeDatabase = new MockTypeDatabase(),

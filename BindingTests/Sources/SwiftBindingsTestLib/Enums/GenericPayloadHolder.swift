@@ -52,7 +52,7 @@ public func makeEmptyIntBox() -> Holder<IntBox> {
     return .empty
 }
 
-/// @objc:NSObject class T fixture: `Holder<ObjCClassParamPayload>` (issue #40 / P1-01).
+/// @objc:NSObject class T fixture: `Holder<ObjCClassParamPayload>` (issue #40).
 /// The bare-generic-parameter class branch in `EmitGenericTypeParameterPayloadExtraction`
 /// (E3) runtime-dispatches on `__value_meta.Kind == Class` and dereferences the inline
 /// class pointer; the retain MUST be the isa-dispatching Arc.UnknownObjectRetain so an

@@ -224,7 +224,7 @@ public static class SwiftClosureMarshaller
 
 /// <summary>
 /// Represents a Swift escaping closure that can be invoked from C#.
-/// This is used when receiving closures from Swift (Phase 3).
+/// This is used when receiving closures from Swift.
 /// </summary>
 /// <typeparam name="TDelegate">The C# delegate type that matches the closure signature.</typeparam>
 public sealed class SwiftEscapingClosure<TDelegate> : IDisposable where TDelegate : Delegate

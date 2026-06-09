@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Build.AppleTypesManifest.cs — Phase 2 / M10
+// Build.AppleTypesManifest.cs
 //
 // Nuke target wrapper around `dotnet run --validate-apple-types-manifest`.
 // Probes the live host SDK for every entry in

@@ -3,16 +3,16 @@
 
 import Foundation
 
-// MARK: - Property-vs-method name collision on a plain type (P1-21 class)
+// MARK: - Property-vs-method name collision on a plain type
 //
 // C# forbids a property and a method sharing a name on the same type (CS0102). When a Swift type
 // has a stored property `conflict` AND a method `conflict(_:)`, the authoritative emitted method
 // name folds in a property-collision RENAME (`Conflict` → `ConflictMethod`). If a sibling method is
 // already named `conflictMethod(_:)`, the rename then NUMERICALLY collides (`ConflictMethod` →
-// `ConflictMethod2`). The P1-21 root cause: the dedup keys and the same-module override verifier
-// must observe BOTH the property rename AND the numeric suffix, or the two methods emit under the
-// same C# name (CS0111) and dispatch binds to the wrong slot. Each body returns a distinct value so
-// a wrong-slot binding is caught.
+// `ConflictMethod2`). The dedup keys and the same-module override verifier must observe BOTH the
+// property rename AND the numeric suffix, or the two methods emit under the same C# name (CS0111)
+// and dispatch binds to the wrong slot. Each body returns a distinct value so a wrong-slot
+// binding is caught.
 
 public class PropertyMethodCollider {
     public var conflict: Int32

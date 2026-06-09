@@ -490,7 +490,7 @@ public class ProtocolExtensionExistentialReturnTests
         Assert.DoesNotContain("Unmanaged.passRetained", wrapperLines);
     }
 
-    // ─── _SBClosureCtx Owner Token (Bug 1 Cat 3 / Bug 3 Case 2) ──────
+    // ─── _SBClosureCtx Owner Token ──────
 
     [Fact]
     public void EscapingClosure_SwiftWrapperWrapsContextInClosureContextBox()

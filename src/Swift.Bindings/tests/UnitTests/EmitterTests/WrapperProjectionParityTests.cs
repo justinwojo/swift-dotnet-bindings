@@ -317,9 +317,9 @@ public class WrapperProjectionParityTests
 
     #endregion
 
-    #region Bug 4 — ObjC bridge container reads must use owns: true
+    #region ObjC bridge container reads must use owns: true
 
-    // 0.10.0 Bundle 01 (Bug 4): the Swift @_cdecl wrapper for an `async throws → [URL]?`
+    // The Swift @_cdecl wrapper for an `async throws → [URL]?`
     // (and equivalent Set/Dictionary) result calls
     //     Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()
     // emitting a +1 retain on the bridged NSArray/NSSet/NSDictionary. The C# callback

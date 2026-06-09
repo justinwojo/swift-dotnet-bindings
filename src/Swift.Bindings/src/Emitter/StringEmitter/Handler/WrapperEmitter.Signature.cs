@@ -568,7 +568,7 @@ namespace BindingsGeneration
         /// Computes the C# method name for an ancestor method and checks if it matches the derived name.
         /// </summary>
         private static bool AncestorCSharpNameMatches(MethodDecl ancestorMethod, ClassDecl ancestorClass, string derivedCSharpName, ITypeDatabase? typeDatabase)
-            // P1-21: prefer the ground-truth emitted name. It carries the collision-disambiguation
+            // Prefer the ground-truth emitted name. It carries the collision-disambiguation
             // suffix (`Handle`/`Handle2`, assigned per-class-body at emission via CollisionIndex)
             // that ComputeMethodCSharpName recomputes WITHOUT — a fresh NameProvider pass cannot see
             // a suffix that only exists because a sibling already claimed the base name. The ancestor

@@ -17,7 +17,7 @@ public class ConstructorHandlerOutputTests
     {
         // C# does not allow generic constructors. A Swift init<T: Loadable>() on a
         // non-generic type has method-own generic params that can't be represented.
-        // This gate is now in MemberValidationPipeline (Phase 6).
+        // This gate is in MemberValidationPipeline.
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
 
@@ -444,8 +444,7 @@ public class ConstructorHandlerOutputTests
         // signature collides …)` comment to the C# source — that comment would land
         // directly above whatever the emitter writes next and read as if it applied to
         // the working overload that *did* emit
-        // (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md Site 3:
-        // Lottie `AnimationKeypath(IEnumerable<string>)`).
+        // (e.g. Lottie `AnimationKeypath(IEnumerable<string>)`).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Widget", moduleDecl, typeDatabase);

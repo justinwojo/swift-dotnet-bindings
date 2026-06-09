@@ -297,8 +297,7 @@ public class ModuleHandlerTests
     [Fact]
     public void EmitSwiftImports_ImportsMatterWhenMatterSupportSurfaceReferencesIt()
     {
-        // Regression for the MatterSupport wrapper-import gap (src/docs/matter-support-
-        // wrapper-import-gap.md). MatterAddDeviceRequest.setupPayload has type
+        // Regression for the MatterSupport wrapper-import gap. MatterAddDeviceRequest.setupPayload has type
         // Matter.MTRSetupPayload; the wrapper Swift must emit `import Matter` or swiftc
         // fails with "cannot find type 'Matter' in scope". The gate is now data-driven via
         // apple-frameworks.json's wrapperImportable field — Matter has it set.
@@ -693,7 +692,7 @@ public class ModuleHandlerTests
         // Regression: dependency modules (--framework-dependency) marked @_implementationOnly
         // by their umbrella must be remapped at the literal import line, just like the primary
         // module is. Otherwise a sibling module that depends on RealityFoundation would emit
-        // `import RealityFoundation` and hit the same compiler error Bug 10 fixed for primaries.
+        // `import RealityFoundation` and hit the same @_implementationOnly compiler error that affects primaries.
         var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
             moduleDecl =>
             {

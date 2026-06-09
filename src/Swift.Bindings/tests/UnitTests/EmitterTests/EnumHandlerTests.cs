@@ -569,12 +569,12 @@ public class EnumHandlerTests
 
     #endregion
 
-    #region H2 Bug 2 — Simple Enum P/Invoke in Case Factory
+    #region Simple Enum P/Invoke in Case Factory
 
     [Fact]
     public void EmitEnumCaseFactory_SimpleEnumAssociatedValue_UsesCastNotPayload()
     {
-        // H2 Bug 2: Enum case factory with a simple enum associated value
+        // Enum case factory with a simple enum associated value
         // used .Payload.DangerousGetHandle() which fails for C# enum types.
         // Fix: Check TypeRecordFlags.SimpleEnum and use cast to underlying type.
         var typeDatabase = new TypeDatabase();

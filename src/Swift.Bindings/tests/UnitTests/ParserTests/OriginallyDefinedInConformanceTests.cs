@@ -34,7 +34,7 @@ namespace BindingsGeneration.Tests;
 /// unaffected (it already comes from the conformance's mangled name), so only the
 /// implementing type's module diverges.
 ///
-/// These are the durable in-repo gate for §1's parser-layer fix: a runtime BindingTests
+/// These are the durable in-repo gate for this parser-layer fix: a runtime BindingTests
 /// fixture cannot reproduce it (a fake re-export module isn't constructable), so the real
 /// end-to-end validation is RealityFoundation itself in swift-dotnet-packages.
 /// </summary>
@@ -58,7 +58,7 @@ public class OriginallyDefinedInConformanceTests
         // The type's USR module is RealityFoundation (current) but its mangled name carries
         // RealityKit (original). The descriptor is keyed ONLY under RealityKit.AnchorEntity,
         // so the primary RealityFoundation.AnchorEntity lookup misses. The mangled-name
-        // fallback must recover it — this is the core of the §1 fix.
+        // fallback must recover it — this is the core of the fix.
         var protocolModuleQualified = DemangleProtocolModuleQualifiedName(ProtocolMangledName);
 
         var classNode = CreateNode(

@@ -22,9 +22,8 @@ namespace BindingsGeneration
     /// nested types into a real C# namespace under the parent module's namespace
     /// — e.g. <c>namespace BlinkID.BlinkIDSDK</c>.
     ///
-    /// See <c>bug-0.10.0-namespace-facade-as-static-class.md</c> (Bundle 04 #3)
-    /// for the discovery case (BlinkID 7.7.0's <c>BlinkIDSDK</c> outer struct
-    /// containing ~25 nested types).
+    /// The canonical case is BlinkID 7.7.0's <c>BlinkIDSDK</c> outer struct
+    /// containing ~25 nested types.
     /// </summary>
     public static class NamespaceFacadeDetector
     {

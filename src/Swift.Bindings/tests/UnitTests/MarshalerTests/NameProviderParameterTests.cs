@@ -280,7 +280,6 @@ public class NameProviderParameterTests
     }
 
     [Theory]
-    // Repro for gap-0.10.0-underscore-argument-labels-leak-as-parameter-names.md.
     // Apple numeric typealiases (CGFloat, TimeInterval, NSInteger, NSUInteger,
     // NSTimeInterval) are semantically primitive doubles/ints. Pre-fix, the
     // emitter's DeriveParameterNameFromType camelcased the typedef name into

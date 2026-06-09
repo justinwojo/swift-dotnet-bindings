@@ -105,8 +105,8 @@ public class DictionaryProjection : ITypeProjection
         // projection (e.g. SwiftDictionary<K, NonFrozenStruct>), the per-slot storage holds
         // the typed wrapper directly and FromDictionary dispatches to ISwiftObject.MarshalToSwift.
         // Applying the per-element conversion (e.g. e.Payload.DangerousGetHandle()) would
-        // silently downgrade that slot to a 1-word IntPtr — same ABI-mismatch class as
-        // bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-… Mirrors ArrayProjection / SetProjection.
+        // silently downgrade that slot to a 1-word IntPtr, causing an ABI mismatch where the
+        // Swift side expects the full struct layout. Mirrors ArrayProjection / SetProjection.
         var skipKeyConv = keyConv != null && rawK == _keyProjection.PublicType;
         var skipValConv = valConv != null && rawV == _valueProjection.PublicType;
         var effectiveKeyConv = skipKeyConv ? null : keyConv;
@@ -212,7 +212,7 @@ public class DictionaryProjection : ITypeProjection
     }
 
     /// <summary>
-    /// P1-07: key/value conversions for the OWNED-return directions only. SwiftDictionary's
+    /// Key/value conversions for the OWNED-return directions only. SwiftDictionary's
     /// indexer get, Keys/Values, and entry enumerator all move each key and value out of their
     /// slot at +1 (MarshalMovedValueFromSlot), so an adopting proxy must release that retain on
     /// Dispose or it leaks; the source dictionary keeps its own independent +1, so adoption never
@@ -240,7 +240,7 @@ public class DictionaryProjection : ITypeProjection
         // ArrayElementCarrierType == MarshalFromSwiftType for every other value.
         var rawK = _keyProjection.MarshalFromSwiftType;
         var rawV = _valueProjection.ArrayElementCarrierType;
-        // P1-07: owned-return direction — existential keys/values are adopted at +1 (see OwnedReturn*Conversion).
+        // Owned-return direction — existential keys/values are adopted at +1 (see OwnedReturn*Conversion).
         var keyConv = OwnedReturnKeyConversion("k");
         var valConv = OwnedReturnValueConversion("v");
 
@@ -338,8 +338,8 @@ public class DictionaryProjection : ITypeProjection
     /// inner dictionary already converted. Without this override DictionaryProjection inherited the
     /// <see cref="ITypeProjection.GetParameterElementConversion"/> null default, so a dict nested under
     /// an array passed unconverted C# dictionaries straight into
-    /// <c>SwiftArray&lt;SwiftDictionary&lt;…&gt;&gt;.FromEnumerable</c> (CS1503; audit L229 forward-path gap that
-    /// the symmetric return-direction recursion already closed). The intermediate inner
+    /// <c>SwiftArray&lt;SwiftDictionary&lt;…&gt;&gt;.FromEnumerable</c> (CS1503; the symmetric
+    /// return-direction recursion was already closed). The intermediate inner
     /// SwiftDictionary is disposed by the OUTER container's materialize+dispose pass
     /// (<see cref="ElementRequiresDisposal"/>); nesting deeper than two levels shares the array
     /// sibling's single-expression no-dispose limitation.

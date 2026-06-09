@@ -56,7 +56,7 @@ public class ViewHint
 /// <summary>
 /// Hint for forcing async classification on a view.
 /// The dependencyChain and resultMonitor fields are deserialized for forward compatibility
-/// but not consumed for emission in Phase 3.
+/// but not yet consumed for emission.
 /// </summary>
 public class AsyncPatternHint
 {
@@ -68,7 +68,7 @@ public class AsyncPatternHint
 }
 
 /// <summary>
-/// A step in a manually specified dependency chain (forward compatibility — not consumed in Phase 3).
+/// A step in a manually specified dependency chain (forward compatibility — not yet consumed).
 /// </summary>
 public class DependencyChainStep
 {
@@ -83,7 +83,7 @@ public class DependencyChainStep
 }
 
 /// <summary>
-/// Result monitor configuration (forward compatibility — not consumed in Phase 3).
+/// Result monitor configuration (forward compatibility — not yet consumed).
 /// </summary>
 public class ResultMonitorHint
 {
@@ -95,7 +95,7 @@ public class ResultMonitorHint
 }
 
 /// <summary>
-/// Parameter override hint (forward compatibility — not consumed in Phase 3).
+/// Parameter override hint (forward compatibility — not yet consumed).
 /// </summary>
 public class ParameterOverrideHint
 {
@@ -332,9 +332,9 @@ public static class BridgeHintsLoader
             }
 
             if (hasParameterOverrides)
-                logger.LogInformation("Bridge hints: parameterOverrides accepted but not yet applied (Phase 4)");
+                logger.LogInformation("Bridge hints: parameterOverrides accepted but not yet applied");
             if (hasResultMonitor)
-                logger.LogInformation("Bridge hints: resultMonitor accepted but not yet supported (Phase 4)");
+                logger.LogInformation("Bridge hints: resultMonitor accepted but not yet supported");
         }
 
         if (hints.GlobalSettings != null)

@@ -186,7 +186,7 @@ public class OptionalMarshallingTests : TestBase
 
     #endregion
 
-    #region Bug 15a — Optional<typealias-to-primitive>
+    #region Optional<typealias-to-primitive>
 
     public void TestOptionalTimeIntervalParameterSome()
     {
@@ -222,7 +222,7 @@ public class OptionalMarshallingTests : TestBase
 
     #endregion
 
-    #region Bug 15b — Optional<generic-param> on generic struct
+    #region Optional<generic-param> on generic struct
 
     // Round-trips Optional<Value> through OptionalGenericHolder<Value>'s constructor,
     // stored property accessors, and peek() method. Exercises the generic-typed indirect

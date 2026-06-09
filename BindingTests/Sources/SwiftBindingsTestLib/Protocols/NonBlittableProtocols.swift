@@ -21,10 +21,10 @@ public enum TaskPriority: String {
     case critical = "critical"
 }
 
-// MARK: - Protocols with Non-Blittable Properties (Phase 56 Regression Test)
+// MARK: - Protocols with Non-Blittable Properties
 
 /// Protocol with String properties for witness dispatch testing.
-/// Phase 56 fixed protocol conformance validation with non-blittable types.
+/// Regression guard for protocol conformance validation with non-blittable types.
 public protocol Named {
     /// String property getter via witness dispatch.
     var name: String { get }
@@ -240,11 +240,11 @@ public func advanceStatus(_ handler: inout some StatusHandler) -> TaskStatus {
     return next
 }
 
-// MARK: - Existential Witness Dispatch (Phase 56 Regression)
+// MARK: - Existential Witness Dispatch
 
 // These functions use `any Protocol` (existentials) which force witness table dispatch.
 // The `some Protocol` versions above use opaque types (static dispatch).
-// Phase 56 fixed witness dispatch with non-blittable types - these exercise that path.
+// Regression guard for witness dispatch with non-blittable types.
 
 /// Existential function accepting any Named - forces witness table dispatch for String property.
 public func describeNameExistential(_ named: any Named) -> String {

@@ -212,7 +212,7 @@ namespace BindingsGeneration
             // the sibling one-line field "static ... s_<cb> = &<cb>;" is NOT a block member, so
             // FindAndMarkCallers leaves it dangling on the now-missing method. The field name then
             // dangles in surviving readers ("new SwiftClosureData((IntPtr)s_<cb>, …)"). This closes
-            // the co-gater stripping asymmetry (REMEDIATION-PLAN §6 defect b) — defense-in-depth;
+            // the co-gater stripping asymmetry — defense-in-depth;
             // the root cause is fixed by registering the error-mint helper, but symmetric stripping
             // keeps any future orphaned-field scenario producing compiling output instead of CS0103.
             // Runs after Step B/B-scope (callbacks already removed) and before Step C so any

@@ -4,7 +4,7 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Phase 4 plain-throws → typed-exception bridge — Layer 1 (foundation).
+/// Plain-throws → typed-exception bridge — Layer 1 (foundation).
 ///
 /// Walks every <see cref="EnumDecl"/> / <see cref="StructDecl"/> / <see cref="ClassDecl"/>
 /// in the module that declares conformance to <c>Swift.Error</c>,

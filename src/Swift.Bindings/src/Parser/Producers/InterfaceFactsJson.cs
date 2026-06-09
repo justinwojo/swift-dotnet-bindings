@@ -51,8 +51,8 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 /// </list>
 /// Version history:
 /// <list type="bullet">
-/// <item><b>v1</b> — initial wire format (M2 migration window).</item>
-/// <item><b>v2</b> (Bundle 09) — <c>availabilityAnnotations</c> and
+/// <item><b>v1</b> — initial wire format.</item>
+/// <item><b>v2</b> — <c>availabilityAnnotations</c> and
 ///   <c>availabilityAnnotationPositions</c> keys redefined from "bare
 ///   <c>Type.printedName</c>" to "bare key OR <c>Type.printedName|paramSig</c>
 ///   disambiguation key" so per-overload availability stops broadcasting across siblings.
@@ -95,7 +95,7 @@ internal sealed class InterfaceFactsJsonPayload
     [JsonPropertyName("mainActorTypePositions")]
     public Dictionary<string, SourcePositionJson>? MainActorTypePositions { get; set; }
 
-    // Session 2 — actor isolation cluster (5 facts).
+    // Actor isolation cluster (5 facts).
     [JsonPropertyName("actorIsolatedMembers")]
     public List<string>? ActorIsolatedMembers { get; set; }
 
@@ -111,18 +111,18 @@ internal sealed class InterfaceFactsJsonPayload
     [JsonPropertyName("customActorIsolatorMap")]
     public Dictionary<string, string>? CustomActorIsolatorMap { get; set; }
 
-    // Session 2 — availability cluster (2 facts).
+    // Availability cluster (2 facts).
     [JsonPropertyName("availabilityAnnotations")]
     public Dictionary<string, List<AvailabilityAnnotationJson>>? AvailabilityAnnotations { get; set; }
 
     [JsonPropertyName("availabilityAnnotationPositions")]
     public Dictionary<string, SourcePositionJson>? AvailabilityAnnotationPositions { get; set; }
 
-    // Session 2 — typed throws.
+    // Typed throws.
     [JsonPropertyName("typedThrowsErrors")]
     public Dictionary<string, string>? TypedThrowsErrors { get; set; }
 
-    // Session 3 — type & member collection.
+    // Type & member collection.
     [JsonPropertyName("publicTypeNames")]
     public List<string>? PublicTypeNames { get; set; }
 
@@ -135,14 +135,14 @@ internal sealed class InterfaceFactsJsonPayload
     [JsonPropertyName("markerProtocolConformances")]
     public Dictionary<string, List<string>>? MarkerProtocolConformances { get; set; }
 
-    // Session 3 — enum facts.
+    // Enum facts.
     [JsonPropertyName("enumCaseLabels")]
     public Dictionary<string, List<string?>>? EnumCaseLabels { get; set; }
 
     [JsonPropertyName("enumCaseRawValues")]
     public Dictionary<string, string>? EnumCaseRawValues { get; set; }
 
-    // Session 3 — signature facts.
+    // Signature facts.
     [JsonPropertyName("parameterNames")]
     public Dictionary<string, List<string>>? ParameterNames { get; set; }
 
@@ -172,7 +172,7 @@ internal sealed class InterfaceFactsJsonPayload
     [JsonPropertyName("variadicMembers")]
     public List<string>? VariadicMembers { get; set; }
 
-    // Session 3 — protocol-level facts.
+    // Protocol-level facts.
     [JsonPropertyName("conventionCProtocols")]
     public List<string>? ConventionCProtocols { get; set; }
 
@@ -182,7 +182,7 @@ internal sealed class InterfaceFactsJsonPayload
     [JsonPropertyName("hiddenRequirementProtocols")]
     public Dictionary<string, List<string>>? HiddenRequirementProtocols { get; set; }
 
-    // M2 S4 — non-fact methods migrated behind the producer abstraction.
+    // Non-fact methods migrated behind the producer abstraction.
     [JsonPropertyName("protocolNames")]
     public List<string>? ProtocolNames { get; set; }
 

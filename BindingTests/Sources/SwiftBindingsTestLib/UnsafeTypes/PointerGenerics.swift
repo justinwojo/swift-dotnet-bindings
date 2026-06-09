@@ -3,10 +3,10 @@
 
 import Foundation
 
-// MARK: - Generic Types with Pointer Parameters (Phase 61 Regression Test)
+// MARK: - Generic Types with Pointer Parameters
 
 /// Generic container that can hold a pointer type.
-/// Phase 61 fixed IntPtr<T> generic emission bugs where T was a pointer type.
+/// Regression guard for IntPtr<T> generic emission bugs where T was a pointer type.
 /// Must emit IntPtr, NOT IntPtr<T>.
 public struct PointerContainer<T> {
     public let pointer: T

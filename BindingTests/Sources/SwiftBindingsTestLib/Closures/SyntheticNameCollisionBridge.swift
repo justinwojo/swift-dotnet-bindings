@@ -3,14 +3,14 @@
 
 import Foundation
 
-// P1-22 (C1): the MethodClosureBridge @_cdecl wrapper hardcodes synthetic Swift identifiers —
-// `self_` (the explicit self pointer param), `selfObj` (the self reconstruction local), and
-// per-closure `cdecl` / `_box_{N}` locals. A user parameter spelled the same name would collide
-// and produce an "invalid redeclaration" — and because the generator already returned exit 0,
-// it would emit broken Swift that only fails much later, in `swiftc`. The synthetic-name guard
-// (`ComputeSyntheticNames`) reserves every synthetic through a `SyntheticNameScope` seeded with
-// the user identifiers in the wrapper's scope, renaming a colliding synthetic to a `__`-prefixed
-// variant.
+// Synthetic-name collision guard on the MethodClosureBridge @_cdecl wrapper: the wrapper
+// hardcodes synthetic Swift identifiers — `self_` (the explicit self pointer param), `selfObj`
+// (the self reconstruction local), and per-closure `cdecl` / `_box_{N}` locals. A user parameter
+// spelled the same name would collide and produce an "invalid redeclaration" — and because the
+// generator already returned exit 0, it would emit broken Swift that only fails much later, in
+// `swiftc`. The guard (`ComputeSyntheticNames`) reserves every synthetic through a
+// `SyntheticNameScope` seeded with the user identifiers in the wrapper's scope, renaming a
+// colliding synthetic to a `__`-prefixed variant.
 //
 // Each method below puts a user parameter on one reserved synthetic name. The compile gate
 // proves the generated Swift + C# compile (no redeclaration); the runtime test proves the
@@ -24,8 +24,7 @@ import Foundation
 public final class SyntheticNameCollisionHost {
     public init() {}
 
-    /// User param `self_` collides with the synthetic self-pointer param. Mirrors the
-    /// REMEDIATION-PLAN done-when example `func run(self_: Int, _ cb: …)`.
+    /// User param `self_` collides with the synthetic self-pointer param.
     public func runSelfCollision(self_: Int32, completion: @escaping (Result<Int32, any Error>) -> Void) {
         completion(.success(self_ + 1))
     }

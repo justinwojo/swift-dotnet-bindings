@@ -67,7 +67,7 @@ public static class CdeclParamMapper
         // (nint)length. Empty span pins to a null pointer, so the Swift ptr parameter is
         // optional — both initializers accept an optional start already. The mutable variant
         // uses UnsafeMutableRawPointer? on the Swift side so write-back through the buffer
-        // mutates the C# memory directly. See unsafe-mutable-raw-buffer-pointer.md.
+        // mutates the C# memory directly.
         if (swiftTypeSpec is NamedTypeSpec rawBufSpec
             && (rawBufSpec.Name == "Swift.UnsafeRawBufferPointer"
                 || rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer"))
@@ -343,7 +343,7 @@ public static class CdeclParamMapper
                 // and pass it consuming. The function runs the value's deinit exactly once. The C#
                 // call site pairs this with SwiftSafeHandle.MarkConsumed() so the now-empty buffer is
                 // freed WITHOUT a second value-witness Destroy — without it Swift's consume plus the
-                // C# SafeHandle's Destroy double-free (P0-06, SIGABRT). `.move()` needs a mutable
+                // C# SafeHandle's Destroy double-free (SIGABRT). `.move()` needs a mutable
                 // pointer, so the @_cdecl param is UnsafeMutableRawPointer.
                 if (arg.Ownership == ParameterOwnership.Owned)
                 {
@@ -842,7 +842,7 @@ public static class CdeclParamMapper
     /// <summary>
     /// Collects the internal binding names that <see cref="Map"/>/<see cref="MapInout"/> will emit for
     /// a wrapper's user parameters, so each per-param escape can dodge its SIBLINGS as well as the
-    /// global synthetic set (the user-vs-sibling half of the P1-22 collision class). Mirrors the
+    /// global synthetic set (the user-vs-sibling half of the reserved-name collision class). Mirrors the
     /// keyword-rename + <see cref="SwiftBuilder.SanitizeIdentifier"/> transform <c>Map</c> applies
     /// BEFORE its reserved-collision escape (the escape is the step the sibling set feeds into, so it
     /// is deliberately not replicated here).

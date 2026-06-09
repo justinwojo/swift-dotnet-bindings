@@ -39,8 +39,8 @@ public func sbw_test_createValidationErrorContainer(_ bufferPtr: UnsafeMutableRa
 
 // MARK: - Closure Callback with `any Error`
 //
-// Exercises the MCB pipeline for `any Swift.Error` closure parameters
-// (Fix 3 from ship-blockers.md). The generator emits an SBW_MCB_ @_cdecl
+// Exercises the MCB pipeline for `any Swift.Error` closure parameters.
+// The generator emits an SBW_MCB_ @_cdecl
 // wrapper that wraps the existential container with withUnsafePointer and
 // hands an ExistentialContainer1 pointer to the C# callback, which
 // reconstructs a Swift.Foundation.AnyError.

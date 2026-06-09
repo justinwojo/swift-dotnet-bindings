@@ -9,9 +9,9 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Unit coverage for <see cref="RouteCSortShapeEligibility.IsRouteCSortShapeEligible"/>.
-/// Drives the three-way contract from Session 6c's design doc (Route C emitter,
-/// CSM open-generic suppression, CSM eligibility predicate) — drift between any of
-/// the three is the bug shape D's lesson called out. These tests pin the
+/// Drives the three-way contract between the Route C emitter,
+/// CSM open-generic suppression, and CSM eligibility predicate — drift between any of
+/// the three can silently misfire. These tests pin the
 /// predicate's decisions so the consumers can rely on it.
 /// </summary>
 public class RouteCSortShapeEligibilityTests

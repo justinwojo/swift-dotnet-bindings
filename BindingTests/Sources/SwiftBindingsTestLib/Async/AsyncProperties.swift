@@ -103,7 +103,7 @@ public class AsyncValueSource {
     }
 
     /// AsyncStream whose element type is a Swift array. Regression coverage for
-    /// `gap-0.10.0-swiftarray-at-api-boundary.md` (Bundle 04 #8): pre-fix the property
+    /// the SwiftArray-at-API-boundary projection bug: pre-fix the property
     /// surfaced as `IAsyncEnumerable<Swift.SwiftArray<Int32>>`, leaking the runtime
     /// helper type at the public API boundary. Post-fix the property surfaces as
     /// `IAsyncEnumerable<IReadOnlyList<Int32>>` while the channel still stores

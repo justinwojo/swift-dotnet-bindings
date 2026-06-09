@@ -184,11 +184,11 @@ extension DependencyPoint {
         }
     }
 
-    /// P1-22 collision: a user parameter named `self_` on a struct-receiver extension
-    /// method that returns a frozen struct (indirect `__resultPtr` result). The trampoline
-    /// injects both `self_` (receiver pointer) and `__resultPtr`; without the binding
-    /// escape, `self_` would duplicate the receiver parameter and the wrapper would be
-    /// silently dropped.
+    /// Synthetic-name collision: a user parameter named `self_` on a struct-receiver
+    /// extension method that returns a frozen struct (indirect `__resultPtr` result). The
+    /// trampoline injects both `self_` (receiver pointer) and `__resultPtr`; without the
+    /// binding escape, `self_` would duplicate the receiver parameter and the wrapper would
+    /// be silently dropped.
     public func offset(self_: Double) -> DependencyPoint {
         return DependencyPoint(x: self.x + self_, y: self.y + self_)
     }
@@ -212,14 +212,14 @@ public class DependencyToken {
 /// Extension on `DependencyService` (a class declared in the dependency
 /// module). Reproduces the Stripe pattern where module B layers extra API
 /// onto a class owned by module A — `extension StripeCore.STPAPIClient`
-/// declared in StripePayments. The Phase 1 fix routes class receivers
-/// through `CrossModuleExtensionEmitter` so the extension members surface
-/// as `static partial class DependencyServiceSwiftBindingsTestLibExtensions`.
+/// declared in StripePayments. Class receivers route through
+/// `CrossModuleExtensionEmitter` so the extension members surface as
+/// `static partial class DependencyServiceSwiftBindingsTestLibExtensions`.
 extension DependencyService {
     /// Returns the receiver's tag-shifted activation flag. Pure-Swift class
-    /// receiver, primitive parameter and primitive return — exercises the
-    /// Phase 1 happy path: a CallConvSwift call site that routes the receiver
-    /// through SwiftSelf and a primitive arg through the regular register.
+    /// receiver, primitive parameter and primitive return — exercises a
+    /// CallConvSwift call site that routes the receiver through SwiftSelf and
+    /// a primitive arg through the regular register.
     public func taggedActivation(tag: Int32) -> Int32 {
         return self.isActive ? tag : -tag
     }
@@ -232,14 +232,15 @@ extension DependencyService {
         return self.isActive
     }
 
-    /// P1-22 collision: a user parameter named `self_` on a class-receiver extension
-    /// method. The class trampoline injects `self_` for the receiver pointer; without the
-    /// binding escape the wrapper would declare `self_` twice and be silently dropped.
+    /// Synthetic-name collision: a user parameter named `self_` on a class-receiver
+    /// extension method. The class trampoline injects `self_` for the receiver pointer;
+    /// without the binding escape the wrapper would declare `self_` twice and be silently
+    /// dropped.
     public func tagWithSelf(self_: Int32) -> Int32 {
         return self.isActive ? self_ : -self_
     }
 
-    /// P1-22 collision on the async/throws trampoline, which injects
+    /// Synthetic-name collision on the async/throws trampoline, which injects
     /// `completionFn`/`completionCtx`/`self_`. The user parameter `self_` collides with
     /// the injected receiver pointer.
     public func computeAsyncWithSelf(self_: Int32) async -> Int32 {
@@ -254,10 +255,10 @@ extension DependencyService {
         completion(self.isActive ? value * 2 : -value)
     }
 
-    /// P1-22 collision on the SYNC closure trampoline (`EmitSwiftClosureTrampoline`). A plain
-    /// primitive sync method (`tagWithSelf`) routes through a direct CallConvSwift import where
-    /// `self_` is just an ordinary Swift parameter — no @_cdecl wrapper, so no collision. A
-    /// CLOSURE parameter, however, forces the class @_cdecl trampoline, which injects `self_`
+    /// Synthetic-name collision on the SYNC closure trampoline (`EmitSwiftClosureTrampoline`).
+    /// A plain primitive sync method (`tagWithSelf`) routes through a direct CallConvSwift import
+    /// where `self_` is just an ordinary Swift parameter — no @_cdecl wrapper, so no collision.
+    /// A CLOSURE parameter, however, forces the class @_cdecl trampoline, which injects `self_`
     /// for the receiver pointer. The user `self_` must escape the injected receiver binding;
     /// the completion fires synchronously so a per-call GCHandle is sufficient.
     public func reportWithSelf(self_: Int32, completion: @escaping (Int32) -> Void) {

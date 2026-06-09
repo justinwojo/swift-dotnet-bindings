@@ -12,7 +12,7 @@ import Foundation
 /// Currently disabled (.disabled extension) because the generator produces
 /// invalid C# compound identifiers like `__@in` and `__@for` — the `@` prefix
 /// must be at the start of an identifier in C#, not after other characters.
-/// See: known-issues-workarounds.md (S1 pattern).
+/// See: keyword-escaped argument labels (Alamofire S1 pattern) produce invalid C# compound identifiers.
 ///
 /// To enable: rename to FilterScope.swift (remove .disabled extension).
 /// The .disabled extension is the only gate — no Package.swift changes needed.

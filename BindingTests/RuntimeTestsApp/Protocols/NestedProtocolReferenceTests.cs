@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Regression test for bug-0.10.0-nested-protocol-i-prefix.
+/// Regression test for nested-protocol `I`-prefix misplacement.
 ///
 /// When a Swift protocol is nested inside a class/struct/enum (e.g.
 /// <c>NestedProtoOuter.Listener</c>), the generator must emit type references
@@ -42,7 +42,7 @@ public class NestedProtocolReferenceTests : TestBase
 
     public void TestNestedProtocolReferenceCompileSurface()
     {
-        // The primary regression assertion per bug-0.10.0-nested-protocol-i-prefix.md
+        // The primary regression assertion for the nested-protocol I-prefix bug
         // is a STRUCTURAL/COMPILE-TIME one: the type reference
         // `NestedProtoOuter.IListener` must resolve. Pre-fix the generator produced
         // `INestedProtoOuter.Listener` which doesn't exist (CS0246) and the entire

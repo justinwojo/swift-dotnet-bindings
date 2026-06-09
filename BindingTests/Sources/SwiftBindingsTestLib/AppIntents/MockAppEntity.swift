@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - AppIntents promotion smoke fixture (Session 8)
+// MARK: - AppIntents promotion smoke fixture
 //
 // AppIntents was previously suppressed at apple-frameworks.json with
 // `unsupported: true`; every member of every AppIntents type was filtered out
@@ -12,7 +12,7 @@
 // Entity : AppEntity`), declared in a fixture module so the binding generator
 // sees a downstream closed conformer.
 //
-// Important architectural note that constrains the v1 scope of Session 8:
+// Important architectural note that constrains the v1 scope of this fixture:
 // the 240 `WritableKeyPath<Entity, Value>` references in
 // AppIntents.swiftinterface are all on `EntityProperty<Value>` initializer
 // extensions of the form
@@ -20,7 +20,7 @@
 //   convenience init<Entity>(... getter: KeyPath<Entity, Value>)
 //     where Entity : AppIntents.AppEntity
 //
-// where `Entity` is a method-own generic parameter. Session 4's
+// where `Entity` is a method-own generic parameter. The
 // `KeyPathSingletonEmitter` (the only IN-path KeyPath origination machinery
 // in the generator) walks closed conformers of a PAT-constrained generic
 // *parent's* associated type, not method-own generics constrained by a
@@ -29,9 +29,7 @@
 // MockBook below is therefore a *promotion smoke* — it proves the type
 // declaration, conformance, and surrounding AppIntents API surface bind
 // without crashing the generator. The full per-property KeyPath origination
-// from a C#-side AppEntity conformer remains a follow-up. See
-// `src/docs/keypath-subsystem/08-appintents-productionization.md`,
-// section "Implementation outcomes (shipped)".
+// from a C#-side AppEntity conformer remains a follow-up.
 
 #if canImport(AppIntents)
 import AppIntents
@@ -39,11 +37,11 @@ import Foundation
 
 // MARK: - MockBook : AppEntity
 
-/// A minimal AppEntity conformer. The interesting surface for Session 8 is
-/// not the type itself but the EntityProperty / KeyPath / IntentParameter
-/// initializer extensions Apple ships in AppIntents.swiftinterface that
-/// constrain their method-own generic to AppEntity. MockBook is the closed
-/// conformer those extensions can specialize against.
+/// A minimal AppEntity conformer. The interesting surface is not the type
+/// itself but the EntityProperty / KeyPath / IntentParameter initializer
+/// extensions Apple ships in AppIntents.swiftinterface that constrain their
+/// method-own generic to AppEntity. MockBook is the closed conformer those
+/// extensions can specialize against.
 ///
 /// Three property shapes:
 /// - `id: String`  — required by Identifiable; ID conforms to EntityIdentifierConvertible via the existing Foundation/Swift bridge.
@@ -51,8 +49,8 @@ import Foundation
 /// - `pageCount: Int` — Int-typed `var`, exercises a primitive value-type slot.
 ///
 /// All `var`, so the synthesized `\MockBook.title` literal compiles to
-/// `WritableKeyPath` (Session 3 ABI ground-truth point 3). Once a future
-/// emitter walks AppEntity conformers, these are the three trampoline sites.
+/// `WritableKeyPath`. Once a future emitter walks AppEntity conformers, these
+/// are the three trampoline sites.
 @available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
 public struct MockBook: AppEntity {
     public typealias DefaultQuery = MockBookQuery
@@ -165,9 +163,9 @@ public func mockBookId(_ book: MockBook) -> String {
     book.id
 }
 
-// MARK: - AppEntity KeyPath singleton round-trip consumers (Session 8b)
+// MARK: - AppEntity KeyPath singleton round-trip consumers
 //
-// Session 8b emits `MockBookAppEntityKeyPaths.{Id,Title,PageCount}` —
+// These fixtures exercise `MockBookAppEntityKeyPaths.{Id,Title,PageCount}` —
 // `WritableKeyPath<MockBook, *>` singletons rooted directly on the closed
 // AppEntity conformer, originated by Swift `@_cdecl` trampolines. These free
 // functions are the consumer side that proves a C#-originated singleton
@@ -214,10 +212,10 @@ public func sameMockBookPath(_ a: KeyPath<MockBook, String>, _ b: KeyPath<MockBo
 }
 
 // Type-erased AnyKeyPath equality. The consumer-side EntityProperty factory
-// (Session 8b.3) captures the C#-originated KeyPath singleton inside the
-// dependency's `MiniEntityProperty.capturedKeyPath` (an `AnyKeyPath`). Reading
-// that property back across the dependency boundary and comparing it here to
-// the original singleton proves the factory threaded the *exact same* KeyPath
+// captures the C#-originated KeyPath singleton inside the dependency's
+// `MiniEntityProperty.capturedKeyPath` (an `AnyKeyPath`). Reading that
+// property back across the dependency boundary and comparing it here to the
+// original singleton proves the factory threaded the *exact same* KeyPath
 // into `init<Entity>(getter:)` — not merely a non-null pointer.
 @available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
 public func sameAnyKeyPath(_ a: AnyKeyPath, _ b: AnyKeyPath) -> Bool {

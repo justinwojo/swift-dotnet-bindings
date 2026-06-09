@@ -4,7 +4,7 @@
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLibDependency;
-// Pin DependencyService/DependencyPoint to the S-3 mirror in SwiftBindingsTestLib
+// Pin DependencyService/DependencyPoint to the SwiftBindingsTestLib mirror
 // so DependencyService.HostedPayload / DependencyPoint.HostedTag resolve against
 // the partial-class wrapper that hosts the nested types.
 using DependencyService = SwiftBindingsTestLib.DependencyService;
@@ -13,12 +13,12 @@ using DependencyPoint = SwiftBindingsTestLib.DependencyPoint;
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// SDK 0.11.0 R2 — S-3 regression coverage for nested types declared INSIDE
+/// SDK 0.11.0 R2 — regression coverage for nested types declared INSIDE
 /// extensions of foreign-module types. Stripe shape: StripeFinancialConnections
 /// declares `extension StripeCore.StripeAPI { struct FinancialConnectionsSession {} }`,
 /// then references that nested type from enum-case payloads in the same module.
 ///
-/// Before the S-3 emitter fix, `CrossModuleExtensionEmitter` only recursed nested
+/// Before the emitter fix, `CrossModuleExtensionEmitter` only recursed nested
 /// types on the struct-receiver path, so class-receiver extensions silently dropped
 /// the nested-type definitions. Downstream enum cases then lost their factories
 /// (no `Completed(...)`) and extractors (no `TryGetCompleted`), matching the

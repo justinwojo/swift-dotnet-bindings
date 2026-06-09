@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 //
 // SwiftUI Views replicating patterns from third-party validation libraries.
-// These exercise bridge parameter gates added in Sessions 2-3 at runtime:
+// These exercise bridge parameter gates at runtime:
 //
 //   NoParamBlurView       → AlertToast.BlurView (zero-param init)
 //   PlayerStyleView       → YouTubePlayerKit.YouTubePlayerView (class + string)
@@ -207,7 +207,7 @@ public struct CodableProfile: Codable, Equatable {
 }
 
 /// Exercises Binding<CodableStruct> bridge support — mirrors the FamilyActivityPicker
-/// shape from `04-targeted-shims.md` Task 3. The bridge stores the struct in
+/// shape where a targeted shim stores the struct in
 /// @Published state and passes $state.profile to the view's init.
 public struct CodableProfileEditorView: View {
     @Binding var profile: CodableProfile

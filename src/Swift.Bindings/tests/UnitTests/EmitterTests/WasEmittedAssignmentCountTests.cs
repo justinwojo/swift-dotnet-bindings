@@ -11,16 +11,16 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Source-invariant guard pinning the <c>.WasEmitted = true;</c> assignment population that
-/// <c>.claude/rules/constraints.md</c> documents (the "WasEmitted flag" trap constraint).
+/// Source-invariant guard pinning the <c>.WasEmitted = true;</c> assignment population
+/// (the "WasEmitted flag" trap constraint).
 ///
 /// <para><c>MethodDecl.WasEmitted</c> / <c>PropertyDecl.WasEmitted</c> is the signal
 /// <c>HasMethodInResolvedAncestors</c> / <c>HasPropertyInResolvedAncestors</c> reads to decide whether
 /// an inherited member was actually emitted (and therefore whether a derived member is an
 /// <c>override</c> vs a fresh declaration). Every emitter that genuinely produces a member MUST stamp
 /// it. When that population drifts — a new bridge emitter forgets to stamp, or a stamp is removed —
-/// override resolution silently mis-binds, and the constraints.md count goes stale. This test fails
-/// the moment the count moves, forcing both the fix and the doc update into the same change.</para>
+/// override resolution silently mis-binds, and the population count goes stale. This test fails
+/// the moment the count moves, forcing both the fix and the count update into the same change.</para>
 ///
 /// <para>The canonical population is the set of real <c>X.WasEmitted = true;</c> assignments. Two
 /// textual look-alikes are deliberately NOT assignments and must stay excluded:
@@ -31,13 +31,12 @@ namespace BindingsGeneration.Tests;
 /// rather than by name.</para>
 ///
 /// <para>If this fails: re-run
-/// <c>grep -rn '\.WasEmitted = true;' src/Swift.Bindings/src --include='*.cs'</c>, update the two
-/// expected totals below AND the "WasEmitted flag" line in <c>.claude/rules/constraints.md</c> to
-/// match — they are the same contract stated twice.</para>
+/// <c>grep -rn '\.WasEmitted = true;' src/Swift.Bindings/src --include='*.cs'</c> and update the two
+/// expected totals below to match.</para>
 /// </summary>
 public class WasEmittedAssignmentCountTests
 {
-    // The documented population — see constraints.md "WasEmitted flag".
+    // The pinned WasEmitted assignment population.
     private const int ExpectedAssignmentCount = 23;
     private const int ExpectedFileCount = 12;
 
@@ -62,8 +61,8 @@ public class WasEmittedAssignmentCountTests
             total == ExpectedAssignmentCount && fileCount == ExpectedFileCount,
             $"`.WasEmitted = true;` population drifted from the documented {ExpectedAssignmentCount} " +
             $"assignments across {ExpectedFileCount} files to {total} across {fileCount}. " +
-            "If this is intentional, update BOTH the constants in this test and the \"WasEmitted flag\" " +
-            "line in .claude/rules/constraints.md. Live breakdown:" + Environment.NewLine + breakdown);
+            "If this is intentional, update the constants in this test to match the new emission-point " +
+            "count. Live breakdown:" + Environment.NewLine + breakdown);
     }
 
     /// <summary>file (repo-relative) → count of real WasEmitted assignments in it.</summary>

@@ -19,7 +19,7 @@ namespace RuntimeTestsApp.Generics;
 /// </list>
 ///
 /// <para>Both hosts ship a nested <c>Caption</c>/<c>Tag</c> value-type struct
-/// used as the constructor param. Before Phase 5 these constructors emitted
+/// used as the constructor param. These constructors previously emitted
 /// with <c>[Obsolete(SB0001)]</c>; the widened static-factory gate
 /// (<c>IsNestedTypeOfParentGeneric</c>) routes them through the normalized
 /// <c>@_cdecl</c> shim, dropping SB0001 and eliminating the heap-corruption

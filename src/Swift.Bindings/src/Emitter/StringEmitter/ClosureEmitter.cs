@@ -119,7 +119,7 @@ public static partial class ClosureEmitter
         var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
 
         // Callback never frees the GCHandle — the calling method's finally block handles cleanup
-        // for non-escaping closures (Cat 1). Escaping closures may fire multiple times
+        // for non-escaping closures. Escaping closures may fire multiple times
         // (e.g., callMultipleTimes), so freeing in the callback would crash on the second
         // invocation. Escaping-closure GCHandle leaks are closed via the Swift-side
         // _SBClosureCtx box deinit upcall — for cdecl the Swift wrapper unboxes before
@@ -778,7 +778,7 @@ public static partial class ClosureEmitter
                     // The wrapper is handed to the user's closure body and may be Disposed there.
                     // MarshalBorrowedClassFromSwift takes a real +1 (owning), so Dispose + finalize
                     // both balance it — unlike MarshalBorrowedFromSwift, whose SuppressFinalize-only
-                    // strategy leaves an explicit Dispose double-releasing a +0 handle (audit P1-02).
+                    // strategy leaves an explicit Dispose double-releasing a +0 handle.
                     return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedClassFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
                 else // ObjC-bridged
                     return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
@@ -856,7 +856,7 @@ public static partial class ClosureEmitter
             // is transferred to the C# callback. `MarshalFromSwift<T>` constructs the
             // ISwiftObject wrapper whose SafeHandle pairs VWT.Destroy + NativeMemory.Free.
             // Without owning-transfer, capture-out of the borrowed wrapper UAFs on the next
-            // GC cycle (or sooner under GC stress). bug-0.10.0-swift-wrapper-payload-buffer-leak.
+            // GC cycle (or sooner under GC stress).
             if (useCdecl && (closureHandler.IsComplexEnum(namedType) ||
                              closureHandler.IsFrozenStructWithRefFields(namedType)))
             {
@@ -867,7 +867,7 @@ public static partial class ClosureEmitter
             // The callback receives void* but the delegate expects the actual type.
             // Callback parameters are borrowed references. For a class wrapper handed to the user's
             // closure body, route through MarshalBorrowedClassFromSwift so an explicit Dispose in
-            // that body is balanced by a real +1 (audit P1-02); value-type wrappers (SwiftString /
+            // that body is balanced by a real +1; value-type wrappers (SwiftString /
             // Foundation.Data read-and-discard) keep the SuppressFinalize-only borrowed path, which
             // is correct because they are never surfaced to the user for Dispose.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);

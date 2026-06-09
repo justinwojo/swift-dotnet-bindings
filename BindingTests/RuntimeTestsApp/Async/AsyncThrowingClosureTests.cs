@@ -8,10 +8,10 @@ using Swift.Runtime;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Session A: generator-emitted baseline async-closure bridge.
-/// Matches the hand-written Session 0 spike shape in
-/// <c>AsyncClosureSpikeTests</c>, but exercises the wrapper produced by the
-/// emitter for <c>callAsyncThrowingClosure(_ closure: @escaping () async throws -&gt; Int32) async throws -&gt; Int32</c>.
+/// Generator-emitted baseline async-closure bridge.
+/// Matches the hand-written spike shape in <c>AsyncClosureSpikeTests</c>,
+/// but exercises the wrapper produced by the emitter for
+/// <c>callAsyncThrowingClosure(_ closure: @escaping () async throws -&gt; Int32) async throws -&gt; Int32</c>.
 /// </summary>
 public class AsyncThrowingClosureTests : TestBase
 {
@@ -53,7 +53,7 @@ public class AsyncThrowingClosureTests : TestBase
     /// <summary>
     /// Invoke the baseline bridge repeatedly to validate GCHandle lifetime.
     /// The context handle is owned by the Swift-side <c>_SBClosureCtx</c> box
-    /// (P1-18) and freed when Swift releases the adapter; this test guards the
+    /// and freed when Swift releases the adapter; this test guards the
     /// happy path — a premature free or wrong-handle-target would surface as a
     /// crash / wrong result on the Nth call. The collectible-after-call
     /// assertion lives in <c>AsyncClosureContextLifetimeTests</c> (device-only).
@@ -102,7 +102,7 @@ public class AsyncThrowingClosureTests : TestBase
         TestLogger.Info($"AsyncThrowingClosure.SameClosureTwice sum={result} callCount={callCount}");
     }
 
-    // MARK: - Session B: arg-bearing async-throwing closures
+    // MARK: - Arg-bearing async-throwing closures
 
     /// <summary>
     /// Arity-1 primitive arg: the C# closure receives the Int32 sent in from Swift
@@ -194,10 +194,10 @@ public class AsyncThrowingClosureTests : TestBase
         TestLogger.Info($"AsyncThrowingClosure.ThreeArgs = {result}");
     }
 
-    // MARK: - Session D: Foundation.Data return
+    // MARK: - Foundation.Data return
 
     /// <summary>
-    /// Session D: async-throwing closure returning Foundation.Data. A 1MB byte
+    /// Async-throwing closure returning Foundation.Data. A 1MB byte
     /// buffer is produced in C#, ferried C# → Swift via the
     /// DataAsyncClosureHelper.RunDataAsync path + AsyncBoxData Swift box, then
     /// reduced to a byte-sum checksum on the Swift side. Both sides compute the
@@ -229,7 +229,7 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Session D edge case: empty Data round-trip. C# pins a zero-length byte
+    /// Edge case: empty Data round-trip. C# pins a zero-length byte
     /// array (AddrOfPinnedObject returns IntPtr.Zero for empty arrays), and the
     /// Swift bridge calls Data(bytes: bytesPtr, count: 0). Asserts the bridge
     /// doesn't deref the null pointer when length is zero, and that the byte
@@ -247,10 +247,10 @@ public class AsyncThrowingClosureTests : TestBase
         TestLogger.Info("AsyncThrowingClosure.DataReturn empty payload round-tripped without crash");
     }
 
-    // MARK: - Session F: Swift.String return
+    // MARK: - Swift.String return
 
     /// <summary>
-    /// Session F: async-throwing closure returning Swift.String. C# delegate returns
+    /// Async-throwing closure returning Swift.String. C# delegate returns
     /// a UTF-8 managed string, StringAsyncClosureHelper pins the UTF-8 bytes, Swift
     /// resumes the continuation with a decoded String. The outer method returns the
     /// round-tripped string so the test asserts full byte-level parity.
@@ -268,7 +268,7 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Session F edge case: empty String round-trip. Zero-length byte[] has
+    /// Edge case: empty String round-trip. Zero-length byte[] has
     /// <c>AddrOfPinnedObject == IntPtr.Zero</c>; Swift must not deref on length=0.
     /// </summary>
     public async Task TestStringReturnClosureRoundTripsEmptyString()
@@ -284,7 +284,7 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Session F: multi-byte UTF-8 round-trip (emoji + non-ASCII). Proves the
+    /// Multi-byte UTF-8 round-trip (emoji + non-ASCII). Proves the
     /// Swift-side <c>String(decoding: buffer, as: UTF8.self)</c> reconstructs
     /// code points identical to the managed input.
     /// </summary>
@@ -302,7 +302,7 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Session F: C# lambda throws; Swift error channel should surface it as a
+    /// C# lambda throws; Swift error channel should surface it as a
     /// <c>SwiftException</c> with the original message preserved.
     /// </summary>
     public async Task TestStringReturnClosurePropagatesError()
@@ -329,7 +329,7 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Session F: same closure invoked twice inside one outer call. Verifies a
+    /// Same closure invoked twice inside one outer call. Verifies a
     /// fresh CheckedContinuation + box is built per invocation — if the adapter
     /// reused state, the second await would hit a resumed continuation.
     /// </summary>
@@ -352,7 +352,7 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Session F arity-1: closure receives Int32 arg, returns a String formed
+    /// Arity-1: closure receives Int32 arg, returns a String formed
     /// from it. Exercises the arg-bearing Start thunk path (String-return was
     /// previously Data-like zero-arg only).
     /// </summary>
@@ -369,7 +369,7 @@ public class AsyncThrowingClosureTests : TestBase
     }
 
     /// <summary>
-    /// Session F arity-2: closure receives (Int32, String), returns a String.
+    /// Arity-2: closure receives (Int32, String), returns a String.
     /// Shape matches PaymentSheet.IntentConfiguration confirm handlers — the
     /// exact pattern that needed to unblock for StripePaymentSheet.
     /// </summary>

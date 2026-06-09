@@ -515,7 +515,7 @@ public class StressTests : TestBase
 
     #endregion
 
-    #region Async Closure Leak Bound (Session D)
+    #region Async Closure Leak Bound
 
     /// <summary>
     /// Validates the leak-based lifetime model documented in

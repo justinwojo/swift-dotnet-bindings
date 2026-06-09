@@ -224,7 +224,7 @@ public class ProjectionVisitorTests
     [Fact]
     public void Set_AsParameter_PublicTypeIsReadOnlySet()
     {
-        // Bundle 04 #9: Set parameters now project as IReadOnlySet<T> (was
+        // Set parameters now project as IReadOnlySet<T> (was
         // IEnumerable<T> pre-fix, which dropped Swift's uniqueness invariant
         // at the public API surface). Callers must materialise an actual set
         // (HashSet<T>) on the C# side.

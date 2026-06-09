@@ -475,7 +475,7 @@ public static class AsyncMethodGenericBridgeEmitter
         TypeRecord? returnTypeRecord,
         ModuleEmissionContext ctx)
     {
-        // S5 audited (Tier B): the `_XMA` suffix distinguishes async-generic-bridge symbols
+        // the `_XMA` suffix distinguishes async-generic-bridge symbols
         // from both `_XM` (sync generic bridge) and unsuffixed plain method wrappers.
         // Inter-emitter collision is impossible by the suffix convention.
         if (!ctx.TryAddMethodWrapperSymbol(cdeclSymbol))
@@ -521,14 +521,14 @@ public static class AsyncMethodGenericBridgeEmitter
 
         swiftParams.Add("_ _sbwTask: Int64");
         // Monotonic cancellation-registry key, distinct from the GCHandle context (_sbwTask).
-        // See SwiftAsyncCancellation / P1-17.
+        // See SwiftAsyncCancellation.
         swiftParams.Add("_ _sbwCancelKey: Int64");
 
         // Regular parameters (with existential opening for the generic param).
         var callArgs = new List<string>();
         var reconstructions = new List<string>();
         // Sibling bindings so the hand-emitted generic-pointer binding and the Map'd non-generic
-        // params each dodge their siblings (user-vs-sibling half of the P1-22 class).
+        // params each dodge their siblings (user-vs-sibling reserved-name collision class).
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
         foreach (var arg in keptArgs)
         {
@@ -540,7 +540,7 @@ public static class AsyncMethodGenericBridgeEmitter
                 // generic param internally named `_self` yields `__self`, duplicating the receiver
                 // body local `let __self`; `self` yields `_self`, duplicating the injected self param.
                 // `__self`/`_self` are reserved, so the escape resolves both; siblings cover a
-                // generic binding clashing with another user param (P1-22).
+                // generic binding clashing with another user param.
                 var genericBinding = NameProvider.EscapeReservedSwiftWrapperLabel($"_{label}", siblings);
                 swiftParams.Add($"_ {genericBinding}: UnsafeRawPointer");
                 var argLabel = GetSwiftArgLabel(arg);
@@ -1039,7 +1039,7 @@ public static class AsyncMethodGenericBridgeEmitter
         };
         if (throws) pinvokeParams.Add("void* errorCallback");
         pinvokeParams.Add("long taskId");
-        // Monotonic cancellation-registry key (P1-17), threaded right after the GCHandle
+        // Monotonic cancellation-registry key, threaded right after the GCHandle
         // context so the C# declaration stays positionally aligned with the Swift @_cdecl
         // wrapper's `_ _sbwCancelKey: Int64`.
         pinvokeParams.Add("long cancelKey");
@@ -1320,7 +1320,7 @@ public static class AsyncMethodGenericBridgeEmitter
         };
         if (throws) callArgs.Add($"(void*){errorCallbackFieldName}");
         callArgs.Add("(long)(IntPtr)handle");
-        // Monotonic cancellation key (P1-17) — registry key, distinct from the GCHandle
+        // Monotonic cancellation key — registry key, distinct from the GCHandle
         // context above. Defined as a local before the CanBeCanceled block.
         callArgs.Add("_sbwCancelKey");
 

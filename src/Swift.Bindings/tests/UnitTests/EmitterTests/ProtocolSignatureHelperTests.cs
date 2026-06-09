@@ -48,7 +48,7 @@ public class ProtocolSignatureHelperTests
 
     #endregion
 
-    #region §6 #12 — Intra-protocol async/sync vtable-slot keys
+    #region Intra-protocol async/sync vtable-slot keys
 
     [Fact]
     public void GetMethodSignatureKey_SyncVsAsync_SameNameSameParams_DifferentKeysByDefault()

@@ -34,7 +34,7 @@ public static class MetadataWrapperEmitter
         ModuleEmissionContext ctx,
         BaseDecl? typeDecl = null)
     {
-        // S5 audited (Tier C): one metadata accessor per type. The `SBW_GetMetadata_`-style
+        // one metadata accessor per type. The `SBW_GetMetadata_`-style
         // prefix is structurally distinct from method/property/constructor symbols, so the
         // per-kind metadata bucket is collision-safe by construction.
         if (!ctx.TryAddMetadataWrapperSymbol(symbolName))

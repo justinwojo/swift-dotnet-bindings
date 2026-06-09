@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - Generic-async Sequence shape (MusicKit MusicPlayer.Queue.insert)
 //
-// Mirrors Bug 2 in `bug-0.10.0-generic-async-wrapper-symbol-missing.md`:
+// Mirrors the generic-async-wrapper missing-symbol bug (MusicKit MusicPlayer.Queue.insert shape):
 //
 //   public class MusicPlayer.Queue {
 //       public func insert<S: Sequence>(_ entries: S, at position: ...) async throws
@@ -64,7 +64,7 @@ public func makeAnimalAsyncRoster(firstName: String, secondName: String) -> Anim
     ])
 }
 
-// MARK: - CSM-async trim-overload fixtures (Phase 3a / option (b))
+// MARK: - CSM-async trim-overload fixtures
 //
 // Exercises `ConcreteProtocolSpecializationEmitter.TryEmitConcreteOverloadAsync`'s new
 // trailing tail call into `DefaultParameterOverloadEmitter.TryEmitOverloads`. Each

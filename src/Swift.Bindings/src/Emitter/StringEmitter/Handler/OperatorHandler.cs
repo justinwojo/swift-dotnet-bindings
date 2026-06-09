@@ -605,8 +605,8 @@ namespace BindingsGeneration
             // Swift compiles with the Swift calling convention. Pairing that symbol
             // with CallConvCdecl (the previous hardcoded value) reads return values
             // and self/parameters from the wrong registers — see
-            // bug-0.10.0-swift-mangled-symbol-with-cdecl-callconv.md (MusicKit
-            // AnyMusicProperty.==). Use Cdecl iff the wrapper actually emitted.
+            // Pairing a Swift-mangled symbol with CallConvCdecl reads return values
+            // and self/parameters from the wrong registers. Use Cdecl iff the wrapper actually emitted.
             var callingConvention = usesCdeclWrapper
                 ? PInvokeCallingConvention.Cdecl
                 : PInvokeCallingConvention.Swift;
@@ -642,8 +642,8 @@ namespace BindingsGeneration
                 // emitted (operator on a class / non-frozen-struct parent), the EntryPoint
                 // remains the Swift-mangled symbol and MUST be paired with CallConvSwift
                 // (PInvokeDeclaration's default of Cdecl reproduces the same register-
-                // mismatch that bug-0.10.0-swift-mangled-symbol-with-cdecl-callconv.md
-                // describes for non-generic parents).
+                // mismatch that arises when a Swift-mangled symbol is paired with Cdecl for
+                // non-generic parents).
                 var declaration = new PInvokeDeclaration
                 {
                     LibraryPath = libPath,
@@ -903,7 +903,7 @@ namespace BindingsGeneration
             var moduleName = parentDecl.SwiftTypeName.Module;
             var symbolName = GetOperatorCdeclSymbol(moduleName, parentDecl.Name, operatorDecl.OperatorSymbol, methodDecl.MangledName);
 
-            // S5 audited (Tier B): operator wrappers carry an `_{opName}_` segment
+            // operator wrappers carry an `_{opName}_` segment
             // (e.g. `_Equal_`, `_Add_`) that namespaces them away from regular
             // `_{methodName}_` symbols. The mangled-name hash makes the symbol unique
             // per overload. Per-kind method bucket is collision-safe.

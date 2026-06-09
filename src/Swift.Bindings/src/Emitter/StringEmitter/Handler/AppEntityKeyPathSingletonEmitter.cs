@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 8b — Emits typed KeyPath singleton trampolines rooted directly on the
+/// Emits typed KeyPath singleton trampolines rooted directly on the
 /// closed <c>AppIntents.AppEntity</c> conformers declared in the module being emitted.
 ///
 /// <para>
@@ -22,7 +22,7 @@ namespace BindingsGeneration;
 /// </para>
 ///
 /// <para>
-/// Shape vs Session 4. <see cref="KeyPathSingletonEmitter"/> roots its KeyPaths in a
+/// Shape comparison. <see cref="KeyPathSingletonEmitter"/> roots its KeyPaths in a
 /// PAT-constrained generic parent's <i>nested associated-type bag</i> and is driven by
 /// that parent's <c>KeyPath&lt;P.Assoc, *&gt;</c> parameter demand. Here the Root is the
 /// <b>conformer itself</b> (<c>KeyPath&lt;MockBook, Int&gt;</c>, not <c>KeyPath&lt;MockBook.SomeBag, Int&gt;</c>),
@@ -87,7 +87,7 @@ internal static class AppEntityKeyPathSingletonEmitter
             if (!IsEligibleConformerType(conformerDecl)) continue;
 
             // Module-scope dedup. Keyed on the conformer alone (Root = conformer), with
-            // an `AppEntity|` namespace so it never collides with Session 4's
+            // an `AppEntity|` namespace so it never collides with the nested-bag
             // `{conformer}|{bag}` container keys in the same registry.
             var containerKey = $"AppEntity|{conformer.SwiftQualifiedName}";
             if (!emissionContext.TryAddKeyPathSingletonContainer(containerKey)) continue;
@@ -130,7 +130,7 @@ internal static class AppEntityKeyPathSingletonEmitter
         var moduleName = conformerDecl.SwiftTypeName.Module;
         var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
         var rootSwiftFullName = conformerDecl.SwiftTypeName.ModuleQualifiedName;
-        // Same wrapper-source module-name collision concern as Session 4: rewrite the
+        // Same wrapper-source module-name collision concern as the nested-bag singletons: rewrite the
         // Root spelling used inside the `\Root.prop` literal.
         var rootSwiftQualifiedForWrapper = emissionContext.QualifyForWrapperSource(conformerDecl.SwiftTypeName);
         var rootCSharpFullName = KeyPathSingletonEmitter.ResolveCSharpFullName(conformerDecl, typeDatabase);
@@ -149,7 +149,7 @@ internal static class AppEntityKeyPathSingletonEmitter
         foreach (var prop in conformerDecl.Properties)
         {
             // allowAbstract: false — the conformer is a concrete nominal, not a protocol.
-            // allowComputed: true — unlike Session 4's nested-bag scenario (where only
+            // allowComputed: true — unlike the nested-bag scenario (where only
             // stored bag fields are KeyPath leaves), a concrete root forms valid KeyPaths
             // for computed properties too: `\Root.getOnly` is a `KeyPath` and
             // `\Root.getSet` is a `WritableKeyPath`. AppEntity conformers commonly expose
@@ -180,7 +180,7 @@ internal static class AppEntityKeyPathSingletonEmitter
             var conformerSan = KeyPathSingletonEmitter.SanitizeSymbol(conformer.SwiftQualifiedName);
             var propSan = KeyPathSingletonEmitter.SanitizeSymbol(prop.Name);
             // SBW_KP_AppEntity_ prefix is dedicated to this emitter — disjoint from
-            // SBW_KP_ (Session 4 nested-bag singletons), SBW_ (method wrappers), and
+            // SBW_KP_ (nested-bag singletons), SBW_ (method wrappers), and
             // SBW_CSM_ (conformer specialization wrappers).
             var symbol = $"SBW_KP_AppEntity_{moduleName}_{conformerSan}_{propSan}_{hash}";
 

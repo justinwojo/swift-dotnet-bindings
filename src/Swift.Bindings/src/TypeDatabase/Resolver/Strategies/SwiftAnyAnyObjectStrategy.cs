@@ -13,7 +13,7 @@ namespace BindingsGeneration;
 /// <see cref="TypeDatabaseExtensions.AnyType"/> as an intentional resolution.
 /// </summary>
 /// <remarks>
-/// Pre-M4-Session-2 the legacy <c>TryGetTypeRecord</c> branch handled these
+/// The legacy <c>TryGetTypeRecord</c> branch previously handled these
 /// inline while <c>GetTypeRecordOrAnyType</c> reached the same answer through
 /// the catch-all final fallback. The unified strategy collapses that drift
 /// into one explicit, intentional resolution surface so

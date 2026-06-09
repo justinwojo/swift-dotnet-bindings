@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Collisions;
 
 /// <summary>
-/// P1-22 (§4 residual — protocol-extension wrapper param escaping). A protocol-extension method's
+/// Protocol-extension wrapper param escaping. A protocol-extension method's
 /// @_cdecl wrapper injects a synthetic receiver binding <c>self_: UnsafeMutableRawPointer</c>. A user
 /// parameter literally spelled <c>self_</c> would produce a duplicate Swift binding, swiftc rejects
 /// the wrapper, and the build silently strips the symbol from the dylib — surfacing only at runtime as
@@ -36,7 +36,7 @@ public class ProtocolExtSelfParamCollisionTests : TestBase
         // symbol, this call would throw EntryPointNotFoundException instead of returning 703.
         AssertEqual(703, c.MixSelf(3),
             "MixSelf(3) -> seed*100 + self_ = 7*100 + 3; user param `self_` survived the synthetic-receiver escape");
-        TestLogger.Info("§4 protocol-extension self_ escape round-trip passed");
+        TestLogger.Info("protocol-extension self_ escape round-trip passed");
     }
 
     public void TestMixSelfDistinctArgumentsProveBindingCarriesUserValue()

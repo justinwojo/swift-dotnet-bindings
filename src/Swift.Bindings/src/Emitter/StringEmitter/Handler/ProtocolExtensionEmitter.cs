@@ -616,7 +616,7 @@ public static class ProtocolExtensionEmitter
         // handing it to TypeSpecParser (which doesn't accept Swift parameter attributes), and
         // capture which closure-attributes were present so they can be reattached to the
         // parsed ClosureTypeSpec. The escaping flag is load-bearing for the _SBClosureCtx
-        // owner-token wiring (Bug 1 Cat 3 / Bug 3 Case 2).
+        // owner-token wiring.
         var (strippedType, attrNames) = StripSwiftAttributes(afterColon);
         afterColon = strippedType;
 
@@ -1487,7 +1487,7 @@ public static class ProtocolExtensionEmitter
 
         var existentialHandler = new ExistentialHandler(typeDatabase);
         // Reserve the appended generic-metatype bindings (`__tType`) so a user param that sanitizes to
-        // one is escaped away from it (P1-22 user-vs-metatype collision).
+        // one is escaped away from it (user-vs-metatype collision).
         var metatypeBindings = isGenericConforming
             ? genericParamNames.Select(MetatypeBindingName).ToList()
             : null;
@@ -1737,7 +1737,7 @@ public static class ProtocolExtensionEmitter
         // and the call args agree on suffixes when params share a leaf type name.
         var existentialHandler = new ExistentialHandler(typeDatabase);
         // Reserve the appended generic-metatype bindings (class-level + method-level) so a user param
-        // that sanitizes to one is escaped away from it (P1-22 user-vs-metatype collision).
+        // that sanitizes to one is escaped away from it (user-vs-metatype collision).
         var metatypeBindings = genericParamNames.Count > 0
             ? genericParamNames.Select(MetatypeBindingName).ToList()
             : null;
@@ -1849,7 +1849,7 @@ public static class ProtocolExtensionEmitter
         // Build cdecl callback type. Reuse the already-deduped-and-reserved-escaped binding from
         // ComputeUniqueParamNames so the `{closureParamName}FuncPtr`/`{closureParamName}Context` body
         // references stay in lockstep with the wrapper's parameter decls (which use the same list).
-        // Recomputing it here would drop both the dedup suffix and the P1-22 reserved escape.
+        // Recomputing it here would drop both the dedup suffix and the reserved escape.
         var closureParamName = uniqueParamNames[closureParamIndex];
 
         var cdeclArgTypes = new List<string>();
@@ -1870,7 +1870,7 @@ public static class ProtocolExtensionEmitter
 
         // Wrap the GCHandle context pointer in a Swift-ARC-owned `_SBClosureCtx` box for
         // escaping closures so the box's deinit upcalls C# and frees the handle exactly
-        // once when Swift releases the captured closure (Bug 1 Cat 3 / Bug 3 Case 2).
+        // once when Swift releases the captured closure.
         // Non-escaping closures do not retain past the call — their handles are freed by
         // the C# wrapper's `finally`. The `_box` constant becomes part of the closure's
         // capture list so its lifetime tracks the closure.
@@ -2164,15 +2164,14 @@ public static class ProtocolExtensionEmitter
                 IsGeneric = false,
                 ParentDecl = conformingType,
                 ModuleDecl = moduleDecl,
-                // P0-06 (defensive): these dispatch params are reconstructed from raw
-                // .swiftinterface text via ParseExtensionSignature, which carries no ownership
-                // qualifier — there is no source Ownership to copy here. A `consuming`/`borrowing`
-                // protocol-extension param is currently suppressed upstream by the
-                // IsCdeclCompatibleType two-layer gate (the keyword mis-parses to an unknown type
-                // and the method is dropped), so Default is correct today. If that gate is ever
-                // taught to strip + project ownership-qualified params, thread the parsed ownership
-                // through to here, or the @_cdecl cleanup path will skip .move()/MarkConsumed →
-                // P0-06 double-free.
+                // These dispatch params are reconstructed from raw .swiftinterface text via
+                // ParseExtensionSignature, which carries no ownership qualifier — there is no
+                // source Ownership to copy here. A `consuming`/`borrowing` protocol-extension
+                // param is currently suppressed upstream by the IsCdeclCompatibleType two-layer
+                // gate (the keyword mis-parses to an unknown type and the method is dropped), so
+                // Default is correct today. If that gate is ever taught to strip + project
+                // ownership-qualified params, thread the parsed ownership through to here, or the
+                // @_cdecl cleanup path will skip .move()/MarkConsumed → double-free.
                 Ownership = ParameterOwnership.Default
             });
         }
@@ -2318,15 +2317,14 @@ public static class ProtocolExtensionEmitter
                 IsGeneric = false,
                 ParentDecl = conformingType,
                 ModuleDecl = moduleDecl,
-                // P0-06 (defensive): these dispatch params are reconstructed from raw
-                // .swiftinterface text via ParseExtensionSignature, which carries no ownership
-                // qualifier — there is no source Ownership to copy here. A `consuming`/`borrowing`
-                // protocol-extension param is currently suppressed upstream by the
-                // IsCdeclCompatibleType two-layer gate (the keyword mis-parses to an unknown type
-                // and the method is dropped), so Default is correct today. If that gate is ever
-                // taught to strip + project ownership-qualified params, thread the parsed ownership
-                // through to here, or the @_cdecl cleanup path will skip .move()/MarkConsumed →
-                // P0-06 double-free.
+                // These dispatch params are reconstructed from raw .swiftinterface text via
+                // ParseExtensionSignature, which carries no ownership qualifier — there is no
+                // source Ownership to copy here. A `consuming`/`borrowing` protocol-extension
+                // param is currently suppressed upstream by the IsCdeclCompatibleType two-layer
+                // gate (the keyword mis-parses to an unknown type and the method is dropped), so
+                // Default is correct today. If that gate is ever taught to strip + project
+                // ownership-qualified params, thread the parsed ownership through to here, or the
+                // @_cdecl cleanup path will skip .move()/MarkConsumed → double-free.
                 Ownership = ParameterOwnership.Default
             });
         }
@@ -2722,7 +2720,7 @@ public static class ProtocolExtensionEmitter
     /// (<c>T</c> → <c>_ __tType: T.Type</c>). Centralized so the append sites and the reserved-collision
     /// set in <see cref="ComputeUniqueParamNames"/> never drift: a drift would let a user param spelled
     /// <c>__tType</c> duplicate the binding, swiftc would strip the wrapper, and the entry point would
-    /// be missing at runtime (the P1-22 collision class).
+    /// be missing at runtime.
     /// </summary>
     private static string MetatypeBindingName(string genericParamName)
         => $"__{genericParamName.ToLowerInvariant()}Type";
@@ -2759,7 +2757,7 @@ public static class ProtocolExtensionEmitter
             }
         }
 
-        // P1-22: escape each user-derived binding that collides with a reserved synthetic the
+        // Escape each user-derived binding that collides with a reserved synthetic the
         // @_cdecl wrapper injects into the same signature (self_, resultPtr, errorOut, cdecl, …)
         // or with a sibling binding. The dedup loop above only resolves user-vs-user collisions;
         // a param named or sanitized to a reserved synthetic — e.g. a `self` label → `self_`, or a

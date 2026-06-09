@@ -852,7 +852,7 @@ partial class Build
             // the macOS-host PackGate cannot stand in for. Focused + exclusive: it does
             // NOT also run the normal RuntimeTestsApp suite. Composes with --sim/--device
             // and defaults to --sim when neither is given. Never part of the default inner
-            // loop (needs a booted sim and/or a provisioned device) — see CLAUDE.md.
+            // loop (needs a booted sim and/or a provisioned device).
             if (MixedPack)
             {
                 // iOS-only leg: it composes only with --sim/--device. Warn (don't silently

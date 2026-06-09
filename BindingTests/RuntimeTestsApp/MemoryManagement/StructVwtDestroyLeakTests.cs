@@ -180,7 +180,7 @@ public class StructVwtDestroyLeakTests : TestBase
     /// <summary>
     /// Churn both categories under periodic GC pressure and assert the live count
     /// stays bounded throughout and returns to 0 at the end — the struct-category
-    /// analogue of the class-instance Bundle 01 stress loop.
+    /// analogue of the class-instance SafeHandle/refcount stress loop.
     /// </summary>
     // Churn both categories under periodic GC pressure in a non-inlined helper, for the
     // same reason as the create-and-abandon helpers above: the final iteration's two

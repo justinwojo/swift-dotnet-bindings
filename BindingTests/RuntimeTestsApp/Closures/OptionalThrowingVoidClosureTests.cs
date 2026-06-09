@@ -8,8 +8,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Closures;
 
 /// <summary>
-/// End-to-end gate for REMEDIATION-PLAN §6: an *optional* escaping throwing closure
-/// returning Void as a method/initializer parameter — `((T) throws -> Void)? = nil`.
+/// End-to-end gate for an *optional* escaping throwing closure returning Void as a
+/// method/initializer parameter — `((T) throws -> Void)? = nil`.
 /// Before the handler-layer error-mint registration fix, the per-module helper
 /// `SBW_CreateError_{module}` went unregistered on the native `_optbuf`/default-parameter/
 /// non-optional-setter forwarding paths; the wrapper-symbol contract gate then rejected
@@ -32,8 +32,7 @@ namespace RuntimeTestsApp.Closures;
 /// emits a genuine CallConvSwift P/Invoke (`$s…OptionalThrowingModifierHolderC9validatoryyKcvs`,
 /// `SwiftSelf` self, `delegate* unmanaged[Swift]` callback) instead of routing through the
 /// `@_cdecl` wrapper — so it is the only path here with a CallConvSwift frame. The durable fix is
-/// to funnel that setter through a wrapper (tracked in REMEDIATION-PLAN §6); until then it runs
-/// under NativeAOT on device only.
+/// to funnel that setter through a wrapper; until then it runs under NativeAOT on device only.
 /// </summary>
 public class OptionalThrowingVoidClosureTests : TestBase
 {
@@ -115,23 +114,23 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     #endregion
 
-    #region Closure RETURN direction — throwing getter with by-value struct arg (§6 #4)
+    #region Closure RETURN direction — throwing getter with by-value struct arg
 
     // These exercise the OTHER direction of the same struct-arg throwing-closure shape: the
     // `configValidator` gettable property hands C# a delegate backed by a Swift func-ptr, and each
-    // C# invocation marshals the by-value `RequestConfig` struct TO Swift through that func-ptr. This
-    // is the REMEDIATION-PLAN §6 #4 defect: the throwing-closure RETURN invoker previously emitted a
-    // bare `_arg0` struct value into a `void*`/struct-pointer func-ptr slot → CS1503 at the compile
-    // gate. The fix routes the struct arg through the same metadata + buffer + MarshalToSwift prologue
-    // the non-throwing struct-param closure paths use; compiling these tests proves the CS1503 is gone,
-    // and the round-trip below proves the struct argument reaches Swift intact.
+    // C# invocation marshals the by-value `RequestConfig` struct TO Swift through that func-ptr.
+    // The throwing-closure RETURN invoker previously emitted a bare `_arg0` struct value into a
+    // `void*`/struct-pointer func-ptr slot → CS1503 at the compile gate. The fix routes the struct
+    // arg through the same metadata + buffer + MarshalToSwift prologue the non-throwing struct-param
+    // closure paths use; compiling these tests proves the CS1503 is gone, and the round-trip below
+    // proves the struct argument reaches Swift intact.
 
     public void TestHolder_ConfigValidator_Success_StructArgRoundTrips()
     {
         // Reading the property returns a `Func<RequestConfig, SwiftResult<SwiftVoid, SwiftError>>`
         // whose body is a Swift closure. Invoking it with a positive timeout records the value into
         // the holder, so `LastObservedTimeout` proves the by-value struct argument round-tripped TO
-        // Swift through the throwing-closure RETURN invoker (the §6 #4 marshalling fix).
+        // Swift through the throwing-closure RETURN invoker.
         var holder = new OptionalThrowingModifierHolder();
         var validator = holder.ConfigValidator;
         AssertNotNull(validator, "configValidator getter returns a non-null delegate");
@@ -163,13 +162,13 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     #endregion
 
-    #region Closure RETURN direction — NON-throwing getter with by-value struct arg (§6 #4 non-throwing twin)
+    #region Closure RETURN direction — NON-throwing getter with by-value struct arg
 
-    // The §6 #4 fix routes struct-arg closure RETURNS through the @_cdecl invoke thunk for BOTH
-    // throwing and non-throwing closures. Before the fix, a non-throwing struct-arg closure return
-    // was dispatched to the raw `delegate* unmanaged[Swift]` lambda struct path (an untested latent
-    // SIGSEGV — native calls from a display-class method crash Mono JIT with !ji->async). These guard
-    // the non-throwing reroute through the safe CallConvCdecl invoker class, covering both the
+    // The struct-arg closure RETURN fix routes both throwing and non-throwing closures through the
+    // @_cdecl invoke thunk. Before the fix, a non-throwing struct-arg closure return was dispatched
+    // to the raw `delegate* unmanaged[Swift]` lambda struct path (an untested latent SIGSEGV —
+    // native calls from a display-class method crash Mono JIT with !ji->async). These guard the
+    // non-throwing reroute through the safe CallConvCdecl invoker class, covering both the
     // non-frozen (NativeMemory + InitializeWithCopy) and frozen (stackalloc + MarshalToSwift) branches.
 
     public void TestHolder_ConfigEcho_NonFrozenStructArg_RoundTrips()

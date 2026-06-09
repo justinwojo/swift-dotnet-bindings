@@ -4,7 +4,7 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Phase 4 plain-throws → typed-exception bridge — Layer 3 (cascade helper).
+/// Plain-throws → typed-exception bridge — Layer 3 (cascade helper).
 ///
 /// Emits the per-module Swift cascade helper and C# typed-exception dispatcher
 /// that consume the registry built by <see cref="ErrorEnumRegistryEmitter"/>:
@@ -28,7 +28,7 @@ namespace BindingsGeneration;
 /// <see cref="ModuleEmissionContext.ErrorRegistryHelperEmittedCSharp"/>.
 /// </summary>
 /// <remarks>
-/// Phase 4 Layer 5 ownership model: the dispatcher selects one of four shapes
+/// Ownership model: the dispatcher selects one of four shapes
 /// per registered error type, mirroring the typed-throws ownership rules in
 /// <see cref="WrapperEmitter"/>:
 /// <list type="bullet">
@@ -114,7 +114,7 @@ public static class ErrorRegistryHelperEmitter
         // the GCHandle as Int64 across the @convention(c) boundary. Optional pointers
         // (errorPtr / msgPtr) so cancellation / fallthrough branches can pass nil.
         swiftWriter.WriteLines($$"""
-            // Phase 4 plain-throws → typed-exception cascade dispatcher for {{moduleName}}.
+            // Plain-throws → typed-exception cascade dispatcher for {{moduleName}}.
             // Emitted once per module; called from every plain-throws async wrapper's
             // catch block. Performs an alphabetical-by-id cascade of `as?` casts
             // against registered Error-conforming types and invokes the C# callback
@@ -192,7 +192,7 @@ public static class ErrorRegistryHelperEmitter
         // so the consumer still sees the original Swift message.
         csWriter.WriteLines($$"""
             /// <summary>
-            /// Phase 4 plain-throws → typed-exception bridge — module-scoped C# dispatcher
+            /// Plain-throws → typed-exception bridge — module-scoped C# dispatcher
             /// for <c>{{moduleName}}</c>. Wire-format consumer: switches on
             /// <c>errorTypeId</c> to reconstruct the matching <c>SwiftException&lt;TError&gt;</c>
             /// from the Swift-allocated error buffer (or class pointer for class-shaped

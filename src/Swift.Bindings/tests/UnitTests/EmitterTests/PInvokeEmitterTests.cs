@@ -223,7 +223,7 @@ public class PInvokeEmitterTests
     [Fact]
     public void ReturnType_CdeclArrayReturn_VoidWithResultPtr()
     {
-        // Bug 2: @_cdecl method returning Swift.Array<T> must use void return + resultPtr.
+        // @_cdecl method returning Swift.Array<T> must use void return + resultPtr.
         // Without the fix, the bound generic path returned IntPtr, mismatching the Swift
         // wrapper's void+resultPtr signature.
         var moduleDecl = CreateModuleDecl();
@@ -244,7 +244,7 @@ public class PInvokeEmitterTests
     [Fact]
     public void ReturnType_NonCdeclArrayReturn_ReturnsIntPtr()
     {
-        // Bug 2 inverse: non-@_cdecl Array returns use IntPtr (bound generic path).
+        // Non-@_cdecl Array returns use IntPtr (bound generic path).
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("getItems", classDecl, moduleDecl);
@@ -263,7 +263,7 @@ public class PInvokeEmitterTests
     [Fact]
     public void ReturnType_NonCdeclOptionalExistential_UsesSwiftIndirectResult()
     {
-        // Bug 0.10.0 (DataLoader.Validate uninitialized buffer): direct CallConvSwift
+        // DataLoader.Validate pattern: direct CallConvSwift
         // sync method returning Optional<any P> (e.g. `static func validate(...) -> (any Error)?`)
         // is address-only in Swift's ABI — returned via sret. The PInvoke signature must
         // declare `(SwiftIndirectResult, args...) -> void`, matching the body emission that
@@ -1166,9 +1166,9 @@ public class PInvokeEmitterTests
     [Fact]
     public void CdeclConstructor_DataParam_DecomposedIntoTwoNintWords()
     {
-        // P1-10: Foundation.Data ABI decomposition. @_cdecl constructor wrappers receive Data as
-        // two Int words. The C# P/Invoke must emit two nint parameters (_w0, _w1) instead of passing
-        // the 16-byte Swift.Foundation.Data struct by value — otherwise, on AArch64, a Data composite
+        // Foundation.Data ABI decomposition. @_cdecl constructor wrappers receive Data as two Int
+        // words. The C# P/Invoke must emit two nint parameters (_w0, _w1) instead of passing the
+        // 16-byte Swift.Foundation.Data struct by value — otherwise, on AArch64, a Data composite
         // pushed past x7 by leading scalar args is split between the last GP register and the stack
         // while the Swift side reads two whole-register Ints, losing the second word.
         var moduleDecl = CreateModuleDecl();
@@ -1209,7 +1209,7 @@ public class PInvokeEmitterTests
     [Fact]
     public void CdeclProperty_DataParam_NotDecomposed_PassedByValue()
     {
-        // P1-10 boundary: property/subscript (cdecl-property) wrappers are deliberately NOT decomposed.
+        // Data decomposition boundary: property/subscript (cdecl-property) wrappers are deliberately NOT decomposed.
         // A setter's Data value sits at argument slot 0/1 (after at most one self/inout pointer), so it
         // never lands beyond x7; "one 16-byte struct in x1:x2" and "two Int words in x1,x2" are
         // ABI-identical there. The accessor path passes the frozen Data struct by value (NativeRemappedFrozen),

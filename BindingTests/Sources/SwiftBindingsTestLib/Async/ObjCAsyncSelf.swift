@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Async instance methods on an @objc:NSObject self (issue #40 / P1-01)
+// MARK: - Async instance methods on an @objc:NSObject self (issue #40)
 //
 // When an async instance method lives on a Swift class, the generated async wrapper keeps
 // `self` alive across the Task continuation by retaining the self pointer into the call

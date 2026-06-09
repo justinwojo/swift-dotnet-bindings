@@ -261,7 +261,7 @@ public class MethodClosureBridgeTests
         Assert.Contains("UnsafeMutableRawPointer(mutating:", swift);
     }
 
-    // ─── P0-01: non-throwing closure callbacks fail fast, never swallow ──
+    // ─── Non-throwing closure callbacks fail fast, never swallow ──
 
     [Fact]
     public void TryEmit_VoidReturnClosure_CallbackFailsFastOnManagedException()
@@ -1158,12 +1158,12 @@ public class MethodClosureBridgeTests
         Assert.Contains("onCompleteFuncPtr", swift);
     }
 
-    // ─── D1: Complex Enum Closure Bridge ────────────────────────────
+    // ─── Complex Enum Closure Bridge ────────────────────────────────
 
     [Fact]
     public void IsEligible_ClosureWithComplexEnumArg_ReturnsTrue()
     {
-        // D1: A closure with a complex enum arg (no bound generics) should trigger MCB
+        // A closure with a complex enum arg (no bound generics) should trigger MCB
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -1184,7 +1184,7 @@ public class MethodClosureBridgeTests
     [Fact]
     public void IsEligible_ClosureWithComplexEnumAndPrimitive_ReturnsTrue()
     {
-        // D1: Mixed complex enum + primitive closure args
+        // Mixed complex enum + primitive closure args
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -1207,7 +1207,7 @@ public class MethodClosureBridgeTests
     [Fact]
     public void TryEmit_ComplexEnumClosure_EmitsHeapAllocation()
     {
-        // D1: Verify Swift wrapper contains heap allocation for complex enum
+        // Verify Swift wrapper contains heap allocation for complex enum
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -1279,7 +1279,7 @@ public class MethodClosureBridgeTests
     [Fact]
     public void TryEmit_ComplexEnumClosure_EmitsCorrectDelegateType()
     {
-        // D1: Public method should use typed Action<MyError>
+        // Public method should use typed Action<MyError>
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -1353,7 +1353,7 @@ public class MethodClosureBridgeTests
         Assert.DoesNotContain("Unmanaged<ImageRequest>", swift);
     }
 
-    // ─── Throw-window + _SBClosureCtx Owner Token (Bug 1 Cat 3 / Bug 3 Case 2) ───
+    // ─── Throw-window + _SBClosureCtx Owner Token ───
 
     [Fact]
     public void TryEmit_EscapingClosure_UsesClosureHandleWithEscapingPolicy()
@@ -1463,7 +1463,7 @@ public class MethodClosureBridgeTests
         Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
-    // ─── Simple Enum Regression (P1 from Codex review) ────────────────
+    // ─── Simple Enum Regression ────────────────────────────────────────
 
     [Fact]
     public void IsEligible_BoundGenericClosureWithSimpleEnumArg_ReturnsFalse()
@@ -2103,7 +2103,7 @@ public class MethodClosureBridgeTests
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class
             });
-        // D1: Complex enum for closure bridge testing
+        // Complex enum for closure bridge testing
         testModule.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyError"),
             new TypeRecord

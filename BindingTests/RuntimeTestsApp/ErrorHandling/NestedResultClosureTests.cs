@@ -19,8 +19,8 @@ namespace RuntimeTestsApp.ErrorHandling;
 /// Pre-fix the binding-report listed all four wrapper symbols as
 /// <c>MissingWrapperSymbol</c> and the C# binding silently dropped the
 /// methods — `PaymentSheet.FlowController.create(...)` had no callable
-/// surface at all. The closure-context owner-token mechanism (Session B,
-/// commit 9f02a9b7) wraps the C# <see cref="System.Runtime.InteropServices.GCHandle"/>
+/// surface at all. The closure-context owner-token mechanism wraps the C#
+/// <see cref="System.Runtime.InteropServices.GCHandle"/>
 /// in a Swift-ARC-owned <c>_SBClosureCtx</c> box exported from
 /// <c>libSwiftBindingsRuntime.dylib</c>, so the MCB pipeline now emits a
 /// stable <c>@_cdecl</c> wrapper for these closure-arg methods.

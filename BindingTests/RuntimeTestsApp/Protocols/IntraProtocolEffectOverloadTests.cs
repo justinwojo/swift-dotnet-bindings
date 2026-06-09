@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Regression test for intra-protocol async/sync effect overloading (audit §6 #12) —
+/// Regression test for intra-protocol async/sync effect overloading —
 /// the INTRA-protocol twin of <see cref="SiblingMethodDispatchTests"/>'s CROSS-protocol
 /// async/sync sibling cases.
 ///

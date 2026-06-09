@@ -386,7 +386,7 @@ public class ProtocolParserTests
     [Fact]
     public void PropertyDecl_IsProtocolRequirement_CanBeSet()
     {
-        // Bug 16 generalization: PropertyDecl carries IsProtocolRequirement so the
+        // PropertyDecl carries IsProtocolRequirement so the
         // parser counter and the EveryProtocol "required-but-suppressed" gate can
         // distinguish required Vars from extension defaults — mirrors MethodDecl.
         var property = CreatePropertyDecl("value", "Swift.Int");

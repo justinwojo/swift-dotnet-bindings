@@ -9,7 +9,7 @@ using Xunit;
 namespace Swift.Runtime.Tests;
 
 /// <summary>
-/// Tests for the two SafeHandle lifetime helpers added in 0.10.0 Bundle 01:
+/// Tests for the two SafeHandle lifetime helpers:
 /// <see cref="DeferredSafeHandleRelease"/> (the async-cleanup holder used by every
 /// async wrapper) and <see cref="SafeHandlePin"/> (the synchronous AddRef/Release
 /// bracket used by emitted Equals overloads and bound-generic argument extraction
@@ -108,7 +108,7 @@ public class SafeHandleLifetimeHelpersTests
     {
         // After Dispose, DangerousAddRef must throw on a closed handle —
         // ObjectDisposedException is the documented contract for SafeHandle.
-        // Bundle 01's holder must propagate that failure so the async
+        // The holder must propagate that failure so the async
         // wrapper surfaces it as a faulted Task to the consumer (correct:
         // a disposed receiver cannot back the in-flight call).
         var sh = new CountingSafeHandle(new IntPtr(0xABCD_1234));

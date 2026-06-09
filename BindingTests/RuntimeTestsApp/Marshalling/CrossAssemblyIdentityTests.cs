@@ -38,7 +38,7 @@ public class CrossAssemblyIdentityTests : TestBase
     // ConsumerB into separately created AssemblyLoadContexts and asserting
     // the resolved Language types diverge as expected, then re-merge via the
     // shared SwiftBindings.Apple assembly in the default ALC) is deferred to
-    // a post-0.8 hardening pass — tracked in src/docs/roadmap.md.
+    // a post-0.8 hardening pass.
     public void TestLanguageTypeReferenceEqualsAcrossAssemblies()
     {
         if (!OperatingSystem.IsIOSVersionAtLeast(16))

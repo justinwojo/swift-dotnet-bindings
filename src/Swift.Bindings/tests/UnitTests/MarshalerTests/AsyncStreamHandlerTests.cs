@@ -182,9 +182,8 @@ public class AsyncStreamHandlerTests
         Assert.Equal("IAsyncEnumerable<object>", result);
     }
 
-    // Bundle 04 #8: AsyncStream<[T]> surfaces as IAsyncEnumerable<IReadOnlyList<T>> at the
+    // AsyncStream<[T]> surfaces as IAsyncEnumerable<IReadOnlyList<T>> at the
     // public API boundary instead of leaking SwiftArray<T> (the runtime helper container).
-    // See gap-0.10.0-swiftarray-at-api-boundary.md.
     [Fact]
     public void GetCSharpAsyncEnumerableType_WithArrayOfIntElement_ProjectsToReadOnlyList()
     {
@@ -373,7 +372,7 @@ public class AsyncStreamHandlerTests
                     Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Struct
                 },
-                // Bundle 04 #8: needed for boundary projection / channel-storage tests of
+                // Needed for boundary projection / channel-storage tests of
                 // AsyncStream<[T]>, AsyncStream<Set<T>>, AsyncStream<[K: V]>.
                 ["Swift.Array"] = new TypeRecord
                 {

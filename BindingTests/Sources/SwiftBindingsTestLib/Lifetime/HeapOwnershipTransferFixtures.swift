@@ -3,13 +3,13 @@
 
 import Foundation
 
-// MARK: - Session 4 lifetime/leak/UAF regression fixtures
+// MARK: - Lifetime/leak/UAF regression fixtures
 //
 // Backs BindingTests/RuntimeTestsApp/Lifetime/Session4LifetimeTests.cs.
-// One Swift symbol per fix from sdk-0.11.0-residual-gaps.md so the C# test
-// can hammer the exact emitter shape that was broken before the fix.
+// One Swift symbol per fix so the C# test can hammer the exact emitter shape
+// that was broken before the fix.
 
-// MARK: - S-4: frozen-struct-with-ref-fields closure arg
+// MARK: - Frozen-struct-with-ref-fields closure arg
 
 /// Drives a closure whose single parameter is `FrozenStructWithRef`
 /// (frozen + ref fields → `IsFrozenStructProjectedAsClass`). The C# side
@@ -32,14 +32,14 @@ public func runTwoFrozenWithRefClosure(callback: (FrozenStructWithRef, FrozenStr
     callback(a, b)
 }
 
-// MARK: - S-5: async + existential param (any Protocol)
+// MARK: - Async + existential param (any Protocol)
 
 // AsyncSkipPolicyExistential.validateAsync(using: any SkipPolicyValidator)
 // already covers this shape from BindingTests/Sources/.../Async/AsyncSkipPolicyShapes.swift.
 // The runtime test hammers that existing entry point under load; no new fixture
 // is needed here.
 
-// MARK: - A-4: nullable struct setter SafeHandlePin
+// MARK: - Nullable struct setter SafeHandlePin
 //
 // ShapeHolder.currentShape (Shape?) from
 // BindingTests/Sources/.../WrapperCoverage/OptionalPropertyPaths.swift

@@ -8,11 +8,11 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Collisions;
 
 /// <summary>
-/// P1-21 (property-vs-method rename): C# forbids a property and a method sharing a name (CS0102).
+/// Property-vs-method rename: C# forbids a property and a method sharing a name (CS0102).
 /// <c>PropertyMethodCollider</c> has a stored property <c>conflict</c> AND a method
 /// <c>conflict(_:)</c>, so the method is renamed away from <c>Conflict</c> to <c>ConflictMethod</c>.
 /// A sibling already spelled <c>conflictMethod(_:)</c> then numerically collides with that rename, so
-/// the dedup disambiguates it as <c>ConflictMethod2</c>. The P1-21 root cause is that the dedup keys
+/// the dedup disambiguates it as <c>ConflictMethod2</c>. The root cause is that the dedup keys
 /// must observe BOTH the property rename and the numeric suffix, or the two methods emit under the
 /// same C# name (CS0111) and bind to the wrong Swift body.
 ///

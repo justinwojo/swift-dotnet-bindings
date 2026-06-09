@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.AppIntents;
 
 /// <summary>
-/// Session 8b.3 — consumer-side EntityProperty factory end-to-end gate.
+/// Consumer-side EntityProperty factory end-to-end gate.
 ///
 /// <para>
 /// The dependency's <c>MiniEntityProperty&lt;Value&gt;</c> (a stand-in for AppIntents'

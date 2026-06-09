@@ -323,7 +323,7 @@ public class FrozenStructHandlerTests
 
     #endregion
 
-    #region P1-15 — Reference field inline sizing (TryResolveReferenceFieldSize)
+    #region Reference field inline sizing (TryResolveReferenceFieldSize)
 
     [Fact]
     public void TryResolveReferenceFieldSize_PersistedInlineSize_HonoredVerbatim()
@@ -491,14 +491,14 @@ public class FrozenStructHandlerTests
 
     #endregion
 
-    #region §6 #5 — Sub-word Optional by-value layout mismatch (HasSubWordOptionalLayoutMismatch)
+    #region Sub-word Optional by-value layout mismatch (HasSubWordOptionalLayoutMismatch)
 
     // A by-value frozen struct (NOT projected as a Buffer-backed class) emits each Optional<primitive>
     // field as a whole 8-byte IntPtr word, but Swift packs sub-word optionals tighter. When that pushes
     // a later field to a different byte offset than Swift's packed layout, a by-value cdecl pass reads
     // the field from the wrong slot and corrupts it — so we must skip. The predicate simulates BOTH
     // layouts field-by-field and fires ONLY on per-field START-OFFSET divergence (a count of sub-word
-    // optionals is neither necessary nor sufficient — confirmed independently by Codex + Grok).
+    // optionals is neither necessary nor sufficient — confirmed independently).
 
     [Fact]
     public void SubWordOptionalMismatch_BoolOptThenInt32Opt_OffsetDiverges_Skips()
@@ -531,7 +531,7 @@ public class FrozenStructHandlerTests
     {
         // Swift: Int32 @0(size4,a4), Bool? @4(size1,a1). C#: Int32 @0(size4), Bool? @8(word8). The
         // trailing optional's C# 8-alignment pushes it to offset 8 vs Swift's 4 — a non-optional leading
-        // field does not make a following sub-word optional safe (Codex/Grok mixed-field witness).
+        // field does not make a following sub-word optional safe (mixed-field witness).
         var db = new TypeDatabase();
         var s = CreateFrozenStructWithStoredFields("Int32ThenBool",
             ("count", new NamedTypeSpec("Swift.Int32")),
@@ -543,7 +543,7 @@ public class FrozenStructHandlerTests
     [Fact]
     public void OverPaddedOptionalMismatch_Int64OptThenInt8_WholeWordValueOptional_Skips()
     {
-        // Codex review repro. Int64? is a WHOLE-WORD value optional: Int64 uses every bit so Swift
+        // Int64? is a WHOLE-WORD value optional: Int64 uses every bit so Swift
         // appends a separate tag byte → size 9, align 8. C# emits two IntPtr words = 16B. The following
         // Int8 lands at Swift @9 but C# @16 → corrupting by-value divergence. The pre-fix gate
         // (swiftAlign < IntPtr.Size) missed this because Int64? aligns to 8; the over-pad gate

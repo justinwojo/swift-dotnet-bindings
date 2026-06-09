@@ -12,7 +12,7 @@ namespace BindingsGeneration;
 /// (HasEmitted*/TryAdd*) instead of raw collection access, ensuring encapsulation
 /// and preventing callers from accidentally clearing or misusing state.
 ///
-/// Resolves H3 (Static Mutable State With Manual Reset) from architectural-review-v2.md.
+/// Uses typed dedup APIs instead of raw collection access to prevent static mutable state from leaking across modules.
 /// </summary>
 public sealed class ModuleEmissionContext
 {
@@ -361,7 +361,7 @@ public sealed class ModuleEmissionContext
 
     // ==================== KeyPath Singleton Containers ====================
     //
-    // Session 4 — module-level dedup for typed KeyPath singleton containers. Two
+    // Module-level dedup for typed KeyPath singleton containers. Two
     // PAT-constrained generic parents may demand the same (conformer, bag) pair
     // (e.g., two different consumer methods that both take
     // KeyPath<Item.LibraryFilter, *>). Each parent's emission pass walks demand
@@ -379,7 +379,7 @@ public sealed class ModuleEmissionContext
     public bool TryAddKeyPathSingletonContainer(string key) =>
         _emittedKeyPathSingletonContainers.Add(key);
 
-    // Session 8b.3 — per-(conformer × dependency-class × init-shape × value-type) dedup
+    // Per-(conformer × dependency-class × init-shape × value-type) dedup
     // for consumer-side KeyPath-init factory overloads. The factory recognizer walks
     // every dependency generic class's KeyPath-init shapes against every local conformer
     // of the init's generic constraint; two recognized shapes (e.g. getter/getSetter) host
@@ -398,7 +398,7 @@ public sealed class ModuleEmissionContext
     public bool TryAddKeyPathInitFactory(string key) =>
         _emittedKeyPathInitFactories.Add(key);
 
-    // Session 6c Route C: per-(parent × conformer × method × V) sort overload dedup.
+    // Per-(parent × conformer × method × V) sort overload dedup.
     // Two generic parents in the same module that emit the same (conformer × V) sort
     // shape would otherwise collide on both the C# partial-class member set and the
     // Swift @_cdecl symbol. Key shape:
@@ -406,7 +406,7 @@ public sealed class ModuleEmissionContext
     private readonly HashSet<string> _emittedRouteCSortOverloads = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Registers a (parent, conformer, method, V) Route C sort overload for this module.
+    /// Registers a (parent, conformer, method, V) sort overload for this module.
     /// Returns true if newly added; false if a previous emission pass already registered it.
     /// </summary>
     public bool TryAddKeyPathBagValueSpecialization(string key) =>
@@ -520,7 +520,7 @@ public sealed class ModuleEmissionContext
     /// <summary>Marks an extractor P/Invoke as emitted. Returns true if newly added.</summary>
     public bool TryAddExtractorPInvoke(string key) => _errorDescExtractorPInvokeTypes.Add(key);
 
-    // ==================== Error Type Registry (Phase 4 plain-throws bridge) ====================
+    // ==================== Error Type Registry (plain-throws bridge) ====================
 
     private readonly Dictionary<string, int> _errorTypeIds = new(StringComparer.Ordinal);
     private readonly List<string> _errorTypeOrder = new();
@@ -685,7 +685,7 @@ public sealed class ModuleEmissionContext
     /// <c>TrimmerRootDescriptor</c> — the eager-cctor pattern emitted by the three
     /// handlers gives ILC a call edge for the closed instantiation it can see, but it
     /// does NOT preserve reflection metadata for the open generic type definition. The
-    /// descriptor closes that gap (per Codex r1 HIGH finding for RC-AOT). Descriptor
+    /// descriptor closes that gap for NativeAOT trimming. Descriptor
     /// emission prepends <see cref="ResolvedNamespace"/> to form the fullname attribute.
     /// </summary>
     public IReadOnlyDictionary<string, int> EmittedOpenGenericISwiftObjectTypes =>
@@ -939,14 +939,13 @@ public sealed class ModuleEmissionContext
 
     // ==================== Authoritative Wrapper-Symbol Registry ====================
     //
-    // Session 2 (0.10.0 ship plan) — single source of truth for "did wrapper-emit
-    // emit a Swift @_cdecl symbol with this name". Every per-kind TryAdd*WrapperSymbol
-    // method below funnels through RegisterWrapperSymbolInternal, so the unified set
-    // mirrors the union of all per-kind sets without callers having to remember to
-    // double-register. Binding-emit consults this set via IsWrapperSymbolRegistered
-    // before emitting any P/Invoke whose entry point follows the wrapper-symbol naming
-    // convention (SBW_…); the consult catches the failure shape behind the three
-    // 0.10.0 bugs where binding-emit referenced a wrapper symbol that wrapper-emit
+    // Single source of truth for "did wrapper-emit emit a Swift @_cdecl symbol with
+    // this name". Every per-kind TryAdd*WrapperSymbol method below funnels through
+    // RegisterWrapperSymbolInternal, so the unified set mirrors the union of all per-kind
+    // sets without callers having to remember to double-register. Binding-emit consults
+    // this set via IsWrapperSymbolRegistered before emitting any P/Invoke whose entry
+    // point follows the wrapper-symbol naming convention (SBW_…); the consult catches
+    // the failure shape where binding-emit referenced a wrapper symbol that wrapper-emit
     // never actually produced.
 
     private readonly HashSet<string> _registeredWrapperSymbols = new(StringComparer.Ordinal);
@@ -1425,7 +1424,9 @@ public sealed class ModuleEmissionContext
     /// factories reference it by name for read-only Swift→C# wrap), but the static ctor must
     /// not call <c>NativeMethods.Set&lt;Protocol&gt;_vtable</c>, which would throw
     /// <see cref="EntryPointNotFoundException"/> at first proxy use. See
-    /// <c>bug-0.10.0-proxy-vtable-setters-not-exported.md</c>. Must be called from the
+    /// Without this signal, the proxy emitter assumes every protocol got a vtable setter and
+    /// produces <see cref="EntryPointNotFoundException"/>-throwing static constructors.
+    /// Must be called from the
     /// <see cref="EveryProtocolEmitter"/> at the same point that emits the Swift function.
     /// </summary>
     public void MarkSetVtableEmitted(string protocolName)
@@ -1495,7 +1496,7 @@ public sealed class ModuleEmissionContext
     /// Records that the EveryProtocol conformance for the given protocol was routed
     /// through the NSObject-rooted <c>EveryObjCProtocol</c> helper class instead of
     /// the plain Swift <c>EveryProtocol</c>. Set by <see cref="EveryProtocolEmitter"/>
-    /// for @objc protocols that inherit only <c>NSObjectProtocol</c> (S-2). Read by
+    /// for @objc protocols that inherit only <c>NSObjectProtocol</c>. Read by
     /// <see cref="ProtocolProxyEmitter"/> so the C# proxy's static ctor calls the
     /// matching <c>SBW_CreateEveryObjCProtocol</c> / <c>SBW_GetMetadata_EveryObjCProtocol</c>
     /// / <c>SBW_SetEveryObjCProtocolDeinitCallback</c> factories instead of the
@@ -1575,7 +1576,7 @@ public sealed class ModuleEmissionContext
     /// already-loaded <c>libSwiftBindingsRuntime.dylib</c>) have been emitted into
     /// the wrapper source. Each wrapper module emits the dlsym lookup + box-factory
     /// helpers exactly once; per-closure adapter code refers to the helper by a
-    /// fixed name. Bridges Bug 1 Cat 3 / Bug 3 Case 2.
+    /// fixed name.
     /// </summary>
     public bool ClosureContextHelpersEmitted { get; set; }
 

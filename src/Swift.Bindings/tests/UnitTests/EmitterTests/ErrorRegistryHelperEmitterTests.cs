@@ -9,7 +9,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Locks the namespace-pattern remap contract on Phase 4's per-module error
+/// Locks the namespace-pattern remap contract on the per-module error
 /// registry helper. When a binding project sets <c>&lt;NamespacePattern&gt;</c>
 /// to a value different from the Swift module name (e.g. StoreKit2 maps Swift
 /// module <c>StoreKit</c> to C# namespace <c>StoreKit2</c>), every

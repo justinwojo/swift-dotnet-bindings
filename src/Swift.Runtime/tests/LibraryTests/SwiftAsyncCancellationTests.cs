@@ -12,7 +12,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Layer A coverage for <see cref="SwiftAsyncCancellation.NextCancelKey"/> (P1-17).
+/// Layer A coverage for <see cref="SwiftAsyncCancellation.NextCancelKey"/>.
 /// The cancellation registry key MUST be collision-free for the lifetime of the
 /// process: a recyclable GCHandle cookie let a just-completed task's
 /// <c>defer { _sbwUnregisterTask }</c> evict a newer task that reused the freed

@@ -1055,7 +1055,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 {
                     proxyClassName = propertyEnv.ExistentialHandler.QualifyProxyClassName(filteredProxy, innerProtocolList);
                 }
-                // P1-03: when the factory boxes a value conformer at +1, the @in_guaranteed setter
+                // When the factory boxes a value conformer at +1, the @in_guaranteed setter
                 // wrapper only borrows the buffer (reads via .pointee, copies into the property), so
                 // the caller must run the existential value-witness destroy afterward. Thread the
                 // runtime owns-bit; borrowed proxy/class containers (and the non-factory EC2+/

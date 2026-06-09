@@ -16,7 +16,7 @@ namespace BindingsGeneration.Tests;
 /// policy in <see cref="SwiftErrorMintEmitter"/>, plus the handler-layer wiring that drives it.
 /// </summary>
 /// <remarks>
-/// Regression coverage for the optional/native throwing-closure CS0103 class (REMEDIATION-PLAN §6):
+/// Regression coverage for the optional/native throwing-closure CS0103 class:
 /// the C# side mints a Swift error via <c>SBW_CreateError_{module}</c> for EVERY synchronous
 /// throwing-closure parameter, but the Swift helper was historically registered only by wrapper
 /// paths that funnel through <see cref="ClosureEmitter.GetSwiftClosureAdapterCode"/>. Native

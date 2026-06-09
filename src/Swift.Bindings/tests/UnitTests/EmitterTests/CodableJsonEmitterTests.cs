@@ -105,7 +105,7 @@ public class CodableJsonEmitterTests
     {
         // Frozen + class-projected = ClassWithBufferStruct. It exposes `_payload` + `PayloadBuffer<Buffer>`
         // but NOT `_payloadSize` / `NewFromPayloadCore`, so the decode factory cannot construct an
-        // instance. Phase 1 ships JSON only for ClassWithOpaquePayload (non-frozen).
+        // instance. JSON is only emitted for ClassWithOpaquePayload (non-frozen).
         var s = MakeStructDecl("Forecast", isFrozen: true, conformances: new[] { "Encodable", "Decodable" });
         Assert.False(CodableJsonEmitter.ShouldEmit(s, isProjectedAsClass: true));
     }
@@ -130,7 +130,7 @@ public class CodableJsonEmitterTests
     [Fact]
     public void ShouldEmit_GenericStruct_ReturnsFalse()
     {
-        // Phase 2 (closed-instantiation) deferred — generic Codable types should not emit JSON helpers yet.
+        // Generic Codable types (closed-instantiation) are not yet supported and should not emit JSON helpers.
         var s = MakeStructDecl("Forecast", isFrozen: true, conformances: new[] { "Encodable", "Decodable" }, generic: true);
         Assert.False(CodableJsonEmitter.ShouldEmit(s, isProjectedAsClass: true));
     }
@@ -152,7 +152,7 @@ public class CodableJsonEmitterTests
     [Fact]
     public void ShouldEmit_StructProjection_ReturnsFalse()
     {
-        // Pure-struct projection (no _payload) is deferred — Phase 1 only handles class projection.
+        // Pure-struct projection (no _payload) is not yet supported — only class projection is handled.
         var s = MakeStructDecl("Bare", isFrozen: true, conformances: new[] { "Codable" });
         Assert.False(CodableJsonEmitter.ShouldEmit(s, isProjectedAsClass: false));
     }

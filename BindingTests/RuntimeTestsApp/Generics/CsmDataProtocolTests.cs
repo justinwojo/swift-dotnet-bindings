@@ -141,9 +141,9 @@ public class CsmDataProtocolTests : TestBase
         AssertEqual(3, (int)combiner.CombinedCount(a, b), "CombinedCount(byte[], byte[])");
     }
 
-    // --- Namespace Enum CSM (Session 4) ---
+    // --- Namespace Enum CSM ---
     // BytesNamespace is a caseless Swift enum projected as `public static partial class`.
-    // Before Session 4's EnumHandler CSM hook, static methods with method-level
+    // Before the EnumHandler CSM hook, static methods with method-level
     // DataProtocol generics on namespace enums never received concrete overloads —
     // only a tombstoned open-generic signature survived. These tests verify both the
     // byte[] (RawBuffer) and Foundation.Data (InlineSwiftStruct) conformer pairings

@@ -220,7 +220,7 @@ public class GenericSignatureParserTests
         Assert.Equal(ConformanceKind.Protocol, proto.Kind);
     }
 
-    // --- P1-27 B3: layout/marker keyword constraints (AnyObject, Sendable, ...) ---
+    // --- Layout/marker keyword constraints (AnyObject, Sendable, ...) ---
     // These have no module-qualified nominal type. FromModuleQualifiedName throws on them, and
     // that throw used to propagate to SwiftABIParser.HandleNode and discard the ENTIRE enclosing
     // decl. ParseConstraint must instead drop just the unrepresentable constraint.

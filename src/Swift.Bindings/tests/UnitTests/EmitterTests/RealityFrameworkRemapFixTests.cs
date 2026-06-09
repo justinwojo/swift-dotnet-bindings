@@ -332,7 +332,7 @@ public class RealityFrameworkRemapFixTests
     [Fact]
     public void TupleOfStringClass_TopLevelGetReturnPlan_LiftsClassFieldFromIntPtr()
     {
-        // Codex round-1 finding (Low): the per-element class lift was originally only added
+        // The per-element class lift was originally only added
         // to TupleProjection.GetReturnElementConversion (the inner-element path used by
         // Optional<Tuple>), so a direct top-level `(String, Class)` return — without an
         // Optional wrapper — still left the class field as raw IntPtr in the public
@@ -425,7 +425,7 @@ public class RealityFrameworkRemapFixTests
     [Fact]
     public void DictionaryBoolKey_ObjCBridgeReturn_UnboxesViaBoolValue()
     {
-        // Pins the Codex round-1 finding: Swift.Bool projects as BoolProjection (its own class
+        // Swift.Bool projects as BoolProjection (its own class
         // distinct from BlittableProjection) because the P/Invoke side requires
         // [MarshalAs(UnmanagedType.U1)]. The NSNumber unbox path must include BoolProjection
         // alongside BlittableProjection so a real [Bool: URL] NSDictionary bridge return
@@ -461,7 +461,7 @@ public class RealityFrameworkRemapFixTests
     public void DictionaryBlittableKey_ObjCBridgeParameter_BoxesViaNSNumberFactory(
         string keyPublicType, string expectedBox)
     {
-        // Codex round-2 finding (Low): the parameter-side ToNSObject fall-through emitted
+        // The parameter-side ToNSObject fall-through emitted
         // (Foundation.NSObject)kvp.Key, which is an invalid primitive-to-NSObject cast.
         // The fix mirrors the return-side NSNumber unbox table — primitive blittable keys
         // are boxed via the matching Foundation.NSNumber.FromXxx factory before being
@@ -483,7 +483,7 @@ public class RealityFrameworkRemapFixTests
     [Fact]
     public void DictionaryBoolKey_ObjCBridgeParameter_BoxesViaFromBoolean()
     {
-        // Same Codex round-2 finding for the BoolProjection arm: a [Bool: URL] parameter
+        // Same parameter-side fix for the BoolProjection arm: a [Bool: URL] parameter
         // bridge must wrap the bool key in Foundation.NSNumber.FromBoolean(...) — never
         // cast bool directly to NSObject.
         var keyProj = new BoolProjection();
@@ -503,7 +503,7 @@ public class RealityFrameworkRemapFixTests
     [Fact]
     public void TupleOfStringObjCRootedClass_GetReturnPlan_LiftsClassFieldFromIntPtr()
     {
-        // Codex round-2 finding (Medium): ObjCRootedClassProjection has the same shape as
+        // ObjCRootedClassProjection has the same shape as
         // ClassProjection — PInvokeType=IntPtr, GetReturnPlan wraps via MarshalFromSwiftObject,
         // GetReturnElementConversion returns null. Without including it in the tuple lift gate,
         // a (String, ARView)/(String, NSObject-rooted class) return still leaked raw IntPtr
@@ -546,7 +546,7 @@ public class RealityFrameworkRemapFixTests
     [Fact]
     public void TupleOfStringNonFrozenStruct_GetReturnPlan_LiftsHandleFieldFromIntPtr()
     {
-        // Codex round-3 finding (Medium): NonFrozenStructProjection has the same raw-
+        // NonFrozenStructProjection has the same raw-
         // pointer-tuple-slot shape as ClassProjection/ObjCRootedClassProjection — its
         // PInvokeType is IntPtr, GetReturnPlan wraps via MarshalFromSwiftObject, and
         // GetReturnElementConversion returns null. A (String, NonFrozenStruct) tuple

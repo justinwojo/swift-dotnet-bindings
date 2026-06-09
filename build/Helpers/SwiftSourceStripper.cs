@@ -89,7 +89,7 @@ public static class SwiftSourceStripper
         // closure / Int32 property) must dispatch via a real vtable receiver, mirroring
         // Nuke ImagePipelineDelegate / BlinkIDUX CameraModel richness.
         "MultiShapeDelegate",
-        // S-2 multi-arg dispatchable-closure shape (Stripe STPIssuingCard/STPCustomer
+        // Multi-arg dispatchable-closure shape (Stripe STPIssuingCard/STPCustomer
         // EphemeralKeyProvider parity). EphemeralKeyProvider's closure currently has a
         // String arg that the invoke thunk doesn't yet marshal — the EveryProtocol
         // extension still emits fatalError — but the proxy-construction test depends on
@@ -216,7 +216,7 @@ public static class SwiftSourceStripper
         // survive stripping so the runtime dispatch path exercises the fix.
         "PhantomOwnerMixedGeneric",
         "PhantomOwnerRegular",
-        // Mixed-generic under-detection (Grok H1): the original
+        // Mixed-generic under-detection: the original
         // HasOnlyMethodLevelGenerics predicate short-circuited on Self, so a
         // method carrying BOTH method-level generic (τ_1_*) AND Self (τ_0_*)
         // was not counted toward the "has polluting generic method" leg. A
@@ -226,7 +226,7 @@ public static class SwiftSourceStripper
         // the broader HasMethodLevelGenericInSignature classification.
         "CombinedMixedSelfGeneric",
         "CombinedRegularSibling",
-        // Sibling-protocol METHOD dispatch (audit item 1, Bug #2): two class-bound
+        // Sibling-protocol METHOD dispatch: two class-bound
         // protocols declare the same method signature. The owner (SiblingMethodOwner,
         // lex-min) emits the shared body; SiblingMethodPeer gets an EMPTY extension
         // routed via Swift cross-extension resolution. The owner body fans out across
@@ -235,7 +235,7 @@ public static class SwiftSourceStripper
         // the non-owner to be located. SiblingMethodDispatchTests is the runtime gate.
         "SiblingMethodOwner",
         "SiblingMethodPeer",
-        // Sibling-method NAME divergence (audit item 1, Codex r1 Medium): same same-signature
+        // Sibling-method NAME divergence: same same-signature
         // fan-out shape, but SiblingNameOwner ALSO declares a `collidingTag` property that
         // collides with its `collidingTag(_:)` method, renaming the method on the owner side
         // only. SiblingNamePeer keeps the plain name; the owner receiver's sibling-fallback
@@ -262,7 +262,7 @@ public static class SwiftSourceStripper
         // above) so the borrowed witness is never stripped out from under the peer.
         "MixedFanAsyncOwner",
         "MixedFanSyncPeer",
-        // Intra-protocol async/sync effect-overload (audit §6 #12, Kingfisher parity). A
+        // Intra-protocol async/sync effect-overload (Kingfisher parity). A
         // SINGLE protocol declares both `intraEffectTag(_:) -> Int32` and
         // `intraEffectTag(_:) async -> Int32`, occupying two distinct vtable slots. The C#
         // proxy implements both members; IntraProtocolEffectOverloadTests reverse-dispatches
@@ -271,7 +271,7 @@ public static class SwiftSourceStripper
         // must survive stripping for the existential-construction P/Invoke to resolve. This is
         // the intra-protocol twin of the AsyncRefineModifierBase/SyncRefineModifier pair above.
         "IntraEffectTagged",
-        // Audit P1-08 WRITE direction: a C# class implements MarkerProvider and is vended
+        // WRITE direction: a C# class implements MarkerProvider and is vended
         // to Swift through consumeMarkerProvider. The marshaller wraps the C# conformer in
         // the EveryProtocol-backed proxy, so Get_EveryProtocol_MarkerProvider_WitnessTable
         // must resolve; Swift then reads the getter's `[any Marker]` (class-bound) array back
@@ -282,7 +282,7 @@ public static class SwiftSourceStripper
         // Swift class boxables (MarkerImpl), never a pure-C# IMarker, so its EveryProtocol
         // conformance is never exercised.
         "MarkerProvider",
-        // Audit P1-08 dict-value sibling: same WRITE direction as MarkerProvider but the
+        // Dict-value sibling: same WRITE direction as MarkerProvider but the
         // requirement is `var markerMap: [String: any Marker] { get }`. A C# class implements
         // MarkerMapProvider and is vended to Swift through consumeMarkerMapProvider, so
         // Get_EveryProtocol_MarkerMapProvider_WitnessTable must resolve; Swift then reads the
@@ -291,7 +291,7 @@ public static class SwiftSourceStripper
         // get-only property) and is only stripped because nothing referenced it before this
         // test, so both the conformance and its witness-table getter must survive stripping.
         "MarkerMapProvider",
-        // Audit L229 nested sibling: same WRITE/reverse-dispatch direction as MarkerProvider but the
+        // Nested sibling: same WRITE/reverse-dispatch direction as MarkerProvider but the
         // requirement is `var markerGrid: [[any Marker]] { get }` (a NESTED class-bound existential
         // collection). A C# class implements NestedMarkerProvider and is vended to Swift through
         // consumeNestedMarkerProvider, so Get_EveryProtocol_NestedMarkerProvider_WitnessTable must
@@ -300,7 +300,7 @@ public static class SwiftSourceStripper
         // because nothing referenced it before this test, so the conformance and its witness-table
         // getter must survive stripping.
         "NestedMarkerProvider",
-        // Audit L229 READ/method-param sibling of NestedMarkerProvider: the requirement is
+        // READ/method-param sibling of NestedMarkerProvider: the requirement is
         // `func consume(grid: [[String: any Marker]]) -> Int` (a NESTED class-bound existential
         // collection as an incoming METHOD PARAM, not a getter). A C# class implements
         // NestedMarkerMapConsumer and is vended to Swift through driveNestedMarkerMapConsumer, so
@@ -311,7 +311,7 @@ public static class SwiftSourceStripper
         // because nothing referenced it before this test, so the conformance and its witness-table
         // entry must survive stripping.
         "NestedMarkerMapConsumer",
-        // Audit L229 SETTER sibling: the requirement is a SETTABLE
+        // SETTER sibling: the requirement is a SETTABLE
         // `var markerMapGrid: [String: [String: any Marker]] { get set }` (a NESTED class-bound existential
         // dictionary VALUE). A C# class implements MutableMarkerMapGridHolder and is vended to Swift through
         // writeAndSumMarkerMapGrid, so Get_EveryProtocol_MutableMarkerMapGridHolder_WitnessTable must

@@ -454,7 +454,7 @@ namespace BindingsGeneration
 
             // All parameters validated — now emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
-            // S5 audited (Tier B): simple-enum instance method wrapper. The
+            // simple-enum instance method wrapper. The
             // _simpleEnumEmissionContext is a per-enum context disjoint from regular
             // type emission; wrapper symbols include the enum name, so cross-emitter
             // collision is impossible. Per-kind method bucket is collision-safe.
@@ -585,7 +585,7 @@ namespace BindingsGeneration
                 .Where(a => a.Name != "self")
                 .ToList();
             // Sibling bindings so a reserved-name escape (e.g. `tag`) also dodges a sibling user
-            // binding (P1-22). The call-value loop reuses the same set, keeping decl and call in sync.
+            // binding. The call-value loop reuses the same set, keeping decl and call in sync.
             var siblings = CdeclParamMapper.CollectSiblingBindingNames(paramDecls);
             foreach (var param in paramDecls)
             {
@@ -833,7 +833,7 @@ namespace BindingsGeneration
             // Compute wrapper symbol
             var getterMangledName = getter.Method.MangledName;
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
-            // S5 audited (Tier B): simple-enum instance property getter. The `_get_`
+            // simple-enum instance property getter. The `_get_`
             // infix and per-enum scoping make this symbol structurally distinct from
             // method wrappers and from non-simple-enum property wrappers. Per-kind
             // property bucket is collision-safe.
@@ -934,7 +934,7 @@ namespace BindingsGeneration
 
             // Emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
-            // S5 audited (Tier B): simple-enum static method — same per-enum scoping as
+            // simple-enum static method — same per-enum scoping as
             // the instance method path; static-vs-instance distinction is encoded in the
             // mangled-name hash. Per-kind method bucket is collision-safe.
             _simpleEnumEmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
@@ -1048,7 +1048,7 @@ namespace BindingsGeneration
 
             var getterMangledName = getter.Method.MangledName;
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
-            // S5 audited (Tier B): simple-enum static property getter — same per-enum
+            // simple-enum static property getter — same per-enum
             // scoping as the instance variant; static-vs-instance distinction is encoded
             // in the getter's mangled-name hash. Per-kind property bucket is collision-safe.
             _simpleEnumEmissionContext?.TryAddPropertyWrapperSymbol(wrapperSymbol);
@@ -1264,7 +1264,7 @@ namespace BindingsGeneration
                 .Skip(1)
                 .Where(a => a.Name != "self")
                 .ToList();
-            // Sibling bindings so a reserved-name escape also dodges a sibling user binding (P1-22).
+            // Sibling bindings so a reserved-name escape also dodges a sibling user binding.
             // The call-value loop reuses the same set, keeping decl and call in sync.
             var siblings = CdeclParamMapper.CollectSiblingBindingNames(paramDecls);
             foreach (var param in paramDecls)

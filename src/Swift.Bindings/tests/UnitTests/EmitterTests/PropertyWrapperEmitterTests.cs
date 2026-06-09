@@ -272,7 +272,6 @@ public class PropertyWrapperEmitterTests
     // and emits only the thin (request, metadata..., pwt...) signature, so
     // either mismatch shifts caller-saved registers and PAC-traps on arm64e.
     // Mirrors the gates in CanEmitGenericDispatch for methods/constructors.
-    // See src/docs/constrained-generic-metadata-witness-tables.md.
     // ─────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -313,7 +312,7 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericClassParent_ConcreteProperty_UnresolvableConformance_ReturnsTrue()
     {
-        // Codex P1 regression: concrete (non-T-typed) properties on generic class parents
+        // Regression: concrete (non-T-typed) properties on generic class parents
         // route through SelfReconstructionEmitter.EmitProtocolCast (instance dispatch) and
         // never call the metadata-accessor helper. The wrapper-helper gates (which guard
         // _sbw_meta_*) MUST NOT reject them, even when the parent has an unresolvable
@@ -373,7 +372,7 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericClassParent_ConcreteProperty_AssociatedTypeConformance_ReturnsTrue()
     {
-        // Codex P1 regression: concrete properties on classes with HasAssociatedTypes
+        // Regression: concrete properties on classes with HasAssociatedTypes
         // conformance must NOT be rejected — they use protocol-cast dispatch.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
             "ViewBag",
@@ -441,7 +440,7 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericClassParent_ConcreteProperty_ExceedsRegisterThreshold_ReturnsTrue()
     {
-        // Codex P1 regression: concrete properties on a constrained generic class that
+        // Regression: concrete properties on a constrained generic class that
         // would otherwise trip the buffer-mode threshold. The instance protocol-cast
         // path doesn't use the helper, so the gate must NOT fire.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(

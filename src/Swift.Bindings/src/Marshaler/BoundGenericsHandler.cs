@@ -61,7 +61,7 @@ public class BoundGenericsHandler
     /// dispatch — not a parametric struct. Treating <c>any P&lt;X&gt;</c> as a bound
     /// generic would route the parameter through the concrete-type marshaller and emit
     /// <c>arg.Payload</c> / <c>SafeHandlePin</c> against an interface reference (CS1061).
-    /// See <c>gap-0.10.0-everyprotocol-and-existentials.md</c> Cases 1 and 2.
+    /// Constrained existential Cases 1 and 2: concrete-arg `any P&lt;X&gt;` and plain `any P`.
     /// </summary>
     private bool IsBoundGenericTypeSpec(TypeSpec? typeSpec) =>
         typeSpec is NamedTypeSpec namedTypeSpec &&
@@ -345,7 +345,7 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
-    /// The nested-container recursion (audit L229) admits a buried existential ONLY through genuine
+    /// The nested-container recursion admits a buried existential ONLY through genuine
     /// nested Array/Dictionary leaves — <c>Array&lt;Array&lt;any P&gt;&gt;</c>,
     /// <c>Array&lt;Dictionary&lt;K, any P&gt;&gt;</c>, <c>Dictionary&lt;K, Array&lt;any P&gt;&gt;</c>,
     /// <c>Dictionary&lt;K, Dictionary&lt;K2, any P&gt;&gt;</c>. It must NOT descend into an Optional-wrapped
@@ -398,7 +398,7 @@ public class BoundGenericsHandler
     /// <c>Dictionary&lt;K, any P&gt;</c>. Direct existential parameters
     /// (<c>any P</c>, <c>any P&lt;X&gt;</c>) are intentionally excluded: they are
     /// routed through <see cref="ExistentialHandler"/> with their own gates and
-    /// projection (see <c>gap-0.10.0-everyprotocol-and-existentials.md</c>). If
+    /// projection through <see cref="ExistentialHandler"/> with proxy dispatch. If
     /// this method matched on the outer existential too, parameters of type
     /// <c>any P&lt;X&gt;</c> would short-circuit at the bound-generic-existential
     /// gate and never reach the constrained-existential lowering.
@@ -1410,7 +1410,8 @@ public class BoundGenericsHandler
         // when the type argument is the same class or inherits (transitively) from
         // it — class subtyping, not protocol conformance. Mirrors Swift's class-
         // constraint semantics. See
-        // `bug-0.10.0-foundation-dimension-constraint-not-projected.md` (Bundle 04 #5).
+        // A class-bound constraint is satisfied when the type argument is the same class
+        // or inherits (transitively) from it — class subtyping, not protocol conformance.
         //
         // Run this BEFORE the FindTypeDecl resolution so external XML/database-
         // owned subclasses (e.g. `Foundation.UnitTemperature` satisfying

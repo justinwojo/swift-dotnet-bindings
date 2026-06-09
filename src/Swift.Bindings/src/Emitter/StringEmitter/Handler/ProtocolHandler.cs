@@ -388,7 +388,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // M11: Emitted signature collision (stays inline — uses stateful HashSet)
+                // Emitted signature collision (stays inline — uses stateful HashSet)
                 var emittedSignature = BuildEmittedSignature(methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpPropertyNames);
                 if (!emittedResolvedSignatures.Add(emittedSignature))
                 {
@@ -1236,7 +1236,7 @@ namespace BindingsGeneration
             // declaration emits a bare `IHasCollision?` while the concrete
             // implementation emits the qualified form, producing CS0246 + CS0738
             // when more existentials survive ObjC filtering after the per-module
-            // prefix gate (Session 5b).
+            // prefix gate.
             var factory_currentModuleName = protocolContext?.ModuleDecl?.Name;
             var projection = factory.Project(typeSpec, new ProjectionContext
             {

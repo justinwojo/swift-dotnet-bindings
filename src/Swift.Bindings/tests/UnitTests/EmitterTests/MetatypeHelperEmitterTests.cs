@@ -148,8 +148,7 @@ public class MetatypeHelperEmitterTests
 
     // ─────────────────────────────────────────────────────────────────────
     // HasUnresolvableTypeConformances — fail-closed gate for the wrapper
-    // metadata-accessor helper. See src/docs/constrained-generic-metadata-
-    // witness-tables.md "MetatypeHelperEmitter Swift wrapper path".
+    // metadata-accessor helper (MetatypeHelperEmitter Swift wrapper path).
     // ─────────────────────────────────────────────────────────────────────
 
     [Fact]

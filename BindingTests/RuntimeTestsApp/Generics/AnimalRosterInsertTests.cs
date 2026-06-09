@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Regression coverage for the RealityFoundation Bug 3 collection-template
+/// Regression coverage for the RealityFoundation collection-template
 /// re-resolution. <c>AnimalRoster</c> declares
 /// <c>insert&lt;S: Sequence&gt;(contentsOf source: S, beforeIndex i: Int) where S.Element : Animal</c>
 /// — a method-level generic with a class-inheritance bound that the parser routes

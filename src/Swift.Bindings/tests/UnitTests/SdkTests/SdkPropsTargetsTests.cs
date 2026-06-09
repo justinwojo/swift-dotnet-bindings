@@ -261,7 +261,7 @@ namespace BindingsGeneration.Tests
             Assert.Contains("missing device or simulator slice", TargetsContent);
         }
 
-        // ── P1-24: slice-id resync is generalized to BOTH binding modes ─────────
+        // ── Slice-id resync is generalized to BOTH binding modes ─────────────────
         // The static slice-id defaults at the top of Sdk.targets assume an
         // arm64-primary sim slice (ios-arm64-simulator). A fat fold OR an
         // x86_64-primary SwiftFramework wrapper lands the sim slice at a name the
@@ -314,7 +314,7 @@ namespace BindingsGeneration.Tests
             Assert.Contains("_SwiftBindingDeviceSliceId", body);
         }
 
-        // ── P1-23(b): the SwiftUI bridge fattens to match the wrapper ───────────
+        // ── The SwiftUI bridge fattens to match the wrapper ──────────────────────
         // A fat arm64+x86_64 wrapper paired with an arm64-only bridge xcframework
         // is dropped on x64-sim / Rosetta consumers (DllNotFound). The bridge compile
         // must thread the same --target-architectures the wrapper does.
@@ -800,7 +800,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Targets_GetSwiftFrameworkSearchPaths_WrapperPathIsAbsolute()
         {
-            // Bug 1: GetSwiftFrameworkSearchPaths returned relative wrapper xcframework paths.
+            // GetSwiftFrameworkSearchPaths returned relative wrapper xcframework paths.
             // When project B queries project A via MSBuild task, relative paths resolve
             // against the consumer (B), not the producer (A). Fix: prefix with $(MSBuildProjectDirectory)/.
             var target = TargetsContent.Substring(
@@ -813,7 +813,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Targets_CompileSwiftWrapperExec_HasContinueOnError()
         {
-            // Bug 2: _CompileSwiftWrapper Exec had no ContinueOnError, so wrapper compilation
+            // _CompileSwiftWrapper Exec had no ContinueOnError, so wrapper compilation
             // failure killed the entire build before _ValidateSwiftWrapperCompilation could run.
             // Fix: add ContinueOnError="WarnAndContinue" so downstream validation handles the result.
             var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
@@ -831,7 +831,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Targets_CompileSwiftWrapper_FiltersObjCProjectReferences()
         {
-            // Bug 3: ObjC ProjectReferences (e.g. BlinkID.ObjC.iOS.csproj) don't have
+            // ObjC ProjectReferences (e.g. BlinkID.ObjC.iOS.csproj) don't have
             // GetSwiftFrameworkSearchPaths target, causing MSB4057 errors.
             // Fix: filter into _SwiftBindingProjectReference excluding .ObjC. items.
             var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);

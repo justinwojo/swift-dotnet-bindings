@@ -391,7 +391,7 @@ public class TupleTests : IClassFixture<TupleTests.TestFixture>
     [Fact]
     public unsafe void MarshalFromSwift_BlittableValueType_ReadsCorrectly()
     {
-        // Bug 3: MarshalFromSwift must handle plain value types (like CGSize) that
+        // MarshalFromSwift must handle plain value types (like CGSize) that
         // are NOT ISwiftObject, NOT primitive, NOT tuple, NOT existential container.
         // The Unsafe.Read<T>() fallback was added to handle frozen blittable structs.
         var original = new TestSize { Width = 320.0, Height = 480.0 };

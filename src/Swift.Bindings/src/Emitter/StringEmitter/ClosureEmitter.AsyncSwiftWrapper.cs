@@ -4,9 +4,9 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Swift-side emission for async-closure bridge helpers (Session A baseline).
+/// Swift-side emission for async-closure bridge helpers.
 ///
-/// Session A scope: <c>@escaping () async throws -&gt; T</c> closure parameters
+/// Baseline scope: <c>@escaping () async throws -&gt; T</c> closure parameters
 /// on async-throwing outer methods where T is a BitwiseCopyable primitive.
 /// Emits three tiers:
 ///   (1) per Swift module — SwiftBindingsBridgeError + Sendable handoff shim,
@@ -54,7 +54,7 @@ public static partial class ClosureEmitter
             // free trampoline, releasing the GCHandle exactly once. Degrades to a
             // no-deinit fallback (the prior per-call leak) when
             // libSwiftBindingsRuntime is absent. Fixes the per-call async-closure
-            // GCHandle leak (audit A7 #9 / P1-18); mirrors the sync escaping path.
+            // GCHandle leak; mirrors the sync escaping path.
             private struct _SBW_AsyncClosureHandoff: @unchecked Sendable {
                 let contextPtr: UnsafeMutableRawPointer
                 let startFuncPtr: UnsafeMutableRawPointer
@@ -251,7 +251,7 @@ public static partial class ClosureEmitter
         // call sites; each adapter casts back to its own signature.
         //
         // ctxOwner wraps contextPtr in an ARC-owned `_SBClosureCtx` box so the C#
-        // GCHandle is freed when Swift releases the adapter (P1-18). The raw
+        // GCHandle is freed when Swift releases the adapter. The raw
         // contextPtr is still what flows to typedStart — the box only governs the
         // free, so C#-side recovery (GCHandle.FromIntPtr) is unchanged.
         return $"let {handoffVar} = _SBW_AsyncClosureHandoff("
@@ -433,8 +433,7 @@ public static partial class ClosureEmitter
         }
 
         // Non-throwing variant: withCheckedContinuation + Never error type. The
-        // Start ABI still carries a trailing errorFP slot (decision §3.6(a) —
-        // uniform typedStart shape) so we pass a sentinel non-null pointer that
+        // Start ABI still carries a trailing errorFP slot (uniform typedStart shape) so we pass a sentinel non-null pointer that
         // the C# Start thunk never dereferences.
         return $$"""
             {{indent}}// Adapter closure for non-throwing async closure parameter '{{paramName}}'.

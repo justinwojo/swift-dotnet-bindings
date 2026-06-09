@@ -5,9 +5,8 @@ import Foundation
 
 // MARK: - Family-F (`@available` emission) — Layer A coverage
 //
-// Synthetic mirrors of the five sub-shapes documented in
-// `bug-0.10.0-spurious-obsolete-on-recommended-overload.md`. The bug doc
-// lists each shape against a real-world library; this file recreates the
+// Synthetic mirrors of the five sub-shapes of the spurious-obsolete-on-recommended-overload
+// `@available` emission bug. Each shape is listed against a real-world library; this file recreates the
 // minimum Swift surface area for each so a regression shows up in
 // `nuke binding-tests` long before a `nuke validate` sweep would catch it.
 //

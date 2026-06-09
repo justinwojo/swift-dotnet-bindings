@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 6c Route C — sibling emitter to <see cref="ConcreteProtocolSpecializationEmitter"/>
+/// Sibling emitter to <see cref="ConcreteProtocolSpecializationEmitter"/>
 /// that closes the open-V keypath-sort gap CSM can't handle directly.
 ///
 /// <para>
@@ -29,7 +29,7 @@ namespace BindingsGeneration;
 /// which is the single-source predicate consulted by three call sites (this emitter,
 /// the CSM open-V suppression path, and the CSM eligibility check). The bag walk —
 /// "which conformer-bag properties project to real C# types?" — is delegated to
-/// <see cref="KeyPathBagWalker"/>, shared with Session 4's singleton emitter so the
+/// <see cref="KeyPathBagWalker"/>, shared with the singleton emitter so the
 /// two consumers agree on which leaves admit and which don't.
 /// </para>
 ///
@@ -65,7 +65,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         ILogger logger)
     {
         if (!typeDecl.IsGeneric) return;
-        // Same nested-generic-parent exclusion CSM and Session 4 honour: closed-
+        // Same nested-generic-parent exclusion CSM honours: closed-
         // receiver naming can't reference a nested generic parent without naming its
         // outer's generic args, which Route C has no recipe for.
         if (typeDecl.ParentDecl is TypeDecl) return;
@@ -288,9 +288,9 @@ internal static class KeyPathBagValueSpecializationEmitter
         ITypeDatabase typeDatabase,
         ILogger logger)
     {
-        // Classify each non-keypath argument once up front. Phase 2 supports only
-        // Primitive (Bool / integer / float). Anything richer (string, payload,
-        // struct, closure, …) bails out.
+        // Classify each non-keypath argument once up front. Only Primitive (Bool /
+        // integer / float) is supported. Anything richer (string, payload, struct,
+        // closure, …) bails out.
         var otherParams = new List<PreparedParam>();
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
@@ -303,7 +303,7 @@ internal static class KeyPathBagValueSpecializationEmitter
             if (category != MethodClosureBridge.ParamAbiCategory.Primitive)
             {
                 logger.LogDebug(
-                    "RouteC: skipping {Method} for {Conformer}/{V} — param {ParamName} (kind={Kind}) is not Primitive in Phase 2 scope.",
+                    "RouteC: skipping {Method} for {Conformer}/{V} — param {ParamName} (kind={Kind}) is not Primitive.",
                     method.Name, conformer.SwiftQualifiedName, normalizedCsValueType,
                     arg.Name, category);
                 return null;
@@ -325,11 +325,10 @@ internal static class KeyPathBagValueSpecializationEmitter
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
         if (!isVoidReturn)
         {
-            // Phase 2: only void-returning sort methods. A non-void return on a Route-C
-            // shape would need either a primitive return ABI or indirect-result handling;
-            // not in scope until a real consumer needs it.
+            // Only void-returning sort methods are supported. A non-void return on a Route-C
+            // shape would need either a primitive return ABI or indirect-result handling.
             logger.LogDebug(
-                "RouteC: skipping {Method} — non-void return is out of Phase 2 scope.",
+                "RouteC: skipping {Method} — non-void return not yet supported.",
                 method.Name);
             return null;
         }
@@ -337,7 +336,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         if (method.Throws)
         {
             logger.LogDebug(
-                "RouteC: skipping {Method} — throwing methods are out of Phase 2 scope.",
+                "RouteC: skipping {Method} — throwing methods not yet supported.",
                 method.Name);
             return null;
         }
@@ -486,7 +485,7 @@ internal static class KeyPathBagValueSpecializationEmitter
     /// The raw (pre-escape) `_`-prefixed binding names this trampoline emits for its non-KeyPath
     /// params. Both the param-decl loop (<see cref="EmitSwiftTrampoline"/>) and the call loop
     /// (<see cref="EmitTrampolineCall"/>) feed this set to the reserved-collision escape so each
-    /// per-param escape also dodges a sibling binding (P1-22), and both loops stay in sync.
+    /// per-param escape also dodges a sibling binding, and both loops stay in sync.
     /// </summary>
     private static IReadOnlySet<string> CollectTrampolineSiblingBindings(StagedOverload ov)
     {
@@ -506,7 +505,7 @@ internal static class KeyPathBagValueSpecializationEmitter
 
         var swiftParams = new List<string> { "_ _by: UnsafeRawPointer" };
         // Sibling bindings (this emitter binds each param to `_{Name}`) so a reserved-name escape
-        // (`_by`) also dodges a sibling user binding (P1-22). EmitTrampolineCall recomputes the
+        // (`_by`) also dodges a sibling user binding. EmitTrampolineCall recomputes the
         // identical set, keeping decl and call in sync.
         var siblings = CollectTrampolineSiblingBindings(ov);
         foreach (var p in ov.OtherParams)
@@ -548,7 +547,7 @@ internal static class KeyPathBagValueSpecializationEmitter
             swiftWriter.WriteLine($"let __self = self_.assumingMemoryBound(to: {ov.ParentSwiftClosed}.self).pointee");
         }
         // KeyPath reconstruction: the C# side passed a heap KeyPath produced by
-        // Session 4's singleton trampoline (or any other +1-retained KP source).
+        // the singleton trampoline (or any other +1-retained KP source).
         // Read as AnyKeyPath (the family's common base) then attempt `as?` downcast
         // against each Swift V variant in the collapse group. C# can't differentiate
         // `KeyPath<Bag, String>` from `KeyPath<Bag, String?>` (NRT erasure), so the
@@ -646,7 +645,7 @@ internal static class KeyPathBagValueSpecializationEmitter
     }
 
     /// <summary>
-    /// Conservative primitive type resolution for the small set Phase 2 supports.
+    /// Conservative primitive type resolution for the supported primitive set.
     /// Returning null causes the caller to skip the overload.
     /// </summary>
     private static string? ResolvePrimitiveCsType(TypeSpec spec)

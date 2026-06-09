@@ -52,8 +52,7 @@ internal static class GenericDispatchEmitter
         // generic classes — are NOT rejected just because the parent type has e.g.
         // an associated-type conformance or >3 register args. Those safe paths use
         // SelfReconstructionEmitter.EmitProtocolCast and never touch _sbw_meta_*.
-        // Dynamic PWT resolution and buffer-mode ABI are tracked in
-        // src/docs/roadmap.md.
+        // Dynamic PWT resolution and buffer-mode ABI are not yet implemented.
 
         switch (kind)
         {
@@ -147,7 +146,7 @@ internal static class GenericDispatchEmitter
     ///    explicit register args, so the call would shift registers and PAC-trap.
     /// Both refuse to emit any wrapper that would route through
     /// <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>. Dynamic
-    /// PWT resolution and buffer-mode ABI are tracked in <c>src/docs/roadmap.md</c>.
+    /// PWT resolution and buffer-mode ABI are not yet implemented.
     /// </summary>
     internal static bool HasWrapperHelperGateBlocker(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase, GenericDispatchKind kind = GenericDispatchKind.Method)
     {

@@ -98,7 +98,7 @@ public class ConstructorParamTests : TestBase
     public void TestFailableInitSuccess()
     {
         // init?(name:) succeeds for a non-empty name; the non-frozen struct projects to a
-        // class with a static bool TryCreate(name, out result) (Session 3 un-gated the feature).
+        // class with a static bool TryCreate(name, out result).
         var ok = ValidatedName.TryCreate("Ada", out var validated);
         AssertTrue(ok, "ValidatedName.TryCreate succeeds for a non-empty name");
         AssertNotNull(validated, "successful TryCreate yields a non-null result");

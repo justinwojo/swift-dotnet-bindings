@@ -31,7 +31,7 @@ public struct ValidatedConfig {
     }
 }
 
-// MARK: - Throwing Class Constructor: error-out leads, value args shift (P0-05)
+// MARK: - Throwing Class Constructor: error-out leads, value args shift
 
 /// Error for the throwing class constructor below.
 public enum BoundsError: Error {

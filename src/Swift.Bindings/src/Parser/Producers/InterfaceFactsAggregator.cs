@@ -17,12 +17,12 @@ namespace BindingsGeneration.Producers;
 /// cover a fact are skipped for that fact. If no producer covers a fact, the empty
 /// collection from <see cref="SwiftInterfaceFacts.Empty"/> is used.
 /// <para/>
-/// PARTIAL COVERAGE IS A FIRST-CLASS STATE: M2 migrates facts incrementally. In Session 1,
-/// the SwiftSyntax producer covers exactly two facts (MainActorTypes + MainActorTypePositions);
+/// PARTIAL COVERAGE IS A FIRST-CLASS STATE: M2 migrates facts incrementally. The SwiftSyntax
+/// producer initially covers exactly two facts (MainActorTypes + MainActorTypePositions);
 /// the regex producer covers all 24. With the order [SwiftSyntax, Regex], MainActor* come
 /// from SwiftSyntax and the other 22 facts fall through to Regex automatically. As more
 /// facts migrate, the SwiftSyntax producer's coverage grows; the regex producer's coverage
-/// stays at 24. The aggregator does not need to know which session is current — coverage
+/// stays at 24. The aggregator does not need to know migration progress — coverage
 /// is data, not policy.
 /// </summary>
 public sealed class InterfaceFactsAggregator
@@ -112,7 +112,7 @@ public sealed class InterfaceFactsAggregator
             // The SwiftSyntax producer already validates this internally, but we re-check
             // at the aggregator boundary to catch any future producer that wires up
             // coverage without populating the payload — silent-fallthrough would mask
-            // migration bugs (codex review M2 S3 finding C).
+            // migration bugs.
             if (value is null)
             {
                 throw new InvalidOperationException(

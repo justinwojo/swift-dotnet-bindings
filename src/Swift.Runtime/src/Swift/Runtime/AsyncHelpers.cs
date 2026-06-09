@@ -105,7 +105,7 @@ namespace Swift.Runtime
         /// <summary>
         /// True when the buffer holds a freshly boxed existential whose +1 the caller owns and
         /// must release (the <see cref="ExistentialContainerFactory.GetOrCreate{TProtocol}(TProtocol, out bool)"/>
-        /// boxable branch — audit P1-03). False for a borrowed proxy container, whose +1 the proxy
+        /// boxable branch). False for a borrowed proxy container, whose +1 the proxy
         /// owns; destroying it would over-release. The foreground <c>finally</c> can't run this
         /// destroy because the Swift continuation reads the buffer after the wrapper returns, so the
         /// owns decision is carried here to the async-callback cleanup loop.
@@ -243,7 +243,7 @@ namespace Swift.Runtime
                     }
                     else if (holder[i] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
                     {
-                        // P1-03: a boxable value conformer was freshly boxed at +1 into this
+                        // A boxable value conformer was freshly boxed at +1 into this
                         // buffer; balance it with the existential value-witness destroy now that
                         // the continuation has finished reading the @in_guaranteed buffer. The
                         // centralized helper applies the owns-gate (borrowed proxy containers,

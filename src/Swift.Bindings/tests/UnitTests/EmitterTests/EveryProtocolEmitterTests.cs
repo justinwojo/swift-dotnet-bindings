@@ -308,7 +308,7 @@ public class EveryProtocolEmitterTests
         Assert.Contains("extension EveryProtocol: TestModule.SecondProtocol", secondOutput);
     }
 
-    // -- Same-signature method fan-out (audit item 1, Bug #2). When method plans
+    // -- Same-signature method fan-out. When method plans
     //    are supplied, the lex-min protocol OWNS the shared body and fans out
     //    across every sibling vtable, instead of the legacy first-seen-wins dedup
     //    above (which left the non-owner's witness routed to the owner's OWN
@@ -1544,7 +1544,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitProtocolConformance_NSObjectProtocolInheritor_RoutesThroughEveryObjCProtocol()
     {
-        // S-2: @objc protocols inheriting only NSObjectProtocol (no NSCoding et al.)
+        // @objc protocols inheriting only NSObjectProtocol (no NSCoding et al.)
         // route through the NSObject-rooted EveryObjCProtocol helper class instead of
         // skipping. The emitted extension hangs off EveryObjCProtocol so Swift's
         // type-checker accepts the conformance, and the witness-table getter / vtable
@@ -1904,7 +1904,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitProtocolConformance_NSCodingInheritor_StillSkipsEmission()
     {
-        // S-2 negative: NSCoding (and NSSecureCoding/NSCopying/NSMutableCopying)
+        // NSCoding (and NSSecureCoding/NSCopying/NSMutableCopying)
         // require encoding/copying surfaces the EveryObjCProtocol synthesis can't
         // supply, so these remain on the skip path.
         var protocol = CreateProtocolWithMethod("EncodableThing", "doIt");
@@ -2926,7 +2926,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitProtocolExtension_DispatchableClosureMethod_EmitsRealDispatch()
     {
-        // Session 4a: `@escaping () -> Void` is the dispatchable closure shape.
+        // `@escaping () -> Void` is the dispatchable closure shape.
         // It gets a real vtable-dispatching implementation, not a fatalError stub.
         var protocol = CreateSimpleProtocol("EventDelegate");
         protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
@@ -2961,7 +2961,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitProtocolVtableStruct_DispatchableClosureMethod_IncludesVtableField()
     {
-        // Session 4a: dispatchable closure methods get a vtable field that expands
+        // Dispatchable closure methods get a vtable field that expands
         // the closure into a (fnPtr, ctxPtr) pair.
         var protocol = CreateSimpleProtocol("EventDelegate");
         protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
@@ -3500,8 +3500,8 @@ public class EveryProtocolEmitterTests
         //   1. HasOnlyMethodLevelGenerics is detected by walking signature types,
         //      not method.GenericParameters — without τ_1_0 in the signature, the
         //      method would slip through the generic gate.
-        //   2. The closure shape (τ_1_0) -> Void is off-surface for Session 4a
-        //      dispatch (only () -> Void dispatches), so it still routes through
+        //   2. The closure shape (τ_1_0) -> Void is off-surface for dispatch
+        //      (only () -> Void dispatches), so it still routes through
         //      the fatalError stub path the test asserts on.
         var method = CreateMethodWithClosureParam(name, paramLabel);
         method.GenericParameters = new List<GenericArgumentDecl>
@@ -3713,7 +3713,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void WillSkipConformance_RequiredSpiProperty_ReturnsTrue()
     {
-        // Bug 16: a protocol whose required Var is `@_spi`-protected loses its
+        // A protocol whose required Var is `@_spi`-protected loses its
         // witness in the EveryProtocol extension (PropertyHandler skips SPI
         // properties). The conformance must be skipped to keep the wrapper buildable.
         var protocol = CreateProtocolWithProperty("MaterialFunction", "__linkSPI",
@@ -3730,7 +3730,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void WillSkipConformance_RequiredModuleInternalProperty_DoesNotSkip()
     {
-        // Bug 16 narrowing: IsModuleInternal must NOT trigger the gate. The parser's
+        // Narrowing: IsModuleInternal must NOT trigger the gate. The parser's
         // negative-space heuristic (IsInternalFromPublicMemberNames) flags protocol
         // requirement vars as internal because the swiftinterface body lists them
         // without a leading `public` keyword (e.g. SnapKit.ConstraintPriorityTarget).
@@ -3751,7 +3751,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void WillSkipConformance_RequiredSpiMethod_ReturnsTrue()
     {
-        // Bug 16: same gate over methods. A required Function with IsSpiProtected
+        // Same gate over methods. A required Function with IsSpiProtected
         // would also yield an unsatisfiable extension.
         var protocol = CreateProtocolWithMethod("Logger", "log");
         protocol.Methods[0].IsProtocolRequirement = true;
@@ -4108,7 +4108,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void WillSkipConformance_HasUnsatisfiedHiddenRequirements_ReturnsTrue()
     {
-        // Bug 16 supplement: swift-api-digester strips __-prefixed protocol requirements
+        // Supplement: swift-api-digester strips __-prefixed protocol requirements
         // (e.g. RealityFoundation.MaterialFunction.__linkSPI) from the ABI JSON, so the
         // parser never sees them. The Swift compiler still enforces them at conformance
         // type-check time. SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements

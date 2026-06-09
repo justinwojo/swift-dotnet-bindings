@@ -390,7 +390,7 @@ namespace BindingsGeneration
                 _parameters.Add(new Parameter(MarshalledType.AsyncErrorCallback, errorCallbackName, CallExpression: errorCallbackCallExpr));
                 AddParameter(MarshalledType.AsyncTask, "handle");
                 // Monotonic cancellation-registry key, distinct from the recyclable GCHandle
-                // context above (P1-17). The wrapper body defines the matching
+                // context above. The wrapper body defines the matching
                 // `long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();` local before
                 // the call; the Swift @_cdecl wrapper registers tasks under this key, not the
                 // GCHandle cookie, so a completed task's deferred unregister cannot evict a
@@ -467,14 +467,13 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     {
-                        // Async closures (Session A/B throwing baseline + Session C
-                        // non-throwing baseline) use the start-thunk bridge: the
-                        // P/Invoke passes (context, startFunc) and the Swift wrapper
-                        // renders a matching adapter inside Task {}. Session C keeps
-                        // the uniform startFunc ABI (trailing errorFP slot stays —
-                        // the non-throwing adapter passes a sentinel pointer for it).
-                        // The outer method still must be async + @_cdecl-wrapped;
-                        // Throws is only required for the throwing baseline.
+                        // Baseline async closures (throwing and non-throwing) use the
+                        // start-thunk bridge: the P/Invoke passes (context, startFunc)
+                        // and the Swift wrapper renders a matching adapter inside Task {}.
+                        // The non-throwing path keeps the uniform startFunc ABI (trailing
+                        // errorFP slot stays — the non-throwing adapter passes a sentinel
+                        // pointer for it). The outer method still must be async +
+                        // @_cdecl-wrapped; Throws is only required for the throwing baseline.
                         if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                         {
                             bool asyncBridgeEligible =

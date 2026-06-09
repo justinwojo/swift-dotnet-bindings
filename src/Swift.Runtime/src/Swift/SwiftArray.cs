@@ -403,7 +403,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
                 // fresh buffer — COPY convention) or adopts a private buffer (ADOPT non-POD). A bare
                 // MarshalFromSwift<Element>(payload) leaves the getter's slot +1 unowned, and the old
                 // ISwiftStruct skip-free below then orphaned it — leaking the element, and for a nested
-                // container every element it transitively held (audit L229). Consume the owned slot the
+                // container every element it transitively held. Consume the owned slot the
                 // same way SwiftDictionary/SwiftSet do: MarshalMovedValueFromSlot copies out an
                 // INDEPENDENT wrapper and value-witness-Destroys the slot, never aliasing `payload`, so
                 // the temp is freed raw here (not kept). POD ISwiftStruct structs are handled below.
@@ -626,7 +626,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             // Non-POD reference-backed ISwiftStruct element (nested SwiftArray/SwiftDictionary/SwiftSet,
             // frozen-with-ref struct, complex enum): the subscript getter's owned +1 must be consumed via
             // MarshalMovedValueFromSlot (copy-out + Destroy), else the slot's retain — and, for a nested
-            // container, every element it transitively holds — leaks (audit L229). POD ISwiftStruct
+            // container, every element it transitively holds — leaks. POD ISwiftStruct
             // structs (e.g. Point) ADOPT the buffer and are read by value with no free.
             bool elementIsNonPodStruct = elementIsStruct
                 && elementMetadata.IsValid

@@ -995,7 +995,7 @@ public static class MemberEmissionValidator
         // Swift.UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer parameters in synchronous,
         // nonescaping positions are supported by splitting into (ptr, len) at the @_cdecl boundary
         // and bridging to ReadOnlySpan<byte> / Span<byte> on the C# side. See CdeclParamMapper.Map
-        // and src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.
+        // Fail-closed shapes are listed in the out-of-scope comment below.
         //
         // Out-of-scope shapes for v1:
         //   - Return-position buffers (no fixed-block scope to pin under).
@@ -1012,8 +1012,7 @@ public static class MemberEmissionValidator
         {
             var returnTypeName = ((NamedTypeSpec)method.CSSignature[0].SwiftTypeSpec!).Name;
             skipDetails = $"SWIFTBIND104: '{returnTypeName}' is not supported as a return type. " +
-                          "v1 supports synchronous, nonescaping parameters only. " +
-                          "See src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.";
+                          "v1 supports synchronous, nonescaping parameters only.";
             return SkipReason.UnsupportedSignature;
         }
         if (method.IsAsync
@@ -1022,8 +1021,7 @@ public static class MemberEmissionValidator
         {
             var bufTypeName = ((NamedTypeSpec)asyncBufArg.SwiftTypeSpec!).Name;
             skipDetails = $"SWIFTBIND104: '{bufTypeName}' is not supported as a parameter on async methods. " +
-                          "v1 supports synchronous, nonescaping parameters only. " +
-                          "See src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.";
+                          "v1 supports synchronous, nonescaping parameters only.";
             return SkipReason.UnsupportedSignature;
         }
         // inout raw-buffer params are an ABI mismatch: PInvokeEmitter splits raw buffers
@@ -1037,8 +1035,7 @@ public static class MemberEmissionValidator
         {
             var bufTypeName = ((NamedTypeSpec)inoutBufArg.SwiftTypeSpec!).Name;
             skipDetails = $"SWIFTBIND104: 'inout {bufTypeName}' is not supported as a parameter. " +
-                          "v1 supports synchronous, nonescaping by-value raw-buffer parameters only. " +
-                          "See src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.";
+                          "v1 supports synchronous, nonescaping by-value raw-buffer parameters only.";
             return SkipReason.UnsupportedSignature;
         }
 

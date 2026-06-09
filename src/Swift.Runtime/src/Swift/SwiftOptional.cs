@@ -31,7 +31,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     // The native buffer is read back as a whole machine word via `PayloadBuffer<IntPtr>`
     // (an 8-byte load on 64-bit). A sub-word Optional payload (e.g. Optional<Bool> = 1 byte)
     // would let that 8-byte load run 7 bytes past a `_payloadSize`-sized allocation — a heap
-    // over-read / UB (audit P1-14). Always allocate at least one machine word so the word-sized
+    // over-read / UB. Always allocate at least one machine word so the word-sized
     // read stays in bounds; the meaningful payload still occupies only the first `_payloadSize`
     // bytes and the zeroed tail keeps the word-load value-correct for small payloads.
     static nuint _bufferAllocSize = _payloadSize > (nuint)IntPtr.Size ? _payloadSize : (nuint)IntPtr.Size;
@@ -114,7 +114,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     {
         // AllocZeroed (not Alloc): only the first `_payloadSize` bytes are copied below; the
         // zeroed tail up to `_bufferAllocSize` keeps the word-sized PayloadBuffer<IntPtr> read
-        // both in-bounds and value-correct for sub-word payloads (audit P1-14).
+        // both in-bounds and value-correct for sub-word payloads.
         IntPtr bufferPtr = (IntPtr)NativeMemory.AllocZeroed(_bufferAllocSize);
 
         // Extra-inhabitant fast path for Bool and simple C# enums.

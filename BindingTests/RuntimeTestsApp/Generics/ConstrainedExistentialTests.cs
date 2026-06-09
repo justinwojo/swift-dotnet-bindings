@@ -11,7 +11,7 @@ namespace RuntimeTestsApp.Generics;
 
 /// <summary>
 /// Layer A coverage for the constrained-existential projection
-/// (gap-0.10.0-everyprotocol-and-existentials.md, Cases 1 + 2).
+/// (Cases 1 + 2: constrained-existential EveryProtocol support).
 ///
 /// Verifies that a Swift function which accepts or returns
 /// <c>any LabelledContainer&lt;String&gt;</c> projects as the strongly-typed
@@ -21,7 +21,7 @@ namespace RuntimeTestsApp.Generics;
 ///
 /// Runtime invocation is intentionally NOT exercised here: that requires
 /// proxy-dispatch for protocols with associated types, which is carved out
-/// to Bundle 11b. The MakeStringLabel body still throws
+/// for associated-type protocol proxies. The MakeStringLabel body still throws
 /// <c>NotSupportedException("Protocol proxy not available")</c> by design.
 /// </summary>
 public class ConstrainedExistentialTests : TestBase
@@ -159,7 +159,7 @@ public class ConstrainedExistentialTests : TestBase
 
     /// <summary>
     /// Round-trip assignability + Swift-side dispatch through the typed
-    /// existential parameter (Codex r2 High closure for #5a). Without
+    /// existential parameter. Without
     /// StringLabel implementing <c>ILabelledContainer&lt;SwiftString&gt;</c>
     /// this call would fail CS0029 at compile time; without the typed-PAT
     /// runtime fallback in <c>GetProtocolConformanceDescriptor</c> it would
@@ -252,7 +252,7 @@ public class ConstrainedExistentialTests : TestBase
     /// the variadic-to-array ABI via <c>unsafeBitCast</c>; the count assertion proves the round-trip.
     ///
     /// It is also the runtime exerciser of the SUPPRESSED-PROXY one-arg owned-carrier overload
-    /// (<c>ExistentialContainerFactory.CreateOwnedExistential1&lt;T&gt;(value)</c>, P1-08 opaque sibling):
+    /// (<c>ExistentialContainerFactory.CreateOwnedExistential1&lt;T&gt;(value)</c>, opaque sibling):
     /// because the closed-constrained PAT proxy is suppressed, the co-gater strips the wrap-fallback and
     /// the generated <c>buildBlock</c> body emits the one-arg form
     /// <c>CreateOwnedExistential1&lt;ILabelledContainer&lt;SwiftString&gt;&gt;(e)</c>. The boxable

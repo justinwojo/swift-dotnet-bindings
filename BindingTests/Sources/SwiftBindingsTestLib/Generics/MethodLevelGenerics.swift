@@ -52,8 +52,8 @@ public class SimpleDescribable: Describable {
     }
 }
 
-// MARK: - CSM DataProtocol Specialization (Session 1)
-// Exercises the new CSM conformer categories:
+// MARK: - CSM DataProtocol Specialization
+// Exercises the CSM conformer categories:
 //   • InlineSwiftStruct — Foundation.Data (blittable C# struct, pinned via &arg)
 //   • RawBuffer — [UInt8] / byte[] (C# fixed(byte*) + zero-copy Data reconstruction)
 // DataHasher additionally exercises the mutating-self path for CSM (Blocker 1).
@@ -132,7 +132,7 @@ public class MultiPATCombiner {
     }
 }
 
-// MARK: - CSM Generic Parent Specialization (Session 2)
+// MARK: - CSM Generic Parent Specialization
 // Exercises the parent-generic × method-generic cartesian emission path. The parent
 // generic T is constrained to SearchableItem (a Self-requiring protocol with three
 // struct conformers already registered in specialization-hints.json). The method
@@ -200,11 +200,11 @@ public struct ElementBoundContainer<T: SearchableItem> {
     }
 }
 
-// MARK: - Namespace Enum CSM (Session 4)
+// MARK: - Namespace Enum CSM
 // Swift's "namespace enum" pattern — caseless enums used solely as static member
 // containers (e.g., CryptoKit's `enum AES { enum GCM { ... } }` and `enum ChaChaPoly`).
-// The C# emitter projects these as `public static partial class` types. Before Session
-// 4, ConcreteProtocolSpecializationEmitter was never invoked for EnumHandler's
+// The C# emitter projects these as `public static partial class` types. Before the fix,
+// ConcreteProtocolSpecializationEmitter was never invoked for EnumHandler's
 // namespace-enum path, so static methods with method-level protocol generics
 // (DataProtocol / ContiguousBytes) never got concrete overloads — the only surface
 // was a tombstoned generic signature. This fixture is the direct reproducer:
@@ -448,9 +448,9 @@ public struct ThrowingByteCollector {
     public var accepted: Bool { _accepted }
 }
 
-// MARK: - CSM-sync trim-overload fixtures (Phase 3a / option (b))
+// MARK: - CSM-sync trim-overload fixtures
 //
-// Exercises the new wiring in `ConcreteProtocolSpecializationEmitter.TryEmitConcreteOverload`
+// Exercises the wiring in `ConcreteProtocolSpecializationEmitter.TryEmitConcreteOverload`
 // → `EmitTrimOverloadsForCsmSync` → `DefaultParameterOverloadEmitter.TryEmitOverloads`.
 // The shape mirrors the StoreKit2 `purchase(confirmIn:options: Set<…> = [])` gap-doc
 // reference, but ports the class-bound generic to a `DataProtocol` constraint that's
@@ -476,7 +476,7 @@ public struct ThrowingByteCollector {
 /// Sync no-throws + DataProtocol method generic + two trailing defaults
 /// (one non-mappable Set, one mappable Int).
 /// CSM-sync primary auto-trims both defaults: `Append(this DefaultedHasher self, byte[] data)`.
-/// Trim variant exposed by Phase 3a wiring: `Append(this DefaultedHasher self, byte[] data, IReadOnlySet<int> options)`.
+/// Trim variant: `Append(this DefaultedHasher self, byte[] data, IReadOnlySet<int> options)`.
 public struct DefaultedHasher {
     private var _calls: Int = 0
     private var _lastCount: Int = 0
@@ -502,12 +502,12 @@ public struct DefaultedHasher {
     public var lastOptionsCount: Int { _lastOptionsCount }
 }
 
-/// Phase 3a Codex r1 Medium negative-finding fixture: same shape as
+/// Negative-finding fixture: same shape as
 /// `DefaultedHasher` (DataProtocol-bound generic, two trailing defaults
 /// `options: Set<Int> = []` and `tag: Int = 7`) plus a trailing Swift
 /// compiler-injected debug param `file: StaticString = #file`.
 ///
-/// The Codex r1 Medium hypothesised an off-by-N in `EmitTrimOverloadsForCsmSync`
+/// The hypothesis was an off-by-N in `EmitTrimOverloadsForCsmSync`
 /// when the trim emitter was fed a CSSignature containing trailing debug
 /// defaults: `BuildOverloadDecl` removes raw trailing args while
 /// `CountTrailingDefaults` skips debugs, so the auto-trim seed key would target
@@ -515,8 +515,7 @@ public struct DefaultedHasher {
 ///
 /// Empirically not reachable: the parser strips trailing
 /// `#file/#line/#column/#function` defaults from `CSSignature` before the
-/// emitter sees them. A diagnostic dump on this fixture (recorded in
-/// gap-0.10.0-generic-method-default-overload-missing.md) confirmed
+/// emitter sees them. A diagnostic dump on this fixture confirmed
 /// CSSignature is `[data, options, tag]` — three args, no `file`. The two
 /// helpers therefore agree on the arg set and emission is symmetric with the
 /// no-debug-param `DefaultedHasher` case.

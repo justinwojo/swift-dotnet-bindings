@@ -7,8 +7,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
-/// Runtime tests for the ASYNC-closure GCHandle lifetime fix (P1-18,
-/// <c>AsyncClosureHelper.cs</c>). The async-closure bridge hands Swift a
+/// Runtime tests for the ASYNC-closure GCHandle lifetime fix
+/// (<c>AsyncClosureHelper.cs</c>). The async-closure bridge hands Swift a
 /// <c>GCHandle</c> rooting the managed delegate's captured graph and deliberately
 /// does NOT free it per-invocation (Swift may invoke the same context more than
 /// once). Ownership instead rides on the Swift-side <c>_SBClosureCtx</c> owner-token
@@ -87,7 +87,7 @@ public class AsyncClosureContextLifetimeTests : TestBase
     /// The delegate's captured target must then become collectible. Pre-fix the
     /// handle was never freed, so the weak reference stayed alive forever.
     /// </summary>
-    [SkipOnSimulator("P1-18 async-closure owner-token box lives in libSwiftBindingsRuntime.dylib. " +
+    [SkipOnSimulator("Async-closure owner-token box lives in libSwiftBindingsRuntime.dylib. " +
         "RuntimeTestsApp sets IncludeSwiftBindingsRuntimeNative=false, so on the Mono simulator the " +
         "async wrapper falls back to _SBClosureCtxFallback — a no-deinit class that intentionally " +
         "preserves the prior leak (see ClosureContextHelperEmitter.cs and SwiftClosureContext.cs " +
@@ -104,7 +104,7 @@ public class AsyncClosureContextLifetimeTests : TestBase
             !weakTarget.IsAlive,
             "After a one-shot async-closure call completes, the captured delegate target must become " +
             "collectible. If the _SBClosureCtx box deinit didn't fire, the per-call GCHandle would still " +
-            "root the target (the pre-P1-18 intentional leak).");
+            "root the target (the pre-fix intentional leak).");
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -134,7 +134,7 @@ public class AsyncClosureContextLifetimeTests : TestBase
     /// the live count grew linearly with the number of calls; post-fix it collapses to a
     /// small constant (conservative-stack-scan noise floor).
     /// </summary>
-    [SkipOnSimulator("P1-18 async-closure owner-token box lives in libSwiftBindingsRuntime.dylib; " +
+    [SkipOnSimulator("Async-closure owner-token box lives in libSwiftBindingsRuntime.dylib; " +
         "RuntimeTestsApp omits the dylib via IncludeSwiftBindingsRuntimeNative=false, so the async " +
         "wrapper's no-deinit _SBClosureCtxFallback preserves the prior per-call leak on the simulator " +
         "by design. The NativeAOT device build loads the framework via NativeReference and this " +

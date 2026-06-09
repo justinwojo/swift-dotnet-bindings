@@ -19,7 +19,7 @@ namespace RuntimeTestsApp.SmokeTests;
 ///
 /// Gated by the <c>STOREKIT_SMOKE</c> compile symbol, which the csproj sets only when the
 /// reproducer artifacts exist at <c>/tmp/storekit2-session4</c> on an iOS Simulator build.
-/// Regenerate them via the reproducer command in <c>src/docs/0.8.0-storekit2-exploration.md</c>
+/// Regenerate them via the StoreKit 2 reproducer command
 /// when re-running this on a fresh machine.
 /// </summary>
 public class StoreKitSmokeTests : TestBase
@@ -120,8 +120,7 @@ public class StoreKitSmokeTests : TestBase
     /// <summary>
     /// End-to-end smoke test for StoreKit 2's async-sequence path through
     /// the Apple-framework direct-mode pipeline. Pivots to <c>Transaction.unfinished</c>
-    /// rather than the headline <c>Transaction.updates</c> for two independent reasons,
-    /// both documented in <c>src/docs/0.8.0-storekit2-exploration.md</c>:
+    /// rather than the headline <c>Transaction.updates</c> for two independent reasons:
     ///
     ///   1. <b>Generator orphan-PInvoke bug:</b> the
     ///      generator emits the <c>[LibraryImport]</c> declaration for
@@ -246,7 +245,7 @@ public class StoreKitSmokeTests : TestBase
         // the managed-memory delta stayed below a 256 KB ceiling. That was far too
         // loose: a measured baseline of ~264 bytes per loop means a single-loop
         // per-iteration GCHandle or SafeHandle leak could grow by ~24-200 bytes
-        // per NextAsync call and stay comfortably below the 256 KB cap. Codex-review
+        // per NextAsync call and stay comfortably below the 256 KB cap. A review
         // pass flagged it: "the comment's claim that even a small per-iteration
         // handle leak would dwarf the ceiling is not defensible."
         //
@@ -318,7 +317,7 @@ public class StoreKitSmokeTests : TestBase
     /// Per-loop managed-memory growth ceiling for pass 3 of
     /// <see cref="TestTransactionUnfinishedAsyncSequenceEnumerates"/>. Tightened
     /// from a single-pass 256 KB flat ceiling to a per-loop 1 KB ceiling after
-    /// Codex-review flagged that the original bound was ~1000x looser than the
+    /// a review pass flagged that the original bound was ~1000x looser than the
     /// empirical baseline and would have missed a small GCHandle or SafeHandle
     /// leak in the iterator wrapper. Baseline on a fresh iOS Simulator with no
     /// seeded transactions is 0-200 bytes per loop; 1 KB is ~5x that budget,

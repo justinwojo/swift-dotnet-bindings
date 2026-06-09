@@ -7,8 +7,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Closures;
 
 /// <summary>
-/// Layer-A regression for the Bundle 03 callback-arg projection asymmetry bug
-/// (<c>bug-0.10.0-callback-arg-projection-asymmetry.md</c>).
+/// Regression for the callback-arg projection asymmetry bug
+/// (closure-arg-tuple elements used a stripped-down translator instead of the full-fat one).
 ///
 /// The bug: closure-arg-tuple elements got translated through TupleHandler's
 /// stripped-down translator instead of ClosureHandler's full-fat one, so types

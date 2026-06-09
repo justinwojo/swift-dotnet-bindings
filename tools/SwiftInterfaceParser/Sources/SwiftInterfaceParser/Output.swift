@@ -28,7 +28,7 @@ let kSchemaVersion = 2
 /// `coveredFacts` is the explicit "this producer populated these facts" signal — the
 /// aggregator merges per fact based on this set, so a fact that's covered-but-empty
 /// (`mainActorTypes: []`) is distinct from a fact that's not produced at all (key
-/// absent from `facts`). Session 1 covers MainActorTypes + MainActorTypePositions only.
+/// absent from `facts`).
 struct ParserOutput: Encodable {
     let schemaVersion: Int
     let coveredFacts: [String]
@@ -48,9 +48,8 @@ struct ParserOutput: Encodable {
 /// but nullable fields prevent silent data loss if `coveredFacts` and the
 /// `facts` payload disagree.
 ///
-/// Session 3 brings SwiftSyntax to 100% fact coverage (24/24). Field names are
-/// lowerCamelCase to match System.Text.Json's default `PropertyNamingPolicy.CamelCase`
-/// on the .NET side.
+/// Covers 24/24 facts. Field names are lowerCamelCase to match System.Text.Json's
+/// default `PropertyNamingPolicy.CamelCase` on the .NET side.
 struct Facts: Encodable {
     var mainActorTypes: [String]?
     var mainActorTypePositions: [String: SourcePositionJson]?
@@ -69,29 +68,29 @@ struct Facts: Encodable {
     // Typed throws.
     var typedThrowsErrors: [String: String]?
 
-    // Session 3 — type & member collection.
+    // Type & member collection.
     var publicTypeNames: [String]?
     var internalMemberKeys: [String]?
     var publicMemberNames: [String]?
     var markerProtocolConformances: [String: [String]]?
 
-    // Session 3 — enum facts.
+    // Enum facts.
     var enumCaseLabels: [String: [String?]]?
     var enumCaseRawValues: [String: String]?
 
-    // Session 3 — signature facts.
+    // Signature facts.
     var parameterNames: [String: [String]]?
     var defaultParameterValues: [String: [String?]]?
     var autoclosureParameters: [String: [Bool]]?
     var subscriptLabels: [String: [String]]?
     var variadicMembers: [String]?
 
-    // Session 3 — protocol-level facts.
+    // Protocol-level facts.
     var conventionCProtocols: [String]?
     var conventionCProtocolPositions: [String: SourcePositionJson]?
     var hiddenRequirementProtocols: [String: [String]]?
 
-    // M2 S4 — non-fact methods migrated behind the producer abstraction.
+    // Non-fact methods behind the producer abstraction.
     var protocolNames: [String]?
     var protocolExtensionMethods: [String: [ProtocolExtensionMethodInfo]]?
     var extensionMemberCandidates: [ExtensionMemberCandidateInfo]?

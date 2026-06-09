@@ -57,7 +57,7 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
 
         // An address-only / >32-byte struct return travels in the x8 sret pointer under BOTH cdecl
         // and swiftcc, so it needs no register-capture bridge — but the metadata accessor `bl` would
-        // clobber the live x8 unless we spill it (P0-08, handled in EmitMetatypeSetup).
+        // clobber the live x8 unless we spill it (handled in EmitMetatypeSetup).
         bool swiftIndirect = descriptor.ReturnLowering is { IsIndirect: true };
 
         // A throwing CONSTRUCTOR is the one thunked shape whose error-out pointer LEADS the value
@@ -199,8 +199,7 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
         // The metadata accessor `bl` is an ordinary call that may clobber x8 (caller-saved, outside
         // the AAPCS64 callee-saved set), so spill it alongside the argument registers and reload it
         // before returning to the main body, which issues the swiftcc `bl` that reads the sret
-        // pointer from x8. Without this, the Swift function writes its result through a clobbered x8
-        // (P0-08).
+        // pointer from x8. Without this, the Swift function writes its result through a clobbered x8.
         int x8SaveCount = preserveX8 ? 1 : 0;
         int totalSaveCount = intParamCount + floatParamCount + x8SaveCount;
 

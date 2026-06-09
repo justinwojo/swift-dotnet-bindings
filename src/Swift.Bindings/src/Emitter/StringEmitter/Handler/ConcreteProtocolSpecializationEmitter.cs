@@ -317,9 +317,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         // Registry guard — catches different pairings producing the same cdeclSymbol.
-        // S5 audited (Tier B): the `SBW_CSM_` prefix is a dedicated namespace for per-
-        // conformer specialization wrappers; no other emitter produces an `SBW_CSM_`
-        // symbol. Per-kind method bucket is collision-safe.
+        // The `SBW_CSM_` prefix is a dedicated namespace for per-conformer specialization
+        // wrappers; no other emitter produces an `SBW_CSM_` symbol. Per-kind method
+        // bucket is collision-safe.
         if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
             return false;
 
@@ -351,7 +351,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
             emissionContext, mergedAvailability, isExtension);
 
-        // --- Phase 3a (option (b) of gap-0.10.0-generic-method-default-overload-missing.md) ---
         // Wire DefaultParameterOverloadEmitter so per-conformer specialized methods get
         // trim-overload shortcuts for trailing default params (the StoreKit
         // `purchase(confirmIn:options: = [])` shape, but on the sync side). The CSM-sync
@@ -368,19 +367,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // exposing `options` while letting Swift fill `tag` are not currently emitted.
         // Tracked alongside option (a) in the gap-doc.
         //
-        // The original Codex r1 review hypothesised an off-by-N when a method combines
-        // a non-mappable trailing default with a Swift compiler-injected debug param
-        // (#file, #line, #column, #function): BuildOverloadDecl removes raw trailing
-        // args while CountTrailingDefaults skips debugs, so the auto-trim seed key
-        // could target the wrong shape. Empirical verification on a purpose-built
-        // fixture (DefaultedHasherWithFile, see DefaultedTrimOverloadWithFileTests)
-        // showed this is not reachable: the parser strips trailing debug defaults
-        // from CSSignature before the emitter sees them, so the two helpers agree
-        // on the arg set. The IsDebugParameter skip in CountTrailingDefaults is
-        // harmless under that invariant; if a future parser change started passing
-        // debug args through, CountTrailingDefaults and BuildOverloadDecl would
-        // disagree at this seeding site, and the fix would be to drop
-        // `trailingDefaults + trailingDebugCount` raw args when computing the
+        // When a method combines a non-mappable trailing default with a Swift
+        // compiler-injected debug param (#file, #line, #column, #function):
+        // BuildOverloadDecl removes raw trailing args while CountTrailingDefaults skips
+        // debugs, so the auto-trim seed key could target the wrong shape. Empirical
+        // verification on a purpose-built fixture (DefaultedHasherWithFile, see
+        // DefaultedTrimOverloadWithFileTests) showed this is not reachable: the parser
+        // strips trailing debug defaults from CSSignature before the emitter sees them,
+        // so the two helpers agree on the arg set. The IsDebugParameter skip in
+        // CountTrailingDefaults is harmless under that invariant; if a future parser
+        // change started passing debug args through, CountTrailingDefaults and
+        // BuildOverloadDecl would disagree at this seeding site, and the fix would be
+        // to drop `trailingDefaults + trailingDebugCount` raw args when computing the
         // auto-trim seed key.
         if (!isConstructor)
         {
@@ -397,8 +395,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     }
 
     /// <summary>
-    /// Phase 3a Layer 2 (option (b) of <c>gap-0.10.0-generic-method-default-overload-missing.md</c>):
-    /// emit trim overloads on top of a CSM-sync per-conformer specialized method.
+    /// Emit trim overloads on top of a CSM-sync per-conformer specialized method.
     /// Substitutes the pairing's generic params into the original method's CSSignature
     /// (mirroring CSM-async <c>TryBuildEmissionPlan</c>), clears the GenericParameters
     /// list so the trim emitter's <c>methodDecl.IsGeneric</c> bail no longer fires, and
@@ -748,7 +745,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Regular parameters. Every param's internal binding is hand-emitted as `_<label>` (NOT
         // routed through Map), so escape that form here: a param internally named `_self` yields
         // `__self`, duplicating the receiver body local `let __self` → swiftc rejects + silently
-        // drops the wrapper (P1-22). `__self`/`_self` are reserved so the escape resolves the clash;
+        // drops the wrapper. `__self`/`_self` are reserved so the escape resolves the clash;
         // siblings cover a binding that collides with another user param.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(method.CSSignature.Skip(1));
         foreach (var arg in method.CSSignature.Skip(1))
@@ -1148,7 +1145,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var pinvokeParams = new List<string>();
         var callArgs = new List<string>();
 
-        // P1-22: the generated C# hardcodes synthetic names in two scopes that a user
+        // The generated C# hardcodes synthetic names in two scopes that a user
         // parameter can collide with: (1) the public method body's locals (resultPtr,
         // _result, errorPtr) — a user param spelling one shadows it (CS0136); and (2) the
         // P/Invoke declaration's own synthetic params (the indirect-return `IntPtr resultPtr`
@@ -1368,7 +1365,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         // Throwing method: append the `out IntPtr errorPtr` parameter last so the P/Invoke
-        // matches the Swift wrapper's errorOut position. P1-22: the param name is reserved
+        // matches the Swift wrapper's errorOut position. The param name is reserved
         // (errorPtrName) so a user param literally named `errorPtr` does not duplicate it.
         bool throws = method.Throws;
         if (throws)
@@ -1566,7 +1563,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //      owns the +1). C# reads the slot's contents via MarshalOwnedClassFromSlot and adopts
         //      that +1, then raw-frees the one-word carrier below. Keeps the alloc-then-free shape
         //      (a class carrier has no internal refs to VWT-Destroy); only the marshal call differs
-        //      from the pure-value path. Fixes audit P0-11 (was wrapping the carrier address as the
+        //      from the pure-value path (was wrapping the carrier address as the
         //      instance pointer → use-after-free on the carrier + leak of the real instance).
         // Class constructors take no resultPtr (direct UnsafeMutableRawPointer return) and
         // are excluded. String returns copy out via ReadUtf8Slice.
@@ -1581,7 +1578,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // instance pointer INTO resultPtr via initializeMemory, so the carrier owns the +1 and
         // C# must read the slot's contents (MarshalOwnedClassFromSlot), not wrap the carrier
         // address. Keeps the alloc+raw-free shape (a class carrier is one word, no internal
-        // refs to VWT-Destroy); only the marshal call differs. Fixes audit P0-11.
+        // refs to VWT-Destroy); only the marshal call differs.
         bool returnTypeIsClassCarrier = false;
         if (needsResultPtr)
         {
@@ -1760,7 +1757,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else if (returnTypeIsClassCarrier)
             {
-                // Class conformer (audit P0-11): Swift's initializeMemory stored the instance
+                // Class conformer: Swift's initializeMemory stored the instance
                 // pointer INTO the carrier with a +1. Read the slot's contents and adopt that +1
                 // (no extra retain); the carrier word is raw-freed below in finally.
                 csWriter.WriteLine($"return SwiftMarshal.MarshalOwnedClassFromSlot<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
@@ -3188,12 +3185,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     continue;
                 }
 
-                // Session 5: async methods on generic parents are emit-eligible IFF they
+                // Async methods on generic parents are emit-eligible IFF they
                 // have zero method-own generic parameters (the "parent-only" shape). The
                 // dispatch lives in TryEmitParentOnlyAsyncOverload which writes directly
                 // into the already-open *CsmExtensions partial class. Async methods that
-                // also have method-own generics still need a wider relaxation than this
-                // session covers — they fall through to the continue below.
+                // also have method-own generics are not yet supported — they fall through
+                // to the continue below.
                 if (method.IsAsync)
                 {
                     var asyncMethodParams = spec.SpecializableParams
@@ -3206,7 +3203,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                             moduleName, wrapperLibPath, typeDatabase, emissionContext,
                             emittedSignatures, logger);
                     }
-                    // Async with method-own generics still rejects — out of Session 5 scope.
+                    // Async with method-own generics still rejects — not yet supported.
                     continue;
                 }
                 // See top-level CSM path: throwing constructors can reach non-public inits.

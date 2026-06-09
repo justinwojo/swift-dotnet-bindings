@@ -624,8 +624,7 @@ public class OperatorHandlerOutputTests
     [Fact]
     public void EmitOperator_ClassParentNoCdeclWrapper_UsesCallConvSwift()
     {
-        // bug-0.10.0-swift-mangled-symbol-with-cdecl-callconv (MusicKit AnyMusicProperty.==).
-        // When the operator's parent is a class, ShouldEmitOperatorWrapper returns false
+        // A MusicKit AnyMusicProperty.== pattern: when the operator's parent is a class, ShouldEmitOperatorWrapper returns false
         // (line 848 of OperatorHandler.cs: only frozen structs get the @_cdecl operator wrapper),
         // so the EntryPoint stays the original Swift-mangled `$s…` symbol. That symbol uses
         // Swift's calling convention; pairing it with CallConvCdecl reads garbage from the

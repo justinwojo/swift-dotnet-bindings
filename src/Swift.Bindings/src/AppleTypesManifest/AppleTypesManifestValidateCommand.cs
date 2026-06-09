@@ -6,7 +6,7 @@ using Newtonsoft.Json;
 
 namespace BindingsGeneration.AppleTypesManifest;
 
-// Entry point for the `--validate-apple-types-manifest` CLI mode (Phase 2 / M10).
+// Entry point for the `--validate-apple-types-manifest` CLI mode.
 // Loads the manifest, runs AppleTypesManifestValidator over every entry, and either
 // prints a one-line summary per entry (read-only) or writes back the probed VWT
 // fields and serializes the updated manifest in place (`--apple-types-manifest-write-back`).

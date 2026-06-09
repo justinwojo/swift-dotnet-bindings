@@ -122,7 +122,7 @@ public static class DefaultParameterOverloadEmitter
                 env.PInvokeHelperContext,
                 env.CompositionCollector);
             overloadEnv.CollisionIndex = env.CollisionIndex;
-            // P1-21 (Scenario A): when the primary method adopted a collision-suffixed ancestor slot
+            // When the primary method adopted a collision-suffixed ancestor slot
             // name (e.g. `override Process2`), every generated trimmed/default-arg overload must emit
             // under the SAME adopted name. CollisionIndex alone does not carry it — CSharpMethodName
             // recomputes from the bare NameProvider name + suffix, which would yield `Process` and
@@ -235,7 +235,7 @@ public static class DefaultParameterOverloadEmitter
                 // Apply collision suffix so disambiguated methods use their suffixed name in the key
                 if (env.CollisionIndex > 0)
                     projectedKey = BaseHandler.ApplyCollisionSuffixToKey(projectedKey, env.CollisionIndex);
-                // P1-21 (Scenario D): when the primary method adopted a collision-suffixed ancestor slot
+                // When the primary method adopted a collision-suffixed ancestor slot
                 // name, this trimmed overload emits under that SAME adopted name (propagated to
                 // overloadEnv.AdoptedOverrideCSharpName at construction above), so CSharpMethodName reads
                 // `Process2` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
@@ -396,7 +396,7 @@ public static class DefaultParameterOverloadEmitter
         // property of the parameter (like IsInOut/IsGeneric) and MUST be carried over: a
         // `consuming` (Owned) parameter that survives into a trimmed default-overload would
         // otherwise revert to ParameterOwnership.Default and route off the .move()/MarkConsumed
-        // path → double-free (P0-06). CSharpName is deliberately NOT copied — it is re-deduped
+        // path → double-free (consuming-ownership SIGABRT). CSharpName is deliberately NOT copied — it is re-deduped
         // per overload against the overload's own (shorter) signature.
         var args = original.CSSignature.Skip(1).ToList();
         var keepCount = args.Count - trimCount;
@@ -440,7 +440,7 @@ public static class DefaultParameterOverloadEmitter
         var swiftParams = new List<string>();
         var derefLines = new List<string>();
         var keptArgs = overloadDecl.CSSignature.Skip(1).ToList();
-        // Sibling bindings so a reserved-name escape also dodges a sibling user param (P1-22).
+        // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         // The call-value loop below recomputes the identical set, keeping decls and values in sync.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
         for (int i = 0; i < keptArgs.Count; i++)
@@ -684,8 +684,7 @@ public static class DefaultParameterOverloadEmitter
     /// Creates a projected C# method key for an overload, matching the format used by
     /// HandleBaseDecl's GetProjectedCSharpMethodKey. (C6/C7)
     /// Internal so the CSM-sync emitter can pre-populate <see cref="MethodEnvironment.EmittedProjectedSignatures"/>
-    /// with the auto-trim primary's key (Phase 3a, gap-0.10.0-generic-method-default-overload-missing.md
-    /// option (b)) — without that seed, the most-trimmed trim variant would collide
+    /// with the auto-trim primary's key — without that seed, the most-trimmed trim variant would collide
     /// with the CSM-sync primary (which already auto-fills all trailing defaults via
     /// Swift) and produce a CS0111 duplicate-method error.
     /// </summary>
@@ -694,8 +693,8 @@ public static class DefaultParameterOverloadEmitter
         var returnTypeSpec = overloadDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(overloadDecl);
-        // P1-21: thread the sibling-property set in lockstep with IHandler.GetProjectedCSharpMethodKey
-        // (constraints.md:16 — these two keys "must match exactly"). The name component must apply
+        // Thread the sibling-property set in lockstep with IHandler.GetProjectedCSharpMethodKey
+        // — these two keys must match exactly. The name component must apply
         // the same property-collision rename the authoritative emitted name applies, or the
         // default-overload pool and the main-pass pool disagree about which projected key a method
         // owns. The :228 caller passes env.SiblingPropertyNames; the CSM-seed callers pass null,
@@ -828,7 +827,7 @@ public static class DefaultParameterOverloadEmitter
         // Build Swift parameter list for the wrapper
         var swiftParams = new List<string>();
         var derefLines = new List<string>();
-        // Sibling bindings so a reserved-name escape also dodges a sibling user param (P1-22).
+        // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         // The call-arg loop below recomputes the identical set, keeping decls and values in sync.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
         foreach (var arg in keptArgs)

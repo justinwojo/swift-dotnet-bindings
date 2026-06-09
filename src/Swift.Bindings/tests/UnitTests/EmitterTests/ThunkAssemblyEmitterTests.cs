@@ -768,12 +768,12 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
-        #region Throwing class constructor — error-out leads (P0-05, SysV)
+        #region Throwing class constructor — error-out leads (SysV)
 
         [Fact]
         public void EmitThunk_X86_64_ThrowingClassConstructor_ErrorLeadsAndShiftsArgs()
         {
-            // P0-05 (SysV mirror of the ARM64 env test): a throwing class constructor is the one
+            // SysV mirror of the ARM64 env test: a throwing class constructor is the one
             // thunked shape whose error-out pointer LEADS the value arguments. CdeclSignatureContract
             // orders it [ErrorOut][Arguments][Metadata], so the error-out lands in %rdi and the two
             // value args occupy %rsi/%rdx on the cdecl side. The thunk must capture error-out from the
@@ -814,12 +814,12 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
-        #region Indirect-return metatype accessor — sret survives (P0-08)
+        #region Indirect-return metatype accessor — sret survives
 
         [Fact]
         public void EmitThunk_StaticMethodIndirectReturn_PreservesX8AcrossAccessor()
         {
-            // P0-08 (ARM64): a static method returning an address-only / >32-byte struct carries the
+            // ARM64: a static method returning an address-only / >32-byte struct carries the
             // caller's sret buffer pointer in x8 into the swiftcc call. The metatype accessor is an
             // ordinary `bl` that clobbers x8 (caller-saved, outside the AAPCS64 callee-saved set), so
             // the thunk must spill x8 before the accessor and reload it after — otherwise Swift writes
@@ -861,7 +861,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void EmitThunk_StaticMethodDirectReturn_DoesNotSpillX8()
         {
-            // P0-08 contrast: a static method returning a register-resident value never carries an sret
+            // Contrast: a static method returning a register-resident value never carries an sret
             // pointer in x8, so the metatype accessor needs no x8 spill. Guards against over-spilling.
             var descriptor = new ThunkDescriptor(
                 ThunkSymbol: "thunk_test_Foo_makeSmall",
@@ -888,7 +888,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void EmitThunk_X86_64_StaticMethodIndirectReturn_StashesSretInRbx()
         {
-            // P0-08 (SysV): the indirect return's sret buffer arrives in %rdi on the cdecl side and
+            // SysV: the indirect return's sret buffer arrives in %rdi on the cdecl side and
             // must reach swiftcc in %rax. The metatype accessor clobbers %rax and the caller-saved
             // arg registers, so the thunk stashes the sret pointer in callee-saved %rbx across the
             // accessor and moves it into %rax immediately before the swiftcc call.

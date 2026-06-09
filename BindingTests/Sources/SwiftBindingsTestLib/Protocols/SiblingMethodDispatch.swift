@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Sibling-protocol METHOD dispatch (audit item 1, Bug #2)
+// MARK: - Sibling-protocol METHOD dispatch
 //
 // The method analog of SiblingPropertyDispatch.swift. A "sibling method group"
 // is a set of class-bound protocols that declare the SAME method signature.
@@ -66,7 +66,7 @@ public func callSiblingMethodEchoViaPeer(_ x: any SiblingMethodPeer, _ n: Int32)
     return x.siblingMethodEcho(n)
 }
 
-// MARK: - Sibling-method NAME divergence (audit item 1, Codex r1 Medium)
+// MARK: - Sibling-method NAME divergence
 //
 // A same-signature method group where the OWNER also declares a property whose
 // base name collides with the method. Swift forbids a property and a zero-arg

@@ -8,11 +8,9 @@ import Foundation
 /// this binary, parses its JSON stdout, and merges per-fact via
 /// `InterfaceFactsAggregator`.
 ///
-/// Session 3 lights up the remaining 14 facts (type collection, enum facts,
-/// signature facts, subscript labels, protocol facts), bringing SwiftSyntax to
-/// 100% fact coverage (24/24). The contract is byte-equal parity with the regex
-/// producer (`SwiftInterfaceAccessParser`) across the validation corpus — that
-/// gates flipping the default in M2 S3.
+/// Covers 24/24 facts (type collection, enum facts, signature facts, subscript labels,
+/// protocol facts) with byte-equal parity against the regex producer
+/// (`SwiftInterfaceAccessParser`) across the validation corpus.
 ///
 /// CLI:
 ///   SwiftInterfaceParser --input <path-to-swiftinterface>
@@ -65,7 +63,6 @@ let actorIsolation = ActorIsolationWalker.parse(filePath: path, source: source)
 let availability = AvailabilityWalker.parse(filePath: path, source: source)
 let typedThrows = ThrowsWalker.parse(filePath: path, source: source)
 
-// Session 3 walkers.
 let publicTypeNames = PublicTypeNamesWalker.parse(filePath: path, source: source)
 let memberCollection = MemberCollectionWalker.parse(filePath: path, source: source)
 let markerProtocolConformances = MarkerProtocolWalker.parse(filePath: path, source: source)
@@ -74,7 +71,6 @@ let signatureFacts = SignatureFactsWalker.parse(filePath: path, source: source)
 let subscriptLabels = SubscriptLabelsWalker.parse(filePath: path, source: source)
 let protocolFacts = ProtocolFactsWalker.parse(filePath: path, source: source)
 
-// M2 S4 — non-fact methods migrated behind the producer abstraction.
 let protocolNames = ProtocolNamesWalker.parse(filePath: path, source: source)
 let extensionMemberCandidates = ExtensionsWalker.parse(filePath: path, source: source)
 
@@ -114,36 +110,36 @@ let output = ParserOutput(
     coveredFacts: [
         "MainActorTypes",
         "MainActorTypePositions",
-        // Actor isolation cluster (M2 S2).
+        // Actor isolation cluster.
         "ActorIsolatedMembers",
         "MainActorIsolatedMembers",
         "NonisolatedMembers",
         "CustomActorTypes",
         "CustomActorIsolatorMap",
-        // Availability cluster (M2 S2).
+        // Availability cluster.
         "AvailabilityAnnotations",
         "AvailabilityAnnotationPositions",
-        // Typed throws (M2 S2).
+        // Typed throws.
         "TypedThrowsErrors",
-        // Session 3 — type & member collection.
+        // Type & member collection.
         "PublicTypeNames",
         "InternalMemberKeys",
         "PublicMemberNames",
         "MarkerProtocolConformances",
-        // Session 3 — enum facts.
+        // Enum facts.
         "EnumCaseLabels",
         "EnumCaseRawValues",
-        // Session 3 — signature facts.
+        // Signature facts.
         "ParameterNames",
         "DefaultParameterValues",
         "AutoclosureParameters",
         "SubscriptLabels",
         "VariadicMembers",
-        // Session 3 — protocol-level facts.
+        // Protocol-level facts.
         "ConventionCProtocols",
         "ConventionCProtocolPositions",
         "HiddenRequirementProtocols",
-        // M2 S4 — non-fact methods migrated behind the producer abstraction.
+        // Non-fact methods behind the producer abstraction.
         "ProtocolNames",
         "ProtocolExtensionMethods",
         "ExtensionMemberCandidates",

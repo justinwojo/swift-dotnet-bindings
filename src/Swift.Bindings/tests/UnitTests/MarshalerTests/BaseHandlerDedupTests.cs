@@ -561,7 +561,7 @@ public class BaseHandlerDedupTests
     [Fact]
     public void GetProjectedCSharpMethodKey_ThreadsSiblingPropertyNames_FoldsInPropertyCollisionRename()
     {
-        // P1-21 root cause: the authoritative emitted name applies a sibling-property-collision rename
+        // Root cause: the authoritative emitted name applies a sibling-property-collision rename
         // (`Data` → `DataMethod`). The projected DEDUP key MUST fold in that same rename — a key built
         // WITHOUT the sibling set reserves the bare `Data(...)` while the method is emitted as
         // `DataMethod(...)`, so the dedup set and the emitted name disagree and a real C# collision

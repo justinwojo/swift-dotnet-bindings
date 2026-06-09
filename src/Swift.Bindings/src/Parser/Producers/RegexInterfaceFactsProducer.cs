@@ -10,8 +10,7 @@ namespace BindingsGeneration.Producers;
 /// <summary>
 /// The legacy producer — wraps the <see cref="SwiftInterfaceAccessParser"/> regex/state-machine
 /// path that's been the only fact source since M4 introduced <see cref="SwiftInterfaceFacts"/>.
-/// Covers all 24 fact kinds. This producer is the default until M2 Session 3 flips the default
-/// to SwiftSyntax.
+/// Covers all 24 fact kinds. This producer is the default until SwiftSyntax reaches full coverage.
 /// <para/>
 /// Per-fact extraction is wrapped in try/catch (matching the existing TryParseSwiftInterface
 /// degrade-to-empty pattern in Program.cs); a single bad regex match still leaves the rest of
@@ -144,7 +143,7 @@ public sealed class RegexInterfaceFactsProducer : IInterfaceFactsProducer
             () => SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(swiftInterfacePath),
             () => new Dictionary<string, HashSet<string>>());
 
-        // M2 S4 — non-fact methods migrated behind the producer abstraction.
+        // Non-fact methods migrated behind the producer abstraction.
         var protocolNames = TryParse("protocol names", logger, ref parseFailures,
             () => SwiftInterfaceAccessParser.GetProtocolNames(swiftInterfacePath),
             () => new HashSet<string>());

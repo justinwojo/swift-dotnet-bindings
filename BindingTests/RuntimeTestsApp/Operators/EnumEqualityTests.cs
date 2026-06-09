@@ -8,7 +8,7 @@ namespace RuntimeTestsApp.Operators;
 
 /// <summary>
 /// Layer A coverage for the "Equatable enum-as-class" lowering gap
-/// (<c>bug-0.10.0-equatable-not-lowered.md</c>, Defect 2).
+/// (Defect 2: Equatable enums with associated values lowering to reference equality).
 ///
 /// Equatable enums with associated values lower to a C# class. Before the
 /// EnumEqualityMethodsWriter bridge, those classes inherited reference equality

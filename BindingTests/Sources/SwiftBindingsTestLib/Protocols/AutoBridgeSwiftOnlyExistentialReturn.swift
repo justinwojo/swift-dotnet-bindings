@@ -3,11 +3,11 @@
 
 import Foundation
 
-// MARK: - Session 5b regression fixture
+// MARK: - Auto-bridge Swift-only existential return regression fixture
 //
 // Mirrors RealityKit's `MultipeerConnectivityService.Owner(Entity) -> any
 // RealityFoundation.SynchronizationPeerID` suppression pattern in BindingTests.
-// Until Session 5b, `TypeDatabaseExtensions.IsObjCModuleType` classified every
+// Before the fix, `TypeDatabaseExtensions.IsObjCModuleType` classified every
 // non-value-type from an auto-bridge module as ObjC even when the type's name
 // didn't match the module's declared `objcPrefixes`. That stripped the protocol
 // out of `ExistentialHandler.GetEffectiveProtocols`, dropped the effective count

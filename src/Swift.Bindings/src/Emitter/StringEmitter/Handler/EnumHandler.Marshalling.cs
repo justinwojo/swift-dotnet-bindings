@@ -406,7 +406,7 @@ namespace BindingsGeneration
             // the handle in its SafeHandle; an @objc:NSObject peer base-retains then DangerousRelease's
             // the incoming +1), so the wrapper consumes exactly the copy's retain. Adding a second
             // Arc retain here would over-retain by +1 per extraction — the object never deallocs even
-            // though every dispose runs (issue #40 / P1-01: the enum-payload over-retain leak; the copy
+            // though every dispose runs (issue #40 — enum-payload over-retain leak; the copy
             // does NOT "dissolve with the stack frame"). Wrapping the buffer address via SwiftClassHandle
             // would instead ARC-release a bogus pointer on dispose.
             var fallbackRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
@@ -614,7 +614,7 @@ namespace BindingsGeneration
             // owns an isa-correct +1 from the enum's InitializeWithCopy, and MarshalFromSwift<T> →
             // NewFromPayload ADOPTS exactly one reference, so the wrapper consumes the copy's retain.
             // No extra Arc retain — a second retain over-retains by +1 per extraction and the payload
-            // never deallocs (issue #40 / P1-01: enum-payload over-retain leak).
+            // never deallocs (issue #40 — enum-payload over-retain leak).
             var marshalRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
             if (IsSwiftClassPayload(marshalRecord))
             {
@@ -807,7 +807,7 @@ namespace BindingsGeneration
         /// exactly one reference (an @objc:NSObject peer base-retains then DangerousRelease's the
         /// incoming +1; a pure-Swift wrapper stores the handle in its SafeHandle), so the wrapper
         /// consumes the copy's retain. Do NOT add a second Arc retain — it over-retains by +1 per
-        /// extraction and the payload never deallocs even though every dispose runs (issue #40 / P1-01:
+        /// extraction and the payload never deallocs even though every dispose runs (issue #40 —
         /// enum-payload over-retain leak).
         ///
         /// Non-class generic T (ISwiftObject non-class, ISwiftStruct, primitives, value
@@ -837,7 +837,7 @@ namespace BindingsGeneration
             // Class T: read the class pointer at sourcePtr and hand it to MarshalFromSwift, which
             // ADOPTS the +1 the enclosing InitializeWithCopy already deposited. No extra Arc retain —
             // mirrors the concrete IsSwiftClassPayload branch (EmitPayloadMarshal /
-            // EmitPayloadMarshalWithOffset). A redundant retain leaks +1 per extraction (issue #40 / P1-01).
+            // EmitPayloadMarshalWithOffset). A redundant retain leaks +1 per extraction (issue #40).
             csWriter.WriteLine($"var __{varName}_classPtr = *(IntPtr*)({sourcePtrExpr});");
             csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(__{varName}_classPtr);");
             csWriter.Indent--;

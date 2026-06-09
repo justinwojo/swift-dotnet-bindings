@@ -95,7 +95,7 @@ public class GenericClass<T> {
     }
 }
 
-// MARK: - M3: Generic Class Implementing Protocol (Quick AsyncBehavior pattern)
+// MARK: - Generic Class Implementing Protocol (Quick AsyncBehavior pattern)
 
 /// Generic class implementing the Named protocol with a String property.
 /// Tests SBW_Free routing to PInvokeHelper for generic types (CS7042 fix).
@@ -109,7 +109,7 @@ public class GenericNamedBox<T>: Named {
     }
 }
 
-// MARK: - M4: Generic Struct with Optional Generic Property (Quick TestState pattern)
+// MARK: - Generic Struct with Optional Generic Property (Quick TestState pattern)
 
 /// Generic struct whose main property is Optional<T>.
 /// Tests SwiftOptional<T> with generic metadata.

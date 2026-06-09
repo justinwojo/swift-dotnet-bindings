@@ -498,14 +498,14 @@ public class MethodGenericBridgeEmitterTests
 
     #endregion
 
-    #region Indirect-result ownership (audit P0-12 / P1-28)
+    #region Indirect-result ownership
 
     // The bridge's indirect-result buffer was previously a fixed `Marshal.AllocHGlobal(256)`
-    // (heap overflow for any Swift return whose stride exceeds 256 bytes — audit P0-12) followed
-    // by an undiscriminated MarshalFromSwift + finally-free: a double-free / allocator mismatch
-    // for ownership-transfer returns, and a leaked +1 ARC retain for frozen-with-ref returns
-    // (audit P1-28). These tests pin the three-way ownership contract and that NO fixed 256-byte
-    // buffer survives in the emitted C#.
+    // (heap overflow for any Swift return whose stride exceeds 256 bytes) followed by an
+    // undiscriminated MarshalFromSwift + finally-free: a double-free / allocator mismatch for
+    // ownership-transfer returns, and a leaked +1 ARC retain for frozen-with-ref returns.
+    // These tests pin the three-way ownership contract and that NO fixed 256-byte buffer
+    // survives in the emitted C#.
 
     [Fact]
     public void TryEmit_NonFrozenStructReturn_SizesViaSwiftStrideAndTransfersOwnership()
@@ -518,7 +518,7 @@ public class MethodGenericBridgeEmitterTests
 
         Assert.True(handled);
         Assert.Contains("GetSwiftTypeSize<", csResult);   // sized to the Swift stride…
-        Assert.DoesNotContain("256", csResult);            // …never a fixed 256-byte buffer (P0-12)
+        Assert.DoesNotContain("256", csResult);            // …never a fixed 256-byte buffer
         Assert.Contains("NativeMemory.Alloc", csResult);   // allocator matches ReleaseHandle
         Assert.Contains("MarshalFromSwift<", csResult);
         Assert.DoesNotContain("FreeHGlobal", csResult);    // ownership transfers — no finally-free
@@ -529,7 +529,7 @@ public class MethodGenericBridgeEmitterTests
     {
         // Frozen-struct-with-ref-fields (ClassWithBufferStruct): NewFromPayload copies the wire
         // into a managed buffer, but the wire still holds +1 on its ref fields — VWT-Destroy it
-        // before freeing the C#-owned buffer, else every call leaks +1 (audit P1-28).
+        // before freeing the C#-owned buffer, else every call leaks +1 ARC retain.
         var (handled, csResult, _) = EmitBridgeWithStructReturn(
             "FrozenRefResult", TypeRecordKind.Struct,
             TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);

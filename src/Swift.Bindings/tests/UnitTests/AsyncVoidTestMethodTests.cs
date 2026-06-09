@@ -11,7 +11,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Gate-hygiene invariant (REMEDIATION-PLAN Session 10 / Track-M4): no BindingTests
+/// Gate-hygiene invariant: no BindingTests
 /// <c>RuntimeTestsApp</c> test method may be declared <c>async void</c>. The compile-time test
 /// discovery (<c>TestDiscoveryGenerator</c>) drives each test through an invoker that cannot await
 /// a <c>void</c>-returning method, so an <c>async void</c> body returns before completion — every

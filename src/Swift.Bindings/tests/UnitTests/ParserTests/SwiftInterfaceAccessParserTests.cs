@@ -279,7 +279,7 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
-    // ===== P1-27 B5: bare protocol-requirement classification =====
+    // ===== Bare protocol-requirement classification =====
     // Protocol requirements carry NO access modifier in .swiftinterface (their visibility
     // derives from the enclosing protocol). The negative-space detector treats any member
     // absent from `publicMemberNames` as internal — so a bare requirement that isn't

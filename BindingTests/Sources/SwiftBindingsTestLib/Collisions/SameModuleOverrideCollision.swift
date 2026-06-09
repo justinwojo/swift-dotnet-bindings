@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Same-module override of a collision-suffixed overload (P1-21 / Track-C2 §1 "D")
+// MARK: - Same-module override of a collision-suffixed overload
 //
 // `process(first:)` and `process(second:)` share a method name AND a projected C#
 // parameter signature (`Process(int)`), but differ in their Swift argument label —
@@ -30,7 +30,7 @@ open class CollisionOverrideBase {
 
 /// Scenario B — derived overrides BOTH overloads. Because the derived class body also
 /// contains two colliding `process` methods, it independently recomputes `Process` /
-/// `Process2`; the verifier only needs to recognise the suffixed ancestor slot (the §8.2
+/// `Process2`; the verifier only needs to recognise the suffixed ancestor slot (the
 /// `EmittedCSharpName`-preference fix) for both overrides to bind correctly.
 open class CollisionOverrideDerivedBoth: CollisionOverrideBase {
     public override init() { super.init() }

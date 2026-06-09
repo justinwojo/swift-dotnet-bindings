@@ -276,7 +276,7 @@ public class AsyncComplexTypeTests : TestBase
 
     #endregion
 
-    #region Bug 8 Regression: top-level non-optional Container<ObjCBridgeable> async returns
+    #region Regression: top-level non-optional Container<ObjCBridgeable> async returns
 
     // Async wrappers for non-optional [URL] / Set<URL> / [String: URL] previously emitted
     //   var _collection = SwiftMarshal.MarshalFromSwift<SwiftArray<NSUrl>>(resultPtr);
@@ -334,8 +334,8 @@ public class AsyncComplexTypeTests : TestBase
 
     #endregion
 
-    #region Bundle 04 #8: AsyncStream<[T]> boundary projection
-    // Regression coverage for `gap-0.10.0-swiftarray-at-api-boundary.md`. Pre-fix the
+    #region AsyncStream<[T]> boundary projection
+    // Regression coverage for the SwiftArray-at-API-boundary gap. Pre-fix the
     // generated property surfaced `IAsyncEnumerable<Swift.SwiftArray<int>>`, leaking
     // the runtime helper container at the public API boundary. Post-fix the property
     // surfaces `IAsyncEnumerable<IReadOnlyList<int>>`. This test method is compile-only

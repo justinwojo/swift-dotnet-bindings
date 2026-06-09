@@ -810,7 +810,7 @@ public class ArraySliceNormalizationEmitterTests
     [Fact]
     public void TryEmitNormalized_CdeclWithStringReturn_ResultPtrBeforeArgs()
     {
-        // Bug 1 fix: resultPtr must be FIRST parameter per CdeclSignatureContract,
+        // resultPtr must be FIRST parameter per CdeclSignatureContract,
         // not appended after arguments. String return triggers needsResultPtr=true.
         // AsyncLibraryName must be set to enable @_cdecl mode (Guard 4 in WrapperValidation).
         var typeDatabase = CreateTypeDatabase();

@@ -3,10 +3,10 @@
 
 import Foundation
 
-// MARK: - Nested String Enum (Regression Test for Phase 55)
+// MARK: - Nested String Enum
 
 /// Container struct with nested String enum for testing nested enum emission.
-/// Phase 55 fixed issues with String enum FromRawValue() factory methods.
+/// Regression guard for String enum FromRawValue() factory methods.
 public struct NetworkConfig {
     /// Nested String enum for HTTP methods.
     public enum HttpMethod: String {
@@ -36,7 +36,7 @@ public struct NetworkConfig {
     }
 }
 
-// MARK: - Nested Enum Name Collision (Phase 55 Regression)
+// MARK: - Nested Enum Name Collision
 
 /// First container with nested `Status` enum.
 /// Tests that generated C# correctly scopes nested enum names.

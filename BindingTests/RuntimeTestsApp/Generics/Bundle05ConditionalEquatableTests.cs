@@ -8,8 +8,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Bundle 05 #2 (unconditional IEquatable on conditional Swift generic)
-/// regression coverage. The Swift fixture
+/// Regression coverage for unconditional IEquatable on a conditionally-Equatable Swift generic.
+/// The Swift fixture
 /// <see cref="Bundle05CondEqBox{Item}"/> declares
 /// <c>extension Bundle05CondEqBox: Equatable where Item: Equatable {}</c>
 /// — the conformance is gated on the type parameter satisfying
@@ -52,7 +52,7 @@ public class Bundle05ConditionalEquatableTests : TestBase
             && i.GetGenericArguments()[0].GetGenericTypeDefinition() == typeof(Bundle05CondEqBox<>));
 
         AssertFalse(hasTypedIEquatable,
-            "Bundle 05 #2: Bundle05CondEqBox<TItem> must NOT implement " +
+            "Bundle05CondEqBox<TItem> must NOT implement " +
             "IEquatable<Bundle05CondEqBox<TItem>> because the Swift Equatable " +
             "conformance is conditional on `Item: Equatable` and the C# generic " +
             "parameter set carries no such constraint. Emitting the typed surface " +
@@ -85,7 +85,7 @@ public class Bundle05ConditionalEquatableTests : TestBase
 
         TestLogger.Info($"Bundle05CondEqBox<> declared typed Equals overloads: {typedEqualsMethods.Length}");
         AssertEqual(0, typedEqualsMethods.Length,
-            "Bundle 05 #2: Bundle05CondEqBox<TItem> must not declare a typed " +
+            "Bundle05CondEqBox<TItem> must not declare a typed " +
             "Equals(Bundle05CondEqBox<TItem>?) override when the Swift Equatable " +
             "conformance is conditional. Inherited Equals(object?) is the safe path.");
     }

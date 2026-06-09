@@ -783,15 +783,15 @@ public func SBW_TEST_RichToolbarView_GetSubtitleLength(_ handle: UnsafeMutableRa
     }
 }
 
-// MARK: - Audit Session 5 helpers
+// MARK: - Bridge edge-case View test helpers
 //
-// Test hooks for the SwiftUI-bridge defect fixtures in AuditSession5Views.swift.
+// Test hooks for the SwiftUI-bridge defect fixtures in BridgeEdgeCaseViews.swift.
 // The closure-firing helpers call the closure stored on the Wrapper, which IS the
 // generated decomposition closure built in the Session init — so they exercise the
-// real P1-19 (withExtendedLifetime) / P1-20 (heap-buffer initializeMemory) callback
-// marshalling rather than bypassing it.
+// real `withExtendedLifetime` / heap-buffer `initializeMemory` callback marshalling
+// rather than bypassing it.
 
-// MARK: UrlResultView (P1-19) — Result<URL, ScanError> closure
+// MARK: UrlResultView — Result<URL, ScanError> closure
 
 extension SBW_SwiftBindingsTestLib_UrlResultView_Session {
     var rootView: SBW_SwiftBindingsTestLib_UrlResultView_Wrapper { hostingController.rootView }
@@ -801,7 +801,7 @@ extension SBW_SwiftBindingsTestLib_UrlResultView_Session {
 /// The success payload is an ObjC-bridgeable struct (URL→NSURL); the generated
 /// decomposition closure binds `value as AnyObject` and `withExtendedLifetime`s it
 /// across the synchronous C callback. Without that guard the bridged NSURL could be
-/// released before the C# callback reads absoluteString (the P1-19 use-after-free).
+/// released before the C# callback reads absoluteString (use-after-free).
 /// Returns 1 on success, -1 if the handle is invalid.
 @_cdecl("SBW_TEST_UrlResultView_InvokeSuccess")
 public func SBW_TEST_UrlResultView_InvokeSuccess(
@@ -863,7 +863,7 @@ public func SBW_TEST_UrlClosureView_InvokeOnPick(
     }
 }
 
-// MARK: FrozenRefClosureView (P1-20) — @frozen struct w/ ref field as closure arg
+// MARK: FrozenRefClosureView — @frozen struct w/ ref field as closure arg
 
 extension SBW_SwiftBindingsTestLib_FrozenRefClosureView_Session {
     var rootView: SBW_SwiftBindingsTestLib_FrozenRefClosureView_Wrapper { hostingController.rootView }
@@ -872,7 +872,7 @@ extension SBW_SwiftBindingsTestLib_FrozenRefClosureView_Session {
 /// Fire onEvent(FrozenRefArg(s:)) with a deterministic String keyed by `value`.
 /// FrozenRefArg is a @frozen struct holding a String (ref-holding field); the generated
 /// decomposition closure copies it into a heap buffer via initializeMemory (ARC-correct)
-/// before the C callback and deinitializes/deallocates after (P1-20). The C# trampoline
+/// before the C callback and deinitializes/deallocates after. The C# trampoline
 /// reads back the .S field — a corrupt or leaked String there would prove the buffer
 /// marshalling is wrong. Returns 1 on success, -1 if the handle is invalid.
 @_cdecl("SBW_TEST_FrozenRefClosureView_InvokeOnEvent")
@@ -890,7 +890,7 @@ public func SBW_TEST_FrozenRefClosureView_InvokeOnEvent(
     }
 }
 
-// MARK: UrlParamView (P0-04) — ObjC-bridgeable struct (URL) param
+// MARK: UrlParamView — ObjC-bridgeable struct (URL) param
 
 /// Return the UTF-8 byte length of the bridged URL's absoluteString, or -1 if the handle
 /// is invalid. Lets the C# test confirm the URL crossed the Create ABI as an
@@ -906,7 +906,7 @@ public func SBW_TEST_UrlParamView_GetTargetLength(_ handle: UnsafeMutableRawPoin
     }
 }
 
-// MARK: OptionalUrlParamView (P0-04) — Optional<ObjC-bridgeable struct> param
+// MARK: OptionalUrlParamView — Optional<ObjC-bridgeable struct> param
 
 /// Return the UTF-8 byte length of the bridged URL?'s absoluteString, -2 if the target is
 /// nil, or -1 if the handle is invalid.
@@ -922,7 +922,7 @@ public func SBW_TEST_OptionalUrlParamView_GetTargetLength(_ handle: UnsafeMutabl
     }
 }
 
-// MARK: ArrayEnumView (P0-03) — [BoundEnum] param
+// MARK: ArrayEnumView — [BoundEnum] param
 
 /// Return the number of decoded AlertStyle elements, or -1 if the handle is invalid.
 @_cdecl("SBW_TEST_ArrayEnumView_GetCount")
@@ -953,7 +953,7 @@ public func SBW_TEST_ArrayEnumView_GetElement(
     }
 }
 
-// MARK: HandleParamView (P1-22) — init params colliding with generated locals
+// MARK: HandleParamView — init params colliding with generated locals
 
 /// Return the stored `handle` field, or Int32.min if the handle is invalid.
 @_cdecl("SBW_TEST_HandleParamView_GetHandle")

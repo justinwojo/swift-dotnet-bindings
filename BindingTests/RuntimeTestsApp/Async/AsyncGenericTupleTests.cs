@@ -19,12 +19,12 @@ namespace RuntimeTestsApp.Async;
 ///         a generic instance method, so Swift expects `self` + the parent's type metadata
 ///         in the implicit self / metadata registers while a fixed CallConvSwift P/Invoke can
 ///         only pass them as trailing IntPtr args — an ABI mismatch that SIGSEGVs. The
-///         generator suppresses those members at source (P0-15); the "properly suppressed"
+///         generator suppresses those members at source; the "properly suppressed"
 ///         invariant is asserted in Swift.Bindings.Unit.Tests
 ///         (MemberValidationPipelineTests.ValidateMethodEmission_AsyncOnGenericParent_*)
 ///         rather than here, because a dropped member cannot be called from C#. The correct
-///         long-term fix is a generic-static-dispatch
-///         @_cdecl async bridge (the async analog of the StoredValue getter), tracked in §6.
+///         long-term fix is a generic-static-dispatch @_cdecl async bridge (the async analog
+///         of the StoredValue getter).
 /// </summary>
 public class AsyncGenericTupleTests : TestBase
 {

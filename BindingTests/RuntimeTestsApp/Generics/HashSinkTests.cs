@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Closes the gap left open after the original Bug 3 fix: the bilateral pairing
+/// Closes the gap left open after the original class-constraint fix: the bilateral pairing
 /// filter previously passed through <c>ConformanceKind.Protocol</c> entries when
 /// the constraint target was itself a protocol. <c>HashSink</c> declares
 /// <c>sumHashes&lt;S: Sequence&gt;(_ source: S) -&gt; Int where S.Element : HashLike</c>

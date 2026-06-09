@@ -189,11 +189,11 @@ public class ClosureHandler
     /// <summary>
     /// Determines whether the closure is a supported type.
     /// Currently supports:
-    /// - @convention(c) closures (Phase 1)
-    /// - Escaping closures with concrete types (Phase 2)
-    /// - Async closures (Phase 3) - mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;
-    /// - Throwing closures (Phase 4) - mapped to Func&lt;..., SwiftResult&lt;T, SwiftError&gt;&gt;
-    /// - Async+throwing closures (Phase 28) - mapped to Func&lt;..., Task&lt;SwiftResult&lt;T, SwiftError&gt;&gt;&gt;
+    /// - @convention(c) closures
+    /// - Escaping closures with concrete types
+    /// - Async closures - mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;
+    /// - Throwing closures - mapped to Func&lt;..., SwiftResult&lt;T, SwiftError&gt;&gt;
+    /// - Async+throwing closures - mapped to Func&lt;..., Task&lt;SwiftResult&lt;T, SwiftError&gt;&gt;&gt;
     ///   via Swift continuation wrapper pattern
     /// All must have concrete (non-generic) argument/return types.
     /// Return types must be primitive/blittable (complex return type marshalling not yet implemented).
@@ -202,16 +202,15 @@ public class ClosureHandler
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
     public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
     {
-        // B13 (removed Session B): async-throwing closures with arguments are now
-        // supported via per-arity AsyncThrowingClosureState<A0,…,TResult> + arg-bearing
-        // Start signatures. The Session B bridge only kicks in when
+        // Async-throwing closures with arguments are now supported via per-arity
+        // AsyncThrowingClosureState<A0,…,TResult> + arg-bearing Start signatures.
+        // The baseline async-throwing bridge only kicks in when
         // IsBaselineAsyncThrowingClosure accepts the shape; otherwise the closure still
         // has to pass the generic IsSupportedClosureParameterType loop below.
 
-        // CX-12 (narrowed — Session C): Async-only closures with non-void returns
-        // are supported only for the baseline non-throwing shape
-        // (@escaping (Args) async -> T where T is a blittable primitive and args
-        // are Session B-bridgeable). Anything wider still routes to the generic
+        // Async-only closures with non-void returns are supported only for the baseline
+        // non-throwing shape (@escaping (Args) async -> T where T is a blittable primitive
+        // and args are baseline-bridgeable). Anything wider still routes to the generic
         // skip path — the emitter can't synthesize a Task-returning delegate
         // under an [UnmanagedCallersOnly] callback for arbitrary shapes.
         if (closureTypeSpec.IsAsync
@@ -220,7 +219,7 @@ public class ClosureHandler
             && !IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
             return false;
 
-        // Async+throwing closures are now supported via Swift continuation wrapper pattern (Phase 28)
+        // Async+throwing closures are now supported via Swift continuation wrapper pattern
         // The C# side provides a synchronous "start" callback that spawns Task.Run,
         // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
         //
@@ -406,7 +405,7 @@ public class ClosureHandler
                 return true;
             }
 
-            // D1: Complex enums as closure RETURN types are not supported.
+            // Complex enums as closure RETURN types are not supported.
             // GetSwiftReturnConversion and RequiresIndirectReturnMarshalling don't handle
             // complex enum returns. Only complex enum parameters are supported (via heap alloc).
             if (IsComplexEnum(typeSpec))
@@ -502,7 +501,7 @@ public class ClosureHandler
         // Named types should be resolvable in the type database
         if (typeSpec is NamedTypeSpec namedType)
         {
-            // D1: Complex enums pass via heap-allocated pointer ABI (UnsafeMutableRawPointer/IntPtr).
+            // Complex enums pass via heap-allocated pointer ABI (UnsafeMutableRawPointer/IntPtr).
             // Simple enums pass as their underlying integer type (blittable).
             // Both are now supported as closure parameters.
             // Generic type parameters (τ_0_0, τ_0_1, T, etc.) are not supported in closures
@@ -858,18 +857,18 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Determines whether an async-throwing closure matches the Session A/B/D/F bridge
+    /// Determines whether an async-throwing closure matches the baseline bridge
     /// shape: `@escaping (A0, …) async throws -> T` where:
     ///   - T is a bitwise-copyable primitive (Int32, Int64, Double, …) OR
-    ///     <c>Foundation.Data</c> (Session D: routed through <c>DataAsyncClosureHelper</c>
+    ///     <c>Foundation.Data</c> (routed through <c>DataAsyncClosureHelper</c>
     ///     with a <c>(boxPtr, bytesPtr, length)</c> success callback; zero args only
     ///     per the Data-return emitter guard in <c>ClosureEmitter.Async.cs</c>) OR
-    ///     <c>Swift.String</c> (Session F: routed through <c>StringAsyncClosureHelper</c>
+    ///     <c>Swift.String</c> (routed through <c>StringAsyncClosureHelper</c>
     ///     with a <c>(boxPtr, bytesPtr, length)</c> UTF-8 success callback; full
     ///     0–<see cref="MaxAsyncThrowingClosureArity"/> arity supported since it
     ///     unblocks <c>STPConfirmationToken</c>-shaped handlers).
     ///   - arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>,
-    ///   - each argument is a Session B-bridgeable type (primitive, Swift.String,
+    ///   - each argument is a baseline-bridgeable type (primitive, Swift.String,
     ///     or a Swift class).
     /// Any wider shape falls through to the existing "unsupported async closure"
     /// skip path.
@@ -911,10 +910,10 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Session C counterpart of <see cref="IsBaselineAsyncThrowingClosure"/> for
-    /// non-throwing closures: <c>@escaping (A0, …) async -&gt; T</c> where T is a
-    /// blittable primitive, arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>,
-    /// and each arg matches a Session B category. The non-throwing bridge uses
+    /// Non-throwing counterpart of <see cref="IsBaselineAsyncThrowingClosure"/>:
+    /// <c>@escaping (A0, …) async -&gt; T</c> where T is a blittable primitive,
+    /// arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>, and each arg matches
+    /// a baseline-bridgeable category. The non-throwing bridge uses
     /// <c>withCheckedContinuation</c> (no error channel) on the Swift side and
     /// routes C# exceptions to <c>Environment.FailFast</c>.
     /// </summary>
@@ -941,8 +940,8 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Combined predicate that accepts either the Session A/B throwing baseline
-    /// shape or the Session C non-throwing baseline shape. Call sites that
+    /// Combined predicate that accepts either the async-throwing baseline
+    /// shape or the non-throwing baseline shape. Call sites that
     /// previously tested <see cref="IsBaselineAsyncThrowingClosure"/> typically
     /// want this — the emitter paths are unified past the <c>isThrowing</c>
     /// branch.
@@ -952,7 +951,7 @@ public class ClosureHandler
            || IsBaselineAsyncNonThrowingClosure(closureTypeSpec);
 
     /// <summary>
-    /// Maximum closure arity supported by the Session B async-throwing bridge.
+    /// Maximum closure arity supported by the async-throwing bridge.
     /// Per-arity state/helper overloads live in <c>Swift.Runtime.AsyncThrowingClosureState</c>
     /// and <c>Swift.Runtime.AsyncClosureHelper</c>; raising this cap requires adding
     /// matching per-arity types there.
@@ -960,7 +959,7 @@ public class ClosureHandler
     public const int MaxAsyncThrowingClosureArity = 4;
 
     /// <summary>
-    /// Category for a closure argument that participates in the Session B async-throwing
+    /// Category for a closure argument that participates in the async-throwing
     /// bridge. Drives both the Swift-side adapter marshalling and the C# Start thunk
     /// arg-read code. Non-frozen structs, Optionals, and generics are intentionally
     /// excluded from the baseline bridge.
@@ -1393,9 +1392,8 @@ public class ClosureHandler
         // Swift.Optional<T> → T?, Swift.String → string, etc.). The default
         // overload of GetCSharpTupleType uses TupleHandler.TranslateElementTypeToCSharp
         // which short-circuits to typeRecord.CSharpTypeName.FullyQualifiedName and skips
-        // every closure-specific projection — that's the
-        // bug-0.10.0-callback-arg-projection-asymmetry symptom where a tuple element of
-        // `Foundation.Data` came out as `Swift.Foundation.Data` and `Foundation.URLResponse?`
+        // every closure-specific projection — without this recursion a tuple element of
+        // `Foundation.Data` comes out as `Swift.Foundation.Data` and `Foundation.URLResponse?`
         // came out as `Swift.SwiftOptional<IntPtr>` even though the top-level async return
         // path (which uses the same TranslateTypeSpecToCSharp recursion) projected them to
         // `byte[]` and `Foundation.NSUrlResponse?`.
@@ -1863,7 +1861,7 @@ public class ClosureHandler
     /// <c>Dispose</c> in the user's callback body — and the wrapper's SafeHandle finalizer — both balance that retain.
     /// The older <c>MarshalBorrowedFromSwift</c> SuppressFinalize-only path over-releases the borrowed <c>+0</c> handle when the
     /// wrapper is finalized on NativeAOT, where its reflection-based <c>Payload</c> finalizer suppression is trimmed away
-    /// for app-assembly types — a use-after-free of the borrowed object (device GenericClosureBridge crash / audit P1-02).
+    /// for app-assembly types — a use-after-free of the borrowed object (device GenericClosureBridge crash).
     /// </para>
     /// Non-class types (read-and-discard <c>SwiftString</c>/<c>Data</c>, value wrappers, ObjC-bridged) keep the borrowed path;
     /// they are never surfaced to the user for <c>Dispose</c> and have no ARC <c>+1</c> to over-release.

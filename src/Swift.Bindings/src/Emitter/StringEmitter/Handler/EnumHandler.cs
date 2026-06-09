@@ -469,9 +469,7 @@ namespace BindingsGeneration
                 // mangled symbol is bound to the closed instantiation) AND never
                 // re-surfaced as closed-generic extension methods, so consumers
                 // lose the property surface entirely. StoreKit2's
-                // `VerificationResult<SignedType>.jwsRepresentation` etc. are the
-                // canonical case — see
-                // src/docs/Resolved/gap-0.10.0-multispecialization-drops-generic-property-accessors.md.
+                // `VerificationResult<SignedType>.jwsRepresentation` is the canonical case.
                 ConstrainedExtensionEmitter.EmitConstrainedExtensions(
                     csWriter, swiftWriter, enumDecl,
                     env.TypeDatabase, context.GetEmissionContext(), _logger);
@@ -717,7 +715,8 @@ namespace BindingsGeneration
     /// <remarks>
     /// Without this writer, an Equatable Swift enum-as-class falls through to
     /// <see cref="object.Equals(object?)"/> reference equality and silently drops the Swift
-    /// semantics — see <c>bug-0.10.0-equatable-not-lowered.md</c> Defect 2.
+    /// semantics — without this writer an Equatable Swift enum-as-class falls through to
+    /// <see cref="object.Equals(object?)"/> reference equality and silently drops the Swift semantics.
     /// </remarks>
     public class EnumEqualityMethodsWriter
     {
@@ -865,7 +864,7 @@ namespace BindingsGeneration
 
             var symbolName = GetEqualitySymbolName(_enumDecl);
 
-            // S5 audited (Tier B): equality helpers live in the shared `_equality` bucket (also written by ClassHandler and TypeHandlerHelpers). One helper per enum type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
+            // equality helpers live in the shared `_equality` bucket (also written by ClassHandler and TypeHandlerHelpers). One helper per enum type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
             if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
                 return symbolName;
 

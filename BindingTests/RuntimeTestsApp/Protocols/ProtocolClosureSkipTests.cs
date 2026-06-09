@@ -560,7 +560,7 @@ public class ProtocolClosureSkipTests : TestBase
 
     #region Empty-Proxy-Vtable Bug — Closure-Skipped Vtable Slots Are Wired
 
-    // Layer-A regression for bug-0.10.0-empty-proxy-vtables-for-closure-protocol-methods.
+    // Regression for empty proxy vtable slots in closure-protocol methods.
     //
     // Pre-fix: the proxy declared a `Func_<closureMethod>_N` field but the static ctor
     // never assigned it, so the Swift→C# vtable slot held a null function pointer.
@@ -1353,9 +1353,9 @@ public class ProtocolClosureSkipTests : TestBase
 
     #endregion
 
-    #region S-2: Multi-Arg Method (Value Param + Closure) — Stripe Shape
+    #region Multi-Arg Method (Value Param + Closure) — Stripe Shape
 
-    // Regression for bug-0.10.0-empty-proxy-vtables-for-closure-protocol-methods.
+    // Regression for empty proxy vtable slots in multi-arg closure-protocol methods.
     // STPIssuingCardEphemeralKeyProvider and STPCustomerEphemeralKeyProvider are
     // pure-Swift protocols whose only method is
     // `func createKey(withAPIVersion: String, completion: @escaping ...)` — a value
@@ -1381,7 +1381,7 @@ public class ProtocolClosureSkipTests : TestBase
     // stub and dispatch through the proxy would crash on the Swift side.
     // RetryingKeyProvider (closure arg is Int32) exercises the same multi-arg
     // dispatch path end-to-end. Lift this Skip once String invoke-thunk args land.
-    [Skip("S-2 follow-up: closure arg is String, invoke thunk needs UTF-8 marshalling extension")]
+    [Skip("closure arg is String, invoke thunk needs UTF-8 marshalling extension")]
     public void TestEphemeralKeyProviderProxy_DispatchesThroughSwift()
     {
         var impl = new TestEphemeralKeyProvider();

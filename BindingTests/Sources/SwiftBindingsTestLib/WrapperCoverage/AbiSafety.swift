@@ -241,7 +241,7 @@ public func sbw_sretselfprobe_combine_cdecl(
     outResult.assumingMemoryBound(to: SretSelfProbe.self).initialize(to: result)
 }
 
-// MARK: - P1-15: frozen struct with an UNSIZEABLE generic value-type stored field (fail-closed skip)
+// MARK: - Frozen struct with an unsizeable generic value-type stored field (fail-closed skip)
 
 /// `@frozen` struct carrying a `ClosedRange<Int>?` stored field. ClosedRange<Bound> is a frozen,
 /// reference-managed value type whose inline size depends on its Bound argument
@@ -272,7 +272,7 @@ public func describeRangeHolder(_ h: RangeHolder) -> Int {
     return h.marker
 }
 
-// MARK: - P1-15: frozen struct whose multi-word reference field MUST size correctly (persist path)
+// MARK: - Frozen struct whose multi-word reference field MUST size correctly (persist path)
 
 /// `@frozen` struct whose first stored field is an `AnyHashable?` (a non-generic reference-managed
 /// type with a FIXED 40-byte existential box, persisted as `inlineSize="40"` in SwiftDatabase.xml),
@@ -311,7 +311,7 @@ public func hashHolderRoundTripTag(_ h: HashHolder) -> Int {
     return h.tag
 }
 
-// MARK: - P1-15: frozen-as-class struct whose Optional<8-byte-primitive> field MUST size to two words
+// MARK: - Frozen-as-class struct whose Optional<8-byte-primitive> field MUST size to two words
 
 /// `@frozen` struct combining a reference-managed `AnyHashable?` first field (forces the
 /// `ClassWithBufferStruct` projection — a C# class with a nested blitted `Buffer`, exactly as

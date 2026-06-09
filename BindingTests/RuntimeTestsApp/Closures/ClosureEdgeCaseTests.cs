@@ -98,7 +98,7 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"ComputeValueAsync = {result}");
     }
 
-    // Bug 3 Case 1 (Stripe shape): a method whose non-closure params include an
+    // Existential-param + completion handler (Stripe shape): a method whose non-closure params include an
     // `any Protocol` existential, paired with a trailing `@escaping (T) -> Void`
     // completion. The OLD generator emitted a duplicated …Async body that
     // allocated `existentialContextHeap` and never freed it. The fix in
@@ -229,7 +229,7 @@ public class ClosureEdgeCaseTests : TestBase
     // through, so Mono Issue 1 (!ji->async) cannot apply — and the structurally identical
     // non-primitive-return siblings (CallThrowingWithParam, NonFrozenReturn) already run
     // unskipped and pass. The prior blanket [SkipOnSimulator] cited Issue 1 on a path with
-    // no CallConvSwift P/Invoke; removed under Track-M4 gate hygiene.
+    // no CallConvSwift P/Invoke.
     public void TestThrowingClosureSuccess()
     {
         // () throws -> Int32 — use raw SwiftResult overload
@@ -276,7 +276,7 @@ public class ClosureEdgeCaseTests : TestBase
     // boundary and convert it into a Swift error (*errorOut = SBW_CreateError(...)) rather
     // than letting it unwind into native Swift (SIGABRT). The Swift adapter rethrows on the
     // Swift side, where the outer test function's do/catch turns it into a sentinel — so the
-    // round trip is observable from C# with no process abort (P0-01).
+    // round trip is observable from C# with no process abort.
 
     // Runs on BOTH simulator and device: same pure-CallConvCdecl path as the success
     // cases above. The managed delegate throws, the [UnmanagedCallersOnly(CallConvCdecl)]

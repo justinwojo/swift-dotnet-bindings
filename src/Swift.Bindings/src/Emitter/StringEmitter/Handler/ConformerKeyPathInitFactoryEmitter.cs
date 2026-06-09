@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 8b.3 — Emits consumer-side factory methods that construct a
+/// Emits consumer-side factory methods that construct a
 /// <i>framework-dependency</i>'s generic reference type via its method-own-generic,
 /// KeyPath-keyed initializer, closing the method generic to a concrete local
 /// conformer.

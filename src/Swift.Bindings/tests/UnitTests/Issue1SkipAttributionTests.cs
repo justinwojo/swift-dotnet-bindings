@@ -13,7 +13,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Gate-hygiene invariant (REMEDIATION-PLAN Session 10 / Track-M4): every BindingTests skip
+/// Gate-hygiene invariant: every BindingTests skip
 /// that blames Mono "Issue 1" / the <c>!ji-&gt;async</c> assertion MUST have at least one
 /// CallConvSwift P/Invoke on its path. Issue 1 fires only during a signal-handler unwind
 /// through a CallConvSwift frame (see <c>feedback_mono_jit_blame</c>); a crash on a pure

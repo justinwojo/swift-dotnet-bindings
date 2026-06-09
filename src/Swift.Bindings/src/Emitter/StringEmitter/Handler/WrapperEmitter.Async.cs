@@ -242,7 +242,7 @@ namespace BindingsGeneration
                 // isa-dispatching UnknownObjectRetain: 'self' may be an @objc:NSObject-rooted class
                 // (objc_retain) or a pure-Swift class (swift_retain), and the kind-agnostic
                 // RetainedSelfPtr cleanup releases it via UnknownObjectRelease — native-only
-                // swift_retain over-releases an @objc self (issue #40 / P1-01). SwiftSelf passes a
+                // swift_retain over-releases an @objc self (issue #40). SwiftSelf passes a
                 // raw pointer with no ARC semantics; by the time Swift's Task{} closure runs 'self'
                 // may be deallocated, so the retain ensures Swift ARC tracks it.
                 string selfInHolder;
@@ -852,7 +852,7 @@ namespace BindingsGeneration
                 }
             }
 
-            // Phase 4 unified wire format: a single 6-param error callback shape covers
+            // Unified wire format: a single 6-param error callback shape covers
             // typed-throws, plain-throws cascade, and untyped-throws fallback. Param order:
             //   (errorPtr?, errorSize, messagePtr?, isCancellation, _sbwTask, errorTypeId)
             // Optional pointers so cancellation / untyped / fallthrough branches can pass nil.
@@ -896,11 +896,11 @@ namespace BindingsGeneration
             // Reconstruction code for @_cdecl converted params (emitted before Task {})
             var cdeclReconstructionLines = new List<string>();
 
-            // Baseline async closure params (Session A/B throwing + Session C
-            // non-throwing): routed through the dedicated Swift-side adapter
-            // bridge. Collected here so both the param list and method-call arg
-            // list can special-case them, and the outer wrapper can inject the
-            // adapter construction before the `try await` line.
+            // Baseline async closure params (throwing + non-throwing): routed
+            // through the dedicated Swift-side adapter bridge. Collected here so
+            // both the param list and method-call arg list can special-case them,
+            // and the outer wrapper can inject the adapter construction before the
+            // `try await` line.
             var baselineAsyncClosureParams = usesCdecl
                 ? _env.MethodDecl.CSSignature.Skip(1)
                     .Where(p => p.SwiftTypeSpec is ClosureTypeSpec cts
@@ -909,7 +909,7 @@ namespace BindingsGeneration
                 : new List<ArgumentDecl>();
 
             // Sibling bindings so a reserved-name escape in the @_cdecl catchall below also dodges a
-            // sibling user param (P1-22). Captured by the projection lambda.
+            // sibling user param. Captured by the projection lambda.
             var asyncSiblings = CdeclParamMapper.CollectSiblingBindingNames(_env.MethodDecl.CSSignature.Skip(1));
 
             var methodParams = _env.MethodDecl.CSSignature
@@ -1130,7 +1130,7 @@ namespace BindingsGeneration
             // before invoking this wrapper (isa-dispatch: objc_retain for an @objc:NSObject-rooted
             // self, swift_retain for pure-Swift), ensuring Swift ARC keeps self alive through the
             // Task closure. The matching Arc.UnknownObjectRelease is called in the C# callback after
-            // async completion (issue #40 / P1-01).
+            // async completion (issue #40).
             var selfComment = (isInstanceMethod && isSwiftClass)
                 ? "// selfInstance is safe - C# UnknownObjectRetain'd it before invoking this method"
                 : "";
@@ -1233,8 +1233,7 @@ namespace BindingsGeneration
                 // The async wrapper bypasses MethodWrapperEmitter (see the
                 // TryAddMethodWrapperSymbol note below), so the _sbWrapClosureContext
                 // helper that the handoff init references is not emitted on this path
-                // unless we emit it here. Required for the P1-18 owner-token box;
-                // idempotent per module.
+                // unless we emit it here. Required for the owner-token box; idempotent per module.
                 ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, _emissionContext);
                 var adapterParts = new List<string>();
                 foreach (var bp in baselineAsyncClosureParams)
@@ -1283,10 +1282,10 @@ namespace BindingsGeneration
             // referencing an unproduced symbol. The async wrapper template
             // bypasses MethodWrapperEmitter, so registration has to happen
             // alongside the WriteLine that emits the Swift wrapper.
-            // S5 audited (Tier B): the async wrapper bypasses MethodWrapperEmitter; the
-            // method's mangled name is unique per overload, and `IsAsync` gating ensures
-            // this path is mutually exclusive with the sync MethodWrapperEmitter path for
-            // the same method. Per-kind method bucket is collision-safe.
+            // The async wrapper bypasses MethodWrapperEmitter; the method's mangled name
+            // is unique per overload, and `IsAsync` gating ensures this path is mutually
+            // exclusive with the sync MethodWrapperEmitter path for the same method.
+            // Per-kind method bucket is collision-safe.
             if (_emissionContext != null && _env.MethodDecl.UsesCdeclMethodWrapper)
             {
                 _emissionContext.TryAddMethodWrapperSymbol(NameProvider.GetMangledName(_env.MethodDecl));
@@ -1419,7 +1418,7 @@ namespace BindingsGeneration
             }
             else if (useCascadeErrorCallback)
             {
-                // Phase 4 plain-throws cascade: delegate to the per-module dispatcher helper
+                // Plain-throws cascade: delegate to the per-module dispatcher helper
                 // (_SBW_dispatchSwiftError_{Module}) which handles cancellation, the
                 // alphabetical `as?` cascade against registered error types, typed-buffer
                 // allocation, and the unified 6-param callback invocation. The helper falls

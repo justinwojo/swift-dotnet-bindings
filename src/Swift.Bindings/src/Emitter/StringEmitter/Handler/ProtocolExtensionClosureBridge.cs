@@ -149,7 +149,7 @@ public static class ProtocolExtensionClosureBridge
         // FromIntPtr itself never throws (it just reinterprets the cookie); the throwing step is
         // handle.Target, which is resolved inside each guarded try below so a bad/freed handle
         // faults via FailFast instead of unwinding out of the [UnmanagedCallersOnly] frame into
-        // the Swift @_cdecl caller → SIGABRT (P0-01).
+        // the Swift @_cdecl caller → SIGABRT.
         csWriter.WriteLine("var handle = GCHandle.FromIntPtr(contextPtr);");
 
         if (closureReturnIsBool)
@@ -248,7 +248,7 @@ public static class ProtocolExtensionClosureBridge
         var pInvokeName = NameProvider.GetPInvokeName(method);
         var pinvokeParams = new List<string>();
 
-        // self_ first (protocol extension method ABI). P1-22 (C1): a user non-closure param
+        // self_ first (protocol extension method ABI). A user non-closure param
         // projected to `self_` would be a CS0100 duplicate, so reserve the synthetic against the
         // user param names. Call-site args are positional, so the renamed declaration needs no
         // call-site change.

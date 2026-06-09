@@ -77,7 +77,7 @@ public abstract record MarshalledType
     /// and the P/Invoke receives <c>(IntPtr){SourceCsName}PinnedPtr</c>. The C ABI is
     /// identical for both variants — the read-only/mutable distinction lives only on the
     /// Swift wrapper side (UnsafeRawPointer? vs UnsafeMutableRawPointer?). See
-    /// src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.</summary>
+    /// The read-only/mutable distinction lives only on the Swift wrapper side.</summary>
     public sealed record RawBufferPtr(string SourceCsName) : MarshalledType;
 
     /// <summary>Length half of a split Swift.UnsafeRawBufferPointer or

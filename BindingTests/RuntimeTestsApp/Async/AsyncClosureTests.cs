@@ -8,7 +8,7 @@ using Swift.Runtime;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Session C: non-throwing async-closure bridge for the baseline shape
+/// Non-throwing async-closure bridge for the baseline shape
 /// <c>@escaping (Args) async -&gt; T</c> with BitwiseCopyable primitive return.
 /// Mirrors <see cref="AsyncThrowingClosureTests"/> for the throwing variant
 /// but without an error channel — unhandled managed exceptions here are
@@ -69,7 +69,7 @@ public class AsyncClosureTests : TestBase
     /// <summary>
     /// Arity-3 mixed (Int32, String, AsyncClosureArgBox) on the non-throwing
     /// path: confirms the String + class arg categories marshal correctly
-    /// through the Session C bridge, not just primitives. The Swift class arg
+    /// on the non-throwing path, not just primitives. The Swift class arg
     /// round-trips via Unmanaged.passUnretained → Arc.Retain → MarshalFromSwift
     /// just as on the throwing variant.
     /// </summary>

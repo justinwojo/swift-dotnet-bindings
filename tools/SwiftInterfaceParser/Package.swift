@@ -7,11 +7,9 @@ import PackageDescription
 // Pinned swift-syntax tag.
 //
 // 601.0.x is the swift-syntax line that ships with the Swift 6.1 compiler and remains
-// source-compatible against newer toolchains (verified against host Swift 6.2.3 in
-// docs/architecture-gameplan-v2.md M2 Session 1). Bump only deliberately, in a session
-// dedicated to adopting new node shapes — see the v2 design doc's open question on
-// version pinning. Do NOT track the host toolchain's bundled SwiftSyntax: that pulls
-// in node-shape changes mid-stream and breaks the regex-vs-SwiftSyntax parity gate.
+// source-compatible against newer toolchains. Bump only deliberately when adopting new
+// node shapes. Do NOT track the host toolchain's bundled SwiftSyntax: that pulls in
+// node-shape changes mid-stream and breaks the regex-vs-SwiftSyntax parity gate.
 let swiftSyntaxVersion: Version = "601.0.1"
 
 let package = Package(

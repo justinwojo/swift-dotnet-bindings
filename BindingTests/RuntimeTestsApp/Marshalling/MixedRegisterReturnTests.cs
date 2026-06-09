@@ -144,7 +144,7 @@ public class MixedRegisterReturnTests : TestBase
         // 40-byte (5 × Int64) struct returned INDIRECTLY by a STATIC method. A static method has no
         // self, so the type-metadata accessor call (`bl` on arm64, `callq` on x86_64) is the call that
         // clobbers the sret register — x8 on arm64, %rdi on x86_64 — between the wrapper receiving the
-        // sret pointer and the swiftcc call. P0-08 spills/reloads x8 around the accessor (arm64) and
+        // sret pointer and the swiftcc call. The fix spills/reloads x8 around the accessor (arm64) and
         // stashes the sret in callee-saved %rbx (x86_64). The free-function (tail call) and
         // instance-method (self in swiftself) variants above cannot exercise the static+metadata case:
         // only here does the metadata accessor sit between sret receipt and the call. Five ascending

@@ -375,7 +375,7 @@ public static class ArraySliceNormalizationEmitter
                 Name = arg.Name,
                 PrivateName = arg.PrivateName,
                 IsInOut = arg.IsInOut,
-                Ownership = arg.Ownership, // preserve consuming/borrowing across normalization (P0-06)
+                Ownership = arg.Ownership, // preserve consuming/borrowing across normalization
                 IsGeneric = arg.IsGeneric,
                 HasDefaultArg = arg.HasDefaultArg,
                 ParentDecl = normalized,
@@ -490,7 +490,7 @@ public static class ArraySliceNormalizationEmitter
         var derefLines = new List<string>();
         var originalArgs = originalMethodDecl.CSSignature.Skip(1).ToList();
         var normalizedArgs = normalizedMethodDecl.CSSignature.Skip(1).ToList();
-        // Sibling bindings so a reserved-name escape also dodges a sibling user param (P1-22).
+        // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         // The call-value loop below recomputes the identical set, keeping param decls and forwarded
         // values in sync.
         var sliceSiblings = CdeclParamMapper.CollectSiblingBindingNames(normalizedArgs);
@@ -636,7 +636,7 @@ public static class ArraySliceNormalizationEmitter
         // contract gate now covers both shapes: SBW_… (cdecl) and SBSW_… (Swift CC),
         // so both branches must register or the C# P/Invoke emit will abort with
         // WrapperSymbolContractException.
-        // S5 audited (Tier B): ArraySliceNormalizationEmitter synthesizes a replacement
+        // ArraySliceNormalizationEmitter synthesizes a replacement
         // MethodDecl whose mangled name has been rewritten to use the normalized (non-
         // slice) ABI. That rewritten mangled name is unique and disjoint from the
         // original method's symbol, so it cannot alias any non-normalized wrapper.

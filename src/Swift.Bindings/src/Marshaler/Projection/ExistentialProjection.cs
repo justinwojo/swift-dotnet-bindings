@@ -178,7 +178,7 @@ public class ExistentialProjection : ITypeProjection
         // the boxable conformer path — by CreateOwnedExistential1 (the opaque sibling of
         // CreateOwnedClassCarrier). The bare GetParameterElementConversion below aliased the proxy's
         // only +1, which the __owned consume plus the carrier's value-witness destroy over-released
-        // (audit P1-08 opaque sibling). Mirrors the EC1 condition in GetParameterElementConversion.
+        // (opaque sibling: owned-element over-release). Mirrors the EC1 condition in GetParameterElementConversion.
         if (_proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1")
         {
             return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";

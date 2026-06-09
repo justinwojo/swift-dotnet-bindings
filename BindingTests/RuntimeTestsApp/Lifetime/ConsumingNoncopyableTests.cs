@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
-/// P0-06: a <c>~Copyable</c> value handed to a <c>consuming</c> function must have its
+/// A <c>~Copyable</c> value handed to a <c>consuming</c> function must have its
 /// <c>deinit</c> run EXACTLY once — inside the Swift call — and the C# handle must then be marked
 /// consumed so a later <c>Dispose()</c> is a no-op rather than a second value-witness destroy.
 ///
@@ -62,7 +62,7 @@ public class ConsumingNoncopyableTests : TestBase
 
     public void TestThrowingConsumeRunsDeinitExactlyOnceOnThrowPath()
     {
-        // P0-06 × throwing: a consuming non-copyable param on a THROWING function. Swift owns the
+        // Consuming non-copyable param on a THROWING function: Swift owns the
         // value regardless of control flow, so its deinit runs exactly once inside the call even
         // when the function throws. The generated C# wrapper marks the handle consumed BEFORE it
         // rethrows the Swift error — so the throw path must NOT leave a second value-witness destroy

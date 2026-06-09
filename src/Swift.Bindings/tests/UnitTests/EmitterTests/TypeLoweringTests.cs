@@ -179,7 +179,7 @@ namespace BindingsGeneration.Tests
             // ABI coalesces that eightbyte into a single INTEGER register holding both halves.
             // The field-wise register bridge cannot reproduce both lowerings, so TypeLowering must
             // decline (null) and route the type to the @_cdecl wrapper, whose C-ABI call is correct
-            // by construction (P0-07). The old field-count model produced four slots and mis-bridged.
+            // by construction. The old field-count model produced four slots and mis-bridged.
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Mixed");
             var record = new TypeRecord
             {
@@ -238,7 +238,7 @@ namespace BindingsGeneration.Tests
             // register; the two Int64s occupy eightbytes 1 and 2. swiftcc returns this 24-byte
             // aggregate DIRECTLY in three GPRs — it is NOT seven slots forced indirect. The old
             // field-count model counted seven slots (> the 4-slot limit) and returned the value
-            // indirectly, reading silent garbage (P0-07). This is the headline P0-07 case and the
+            // indirectly, reading silent garbage. This is the headline case and the
             // {Int8×5,Int64,Int64} done-when fixture's unit-level mirror.
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Packed7");
             var record = new TypeRecord
@@ -271,7 +271,7 @@ namespace BindingsGeneration.Tests
             // { x: Float, y: Float } packed into one eightbyte → "f4,f4". swiftcc keeps each Float in
             // its own FP register; the System V C ABI coalesces two 4-byte floats into a single SSE
             // register. Divergent, so TypeLowering declines a lowering that keeps one float per slot
-            // (P0-07). (Contrast LowerReturnType_FloatPair_TwoFloatSlots, where each Double fills its
+            // (Contrast LowerReturnType_FloatPair_TwoFloatSlots, where each Double fills its
             // own eightbyte and the two-FP-slot lowering is valid.)
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Float2");
             var record = new TypeRecord
@@ -520,7 +520,7 @@ namespace BindingsGeneration.Tests
             // byte offset 1 (no alignment padding), straddling the eightbyte boundary (bytes 1-8).
             // TypeLowering reconstructs offsets from natural alignment (Bool@0, Int@8 → size 16) and
             // cross-checks against InlineSize; 16 ≠ 9 reveals the packing, so it declines (null) and
-            // routes to the @_cdecl wrapper whose C-ABI call handles the straddle correctly (P0-07).
+            // routes to the @_cdecl wrapper whose C-ABI call handles the straddle correctly.
             // The old model naively produced two slots assuming natural offsets and mis-bridged the
             // straddling Int.
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.BoolStruct");

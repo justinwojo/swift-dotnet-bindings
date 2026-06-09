@@ -96,8 +96,8 @@ public class ArrayProjection : ITypeProjection
         // copies the struct's payload bytes by value via VWT into each contiguous slot —
         // matching the @_cdecl wrapper's `assumingMemoryBound(to: Array<TStruct>.self).pointee`
         // expectation. Applying the per-element conversion (e.g. e.Payload.DangerousGetHandle())
-        // would silently downgrade the storage to 1-word IntPtr slots, which is the
-        // ABI-mismatch bug fixed in 0.10.0 (bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…).
+        // would silently downgrade the storage to 1-word IntPtr slots, causing an
+        // ABI mismatch where the Swift side expects the full struct layout.
         var skipPerElementConversion = elemConversion != null
             && rawElem == _elementProjection.PublicType;
         var needsConversion = elemConversion != null && !skipPerElementConversion;
@@ -206,7 +206,7 @@ public class ArrayProjection : ITypeProjection
     }
 
     /// <summary>
-    /// P1-07: element conversion for the OWNED-return directions only
+    /// Element conversion for the OWNED-return directions only
     /// (<see cref="GetReturnContainerConversion"/> / <see cref="GetReturnPlan"/>). Swift hands
     /// each existential element to us at +1: the array subscript getter <c>InitializeWithCopy</c>s
     /// the element into a temp slot that the SwiftArray indexer then raw-frees, leaving the
@@ -235,7 +235,7 @@ public class ArrayProjection : ITypeProjection
         // class-bound existential elements need the 16-byte ClassExistentialContainer1 stride
         // (ArrayElementCarrierType defaults to MarshalFromSwiftType for every other projection).
         var rawElem = _elementProjection.ArrayElementCarrierType;
-        // P1-07: owned-return direction — existential elements are adopted at +1 (see OwnedReturnElementConversion).
+        // Owned-return direction — existential elements are adopted at +1 (see OwnedReturnElementConversion).
         var elemConversion = OwnedReturnElementConversion("e");
 
         var asProjected = elemConversion != null

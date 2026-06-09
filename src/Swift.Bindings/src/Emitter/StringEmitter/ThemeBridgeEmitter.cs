@@ -453,7 +453,7 @@ public static class ThemeBridgeEmitter
         foreach (var prop in info.Properties)
         {
             var funcName = $"SBW_{info.ClassName}_set_{prop.Name}";
-            // S5 audited (Tier C): theme bridge property setter in `_direct_helper` bucket. funcName is `SBW_{ClassName}_set_{propName}` — class+property uniquely identify the helper across the module.
+            // theme bridge property setter in `_direct_helper` bucket. funcName is `SBW_{ClassName}_set_{propName}` — class+property uniquely identify the helper across the module.
             emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             if (IsColorKind(prop.Kind))
@@ -537,7 +537,7 @@ public static class ThemeBridgeEmitter
         foreach (var prop in colorProps)
         {
             var funcName = $"SBW_{info.ClassName}_get_{prop.Name}";
-            // S5 audited (Tier C): theme bridge color getter in `_direct_helper` bucket. funcName is `SBW_{ClassName}_get_{propName}` — class+property uniquely identify the helper across the module.
+            // theme bridge color getter in `_direct_helper` bucket. funcName is `SBW_{ClassName}_get_{propName}` — class+property uniquely identify the helper across the module.
             emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");

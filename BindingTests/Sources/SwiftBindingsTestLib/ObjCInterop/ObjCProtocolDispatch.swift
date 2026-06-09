@@ -3,13 +3,13 @@
 
 import Foundation
 
-// MARK: - @objc protocol routed through EveryObjCProtocol (S-2)
+// MARK: - @objc protocol routed through EveryObjCProtocol
 //
 // Stripe's STPAuthenticationContext / STPCustomerEphemeralKeyProvider /
 // STPIssuingCardEphemeralKeyProvider all declare `@objc protocol X: NSObjectProtocol`.
-// Before S-2 the generator skipped these conformances entirely because the plain
+// Previously the generator skipped these conformances entirely because the plain
 // Swift `EveryProtocol` class cannot satisfy NSObjectProtocol's NSObject identity
-// surface (isEqual:, hash, description). S-2 adds a parallel `EveryObjCProtocol:
+// surface (isEqual:, hash, description). The fix adds a parallel `EveryObjCProtocol:
 // NSObject` helper class and routes NSObjectProtocol-only conformances through
 // it so the synthesized `extension EveryObjCProtocol: NumberProvider` type-checks.
 //
@@ -30,7 +30,7 @@ import Foundation
 /// constructs an `EveryObjCProtocol`-backed proxy and hands it to this function
 /// as `any NumberProvider`. If the routing regresses to plain `EveryProtocol`
 /// the wrapper module fails to compile (the conformance cannot type-check), so
-/// reaching this call already proves the S-2 fix is in place; the return-value
+/// reaching this call already proves the routing fix is in place; the return-value
 /// assertion proves the witness table dispatches into the managed method.
 public func callNumberProvider(_ provider: NumberProvider) -> Int32 {
     return provider.provideNumber()

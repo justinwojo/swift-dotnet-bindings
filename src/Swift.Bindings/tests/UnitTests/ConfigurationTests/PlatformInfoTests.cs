@@ -315,7 +315,7 @@ namespace BindingsGeneration.Tests
         [InlineData(ApplePlatform.MacCatalyst, "net10.0-maccatalyst", "net10.0-maccatalyst26.0")]
         public void PackTfm_IsDerivedFromTfmAndSharedConstant(ApplePlatform platform, string expectedTfm, string expectedPackTfm)
         {
-            // Pins the Codex-review rename + derive refactor: PackTfm must equal
+            // Pins the rename + derive refactor: PackTfm must equal
             // Tfm + PlatformInfo.DefaultPlatformVersion exactly. If either half of the
             // derivation drifts (the workload bumps its default platform version and
             // only DefaultPlatformVersion is updated without re-running the pack, or

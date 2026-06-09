@@ -74,8 +74,7 @@ partial class Build : NukeBuild
     // by default for the inner-loop simulator runs (those classes still run,
     // but only their fast assertions). The integration-branch serial gate
     // sets this unconditionally. Per-bundle lifetime patterns gated by this
-    // flag are populated by Bundles 1 and 3 of the 0.10.0 plan; see
-    // src/docs/0.10.0-fix-plan.md §"Layer C".
+    // flag cover extended GC-pressure scenarios.
     [Parameter("Run extended lifetime / GC-pressure assertions in BindingTests/RuntimeTestsApp/Lifetime/")]
     readonly bool Lifetime;
 

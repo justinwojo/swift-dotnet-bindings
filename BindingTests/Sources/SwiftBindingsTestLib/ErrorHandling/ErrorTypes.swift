@@ -29,7 +29,7 @@ public enum StorageError: Int32, Error {
     case corrupt = -3
 }
 
-// MARK: - Phase 4 breadth fixtures (Layer 5 cascade ownership audit)
+// MARK: - Layer 5 cascade ownership breadth fixtures
 
 /// Complex enum (cases with associated values) conforming to Error. Exercises
 /// the Layer 5 ownership-transfer branch of the cascade dispatcher: Swift's

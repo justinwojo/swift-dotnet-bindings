@@ -4,7 +4,7 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 6c Route C — single source of truth for "is this method a per-Value-type
+/// Route C — single source of truth for "is this method a per-Value-type
 /// keypath-sort shape?". Used by two call sites that must agree exactly:
 /// <list type="bullet">
 ///   <item><description>The Route C sibling emitter

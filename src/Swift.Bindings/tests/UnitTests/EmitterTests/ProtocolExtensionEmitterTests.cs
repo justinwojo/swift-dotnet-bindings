@@ -26,7 +26,7 @@ public class ProtocolExtensionEmitterTests
 {
     private static readonly ILogger Logger = NullLogger.Instance;
 
-    // ─── Bug 1: Optional<Class> param renders nullable pointer ─────────
+    // ─── Optional<Class> param renders nullable pointer ─────────────────
 
     [Fact]
     public void OptionalClassParam_WrapperRendersUnsafeMutableRawPointerNullable()
@@ -61,7 +61,7 @@ public class ProtocolExtensionEmitterTests
         Assert.Contains(".map", wrapperLines);
     }
 
-    // ─── Bug 1b: Optional<value-type> param renders UnsafeRawPointer ────
+    // ─── Optional<value-type> param renders UnsafeRawPointer ────────────
 
     [Fact]
     public void OptionalDoubleParam_WrapperRendersUnsafeRawPointerWithTagByteDecode()
@@ -140,7 +140,7 @@ public class ProtocolExtensionEmitterTests
         Assert.DoesNotContain("load(as: UInt8.self) == 0", wrapperLines);
     }
 
-    // ─── Bug 2: cross-kind @_cdecl symbol dedup ────────────────────────
+    // ─── Cross-kind @_cdecl symbol dedup ────────────────────────────────
 
     [Fact]
     public void SameSymbol_RegisteredViaMethodAndProtocolExt_RejectsSecondRegistration()
@@ -195,7 +195,7 @@ public class ProtocolExtensionEmitterTests
         Assert.True(ctx.IsWrapperSymbolRegistered("SBW_ClassB_ping"));
     }
 
-    // ─── Bug 3: projected-key parity with the canonical dedup builder ──
+    // ─── Projected-key parity with the canonical dedup builder ──────────
 
     [Fact]
     public void OptionalClassParam_ProjectsOntoExistingMethodSignature_NotInjected()

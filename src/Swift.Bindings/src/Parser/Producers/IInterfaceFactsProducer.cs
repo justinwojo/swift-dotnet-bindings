@@ -12,7 +12,7 @@ namespace BindingsGeneration.Producers;
 ///   <see cref="SwiftInterfaceAccessParser"/> and covers all 24 facts.</item>
 /// <item><see cref="SwiftSyntaxInterfaceFactsProducer"/> shells out to the
 ///   SwiftSyntax-backed host program at <c>tools/swift-interface-parser/SwiftInterfaceParser</c>
-///   and covers a growing subset of facts (Session 1: <see cref="InterfaceFactKind.MainActorTypes"/>
+///   and covers a growing subset of facts (initially <see cref="InterfaceFactKind.MainActorTypes"/>
 ///   + <see cref="InterfaceFactKind.MainActorTypePositions"/> only).</item>
 /// </list>
 /// Partial coverage is a first-class state, not an error: the

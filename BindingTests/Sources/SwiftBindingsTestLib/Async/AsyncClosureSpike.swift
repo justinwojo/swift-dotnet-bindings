@@ -3,11 +3,10 @@
 
 import Foundation
 
-// MARK: - Async Closure Bridge Spike (Session 0)
+// MARK: - Async Closure Bridge Spike
 //
 // Hand-written ABI proof for bridging `@escaping () async throws -> Int32`
-// closures from C# into Swift. Mirrors the emitter target described in
-// `src/docs/async-closure-plan.md` §3.7. Session A will generate this same
+// closures from C# into Swift. The generator will generate this same
 // shape from the emitter; this file de-risks the ABI first.
 //
 // All symbols here are local to `SwiftBindingsTestLib` (user-library module)
@@ -42,7 +41,7 @@ public func spikeCallAsyncOpTarget(_ op: @Sendable @escaping () async throws -> 
     return try await op()
 }
 
-/// Error type surfaced when the C# user lambda throws. Mirrors plan §3.5.
+/// Error type surfaced when the C# user lambda throws.
 public struct SpikeBridgeError: LocalizedError, CustomStringConvertible {
     public let description: String
     public var errorDescription: String? { description }
@@ -57,8 +56,8 @@ private final class _ACSpike_AsyncBox_Int32 {
 
 /// Sendable wrapper for the closure's (context, start-func) pair. The raw
 /// pointer is unmanaged memory owned by C# for the lifetime of the call;
-/// safe to ferry across concurrency domains. Session A will need this same
-/// shim — `UnsafeMutableRawPointer` is non-Sendable in Swift 6.
+/// safe to ferry across concurrency domains. `UnsafeMutableRawPointer` is
+/// non-Sendable in Swift 6.
 private struct _ACSpike_ClosureHandoff: @unchecked Sendable {
     let contextPtr: UnsafeMutableRawPointer
     let startFunc: @convention(c) (UnsafeMutableRawPointer,

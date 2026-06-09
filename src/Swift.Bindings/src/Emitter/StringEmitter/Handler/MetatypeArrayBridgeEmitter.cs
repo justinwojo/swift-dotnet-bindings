@@ -213,7 +213,7 @@ public static class MetatypeArrayBridgeEmitter
         Name = arg.Name,
         PrivateName = arg.PrivateName,
         IsInOut = arg.IsInOut,
-        Ownership = arg.Ownership, // preserve consuming/borrowing across bridge normalization (P0-06)
+        Ownership = arg.Ownership, // preserve consuming/borrowing across bridge normalization
         IsGeneric = arg.IsGeneric,
         HasDefaultArg = arg.HasDefaultArg,
         ParentDecl = parent,
@@ -246,7 +246,7 @@ public static class MetatypeArrayBridgeEmitter
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
 
         // Collect the raw (pre-escape) binding names this wrapper emits for EVERY param, so each
-        // per-param escape also dodges a sibling binding (P1-22). An array-of-metatype param expands
+        // per-param escape also dodges a sibling binding. An array-of-metatype param expands
         // to three derived bindings (base+"Ptr"/"Count"/"Arr"); a plain param emits a single base
         // binding. Self-exclusion is by exact string below, so an escape against a reserved synthetic
         // (e.g. `resultPtr`) that lands on a literal sibling picks the next free form. (Two DISTINCT

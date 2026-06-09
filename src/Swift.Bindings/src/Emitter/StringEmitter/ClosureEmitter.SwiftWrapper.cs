@@ -111,7 +111,7 @@ public static partial class ClosureEmitter
     /// Whether the closure is effectively escaping (true for <c>@escaping</c> or any
     /// <c>Optional&lt;Closure&gt;</c>). When true, the adapter wraps the captured
     /// GCHandle context in an <c>_SBClosureCtx</c> box that fires the C# free
-    /// callback on Swift release — bridges Bug 1 Cat 3 / Bug 3 Case 2. When false,
+    /// callback on Swift release. When false,
     /// the original behaviour stands (C# wrapper frees the GCHandle in <c>finally</c>).
     /// </param>
     /// <param name="swiftWriter">
@@ -166,7 +166,7 @@ public static partial class ClosureEmitter
         // Use param-unique variable name to avoid redeclaration when multiple closures
         var cdeclVarName = $"cdecl_{paramName}";
 
-        // Box ownership token for escaping closures (Bug 1 Cat 3 / Bug 3 Case 2).
+        // Box ownership token for escaping closures.
         // When the adapter closure (and thus the box) is released, the box's deinit
         // fires the registered C# free callback exactly once — single-shot, multi-shot,
         // and stored-handler shapes all converge on the same lifetime contract.
@@ -215,8 +215,8 @@ public static partial class ClosureEmitter
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var letPrefix = useLet ? "let " : "";
         // Explicit `[box]` capture list for escaping closures so the optimizer can't
-        // elide the GCHandle owner-token reference (Codex round 1 finding —
-        // implicit field capture was eligible for elision).
+        // elide the GCHandle owner-token reference (implicit field capture is eligible
+        // for elision without an explicit capture list).
         var captureList = isEscaping ? $"[_box_{paramName}] " : "";
         // Observability statement that pins the box reference inside the closure body —
         // belt-and-braces against any future Swift escape-analysis change that decides
@@ -236,17 +236,14 @@ public static partial class ClosureEmitter
         // into a fresh `NativeMemory.Alloc` buffer (see
         // `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`), leaving the Swift-side
         // source buffer orphaned. Swift MUST defer-deallocate the source.
-        // S-4 / sdk-0.11.0-residual-gaps.md.
         var heapAllocCopiedArgs = new List<(int index, string swiftType)>();
         // Pure (blittable) frozen struct heap args. C# reads the value directly
         // via `MarshalBorrowedFromSwift<T>` without taking ownership of the buffer.
         // Swift MUST defer-deallocate or the buffer leaks per call.
-        // bug-0.10.0-swift-wrapper-payload-buffer-leak.
         var blittableFrozenHeapArgs = new List<(int index, string swiftType)>();
         // Primitive-by-value heap args: Optional<NumericPrimitive>. C# reads the
         // value via `MarshalOptionalFromSwift<T>` without taking ownership.
         // Swift MUST defer-deallocate the buffer or it leaks per closure call.
-        // bug-0.10.0-swift-wrapper-payload-buffer-leak.
         var primitiveOptHeapArgs = new List<(int index, string swiftType)>();
         // Non-frozen structs transfer ownership of the heap-allocated copy to the C#
         // callback (MarshalFromSwift<T> → SwiftSafeHandle.ReleaseHandle). Tracked
@@ -268,7 +265,7 @@ public static partial class ClosureEmitter
                 swiftType = $"any {swiftType}";
             closureParams.Add($"p{argIndex}: {swiftType}");
 
-            // D1: Complex enums and custom frozen structs use heap allocation — track for cdecl arg substitution.
+            // Complex enums and custom frozen structs use heap allocation — track for cdecl arg substitution.
             // Exclude types that pass directly through @convention(c): primitives, Bool, pointers,
             // classes, ObjC-bridged, and simple enums (these are handled by GetSwiftArgConversion).
             if (closureHandler != null)
@@ -286,7 +283,6 @@ public static partial class ClosureEmitter
                     // `NativeMemory.Alloc` buffer, leaving the Swift source orphaned.
                     // Swift MUST defer-deallocate. Pure blittable frozen structs
                     // are read-by-value on the C# side, so they also defer-deallocate.
-                    // (S-4 / sdk-0.11.0-residual-gaps.md.)
                     if (closureHandler.IsFrozenStructWithRefFields(frozenNamed))
                         heapAllocCopiedArgs.Add((argIndex, swiftType));
                     else
@@ -432,12 +428,11 @@ public static partial class ClosureEmitter
         // - heapAllocCopiedArgs (`IsFrozenStructProjectedAsClass`): defer-deallocate;
         //   C# `NewFromPayload` `InitializeWithCopy`s into a fresh `NativeMemory.Alloc`
         //   buffer (see `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`), so the
-        //   source must be freed here. (S-4 / sdk-0.11.0-residual-gaps.md.)
+        //   source must be freed here.
         // - blittableFrozenHeapArgs (pure frozen struct, no ARC payload): defer
         //   deallocate; C# reads the value by copy and never owns the buffer.
         // - primitiveOptHeapArgs (Optional<NumericPrimitive>): defer deallocate;
         //   C# reads via MarshalOptionalFromSwift without taking ownership.
-        // bug-0.10.0-swift-wrapper-payload-buffer-leak.
         var heapAllocLines = new List<string>();
         foreach (var (idx, swiftType) in heapAllocArgs)
         {
@@ -958,7 +953,7 @@ public static partial class ClosureEmitter
         var callArgs = new List<string>();
         var adapterCode = new List<string>();
         var closureParamCount = methodDecl.CSSignature.Skip(1).Count(closureHandler.IsClosure);
-        // Sibling bindings so a reserved-name escape also dodges a sibling user param (P1-22).
+        // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         var closureSiblings = CdeclParamMapper.CollectSiblingBindingNames(methodDecl.CSSignature.Skip(1));
 
         foreach (var arg in methodDecl.CSSignature.Skip(1))
@@ -1155,7 +1150,7 @@ public static partial class ClosureEmitter
         // authored. The @_silgen_name branch isn't an SBW_… cdecl wrapper, so
         // the contract check (which only fires for SBW_-shaped entry points)
         // would never look it up — gate on useCdecl to keep registry intent precise.
-        // S5 audited (Tier B): closure-bearing methods bypass MethodWrapperEmitter; the
+        // closure-bearing methods bypass MethodWrapperEmitter; the
         // method's mangled name is unique per overload and this path is mutually
         // exclusive with the standard wrapper for the same method. Per-kind method bucket
         // is collision-safe.

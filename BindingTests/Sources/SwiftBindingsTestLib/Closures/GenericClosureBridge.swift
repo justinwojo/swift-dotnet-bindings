@@ -67,12 +67,13 @@ public class DatabaseReader {
         return try block(source)
     }
 
-    // P1-22 (C1): the GenericClosureBridge @_cdecl wrapper hardcodes synthetic Swift locals —
-    // `cdecl` (the `unsafeBitCast` func-ptr local) and `_self`/`__self` (the self pointer param
-    // and its reconstruction local). A user non-closure param spelled the same name collided with
-    // the wrapper local and produced an "invalid redeclaration" at swiftc time (generator already
-    // exited 0). The synthetic-name guard reserves every synthetic through a `SyntheticNameScope`
-    // seeded with the user param names, renaming a colliding synthetic to a `__`-prefixed variant.
+    // Synthetic-name collision guard: the GenericClosureBridge @_cdecl wrapper hardcodes synthetic
+    // Swift locals — `cdecl` (the `unsafeBitCast` func-ptr local) and `_self`/`__self` (the self
+    // pointer param and its reconstruction local). A user non-closure param spelled the same name
+    // collides with the wrapper local and produces an "invalid redeclaration" at swiftc time
+    // (generator already exited 0). The guard reserves every synthetic through a
+    // `SyntheticNameScope` seeded with the user param names, renaming a colliding synthetic to a
+    // `__`-prefixed variant.
 
     /// User param `cdecl` collides with the synthetic func-ptr local. Routes through the
     /// GenericClosureBridge (method-generic, noescape, throwing closure with a generic return).
@@ -153,9 +154,8 @@ public final class OptionalErrorCallbackFixture {
 /// `ClosureHandle` the MCB emit path allocated a `GCHandle` to root the C# delegate
 /// but its try/finally was gated on `anyEscaping`, so the non-escaping branch never
 /// freed the handle and the captured delegate (plus everything it referenced) leaked
-/// for the process lifetime. The closure-handle helper introduced in Session 3
-/// unconditionally disposes the handle in finally; the `NonEscaping` policy always
-/// frees on dispose.
+/// for the process lifetime. The closure-handle helper unconditionally disposes the
+/// handle in finally; the `NonEscaping` policy always frees on dispose.
 ///
 /// Must be a class method (not a free function) so MCB activates — the regular
 /// WrapperEmitter path already frees non-escaping handles correctly and would mask

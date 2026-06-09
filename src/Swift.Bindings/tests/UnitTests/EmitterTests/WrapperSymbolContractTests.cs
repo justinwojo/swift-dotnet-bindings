@@ -752,7 +752,7 @@ public class WrapperSymbolContractTests
     }
 
     // -----------------------------------------------------------------------
-    // Direct-path enforcement (Session 2b): bridge / helper emitters call
+    // Direct-path enforcement: bridge / helper emitters call
     // PInvokeEmitHelper.FormatDeclarationLines outside the canonical
     // PInvokeEmitter chokepoint. These tests pin that the contract fires
     // identically on those paths — an SBW_ symbol registered via

@@ -224,7 +224,7 @@ public class GenericClosureBridgeEmitterTests
         // otherwise the conformer / COW-storage +1 leaks (same shape as the SwiftArray/Dictionary
         // slotLive guards).
         //
-        // Regression (Codex+Grok r2 Medium): liveness must be marked the instant the callback writes
+        // Regression: liveness must be marked the instant the callback writes
         // resultBuf, NOT after the post-P/Invoke Swift-error check. The Swift wrapper passes the same
         // resultBuf to the closure callback, so a generic method that invokes the closure (populating
         // the slot) and THEN throws would, under the old "set live after the error check" shape, exit
@@ -536,7 +536,7 @@ public class GenericClosureBridgeEmitterTests
 
     #endregion
 
-    #region P1-22 (C1): synthetic-name guard wiring
+    #region Synthetic-name guard wiring
 
     // The GenericClosureBridge @_silgen_name wrapper hardcodes synthetic Swift identifiers in the
     // same scope as the user's non-closure params: the `cdecl` func-ptr rebind local, the self
@@ -546,8 +546,7 @@ public class GenericClosureBridgeEmitterTests
     // SyntheticNameScope with the user param names (and the closure's FuncPtr/Context params) and
     // reserves each synthetic through it, renaming a collision to its `__`-prefixed form. These
     // assert the wiring at the emitter layer — the layer where the guard's behavior is observable
-    // independent of the runtime path (the runtime round-trip is separately blocked by a pre-existing
-    // GenericClosureBridge self-register ABI defect; see GenericClosureBridgeTests + REMEDIATION-PLAN §6).
+    // independent of the runtime path.
 
     [Fact]
     public void TryEmit_UserParamNamedCdecl_RenamesFuncPtrSynthetic()

@@ -200,8 +200,8 @@ public class NestedClassBoundExistentialTests : TestBase
     }
 
     /// <summary>
-    /// REVERSE-DISPATCH METHOD-PARAM, the exact FirebaseFirestore <c>mapMerge([[String: Any]])</c> shape
-    /// (audit L229): Swift builds an <c>outer</c>×<c>inner</c> grid of <c>MarkerImpl(mid: o*1000 + i)</c>
+    /// REVERSE-DISPATCH METHOD-PARAM, the exact FirebaseFirestore <c>mapMerge([[String: Any]])</c> shape:
+    /// Swift builds an <c>outer</c>×<c>inner</c> grid of <c>MarkerImpl(mid: o*1000 + i)</c>
     /// keyed <c>"k{i}"</c> and passes it into the C# impl's <c>Consume</c> through the generated receiver.
     /// A read-only <c>IReadOnlyDictionary</c> value in the receiver's element conversion would be a
     /// compile-time CS1503 against the impl's <c>IDictionary</c> param; this runtime round-trip proves
@@ -241,7 +241,7 @@ public class NestedClassBoundExistentialTests : TestBase
     }
 
     /// <summary>
-    /// REVERSE-DISPATCH SETTER, nested-container existential dict VALUE (audit L229 setter sibling): Swift
+    /// REVERSE-DISPATCH SETTER, nested-container existential dict VALUE (setter sibling): Swift
     /// builds an <c>outer</c>×<c>inner</c> grid of <c>MarkerImpl(mid: o*1000 + i)</c>, ASSIGNS it into the C#
     /// impl's settable <c>MarkerMapGrid</c> through the generated receiver setter, then reads it back through
     /// the getter and sums every buried marker id. A read-only/concrete-mismatched value in the receiver

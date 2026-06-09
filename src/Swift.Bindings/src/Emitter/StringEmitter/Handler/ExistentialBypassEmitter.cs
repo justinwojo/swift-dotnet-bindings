@@ -645,7 +645,7 @@ public static class ExistentialBypassEmitter
             swiftParams.Add("_ __self: UnsafeMutableRawPointer");
 
         // Sibling bindings (the params that get a binding are passthroughArgs) so a reserved-name
-        // escape also dodges a sibling user binding (P1-22). The call loop reuses the same set.
+        // escape also dodges a sibling user binding. The call loop reuses the same set.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(passthroughArgs);
         foreach (var arg in passthroughArgs)
         {
@@ -939,7 +939,7 @@ public static class ExistentialBypassEmitter
         // Build Swift parameter list for passthrough args
         var swiftParams = new List<string>();
         // Sibling bindings (the params that get a binding are passthroughArgs) so a reserved-name
-        // escape also dodges a sibling user binding (P1-22). The call loop reuses the same set.
+        // escape also dodges a sibling user binding. The call loop reuses the same set.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(passthroughArgs);
         foreach (var arg in passthroughArgs)
         {

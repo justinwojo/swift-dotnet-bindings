@@ -44,7 +44,7 @@ public class ConsumerSafetyAttributeTests
     {
         // Swift.String projects to FrozenBuffer (SwiftString.Buffer is a two-word blittable
         // struct of nint+nint). The direct CallConvSwift P/Invoke is correct without a wrapper —
-        // SB0001 must NOT fire. Mode 3 of the gap-0.10.0-misleading-unsupported-attribute fix.
+        // SB0001 must NOT fire — the direct CallConvSwift P/Invoke is correct without a wrapper.
         // Concrete site: Lottie AnimatedControl.SetLayer(string, UIControlState).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();

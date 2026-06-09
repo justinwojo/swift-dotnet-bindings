@@ -7,15 +7,15 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Parameters;
 
 /// <summary>
-/// End-to-end gate for REMEDIATION-PLAN §6: a small blittable Optional parameter
-/// (<c>Int32?</c>) is correctly DECODED when its enclosing method is lowered to a
+/// End-to-end gate for blittable Optional parameter decoding: a small blittable Optional
+/// parameter (<c>Int32?</c>) is correctly DECODED when its enclosing method is lowered to a
 /// <c>@_cdecl</c> wrapper. In the live generator both methods are claimed by
 /// MethodWrapperEmitter (they compile to <c>_sbw_method_&lt;hash&gt;</c> wrappers), which always
 /// maps params with <c>omitLabels: false</c>; the wrapper body decodes the optional via the tag
 /// byte (<c>let nOpt: Int32? = n.advanced(by: 4).load(as: UInt8.self) == 0 ? n.load(as: Int32.self) : nil</c>)
 /// and forwards <c>nOpt</c>. These round-trips therefore pass with no source change — they are
 /// the durable runtime gate for the MethodWrapperEmitter decode path, NOT a reachable repro of
-/// the §6 fallback-branch defect. That defect lives in the <c>else if (useCdecl)</c> branch of
+/// the fallback-branch defect. That defect lives in the <c>else if (useCdecl)</c> branch of
 /// the two FALLBACK emitters (<c>ClosureEmitter.SwiftWrapper</c> /
 /// <c>OptionalPointerWrapperEmitter</c>), which only run when MethodWrapperEmitter has NOT
 /// claimed the method (<c>!UsesWrapperLibrary</c>) — unreachable by any compilable Swift shape

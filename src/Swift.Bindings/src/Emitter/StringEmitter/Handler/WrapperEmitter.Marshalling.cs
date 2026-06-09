@@ -377,12 +377,11 @@ namespace BindingsGeneration
                 else if (_env.ClosureHandler.IsAsyncClosure(closureTypeSpec)
                          && _env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec))
                 {
-                    // Async closures (throwing baseline from Session A/B + non-throwing
-                    // baseline from Session C) share a state-based pattern: the state
-                    // type holds the user's async delegate, and we pass (context,
-                    // startFunc) to Swift. Non-baseline async closures fall through
-                    // to AnyType placeholder in PInvokeEmitter so the outer method
-                    // is skipped cleanly.
+                    // Baseline async closures (throwing and non-throwing) share a
+                    // state-based pattern: the state type holds the user's async
+                    // delegate, and we pass (context, startFunc) to Swift. Non-baseline
+                    // async closures fall through to AnyType placeholder in PInvokeEmitter
+                    // so the outer method is skipped cleanly.
                     ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
                         csWriter,
                         _env.MethodDecl.Name,
@@ -548,7 +547,7 @@ namespace BindingsGeneration
                     {
                         proxyClassName = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
                     }
-                    // P1-03: thread the runtime owns-bit out of GetOrCreate (declared before the try
+                    // Thread the runtime owns-bit out of GetOrCreate (declared before the try
                     // by EmitExistentialHeapDeclarations) so the finally / async holder destroys ONLY
                     // a freshly boxed value conformer's +1, never a borrowed proxy container.
                     var createExpr = proxyClassName != null
@@ -569,7 +568,7 @@ namespace BindingsGeneration
                     int reverseOffset = existentialTotal - existentialIndex;
                     // The foreground finally is skipped for async; the holder carries the owns-bit
                     // + witness count so the callback cleanup runs the existential destroy after
-                    // the continuation drains the @in_guaranteed buffer (P1-03).
+                    // the continuation drains the @in_guaranteed buffer.
                     var holderCtor = owningCandidate
                         ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {protocolList.Protocols.Count})"
                         : $"new ExistentialContainerHeap((IntPtr){csName}Heap)";
@@ -900,9 +899,9 @@ namespace BindingsGeneration
                     bool useBoxedContext = !useCdecl
                         && WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
 
-                    // Async-throwing closures (Session A/B) or baseline async non-throwing
-                    // closures (Session C) emit the Start-thunk callback pair. Non-baseline
-                    // async-throwing closures fall through with no callback emitted —
+                    // Baseline async closures (throwing or non-throwing) emit the
+                    // Start-thunk callback pair. Non-baseline async-throwing closures
+                    // fall through with no callback emitted —
                     // PInvokeEmitter projects them to AnyType so the outer method is skipped
                     // via the placeholder path instead of crashing here. Non-baseline async
                     // non-throwing closures (e.g., Alamofire's NSHTTPURLResponse callback)

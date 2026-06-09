@@ -51,7 +51,7 @@ public static class PropertyWrapperEmitter
             // Closed static factories also skip the metadata-helper path entirely (the wrapper
             // takes only resultPtr — no parent metadata or PWT threading), so the gates must
             // not reject them either.
-            // Dynamic PWT resolution and buffer-mode ABI are tracked in src/docs/roadmap.md.
+            // Dynamic PWT resolution and buffer-mode ABI are not yet implemented.
             if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl)
                 && !ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl))
             {
@@ -226,7 +226,7 @@ public static class PropertyWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
-        // S5 audited (Tier B): property getters live in the property bucket; no
+        // property getters live in the property bucket; no
         // method/constructor/subscript emitter ever registers a getter mangled name.
         // Swift mangles property accessors with a distinct accessor-kind discriminator,
         // so the symbol is unique per property and the per-kind dedup gate is
@@ -522,7 +522,7 @@ public static class PropertyWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
-        // S5 audited (Tier B): property setters share the property bucket with getters but
+        // property setters share the property bucket with getters but
         // Swift's accessor mangling distinguishes setter from getter at the symbol level, so
         // the symbol is unique per (property, accessor-kind). No method/constructor/subscript
         // emitter ever registers symbols here; the per-kind dedup gate is collision-safe.
@@ -598,7 +598,7 @@ public static class PropertyWrapperEmitter
                         // Same pattern as method closure parameters in MethodWrapperEmitter.
                         // Property setters always store the closure beyond the call, so the
                         // adapter must wrap the GCHandle context in an _SBClosureCtx box —
-                        // closes Bug 3 Case 2 (property-setter handler subscription leak).
+                        // closes the property-setter handler subscription leak.
                         swiftParams.Add("_ newValueFuncPtr: UnsafeMutableRawPointer?");
                         swiftParams.Add("_ newValueContext: UnsafeMutableRawPointer?");
 
@@ -891,7 +891,7 @@ public static class PropertyWrapperEmitter
         // the @_cdecl static-dispatch wrapper avoids the Mono pathology and mirrors the
         // relaxation applied to Collection-family methods in
         // GenericDispatchEmitter.CanEmitStaticDispatch. Matches the MusicKit
-        // MusicItemCollection<TMusicItemType> shape that Session 2 targets.
+        // MusicItemCollection<TMusicItemType> shape.
         if (parentTypeDecl is not ClassDecl)
         {
             if (parentTypeDecl is StructDecl structDecl

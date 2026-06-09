@@ -14,7 +14,7 @@ using Swift.Runtime;
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// End-to-end validation for the Phase 2 VWT-backed opaque storage emitter
+/// End-to-end validation for the VWT-backed opaque storage emitter
 /// (Swift.Bindings.Apple). Each test resolves the metadata accessor P/Invoke
 /// emitted for a supplement type against the live SDK, proving the emitted
 /// library path + mangled symbol round-trip correctly. These tests also

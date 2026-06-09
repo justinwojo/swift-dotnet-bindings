@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Unsupported closure shapes (Bug 0.10.0 — gap-closure-parameter-skip-renders-apis-unreachable)
+// MARK: - Unsupported closure shapes (closure-parameter skip renders APIs unreachable)
 //
 // These shapes are the canonical adversarial closure signatures the Nuke / Lottie /
 // StoreKit2 / MusicKit / WeatherKit consumer audits surfaced. Each pattern hits a

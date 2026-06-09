@@ -10,28 +10,28 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.SwiftUIBridge;
 
 /// <summary>
-/// End-to-end runtime gate for the audit-session-5 SwiftUI-bridge defect fixes.
+/// End-to-end runtime gate for SwiftUI-bridge defect fixes.
 /// Each test exercises the GENERATED public Session API (managed Action → generated
-/// trampoline), not the raw delegate* path, so the Cluster-1 UnmanagedCallersOnly
-/// fail-fast guards and the P1-19 / P1-20 callback marshalling are genuinely on the
-/// hot path rather than bypassed.
+/// trampoline), not the raw delegate* path, so the UnmanagedCallersOnly
+/// fail-fast guards and callback marshalling are genuinely on the hot path rather than
+/// bypassed.
 ///
-///   ArrayEnumView         (P0-03) [AlertStyle] — failable enum decode, no force-unwrap crash
-///   EnumModifierView      (P0-03) self-returning modifier w/ Optional&lt;AlertStyle&gt; (construct smoke)
-///   UrlParamView          (P0-04) URL param crosses the Create ABI as an ObjC-bridgeable struct
-///   OptionalUrlParamView  (P0-04) URL? param — Some + nil
-///   UrlResultView         (P1-19) Result&lt;URL, ScanError&gt; — success branch must not UAF the bridged NSURL
-///   UrlClosureView        (review) typed (URL)-&gt;Void — bridged NSURL arg via GetNSObject, not raw bytes
-///   FrozenRefClosureView  (P1-20) @frozen struct w/ String field — heap-buffer ARC marshalling
-///   UserDataAsyncView     (P0-13) async Create whose user params collide with synthetic trailing params
-///   HandleParamView       (P1-22) init params named handle/session must not collide with generated locals
+///   ArrayEnumView         — [AlertStyle] failable enum decode, no force-unwrap crash
+///   EnumModifierView      — self-returning modifier w/ Optional&lt;AlertStyle&gt; (construct smoke)
+///   UrlParamView          — URL param crosses the Create ABI as an ObjC-bridgeable struct
+///   OptionalUrlParamView  — URL? param — Some + nil
+///   UrlResultView         — Result&lt;URL, ScanError&gt; success branch must not UAF the bridged NSURL
+///   UrlClosureView        — typed (URL)-&gt;Void — bridged NSURL arg via GetNSObject, not raw bytes
+///   FrozenRefClosureView  — @frozen struct w/ String field — heap-buffer ARC marshalling
+///   UserDataAsyncView     — async Create whose user params collide with synthetic trailing params
+///   HandleParamView       — init params named handle/session must not collide with generated locals
 /// </summary>
-public class AuditSession5BridgeTests : TestBase
+public class SwiftUIBridgeGeneratedApiTests : TestBase
 {
-    public AuditSession5BridgeTests(TestResults results) : base(results) { }
+    public SwiftUIBridgeGeneratedApiTests(TestResults results) : base(results) { }
 
     // ────────────────────────────────────────────────────────────────
-    // ArrayEnumView — P0-03 [BoundEnum] failable decode
+    // ArrayEnumView — [BoundEnum] failable decode
     // ────────────────────────────────────────────────────────────────
 
     public void TestArrayEnumView_ValidEnumsRoundTrip()
@@ -61,7 +61,7 @@ public class AuditSession5BridgeTests : TestBase
 
     public void TestArrayEnumView_InvalidRawValueThrowsNotCrash()
     {
-        // P0-03 headline: an out-of-range raw value must surface as a graceful
+        // An out-of-range raw value must surface as a graceful
         // InvalidOperationException (Swift failable init → nil → Create returns null),
         // NOT a force-unwrap SIGTRAP inside the @_cdecl wrapper.
         AssertThrows<InvalidOperationException>(() =>
@@ -75,7 +75,7 @@ public class AuditSession5BridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // EnumModifierView — P0-03 Optional<BoundEnum> self-returning modifier
+    // EnumModifierView — Optional<BoundEnum> self-returning modifier
     // (the modifier emits no runtime entry point; this is the construct smoke
     //  for the optional-enum modifier emission path)
     // ────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ public class AuditSession5BridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // UrlParamView — P0-04 ObjC-bridgeable struct (URL) param
+    // UrlParamView — ObjC-bridgeable struct (URL) param
     // ────────────────────────────────────────────────────────────────
 
     public void TestUrlParamView_UrlRoundTrips()
@@ -104,7 +104,7 @@ public class AuditSession5BridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // OptionalUrlParamView — P0-04 Optional<ObjC-bridgeable struct>
+    // OptionalUrlParamView — Optional<ObjC-bridgeable struct>
     // ────────────────────────────────────────────────────────────────
 
     public void TestOptionalUrlParamView_SomeRoundTrips()
@@ -129,7 +129,7 @@ public class AuditSession5BridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // UrlResultView — P1-19 Result<URL, ScanError> success-branch UAF probe
+    // UrlResultView — Result<URL, ScanError> success-branch UAF probe
     // ────────────────────────────────────────────────────────────────
 
     public void TestUrlResultView_SuccessUrlSurvivesCallback()
@@ -144,11 +144,11 @@ public class AuditSession5BridgeTests : TestBase
         AssertEqual(1, rc, "UrlResultView invoke-success returned 1");
         AssertEqual(1, successCount, "success callback fired exactly once");
         AssertNotNull(captured, "bridged NSURL delivered to callback (not freed)");
-        // If the bridged temporary were released before the callback read it (the P1-19
-        // UAF), AbsoluteString would be garbage or this would crash.
+        // If the bridged temporary were released before the callback read it (UAF),
+        // AbsoluteString would be garbage or this would crash.
         AssertEqual("https://audit.example/url-result/7", captured!.AbsoluteString,
             "NSURL absoluteString intact across the synchronous callback");
-        TestLogger.Info("UrlResultView: success URL survived the callback (P1-19)");
+        TestLogger.Info("UrlResultView: success URL survived the callback");
     }
 
     public void TestUrlResultView_ErrorRoundTrips()
@@ -192,7 +192,7 @@ public class AuditSession5BridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // FrozenRefClosureView — P1-20 @frozen struct w/ ref field buffer marshalling
+    // FrozenRefClosureView — @frozen struct w/ ref field buffer marshalling
     // ────────────────────────────────────────────────────────────────
 
     public void TestFrozenRefClosureView_FrozenRefArgRoundTrips()
@@ -207,13 +207,13 @@ public class AuditSession5BridgeTests : TestBase
         AssertEqual(1, rc, "FrozenRefClosureView invoke returned 1");
         AssertEqual(1, eventCount, "onEvent fired exactly once");
         AssertNotNull(captured, "FrozenRefArg delivered to callback");
-        // A wrong heap-buffer copy (P1-20) would corrupt or leak the String field.
+        // A wrong heap-buffer copy would corrupt or leak the String field.
         AssertEqual("frozen-ref-5", captured!.S, "FrozenRefArg.s round-tripped through the heap buffer");
-        TestLogger.Info("FrozenRefClosureView: frozen-with-ref struct arg round-tripped (P1-20)");
+        TestLogger.Info("FrozenRefClosureView: frozen-with-ref struct arg round-tripped");
     }
 
     // ────────────────────────────────────────────────────────────────
-    // UserDataAsyncView — P0-13 async Create with colliding trailing params
+    // UserDataAsyncView — async Create with colliding trailing params
     // ────────────────────────────────────────────────────────────────
 
     public async Task TestUserDataAsyncView_CreateAsyncDedupedParams()
@@ -232,7 +232,7 @@ public class AuditSession5BridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // HandleParamView — P1-22 init params colliding with generated locals
+    // HandleParamView — init params colliding with generated locals
     // ────────────────────────────────────────────────────────────────
 
     public void TestHandleParamView_FieldsRoundTrip()
@@ -240,7 +240,7 @@ public class AuditSession5BridgeTests : TestBase
         using var session = global::SwiftBindingsTestLib.HandleParamViewSession.Create(handle: 101, session: 202);
 
         // If the generated Create factory shadowed its own `handle`/`session` locals with
-        // the init params (P1-22), these stored values would be corrupted.
+        // the init params, these stored values would be corrupted.
         AssertEqual(101, BridgeTestHelpers.HandleParamView_GetHandle(session.Handle), "handle field == 101");
         AssertEqual(202, BridgeTestHelpers.HandleParamView_GetSession(session.Handle), "session field == 202");
         TestLogger.Info("HandleParamView: colliding-named params round-tripped without shadowing");

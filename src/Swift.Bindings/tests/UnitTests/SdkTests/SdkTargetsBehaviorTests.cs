@@ -91,7 +91,7 @@ namespace BindingsGeneration.Tests
                 Directory.Delete(_tempDir, recursive: true);
         }
 
-        // ── Bug 1: find -type d discovers xcframework directories ──
+        // ── find -type d discovers xcframework directories ──
 
         [Fact]
         public void FindTypeD_DiscoversXCFrameworkDirectory()
@@ -171,7 +171,7 @@ namespace BindingsGeneration.Tests
             Assert.Contains(lines, l => l.Contains("Lottie.xcframework"));
         }
 
-        // ── Bug 3: IntermediateOutputPath resolution ──
+        // ── IntermediateOutputPath resolution ──
 
         [Fact]
         public void IntermediateOutputPath_EmptyInPropsContext_PopulatedInTargetsContext()
@@ -537,7 +537,7 @@ namespace BindingsGeneration.Tests
             // Release-pinned discovery scans obj/Release/ → the database + wrapper xcframework are
             // missed on a clean first build. SetConfiguration is MSBuild's canonical
             // `Configuration=<cfg>` form, passed verbatim and appended AFTER the parent default so
-            // the pin wins. This mirrors Codex's reported repro shape (both pins set).
+            // the pin wins. This mirrors the reported repro shape (both pins set).
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
             // Sibling echoes the active Configuration/TargetFramework it was actually built under.

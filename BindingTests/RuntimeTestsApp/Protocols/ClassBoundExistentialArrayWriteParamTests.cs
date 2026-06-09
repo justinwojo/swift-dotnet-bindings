@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Audit P1-08, WRITE + PARAM half: class-bound (`: GestureHostBase`) `[any Marker]` arrays crossing
+/// Class-bound (`: GestureHostBase`) `[any Marker]` arrays crossing
 /// C# → Swift. The READ half (Swift → C#, <see cref="ClassBoundExistentialArrayTests"/>) was already
 /// fixed by routing the SwiftArray element carrier through the 16-byte
 /// <c>ClassExistentialContainer1</c>. The symmetric write/param directions still built

@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Synthetic Wrapper Parameter Name Collisions (P1-22 class)
+// MARK: - Synthetic Wrapper Parameter Name Collisions
 //
 // The generator injects synthetic parameter bindings into the @_cdecl/@_silgen_name
 // wrapper functions it emits — e.g. the instance-self pointer (`self_`), the indirect

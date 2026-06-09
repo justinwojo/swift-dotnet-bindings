@@ -16,7 +16,6 @@ namespace BindingsGeneration.Tests;
 /// conformance, generic parameter, enum case) falls through to the
 /// existing class-emission path.
 ///
-/// See <c>bug-0.10.0-namespace-facade-as-static-class.md</c> (Bundle 04 #3).
 /// </summary>
 public class NamespaceFacadeDetectorTests
 {

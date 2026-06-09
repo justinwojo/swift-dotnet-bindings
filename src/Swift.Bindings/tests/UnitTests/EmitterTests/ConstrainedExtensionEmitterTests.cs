@@ -26,7 +26,7 @@ public class ConstrainedExtensionEmitterTests
     [Fact]
     public void FindConstrainedSpecializations_SingleSpecPerName_GroupsByConcreteType()
     {
-        // Bug 0.10.0 — single-specialization same-type-constraint properties are
+        // Single-specialization same-type-constraint properties are
         // bound to a closed-generic mangled symbol (e.g.,
         // Forecast<MinuteWeather>.Summary), so they must be routed to the
         // closed-generic extension-method emitter even though there is no
@@ -383,7 +383,7 @@ public class ConstrainedExtensionEmitterTests
 
     // ==================== Emission tests for new return-shape coverage ====================
     //
-    // Resolves gap-0.10.0-multispecialization-drops-generic-property-accessors:
+    // Multi-specialization generic property accessor coverage:
     //   1. EnumHandler now invokes ConstrainedExtensionEmitter, so a generic enum's
     //      `where T == Concrete` extension properties can re-surface as closed-generic
     //      extension methods. (Tested separately by validating StoreKit2's

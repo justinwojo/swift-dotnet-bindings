@@ -894,7 +894,7 @@ public class TypeDatabaseTests
             // through to the compileImportModule reverse map; IsTypeProcessed must agree —
             // otherwise downstream emitters that gate on "is this type processed?" treat
             // RealityKit.Entity as unknown and re-fall to the AnyType / SwiftOptional<IntPtr>
-            // shape that Session 7 fixed.
+            // shape that was subsequently fixed.
             var typeDatabase = new TypeDatabase();
             var umbrellaModule = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.dylib");
             typeDatabase.AddModuleDatabase(umbrellaModule);
@@ -932,7 +932,7 @@ public class TypeDatabaseTests
             // AddModuleDatabase'd module participates in. This pins that the
             // file-load path and the in-process path reach the same lookup state —
             // breaking it would silently re-introduce the 29 cross-module CS0234s
-            // Session 1 fixed even though the threading change in Build.Validation.cs
+            // fixed even though the threading change in Build.Validation.cs
             // remained intact.
             var tempXml = Path.Combine(
                 Path.GetTempPath(),
@@ -1174,7 +1174,7 @@ public class TypeDatabaseTests
         [Fact]
         public void AddModuleDatabase_CrossModuleRecord_MergesAdditiveProtocolConformances()
         {
-            // Codex round-2 Medium regression: a third-party module `Ext` declares
+            // Regression: a third-party module `Ext` declares
             // `extension UInt8: NeedsByte` and emits a parser-side product Swift.UInt8 record
             // with ProtocolConformances=[Ext.NeedsByte]. The cross-module re-home must NOT
             // discard that additive conformance — otherwise the CSM associated-type filter,

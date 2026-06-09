@@ -10,13 +10,12 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Structural "exactly one live emitter per family" tests (Session 1 / Cluster 7 of the audit
-/// remediation). Each emission responsibility must have a single owning emitter. These guard
-/// against re-introducing the dead duplicates Session 1 deleted, and pin the resolved partition so
-/// a future refactor can't silently re-split a family across two emitters (one of which would then
-/// be dead code that patches land in — the exact risk §7 of the synthesis flagged).
+/// Structural "exactly one live emitter per family" tests. Each emission responsibility must have
+/// a single owning emitter. These guard against re-introducing dead duplicates, and pin the resolved
+/// partition so a future refactor can't silently re-split a family across two emitters (one of which
+/// would then be dead code that patches land in).
 ///
-/// Live/dead map (see src/docs/audits/REMEDIATION-PLAN.md Session 1):
+/// Live/dead map:
 ///   • Async C# callback plumbing (TCS / GCHandle / UnmanagedCallersOnly callbacks)
 ///       LIVE  → AsyncHarnessEmitter.EmitAsyncWrapper (+ EmitAsyncWrapperFor* family)
 ///       DEAD  → duplicate copy deleted from WrapperEmitter.Async.cs
@@ -141,7 +140,7 @@ public class EmitterFamilyLivenessTests
         // Both siblings are live-and-wired exactly once. The sync MethodGenericBridge is
         // conditionally live (reachable for a sync method-own class-bound generic on a non-generic
         // parent in XCFramework mode) — it is the sync counterpart to the async adapter, NOT a dead
-        // duplicate. Resolving this was the REMEDIATION-PLAN.md:105 prerequisite for Session 6.
+        // duplicate.
         Assert.Single(MethodHandler.BridgeEmitters, a => a is MethodGenericBridgeAdapter);
         Assert.Single(MethodHandler.BridgeEmitters, a => a is AsyncMethodGenericBridgeAdapter);
     }

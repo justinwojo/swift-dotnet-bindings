@@ -81,10 +81,10 @@ namespace BindingsGeneration
             if (pinvokeHelperContext != null)
             {
                 // Type metadata accessor: Swift's metadata accessor for a generic type expects
-                // metadata + witness tables for any protocol-constrained generic params (per
-                // runtime-metadata.md). Use the type-metadata-accessor-specific arg/param list
-                // so the right PWTs flow through. AddMetadataAccessorDeclaration transparently
-                // routes to thin-mode (<= 3 args) or buffer-mode (> 3 args) on the helper side;
+                // metadata + witness tables for any protocol-constrained generic params.
+                // Use the type-metadata-accessor-specific arg/param list so the right PWTs
+                // flow through. AddMetadataAccessorDeclaration transparently routes to
+                // thin-mode (<= 3 args) or buffer-mode (> 3 args) on the helper side;
                 // the call site below is identical in either case.
                 var metadataArgs = string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
@@ -755,7 +755,7 @@ namespace BindingsGeneration
 
             var symbolName = GetEqualitySymbolName(_structDecl);
 
-            // S5 audited (Tier B): equality helpers live in the shared `_equality` bucket (also written by ClassHandler and EnumHandler). One helper per struct type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
+            // equality helpers live in the shared `_equality` bucket (also written by ClassHandler and EnumHandler). One helper per struct type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
             if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
                 return symbolName; // Already emitted, return for C# P/Invoke
 
@@ -1105,8 +1105,7 @@ internal static class ProtocolConformanceHelper
             }
         }
 
-        // Closed-constrained PAT projection (gap-0.10.0-everyprotocol-and-existentials.md
-        // Case 1 nominal-assignability closure): when a conformer's PAT bindings are all
+        // Closed-constrained PAT projection (Case 1: concrete-arg `any P<X>` nominal-assignability): when a conformer's PAT bindings are all
         // concrete (e.g. StringLabel: LabelledContainer where Label == String), emit the
         // closed generic interface in the implements list so consumers can pass
         // `new StringLabel(...)` where `ILabelledContainer<SwiftString>` is expected.

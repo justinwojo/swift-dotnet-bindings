@@ -85,7 +85,7 @@ public static class MethodWrapperEmitter
         // AND no unsupported async closures. Baseline-shape async-throwing closures
         // (`() async throws -> T` with T a blittable primitive) are bridged via
         // the async wrapper's withCheckedThrowingContinuation harness, so they fall
-        // outside the "unsupported" bucket (see Session A of async-closure-plan.md).
+        // outside the "unsupported" bucket.
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
@@ -374,7 +374,7 @@ public static class MethodWrapperEmitter
                 case CdeclPhase.Arguments:
                     var closureParamCount = keptArgs.Count(env.ClosureHandler.IsClosure);
                     // Sibling bindings so each user param's reserved-collision escape also dodges its
-                    // siblings (user-vs-sibling half of the P1-22 class).
+                    // siblings.
                     var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
                     for (int i = 0; i < keptArgs.Count; i++)
                     {
@@ -954,7 +954,7 @@ public static class MethodWrapperEmitter
 
         // Method arguments (CdeclPhase.Arguments)
         int argIndex = 0;
-        // Sibling bindings so a reserved-name escape also dodges a sibling user param (P1-22).
+        // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
         for (int i = 0; i < keptArgs.Count; i++)
         {

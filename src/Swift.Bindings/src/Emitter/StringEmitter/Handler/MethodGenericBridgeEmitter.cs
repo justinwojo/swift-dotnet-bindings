@@ -126,8 +126,7 @@ public static class MethodGenericBridgeEmitter
     /// <c>MemberValidationPipeline</c>); its only callers are unit tests. Production reachability
     /// of this emitter is solely via <see cref="TryEmit"/> through the
     /// <c>MethodHandler._bridgeEmitters</c> dispatch table. Wiring this predicate into the
-    /// validator placeholder gate remains a separate identifier/gate-hygiene follow-up (not the
-    /// audit's P1-28, which is the frozen-with-ref ARC leak fixed on this path in Session 6).
+    /// validator placeholder gate remains a separate follow-up.
     /// </para>
     /// </summary>
     public static bool IsEligible(MethodDecl method, ITypeDatabase typeDatabase)
@@ -176,8 +175,7 @@ public static class MethodGenericBridgeEmitter
     /// emitter, this bridge has no idiomatic/wire marshal-type split, so its <c>csReturnType</c>
     /// would be the idiomatic projection (Data → <c>byte[]</c>) — not an ISwiftObject, so
     /// <c>GetSwiftTypeSize&lt;byte[]&gt;()</c> would not even compile. Those returns are covered by
-    /// the CSM emitter's concrete overloads (the bridge is shadowed by CSM in practice). Audit
-    /// P0-12/P1-28.
+    /// the CSM emitter's concrete overloads (the bridge is shadowed by CSM in practice).
     /// </para>
     /// </summary>
     private static bool IndirectResultReturnIsAdmissible(MethodDecl method, ITypeDatabase typeDatabase)
@@ -403,7 +401,7 @@ public static class MethodGenericBridgeEmitter
         string cdeclSymbol,
         ModuleEmissionContext ctx)
     {
-        // S5 audited (Tier B): the `_XM` suffix namespaces this symbol away from the
+        // the `_XM` suffix namespaces this symbol away from the
         // plain method wrapper (`SBW_{module}_{type}_{method}_{hash}`) and from the async
         // generic bridge (`_XMA`). Collision is impossible by suffix convention even for
         // the same method.
@@ -440,7 +438,7 @@ public static class MethodGenericBridgeEmitter
 
         // Regular parameters (with existential loading for generic params)
         // Sibling bindings so the hand-emitted generic-pointer binding and the Map'd non-generic
-        // params each dodge their siblings (user-vs-sibling half of the P1-22 class).
+        // params each dodge their siblings.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(methodDecl.CSSignature.Skip(1));
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -456,7 +454,7 @@ public static class MethodGenericBridgeEmitter
                 // The binding is hand-emitted as `_{label}` (NOT routed through Map), so escape it
                 // here: a generic param internally named `_self` yields `__self`, which duplicates
                 // the receiver body local `let __self` below → swiftc rejects + silently drops the
-                // wrapper (P1-22). `__self`/`_self` are reserved, so the escape resolves the clash;
+                // wrapper. `__self`/`_self` are reserved, so the escape resolves the clash;
                 // siblings cover a generic binding that collides with another user param.
                 var genericBinding = NameProvider.EscapeReservedSwiftWrapperLabel($"_{label}", siblings);
                 swiftParams.Add($"_ {genericBinding}: UnsafeRawPointer");
@@ -722,7 +720,7 @@ public static class MethodGenericBridgeEmitter
         // Build public parameter list
         var publicParams = new List<string>();
         // Projected public parameter names — seed for the body-local scope below so the hardcoded
-        // indirect-result locals (resultPtr, _result) never shadow a user param (CS0136; P1-22).
+        // indirect-result locals (resultPtr, _result) never shadow a user param (CS0136).
         var publicParamNames = new List<string>();
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -799,9 +797,9 @@ public static class MethodGenericBridgeEmitter
         // Indirect-result ownership discrimination — mirrors the sibling CSM emitter's three-way
         // NewFromPayload contract (ConcreteProtocolSpecializationEmitter.cs ~1514-1607). Replaces
         // the prior fixed `Marshal.AllocHGlobal(256)` (heap overflow for any return whose Swift
-        // stride exceeds 256 bytes; audit P0-12) and the undiscriminated MarshalFromSwift +
+        // stride exceeds 256 bytes) and the undiscriminated MarshalFromSwift +
         // finally-free (double-free + allocator mismatch for ownership-transfer returns; missing
-        // +1-ARC release for frozen-with-ref returns — audit P0-12 / P1-28). The bridge gate
+        // +1-ARC release for frozen-with-ref returns). The bridge gate
         // (IndirectResultReturnIsAdmissible) guarantees the return is ISwiftObject, so
         // GetSwiftTypeSize<T>() and the marshal helpers are well-constrained.
         bool returnTypeIsDirectWrap = false;     // ownership-transfer: SafeHandle adopts the buffer
@@ -821,7 +819,7 @@ public static class MethodGenericBridgeEmitter
         bool destroyWireRetains = needsResultPtr && !ownershipTransfer && returnTypeNeedsWireDestroy;
 
         // Indirect-result body locals, resolved against the public param names so a user param
-        // spelled `resultPtr` / `_result` does not shadow them (CS0136; P1-22). The P/Invoke decl is
+        // spelled `resultPtr` / `_result` does not shadow them (CS0136). The P/Invoke decl is
         // deduped separately (FormatDeclarationLines), but the public-method body scope is not — so
         // resolve here. Byte-identical to the literals in the common non-colliding case.
         var bodyScope = new SyntheticNameScope(publicParamNames);
@@ -956,8 +954,8 @@ public static class MethodGenericBridgeEmitter
             {
                 // Frozen-struct-with-ref return (ClassWithBufferStruct): NewFromPayload copies the
                 // wire into a managed buffer, but the wire still holds +1 retains on its ref fields,
-                // so VWT-Destroy it before the raw free below — otherwise each call leaks +1 (audit
-                // P1-28). Capture into a local so the Destroy runs before the return expression.
+                // so VWT-Destroy it before the raw free below — otherwise each call leaks +1.
+                // Capture into a local so the Destroy runs before the return expression.
                 csWriter.WriteLine($"var {resultLocal} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrLocal});");
                 csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrLocal});");
                 csWriter.WriteLine($"return {resultLocal};");

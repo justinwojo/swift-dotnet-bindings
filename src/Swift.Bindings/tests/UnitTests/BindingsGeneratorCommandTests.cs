@@ -140,7 +140,7 @@ public class AppleVersionForwardingTests
         var commandFile = LocateCommandFile();
         var source = File.ReadAllText(commandFile);
         // Count is asserted ==2 (xcframework + direct-framework). A weaker >=1 check would
-        // have let the direct-framework regression Codex flagged slip through.
+        // have let the direct-framework regression slip through.
         var occurrences = System.Text.RegularExpressions.Regex.Matches(
             source, @"AppleSupplementVersion\s*=\s*appleVersion\s*,").Count;
         Assert.Equal(2, occurrences);

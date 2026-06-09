@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// P1-10: a <c>Foundation.Data</c> parameter that lands at or beyond the eighth integer register must
+/// A <c>Foundation.Data</c> parameter that lands at or beyond the eighth integer register must
 /// be decomposed into two explicit pointer-width words in the <c>@_cdecl</c> wrapper so the C#
 /// P/Invoke matches the Swift wrapper's register layout.
 ///

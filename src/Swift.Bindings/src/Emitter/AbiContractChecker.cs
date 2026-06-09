@@ -3,16 +3,15 @@
 
 // Post-generation ABI contract checker.
 // Validates generated C# P/Invoke declarations against ABI safety rules.
-// Based on Phase 2 contract definitions and Phase 4B validated predicates.
 //
-// Checks implemented (prioritized by 4B validation results):
+// Checks implemented:
 //   SWIFTBIND090 (CC-001): SafeHandle/non-blittable param in CallConvSwift
 //   SWIFTBIND091 (CC-002): Non-blittable return type in CallConvSwift
 //   SWIFTBIND092 (Tj):     Cross-module Tj dispatch thunk targeting wrong library
 //   SWIFTBIND093 (CC-003): @_cdecl wrapper entry point targeting original library
 //   SWIFTBIND094 (CC-004): CallConvCdecl targeting mangled Swift symbol
 //
-// Refinements from 4B (reaching ~83% precision, 100% recall):
+// Precision refinements (reaching ~83% precision, 100% recall):
 //   1. De-duplicate findings by (RuleId, MethodName)
 //   2. Exclude primitive type names from float struct heuristic
 //   3. Require positional adjacency for closure context classification

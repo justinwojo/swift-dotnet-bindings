@@ -75,7 +75,7 @@ namespace BindingsGeneration
                        on maccatalyst-x64 (not present on osx-x64, maccatalyst-arm64, or
                        any other RID). Defaulting to the Mono interpreter bypasses all
                        four because each lives in the JIT subsystem.
-                       Tracked at: src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md
+
                        Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
                        Opt out (to probe an upstream Mono fix):
                          <SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit> -->

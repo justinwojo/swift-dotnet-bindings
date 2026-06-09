@@ -49,7 +49,7 @@ public class AsyncHarnessEmitterCleanupTests
         // The user-facing async wrapper bodies (foreground pre-cancel + foreground catch) and the
         // harness callbacks now emit byte-for-byte identical cleanup, because both route through
         // the single AsyncHarnessEmitter.BuildHolderCleanupCode → runtime helper. Lock that so the
-        // two async emission paths cannot diverge (the gap that originally hid the S-5 leak).
+        // two async emission paths cannot diverge (the gap that originally hid the async holder leak).
         var harness = AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", indent: "    ");
         var wrapper = BindingsGeneration.WrapperEmitter.BuildHolderCleanupCode("_asyncCallHolder", indent: "    ");
 

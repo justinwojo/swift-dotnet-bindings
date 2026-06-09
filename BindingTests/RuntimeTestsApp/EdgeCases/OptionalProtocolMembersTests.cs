@@ -9,8 +9,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.EdgeCases;
 
 /// <summary>
-/// Runtime coverage for the `@objc optional` protocol-member fix (see
-/// <c>gap-0.10.0-optional-protocol-members-emitted-as-mandatory.md</c>).
+/// Runtime coverage for the fix where <c>@objc optional</c> protocol members
+/// were incorrectly emitted as mandatory interface requirements.
 ///
 /// The Swift fixture <c>OptionalCallbackDelegate</c> declares one mandatory
 /// method, two `@objc optional` methods (one void, one returning Int32), and

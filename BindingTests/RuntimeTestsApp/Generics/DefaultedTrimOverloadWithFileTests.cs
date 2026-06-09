@@ -9,7 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Regression coverage for the Codex r1 Medium concern on Phase 3a:
+/// Regression coverage for the concern on the defaulted-trim-overload path:
 /// CSM-routed generic + collection default + trailing <c>#file</c> debug
 /// parameter. The hypothesis was that <c>BuildOverloadDecl</c> trims the last
 /// N raw args from <c>CSSignature.Skip(1)</c> without skipping debug params,

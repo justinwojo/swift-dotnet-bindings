@@ -429,10 +429,10 @@ public class NestedClosureBridgeTests
     [Fact]
     public void TryEmit_OuterCallback_FailsFastOnManagedException()
     {
-        // P0-01: the outer-closure UCO callback invokes the managed delegate. A non-throwing
-        // nested closure has no error channel, so a managed exception escaping the delegate must
-        // route to the fail-fast contract — never unwind into Swift (SIGABRT) and never be
-        // swallowed by a bare `catch { }`.
+        // The outer-closure UCO callback invokes the managed delegate. A non-throwing nested
+        // closure has no error channel, so a managed exception escaping the delegate must route
+        // to the fail-fast contract — never unwind into Swift (SIGABRT) and never be swallowed
+        // by a bare `catch { }`.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
@@ -721,7 +721,7 @@ public class NestedClosureBridgeTests
     {
         // The inner closure in CreateMethodWithNestedClosure is non-escaping, so the +1 box
         // retain minted in the outer adapter must be balanced by a release after cdecl() returns
-        // (P1-16). Without this the binding leaks one AnyObject box per outer-closure invocation.
+        // Without this the binding leaks one AnyObject box per outer-closure invocation.
         var (method, typeDatabase) = CreateMethodWithNestedClosure();
         var env = new MethodEnvironment(method, typeDatabase);
         var csWriter = new CSharpWriter(new StringWriter());
@@ -884,7 +884,7 @@ public class NestedClosureBridgeTests
         Assert.True(method.UsesFreeFunctionWrapper);
     }
 
-    // ─── Throw-window + _SBClosureCtx Owner Token (Bug 1 Cat 3 / Bug 3 Case 2) ───
+    // ─── Throw-window + _SBClosureCtx Owner Token ───
 
     [Fact]
     public void TryEmit_EscapingOuter_PreDeclaresGCHandleAndTransferredFlag()

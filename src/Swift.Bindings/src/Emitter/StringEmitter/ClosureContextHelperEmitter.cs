@@ -6,10 +6,10 @@ namespace BindingsGeneration;
 /// <summary>
 /// Emits the wrapper-side helpers that wrap an escaping closure's GCHandle
 /// pointer in a Swift-ARC-owned <c>_SBClosureCtx</c> box (defined in
-/// <c>libSwiftBindingsRuntime.dylib</c>). Bridges Bug 1 Cat 3 / Bug 3 Case 2:
-/// when Swift releases the closure, the box's deinit upcalls the C# free
-/// callback registered by <c>SwiftClosureContext.EnsureRegistered</c> and
-/// the GCHandle is freed exactly once.
+/// <c>libSwiftBindingsRuntime.dylib</c>). When Swift releases the closure,
+/// the box's deinit upcalls the C# free callback registered by
+/// <c>SwiftClosureContext.EnsureRegistered</c> and the GCHandle is freed
+/// exactly once.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -59,7 +59,7 @@ public static class ClosureContextHelperEmitter
         // gracefully to the prior leak behaviour, matching the C# side's
         // catch-DllNotFoundException fallback in SwiftClosureContext.cs.
         swiftWriter.WriteLines("""
-            // MARK: - Escaping-closure GCHandle owner token (Bug 1 Cat 3 / Bug 3 Case 2)
+            // MARK: - Escaping-closure GCHandle owner token
             //
             // Wraps each escaping closure's pinned GCHandle pointer in a Swift class
             // owned solely by Swift ARC. When the closure (and thus the box) is

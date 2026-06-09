@@ -317,8 +317,8 @@ public class SkipOnDeviceAttribute : Attribute
 /// maccatalyst-x64 only — runs on every other RID, including osx-x64 under the
 /// same Rosetta layer. The reason is visible in test output.
 ///
-/// The reason MUST describe the specific deterministic crash and reference the
-/// upstream filing (see <c>src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md</c>).
+/// The reason MUST describe the specific deterministic crash, referencing the
+/// upstream filing for Issue 4 (Mono Catalyst x64 instability).
 ///
 /// Detected at runtime via <see cref="OperatingSystem.IsMacCatalyst"/> +
 /// <see cref="System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture"/>;

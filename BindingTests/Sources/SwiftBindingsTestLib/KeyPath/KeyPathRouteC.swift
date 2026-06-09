@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - Session 6c Route C fixture
+// MARK: - KeyPath Route C fixture
 //
 // Validates the per-(conformer x distinct projectable V) Sort overload shape that
 // `KeyPathBagValueSpecializationEmitter` produces. The Swift-side `sort<V>(by:)` is
@@ -9,14 +9,13 @@
 // open-V emission and replaces it with one closed `Sort(KeyPath<Bag, V>, Bool)`
 // overload per distinct projectable Value type on the conformer's bag.
 //
-// Phase 2 scope: class generic parent. The mutating-struct receiver ABI lands in
-// Phase 3 alongside the MusicKit wiring. The Swift method records a description
-// of (keypath, ascending) so the C# tests can verify the dispatch arrived and
-// the typed downcast produced the right closed shape.
+// Class generic parent shape. The Swift method records a description of (keypath,
+// ascending) so the C# tests can verify the dispatch arrived and the typed downcast
+// produced the right closed shape.
 //
-// Bag shape: nested struct on the conformer (mirrors Session 4's
-// MockBookSession4.LibraryFilter pattern). The bag-walker resolves the conformer's
-// associated-type `SortBag` to the nested decl by short-name match.
+// Bag shape: nested struct on the conformer (mirrors the `MockBookSession4.LibraryFilter`
+// pattern). The bag-walker resolves the conformer's associated-type `SortBag` to the
+// nested decl by short-name match.
 //
 // **Observation pattern**: side effects flow into a NON-GENERIC tracker class
 // (`RouteC_SortTracker`) instead of into instance properties on the generic
@@ -24,10 +23,10 @@
 // crashes when the receiver is a constrained generic class
 // (`<Item: RouteC_Filterable>`) — Swift's runtime conformance lookup for the
 // retroactive conformance fails to evaluate the conditional. That's a separate
-// wrapper-emitter bug outside Session 6c scope; tracked in
-// `src/docs/Future/property-getter-constrained-generic.md`. Static properties
-// on a non-generic class read through the normal class-static path and don't
-// trip the same code path.
+// wrapper-emitter bug: Swift's runtime conformance lookup for a retroactive conformance on a
+// constrained generic class fails to evaluate the conditional when accessed via the property-getter pattern.
+// Static properties on a non-generic class read through the normal class-static
+// path and don't trip the same code path.
 
 public protocol RouteC_Filterable {
     associatedtype SortBag

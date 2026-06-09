@@ -24,7 +24,7 @@ public class SwiftFrameworkResolverTests
     // @rpath/liblibSystem.B.dylib.dylib, etc. exist on a test host). Pairing
     // this against the absolute-path positive test lets us observe the
     // branch selection from outside: absolute path → non-zero handle;
-    // bare name → IntPtr.Zero. That's the A/B Codex was asking for.
+    // bare name → IntPtr.Zero. That's the A/B contrast under test.
     private const string BareNameDyldCouldLoadButPrefixSearchCannot = "libSystem.B.dylib";
 
     [Fact]
@@ -215,7 +215,7 @@ public class SwiftFrameworkResolverTests
     // The dyld-style framework path the generator embeds for an Apple-framework-target
     // binding's conformance-descriptor load. Extracting "CryptoKit" lets the system-path
     // fallback in TryLoadWithFrameworkFallback reach
-    // /System/Library/Frameworks/CryptoKit.framework/CryptoKit on a physical device (§3).
+    // /System/Library/Frameworks/CryptoKit.framework/CryptoKit on a physical device.
     [InlineData("@rpath/CryptoKit.framework/CryptoKit", "CryptoKit")]
     [InlineData("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", "CryptoKit")]
     [InlineData("@executable_path/StoreKit.framework/StoreKit", "StoreKit")]
@@ -247,7 +247,7 @@ public class SwiftFrameworkResolverTests
     [Fact]
     public void TryLoadWithFrameworkFallback_ReachesSystemPathForDyldStyleName()
     {
-        // Regression guard for the descriptor-loader asymmetry (Codex r1 High): BOTH
+        // Regression guard for the descriptor-loader asymmetry: BOTH
         // ProtocolDescriptor.LoadFromSymbol (class-bound existential metadata registration)
         // and ProtocolConformanceDescriptor.LoadFromSymbol (CSM conformance loads) route
         // through this one helper, so the upgraded /System/Library/Frameworks fallback can

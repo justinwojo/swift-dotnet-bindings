@@ -128,7 +128,7 @@ public class ProtocolConformanceValidator
     /// pass the conformer where a typed existential parameter is expected. Pairs with the
     /// runtime typed-PAT fallback in the per-type
     /// <c>GetProtocolConformanceDescriptor&lt;TProtocol&gt;()</c> body — together they close
-    /// gap-0.10.0-everyprotocol-and-existentials.md Cases 1 + 2.
+    /// Constrained PAT existential Cases 1 + 2: concrete-arg `any P&lt;X&gt;` and plain `any P`.
     /// </summary>
     /// <param name="conformer">The conforming type (StructDecl/ClassDecl/EnumDecl).</param>
     /// <param name="protocolDecl">The PAT protocol whose bindings to resolve.</param>

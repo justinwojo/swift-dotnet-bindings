@@ -23,9 +23,8 @@ namespace BindingsGeneration
     /// <c>BlinkID.BlinkIDSDK.StringResult</c>.
     ///
     /// See <see cref="NamespaceFacadeDetector.IsNamespaceFacade(TypeDecl)"/>
-    /// for the predicate gate. See
-    /// <c>bug-0.10.0-namespace-facade-as-static-class.md</c> (Bundle 04 #3)
-    /// for the discovery context (BlinkID 7.7.0's <c>BlinkIDSDK</c>).
+    /// for the predicate gate. The canonical case is BlinkID 7.7.0's
+    /// <c>BlinkIDSDK</c> outer struct containing ~25 nested types.
     /// </summary>
     internal static class NamespaceFacadeEmitter
     {

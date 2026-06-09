@@ -64,8 +64,8 @@ public class RuntimeLimitationsTests
     [Fact]
     public void RegistryContainsExactlyFourLimitations()
     {
-        // Three numbered upstream issues (1, 2, 3 — see upstream-issues-README.md)
-        // plus the SafeHandle async tracking-issue comment item.
+        // Three numbered upstream issues (1, 2, 3) plus the SafeHandle async
+        // tracking-issue comment item.
         var all = RuntimeLimitations.GetAllLimitations();
         Assert.Equal(4, all.Count);
     }
@@ -128,10 +128,10 @@ public class RuntimeLimitationsTests
         Assert.Contains(expectedSubstring, description, StringComparison.OrdinalIgnoreCase);
     }
 
-    // Issue numbers map to upstream-issues-README.md filings: 1 = Mono JIT async assert,
-    // 2 = non-blittable CallConvSwift, 3 = Mono Set.insert DONE_BLOCKING. The SafeHandle
-    // async lifetime is intentionally excluded — it's a tracking-issue comment item, not
-    // a numbered filing — and is covered separately by DescribeMarksTrackingCommentItem.
+    // Issue 1 = Mono JIT async assert, Issue 2 = non-blittable CallConvSwift,
+    // Issue 3 = Mono Set.insert DONE_BLOCKING. The SafeHandle async lifetime is
+    // intentionally excluded — it's a tracking-issue comment item, not a numbered
+    // filing — and is covered separately by DescribeMarksTrackingCommentItem.
     [Theory]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "Issue 1")]
     [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "Issue 2")]

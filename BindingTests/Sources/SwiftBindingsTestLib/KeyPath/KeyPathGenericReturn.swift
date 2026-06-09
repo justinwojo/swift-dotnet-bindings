@@ -35,7 +35,7 @@ public class KeyPathGenericContainer<TElement> {
 
 // MARK: - 2-arity KeyPath family on generic-host constructors
 //
-// Phase 4 coverage for the widened gate (IsKeyPathFamilyOfParentGeneric admits
+// Coverage for the widened gate (IsKeyPathFamilyOfParentGeneric admits
 // KeyPath<T,V>, WritableKeyPath<T,V>, ReferenceWritableKeyPath<T,V> when Root
 // is a bare parent generic). The 1-arity PartialKeyPath<T> proof above does not
 // exercise the 2-arity Render path through RenderSwiftTypeSpecWithSugaredNames

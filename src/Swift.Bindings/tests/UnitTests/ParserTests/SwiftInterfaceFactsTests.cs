@@ -29,7 +29,7 @@ public class SwiftInterfaceFactsTests
     {
         // Drift-loud guard: if a field is added to SwiftInterfaceFacts without updating Empty,
         // either compilation fails (required init property) or this count check trips.
-        // 21 fact maps + 3 best-effort source-position maps + 3 M2 S4 non-fact migrations
+        // 21 fact maps + 3 best-effort source-position maps + 3 non-fact migrations
         // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) + 1 SDK 0.11.0 R2
         // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters + 1 GRDB
         // ClosureParameterAttributes = 30.
@@ -58,7 +58,7 @@ public class SwiftInterfaceFactsTests
     {
         // Each fact field must be a HashSet<...>, Dictionary<...,...>, or List<...> — concrete
         // collection types that Program.GenerateBindings can populate without interface
-        // conversions. List entered the mix in M2 S4 to back ExtensionMemberCandidates, which
+        // conversions. List backs ExtensionMemberCandidates, which
         // is order-sensitive (regex producer walks the file top-to-bottom).
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)

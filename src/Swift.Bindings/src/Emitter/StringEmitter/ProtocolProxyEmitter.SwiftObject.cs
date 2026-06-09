@@ -92,7 +92,7 @@ public partial class ProtocolProxyEmitter
                         // This body runs from BOTH Dispose (user thread) and the GC finalizer
                         // (~Proxy). A direct VWT Destroy (CallConvSwift) from the finalizer thread
                         // crashes Mono with the !ji->async assertion after CallConvSwift JIT
-                        // contamination (audit P0-10) — the same hazard the class-bound sibling
+                        // contamination — the same hazard the class-bound sibling
                         // dodges via Arc.UnknownObjectReleaseFinalizerSafe. Route through the
                         // SBW_VWTDestroy @_cdecl trampoline, which is safe from either thread.
                         Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetainsFinalizerSafe((IntPtr)containerPtr, existentialMetadata);

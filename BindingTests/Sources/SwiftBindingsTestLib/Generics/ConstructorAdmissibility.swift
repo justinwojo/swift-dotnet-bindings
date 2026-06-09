@@ -6,8 +6,8 @@ import Foundation
 // MARK: - Unified constructor-admissibility fixture (AppIntents EntityProperty shape)
 //
 // Reproduces the init-erasure facets that each independently caused the
-// AppIntents `final class EntityProperty<Value>` Swift wrapper to fail `swiftc`
-// (see src/docs/keypath-subsystem/08b-entityproperty-init-keypath.md). All flow
+// AppIntents `final class EntityProperty<Value>` Swift wrapper to fail `swiftc`.
+// All flow
 // through a PAT-constrained generic-parent final class so they exercise BOTH
 // erasure mechanisms:
 //

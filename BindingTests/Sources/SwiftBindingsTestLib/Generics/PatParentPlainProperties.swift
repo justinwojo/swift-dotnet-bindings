@@ -46,10 +46,9 @@ public struct Bag<Item: BagItem> {
 
     /// Negative case — its type references the parent's associated type
     /// (`Item.Filter`). Resolving this at the open-generic emission site would
-    /// require dispatching through `BagItem`'s associated-type witness table,
-    /// which is out of scope for Session 1. The property must remain suppressed
-    /// AND surface a visible `// Unsupported:` tombstone in the generated `.cs`
-    /// so the omission is no longer silent.
+    /// require dispatching through `BagItem`'s associated-type witness table.
+    /// The property must remain suppressed AND surface a visible `// Unsupported:`
+    /// tombstone in the generated `.cs` so the omission is no longer silent.
     public var selectedFilter: Item.Filter? = nil
 
     public init() {}

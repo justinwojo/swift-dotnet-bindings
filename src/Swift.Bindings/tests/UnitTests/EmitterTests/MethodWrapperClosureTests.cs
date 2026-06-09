@@ -8,7 +8,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for Phase 2.5: closure parameters in @_cdecl method/constructor wrappers.
+/// Tests for closure parameters in @_cdecl method/constructor wrappers.
 /// Verifies that MethodWrapperEmitter and ConstructorWrapperEmitter handle closure
 /// parameters inline when they are Cdecl-compatible, and reject them otherwise.
 /// </summary>

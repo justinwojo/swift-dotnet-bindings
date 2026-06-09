@@ -758,8 +758,8 @@ public class GenericTypeEmitterTests
     [Fact]
     public void GetWhereClause_ClassBoundConstraint_EmitsClassNameNotInterfaceName()
     {
-        // Regression coverage for `bug-0.10.0-foundation-dimension-constraint-not-projected.md`
-        // (Bundle 04 #5). The parser tags every `:` clause as ConformanceKind.Protocol because
+        // Regression coverage for Foundation.Dimension class-bound generic constraint
+        // projection. The parser tags every `:` clause as ConformanceKind.Protocol because
         // it has no type-database access; the emitter must consult the resolved record to
         // recognise class targets. Class-bound generics emit the projected C# class name as
         // the constraint, not an `I{Name}` form, AND skip the ISwiftObject seed because the

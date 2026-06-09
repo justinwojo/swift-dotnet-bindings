@@ -86,7 +86,7 @@ public struct OptionalConfig {
     }
 }
 
-// MARK: - Bug 15a — Optional<typealias-to-primitive>
+// MARK: - Optional<typealias-to-primitive>
 
 /// Returns an optional Foundation.TimeInterval (typealias to Double). The ABI parser
 /// preserves the alias name in the Optional's printedName, so without the projection
@@ -108,7 +108,7 @@ public func computeOptionalDuration(_ seconds: Double) -> TimeInterval? {
     return nil
 }
 
-// MARK: - Bug 15b — Optional<generic-param>
+// MARK: - Optional<generic-param>
 
 /// Generic struct with an Optional<Value> property. Mirrors the RealityFoundation
 /// FromToByAnimation<Value> / SampledAnimation<Value> shape where Optional<TValue>

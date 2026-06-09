@@ -97,8 +97,8 @@ public class StructEqualityTests : TestBase
     }
 
     /// <summary>
-    /// Equatable Defect 1 (bug-0.10.0-equatable-not-lowered.md): an Equatable
-    /// type's GetHashCode previously returned a constant 0 and broke the
+    /// Equatable Defect 1: an Equatable type's GetHashCode previously returned
+    /// a constant 0 and broke the
     /// Equals/GetHashCode contract in any hash-based collection. The
     /// SwiftHashable runtime helper now folds the Swift hash (when the
     /// witness resolves) or falls back to a stable structural hash —

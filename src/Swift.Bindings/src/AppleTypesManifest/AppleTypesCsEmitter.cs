@@ -42,7 +42,7 @@ public sealed class AppleTypesCsEmitter
     // itself is malformed (blank metadata accessor symbol/library, missing accessor,
     // …). The type is silently dropped to keep the run producing partial output for
     // diagnosis, but these MUST fail the command: shipping a manifest that drops
-    // types at emit time is exactly the fail-closed case Codex flagged.
+    // types at emit time is exactly the fail-closed case guarded here.
     public IReadOnlyList<SkippedEntry> StructuralSkips => _structuralSkips;
     private readonly List<SkippedEntry> _structuralSkips = new();
 

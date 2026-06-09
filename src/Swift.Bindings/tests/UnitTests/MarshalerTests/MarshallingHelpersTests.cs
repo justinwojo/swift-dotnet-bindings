@@ -316,7 +316,7 @@ public class MarshallingHelpersTests
     [Fact]
     public void MethodRequiresIndirectResult_CdeclArrayReturn_ReturnsTrue()
     {
-        // Bug 2: @_cdecl method returning Swift.Array<T> must use indirect result.
+        // @_cdecl method returning Swift.Array<T> must use indirect result.
         // Swift wrapper writes to resultPtr via initializeMemory(as:). Without this fix,
         // the P/Invoke returned IntPtr (the non-@_cdecl bound generic path), causing
         // a signature mismatch with the void+resultPtr Swift wrapper.
@@ -891,7 +891,7 @@ public class MarshallingHelpersTests
     {
         // Bare pointers and typed buffer pointers are explicitly NOT raw buffer pointers.
         // Bare UnsafeMutableRawPointer in particular has no length and cannot project to
-        // Span<byte> — see unsafe-mutable-raw-buffer-pointer.md ("Bare pointer projection").
+        // Span<byte> — bare pointers lack a length component and do not split to (ptr, len).
         var spec = new NamedTypeSpec(typeName);
         Assert.False(MarshallingHelpers.IsUnsafeRawBufferPointer(spec));
         Assert.False(MarshallingHelpers.IsUnsafeMutableRawBufferPointer(spec));

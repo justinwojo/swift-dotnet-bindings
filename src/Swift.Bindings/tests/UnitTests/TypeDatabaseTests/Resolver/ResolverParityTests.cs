@@ -9,8 +9,8 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Parity between the new <see cref="TypeResolver"/> and the legacy
-/// <see cref="TypeDatabaseExtensions"/> entry points for the three M4
-/// Session 1 strategies (dynamic self, generic parameter, primitive alias).
+/// <see cref="TypeDatabaseExtensions"/> entry points for the three
+/// resolver strategies (dynamic self, generic parameter, primitive alias).
 /// Each test routes the same <see cref="TypeSpec"/> through both paths and
 /// asserts the records (and supporting flags) match.
 /// </summary>
@@ -139,7 +139,7 @@ public class ResolverParityTests
     }
 
     // -------------------------------------------------------------------------
-    // M4 Session 2: parity for the strategies migrated in this session.
+    // Parity for the strategies migrated to the resolver.
     // The legacy entry points are now thin shims over the resolver, so each
     // pair of asserts proves that the entry-point projection matches a direct
     // resolver call. Together they prove the four overloads carry no
@@ -239,7 +239,7 @@ public class ResolverParityTests
     [Fact]
     public void Existential_FallbackInfoFlowsThroughResolver()
     {
-        // The existential strategy is the only Session-2 strategy that sets
+        // The existential strategy is the only strategy that sets
         // SyntheticFallback. The shim entry point reads it directly, so the
         // existential fallback message must round-trip without any legacy
         // re-classification logic.

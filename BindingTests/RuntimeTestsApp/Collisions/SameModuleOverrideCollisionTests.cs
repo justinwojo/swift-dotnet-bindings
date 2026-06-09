@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Collisions;
 
 /// <summary>
-/// P1-21 (Scenario A/B): a base class declares two methods that share a Swift name AND the same
+/// A base class declares two methods that share a Swift name AND the same
 /// projected C# parameter signature but differ only by Swift argument label —
 /// <c>process(first value: Int32)</c> and <c>process(second value: Int32)</c>. B15 disambiguates
 /// them as <c>Process</c> (first, +100) and <c>Process2</c> (second, +200).
@@ -121,7 +121,7 @@ public class SameModuleOverrideCollisionTests : TestBase
     /// <summary>
     /// Scenario B — derived overrides BOTH overloads. Through a base reference, each call must
     /// reach the derived body. DerivedBoth self-computes Process/Process2 from its own two-sibling
-    /// class body, so this exercises the §8.2 EmittedCSharpName-parity path.
+    /// class body, so this exercises the EmittedCSharpName-parity path.
     /// </summary>
     public void TestDerivedBothVirtualDispatchThroughBase()
     {

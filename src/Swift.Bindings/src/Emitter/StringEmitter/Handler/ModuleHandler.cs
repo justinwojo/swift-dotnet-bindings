@@ -257,7 +257,7 @@ namespace BindingsGeneration
                 ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter, emissionCtx);
                 ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name, emissionCtx);
 
-                // Session 8b: emit typed KeyPath singletons rooted on this module's
+                // Emit typed KeyPath singletons rooted on this module's
                 // closed AppIntents.AppEntity conformers (KeyPath roots for the
                 // EntityProperty / IntentParameter convenience-init family). Driven by
                 // conformer enumeration over the current module — see
@@ -266,7 +266,7 @@ namespace BindingsGeneration
                     csWriter, swiftWriter, moduleDecl, env.TypeDatabase, emissionCtx,
                     emissionCtx.SpecializationEngine, _logger);
 
-                // Session 8b.3: emit consumer-side factories that construct a framework
+                // Emit consumer-side factories that construct a framework
                 // dependency's generic type via its method-own-generic KeyPath init,
                 // closing the method generic to a local conformer and consuming the
                 // KeyPath singletons emitted just above. See
@@ -301,7 +301,7 @@ namespace BindingsGeneration
                 }
             }
 
-            // Phase 4 plain-throws → SwiftException<TError> bridge: emit the per-module
+            // Plain-throws → SwiftException<TError> bridge: emit the per-module
             // C# typed-exception dispatcher class (consumed by 6-param error callbacks
             // emitted from plain-throws async wrappers) and the Swift cascade dispatcher
             // (called from the `} catch { ... }` blocks of those wrappers). Both no-op
@@ -854,7 +854,7 @@ namespace BindingsGeneration
                 // Skip internal, @_spi, and @usableFromInline protocols — EveryProtocol can only
                 // conform to protocols whose members are all publicly accessible.
                 .Where(p => !p.IsModuleInternal)
-                // Phase 2 (EveryProtocolEmitter) handles all member-level decisions:
+                // EveryProtocolEmitter handles all member-level decisions:
                 // constructor requirements, static method requirements, empty marker protocols, etc.
                 // All protocols pass through here; the emitter records proper skip reasons.
                 // Bug #14: Filter out protocols not actually defined in this module.
@@ -865,7 +865,7 @@ namespace BindingsGeneration
                 // $s{length}{moduleName}... (e.g., $s11CryptoSwift...), while stdlib protocols
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
                 //
-                // S-2: @objc protocols have an empty mangled name in the ABI JSON (Swift omits
+                // @objc protocols have an empty mangled name in the ABI JSON (Swift omits
                 // the mangling for protocols visible through the Objective-C runtime). Fall
                 // back to the SwiftTypeName.Module check so NSObjectProtocol-only @objc protocols
                 // (Stripe's STPAuthenticationContext, our NumberProvider fixture) aren't
@@ -881,7 +881,7 @@ namespace BindingsGeneration
                 // Skip protocols requiring NSObjectProtocol identity semantics —
                 // EveryProtocol can't provide NSObject methods (isEqual:, hash, etc.).
                 // Pure AnyObject class-bound protocols are allowed (EveryProtocol is a class).
-                // S-2: protocols whose only ObjC-rooted requirement is NSObjectProtocol
+                // Protocols whose only ObjC-rooted requirement is NSObjectProtocol
                 // (no NSCoding / NSSecureCoding / NSCopying / NSMutableCopying) are routed
                 // through the NSObject-rooted EveryObjCProtocol helper class downstream,
                 // so they remain "suitable" here. NSCoding et al. still drop out because

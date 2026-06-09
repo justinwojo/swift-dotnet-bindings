@@ -69,7 +69,7 @@ public class EveryProtocolEmitter
     /// Swift identifier of the base class to emit the current protocol's extension
     /// against — <c>EveryEntityProtocol</c> when routing through the Entity-rooted
     /// helper (Failure B), <c>EveryObjCProtocol</c> for the NSObjectProtocol-only
-    /// path (S-2), otherwise the default <c>EveryProtocol</c>. Mutually exclusive:
+    /// path, otherwise the default <c>EveryProtocol</c>. Mutually exclusive:
     /// only one of <see cref="_useObjCBase"/> / <see cref="_useEntityBase"/> can be
     /// true for a given protocol because the routing gates in
     /// <see cref="EmitProtocolConformance(SwiftWriter, ProtocolDecl, HashSet{string}?, HashSet{string}?, IReadOnlyDictionary{string, PropertyEmissionPlan}?, IReadOnlyDictionary{ValueTuple{string, string}, SubscriptEmissionPlan}?)"/>
@@ -123,7 +123,7 @@ public class EveryProtocolEmitter
         // wrapper-symbol contract. The matching P/Invokes live in
         // ProtocolProxyEmitter.SwiftObject and would trip the contract check if
         // their callsites later opt into EnforceWrapperContract.
-        // S5 audited (Tier C): four singleton literals — there is exactly one
+        // four singleton literals — there is exactly one
         // EveryProtocol synthetic type per module build, and these names cannot be
         // produced by any per-type emitter, so the per-kind method bucket is
         // collision-safe.
@@ -131,8 +131,8 @@ public class EveryProtocolEmitter
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_SetEveryProtocolDeinitCallback");
-        // EveryObjCProtocol mirrors the above for NSObject-rooted @objc protocols
-        // (S-2): the plain Swift EveryProtocol class cannot satisfy NSObjectProtocol
+        // EveryObjCProtocol mirrors the above for NSObject-rooted @objc protocols:
+        // the plain Swift EveryProtocol class cannot satisfy NSObjectProtocol
         // because that requirement transitively demands NSObject identity. The
         // NSObject-rooted variant is generated alongside EveryProtocol whenever
         // EveryProtocolEmitter runs, so the wrapper carries both factories
@@ -1443,7 +1443,7 @@ public class EveryProtocolEmitter
 
             // Only emit method implementation for new methods (not within-protocol duplicates).
             //
-            // Intra-protocol effect-overload guard (audit §6 #12): a single protocol may declare
+            // Intra-protocol effect-overload guard: a single protocol may declare
             // BOTH a sync and an async method sharing name + parameter types + return type — Swift
             // effectful overloading produces two DISTINCT witness-table requirements. The slot key
             // (GetMethodKey) is async-sensitive, so each gets its OWN vtable slot and `isNewMethod`
@@ -1747,7 +1747,7 @@ public class EveryProtocolEmitter
         if (protocolDecl.HasConventionCClosureParameters)
             return true;
 
-        // Required-but-suppressed gate (Bug 16): a protocol requirement that parsed
+        // Required-but-suppressed gate: a protocol requirement that parsed
         // successfully but is `@_spi`-protected cannot have a witness in EveryProtocol's
         // conformance — PropertyHandler/MethodHandler skip SPI members, leaving Swift's
         // type-checker to reject the extension at compile time. Skip the entire
@@ -1794,7 +1794,7 @@ public class EveryProtocolEmitter
 
         if (IsClassBoundProtocol(protocolDecl, _allProtocols))
         {
-            // S-2: NSObjectProtocol-only protocols (e.g. STPAuthenticationContext) re-route
+            // NSObjectProtocol-only protocols (e.g. STPAuthenticationContext) re-route
             // through the NSObject-rooted EveryObjCProtocol helper class instead of skipping.
             // Protocols that ALSO require NSCoding / NSSecureCoding / NSCopying / NSMutableCopying
             // still skip — those need encoding / copying surfaces a synthesised proxy can't supply.
@@ -2056,7 +2056,7 @@ public class EveryProtocolEmitter
         // Pure AnyObject (class-bound) protocols are allowed since EveryProtocol is a class.
         // Only NSObjectProtocol requires NSObject methods (isEqual:, hash, description).
         //
-        // S-2: protocols whose only ObjC-rooted requirement is NSObjectProtocol itself
+        // Protocols whose only ObjC-rooted requirement is NSObjectProtocol itself
         // (no NSCoding / NSSecureCoding / NSCopying / NSMutableCopying) are routed
         // through the NSObject-rooted EveryObjCProtocol helper class instead of being
         // skipped. NSObject's built-in isEqual:/hash/description satisfy the
@@ -2263,10 +2263,9 @@ public class EveryProtocolEmitter
             EmitProtocolClosureInvokeThunks(writer, protocolDecl);
             // Symmetric signal to ProtocolProxyEmitter: the C# proxy's InitializeVtable() may
             // reference the SetXxx_vtable PInvoke now that the Swift trampoline is in place.
-            // See bug-0.10.0-proxy-vtable-setters-not-exported.md — without this signal the
-            // proxy emitter previously assumed every protocol got a setter and produced
-            // EntryPointNotFoundException-throwing static constructors for ~80% of MusicKit
-            // protocols.
+            // Without this signal the proxy emitter would assume every protocol got a vtable
+            // setter and produce EntryPointNotFoundException-throwing static constructors
+            // for protocols that only have a Swift→C# wrap path (e.g. marker conformances).
             _emissionContext?.MarkSetVtableEmitted(protocolDecl.Name);
         }
         else
@@ -2622,7 +2621,7 @@ public class EveryProtocolEmitter
             // the buffer (transferring the MarshalToSwiftBuffer +1 into the return, no extra
             // retain), then deallocate frees the raw memory. The String / ObjC siblings above
             // both deallocate; the value path used to return `.pointee` and leak the buffer every
-            // call (audit P1-05).
+            // call.
             writer.WriteLine($"let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {swiftTypeNameForMetatype}.self).move()");
             writer.WriteLine("resultPtr.deallocate()");
             writer.WriteLine("return __result");
@@ -2876,7 +2875,7 @@ public class EveryProtocolEmitter
         {
             // Consume the C#-allocated result buffer (move() = value + deinitialize), then
             // deallocate — the String / ObjC siblings deallocate; the value path leaked it
-            // every call (audit P1-05).
+            // every call.
             writer.WriteLine($"let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {returnTypeNameForMetatype}.self).move()");
             writer.WriteLine("resultPtr.deallocate()");
             writer.WriteLine("return __result");
@@ -4905,7 +4904,7 @@ public class EveryProtocolEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
-        // S5 audited (Tier C): protocol async-closure invoke thunk — the entry-point
+        // protocol async-closure invoke thunk — the entry-point
         // shape is `SBW_{protocol}_{method}_m{i}_arg{j}_AsyncInvCR`, structurally
         // disjoint from any non-thunk wrapper symbol. Per-kind method bucket is
         // collision-safe.
@@ -5944,7 +5943,7 @@ public class EveryProtocolEmitter
 
             // Qualified form of a trivial protocol (e.g. ObjectiveC.NSObjectProtocol)
             // is also satisfied — the trivial set above is consulted as the unqualified
-            // typeName here. Without this branch S-2 NSObjectProtocol-only @objc
+            // typeName here. Without this branch, NSObjectProtocol-only @objc
             // protocols would still skip below because their protocol-level genericSig
             // names the constraint as ObjectiveC.NSObjectProtocol, which the unqualified
             // trivial-set check at the top of the loop never sees.

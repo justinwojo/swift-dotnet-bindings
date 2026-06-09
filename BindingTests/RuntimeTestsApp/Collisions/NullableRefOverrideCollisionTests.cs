@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Collisions;
 
 /// <summary>
-/// P1-21 (Scenario A — nullable-reference-erasure override collision). Complements
+/// Nullable-reference-erasure override collision. Complements
 /// <see cref="SameModuleOverrideCollisionTests"/>, which uses the LABEL-based collision trigger.
 /// This exercises the OTHER B15 trigger: a non-optional class parameter and an optional class
 /// parameter erase to the SAME projected C# nullable-reference signature.

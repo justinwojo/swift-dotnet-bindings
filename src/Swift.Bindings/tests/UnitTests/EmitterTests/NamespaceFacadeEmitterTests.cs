@@ -17,10 +17,9 @@ namespace BindingsGeneration.Tests;
 /// nested types are passed to the supplied recurse callback. Emission-context
 /// nesting-stack behavior is not asserted here.
 ///
-/// See <c>bug-0.10.0-namespace-facade-as-static-class.md</c> and S6 in
-/// <c>0.11.0-session-plan.md</c> — downstream consumers (CryptoKit, Nuke,
-/// BlinkID) write `using Module.Facade;` against this shape, so a regression
-/// to `static partial class` would silently break their compile.
+/// Downstream consumers (CryptoKit, Nuke, BlinkID) write `using Module.Facade;`
+/// against this shape, so a regression to `static partial class` would silently
+/// break their compile.
 /// </summary>
 public class NamespaceFacadeEmitterTests
 {

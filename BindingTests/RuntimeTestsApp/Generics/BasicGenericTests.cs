@@ -335,7 +335,7 @@ public class BasicGenericTests : TestBase
 
     #endregion
 
-    #region Pass 2 — M2: Generic Constructor with PWT (ConstrainedBox)
+    #region Generic Constructor with PWT (ConstrainedBox)
 
     public void TestConstrainedBoxCreation()
     {
@@ -356,7 +356,7 @@ public class BasicGenericTests : TestBase
 
     #endregion
 
-    #region M3: Generic Class Implementing Protocol (GenericNamedBox)
+    #region Generic Class Implementing Protocol (GenericNamedBox)
 
     public void TestGenericNamedBoxCreation()
     {
@@ -413,7 +413,7 @@ public class BasicGenericTests : TestBase
     #endregion
 
     #region Constrained-generic type-metadata accessor (PWT) coverage
-    // Guards the fix in src/docs/constrained-generic-metadata-witness-tables.md.
+    // Guards the constrained-generic metadata witness-table accessor fix.
     // The type-level metadata accessor for a constrained-generic type must pass
     // a witness-table pointer for each conformance, in declaration-grouped /
     // lex-sorted order. Before the fix the C# call site only passed type

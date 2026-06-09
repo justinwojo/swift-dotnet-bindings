@@ -513,7 +513,7 @@ public class AsyncMethodGenericBridgeEmitterTests
 
     #endregion
 
-    #region Cancellation Key Recycle Fix (P1-17)
+    #region Cancellation Key Recycle Fix
 
     [Fact]
     public void TryEmit_SwiftWrapper_RegistersWithMonotonicCancelKeyNotContext()
@@ -650,10 +650,10 @@ public class AsyncMethodGenericBridgeEmitterTests
         Assert.DoesNotContain("errorCallback", csResult);
         // No-throws → no Swift error-callback exception reporting on the real TCS.
         Assert.DoesNotContain("_tcs.TrySetException", csResult);
-        // P0-02: the graceful-fault catch wraps EVERY async UCO callback body (throwing or
-        // not), so a managed exception in the callback faults the Task instead of unwinding
-        // into Swift (SIGABRT). That path's `__faultTcs.TrySetException(__ex)` is expected
-        // here and is distinct from the throws-only error-callback reporting guarded above.
+        // The graceful-fault catch wraps EVERY async UCO callback body (throwing or not), so a
+        // managed exception in the callback faults the Task instead of unwinding into Swift
+        // (SIGABRT). That path's `__faultTcs.TrySetException(__ex)` is expected here and is
+        // distinct from the throws-only error-callback reporting guarded above.
         Assert.Contains("__faultTcs.TrySetException(__ex)", csResult);
     }
 
@@ -832,12 +832,12 @@ public class AsyncMethodGenericBridgeEmitterTests
     [Fact]
     public void TryEmit_AsyncUCOFaultCatch_RunsHolderCleanupBeforeFaultingTcs()
     {
-        // P0-02 + S2-r3: the UCO fault catch (EmitAsyncCallbackFaultCatch) is reachable from
-        // result marshalling BEFORE the success path's holder cleanup runs, so the catch must free
-        // the holder's native resources itself before faulting the TCS — otherwise retained self /
-        // copy buffers / existential heap / deferred containers / cancellation registrations leak
-        // whenever marshalling throws. Cleanup is now the exception-safe, idempotent runtime helper
-        // call (so re-running it after a partially-completed success path cannot double-free, and a
+        // The UCO fault catch (EmitAsyncCallbackFaultCatch) is reachable from result marshalling
+        // BEFORE the success path's holder cleanup runs, so the catch must free the holder's native
+        // resources itself before faulting the TCS — otherwise retained self / copy buffers /
+        // existential heap / deferred containers / cancellation registrations leak whenever
+        // marshalling throws. Cleanup is now the exception-safe, idempotent runtime helper call
+        // (so re-running it after a partially-completed success path cannot double-free, and a
         // throwing release cannot escape the [UnmanagedCallersOnly] callback into native Swift).
         var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
         var method = CreateMethodDeclWithGenericParam();

@@ -203,9 +203,8 @@ namespace BindingsGeneration
                 csWriter.Indent++;
 
                 // Get metadata for the enum type and SwiftOptional<EnumType>.
-                // The metadata accessor PInvoke now takes PWT args for any
-                // protocol-constrained generic params — see
-                // src/docs/constrained-generic-metadata-witness-tables.md.
+                // The metadata accessor PInvoke takes PWT args for any
+                // protocol-constrained generic params.
                 csWriter.WriteLine("// Get metadata for the enum type");
                 var getMetadataCall = pinvokeHelperContext != null
                     ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList())})"
@@ -530,7 +529,7 @@ namespace BindingsGeneration
         private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {
             ctx ??= ModuleEmissionContext.Default;
-            // S5 audited (Tier B): RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
+            // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
             {
                 return;
@@ -613,7 +612,7 @@ namespace BindingsGeneration
         private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {
             ctx ??= ModuleEmissionContext.Default;
-            // S5 audited (Tier B): RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
+            // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
                 return;
 
@@ -641,7 +640,7 @@ namespace BindingsGeneration
         private void EmitCaseByIndexSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, string caseByIndexSymbol, ModuleEmissionContext? ctx = null)
         {
             ctx ??= ModuleEmissionContext.Default;
-            // S5 audited (Tier B): RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One case-by-index wrapper per enum, keyed by symbol name.
+            // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One case-by-index wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(caseByIndexSymbol))
                 return;
 

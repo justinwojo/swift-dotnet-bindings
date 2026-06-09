@@ -224,7 +224,7 @@ public static class BindingsGeneratorCommand
             return;
         }
 
-        // Handle --validate-apple-types-manifest: live-SDK CI validator (Phase 2 / M10).
+        // Handle --validate-apple-types-manifest: live-SDK CI validator.
         // Probes every manifest entry advertised on the host platform via dlsym +
         // CallConvSwift accessor invocation, reads VWT size/alignment/stride, and either
         // detects drift vs. the manifest or writes the probed values back in place.
@@ -940,7 +940,7 @@ public static class BindingsGeneratorCommand
                 : platformInfo.GetSlice(true);
 
             // Apple direct mode must share the wrapper CPU-arch decision with the xcframework
-            // path (constraints.md "Wrapper CPU-arch decision is shared, not per-call-site").
+            // path — the wrapper CPU-arch decision is shared, not per-call-site.
             // Without this fanout the wrapper xcframework's simulator slice is arm64-only, so
             // an iossimulator-x64 / tvossimulator-x64 / osx-x64 / maccatalyst-x64 consumer
             // resolves NativeReference against a slice that doesn't advertise x86_64 and
@@ -1070,7 +1070,7 @@ public static class BindingsGeneratorCommand
             // slice (device, or fat x86_64 simulator) post-generate, mirroring the
             // wrapper's two-phase split. Reuse the shared arch-fanout so the bridge
             // primary slice carries the identical arch coverage to the wrapper primary
-            // slice (constraints.md "Wrapper CPU-arch decision is shared"). Failure is
+            // slice — the wrapper CPU-arch decision is shared. Failure is
             // non-fatal: the bridge is an additive convenience and must not take down
             // the main bindings (mirrors the SwiftFramework path's SWIFTBIND052 contract).
             var directBridgeFiles = SwiftWrapperCompiler.CollectBridgeSwiftFiles(outputDirectory);
@@ -1661,14 +1661,14 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
-        Console.WriteLine("  --interface-facts-producer  'auto' (default, M2 S3), 'swift-syntax', or 'regex'. 'auto' picks swift-syntax on Darwin when the host binary is present, else regex.");
+        Console.WriteLine("  --interface-facts-producer  'auto' (default), 'swift-syntax', or 'regex'. 'auto' picks swift-syntax on Darwin when the host binary is present, else regex.");
         Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
     }
 
     /// <summary>
     /// Construct the <see cref="InterfaceFactsAggregator"/> from the CLI flag.
     /// <list type="bullet">
-    /// <item><c>auto</c> (default, M2 S3): on Darwin, attempts to locate the SwiftInterfaceParser
+    /// <item><c>auto</c> (default): on Darwin, attempts to locate the SwiftInterfaceParser
     /// host binary; if present, prepends the SwiftSyntax producer to the regex fallback. On
     /// non-Darwin or when the binary cannot be located, transparently degrades to regex-only.
     /// This is the cross-platform-safe path — Linux CI builds keep working without the
@@ -1676,9 +1676,8 @@ public static class BindingsGeneratorCommand
     /// <item><c>swift-syntax</c>: hard-requires the host binary. Hard-fails on non-Darwin or
     /// when the binary cannot be located. Used by parity tests and developers who want to
     /// detect a missing-binary regression rather than silently fall back.</item>
-    /// <item><c>regex</c>: legacy single-producer aggregator. Behavior is byte-equal to the
-    /// pre-M2 inline parsing flow. Kept available through M2 S4 for parity diffing and
-    /// emergency rollback.</item>
+    /// <item><c>regex</c>: legacy single-producer aggregator using the original inline
+    /// parsing flow. Kept available for parity diffing and emergency rollback.</item>
     /// </list>
     /// Unknown values throw — silent fallback would defeat the explicit-switch design.
     /// </summary>

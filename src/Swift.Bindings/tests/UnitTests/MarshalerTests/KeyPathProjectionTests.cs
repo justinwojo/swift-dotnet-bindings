@@ -140,8 +140,8 @@ public class KeyPathProjectionTests
     [Fact]
     public void RequiresSwiftWrapper_IsFalse_ForFoundationPath()
     {
-        // Session 3 covers opaque pass-through only. Session 4 may flip this
-        // for typed-singleton trampolines.
+        // Currently covers opaque pass-through only; typed-singleton trampolines
+        // may flip this in future.
         var proj = new KeyPathProjection("KeyPath", ["Root", "Value"]);
         Assert.False(proj.RequiresSwiftWrapper);
         Assert.Null(proj.GetSwiftWrapperCode(new SwiftWrapperContext()));

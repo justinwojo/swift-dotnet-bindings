@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Phase 1 emitter for Codable JSON round-trip. For each non-generic non-frozen
+/// Codable JSON round-trip emitter. For each non-generic non-frozen
 /// struct (the <c>ClassWithOpaquePayload</c> projection scheme: <c>_payload</c>
 /// + <c>NewFromPayloadCore</c> + <c>_payloadSize</c>) that conforms to both
 /// Encodable and Decodable (including the Codable typealias), emits:
@@ -29,7 +29,7 @@ namespace BindingsGeneration;
 /// Bridges JSON specifically because <c>JSONEncoder</c>/<c>JSONDecoder</c> are concrete Foundation
 /// types — the synthesized <c>encode(to: any Encoder)</c> / <c>init(from: any Decoder)</c> still
 /// remain skipped because <c>Encoder</c>/<c>Decoder</c> are unresolvable existential protocols.
-/// Phase 2 (generic closed-instantiation) is tracked separately.
+/// Generic closed-instantiation support is tracked separately.
 /// </summary>
 internal static class CodableJsonEmitter
 {
@@ -98,7 +98,7 @@ internal static class CodableJsonEmitter
         // Register both @_cdecl symbols with the wrapper-symbol contract so a
         // future Cdecl P/Invoke caller for these entry points doesn't trip the
         // contract check.
-        // S5 audited (Tier C): the `_EncodeJson` / `_DecodeJson` suffixes are exclusive
+        // the `_EncodeJson` / `_DecodeJson` suffixes are exclusive
         // to these synthetic Codable trampolines (one pair per Codable type per module).
         // No regular method or property wrapper produces a symbol with these suffixes;
         // per-kind method bucket is collision-safe.

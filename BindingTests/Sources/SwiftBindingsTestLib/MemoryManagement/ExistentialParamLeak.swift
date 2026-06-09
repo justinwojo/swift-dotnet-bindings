@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Existential-PARAMETER ARC leak fixtures (audit P1-03)
+// MARK: - Existential-PARAMETER ARC leak fixtures
 //
 // The mirror image of ExistentialReturnLeak.swift: a value-type conformer passed
 // from C# INTO a Swift `any P` parameter. The generated C# wrapper calls
@@ -12,8 +12,8 @@ import Foundation
 // small conformer, or a `swift_allocBox` for one that overflows the 3-word inline
 // buffer). The Swift parameter is `@in_guaranteed` (borrowed — the callee does NOT
 // release), so the C# caller owns that +1 and must run the existential
-// value-witness destroy after the call returns. Before the P1-03 fix nothing
-// released it, leaking every embedded `TrackedRef` per call.
+// value-witness destroy after the call returns. Before the fix nothing released it,
+// leaking every embedded `TrackedRef` per call.
 //
 // These functions only READ the existential (so they never alter ownership) and
 // return a scalar, keeping the C# wrapper on the existential-parameter marshalling

@@ -36,7 +36,7 @@ public class SwiftStringWrapperTests : IClassFixture<SwiftStringWrapperTests.Wra
                     return;
                 }
 
-                // Check all 6 entry points — GetMetadata added in Phase 3.5
+                // Check all 6 entry points
                 var required = new[]
                 {
                     "SBW_SwiftString_ToUtf8",

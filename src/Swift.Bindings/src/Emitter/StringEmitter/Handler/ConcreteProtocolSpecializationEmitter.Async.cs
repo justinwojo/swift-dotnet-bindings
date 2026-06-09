@@ -58,7 +58,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Wrapper symbol dedup is independent — different methods/conformers should
         // never produce the same mangled wrapper symbol because the hash seed is
         // (method MangledName + all conformer qualified names).
-        // S5 audited (Tier B): same `SBW_CSM_` prefix as the sync path; this async-only
+        // same `SBW_CSM_` prefix as the sync path; this async-only
         // branch is gated by `IsAsync` upstream so the two paths never co-emit for the
         // same method. Per-kind method bucket is collision-safe.
         if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
@@ -77,7 +77,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
         originalMethod.WasEmitted = true;
         synthesized.WasEmitted = true;
 
-        // Phase 3a (option (b) of gap-0.10.0-generic-method-default-overload-missing.md):
         // Emit trim overloads on the per-conformer specialized signature. The synthesized
         // MethodDecl has GenericParameters cleared (IsGeneric == false) and CSSignature
         // substituted with concrete conformer types, so the trim emitter's own bail on
@@ -480,7 +479,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ILogger? logger = null)
     {
         if (!method.IsAsync) return false;
-        // Session 5: generic parents are no longer blanket-rejected here. Closed-conformer
+        // Generic parents are no longer blanket-rejected here. Closed-conformer
         // async CSM (this file's path) still rejects them — that case requires method-own
         // generics which would leak `Item.X` placeholders into the wrapper signature.
         // Parent-only async CSM (no method-own generics) is routed separately through

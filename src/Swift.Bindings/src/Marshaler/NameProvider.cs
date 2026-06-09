@@ -363,7 +363,7 @@ public static class NameProvider
         // here as `ImagePipeline.Delegate`), the C# nested layout is `Parent.INested` —
         // the parent type names stay un-prefixed and the I attaches to the protocol's
         // leaf name. Without this, `I + ImagePipeline.Delegate` produced the nonexistent
-        // type `IImagePipeline.Delegate`. See bug-0.10.0-nested-protocol-i-prefix.md.
+        // Without this, `I + ImagePipeline.Delegate` produces the nonexistent type `IImagePipeline.Delegate`.
         var lastDot = protocolName.LastIndexOf('.');
         var interfaceName = lastDot >= 0
             ? protocolName.Substring(0, lastDot + 1) + "I" + protocolName.Substring(lastDot + 1)
@@ -1545,7 +1545,7 @@ public static class NameProvider
     /// function signature. Swift requires unique internal parameter names within one function; a
     /// duplicate makes <c>swiftc</c> reject the wrapper, which is then silently dropped from the
     /// compiled dylib — the binding compiles (generator exits 0) but crashes at runtime when the
-    /// missing entry point is called (the P1-22 collision class).
+    /// missing entry point is called (the wrapper-param-name collision class).
     /// <para>
     /// Unlike the user-FACING name (which the consumer sees and must be preserved), a wrapper's
     /// internal binding name is SOURCE-LOCAL: it is not part of the <c>@_cdecl</c> symbol (a
@@ -1571,7 +1571,7 @@ public static class NameProvider
     /// <c>@_cdecl</c> wrapper signature (the user params' post-keyword/sanitize forms, plus any
     /// hand-emitted generic-pointer binding).
     /// <para>
-    /// The global set alone closed only user-vs-synthetic collisions (P1-22). It missed
+    /// The global set alone closed only user-vs-synthetic collisions. It missed
     /// user-vs-SIBLING: a user param <c>tag</c> escapes to <c>__tag</c> against the global set, but a
     /// SIBLING user param literally named <c>__tag</c> is not in that set, so the two bindings still
     /// duplicate — <c>swiftc</c> rejects the wrapper and it is silently stripped from the dylib

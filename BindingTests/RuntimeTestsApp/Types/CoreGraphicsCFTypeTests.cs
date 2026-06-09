@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Types;
 
 /// <summary>
-/// Regression test for bug-0.10.0-cgimage-projected-as-intptr.
+/// Regression test for CGImage/CGColor projected as IntPtr instead of managed wrappers.
 ///
 /// Pre-fix the typedb registered Swift CoreGraphics CFTypes (CGImage, CGColor,
 /// CGColorSpace, CGContext, …) under <c>managedTypeName="IntPtr"</c>, so a Swift

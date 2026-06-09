@@ -9,7 +9,7 @@ namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
 /// Tests for enum marshalling: case construction, raw value round-trip,
-/// associated values, nested enums, and the Phase 55 string enum regression.
+/// associated values, nested enums, and the string enum regression.
 /// </summary>
 public class EnumMarshallingTests : TestBase
 {
@@ -242,7 +242,7 @@ public class EnumMarshallingTests : TestBase
 
     #endregion
 
-    #region Nested Container Enums (Phase 55 regression area)
+    #region Nested Container Enums (string enum regression area)
 
     public void TestOrderContainerCreation()
     {

@@ -78,7 +78,7 @@ public class ClassParamDriver {
 // MARK: - @objc : NSObject class payload (the Kidoz `KidozError` shape)
 
 /// ObjC-rooted class payload — `@objc … : NSObject`. This is the variant that
-/// exercises audit P1-01: the copy-out path must `swift_unknownObjectRetain`
+/// exercises the ObjC-aware retain fix: the copy-out path must `swift_unknownObjectRetain`
 /// (isa-dispatching), not native-only `swift_retain`, which is a no-op /
 /// over-release on an NSObject subclass.
 @objc public class ObjCClassParamPayload: NSObject {
@@ -122,15 +122,14 @@ public class ObjCClassParamDriver {
     }
 }
 
-// MARK: - Return-direction @objc coverage (audit P1-01 + adjacent paths)
+// MARK: - Return-direction @objc coverage
 //
 // The same ObjC-aware-retain concern lives in the *return-value* copy-out paths.
-// Audit P1-01 names two `Arc.Retain` sites that the runtime fix upgrades to the
-// isa-dispatching `Arc.UnknownObjectRetain`:
-//   • `SwiftMarshal.ExtractCopiedValue`   (`:466`)  — the Optional/Result payload copy-out.
-//   • `SwiftMarshal.ExtractCopiedElement` (`:1515`) — the per-tuple-element copy-out.
+// Two `Arc.Retain` sites were upgraded to the isa-dispatching `Arc.UnknownObjectRetain`:
+//   • `SwiftMarshal.ExtractCopiedValue`   — the Optional/Result payload copy-out.
+//   • `SwiftMarshal.ExtractCopiedElement` — the per-tuple-element copy-out.
 //
-// Reaching those two exact lines with an `@objc:NSObject` payload (so native
+// Reaching those two paths with an `@objc:NSObject` payload (so native
 // `swift_retain` vs `swift_unknownObjectRetain` actually diverges) requires the
 // RIGHT carriers — established empirically against the generated bindings:
 //   • `ExtractCopiedValue`  ← `Result<class, Error>` read via `SwiftResult.Success`
@@ -141,15 +140,14 @@ public class ObjCClassParamDriver {
 // The `stashShared…` probes below carry those shapes and hold the payload in a Swift
 // global so an over/under-retain shows up as the global's live count diverging from 1.
 //
-// The three `make…` returns below were originally written as P1-01 probes but, verified
-// against the generated C#, do NOT reach `ExtractCopiedValue`/`ExtractCopiedElement`.
+// The three `make…` returns below do NOT reach `ExtractCopiedValue`/`ExtractCopiedElement`.
 // They are kept as honest independent coverage of the paths they DO exercise:
 //   • `makeOptionalObjCPayload`  → an `Optional<@objc>` return marshalled inline as
 //        `result == IntPtr.Zero ? null : GetINativeObject<T>(result, true)` (the adopting
 //        return path). This path ADOPTS the Swift `passRetained` +1 via owns:true, so the
 //        managed peer releases exactly once on Dispose/finalize — the "Fix A" over-retain
 //        (bare `GetNSObject`, owns:false, adds an unbalanced second +1) is fixed; see
-//        `src/docs/protocol-proxy-class-param-receiver-fix.md`.
+//        the protocol-proxy class-param receiver fix that corrects the over-retain.
 //   • `makeObjCPayloadCodeTuple` → a *non-optional* `(@objc, scalar)` tuple, which the
 //        emitter UNROLLS per element (`_tupleMetaPtr->GetElementOffset` + direct
 //        `MarshalFromSwift`) — it does NOT go through `MarshalTupleFromSwift`, so it does
@@ -161,14 +159,14 @@ public class ObjCClassParamDriver {
 /// Optional-tuple carriers below, so the C# extraction's over/under-retain is observable
 /// as the global's live count diverging from 1 while the global is non-nil — synchronous,
 /// no GC timing involved. Mirrors `_sharedExtractionRef` in LeakDetection.swift but with
-/// the `@objc:NSObject` payload that exercises the ObjC-aware retain half of P1-01.
+/// the `@objc:NSObject` payload that exercises the ObjC-aware retain path.
 private var _sharedObjCExtractionRef: ObjCClassParamPayload?
 
 /// Stashes an `@objc:NSObject` payload in the global, returns it through
 /// `Result<ObjCClassParamPayload, TrackedRefError>` (`.success`). The C# `.Success` getter
-/// copies it out via `SwiftResult.ExtractPayloadValue` → `SwiftMarshal.ExtractCopiedValue`
-/// (audit P1-01 `:466`). For an NSObject subclass that copy-out MUST
-/// `swift_unknownObjectRetain`, not native `swift_retain`.
+/// copies it out via `SwiftResult.ExtractPayloadValue` → `SwiftMarshal.ExtractCopiedValue`.
+/// For an NSObject subclass that copy-out MUST `swift_unknownObjectRetain`, not native
+/// `swift_retain`.
 public func stashSharedObjCRefAndReturnResult(code: Int32, label: String) -> Result<ObjCClassParamPayload, TrackedRefError> {
     let payload = ObjCClassParamPayload(code: code, label: label)
     _sharedObjCExtractionRef = payload
@@ -177,9 +175,9 @@ public func stashSharedObjCRefAndReturnResult(code: Int32, label: String) -> Res
 
 /// `Optional<(ObjCClassParamPayload, Int32)>` companion: the class element is copied out of
 /// a borrowed tuple slot via `MarshalTupleFromSwift` → `MarshalElementFromSwiftUnsafe` →
-/// `SwiftMarshal.ExtractCopiedElement` (audit P1-01 `:1515`). The trailing scalar forces a
-/// real 2-element tuple. Wrapping the tuple in `Optional` routes it through the runtime
-/// tuple marshaller (unlike a bare tuple return, which the emitter unrolls per element).
+/// `SwiftMarshal.ExtractCopiedElement`. The trailing scalar forces a real 2-element tuple.
+/// Wrapping the tuple in `Optional` routes it through the runtime tuple marshaller (unlike a
+/// bare tuple return, which the emitter unrolls per element).
 public func stashSharedObjCRefAndReturnOptionalTuple(code: Int32) -> (ObjCClassParamPayload, Int32)? {
     let payload = ObjCClassParamPayload(code: code, label: "tuple")
     _sharedObjCExtractionRef = payload

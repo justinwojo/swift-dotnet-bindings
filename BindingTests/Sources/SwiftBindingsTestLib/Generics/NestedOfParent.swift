@@ -5,7 +5,7 @@
 //
 // Regression coverage for the AppIntents 0.12.0 `EnumURLRepresentation<TEnum>.
 // StringInterpolation` shape: a generic host whose constructor accepts a nested
-// struct parameterised on the host's own generic. Before Phase 5 this shape
+// struct parameterised on the host's own generic. Before the fix, this shape
 // fell through to the [Obsolete(SB0001)] direct-`CallConvSwift` fallback, with
 // the same heap-corruption risk as the KeyPath shape.
 //

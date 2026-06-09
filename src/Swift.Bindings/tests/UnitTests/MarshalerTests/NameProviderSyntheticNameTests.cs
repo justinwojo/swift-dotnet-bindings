@@ -9,7 +9,7 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Tests for NameProvider.MakeNonCollidingSyntheticName() and SyntheticNameScope — the
-/// reserved-synthetic-name guard (P1-22 infra). The guard escapes emitter-chosen synthetic
+/// reserved-synthetic-name guard. The guard escapes emitter-chosen synthetic
 /// locals (tag, result, resultPtr, handle, session, userData, …) when a user's projected
 /// parameter/member name spells the same identifier, so the generated C# does not trip
 /// CS0136 (local shadows enclosing local/param) or CS0100 (duplicate parameter).
@@ -33,7 +33,7 @@ public class NameProviderSyntheticNameTests
         Assert.Equal("result", NameProvider.MakeNonCollidingSyntheticName("result", Reserved()));
     }
 
-    // The full set of synthetic locals the P1-22 family targets — each must escape to "__name"
+    // The full set of synthetic locals the reserved-name guard targets — each must escape to "__name"
     // when a user identifier collides.
     [Theory]
     [InlineData("tag")]

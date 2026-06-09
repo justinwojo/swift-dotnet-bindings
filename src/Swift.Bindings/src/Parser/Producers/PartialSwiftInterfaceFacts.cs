@@ -46,7 +46,7 @@ public sealed record PartialSwiftInterfaceFacts
     public Dictionary<string, SourcePosition>? AvailabilityAnnotationPositions { get; init; }
     public Dictionary<string, SourcePosition>? ConventionCProtocolPositions { get; init; }
 
-    // M2 S4 — non-fact methods migrated behind the producer abstraction.
+    // Non-fact methods migrated behind the producer abstraction.
     public HashSet<string>? ProtocolNames { get; init; }
     public Dictionary<string, List<ProtocolExtensionMethodDecl>>? ProtocolExtensionMethods { get; init; }
     public List<ExtensionMemberCandidate>? ExtensionMemberCandidates { get; init; }

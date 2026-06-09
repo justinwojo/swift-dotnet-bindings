@@ -148,7 +148,7 @@ public static class GenericClosureBridgeEmitter
     // ─── SBW_CreateError Helper ───────────────────────────────────────
 
     private static void EmitCreateErrorHelperIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext ctx)
-        // S5 audited (Tier C): create-error helper lands in the `_direct_helper` bucket; the
+        // create-error helper lands in the `_direct_helper` bucket; the
         // SwiftErrorMintHelperEmitted flag gates re-emission within a module pass. Shared with the
         // standard throwing-closure callback path via SwiftErrorMintEmitter.
         => SwiftErrorMintEmitter.EmitSwiftHelperIfNeeded(swiftWriter, moduleName, ctx);
@@ -184,13 +184,13 @@ public static class GenericClosureBridgeEmitter
             nonClosureParams.Add((arg, name, type, label));
         }
 
-        // P1-22 (C1): the @_silgen_name wrapper hardcodes synthetic Swift identifiers in the
-        // same scope as the user's non-closure params — the cdecl rebind local, the self
-        // pointer param + its bound local, the result buffer param, and the thrown-error
-        // locals. A user param spelled the same would produce an "invalid redeclaration"
-        // emitted at exit 0. Reserve each synthetic against the user param names (and the
-        // closure's own FuncPtr/Context params); collision-free input yields the names
-        // verbatim, collisions get a `__`-prefixed variant.
+        // The @_silgen_name wrapper hardcodes synthetic Swift identifiers in the same scope
+        // as the user's non-closure params — the cdecl rebind local, the self pointer param
+        // + its bound local, the result buffer param, and the thrown-error locals. A user
+        // param spelled the same would produce an "invalid redeclaration" emitted at exit 0.
+        // Reserve each synthetic against the user param names (and the closure's own
+        // FuncPtr/Context params); collision-free input yields the names verbatim, collisions
+        // get a `__`-prefixed variant.
         var synthReserved = nonClosureParams.Select(p => p.swiftName).ToList();
         synthReserved.Add($"{csClosureName}FuncPtr");
         synthReserved.Add($"{csClosureName}Context");

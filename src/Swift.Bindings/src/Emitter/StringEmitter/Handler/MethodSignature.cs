@@ -668,7 +668,7 @@ namespace BindingsGeneration
                 // Swift.UnsafeRawBufferPointer → ReadOnlySpan<byte>;
                 // Swift.UnsafeMutableRawBufferPointer → Span<byte> (write-back observed after call).
                 // Pinning happens in the method body (WrapperEmitter) so the P/Invoke sees
-                // two args (IntPtr + nint). See unsafe-mutable-raw-buffer-pointer.md.
+                // two args (IntPtr + nint).
                 if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(argument.SwiftTypeSpec))
                 {
                     var spanType = MarshallingHelpers.IsUnsafeMutableRawBufferPointer(argument.SwiftTypeSpec)

@@ -107,13 +107,12 @@ public class GenericClosureBridgeTests : TestBase
 
     // ─── GenericClosureBridge: method-generic noescape closure + non-closure param ───
     //
-    // The P1-22 synthetic-name guard on the GenericClosureBridge path is proven at the emitter
+    // The synthetic-name guard on the GenericClosureBridge path is proven at the emitter
     // layer by GenericClosureBridgeEmitterTests.TryEmit_UserParamNamedCdecl_* /
     // TryEmit_UserParamNamedUnderscoreSelf_* (assert `cdecl`→`__cdecl` and `_self`→`___self`
     // transitive renames in the generated Swift) plus the compile gate (the renamed wrappers
     // compile — a collision would be an "invalid redeclaration" → stripped symbol). The four
-    // round-trip tests below are the *runtime* proof, unblocked once the two REMEDIATION-PLAN §6
-    // GenericClosureBridge defects were fixed:
+    // round-trip tests below are the *runtime* proof for the two GenericClosureBridge defect fixes:
     //   (1) Self-register ABI: the Swift `@_silgen_name` wrapper is a *free function* that takes the
     //       receiver as an ordinary trailing parameter (a regular GPR), but the C# P/Invoke declared
     //       it `SwiftSelf self_` (pinned to the self register x20 under CallConvSwift) — the wrapper
@@ -132,7 +131,7 @@ public class GenericClosureBridgeTests : TestBase
     /// <summary>
     /// Baseline for the GenericClosureBridge void path (method-generic, noescape, throwing closure
     /// with a non-closure class param). Identity-forwards the param into the closure; its Name must
-    /// round-trip. Exercises the §6 self-register ABI fix (receiver passed as a regular-GPR IntPtr).
+    /// round-trip. Exercises the self-register ABI fix (receiver passed as a regular-GPR IntPtr).
     /// </summary>
     public void TestGenericRead_RoundTrips()
     {
@@ -145,7 +144,7 @@ public class GenericClosureBridgeTests : TestBase
     }
 
     /// <summary>
-    /// P1-22 (C1): user param `cdecl` collides with the GenericClosureBridge synthetic func-ptr
+    /// User param `cdecl` collides with the GenericClosureBridge synthetic func-ptr
     /// local (`let cdecl = unsafeBitCast(...)`), which the guard renames to `__cdecl` (asserted at
     /// the emitter layer in GenericClosureBridgeEmitterTests). This is the runtime proof: the
     /// renamed wrapper round-trips the user `cdecl` param through the closure.
@@ -157,11 +156,11 @@ public class GenericClosureBridgeTests : TestBase
         string? captured = null;
         reader.ReadWithCdecl(db => captured = db.Name, source);
         AssertEqual("primary", captured, "user param `cdecl` reaches the closure despite colliding with the synthetic func-ptr local");
-        TestLogger.Info("P1-22 generic cdecl collision (void) passed");
+        TestLogger.Info("generic cdecl collision (void) passed");
     }
 
     /// <summary>
-    /// P1-22 (C1): user param `_self` collides with the GenericClosureBridge synthetic self-pointer
+    /// User param `_self` collides with the GenericClosureBridge synthetic self-pointer
     /// param, which the guard renames transitively to `___self` (asserted at the emitter layer in
     /// GenericClosureBridgeEmitterTests). This is the runtime proof: the renamed wrapper round-trips
     /// the user `_self` param through the closure — and the receiver (now a regular-GPR `__self`)
@@ -174,7 +173,7 @@ public class GenericClosureBridgeTests : TestBase
         string? captured = null;
         reader.ReadWithSelf(db => captured = db.Name, source);
         AssertEqual("primary", captured, "user param `_self` reaches the closure despite colliding with the synthetic self-pointer param");
-        TestLogger.Info("P1-22 generic _self collision (void) passed");
+        TestLogger.Info("generic _self collision (void) passed");
     }
 
     /// <summary>
@@ -184,7 +183,7 @@ public class GenericClosureBridgeTests : TestBase
     /// object pointer *inside* the buffer at +1); the read-back goes through
     /// <c>MarshalMovedValueFromSlot&lt;T&gt;</c>, which dereferences the slot for a true class (the
     /// buffer *contains* the object pointer, it is not itself the instance) and transfers the +1 to
-    /// the returned wrapper. Regression guard for the §6 class-return buffer-deref fix: the old
+    /// the returned wrapper. Regression guard for the class-return buffer-deref fix: the old
     /// <c>MarshalFromSwift&lt;T&gt;(new IntPtr(resultBuf))</c> handed the buffer *address* to
     /// <c>NewFromPayload</c>, so the wrapper's handle became the buffer address — freed by the
     /// method's <c>finally</c> → use-after-free on the first member access.

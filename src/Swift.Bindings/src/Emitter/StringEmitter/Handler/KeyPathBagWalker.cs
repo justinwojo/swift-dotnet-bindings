@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 6c (Route C) — shared helpers for walking a PAT conformer's
+/// Shared helpers for walking a PAT conformer's
 /// associated-type "bag" type, deciding which properties are admissible as
 /// KeyPath leaves, and projecting their Value type to a public C# spelling.
 ///
@@ -15,10 +15,10 @@ namespace BindingsGeneration;
 /// </para>
 /// <list type="bullet">
 ///   <item><description><see cref="KeyPathSingletonEmitter"/> — emits one Lazy
-///   keyed singleton per (bag property × conformer) for Session 4's
+///   keyed singleton per (bag property × conformer) for the
 ///   typed-singleton trampoline shape.</description></item>
 ///   <item><description><see cref="KeyPathBagValueSpecializationEmitter"/> —
-///   Session 6c Route C; emits one <c>Sort</c> overload per (conformer ×
+///   emits one <c>Sort</c> overload per (conformer ×
 ///   distinct C# overload key) for unconstrained-V keypath-sort methods.
 ///   Route C iterates <see cref="BagWalkResult.ProjectableProps"/> directly so
 ///   distinct Swift V variants that collapse to the same C# overload key (e.g.
@@ -29,8 +29,8 @@ namespace BindingsGeneration;
 ///
 /// <para>
 /// The walker is the single source of truth for "is this bag emittable?" and
-/// "is this property a real KeyPath leaf?" — Codex F2 + Grok F2 from the
-/// design review insisted Session 4's walker not be duplicated.
+/// "is this property a real KeyPath leaf?" — the design review insisted
+/// the walker not be duplicated.
 /// </para>
 /// </summary>
 internal static class KeyPathBagWalker
@@ -80,8 +80,8 @@ internal static class KeyPathBagWalker
         foreach (var prop in bagDecl.Properties)
         {
             if (!IsEmittableProperty(prop, allowAbstract)) continue;
-            // KeyPath value-slot projection: mirrors the parameters Session 4's
-            // singleton emitter used, so the singleton and Route C agree on which
+            // KeyPath value-slot projection: mirrors the parameters the
+            // singleton emitter uses, so the singleton and Route C agree on which
             // properties project successfully.
             var projection = projector.Project(prop.SwiftTypeSpec, new ProjectionContext
             {
@@ -158,7 +158,7 @@ internal static class KeyPathBagWalker
 
     /// <summary>
     /// Bag eligibility: must be a property carrier we can drive from a synchronous
-    /// trampoline. Mirrors the rejection rules Session 4 settled on (generic / SPI /
+    /// trampoline. Rejection rules: generic / SPI /
     /// internal / custom-actor / class-bound protocol / Self-requirement protocol).
     /// </summary>
     public static bool IsEmittableBag(TypeDecl bagDecl)
@@ -190,7 +190,7 @@ internal static class KeyPathBagWalker
     /// concrete root. Swift forms valid KeyPaths for computed properties —
     /// <c>\Root.getOnly</c> is a <c>KeyPath</c> and <c>\Root.getSet</c> is a
     /// <c>WritableKeyPath</c> — so a concrete root (e.g. an <c>AppEntity</c> conformer)
-    /// rooting singletons directly on itself wants them, unlike the Session 4 nested-bag
+    /// rooting singletons directly on itself wants them, unlike the nested-bag
     /// scenario where only stored bag fields are KeyPath leaves.
     /// </summary>
     public static string? WhyPropertyNotEmittable(PropertyDecl propertyDecl, bool allowAbstract, bool allowComputed = false)

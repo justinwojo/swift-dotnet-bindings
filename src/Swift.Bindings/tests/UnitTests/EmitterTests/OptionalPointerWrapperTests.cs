@@ -1207,7 +1207,7 @@ public class OptionalPointerWrapperTests
         // (8 bytes) instead of the full optional buffer. The fix ensures the projection
         // system handles accessor setter params with convertible types.
         //
-        // 0.10.0 Bundle 01 (Bug 1b): the same setter path also used to call
+        // The same setter path also used to call
         // DangerousGetHandle() raw — without an AddRef bracket, GC finalization
         // of the value's SafeHandle between the handle access and Swift function
         // entry would free the Swift heap payload mid-call. The fix wraps the
@@ -1233,7 +1233,7 @@ public class OptionalPointerWrapperTests
         Assert.Contains("DangerousGetHandle", csOutput);
         Assert.DoesNotContain("PayloadBuffer<IntPtr>", csOutput);
 
-        // Bug 1b: handle access must be pinned via SafeHandlePin so a
+        // Handle access must be pinned via SafeHandlePin so a
         // concurrent GC finalization cannot free the Swift heap payload
         // between the DangerousGetHandle() call and Swift function entry.
         Assert.Contains("using SafeHandlePin", csOutput);
@@ -1425,14 +1425,14 @@ public class OptionalPointerWrapperTests
 
     #endregion
 
-    #region Blittable-Optional @_cdecl Decode (REMEDIATION-PLAN §6)
+    #region Blittable-Optional @_cdecl Decode
 
     // These two tests pin the omitLabels:false decode of a small blittable Optional (Int32?)
     // on the @_cdecl FALLBACK wrapper paths — OptionalPointerWrapperEmitter and the closure
     // ClosureEmitter wrapper. They drive the emitters DIRECTLY (not through the MethodHandler
     // pipeline) on purpose: in the live pipeline, MethodWrapperEmitter.ShouldEmitWrapper claims
-    // every compilable method of this shape and sets UsesWrapperLibrary, so the Phase-1 gates for
-    // these two fallback emitters never fire — the branch under test is not reachable by any
+    // every compilable method of this shape and sets UsesWrapperLibrary, so the gates for these
+    // two fallback emitters never fire — the branch under test is not reachable by any
     // compilable Swift shape today. The defect is therefore LATENT. A small blittable Optional
     // reaching `else if (useCdecl)` in either fallback emitter was previously mapped with
     // omitLabels:true (the bare-pointer shape, correct only for _dbw_init_* dispatch targets that

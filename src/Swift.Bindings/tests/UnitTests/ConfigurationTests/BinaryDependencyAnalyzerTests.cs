@@ -323,7 +323,7 @@ namespace BindingsGeneration.Tests
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Section D2: Slice-Demotion Tests
+    // Slice-Demotion Tests
     // Verify that auto-detected deps with missing required slices are
     // demoted to unresolved instead of kept with incomplete search paths.
     // ═══════════════════════════════════════════════════════════════════════

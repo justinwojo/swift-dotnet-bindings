@@ -164,11 +164,11 @@ public class MemberGateEvaluator
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var softFlags = SoftGateFlags.None;
 
-        // M4: Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
+        // Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
         if (method.CSSignature.Any(arg => MemberEmissionValidator.ContainsAssociatedTypeReference(arg.SwiftTypeSpec)))
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Method signature contains unresolvable associated type reference.");
 
-        // M5: Non-ISwiftObject bound generic args
+        // Non-ISwiftObject bound generic args
         bool hasNonSwiftObjectArg = false;
         for (int i = 0; i < method.CSSignature.Count; i++)
         {
@@ -184,11 +184,11 @@ public class MemberGateEvaluator
         if (hasNonSwiftObjectArg)
             return GateResult.Skipped(SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
 
-        // M6: Bare generic usage in method signature
+        // Bare generic usage in method signature
         if (HasBareGenericInMethodSignature(method, moduleDecl, boundGenericsHandler))
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Method signature uses generic type without type arguments.");
 
-        // M7: Existential parameter (soft gate — accumulate)
+        // Existential parameter (soft gate — accumulate)
         if (protocolContext != null)
         {
             var existentialHandler = new ExistentialHandler(_typeDatabase);
@@ -199,7 +199,7 @@ public class MemberGateEvaluator
                 softFlags |= SoftGateFlags.HasExistentialParam;
         }
 
-        // M8: Closure parameter (soft gate — accumulate)
+        // Closure parameter (soft gate — accumulate)
         if (protocolContext != null)
         {
             var closureHandler = new ClosureHandler(_typeDatabase);
@@ -209,17 +209,17 @@ public class MemberGateEvaluator
                 softFlags |= SoftGateFlags.HasClosureParam;
         }
 
-        // M9: AnyType as generic type argument (uses projection for TSelf-awareness)
+        // AnyType as generic type argument (uses projection for TSelf-awareness)
         if (protocolContext != null && HasAnyTypeGenericArgInMethodSignature(method, protocolContext))
             return GateResult.Skipped(SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument.");
 
-        // M10: Unsupported module references (types registered in type database are allowed through)
+        // Unsupported module references (types registered in type database are allowed through)
         bool hasUnsupportedModuleRef = method.CSSignature.Any(arg =>
             MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, _typeDatabase));
         if (hasUnsupportedModuleRef)
             return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Method signature references unsupported module (SwiftUI/Combine).");
 
-        // M11: Pattern 2 emission-time gate — method signature reaches a name in
+        // Pattern 2 emission-time gate — method signature reaches a name in
         // ModuleDecl.InternalTypeNames. Mirrors S6 in EvaluateSubscript and the
         // concrete-side gate in MemberValidationPipeline.ValidateMethodEmission.
         // Protocol method emission bypasses MemberValidationPipeline, so this gate

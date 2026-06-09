@@ -197,7 +197,7 @@ public class MethodMarshalPlanBuilderTests
     [Fact]
     public void IndirectResult_CdeclNonFrozenStructReturn_CleanupCodeIsNull()
     {
-        // Bug 1: @_cdecl property getter returning non-frozen struct must NOT free the payload
+        // @_cdecl property getter returning non-frozen struct must NOT free the payload
         // buffer. NewFromPayload takes ownership of the buffer pointer — freeing it causes
         // use-after-free. CleanupCode must be null so no NativeMemory.Free is emitted.
         var moduleDecl = CreateModuleDecl();
@@ -253,7 +253,7 @@ public class MethodMarshalPlanBuilderTests
     [Fact]
     public void IndirectResult_CdeclComplexEnumReturn_CleanupCodeIsNull()
     {
-        // Bug 1: @_cdecl method returning complex enum must NOT free the payload buffer.
+        // @_cdecl method returning complex enum must NOT free the payload buffer.
         // NewFromPayload takes ownership — same as non-frozen struct.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Parser", moduleDecl);
@@ -292,7 +292,7 @@ public class MethodMarshalPlanBuilderTests
     [Fact]
     public void IndirectResult_CdeclFrozenStructReturn_CleanupCodeIsNotNull()
     {
-        // Bug 1 inverse: @_cdecl method returning frozen struct MUST free the buffer.
+        // Inverse case: @_cdecl method returning frozen struct MUST free the buffer.
         // Frozen structs are copied out by value — the temp buffer must be freed.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Fetcher", moduleDecl);
@@ -371,7 +371,7 @@ public class MethodMarshalPlanBuilderTests
     [Fact]
     public void IndirectResult_CdeclUtf8SliceReturn_CleanupCodeIsNotNull()
     {
-        // Bug 1 inverse: @_cdecl method returning Utf8Slice MUST free the buffer.
+        // Inverse case: @_cdecl method returning Utf8Slice MUST free the buffer.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Fetcher", moduleDecl);
         var method = new MethodDecl
@@ -549,7 +549,7 @@ public class MethodMarshalPlanBuilderTests
     [Fact]
     public void IndirectResult_CdeclFrozenBlittableReturn_UsesUnsafeSizeOf()
     {
-        // Bug 3: @_cdecl method returning frozen blittable struct (like CGSize) must use
+        // @_cdecl method returning frozen blittable struct (like CGSize) must use
         // Unsafe.SizeOf instead of TypeMetadata.GetTypeMetadataOrThrow. Frozen blittable
         // structs are plain C# value types with no ISwiftObject implementation.
         var moduleDecl = CreateModuleDecl();
@@ -609,7 +609,7 @@ public class MethodMarshalPlanBuilderTests
     [Fact]
     public void IndirectResult_CdeclFrozenWithMemoryReturn_UsesTypeMetadata()
     {
-        // Bug 3 inverse: Frozen struct WITH RequiresMemoryManagement (e.g., URL) must still
+        // Inverse case: Frozen struct WITH RequiresMemoryManagement (e.g., URL) must still
         // use TypeMetadata — it's not a plain blittable struct.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Fetcher", moduleDecl);

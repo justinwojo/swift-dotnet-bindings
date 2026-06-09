@@ -7,7 +7,7 @@
 // and `Arc.UnknownObjectRetain` (isa-dispatch — swift_retain for a pure-Swift
 // payload, objc_retain for an @objc:NSObject one) for +1 C# ownership. Wrapping
 // the buffer address directly in SwiftClassHandle<T> would ARC-release a bogus
-// pointer on dispose (crash). See the @objc variants below (issue #40 / P1-01).
+// pointer on dispose (crash). See the @objc variants below (issue #40).
 //
 // Distinct from `Holder<IntBox>` — that goes through the bare-generic-parameter
 // path (τ_0_0 → C# type parameter). A non-generic enum with a named class
@@ -51,7 +51,7 @@ public func makePendingDelivery() -> TaggedDelivery {
     return .pending
 }
 
-// Reproducer for bug-0.10.0-enum-case-payload-extractor-missing.md.
+// Reproducer for the missing enum-case payload extractor bug.
 // Mirrors the Stripe FinancialConnections.Result shape: a Result-style enum
 // with a *labeled* class associated value on success, a no-payload cancelation
 // case, and a labeled `any Swift.Error` failure case. In the Stripe binding,
@@ -98,7 +98,7 @@ public func makeLabeledFailedResult(_ message: String) -> LabeledClassResult {
     return .failed(error: LabeledResultError(message: message))
 }
 
-// MARK: - @objc:NSObject class payload (issue #40 / P1-01 — enum direction)
+// MARK: - @objc:NSObject class payload (issue #40 — enum direction)
 //
 // The pure-Swift fixtures above route the same EnumHandler.Marshalling class-payload
 // extraction, but for them swift_retain and swift_unknownObjectRetain are

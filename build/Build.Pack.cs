@@ -8,7 +8,7 @@
 //   1. SwiftBindings.Runtime
 //   2. SwiftBindings.Sdk (publish generator + pack)
 //   3. SwiftBindings.Templates
-//   4. SwiftBindings.Apple (Phase 2 supplement for Apple Swift-only types)
+//   4. SwiftBindings.Apple (supplement for Apple Swift-only types)
 
 using System.IO;
 using System.Linq;

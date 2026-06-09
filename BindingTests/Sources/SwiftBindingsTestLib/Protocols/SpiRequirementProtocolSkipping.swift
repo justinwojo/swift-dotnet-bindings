@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Bug 16 fixture: protocol with a required `@_spi` Var
+// MARK: - Protocol with a required `@_spi` Var
 
 /// Public protocol whose requirement set includes a `@_spi`-protected `var`
 /// (mirrors the original RealityFoundation `MaterialFunction` pattern that

@@ -449,8 +449,7 @@ public class MemberValidationPipelineTests
     // SWIFTBIND104 — UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer in
     // unsupported positions (return type or async-method parameter). The
     // generator must skip these members rather than emit a P/Invoke whose
-    // pinned pointer would dangle past the synchronous frame. See
-    // src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.
+    // pinned pointer would dangle past the synchronous frame.
     [Fact]
     public void ValidateMethodEmission_UnsafeMutableRawBufferPointerReturnType_EmitsSwiftBind104Skip()
     {
@@ -981,7 +980,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_ThunkClosureInGenericType_ReturnsSkip()
     {
-        // Phase 3: Constructor with thunk closure in generic type
+        // Gate 3: Constructor with thunk closure in generic type
         var typeDatabase = CreateTypeDatabase();
 
         var closureType = new ClosureTypeSpec(
@@ -1003,10 +1002,10 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_PureAsyncNoGenericParent_Emits()
     {
-        // Phase 3: Pure async method (no closure params) whose parent is NOT a generic
+        // Gate 3: Pure async method (no closure params) whose parent is NOT a generic
         // type passes — the completion callback is hoisted to the non-generic helper class
         // and the call has no parent-type metadata to thread. (A generic *parent* is a
-        // different story: see ValidateMethodEmission_AsyncOnGenericParent_* below, P0-15.)
+        // different story: see ValidateMethodEmission_AsyncOnGenericParent_* below.)
         var typeDatabase = CreateTypeDatabase();
         var method = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
         method.IsAsync = true; // ParentDecl stays null → no generic-parent ABI hazard
@@ -1022,14 +1021,14 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_AsyncOnGenericParent_PlainReturn_ReturnsSkip()
     {
-        // P0-15: AsyncGenericContainer<T>.processAsync shape — an async instance method on
-        // a non-specializable (unconstrained) generic parent returning a plain, non-generic
-        // Int. The open-generic @_silgen_name async wrapper is itself a generic instance
-        // method, so Swift passes `self` + the parent's type metadata through the implicit
-        // self / metadata registers while a fixed CallConvSwift P/Invoke can only hand them
-        // over as trailing IntPtr args → ABI mismatch → SIGSEGV. Returning a non-generic Int
-        // does NOT make it safe (the receiver/metadata ABI is the problem, not the return
-        // shape), so the previous return-references-T-only gate let it ship live. Must skip.
+        // AsyncGenericContainer<T>.processAsync shape — an async instance method on a
+        // non-specializable (unconstrained) generic parent returning a plain, non-generic Int.
+        // The open-generic @_silgen_name async wrapper is itself a generic instance method, so
+        // Swift passes `self` + the parent's type metadata through the implicit self / metadata
+        // registers while a fixed CallConvSwift P/Invoke can only hand them over as trailing
+        // IntPtr args → ABI mismatch → SIGSEGV. Returning a non-generic Int does NOT make it
+        // safe (the receiver/metadata ABI is the problem, not the return shape), so the previous
+        // return-references-T-only gate let it ship live. Must skip.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDeclForE2E("AsyncGenericContainer", moduleDecl, isGeneric: true);
@@ -1052,10 +1051,10 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_ThrowingAsyncOnGenericParent_PlainReturn_ReturnsSkip()
     {
-        // P0-15: AsyncGenericContainer<T>.fetchOrThrow(shouldFail:) shape — throwing async
-        // on an unconstrained generic parent with a Bool param and a plain Int return. The
-        // throws/param shape is irrelevant; the receiver + parent-T metadata still cannot be
-        // threaded through the fixed CallConvSwift P/Invoke. Must skip just like processAsync.
+        // AsyncGenericContainer<T>.fetchOrThrow(shouldFail:) shape — throwing async on an
+        // unconstrained generic parent with a Bool param and a plain Int return. The throws/param
+        // shape is irrelevant; the receiver + parent-T metadata still cannot be threaded through
+        // the fixed CallConvSwift P/Invoke. Must skip just like processAsync.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDeclForE2E("AsyncGenericContainer", moduleDecl, isGeneric: true);
@@ -1080,7 +1079,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_AsyncWithClosureInGenericType_ReturnsSkip()
     {
-        // Phase 3: Async method WITH closure params in generic type still skips —
+        // Gate 3: Async method WITH closure params in generic type still skips —
         // only pure async (no thunk closures) is hoisted.
         var typeDatabase = CreateTypeDatabase();
 
@@ -1104,7 +1103,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_AsyncInGenericType_ReturnReferencesParentGeneric_ReturnsSkip()
     {
-        // Phase 3: Async method whose return type references parent generic type params
+        // Gate 3: Async method whose return type references parent generic type params
         // must be skipped — callbacks can't use generic params in non-generic helper class.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -1152,7 +1151,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_NoPInvokeHelper_SkipsThunkCheck()
     {
-        // Phase 3 only fires when PInvokeHelperContext is present (generic parent type)
+        // Gate 3 only fires when PInvokeHelperContext is present (generic parent type)
         var typeDatabase = CreateTypeDatabase();
 
         var closureType = new ClosureTypeSpec(
@@ -1172,7 +1171,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_ProtocolExtensionMethod_SkipsThunkCheck()
     {
-        // Phase 3: Protocol extension methods are always let through
+        // Gate 3: Protocol extension methods are always let through
         var typeDatabase = CreateTypeDatabase();
         var method = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
         method.IsAsync = true;
@@ -1190,7 +1189,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_HasAssociatedTypeProtocolConstraint_ReturnsSkip()
     {
-        // Phase 4: Protocol constraint with associated types
+        // Gate 4: Protocol constraint with associated types
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
 
@@ -1210,7 +1209,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_ConstructorSkipsProtocolConstraintCheck()
     {
-        // Phase 4: Constructors do NOT check protocol constraints (original behavior)
+        // Gate 4: Constructors do NOT check protocol constraints (original behavior)
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
 
@@ -1222,10 +1221,10 @@ public class MemberValidationPipelineTests
         };
 
         var pipeline = new MemberValidationPipeline(typeDatabase);
-        // Phase 4 skips for constructors → falls through to Phase 6 (generic ctor own params)
+        // Gate 4 skips for constructors → falls through to Gate 6 (generic ctor own params)
         var result = pipeline.ValidateMethodEmission(method, null);
 
-        // Caught by Phase 6 (generic constructor own params) not Phase 4
+        // Caught by Gate 6 (generic constructor own params) not Gate 4
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
     }
@@ -1233,7 +1232,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_GenericConstructorOwnParams_ReturnsSkip()
     {
-        // Phase 6: Generic constructor with method-own type parameters
+        // Gate 6: Generic constructor with method-own type parameters
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
 
@@ -1272,7 +1271,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_GenericConstructorInheritedParams_ReturnsEmit()
     {
-        // Phase 6: Constructor generic params from parent → NOT method-own, should emit
+        // Gate 6: Constructor generic params from parent → NOT method-own, should emit
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -1322,7 +1321,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void EndToEnd_ProtocolConstraintMethod_ProducesNoOutput()
     {
-        // Phase 4 gate: method with associated type protocol constraint → no C# output
+        // Gate 4 gate: method with associated type protocol constraint → no C# output
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
 
@@ -1344,7 +1343,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void EndToEnd_ThunkClosureInGenericType_PipelineSkips()
     {
-        // Phase 3 gate: thunk closure in generic type → pipeline returns Skip.
+        // Gate 3 gate: thunk closure in generic type → pipeline returns Skip.
         // Note: This can't be tested through ModuleHandler E2E because module-level
         // free functions don't have PInvokeHelperContext. The gate fires when methods
         // inside generic types go through HandleBaseDecl in ClassHandler/StructHandler,
@@ -1376,7 +1375,7 @@ public class MemberValidationPipelineTests
     [Fact]
     public void EndToEnd_GenericConstructorOwnParams_ProducesNoOutput()
     {
-        // Phase 6 gate: generic constructor with method-own params → no C# output
+        // Gate 6 gate: generic constructor with method-own params → no C# output
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
         var moduleDecl = CreateModuleDecl("TestModule");

@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Bundle 05 #2 regression — Conditional Equatable on generic struct
+// MARK: - Conditional Equatable on generic struct
 //
 // Swift permits a generic type to declare `Equatable` (and `Hashable`)
 // **only when the type parameter itself satisfies the conformance**:
@@ -38,7 +38,7 @@ import Foundation
 // generated `Bundle05CondEqBox<>` class.
 
 /// Generic value-wrapper struct whose `Equatable` conformance is
-/// declared conditionally — the canonical shape of the Bundle 05 #2
+/// declared conditionally — the canonical shape of the conditional-Equatable
 /// over-broad emission bug.
 public struct Bundle05CondEqBox<Item> {
     public let value: Item

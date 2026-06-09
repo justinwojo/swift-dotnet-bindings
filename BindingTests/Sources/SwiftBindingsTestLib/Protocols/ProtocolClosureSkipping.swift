@@ -425,7 +425,7 @@ public class MultiShapeRouter {
     }
 }
 
-// MARK: - S-2: Multi-arg method with value param + closure (Stripe shape)
+// MARK: - Multi-arg method with value param + closure (Stripe shape)
 //
 // `STPIssuingCardEphemeralKeyProvider.createIssuingCardKey(withAPIVersion: String,
 // completion: @escaping STPJSONResponseCompletionBlock)` is a pure-Swift protocol

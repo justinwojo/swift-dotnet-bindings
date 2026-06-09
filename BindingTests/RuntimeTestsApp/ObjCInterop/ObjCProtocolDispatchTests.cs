@@ -7,13 +7,13 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.ObjCInterop;
 
 /// <summary>
-/// End-to-end gate for the S-2 EveryObjCProtocol routing fix.
+/// End-to-end gate for the EveryObjCProtocol routing fix.
 ///
-/// Before S-2 the generator skipped <c>@objc protocol X: NSObjectProtocol</c>
+/// Previously the generator skipped <c>@objc protocol X: NSObjectProtocol</c>
 /// conformances (the plain Swift <c>EveryProtocol</c> class cannot satisfy
 /// NSObjectProtocol's NSObject identity surface), which broke Stripe's
 /// STPAuthenticationContext / STPCustomerEphemeralKeyProvider /
-/// STPIssuingCardEphemeralKeyProvider in the generated bindings. S-2 introduces
+/// STPIssuingCardEphemeralKeyProvider in the generated bindings. The fix introduces
 /// a parallel <c>EveryObjCProtocol: NSObject</c> helper class in the emitted
 /// wrapper module and routes NSObjectProtocol-only conformances through it.
 ///
@@ -34,8 +34,8 @@ public class ObjCProtocolDispatchTests : TestBase
         var impl = new NumberProviderImpl(value: 42);
 
         // Auto-wrap constructs an EveryObjCProtocol-backed proxy and hands it
-        // to the Swift function. If S-2 regresses to skip-the-conformance, the
-        // generated INumberProvider interface and/or wrapper Swift module won't
+        // to the Swift function. If the routing regresses to skip-the-conformance,
+        // the generated INumberProvider interface and/or wrapper Swift module won't
         // compile and this call site won't exist.
         var result = TestLibFunctions.CallNumberProvider(impl);
 

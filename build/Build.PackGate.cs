@@ -7,7 +7,7 @@
 // in a tiny Apple-framework fixture, packs the fixture, and asserts every
 // embedded xcframework slice carries an Info.plist. Catches regressions in
 // `_ConfigureSwiftBindingPack` (Sdk.targets) AND in
-// `_CompileAppleFrameworkSecondWrapperSlice` — the latter is ship-blockers
+// `_CompileAppleFrameworkSecondWrapperSlice` — the latter guards against
 // Issue 1 (device slice missing Info.plist causes iOS device-install failures
 // with MICreateCFBundleEnforcingInfoPlistSize).
 //

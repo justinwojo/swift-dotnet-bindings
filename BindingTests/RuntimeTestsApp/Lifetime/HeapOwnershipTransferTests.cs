@@ -7,26 +7,26 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
-/// Runtime regression tests for the three Session 4 fixes from
-/// <c>src/docs/sdk-0.11.0-residual-gaps.md</c>, plus a round-2 pin for the
+/// Runtime regression tests for escaping-closure and async ownership fixes,
+/// plus a round-2 pin for the
 /// complex-enum closure-result heap ownership contract:
 /// <list type="bullet">
-///   <item><description><b>S-4</b> — frozen-struct-with-ref-fields closure-arg
+///   <item><description>Frozen-struct-with-ref-fields closure-arg
 ///     defer-deallocate. Pre-fix every closure invocation leaked one
 ///     <c>NativeMemory.Alloc</c> buffer + one <c>DeinitTracker</c> on the
 ///     Swift side because the C# <c>NewFromPayload</c> does an
 ///     <c>InitializeWithCopy</c> into a fresh buffer and never owns the
 ///     source pointer.</description></item>
-///   <item><description><b>S-5</b> — async + <c>any Protocol</c> existential
+///   <item><description>Async + <c>any Protocol</c> existential
 ///     parameter heap cleanup. Pre-fix the <c>NativeMemory.Alloc</c> buffer
 ///     wrapping the <c>ExistentialContainer1</c> handed to Swift was never
 ///     freed, leaking one allocation per call.</description></item>
-///   <item><description><b>A-4</b> — nullable struct setter
+///   <item><description>Nullable struct setter
 ///     <c>SafeHandlePin</c> bracket. Pre-fix the setter passed
 ///     <c>value?.Payload.DangerousGetHandle()</c> directly to the P/Invoke,
 ///     leaving a use-after-free window during which a GC + finalizer could
 ///     free the buffer Swift was still reading from.</description></item>
-///   <item><description><b>S-4 round-2</b> — complex-enum closure-result
+///   <item><description>Complex-enum closure-result
 ///     heap-ownership contract. The Swift adapter for a closure with a
 ///     complex-enum argument intentionally OMITS a defer-deallocate; the C#
 ///     side wraps the same pointer in <c>SwiftSafeHandle&lt;T&gt;</c>, and
@@ -40,12 +40,12 @@ namespace RuntimeTestsApp.Lifetime;
 /// These are stress regressions: a single round won't surface the bug. The
 /// bulk loops are sized to make a per-call leak visible against the iOS
 /// simulator's working-set noise floor and to give the GC enough churn to
-/// catch the A-4 use-after-free window.
+/// catch the nullable-setter use-after-free window.
 /// </para>
 /// </remarks>
-public class Session4LifetimeTests : TestBase
+public class HeapOwnershipTransferTests : TestBase
 {
-    public Session4LifetimeTests(TestResults results) : base(results) { }
+    public HeapOwnershipTransferTests(TestResults results) : base(results) { }
 
     private const int S4Iterations = 5000;
     private const int S5Iterations = 200;
@@ -63,12 +63,12 @@ public class Session4LifetimeTests : TestBase
     }
 
     // --------------------------------------------------------------------
-    // S-4 — Frozen struct with ref fields, closure arg
+    // Frozen struct with ref fields, closure arg
     // --------------------------------------------------------------------
 
     /// <summary>
     /// Sanity check: the closure receives a usable <see cref="FrozenStructWithRef"/>
-    /// across the boundary. If S-4's defer were wrong (e.g. deinitialized
+    /// across the boundary. If the defer-deallocate were wrong (e.g. deinitialized
     /// before C# could read), the value would either be zero or the call
     /// would crash.
     /// </summary>
@@ -84,10 +84,10 @@ public class Session4LifetimeTests : TestBase
     }
 
     /// <summary>
-    /// Bulk regression for S-4: hammer the closure N times. Pre-fix this
-    /// leaked one buffer + one DeinitTracker per call, growing the working
-    /// set linearly. Post-fix Swift's defer-deallocate keeps the per-call
-    /// allocation balanced.
+    /// Bulk regression for frozen-struct-with-ref-fields closure arg: hammer
+    /// the closure N times. Pre-fix this leaked one buffer + one DeinitTracker
+    /// per call, growing the working set linearly. Post-fix Swift's
+    /// defer-deallocate keeps the per-call allocation balanced.
     /// </summary>
     public void TestFrozenWithRefClosure_BulkDoesNotCrash()
     {
@@ -135,7 +135,7 @@ public class Session4LifetimeTests : TestBase
     }
 
     // --------------------------------------------------------------------
-    // S-5 — Async + any Protocol existential param heap cleanup
+    // Async + any Protocol existential param heap cleanup
     // --------------------------------------------------------------------
 
     /// <summary>
@@ -152,12 +152,12 @@ public class Session4LifetimeTests : TestBase
     }
 
     /// <summary>
-    /// Bulk regression for S-5: serially hammer the async existential call.
-    /// Pre-fix each call leaked one <c>NativeMemory.Alloc</c> buffer holding
-    /// the <c>ExistentialContainer1</c>; under load this is visible as
-    /// monotonic working-set growth and an eventual OOM on memory-tight
-    /// devices. Post-fix the callback's holder-cleanup loop frees the buffer
-    /// after Swift's continuation has finished reading it.
+    /// Bulk regression for the async existential parameter path: serially
+    /// hammer the async existential call. Pre-fix each call leaked one
+    /// <c>NativeMemory.Alloc</c> buffer holding the <c>ExistentialContainer1</c>;
+    /// under load this is visible as monotonic working-set growth and an eventual
+    /// OOM on memory-tight devices. Post-fix the callback's holder-cleanup loop
+    /// frees the buffer after Swift's continuation has finished reading it.
     /// </summary>
     public async Task TestAsyncExistential_BulkDoesNotCrashOrLeak()
     {
@@ -177,7 +177,7 @@ public class Session4LifetimeTests : TestBase
     }
 
     // --------------------------------------------------------------------
-    // A-4 — Nullable struct setter SafeHandlePin
+    // Nullable struct setter SafeHandlePin
     // --------------------------------------------------------------------
 
     /// <summary>
@@ -199,8 +199,9 @@ public class Session4LifetimeTests : TestBase
     }
 
     /// <summary>
-    /// Bulk regression for A-4: alternate set/clear under GC pressure. The
-    /// pre-fix UAF window is: `value?.Payload.DangerousGetHandle()` returns
+    /// Bulk regression for nullable struct setter SafeHandlePin: alternate
+    /// set/clear under GC pressure. The pre-fix UAF window is:
+    /// `value?.Payload.DangerousGetHandle()` returns
     /// the raw pointer, the GC fires, the SafeHandle finalizer frees the
     /// buffer, then Swift reads from the freed pointer. Forcing GC inside
     /// the inner loop maximizes the chance of catching the window.
@@ -230,7 +231,7 @@ public class Session4LifetimeTests : TestBase
     }
 
     // --------------------------------------------------------------------
-    // S-4 round-2 — Complex-enum closure-result heap-ownership contract
+    // Complex-enum closure-result heap-ownership contract
     // --------------------------------------------------------------------
 
     /// <summary>

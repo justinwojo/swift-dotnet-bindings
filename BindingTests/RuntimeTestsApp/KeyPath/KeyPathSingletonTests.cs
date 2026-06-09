@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.KeyPath;
 
 /// <summary>
-/// End-to-end IN-path tests for the Session 4 typed KeyPath singletons. Where
+/// End-to-end IN-path tests for the typed KeyPath singletons. Where
 /// <see cref="KeyPathFoundationTests"/> exercises the OUT path (Swift returns a
 /// KeyPath, C# adopts), this class exercises the IN path (C# originates a KeyPath
 /// from a generator-emitted Swift trampoline, passes it to a Swift consumer).
@@ -37,9 +37,9 @@ namespace RuntimeTestsApp.KeyPath;
 ///   <c>IsFiction</c> (<c>Bool</c>) singletons resolve and read through cleanly.</item>
 /// </list>
 ///
-/// <para>Pointer identity is intentionally NOT asserted; the Session 3 foundation
-/// contract is value-equality only (cross-module compilation can produce
-/// distinct AnyKeyPath instances for the same descriptor).</para>
+/// <para>Pointer identity is intentionally NOT asserted; the contract is
+/// value-equality only (cross-module compilation can produce distinct AnyKeyPath
+/// instances for the same descriptor).</para>
 /// </summary>
 public class KeyPathSingletonTests : TestBase
 {
@@ -114,7 +114,7 @@ public class KeyPathSingletonTests : TestBase
 
     public void TestSingleton_ValueEqualsItself()
     {
-        // AnyKeyPath.==-driven value equality — the contract Session 3 enforces.
+        // AnyKeyPath.==-driven value equality.
         var kp = MockBookSession4LibraryFilterKeyPaths.Title;
         AssertTrue(kp.Equals(kp), "Singleton value-equals itself");
         AssertEqual(kp.GetHashCode(), kp.GetHashCode(),

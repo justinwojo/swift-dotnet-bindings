@@ -280,7 +280,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Functional Bridge Generation (Phase 3)
+    #region Functional Bridge Generation
 
     [Fact]
     public void EmitSimpleViewBridge_GeneratesSessionClass()
@@ -508,7 +508,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     /// <summary>
-    /// Bug 4 regression: emitted SwiftUI bridge sessions follow the standard
+    /// Regression: emitted SwiftUI bridge sessions follow the standard
     /// .NET <c>IDisposable</c> pattern — a public <c>Dispose()</c> that calls
     /// <c>GC.SuppressFinalize(this)</c>, a finalizer <c>~SessionName()</c>
     /// that delegates to <c>Dispose(disposing: false)</c>, and a
@@ -730,7 +730,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Async Bridge Generation (Phase 4)
+    #region Async Bridge Generation
 
     [Fact]
     public void AnalyzeView_AsyncDependency_BlinkIDUXView()
@@ -1096,7 +1096,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region BoundEnum (Phase 1A)
+    #region BoundEnum
 
     [Fact]
     public void InitAnalyzer_BoundEnum_IsSupported_WithTypeDatabase()
@@ -1199,7 +1199,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ style: Int32", swiftContent);
-        // P0-03: an out-of-range raw value fails creation gracefully (return nil) instead of
+        // An out-of-range raw value fails creation gracefully (return nil) instead of
         // a force-unwrap SIGTRAP. The old `AlertStyle(rawValue: style)!` WAS the crash.
         Assert.Contains("guard let styleConverted = AlertStyle(rawValue: style) else { return nil }", swiftContent);
         Assert.DoesNotContain("AlertStyle(rawValue: style)!", swiftContent);
@@ -1267,7 +1267,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region OptionalWrapped (Phase 1A)
+    #region OptionalWrapped
 
     [Fact]
     public void InitAnalyzer_OptionalPrimitive_IsSupported()
@@ -1375,7 +1375,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("_ styleHasValue: Int32", swiftContent);
         Assert.Contains("_ styleValue: Int32", swiftContent);
-        // P0-03: a present-but-out-of-range raw value fails creation gracefully (return nil)
+        // A present-but-out-of-range raw value fails creation gracefully (return nil)
         // instead of a force-unwrap trap; a nil Optional (HasValue == 0) stays nil.
         Assert.Contains("if styleHasValue != 0 {", swiftContent);
         Assert.Contains("guard let styleCase = AlertStyle(rawValue: styleValue) else { return nil }", swiftContent);
@@ -1457,7 +1457,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region BoundType (Phase 1B)
+    #region BoundType
 
     [Fact]
     public void InitAnalyzer_BoundType_IsSupported_ForClassInTypeDatabase()
@@ -1718,7 +1718,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Optional<BoundType> (Phase 1B/1D)
+    #region Optional<BoundType>
 
     [Fact]
     public void InitAnalyzer_OptionalBoundType_IsSupported()
@@ -2022,7 +2022,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region TypedClosure (Phase 1C)
+    #region TypedClosure
 
     [Fact]
     public void InitAnalyzer_TypedClosure_IntToVoid_IsSupported()
@@ -3176,7 +3176,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Async Inference (Phase 2A)
+    #region Async Inference
 
     [Fact]
     public void InferAsyncPattern_ReturnsNull_WhenNoModuleDecl()
@@ -3644,7 +3644,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Data-Driven Async Emission (Phase 2B)
+    #region Data-Driven Async Emission
 
     [Fact]
     public void DataDrivenSwift_AsyncServiceView_EmitsCdeclCreate()
@@ -6846,7 +6846,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_EnumUpdateView_UpdateStyle\")", swiftContent);
-        // P0-03: an out-of-range raw value leaves state unchanged (return) instead of trapping.
+        // An out-of-range raw value leaves state unchanged (return) instead of trapping.
         Assert.Contains("guard let newValueConverted = AlertStyle(rawValue: newValue) else { return }", swiftContent);
         Assert.Contains("session.state.style = newValueConverted", swiftContent);
         Assert.DoesNotContain("AlertStyle(rawValue: newValue)!", swiftContent);
@@ -9373,7 +9373,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("let formats: [AlertStyle]", swiftContent);
-        // P0-03: each element decodes via a failable init; a single out-of-range raw value fails
+        // Each element decodes via a failable init; a single out-of-range raw value fails
         // reconstruction gracefully (return nil) instead of the old `rawValue: $0)!` force-unwrap.
         Assert.Contains("guard let formatsElement = AlertStyle(rawValue: formatsRaw) else { return nil }", swiftContent);
         Assert.DoesNotContain("AlertStyle(rawValue: $0)!", swiftContent);

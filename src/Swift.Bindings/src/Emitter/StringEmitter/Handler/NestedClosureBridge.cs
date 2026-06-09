@@ -186,9 +186,9 @@ public static class NestedClosureBridge
             // doesn't silently rename the first symbol from bare NCB_{hash} to NCB_{hash}_0.
             var baseName = $"NCB_{mangledHash}_{closureIndex}";
 
-            // Escaping (or Optional<closure>, which is always escaping per constraints.md)
+            // Escaping (or Optional<closure>, which is always escaping in Swift)
             // outer closures get a Swift-ARC owner-token box around the GCHandle context so
-            // the GCHandle is freed when Swift releases the closure (Bug 1 Cat 3 / Bug 3 Case 2).
+            // the GCHandle is freed when Swift releases the closure.
             var isEffectivelyEscaping = WrapperValidation.IsEffectivelyEscaping(
                 cts, arg.SwiftTypeSpec, env.ClosureHandler);
 
@@ -222,7 +222,7 @@ public static class NestedClosureBridge
         // its EntryPoint; without registration a future Cdecl path would trip the
         // contract check.
         var bridgeSilgenName = $"SBW_{nestedClosures[0].CallbackBaseName}_{method.Name}";
-        // S5 audited (Tier B): same callback-base-name namespace as MethodClosureBridge —
+        // same callback-base-name namespace as MethodClosureBridge —
         // the nested-closure variant is distinguished by the per-nested closure's unique
         // CallbackBaseName, owned exclusively by the closure-bridge family. Per-kind
         // method bucket is collision-safe.
@@ -230,7 +230,7 @@ public static class NestedClosureBridge
 
         // Emit a single Swift wrapper that receives all outer closures' funcPtr/context pairs
         // and dispatches to the original method. The wrapper symbol matches the first outer
-        // closure's callback base name (always indexed _0 per Session 2 naming convention).
+        // closure's callback base name (always indexed _0).
         EmitSwiftWrapper(swiftWriter, method, env, parentDecl, nestedClosures, passableNonClosureParams, ctx);
 
         // Set method flags for wrapper library routing
@@ -288,7 +288,7 @@ public static class NestedClosureBridge
         IReadOnlyDictionary<int, string> Box);
 
     /// <summary>
-    /// P1-22 (C1): the @_cdecl wrapper hardcodes synthetic Swift identifiers (<c>self_</c>,
+    /// The @_cdecl wrapper hardcodes synthetic Swift identifiers (<c>self_</c>,
     /// <c>__self</c>, per-outer-closure <c>cdecl</c>/<c>cdecl{N}</c> and <c>_box_{N}</c>). A
     /// user param spelled the same — e.g. <c>func run(self_: Int, outer: …)</c> — would
     /// otherwise produce an "invalid redeclaration" and the generator would emit broken Swift
@@ -342,8 +342,7 @@ public static class NestedClosureBridge
     {
         // Emit the per-module `_sbWrapClosureContext` helper if any outer closure is escaping
         // — its `_SBClosureCtx` box upcalls SwiftClosureContext.DestroyClosureContext from
-        // deinit, freeing the GCHandle exactly once when Swift releases the closure
-        // (Bug 1 Cat 3 / Bug 3 Case 2).
+        // deinit, freeing the GCHandle exactly once when Swift releases the closure.
         if (nestedClosures.Any(nc => nc.IsEffectivelyEscaping))
             ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
 
@@ -352,13 +351,13 @@ public static class NestedClosureBridge
         bool multiOuter = nestedClosures.Count > 1;
         bool parentIsClass = parentDecl is ClassDecl;
 
-        // P1-22 (C1): collision-guard the wrapper's synthetic Swift identifiers against
+        // Collision-guard the wrapper's synthetic Swift identifiers against
         // user-controlled param/closure names. Computed once here and threaded into the
         // call-emitting helpers so every emission site uses the identical resolved name.
         var synth = ComputeSyntheticNames(nestedClosures, passableNonClosureParams);
 
         // Wrapper symbol is always keyed off the first outer closure's callback base name
-        // (_0-indexed per Session 2 naming). For single-outer methods this produces byte-identical
+        // (_0-indexed). For single-outer methods this produces byte-identical
         // output; for multi-outer, the single wrapper owns all outer closures' ABI pairs.
         var silgenName = $"SBW_{nestedClosures[0].CallbackBaseName}_{method.Name}";
 
@@ -439,7 +438,7 @@ public static class NestedClosureBridge
         // wrap the GCHandle context in a Swift-ARC owner-token `_SBClosureCtx` box; the outer
         // adapter closure captures `_box_N` via its capture list so the box's lifetime tracks
         // the stored closure's. When Swift releases the closure, the box's deinit upcalls the
-        // C# free callback (Bug 1 Cat 3 / Bug 3 Case 2).
+        // C# free callback.
         foreach (var nc in nestedClosures)
         {
             var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
@@ -543,7 +542,7 @@ public static class NestedClosureBridge
             // Uses takeUnretainedValue (no retain change) — the box keeps the inner closure alive
             // via the adapter's passRetained(+1), so a borrow here is safe across multiple inner
             // calls during the outer invocation. The adapter balances that +1 with a release after
-            // cdecl() returns for non-escaping inner closures (P1-16); escaping inner closures keep
+            // cdecl() returns for non-escaping inner closures; escaping inner closures keep
             // the box leaked because the borrow may outlive the outer call.
             swiftWriter.WriteLine($"        let innerClosure = Unmanaged<AnyObject>.fromOpaque(__closureBox{boxSuffix}).takeUnretainedValue() as! {innerClosureSwiftType}");
 
@@ -630,9 +629,9 @@ public static class NestedClosureBridge
             ? string.Join(", ", nonClosureCallArgs) + ", "
             : "";
 
-        // Escaping outer closures explicitly capture their `_box_N` owner-token (Bug 1 Cat 3 /
-        // Bug 3 Case 2). The capture pulls the box into the stored closure so Swift ARC tracks its
-        // lifetime — when Swift releases the closure, the box's deinit upcalls the C# free callback.
+        // Escaping outer closures explicitly capture their `_box_N` owner-token. The capture pulls
+        // the box into the stored closure so Swift ARC tracks its lifetime — when Swift releases
+        // the closure, the box's deinit upcalls the C# free callback.
         var captureList = nc.IsEffectivelyEscaping ? $"[{synth.Box[nc.Index]}] " : "";
         swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{methodSwiftName}({prefixStr}{callLabel}{{ {captureList}{outerParamStr} in");
         EmitOuterAdapterBody(swiftWriter, nc, multiOuter, indent: "        ", env, synth);
@@ -718,7 +717,7 @@ public static class NestedClosureBridge
 
         // Observe the captured box explicitly so the optimizer cannot elide it. Without
         // this, the capture-list-only reference can be dropped, breaking the lifetime
-        // contract that drives the deinit upcall (Bug 1 Cat 3 / Bug 3 Case 2).
+        // contract that drives the deinit upcall.
         if (nc.IsEffectivelyEscaping)
             swiftWriter.WriteLine($"{indent}_ = {synth.Box[nc.Index]}");
 
@@ -737,9 +736,9 @@ public static class NestedClosureBridge
                 cdeclCallArgs.Add($"__innerBox{suffix}");
                 // A non-escaping inner closure is valid only for the duration of this outer-closure
                 // invocation, so the +1 box retain (passRetained above) must be balanced once cdecl()
-                // returns — closing the per-invocation AnyObject leak (P1-16). The inner trampoline
-                // borrows the box via takeUnretainedValue, so the box stays alive across however many
-                // times the inner closure is called during the outer call; we only drop our +1 after.
+                // returns. The inner trampoline borrows the box via takeUnretainedValue, so the box
+                // stays alive across however many times the inner closure is called during the outer
+                // call; we only drop our +1 after.
                 // Escaping inner closures must outlive the call, so their box intentionally stays
                 // leaked — there is no safe release point on this synchronous path.
                 if (!nc.InnerClosures[innerMatch].Spec.IsEscaping)
@@ -826,7 +825,7 @@ public static class NestedClosureBridge
             ? $"Action<{string.Join(", ", outerDelegateTypeArgs)}>"
             : "Action";
 
-        // P0-01: resolve the outer delegate from the GCHandle inside the guarded try so a
+        // Resolve the outer delegate from the GCHandle inside the guarded try so a
         // bad/freed handle (handle.Target throwing) faults via FailFast rather than unwinding
         // out of the [UnmanagedCallersOnly] frame into the Swift @_cdecl caller → SIGABRT.
         csWriter.WriteLine("try");
@@ -998,7 +997,7 @@ public static class NestedClosureBridge
         bool isInstance = method.MethodType != MethodType.Static;
         if (isInstance)
         {
-            // P1-22 (C1): the trailing self param hardcodes `self_`; a user non-closure param
+            // The trailing self param hardcodes `self_`; a user non-closure param
             // projected to the same name would be a CS0100 duplicate. Guard it against the
             // other P/Invoke param names. Call-site args are positional, so the renamed param
             // needs no call-site change.

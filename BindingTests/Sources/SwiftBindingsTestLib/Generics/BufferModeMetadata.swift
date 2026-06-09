@@ -5,7 +5,7 @@
 //
 // Swift's type-metadata accessor (`Ma` symbol) switches to the indirect-buffer
 // ABI when the total number of register-passed metadata + protocol-witness-table
-// arguments exceeds three (see src/docs/runtime-metadata.md). Below that
+// arguments exceeds three. Below that
 // threshold the accessor takes `(request, arg0, ..., argN)` in registers.
 // Above the threshold it takes `(request, const void * const * parameters)` —
 // a single pointer to a contiguous buffer of `IntPtr`-sized slots.

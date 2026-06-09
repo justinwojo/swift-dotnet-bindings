@@ -76,7 +76,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericClassParent_ConcreteMethod_UnresolvableConformance_ReturnsTrue()
     {
-        // Codex P1 regression: a concrete-signature instance method on a generic
+        // Regression: a concrete-signature instance method on a generic
         // class with a Self-requirement constraint must NOT be rejected by the
         // wrapper-helper gates. Path 1 (concrete-signature instance dispatch) goes
         // through SelfReconstructionEmitter.EmitProtocolCast and never calls
@@ -109,7 +109,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericClassParent_ConcreteMethod_ExceedsRegisterThreshold_ReturnsTrue()
     {
-        // Codex P1 regression: a concrete-signature instance method on a generic
+        // Regression: a concrete-signature instance method on a generic
         // class with enough conformances to trip the register threshold (1 metadata
         // + 3 PWTs > 3) must NOT be rejected. The instance protocol-cast path doesn't
         // touch the dlsym'd Ma symbol, so buffer-mode mismatch can't fire here.
@@ -209,12 +209,12 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericStructParent_CollectionConformance_NintOnlyMethod_ReturnsTrue()
     {
-        // Session 2 Issue C regression: generic struct conforming to Swift.Collection with
-        // pure nint-arithmetic methods (e.g. `index(_:offsetBy:) -> Int`) whose signatures
-        // never reference the parent generic. Pre-fix: rejected at the signatureReferencesT
-        // hard-gate with skip reason generic_parent — matching the shape that left MusicKit's
-        // MusicItemCollection<TMusicItemType> with four SB0001s. Post-fix: the Collection-
-        // family relaxation in GenericDispatchEmitter.CanEmitStaticDispatch accepts.
+        // Regression: generic struct conforming to Swift.Collection with pure nint-arithmetic
+        // methods (e.g. `index(_:offsetBy:) -> Int`) whose signatures never reference the parent
+        // generic. Pre-fix: rejected at the signatureReferencesT hard-gate with skip reason
+        // generic_parent — matching the shape that left MusicKit's MusicItemCollection<TMusicItemType>
+        // with four SB0001s. Post-fix: the Collection-family relaxation in
+        // GenericDispatchEmitter.CanEmitStaticDispatch accepts.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemCollection");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2903,8 +2903,7 @@ public class MethodWrapperEmitterTests
         // Swift.UnsafeMutableRawBufferPointer follows the same split as the read-only variant,
         // but Swift sees an UnsafeMutableRawPointer? (mutable) and reconstructs an
         // UnsafeMutableRawBufferPointer so write-back through the buffer mutates the C# memory
-        // directly. C# side projects to Span<byte> instead of ReadOnlySpan<byte>. See
-        // unsafe-mutable-raw-buffer-pointer.md.
+        // directly. C# side projects to Span<byte> instead of ReadOnlySpan<byte>.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -4077,7 +4076,7 @@ public class MethodWrapperEmitterTests
 
     #endregion
 
-    #region Generic Static Dispatch — Selector-Aware Collision Skip (Session 5)
+    #region Generic Static Dispatch — Selector-Aware Collision Skip
 
     // The wrapper-emit skip for "extension method has same-name overload on parent type"
     // was previously gated on base Swift name only. That falsely collapses sibling

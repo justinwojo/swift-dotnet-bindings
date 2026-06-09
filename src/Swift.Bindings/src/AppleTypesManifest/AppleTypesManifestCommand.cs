@@ -49,7 +49,7 @@ public static class AppleTypesManifestCommand
         {
             logger.LogError("--emit-apple-types-manifest requires --apple-include-types <path>. " +
                 "The filter is positive-list only so the supplement cannot accidentally shadow " +
-                "Runtime-owned canonical types; see src/docs/Design/apple-swift-types-architecture.md.");
+                "Runtime-owned canonical types; the include-types filter is positive-list only so the supplement cannot shadow them.");
             return 1;
         }
 

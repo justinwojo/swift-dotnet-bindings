@@ -9,9 +9,8 @@ using Swift.Runtime;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Session 0 ABI proof for the async-closure bridge. Hand-written P/Invoke
-/// + Start thunk + outer async callbacks, mirroring what the emitter will
-/// generate in Session A (see src/docs/async-closure-plan.md §3.7).
+/// Hand-written ABI proof for the async-closure bridge. Hand-written P/Invoke
+/// + Start thunk + outer async callbacks, mirroring what the emitter generates.
 ///
 /// The Swift side lives in Sources/SwiftBindingsTestLib/Async/AsyncClosureSpike.swift.
 /// </summary>

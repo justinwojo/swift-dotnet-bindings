@@ -60,7 +60,7 @@ public func callThrowingBool(_ callback: @escaping (Int32) throws -> Bool) -> Bo
 /// indirect result buffer. The thrown exception therefore unwinds through this
 /// `catch` and yields the sentinel (-1, -1) — never a SIGABRT (managed exception
 /// into native) or SIGSEGV (move of uninitialized storage). Graceful-fault guard
-/// for the non-primitive/indirect closure-return shape (P0-01).
+/// for the non-primitive/indirect closure-return shape.
 public func callThrowingNonFrozenReturn(_ callback: @escaping () throws -> NonFrozenPoint) -> NonFrozenPoint {
     do {
         return try callback()
@@ -104,7 +104,7 @@ public func makeAlwaysThrowingIntClosure() -> () throws -> Int32 {
 /// the success sibling of `makeAlwaysThrowingIntClosure`: the cdecl invoke thunk must
 /// route the returned throwing closure through the CallConvCdecl invoker class (not the
 /// inline CallConvSwift lambda that SIGSEGVs) and surface `SwiftResult.IsSuccess` with
-/// the value. Durable guard for the wired-up returned-throwing-closure path (Track-M4:105).
+/// the value. Durable guard for the wired-up returned-throwing-closure path.
 public func makeNeverThrowingIntClosure() -> () throws -> Int32 {
     return { 99 }
 }

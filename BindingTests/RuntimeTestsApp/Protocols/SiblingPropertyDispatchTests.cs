@@ -384,7 +384,7 @@ public class SiblingPropertyDispatchTests : TestBase
             "Divergent-label subscript: by-label setter writes into C# impl storage");
     }
 
-    // External-label edge cases (Grok r3 Critical + High):
+    // External-label edge cases:
     //   - `default:` is a Swift keyword → emitter must backtick-escape, otherwise
     //     the witness signature fails to compile.
     //   - `index0:` collides with the parser's synthetic placeholder for unlabeled
@@ -409,7 +409,7 @@ public class SiblingPropertyDispatchTests : TestBase
             "User-written `index0:` external label is preserved, not mistaken for synthetic placeholder");
     }
 
-    // Free-function keyword-label edge case (Grok r4 Medium): the @_cdecl wrapper's
+    // Free-function keyword-label edge case: the @_cdecl wrapper's
     // method-call path (CdeclParamMapper.BuildSwiftCallArgLabel) must backtick-escape
     // `default` instead of emitting a bare `default:` argument label, which is a Swift
     // syntax error. The fact that this binding compiles + dispatches proves the escape.
@@ -421,14 +421,14 @@ public class SiblingPropertyDispatchTests : TestBase
             "Free function with Swift-keyword external label (`default:`) dispatches correctly");
     }
 
-    // r6 phantom-owner regression: mixed-generic protocol must not win sibling
+    // Phantom-owner regression: mixed-generic protocol must not win sibling
     // ownership. Both PhantomOwner protocols declare `phantomName: String { get set }`
     // so the OrderByDescending(HasSetter) keeps both in the tie and lex tie-break
-    // (Generic < Regular) made the mixed-generic the pre-r6 owner — and mixed-
+    // (Generic < Regular) made the mixed-generic the pre-fix owner — and mixed-
     // generic protocols emit fatalError() stubs for every property because the
     // type-projection pipeline can't render non-generic members correctly while
     // method-level generics are in scope. Dispatch through PhantomOwnerRegular
-    // thus reached the stub. r6's IsEmittable filter removes mixed-generic from
+    // thus reached the stub. The IsEmittable filter removes mixed-generic from
     // the sibling-plan input so PhantomOwnerRegular owns its own body standalone;
     // PhantomOwnerMixedGeneric's empty extension picks up the witness via Swift's
     // cross-extension resolution, so both conformances succeed and dispatch through
@@ -450,7 +450,7 @@ public class SiblingPropertyDispatchTests : TestBase
             "Mixed-generic protocol must not own sibling setter — setter dispatch through regular sibling hits its real body, not the stub");
     }
 
-    // Mixed-generic under-detection (Grok H1). CombinedMixedSelfGeneric's only
+    // Mixed-generic under-detection. CombinedMixedSelfGeneric's only
     // generic method has BOTH τ_1_* (T) AND Self in the signature. The original
     // IsMixedGenericProtocol predicate routed through HasOnlyMethodLevelGenerics,
     // which short-circuited on Self → false → the protocol was not classified

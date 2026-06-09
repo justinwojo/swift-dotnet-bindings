@@ -540,12 +540,12 @@ public class ExistentialHandlerTests
 
     #endregion
 
-    #region H2 Bug 4 — Optional Existential Container Type
+    #region Optional Existential Container Type
 
     [Fact]
     public void UnwrapOptionalExistential_SingleProtocol_ReturnsProtocolList()
     {
-        // H2 Bug 4: When an optional wraps an existential (e.g. Optional<any ImageDecoding>),
+        // When an optional wraps an existential (e.g. Optional<any ImageDecoding>),
         // the marshal type must use ExistentialContainer1, not AnyType.
         // This test validates the handler correctly unwraps the optional existential.
         var optionalExistential = new NamedTypeSpec(
@@ -571,12 +571,12 @@ public class ExistentialHandlerTests
 
     #endregion
 
-    #region H2 Bug 5 — Existential Parameter Detection
+    #region Existential Parameter Detection
 
     [Fact]
     public void IsExistential_ProtocolListTypeSpec_ReturnsTrue()
     {
-        // H2 Bug 5: Async method filter must exclude existential parameters.
+        // Async method filter must exclude existential parameters.
         // This test validates that IsExistential correctly identifies ProtocolListTypeSpec
         // (the existential type form used in method signatures like ILottieURLSession).
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Lottie.LottieURLSession") });

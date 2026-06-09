@@ -8,8 +8,8 @@ namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
 /// Tests for `Swift.Set&lt;T&gt;` projection at the parameter boundary, with empty-literal
-/// defaults. Regression coverage for Bundle 04 #9
-/// (`gap-0.10.0-swift-set-parameter-becomes-ienumerable-default-lost.md`).
+/// defaults. Regression coverage: Swift Set&lt;T&gt; parameter was projected as
+/// IEnumerable and the empty-literal default was silently elided.
 ///
 /// Pre-fix: Swift `func f(_ values: Set&lt;Int&gt; = [])` projected to
 /// `f(IEnumerable&lt;nint&gt; values)` — uniqueness invariant dropped at the public API

@@ -3,19 +3,18 @@
 //
 // Build.X64SimGate.cs — iOS/tvOS x86_64 simulator packaging gate (Layer 3 + RID routing)
 //
-// The Session 4 gate for the iOS/tvOS x86_64 simulators. The Session 2 gate
-// (X64PackGate) already proved the *wrapper xcframework* ships fat
-// `ios-arm64-simulator` and `tvos-arm64-simulator` slices (arm64+x86_64); this
-// gate completes the chain by asserting a real .NET-for-Apple consumer at
-// `RuntimeIdentifier=iossimulator-x64` (and `tvossimulator-x64`) resolves the
-// x86_64 slice and embeds an x86_64-containing framework into its .app bundle.
+// iOS/tvOS x86_64 simulator packaging gate. X64PackGate already proved the
+// *wrapper xcframework* ships fat `ios-arm64-simulator` and `tvos-arm64-simulator`
+// slices (arm64+x86_64); this gate completes the chain by asserting a real
+// .NET-for-Apple consumer at `RuntimeIdentifier=iossimulator-x64` (and
+// `tvossimulator-x64`) resolves the x86_64 slice and embeds an x86_64-containing
+// framework into its .app bundle.
 //
 // Why no runtime leg here: an x86_64 iOS/tvOS simulator cannot run on Apple
-// Silicon — Apple Silicon hosts boot only arm64 simulators. The doc explicitly
-// designates sim runtime validation to "the reporter or an Intel Mac". This
-// gate proves compile + packaging + native-reference selection only; the ABI
-// itself is already proven by S1 (X64ThunkGate) and the Mono-x86_64 runtime is
-// already proven by S3 (osx-x64 + maccatalyst-x64 BindingTests cells).
+// Silicon — Apple Silicon hosts boot only arm64 simulators. This gate proves
+// compile + packaging + native-reference selection only; the ABI itself is
+// already proven by X64ThunkGate and the Mono-x86_64 runtime is already proven
+// by the osx-x64 + maccatalyst-x64 BindingTests cells.
 //
 // Two legs:
 //   Leg A — third-party SwiftFramework: pack the X64PackFixture-derived
@@ -24,7 +23,7 @@
 //           x86_64 sim RID. lipo-assert that the embedded
 //           <App>.app/Frameworks/X64PackFixture.framework/X64PackFixture is
 //           x86_64-containing.
-//   Leg B — Apple-framework (StoreKit, the doc's named "StoreKit2 reporter"):
+//   Leg B — Apple-framework (StoreKit, "StoreKit2 reporter"):
 //           build a `<SwiftAppleFrameworkTarget Module="StoreKit" />` binding
 //           for iossimulator-x64, packing the wrapper xcframework. lipo-assert
 //           that the produced wrapper xcframework's iOS sim slice carries
@@ -266,9 +265,8 @@ partial class Build
         });
 
     // Fail fast if Apple has dropped the x86_64-apple-ios-simulator swiftinterface
-    // slice from StoreKit (or moved its framework). This is the doc's named
-    // "StoreKit2 reporter" target; without it, Leg B mis-attributes a vanished
-    // upstream slice to our SDK.
+    // slice from StoreKit (or moved its framework). This is the "StoreKit2 reporter"
+    // target; without it, Leg B mis-attributes a vanished upstream slice to our SDK.
     static void AssertStoreKitX64SliceAvailable()
     {
         var sdkPathProc = ProcessTasks.StartProcess("xcrun", "--sdk iphonesimulator --show-sdk-path",

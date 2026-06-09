@@ -9,8 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Phase 3a coverage for option (b) of
-/// <c>gap-0.10.0-generic-method-default-overload-missing.md</c> on the
+/// Coverage for option (b) of the generic-method default-overload gap on the
 /// CSM-async path. The fixtures (<c>DefaultedAsyncRoster</c>) carry a
 /// method-level <c>S: Sequence</c> generic plus two trailing defaults — a
 /// non-mappable <c>Set&lt;Int&gt;</c> and a mappable <c>Int</c> — applied to

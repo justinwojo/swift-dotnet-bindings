@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Bug 17 fixture: __-prefixed protocol requirement that DOES survive into the ABI
+// MARK: - `__`-prefixed protocol requirement that DOES survive into the ABI
 
 /// Local newer-toolchain analogue of the RealityFoundation.MaterialFunction shape.
 /// The protocol declares a public `__`-prefixed requirement (`__linkSPI`) with no

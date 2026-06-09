@@ -4,17 +4,16 @@
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLibDependency;
-// Pin unqualified DependencyService to the dep-module original; the S-3 mirror
-// emits a same-named partial-class wrapper in SwiftBindingsTestLib to host
+// Pin unqualified DependencyService to the dep-module original; the cross-module
+// emitter produces a same-named partial-class wrapper in SwiftBindingsTestLib to host
 // nested extension types.
 using DependencyService = SwiftBindingsTestLibDependency.DependencyService;
 
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// Regression coverage for the cross-module variant of
-/// bug-0.10.0-enum-case-payload-extractor-missing.md (S-3 in
-/// sdk-0.11.0-residual-gaps.md). The Stripe shape is an enum declared in one
+/// Regression coverage for the cross-module variant of the enum-case
+/// payload-extractor-missing bug. The Stripe shape is an enum declared in one
 /// module whose `.completed(payload:)` case carries a type owned by a
 /// *different* module. <see cref="ClassPayloadEnumTests"/> already locks the
 /// same-module variant; these tests lock the cross-module path so any

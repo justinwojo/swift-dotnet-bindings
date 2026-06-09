@@ -6,9 +6,9 @@ using Swift;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLibDependency;
 // Pin unqualified DependencyPoint/DependencyService to the dep-module originals.
-// The S-3 mirror emits same-named partial-class wrappers in SwiftBindingsTestLib
+// The cross-module emitter produces same-named partial-class wrappers in SwiftBindingsTestLib
 // to host nested extension types; consumers dual-importing both modules
-// disambiguate via using-aliases (mirrors the SwiftEventHandler pattern in CLAUDE.md).
+// disambiguate via using-aliases (mirrors the SwiftEventHandler using-alias pattern).
 using DependencyPoint = SwiftBindingsTestLibDependency.DependencyPoint;
 using DependencyService = SwiftBindingsTestLibDependency.DependencyService;
 
@@ -528,7 +528,7 @@ public class CrossModuleTests : TestBase
 
     #endregion
 
-    #region Cross-Module Synthetic-Name Collision (P1-22: user `self_` vs injected receiver pointer)
+    #region Cross-Module Synthetic-Name Collision (user `self_` vs injected receiver pointer)
 
     // The cross-module extension trampolines inject the receiver pointer as `self_`. A user
     // parameter also named `self_` would declare `self_` twice and the wrapper would be SILENTLY

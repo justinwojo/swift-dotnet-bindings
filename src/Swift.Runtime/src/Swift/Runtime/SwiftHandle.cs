@@ -76,7 +76,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// Set by <see cref="MarkConsumed"/> when the underlying value has been moved out by a Swift
     /// <c>consuming</c> parameter. When true, <see cref="ReleaseHandle"/> frees the .NET buffer but
     /// skips the value-witness Destroy — Swift already ran the value's deinit exactly once, so a
-    /// second Destroy would double-free (P0-06).
+    /// second Destroy would double-free.
     /// </summary>
     private volatile bool _consumed;
 
@@ -154,7 +154,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// <remarks>
     /// Generated bindings call this immediately after a P/Invoke that passes this handle to a Swift
     /// <c>consuming</c> non-copyable parameter (see CdeclParamMapper's <c>.move()</c> path). Without
-    /// it, Swift's consume plus the SafeHandle's Destroy would double-free the value (P0-06).
+    /// it, Swift's consume plus the SafeHandle's Destroy would double-free the value.
     /// </remarks>
     public void MarkConsumed()
     {
@@ -190,7 +190,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (handle == IntPtr.Zero)
             return true;
 
-        // Value moved out by a Swift `consuming` parameter (P0-06): Swift already ran the value's
+        // Value moved out by a Swift `consuming` parameter: Swift already ran the value's
         // deinit exactly once, so skip the value-witness Destroy and free the buffer only. Must
         // precede the Destroy paths below. Checked on both Dispose and finalizer.
         if (_consumed)

@@ -144,7 +144,7 @@ namespace BindingsGeneration
             // only the <None Pack="true"> item targets the sliced path. CLI standalone csprojs
             // are single-TFM, so generation-time slicing is sufficient — re-run the generator
             // when the source xcframework changes. The SDK pack-time path slices in Sdk.targets
-            // via _SliceSourceXcframework instead. See src/docs/per-rid-xcframework-slicing.md.
+            // via _SliceSourceXcframework instead.
             //
             // Stage under `pack-staging/` (NOT `obj/`) so `dotnet clean` doesn't silently empty
             // the pack glob and produce a nupkg with no source xcframework. Only re-running the

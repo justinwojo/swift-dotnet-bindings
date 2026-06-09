@@ -1231,7 +1231,7 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    // Region H (Module/Type Name Collision) was retired in M3 Session 2: the post-processor
+    // Region H (Module/Type Name Collision) was retired: the post-processor
     // no longer rewrites module-prefix collisions. Equivalent emission-time behavior is
     // covered by ModuleEmissionContextCollisionTests.
 

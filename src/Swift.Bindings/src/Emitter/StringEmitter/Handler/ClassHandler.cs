@@ -421,7 +421,7 @@ namespace BindingsGeneration
                     csWriter, swiftWriter, classDecl,
                     env.TypeDatabase, context.GetEmissionContext(), _logger);
 
-                // Session 7 — Foundation KVO observe extensions for NSObject-rooted
+                // Foundation KVO observe extensions for NSObject-rooted
                 // classes with `@objc dynamic` stored properties. Lives at
                 // namespace scope (separate static extension class) and does not
                 // depend on the specialization engine.
@@ -438,7 +438,7 @@ namespace BindingsGeneration
                         csWriter, swiftWriter, classDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
 
-                    // Session 4 — typed KeyPath singleton trampolines for closed
+                    // Typed KeyPath singleton trampolines for closed
                     // conformers whose nested associated-type bag is referenced as a
                     // KeyPath Root in any of this generic parent's methods. Same
                     // emission window as CSM extensions: namespace-scope, after the
@@ -447,11 +447,11 @@ namespace BindingsGeneration
                         csWriter, swiftWriter, classDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
 
-                    // Session 6c Route C — per-(conformer × distinct projectable V)
-                    // Sort overloads for unconstrained-V keypath-sort methods on this
-                    // PAT-constrained generic parent. Sibling to CSM, not a CSM
-                    // extension: Route C suppresses the original method's open-V
-                    // emission and replaces it with a closed set of typed overloads.
+                    // Per-(conformer × distinct projectable V) Sort overloads for
+                    // unconstrained-V keypath-sort methods on this PAT-constrained
+                    // generic parent. Sibling to CSM, not a CSM extension: Route C
+                    // suppresses the original method's open-V emission and replaces
+                    // it with a closed set of typed overloads.
                     KeyPathBagValueSpecializationEmitter.EmitRouteCSpecializationsForGenericParent(
                         csWriter, swiftWriter, classDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
@@ -720,9 +720,9 @@ namespace BindingsGeneration
             if (_pinvokeHelperContext != null)
             {
                 // Type metadata accessor: Swift's metadata accessor for a generic type expects
-                // metadata + witness tables for any protocol-constrained generic params (per
-                // runtime-metadata.md). AddMetadataAccessorDeclaration transparently routes to
-                // thin-mode (<= 3 args) or buffer-mode (> 3 args) on the helper side.
+                // metadata + witness tables for any protocol-constrained generic params.
+                // AddMetadataAccessorDeclaration transparently routes to thin-mode (<= 3 args)
+                // or buffer-mode (> 3 args) on the helper side.
                 var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
@@ -1367,7 +1367,7 @@ namespace BindingsGeneration
 
             var symbolName = GetEqualitySymbolName(_classDecl);
 
-            // S5 audited (Tier B): equality helpers live in the shared `_equality` bucket (also written by EnumHandler and TypeHandlerHelpers). One helper per class type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
+            // equality helpers live in the shared `_equality` bucket (also written by EnumHandler and TypeHandlerHelpers). One helper per class type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
             if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
                 return symbolName; // Already emitted, return for C# P/Invoke
 

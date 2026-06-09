@@ -461,7 +461,7 @@ public class TypeDatabaseExtensionsTests
         Assert.Null(fallbackInfo);
     }
 
-    // --- Per-module ObjC-prefix gate for existential filtering (Session 5b P1 fix) ---
+    // --- Per-module ObjC-prefix gate for existential filtering ---
     //
     // Existential filtering used to drop every protocol whose module was in the
     // autoBridge set, regardless of whether the protocol's name matched that
@@ -591,7 +591,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("QuartzCore.CAMediaTimingFunctionName", "Foundation", "NSString")]
     [InlineData("QuartzCore.CATransitionType", "Foundation", "NSString")]
     [InlineData("QuartzCore.CATransitionSubtype", "Foundation", "NSString")]
-    // QuartzCore: NSString typedefs reclassified by P1-26 A3 (were mis-modeled as value-type enums).
+    // QuartzCore: NSString typedefs reclassified (were mis-modeled as value-type enums).
     // In Swift these are `typealias X = String`-backed CF/NS string constants, not C enums, so they
     // bridge to NSString rather than a CoreAnimation value type.
     [InlineData("QuartzCore.CAContentsFormat", "Foundation", "NSString")]
@@ -602,7 +602,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("QuartzCore.CAScroll", "Foundation", "NSString")]
     [InlineData("QuartzCore.CADynamicRange", "Foundation", "NSString")]
     [InlineData("QuartzCore.CAToneMapMode", "Foundation", "NSString")]
-    // AVFoundation: String-constant typedefs reclassified by P1-26 A3 (same class as the CA* above).
+    // AVFoundation: String-constant typedefs reclassified (same class as the CA* above).
     [InlineData("AVFoundation.AVMediaType", "Foundation", "NSString")]
     [InlineData("AVFoundation.AVFileType", "Foundation", "NSString")]
     [InlineData("AVFoundation.AVLayerVideoGravity", "Foundation", "NSString")]
@@ -804,8 +804,8 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIControl.ContentVerticalAlignment")]
     [InlineData("UIKit.UIControl.ContentHorizontalAlignment")]
     [InlineData("UIKit.UIAccessibilityTraits")]
-    // AVFoundation enums. (AVMediaType / AVFileType / AVLayerVideoGravity were reclassified by
-    // P1-26 A3 as Foundation.NSString ObjC-bridged classes — see
+    // AVFoundation enums. (AVMediaType / AVFileType / AVLayerVideoGravity were reclassified
+    // as Foundation.NSString ObjC-bridged classes — see
     // GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord.)
     [InlineData("AVFoundation.AVCaptureDevice.Position")]
     [InlineData("AVFoundation.AVCaptureDevice.FlashMode")]
@@ -873,7 +873,7 @@ public class TypeDatabaseExtensionsTests
     // QuartzCore value types (namespace remapped to CoreAnimation). Only genuine value-type
     // enums/structs remain here; the CA* NSString typedefs (CAContentsFormat, CACornerCurve,
     // CAGradientLayerType, CATextLayer{Alignment,Truncation}Mode, CAScroll, CADynamicRange,
-    // CAToneMapMode) were reclassified by P1-26 A3 as Foundation.NSString ObjC-bridged classes
+    // CAToneMapMode) were reclassified as Foundation.NSString ObjC-bridged classes
     // and now live in GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord.
     [InlineData("QuartzCore.CATransform3D", "CoreAnimation", "CATransform3D")]
     [InlineData("QuartzCore.CACornerMask", "CoreAnimation", "CACornerMask")]
@@ -931,7 +931,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIView.AnimationOptions")]
     [InlineData("Foundation.NSData.WritingOptions")]
     [InlineData("Photos.PHImageContentMode")]
-    // Bug 4+5: UIKit value-type enums that were misclassified as ObjC classes
+    // UIKit value-type enums that were misclassified as ObjC classes
     [InlineData("UIKit.UITableView.Style")]
     [InlineData("UIKit.UITextField.DidEndEditingReason")]
     [InlineData("UIKit.UISwipeGestureRecognizer.Direction")]
@@ -1284,7 +1284,7 @@ public class TypeDatabaseExtensionsTests
     [Theory]
     [InlineData("AVFoundation.AVCaptureSession.Preset")]
     [InlineData("AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction")]
-    // AVCaptureDevice.DeviceType reclassified by P1-26 A3 as Foundation.NSString ObjC-bridged class.
+    // AVCaptureDevice.DeviceType reclassified as Foundation.NSString ObjC-bridged class.
     [InlineData("AVFoundation.AVCaptureVideoOrientation")]
     [InlineData("UIKit.NSWritingDirection")]
     [InlineData("UIKit.UIKeyboardType")]
@@ -1739,7 +1739,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("AVFoundation.AVCaptureDevice.DeviceType")]
     public async Task TryGetTypeRecord_AVFoundationStringTypedef_ResolvesToNSString(string swiftType)
     {
-        // P1-26 A3: AVMediaType / AVFileType / AVLayerVideoGravity / AVCaptureDevice.DeviceType are
+        // AVMediaType / AVFileType / AVLayerVideoGravity / AVCaptureDevice.DeviceType are
         // `struct X: RawRepresentable` String constant wrappers in the SDK, not value-type enums.
         // Modeling them as blittable structs leaked a bogus wire type; they bridge to
         // Foundation.NSString. The XML-loaded path must agree with the AppleFrameworkRegistry path
@@ -1789,7 +1789,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("StoreKitDatabase.xml", "StoreKit.SKPaymentTransactionState", "StoreKit.SKPaymentTransactionState", TypeRecordKind.Enum)]
     [InlineData("StoreKitDatabase.xml", "StoreKit.SKError.Code", "StoreKit.SKError", TypeRecordKind.Enum)]
     [InlineData("SceneKitDatabase.xml", "SceneKit.SCNVector3", "SceneKit.SCNVector3", TypeRecordKind.Struct)]
-    // NLLanguage and NLTagScheme were reclassified by P1-26 A3 as Foundation.NSString ObjC-bridged
+    // NLLanguage and NLTagScheme were reclassified as Foundation.NSString ObjC-bridged
     // classes (they are String-backed constant typedefs, not value-type enums) — see
     // TryGetTypeRecord_NaturalLanguageStringTypedef_ResolvesToNSString below. Only the genuine
     // value-type enum NLTokenUnit remains a NaturalLanguage struct here.
@@ -1822,7 +1822,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("NaturalLanguage.NLTagScheme")]
     public async Task TryGetTypeRecord_NaturalLanguageStringTypedef_ResolvesToNSString(string swiftType)
     {
-        // P1-26 A3: NLLanguage / NLTagScheme are `struct NLLanguage: RawRepresentable` String
+        // NLLanguage / NLTagScheme are `struct NLLanguage: RawRepresentable` String
         // constant wrappers in the SDK, not C enums. Modeling them as value-type structs leaked a
         // bogus blittable struct; they must bridge to Foundation.NSString like the other String
         // constant typedefs (CALayerContentsGravity etc.). The XML-loaded path must agree with the
@@ -2242,9 +2242,9 @@ public class TypeDatabaseExtensionsTests
     //     ShouldEmitConformance because TryGetTypeRecord returned false.
     //   * UnownedSerialExecutor failed lookup so MemberEmissionValidator.CanEmitProperty
     //     rejected the unownedExecutor accessor with SkipReason.UnsupportedType — the
-    //     accessor symbol Session 3 needs to wire `assumeIsolated` against was hidden.
+    //     accessor symbol needed to wire `assumeIsolated` against was hidden.
     //
-    // These tests pin the database registrations down so the Session 3 isolated-thunk
+    // These tests pin the database registrations down so the actor-isolated-thunk
     // work can rely on stable metadata, and so a regression that drops the entries (e.g.
     // an XML refactor that loses the entity blocks) breaks here instead of in some
     // distant emitter codepath.
@@ -2318,8 +2318,8 @@ public class TypeDatabaseExtensionsTests
         // every actor carries returns this struct. Before the registration landed,
         // TryGetTypeRecord("_Concurrency.UnownedSerialExecutor") returned false and
         // MemberEmissionValidator.CanEmitProperty dropped the accessor with
-        // SkipReason.UnsupportedType — meaning Session 3 had no executor accessor symbol
-        // to wire `assumeIsolated` against. The 16-byte size mirrors Swift's frozen
+        // SkipReason.UnsupportedType — meaning the actor-isolated thunk had no executor
+        // accessor symbol to wire `assumeIsolated` against. The 16-byte size mirrors Swift's frozen
         // {executor pointer, witness pointer} layout; the C# mirror in
         // Swift.Runtime.UnownedSerialExecutor is also a 16-byte sequential struct.
         var typeDatabase = await CreateDbWithXmlAsync("_ConcurrencyDatabase.xml");

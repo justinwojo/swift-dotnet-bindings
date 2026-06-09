@@ -904,7 +904,7 @@ public class ClassInheritanceEmissionTests
     {
         // Defensive case: the parent's binding generation skipped describe() (e.g. validation
         // gate dropped it because of an unsupported parameter type), so EmittedClassMethods
-        // does NOT contain it. Without the post-Session-7 verifier the emitter would trust
+        // does NOT contain it. Without the verifier the emitter would trust
         // Swift's IsOverride bit and write `override`, producing CS0115 in the child's C# build.
         // The verifier returns false so the caller falls back to `virtual` instead.
         var derivedClass = CreateClassDecl("LocalChildEntity", moduleName: "ChildModule");

@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Bug 2: Param names containing `?` / `!` from optional/IUO types
+// MARK: - Param names containing `?` / `!` from optional/IUO types
 
 /// Reproduces RealityKit ARView API methods where Swift parameter labels are
 /// implicit and the generator falls back to typename-derived param names.
@@ -27,7 +27,7 @@ public class BugReproOptionalParamNames {
     }
 }
 
-// MARK: - Bug 6: Noncopyable parameter on a protocol-extension method
+// MARK: - Noncopyable parameter on a protocol-extension method
 
 /// A `~Copyable` parameter type. Mirrors the shape of
 /// RealityFoundation.PostProcessEffectContext, which exposes a noncopyable

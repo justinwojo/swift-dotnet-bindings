@@ -202,7 +202,7 @@ public class ProxyLifetimeTrackerTests
     [Fact]
     public void NotifyDeinit_DetachesEvenWhenImplIsAlreadyCollected()
     {
-        // Regression for Codex P1 #2: the secondary map must hold a direct reference
+        // Regression: the secondary map must hold a direct reference
         // to the per-handle entry (not a WeakReference<impl>), so NotifyDeinit can
         // still detach the handle from the cleanup bundle after the impl itself is
         // already garbage-collected. Otherwise the finalizer would later re-Release
@@ -211,7 +211,7 @@ public class ProxyLifetimeTrackerTests
         // Test ordering matters: we must FIRST drive the impl to GC-collected state,
         // THEN call NotifyDeinit. The previous version of this test called
         // NotifyDeinit before forcing GC and therefore did not actually exercise
-        // the dead-impl path it claimed to cover (Codex P2 #2).
+        // the dead-impl path it claimed to cover.
         //
         // Mock-handle safety: ProxyCleanup's finalizer fires when impl is collected
         // and (without the process-exit guard) would call Arc.Release on the mock

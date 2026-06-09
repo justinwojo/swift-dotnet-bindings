@@ -229,7 +229,7 @@ public static class SubscriptWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
-        // S5 audited (Tier B): subscript getters share the property bucket by ABI convention,
+        // subscript getters share the property bucket by ABI convention,
         // but Swift's mangling shapes subscript accessors with a distinct `_subscript`
         // discriminator that is structurally disjoint from any property/method/constructor
         // mangling. The per-kind dedup gate is collision-safe.
@@ -278,7 +278,7 @@ public static class SubscriptWrapperEmitter
                     break; // Already handled above
 
                 case CdeclPhase.Arguments:
-                    // Sibling bindings so a reserved-name escape also dodges a sibling index param (P1-22).
+                    // Sibling bindings so a reserved-name escape also dodges a sibling index param.
                     var indexSiblings = CdeclParamMapper.CollectSiblingBindingNames(subscriptDecl.IndexParameters);
                     foreach (var param in subscriptDecl.IndexParameters)
                     {
@@ -425,7 +425,7 @@ public static class SubscriptWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
-        // S5 audited (Tier B): subscript setters carry Swift's `_subscript`-discriminated
+        // subscript setters carry Swift's `_subscript`-discriminated
         // setter mangling — disjoint from getters, properties, methods, and constructors.
         // The per-kind dedup gate is collision-safe.
         if (!ctx.TryAddPropertyWrapperSymbol(symbolName))

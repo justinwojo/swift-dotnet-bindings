@@ -164,10 +164,10 @@ public partial class ProtocolProxyEmitter
                 // (e.g. after user Dispose) is a silent no-op instead of throwing
                 // InvalidOperationException across the [UnmanagedCallersOnly] boundary.
                 // The impl weak-reference unwrap may ALSO return null if the user dropped
-                // the impl while Swift still holds a strong retain on the proxy (Codex P0);
+                // the impl while Swift still holds a strong retain on the proxy;
                 // in that case we return a zero-filled buffer rather than NRE-crash.
                 //
-                // Codex P1 #1: the buffer size MUST match the carrier the success path uses
+                // The buffer size MUST match the carrier the success path uses
                 // for MarshalToSwiftBuffer<T>(...). When a getter conversion is present the
                 // carrier is e.g. SwiftOptional<bool>, NOT bool? — using the idiomatic type
                 // here would hand Swift a too-small buffer and corrupt the receiver boundary.
@@ -235,7 +235,7 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_set";
             if (emittedReceivers.Add(receiverName))
             {
-                // Issue #40 / P1-01: a Swift-class (or Optional<class>) value arrives as the address of a
+                // Issue #40: a Swift-class (or Optional<class>) value arrives as the address of a
                 // borrowed slot holding the heap pointer (&valueCopy). The runtime copy-out helper returns
                 // the wrapper (or null) directly, so the marshalled value IS the assignment value — no
                 // idiomatic cast (which would re-wrap and, for the optional, false-trip on Unsafe.Read).
@@ -666,8 +666,8 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                 // Dead-impl safe: return zeroed buffer rather than throwing on missing
-                // proxy / GC'd impl (Codex P0 + P1 #3 — [UnmanagedCallersOnly] cannot throw).
-                // Codex P1 #1: size the fallback by the carrier the success path uses for
+                // proxy / GC'd impl ([UnmanagedCallersOnly] cannot throw).
+                // Size the fallback by the carrier the success path uses for
                 // MarshalToSwiftBuffer<T>(...), not by the idiomatic interface type.
                 var subscriptIsString = IsStringTypeSpec(subscript.ReturnTypeSpec);
                 var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
@@ -691,7 +691,7 @@ public partial class ProtocolProxyEmitter
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     if (IsStringTypeSpec(param.SwiftTypeSpec))
                         writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
-                    // Issue #40 / P1-01: a Swift-class index arrives as the address of a borrowed slot;
+                    // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
                     // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
                     else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string indexClassCopyOut)
                         writer.WriteLine($"var index{i} = {indexClassCopyOut};");
@@ -772,7 +772,7 @@ public partial class ProtocolProxyEmitter
                 {
                     writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr).ToString();");
                 }
-                // Issue #40 / P1-01: a Swift-class (or Optional<class>) value arrives as the address of a
+                // Issue #40: a Swift-class (or Optional<class>) value arrives as the address of a
                 // borrowed slot; copy it out instead of Unsafe.Read-ing the heap pointer as a managed ref.
                 else if (GetReceiverClassCopyOutExpr("valuePtr", subscript.ReturnTypeSpec) is string valueClassCopyOut)
                 {
@@ -799,7 +799,7 @@ public partial class ProtocolProxyEmitter
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     if (IsStringTypeSpec(param.SwiftTypeSpec))
                         writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
-                    // Issue #40 / P1-01: a Swift-class index arrives as the address of a borrowed slot;
+                    // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
                     // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
                     else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string setterIndexClassCopyOut)
                         writer.WriteLine($"var index{i} = {setterIndexClassCopyOut};");
@@ -985,7 +985,7 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
 
-        // P1-04: optional-existential returns fall through to the normal marshalling path.
+        // Optional-existential returns fall through to the normal marshalling path.
         // GetReceiverExistentialGetterConversion's Optional<existential> arm builds a valid
         // SwiftOptional<ExistentialContainerN> (NewSome/NewNone) from the C# proxy, and
         // GetReceiverGetterCarrierTypeCore sizes the dead-impl null path to the same carrier.
@@ -995,9 +995,9 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
         // Dead-impl safe: use TryGetProxy + impl null check. A throw across
         // the [UnmanagedCallersOnly] boundary is process-terminating, so a GC'd impl or
-        // unregistered proxy silently returns a default value instead (Codex P0 + P1 #3).
+        // unregistered proxy silently returns a default value instead.
         //
-        // Codex P1 #1: size the null-path buffer by the SAME carrier the success path
+        // Size the null-path buffer by the SAME carrier the success path
         // marshals via MarshalToSwiftBuffer<T>(...). When a return conversion is present
         // the carrier is e.g. SwiftOptional<bool> (8 bytes) — using `Unsafe.SizeOf<bool?>`
         // (2 bytes) here would hand Swift a too-small buffer and corrupt the boundary.
@@ -1006,7 +1006,7 @@ public partial class ProtocolProxyEmitter
         // So size the dead-impl null buffer by the SAME unwrapped-T carrier the success path
         // marshals — async is treated exactly like sync here, not special-cased to skip the
         // conversion sizing (which would desync the null buffer from the success carrier for an
-        // existential/ObjC async return, the invariant Codex P1 #1 guards).
+        // existential/ObjC async return, as the invariant guarded here requires).
         bool isStringMethodReturnForNullPath = hasReturn && IsStringTypeSpec(returnType!);
         string? methodReturnConvForSizing = null;
         if (hasReturn)
@@ -1114,7 +1114,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"var {rawArgName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(rawArg{argIndex});");
                 writer.WriteLine($"var {argName} = {rawArgName}.ToString();");
             }
-            // Issue #40 / P1-01: a Swift-class (or Optional<class>) param arrives as the address of a
+            // Issue #40: a Swift-class (or Optional<class>) param arrives as the address of a
             // borrowed slot holding the heap pointer (the Swift thunk passes &{param}Copy). Copy it out
             // via the runtime helper (deref + ObjC-aware retain + NewFromPayload). The local
             // Unsafe.Read<T> would reinterpret the heap pointer as a managed reference and SIGSEGV.
@@ -1459,8 +1459,8 @@ public partial class ProtocolProxyEmitter
             // returns _typeName). SwiftOptional<TWrapper>.NewSome takes the typed wrapper directly so
             // ISwiftObject.MarshalToSwift copies the struct's payload bytes by value via VWT.
             // Lowering the Some-arg to .Payload.DangerousGetHandle() would type-mismatch (passing IntPtr
-            // where the typed wrapper is expected) — same ABI-mismatch class as
-            // bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-….
+            // where the typed wrapper is expected) — same ABI-mismatch class as passing raw IntPtr slots
+            // for ISwiftObject elements instead of the typed wrapper.
             NonFrozenStructProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{passthroughOptType}>.NewSome({varName}Val) : SwiftOptional<{passthroughOptType}>.NewNone())",
             // Blittable, SimpleEnum, etc. — MarshalToSwiftBuffer writes raw bytes via Unsafe.Write<T>,
             // so C# int? (Nullable<int>) is NOT layout-compatible with SwiftOptional<int> (a class).
@@ -1476,7 +1476,7 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Issue #40 / audit P1-01: route a Swift-class (or <c>Optional&lt;class&gt;</c>) reverse-callback
+    /// Issue #40: route a Swift-class (or <c>Optional&lt;class&gt;</c>) reverse-callback
     /// parameter through the runtime borrowed-slot copy-out instead of the per-proxy local
     /// <c>MarshalFromSwift&lt;T&gt;</c> (which does <c>Unsafe.Read&lt;T&gt;</c> and reinterprets the Swift
     /// heap pointer as a managed reference → SIGSEGV on first use). <paramref name="slotExpr"/> is the
@@ -1584,8 +1584,8 @@ public partial class ProtocolProxyEmitter
     private string? GetReceiverArraySetterConversion(ArrayProjection arr, string varName)
     {
         // Owned (+1): the .AsProjected element read drives SwiftArray's subscript getter, whose
-        // InitializeWithCopy moves each element out at +1 (audit P1-07/P1-08) — an existential leaf
-        // must adopt+release it. GetOwnedReturnElementConversion is a no-op for non-existential leaves.
+        // InitializeWithCopy moves each element out at +1 — an existential leaf must adopt+release it.
+        // GetOwnedReturnElementConversion is a no-op for non-existential leaves.
         var elemConv = arr.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
             return $"{varName}.AsProjected(e => {elemConv})";

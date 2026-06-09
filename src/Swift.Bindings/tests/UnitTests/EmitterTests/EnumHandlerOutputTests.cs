@@ -749,7 +749,7 @@ public class EnumHandlerOutputTests
         // Historically the emission was wrapped in a `Lazy<nuint>` to defer the call
         // until first use, working around a separate PAC trap on NativeAOT/arm64e
         // caused by missing protocol-witness-table args on the metadata accessor. That
-        // PAC trap is now fixed end-to-end (constrained-generic-metadata-witness-tables.md),
+        // PAC trap is now fixed end-to-end (constrained generic metadata and witness-table args),
         // so the lazy wrapper has been removed and the field initializer is eager again.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -787,7 +787,7 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_GenericEnum_TryGetBareTypeParameterPayload_EmitsClassVsStructDispatch()
     {
-        // 0.10.0 Bundle 01 (Bug 3): TryGet<Case> on a generic enum whose payload is a bare
+        // TryGet<Case> on a generic enum whose payload is a bare
         // type parameter must runtime-dispatch between class T and non-class T, and each
         // branch must transfer ownership correctly to whatever SafeHandle MarshalFromSwift
         // produces. Two correctness invariants:
@@ -800,7 +800,7 @@ public class EnumHandlerOutputTests
         //      We dereference *(IntPtr*)enumCopy and pass it straight to MarshalFromSwift<T>,
         //      whose NewFromPayload ADOPTS exactly one reference (consuming the copy's +1).
         //      An extra explicit retain here would over-retain by +1 per extraction and the
-        //      payload would never reach refcount 0 (issue #40 / P1-01 — the original leak).
+        //      payload would never reach refcount 0 (issue #40 — the original leak).
         //
         //   2. Non-class T (Kind != Class, includes ISwiftStruct, primitives, value
         //      structs): heap-allocate a buffer, InitializeWithCopy from the stack source,
@@ -835,7 +835,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("var __value_classPtr = *(IntPtr*)(enumCopy);", csOutput);
         // No explicit retain: MarshalFromSwift ADOPTS the +1 the enum-level InitializeWithCopy
         // already deposited on the never-destroyed enumCopy. An extra retain (either family)
-        // over-retains by +1 per extraction and the payload never deallocs (issue #40 / P1-01).
+        // over-retains by +1 per extraction and the payload never deallocs (issue #40).
         Assert.DoesNotContain("global::Swift.Runtime.Arc.UnknownObjectRetain(__value_classPtr);", csOutput);
         Assert.DoesNotContain("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(__value_classPtr)", csOutput);
@@ -897,7 +897,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("var __value_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<TSignedType>();", csOutput);
         Assert.Contains("__value_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
         Assert.Contains("var __value_classPtr = *(IntPtr*)(enumCopy);", csOutput);
-        // No explicit retain — MarshalFromSwift adopts the enum-copy's existing +1 (issue #40 / P1-01).
+        // No explicit retain — MarshalFromSwift adopts the enum-copy's existing +1 (issue #40).
         Assert.DoesNotContain("global::Swift.Runtime.Arc.UnknownObjectRetain(__value_classPtr);", csOutput);
         Assert.DoesNotContain("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(__value_classPtr)", csOutput);
@@ -907,7 +907,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof(TSignedType)))", csOutput);
         Assert.Contains("__value_meta.ValueWitnessTable->Destroy(__value_heap, __value_meta);", csOutput);
         Assert.Contains("global::System.Runtime.InteropServices.NativeMemory.Free(__value_heap);", csOutput);
-        // The pre-fix stack-pointer shape (Bug 3) must not regress.
+        // The pre-fix stack-pointer shape (passing the stack buffer pointer to MarshalFromSwift) must not regress.
         Assert.DoesNotContain("SwiftMarshal.MarshalFromSwift<TSignedType>(new IntPtr(enumCopy))", csOutput);
         Assert.DoesNotContain("SwiftMarshal.MarshalFromSwift<TSignedType>(*(IntPtr*)(enumCopy))", csOutput);
         // AnyType must never leak into the TryGet signature for a generic-param payload —
@@ -918,7 +918,7 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_GenericEnum_CaseFactorySugaredTypeParameter_ResolvesAppleShape()
     {
-        // Codex feedback: the original sugared-name fix resolved the TryGet path via a
+        // The original sugared-name fix resolved the TryGet path via a
         // local AnyType bypass but left GetCSharpTypeNameForEnumCase still pre-gated on
         // TypeSpecHelpers.IsGenericTypeParameter (length-≤3 simple-letter shortlist).
         // EmitEnumCaseWithAssociatedValues (the static case factory) shares that helper,
@@ -955,7 +955,7 @@ public class EnumHandlerOutputTests
         // The factory must return the bound generic enum instance, not AnyType.
         Assert.Contains("VerificationResult<TSignedType> Verified", csOutput);
         // AnyType must never leak into the factory parameter list — that was the
-        // case-factory-skip symptom Codex identified.
+        // case-factory-skip symptom guarded here.
         Assert.DoesNotContain("Verified(global::Swift.AnyType", csOutput);
     }
 
@@ -981,7 +981,7 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_NamespaceEnum_WithStaticProperties_EmitsPropertiesInStaticClass()
     {
-        // Codex P1: Caseless enums with static members must emit those members, not just nested types.
+        // Caseless enums with static members must emit those members, not just nested types.
         // Real example: PhoneNumberKit.CountryCodePicker has commonCountryCodes, forceModalPresentation, etc.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -2263,7 +2263,7 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_EnumCaseWithCrossModuleClassPayload_EmitsFactoryAndExtractor()
     {
-        // S-3 regression: an enum in module `Lib` with `.completed(payload: Dep.ForeignClass)`
+        // Regression: an enum in module `Lib` with `.completed(payload: Dep.ForeignClass)`
         // must emit BOTH the `Completed` factory AND the `TryGetCompleted` extractor when the
         // payload type lives in a *different* module. The original Stripe bug had the
         // factory + extractor silently dropped while the sibling `failed(error: any Swift.Error)`
@@ -2293,7 +2293,7 @@ public class EnumHandlerOutputTests
         // deposited on the never-destroyed enum-copy buffer: the class pointer is read and
         // handed straight to MarshalFromSwift, whose NewFromPayload consumes exactly one
         // reference. No explicit retain — an extra one (either family) would over-retain an
-        // @objc:NSObject-rooted payload by +1/extraction (issue #40 / P1-01 — the leak).
+        // @objc:NSObject-rooted payload by +1/extraction (issue #40 — the leak).
         Assert.Contains("SwiftMarshal.MarshalFromSwift<Dep.ForeignClass>(_value_classPtr)", csOutput);
         Assert.DoesNotContain("Arc.UnknownObjectRetain(", csOutput);
         Assert.DoesNotContain("Arc.Retain(_value_classPtr)", csOutput);
@@ -2306,7 +2306,7 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_EnumCaseWithCrossModuleFrozenStructPayload_EmitsFactoryAndExtractor()
     {
-        // S-3 regression (frozen-struct variant): cross-module `.completed(payload: Dep.ForeignPoint)`
+        // Regression (frozen-struct variant): cross-module `.completed(payload: Dep.ForeignPoint)`
         // where the payload is a `@frozen` struct must round-trip through factory + extractor with
         // the foreign struct's namespace preserved.
         var typeDatabase = CreateTypeDatabaseWithCrossModuleFrozenStruct();
@@ -2333,7 +2333,7 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_EnumCaseWithCrossModuleNonFrozenStructPayload_EmitsFactoryAndExtractor()
     {
-        // S-3 regression (non-frozen-struct variant): cross-module `.completed(payload: Dep.ForeignConfig)`
+        // Regression (non-frozen-struct variant): cross-module `.completed(payload: Dep.ForeignConfig)`
         // where the payload is a non-`@frozen` struct (`ClassWithOpaquePayload` shape) must round-trip
         // through the `SwiftSafeHandle<T>` + `InitializeWithCopy` heap path with the foreign namespace
         // preserved.
@@ -3747,10 +3747,10 @@ public class EnumHandlerOutputTests
         Assert.Contains("Container", csOutput);
         Assert.Contains("NativeMemory.Alloc", csOutput);
         Assert.Contains("Unsafe.Copy", csOutput);
-        // P1-03: the heap container is cleaned up via DestroyAndFreeExistential, which runs the
-        // existential value-witness destroy (only when the owns-bit says a value was boxed at +1)
-        // and then frees the heap. This replaced the unconditional inline NativeMemory.Free, which
-        // leaked the boxed payload (swift_allocBox) for value conformers.
+        // The heap container is cleaned up via DestroyAndFreeExistential, which runs the existential
+        // value-witness destroy (only when the owns-bit says a value was boxed at +1) and then frees
+        // the heap. This replaced the unconditional inline NativeMemory.Free, which leaked the boxed
+        // payload (swift_allocBox) for value conformers.
         Assert.Contains("DestroyAndFreeExistential", csOutput);
         // The owns-bit must be threaded out of GetOrCreate so the finally can decide whether to destroy.
         Assert.Contains("Owns", csOutput);

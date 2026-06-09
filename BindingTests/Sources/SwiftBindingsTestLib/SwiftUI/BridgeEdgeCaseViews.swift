@@ -1,19 +1,19 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// SwiftUI Views targeting audit-session-5 P0/P1 defect paths:
+// SwiftUI Views covering regression-fixed defect paths:
 //
-//   ArrayEnumView          (P0-03) BridgeArray with BoundEnum element
-//   EnumModifierView       (P0-03) self-returning modifier with Optional<BoundEnum>
-//   UrlParamView           (P0-04) ObjC-bridgeable struct (URL) param Create/Update
-//   OptionalUrlParamView   (P0-04) Optional<ObjC-bridgeable struct> Create/Update
-//   UrlResultView          (P1-19) Result<URL, ScanError> closure (ObjC-bridgeable success branch)
-//   UrlClosureView         (review) typed (URL)->Void closure — ObjC-bridgeable struct arg
-//   FrozenRefClosureView   (P1-20) closure arg is @frozen struct with ref-holding field
-//   UserDataAsyncView      (P0-13) async View whose user param name collides with the
-//                                  synthetic trailing `userData` param of async Create
-//   HandleParamView        (P1-22) init params named `handle`/`session` collide with
-//                                  generated C# locals in the Create factory
+//   ArrayEnumView          BridgeArray with BoundEnum element
+//   EnumModifierView       self-returning modifier with Optional<BoundEnum>
+//   UrlParamView           ObjC-bridgeable struct (URL) param Create/Update
+//   OptionalUrlParamView   Optional<ObjC-bridgeable struct> Create/Update
+//   UrlResultView          Result<URL, ScanError> closure (ObjC-bridgeable success branch)
+//   UrlClosureView         typed (URL)->Void closure — ObjC-bridgeable struct arg
+//   FrozenRefClosureView   closure arg is @frozen struct with ref-holding field
+//   UserDataAsyncView      async View whose user param name collides with the
+//                          synthetic trailing `userData` param of async Create
+//   HandleParamView        init params named `handle`/`session` collide with
+//                          generated C# locals in the Create factory
 
 // SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
 // compiler environment despite the module importing successfully.
@@ -21,7 +21,7 @@
 import SwiftUI
 import Foundation
 
-// MARK: - P0-03 Array of enum
+// MARK: - Array of enum
 
 /// Tests BridgeArray with BoundEnum element type.
 /// C# bridge encodes as Int32 pointer+count; Swift reconstructs via
@@ -38,7 +38,7 @@ public struct ArrayEnumView: View {
     }
 }
 
-// MARK: - P0-03 Enum modifier with Optional<BoundEnum>
+// MARK: - Enum modifier with Optional<BoundEnum>
 
 /// Tests self-returning modifier whose parameter is Optional<BoundEnum>.
 /// Covers the modifier-Set Optional-enum path in the bridge modifier emitter.
@@ -58,7 +58,7 @@ public struct EnumModifierView: View {
     }
 }
 
-// MARK: - P0-04 ObjC-bridgeable struct param (URL)
+// MARK: - ObjC-bridgeable struct param (URL)
 
 /// Tests Create + Update for a plain ObjC-bridgeable struct parameter (Foundation.URL).
 /// Bridge encodes URL as its absoluteString UTF-8 bytes and reconstructs via URL(string:).
@@ -74,7 +74,7 @@ public struct UrlParamView: View {
     }
 }
 
-// MARK: - P0-04 Optional ObjC-bridgeable struct param (URL?)
+// MARK: - Optional ObjC-bridgeable struct param (URL?)
 
 /// Tests Create + Update for Optional<ObjC-bridgeable struct> (URL?).
 /// Bridge encodes as hasValue (Int32) + UTF-8 bytes; nil encoded as hasValue=0.
@@ -90,21 +90,20 @@ public struct OptionalUrlParamView: View {
     }
 }
 
-// MARK: - P1-19 Result<URL, ScanError> closure
+// MARK: - Result<URL, ScanError> closure
 
 /// Tests Result closure decomposition where the SUCCESS payload is Foundation.URL — an
 /// ObjC-bridgeable struct (URL→NSURL) that crosses the callback ABI as an object pointer.
-/// This is the P1-19 surface: the success branch must bind the bridged temporary to a local
-/// and `withExtendedLifetime` it across the synchronous C# callback, or ARC can release the
-/// `value as AnyObject` temporary before the callback dereferences it (use-after-free).
-/// The error branch reuses the existing class-based `ScanError` (a plain BoundType) so the
-/// fixture isolates the ObjC-bridgeable SUCCESS path.
+/// The success branch must bind the bridged temporary to a local and `withExtendedLifetime`
+/// it across the synchronous C# callback, or ARC can release the `value as AnyObject`
+/// temporary before the callback dereferences it (use-after-free). The error branch reuses
+/// the existing class-based `ScanError` (a plain BoundType) so the fixture isolates the
+/// ObjC-bridgeable SUCCESS path.
 ///
 /// URL (not Data) is the success type because URL is registered as a non-frozen,
 /// memory-managed, ObjC-bridgeable struct and therefore resolves to a BoundStruct with
-/// IsObjCBridgeable=true — the exact classification the P1-19 `withExtendedLifetime`
-/// branch keys off. Foundation.Data is mis-registered as frozen+blittable in
-/// FoundationDatabase.xml (see REMEDIATION-PLAN §6) and so never reaches that branch.
+/// IsObjCBridgeable=true — the exact classification the `withExtendedLifetime` branch keys
+/// off. Foundation.Data is registered as frozen+blittable and so never reaches that branch.
 ///
 /// Trigger mechanism: explicit @_cdecl test-helper invocation (same as FormatMenuView,
 /// ResultCompletionView, TypedClosureView, etc.). The body does NOT fire the closure
@@ -126,13 +125,13 @@ public struct UrlResultView: View {
 // MARK: - Typed closure with ObjC-bridgeable struct arg (URL)
 
 /// Tests a plain typed closure `(URL) -> Void` whose single argument is an ObjC-bridgeable
-/// struct (URL→NSURL). This is the TypedClosure analogue of the P1-19 Result success branch
-/// (surfaced by the Codex/Grok review of session 5): the generated decomposition closure must
+/// struct (URL→NSURL). This is the TypedClosure analogue of the Result success branch fix:
+/// the generated decomposition closure must
 /// deliver the bridged NSURL as an *object pointer* (Unmanaged.passUnretained, held alive by
 /// withExtendedLifetime across the synchronous callback), and the C# trampoline must read it
 /// via GetNSObject — NOT heap-allocate the raw URL struct bytes and read them via
 /// MarshalFromSwift (assumingMemoryBound), which reinterprets an object pointer as struct
-/// memory → type confusion / SIGSEGV (the same shape as P0-04/P1-19).
+/// memory → type confusion / SIGSEGV.
 ///
 /// Trigger mechanism: explicit @_cdecl test-helper invocation (same as UrlResultView). Firing
 /// `rootView.onPick(url)` runs the full pipeline Swift closure → C trampoline → managed Action.
@@ -148,7 +147,7 @@ public struct UrlClosureView: View {
     }
 }
 
-// MARK: - P1-20 @frozen struct with ref-holding field as closure arg
+// MARK: - @frozen struct with ref-holding field as closure arg
 
 /// Tests closure whose argument is a @frozen struct that contains a String field
 /// (String is a reference-holding value type → ClassWithBufferStruct in the bridge).
@@ -167,7 +166,7 @@ public struct FrozenRefClosureView: View {
     }
 }
 
-// MARK: - P0-13 Async View with colliding trailing userData param
+// MARK: - Async View with colliding trailing userData param
 
 /// Tests the async init pattern where the user supplies params literally named
 /// `userData` and `onError` — the same names the async Create bridge appends as
@@ -204,7 +203,7 @@ public struct UserDataAsyncView: View {
     }
 }
 
-// MARK: - P1-22 Init params colliding with synthetic C# locals
+// MARK: - Init params colliding with synthetic C# locals
 
 /// Tests that the emitter does not produce duplicate C# local variable names when
 /// the View's init param names (`handle`, `session`) happen to match the synthetic

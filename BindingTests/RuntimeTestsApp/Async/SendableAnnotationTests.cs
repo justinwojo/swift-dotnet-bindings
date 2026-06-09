@@ -9,7 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Layer A coverage for the Sendable-annotation gap (Bundle 06 Item #4).
+/// Coverage for the Sendable-annotation gap.
 /// .NET has no built-in equivalent of Swift's <c>Sendable</c> marker, so the
 /// generator surfaces it via <see cref="SwiftSendableAttribute"/>. The contract:
 ///

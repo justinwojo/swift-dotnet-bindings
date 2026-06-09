@@ -187,7 +187,7 @@ public static class EnumCaseWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
-        // S5 audited (Tier B): enum case factories live in the constructor bucket; no
+        // enum case factories live in the constructor bucket; no
         // method/property/subscript emitter ever registers symbols here. The cdecl symbol
         // is unique per enum case overload by construction, so the per-kind dedup gate
         // is collision-safe without routing through the structural-identity registry.
@@ -205,7 +205,7 @@ public static class EnumCaseWrapperEmitter
 
         // Associated value parameters. Pre-project the synthetic ArgumentDecls so sibling bindings
         // can be collected up front — a reserved-name escape (e.g. `tag`→`__tag`) must also dodge a
-        // sibling associated-value binding literally named `__tag` (the user-vs-sibling half of P1-22).
+        // sibling associated-value binding literally named `__tag` (the user-vs-sibling reserved-name collision class).
         var assocArgs = new List<ArgumentDecl>();
         var assocLabels = new List<string>();
         for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)

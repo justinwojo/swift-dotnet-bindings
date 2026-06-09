@@ -498,7 +498,7 @@ public class BasicThrowingTests : TestBase
     #endregion
 
     // ===================================================================
-    // Phase 4 plain-throws cascade — SwiftException<TError> dispatch
+    // Plain-throws cascade — SwiftException<TError> dispatch
     // Plain `async throws` (NOT typed-throws) functions that throw a
     // registered Error-conforming enum. The per-module cascade dispatcher
     // should match the runtime error type and surface the strongly-typed
@@ -737,7 +737,7 @@ public class BasicThrowingTests : TestBase
     public void TestNonEmptyStringSuccess()
     {
         // init?(_:) succeeds for a non-empty string; the non-frozen struct projects to a class
-        // with a static bool TryCreate(@string, out result) (Session 3 un-gated the feature).
+        // with a static bool TryCreate(@string, out result).
         var ok = NonEmptyString.TryCreate("hello", out var s);
         AssertTrue(ok, "NonEmptyString.TryCreate succeeds for a non-empty string");
         AssertNotNull(s, "successful TryCreate yields a non-null result");

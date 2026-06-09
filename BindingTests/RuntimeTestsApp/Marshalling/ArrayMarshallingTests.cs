@@ -118,7 +118,7 @@ public class ArrayMarshallingTests : TestBase
     #endregion
 
     #region IEnumerable<NonFrozenStruct> sync round-trip
-    // Regression coverage for bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-… Defect A.
+    // Regression coverage for IEnumerable<NonFrozenStruct> raw-IntPtr packing defect A.
     // Pre-fix the generator emitted SwiftArray<IntPtr>.FromEnumerable(seq.Select(e =>
     // e.Payload.DangerousGetHandle())), which packed 1-word handles where Swift expected
     // contiguous Array<NonFrozenPoint> payload bytes — guaranteed wrong-bytes reads on

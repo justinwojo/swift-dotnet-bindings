@@ -338,7 +338,7 @@ namespace BindingsGeneration
                 // IAsyncEnumerator<T>. Interface adoption is added by GetImplementedInterfaces.
                 AsyncSequenceEmitter.TryEmitAsyncEnumerableBridge(csWriter, structDecl, env.TypeDatabase);
 
-                // Codable JSON round-trip (Phase 1 — non-generic structs projected as classes).
+                // Codable JSON round-trip — non-generic structs projected as classes.
                 // Non-frozen structs are always class-projected; pass isProjectedAsClass: true.
                 if (CodableJsonEmitter.ShouldEmit(structDecl, isProjectedAsClass: true))
                 {
@@ -366,16 +366,14 @@ namespace BindingsGeneration
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
 
-                    // Session 4 — typed KeyPath singleton trampolines, same window as
-                    // CSM emission. The fixture's Bag<Item: Session4_Filterable> lives
-                    // on this path (non-frozen generic struct), so the hook is
-                    // mandatory here for the runtime tests to find their singletons.
+                    // Typed KeyPath singleton trampolines, same window as CSM emission.
+                    // The non-frozen generic struct path requires this hook so the
+                    // runtime tests can find their singletons.
                     KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
 
-                    // Session 6c Route C — sibling per-V Sort overload emission. Same
-                    // call-site contract as Session 4. The emitter branches on the
+                    // Sibling per-V Sort overload emission. The emitter branches on the
                     // receiver kind: class uses unsafeBitCast, struct binds through
                     // assumingMemoryBound + (var __self + pointee write-back when the
                     // method is mutating). MusicLibraryRequest lands here.

@@ -9,8 +9,8 @@ namespace RuntimeTestsApp.MemoryManagement;
 
 /// <summary>
 /// Probes ARC balance for Swift functions returning an OWNED collection of class-bound existentials
-/// (<c>[any Marker]</c> / <c>[String: any Marker]</c>) — the return direction audit P1-07
-/// (collection-element leak) and P1-08 (class-bound stride) actually fixed.
+/// (<c>[any Marker]</c> / <c>[String: any Marker]</c>) — covering the collection-element leak and
+/// class-bound stride defects.
 ///
 /// A class-bound existential element is a 16-byte <c>[classRef][witnessTable]</c> cell
 /// (<see cref="Swift.Runtime.ClassExistentialContainer1"/>), so the wire carrier is a
@@ -129,7 +129,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     }
 
     /// <summary>
-    /// NESTED owned <c>[[any Marker]]</c> return (audit L229): the existential leaf is buried under an
+    /// NESTED owned <c>[[any Marker]]</c> return: the existential leaf is buried under an
     /// intermediate <c>[any Marker]</c> layer, so the owned-return projection must recurse the
     /// <c>ownsContainer: true</c> adoption from the outer <c>ArrayProjection</c> through the inner
     /// <c>ArrayProjection</c> down to <c>ExistentialProjection</c>. Materializing the outer array yields
@@ -185,7 +185,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     }
 
     /// <summary>
-    /// NESTED owned <c>[String: [any Marker]]</c> return (audit L229), Dictionary-of-arrays sibling: the
+    /// NESTED owned <c>[String: [any Marker]]</c> return, Dictionary-of-arrays sibling: the
     /// existential leaf is buried under the dictionary's value <c>[any Marker]</c> layer, so the
     /// owned-return projection must recurse the <c>ownsContainer: true</c> adoption from
     /// <c>DictionaryProjection</c> through the value <c>ArrayProjection</c> down to
@@ -236,7 +236,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     }
 
     /// <summary>
-    /// NESTED owned <c>[[String: any Marker]]</c> return (audit L229), Array-of-dictionaries sibling: the
+    /// NESTED owned <c>[[String: any Marker]]</c> return, Array-of-dictionaries sibling: the
     /// existential leaf is buried under an intermediate <c>[String: any Marker]</c> DICTIONARY layer, so
     /// the owned-return projection must recurse the <c>ownsContainer: true</c> adoption from the outer
     /// <c>ArrayProjection</c> through the element <c>DictionaryProjection</c> down to
@@ -290,7 +290,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     }
 
     /// <summary>
-    /// NESTED owned <c>[String: [String: any Marker]]</c> return (audit L229), Dictionary-of-dictionaries:
+    /// NESTED owned <c>[String: [String: any Marker]]</c> return, Dictionary-of-dictionaries:
     /// the buried existential sits in an INVARIANT <c>IReadOnlyDictionary</c> value slot — the shape the
     /// AoA/DoA/AoM probes above MISS, because their outer container is a COVARIANT <c>IReadOnlyList</c> that
     /// silently absorbs a concrete inner <c>Dictionary</c>. Here the inner <c>DictionaryProjection</c> element
@@ -343,7 +343,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     }
 
     /// <summary>
-    /// NESTED owned <c>[String: [[String: any Marker]]]</c> return (audit L229), three-level
+    /// NESTED owned <c>[String: [[String: any Marker]]]</c> return, three-level
     /// Dictionary→Array→Dictionary: the EXACT shape that regressed FirebaseFirestore/ObjectMapper's
     /// <c>[String: [[String: any P]]]</c> returns. The outer Dictionary VALUE slot is INVARIANT and its
     /// value is a COVARIANT <c>IReadOnlyList</c> whose elements are concrete inner dictionaries, so the
@@ -437,8 +437,8 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     }
 
     /// <summary>
-    /// RECEIVER method-param <c>[[String: any Marker]]</c> (the FirebaseFirestore <c>mapMerge</c> shape,
-    /// audit L229): Swift builds a grid of fresh <c>MarkerImpl</c> conformers and passes it into the C#
+    /// RECEIVER method-param <c>[[String: any Marker]]</c> (the FirebaseFirestore <c>mapMerge</c> shape):
+    /// Swift builds a grid of fresh <c>MarkerImpl</c> conformers and passes it into the C#
     /// impl through the generated receiver, which materializes each inner dictionary's existential value
     /// by moving it out at +1. Because the impl never disposes anything, the moved-out +1 is released
     /// ONLY if the materialized value proxy adopted it (<c>ownsContainer: true</c>) and its finalizer

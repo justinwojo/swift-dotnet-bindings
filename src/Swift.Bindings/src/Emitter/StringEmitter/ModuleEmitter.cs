@@ -83,9 +83,9 @@ namespace BindingsGeneration
                     InterfacePropertyNamePrecomputer.Precompute(moduleDecl, _typeDatabase, emissionContext);
                     // Pre-pass: register every concrete error-conforming type (Swift.Error /
                     // Foundation.LocalizedError) from this module on the emission context with a
-                    // stable id. Layer 1 of the Phase 4 plain-throws → SwiftException<TError>
-                    // bridge — the in-memory registry is consumed by the wire-format extension
-                    // and Swift cascade helper that follow. See ErrorEnumRegistryEmitter.
+                    // stable id for the plain-throws → SwiftException<TError> bridge — the
+                    // in-memory registry is consumed by the wire-format extension and Swift
+                    // cascade helper that follow. See ErrorEnumRegistryEmitter.
                     ErrorEnumRegistryEmitter.Precompute(moduleDecl, emissionContext);
                     var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext);
                     moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);

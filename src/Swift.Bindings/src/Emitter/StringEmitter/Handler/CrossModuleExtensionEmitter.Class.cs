@@ -43,7 +43,7 @@ namespace BindingsGeneration;
 /// <c>UnmanagedCallersOnly</c> static callback is emitted to bridge the cdecl
 /// signature back into the user's strongly typed delegate.
 ///
-/// Initial supported shape (Session 1 minimum):
+/// Supported shape:
 /// - Instance method on a pure Swift class (<c>self.Payload.DangerousGetHandle()</c>)
 ///   OR an ObjC-rooted class (<c>self.Handle</c>).
 /// - One or more closure parameters, all <c>@escaping (Args...) -&gt; Void</c>
@@ -424,7 +424,7 @@ public static partial class CrossModuleExtensionEmitter
         bool isStatic)
     {
         // Seed each param's sibling-aware Swift binding before any SwiftBindingName read, so a
-        // reserved-name escape (self_/…) also dodges a sibling user binding (P1-22).
+        // reserved-name escape (self_/…) also dodges a sibling user binding.
         var siblingBindings = CollectTrampolineSiblingBindings(parameters.Select(p => p.Name));
         foreach (var p in parameters)
             p.ResolveSwiftBinding(siblingBindings);
@@ -1227,7 +1227,7 @@ public static partial class CrossModuleExtensionEmitter
 
         // Seed each param's sibling-aware Swift binding before any SwiftBindingName read, so a
         // reserved-name escape (completionFn/completionCtx/self_) also dodges a sibling user
-        // binding (P1-22).
+        // binding.
         var siblingBindings = CollectTrampolineSiblingBindings(parameters.Select(p => p.Name));
         foreach (var p in parameters)
             p.ResolveSwiftBinding(siblingBindings);
@@ -1411,7 +1411,7 @@ public static partial class CrossModuleExtensionEmitter
     /// The raw (pre-escape) sibling binding names for a cross-module-extension trampoline — its
     /// params bind to <c>Escape(Name)</c>, so the canonical binding is the param <c>Name</c>. Fed
     /// to each param's <c>ResolveSwiftBinding</c> so a reserved-name escape also dodges a sibling
-    /// user binding (P1-22). Shared by the Class and Struct partials.
+    /// user binding. Shared by the Class and Struct partials.
     /// </summary>
     private static IReadOnlySet<string> CollectTrampolineSiblingBindings(IEnumerable<string> names)
     {
@@ -1437,7 +1437,7 @@ public static partial class CrossModuleExtensionEmitter
 
         // Swift @_cdecl binding spelling: escapes Name when it collides with a synthetic
         // injected into the async trampoline signature (completionFn/completionCtx/self_) OR a
-        // sibling user binding (P1-22). Positional FFI lets the Swift binding differ from the C#
+        // sibling user binding. Positional FFI lets the Swift binding differ from the C#
         // param name (Name); the external Swift call label is ArgLabel, so this rename is
         // source-local and safe. Falls back to the synthetic-only escape until
         // ResolveSwiftBinding seeds the sibling-aware form (once the full param list is known).
@@ -1471,7 +1471,7 @@ public static partial class CrossModuleExtensionEmitter
 
         // Swift @_cdecl binding spelling: escapes Name when it collides with a synthetic
         // injected into the trampoline signature (e.g. the `self_` receiver) OR a sibling user
-        // binding (P1-22). The C# P/Invoke is matched positionally, so the Swift binding may
+        // binding. The C# P/Invoke is matched positionally, so the Swift binding may
         // differ from the C# param name (Name) without affecting the ABI; the public C# method
         // keeps the faithful Name. Falls back to the synthetic-only escape until
         // ResolveSwiftBinding seeds the sibling-aware form (once the full param list is known).

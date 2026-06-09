@@ -10,7 +10,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for closure-parameter tombstone emission (Fix K, gap-0.10.0-closure-parameter-skip-renders-apis-unreachable).
+/// Tests for closure-parameter tombstone emission.
 ///
 /// When a method's only blocker is an unsupported closure parameter shape, the emitter writes a
 /// tombstoned-but-reachable surface (object? for the closure, throws at runtime, [Obsolete SB0005] +

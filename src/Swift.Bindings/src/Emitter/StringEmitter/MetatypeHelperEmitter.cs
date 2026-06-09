@@ -22,8 +22,7 @@ namespace BindingsGeneration;
 /// constraints. The dlsym'd <c>...Ma</c> symbol's actual signature includes ALL PWTs,
 /// so a mismatch corrupts caller-saved registers and PAC-traps on arm64e (NativeAOT).
 /// The central gate lives in <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
-/// Dynamic PWT resolution for the Swift wrapper path is tracked in
-/// <c>src/docs/roadmap.md</c> ("Wrapper-helper path dynamic PWT resolution").
+/// Dynamic PWT resolution for the Swift wrapper path is not yet implemented.
 /// </para>
 /// </summary>
 public static class MetatypeHelperEmitter
@@ -69,7 +68,7 @@ public static class MetatypeHelperEmitter
         var hashInput = pwtCount > 0 ? $"{mangledName}:pwt{pwtCount}" : mangledName;
         var helperName = $"_sbw_meta_{EmitterUtility.DeterministicHash8(hashInput)}";
 
-        // S5 audited (Tier C): metadata-accessor helpers live in a dedicated `_metadata_accessor` bucket — no other emitter writes to it. dedupKey includes mangledName + PWT count, helper name is hashed for cross-type collision safety.
+        // metadata-accessor helpers live in a dedicated `_metadata_accessor` bucket — no other emitter writes to it. dedupKey includes mangledName + PWT count, helper name is hashed for cross-type collision safety.
         if (!ctx.TryAddMetadataAccessorHelper(dedupKey))
             return helperName; // Already emitted, just return the name
 
@@ -209,8 +208,7 @@ public static class MetatypeHelperEmitter
     /// that mismatch is a guaranteed PAC trap / SIGSEGV at runtime, not a recoverable
     /// condition. The fail-closed gate lives in
     /// <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>. Dynamic PWT
-    /// resolution from the Swift wrapper path is tracked in <c>src/docs/roadmap.md</c>
-    /// ("Wrapper-helper path dynamic PWT resolution").
+    /// resolution from the Swift wrapper path is not yet implemented.
     /// </summary>
     public static int GetResolvablePwtParameterCount(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {
@@ -261,9 +259,7 @@ public static class MetatypeHelperEmitter
     /// This is the fail-closed predicate used by
     /// <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/> to refuse member emission
     /// for any generic type whose metadata accessor would be called with the wrong PWT count.
-    /// See src/docs/constrained-generic-metadata-witness-tables.md "MetatypeHelperEmitter
-    /// Swift wrapper path" for the full design rationale. Audited across the validation
-    /// matrix; no current library triggers this gate (those types either have no emittable
+    /// No current library triggers this gate (those types either have no emittable
     /// members today, or their constraint protocols are not yet in the type database).
     /// Adding a new library that DOES trigger it should be loud, not silent — hence the
     /// gate.
@@ -393,7 +389,7 @@ public static class MetatypeHelperEmitter
     /// accessor as a thin function with explicit <c>(request, metadata..., pwt...)</c> args; calling
     /// the buffer-mode ABI through that signature shifts caller-saved registers and PAC-traps on
     /// arm64e. Callers MUST gate on this predicate to refuse emission for over-threshold types.
-    /// Buffer-mode emission is tracked in <c>src/docs/roadmap.md</c>.
+    /// Buffer-mode emission is not yet implemented.
     /// </summary>
     /// <remarks>
     /// Counts the same conformances the wrapper helper itself passes — i.e.

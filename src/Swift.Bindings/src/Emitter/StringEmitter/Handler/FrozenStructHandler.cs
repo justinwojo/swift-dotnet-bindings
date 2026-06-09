@@ -449,8 +449,8 @@ namespace BindingsGeneration
                 // Codable JSON round-trip is intentionally NOT emitted here. FrozenStructHandler
                 // covers ClassWithBufferStruct projections, which expose `_payload` + `PayloadBuffer<Buffer>`
                 // but NOT the `_payloadSize`/`NewFromPayloadCore` primitives the JSON decoder factory
-                // relies on. Phase 1 ships JSON only for the ClassWithOpaquePayload pattern emitted
-                // by NonFrozenStructHandler; ClassWithBufferStruct support is a separate phase.
+                // relies on. JSON is only emitted for the ClassWithOpaquePayload pattern emitted
+                // by NonFrozenStructHandler; ClassWithBufferStruct support is tracked separately.
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -469,18 +469,18 @@ namespace BindingsGeneration
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
 
-                    // Session 4 — typed KeyPath singleton trampolines for closed
-                    // conformers. Frozen generic structs reach this handler whenever
-                    // their generic parameters lift them out of the value-type path;
-                    // singletons emit at the same window as CSM.
+                    // Typed KeyPath singleton trampolines for closed conformers.
+                    // Frozen generic structs reach this handler whenever their generic
+                    // parameters lift them out of the value-type path; singletons emit
+                    // at the same window as CSM.
                     KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
 
-                    // Session 6c Route C — per-V Sort overloads for unconstrained-V
-                    // keypath-sort methods on a frozen struct generic parent. The
-                    // emitter branches receiver-kind internally; mutating methods get
-                    // the `var __self` + pointee write-back pattern.
+                    // Per-V Sort overloads for unconstrained-V keypath-sort methods on
+                    // a frozen struct generic parent. The emitter branches receiver-kind
+                    // internally; mutating methods get the `var __self` + pointee
+                    // write-back pattern.
                     KeyPathBagValueSpecializationEmitter.EmitRouteCSpecializationsForGenericParent(
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);

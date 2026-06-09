@@ -37,7 +37,7 @@ public class StdlibProtocolConstraintTests : TestBase
             "CodableContainer payload must be a non-null Swift handle");
     }
 
-    // Phase A ISwiftObject seed-drop gate. `EquatableContainer<T: Equatable>` is a
+    // ISwiftObject seed-drop gate. `EquatableContainer<T: Equatable>` is a
     // generic constrained by a Self-requirement (descriptor-path-safe) protocol. A
     // Swift STRUCT conformer projects to a C# type implementing `ISwiftObject`, so it
     // satisfies the historical seed regardless — the only conformer that actually
@@ -56,10 +56,9 @@ public class StdlibProtocolConstraintTests : TestBase
             "EquatableContainer<nint>.Item must read back the stored primitive value");
     }
 
-    // Phase 1 Codable JSON round-trip: synthesized Codable conformance now
-    // surfaces JSON encode/decode helpers via Foundation's concrete encoder/decoder.
-    // EquatableTicket is `struct ... : Equatable, Codable` — exactly the non-generic
-    // frozen-struct shape the Phase 1 emitter targets.
+    // Codable JSON round-trip: synthesized Codable conformance now surfaces JSON
+    // encode/decode helpers via Foundation's concrete encoder/decoder. EquatableTicket
+    // is `struct ... : Equatable, Codable` — the non-generic frozen-struct shape.
     public void TestEquatableTicket_EncodeToJson_ProducesNonEmptyBytes()
     {
         using var ticket = new EquatableTicket(7);

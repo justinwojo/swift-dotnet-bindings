@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Track-A6 runtime gate for the CSM (Concrete Specialization Mechanism) class-conformer
+/// Runtime gate for the CSM (Concrete Specialization Mechanism) class-conformer
 /// return path. A generic method returning its own type parameter with a CLASS conformer
 /// (<c>func f&lt;T: CarrierItem&gt;(_ t: T) -&gt; T</c>) routes through the carrier path:
 /// the Swift @_cdecl wrapper stores the instance pointer INTO a one-word indirect-return
@@ -15,13 +15,13 @@ namespace RuntimeTestsApp.Generics;
 /// slot's contents and adopt that +1, then raw-free the carrier — NOT wrap the carrier
 /// address as the instance.
 ///
-/// Audit P0-11: the old emission wrapped the freed carrier ADDRESS as the instance, which is
+/// The old emission wrapped the freed carrier ADDRESS as the instance, which is
 /// (a) a use-after-free — every read dereferences the freed one-word carrier — and (b) a leak
 /// of the real instance, whose carrier-held +1 was never adopted. These tests pin both halves:
 /// value round-trips + survival-after-churn catch the UAF; the live-count 1-then-0 probe
 /// catches the leak.
 ///
-/// Audit P1-22: <see cref="CarrierBox.RelayThrough"/> takes a user parameter literally named
+/// <see cref="CarrierBox.RelayThrough"/> takes a user parameter literally named
 /// <c>resultPtr</c> — the spelling of the synthetic indirect-return local the CSM emitter
 /// hardcodes. The binding compiles only because the synthetic is escaped (to <c>__resultPtr</c>);
 /// this test confirms the escaped path still round-trips at runtime.
@@ -82,7 +82,7 @@ public class CsmClassConformerReturnTests : TestBase
     }
 
     /// <summary>
-    /// P1-22 runtime: a user parameter named <c>resultPtr</c> collides with the synthetic
+    /// A user parameter named <c>resultPtr</c> collides with the synthetic
     /// indirect-return local; the escaped emission must still round-trip the class instance.
     /// </summary>
     public void TestRelayThrough_SyntheticParamCollision_RoundTrips()

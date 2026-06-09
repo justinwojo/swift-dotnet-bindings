@@ -544,8 +544,8 @@ namespace BindingsGeneration
                 // itself — so other closed instantiations resolved at runtime through
                 // SwiftObjectReflectionHelper are dead-code-eliminated and fail with missing
                 // metadata on device. The runtime ships an equivalent descriptor for
-                // Swift.SwiftArray`1; this is the per-module counterpart. (Codex r1 HIGH for
-                // RC-AOT flagged this as load-bearing alongside the cctor pattern.)
+                // Swift.SwiftArray`1; this is the per-module counterpart. The descriptor
+                // is load-bearing alongside the cctor pattern for NativeAOT trimming.
                 //
                 // The assembly fullname must match the produced assembly's short name. The csproj
                 // emitted by BindingProjectEmitter does not set <AssemblyName> explicitly, so the

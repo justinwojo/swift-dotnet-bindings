@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Blittable-Optional params on @_cdecl method wrappers (REMEDIATION-PLAN §6)
+// MARK: - Blittable-Optional params on @_cdecl method wrappers
 //
 // End-to-end coverage that a small *blittable* Optional parameter (`Int32?`/`Int?`/`Double?`/
 // `CGFloat?`…) is correctly DECODED — not forwarded as a bare `UnsafeRawPointer` — when its
@@ -16,21 +16,20 @@ import Foundation
 //     return obj.addOptionalWith…(nOpt, …)
 //
 // MethodWrapperEmitter always maps params with `omitLabels: false`, so the decode is correct and
-// these round-trips pass with no source change. They are NOT a reachable repro of the §6
-// fallback-branch defect: that defect lives in the `else if (useCdecl)` branch of the two
-// FALLBACK emitters (`ClosureEmitter.SwiftWrapper` and `OptionalPointerWrapperEmitter`), whose
-// Phase-1 gates fire only when `!UsesWrapperLibrary` — i.e. when MethodWrapperEmitter has NOT
-// already claimed the method. No compilable Swift shape reaches those branches today, so the
-// defect is latent: the branch previously mapped a small blittable optional with
-// `omitLabels: true` (the bare-pointer shape, correct only for `_dbw_init_*` dispatch targets
-// that decode internally), forwarding an un-decoded `UnsafeRawPointer` — swiftc would reject the
-// wrapper, the build would strip it, and the entry point would trap. That latent branch is
-// hardened to `omitLabels: false` and pinned directly by the emitter unit tests in
-// `OptionalPointerWrapperTests` ("Blittable-Optional @_cdecl Decode" region). These fixtures
-// remain the durable runtime gate for the MethodWrapperEmitter decode path: each is round-tripped
-// with a non-nil value AND nil so a mis-decode (raw bytes, or a flipped nil branch) is caught.
-// Neither method's callback carries a `SwiftError*`, so both run on the simulator (Mono JIT) and
-// device (NativeAOT).
+// these round-trips pass with no source change. They are NOT a reachable repro of the fallback-branch
+// defect: that defect lives in the `else if (useCdecl)` branch of the two FALLBACK emitters
+// (`ClosureEmitter.SwiftWrapper` and `OptionalPointerWrapperEmitter`), whose gates fire only when
+// `!UsesWrapperLibrary` — i.e. when MethodWrapperEmitter has NOT already claimed the method.
+// No compilable Swift shape reaches those branches today, so the defect is latent: the branch
+// previously mapped a small blittable optional with `omitLabels: true` (the bare-pointer shape,
+// correct only for `_dbw_init_*` dispatch targets that decode internally), forwarding an un-decoded
+// `UnsafeRawPointer` — swiftc would reject the wrapper, the build would strip it, and the entry
+// point would trap. That latent branch is hardened to `omitLabels: false` and pinned directly by
+// the emitter unit tests in `OptionalPointerWrapperTests` ("Blittable-Optional @_cdecl Decode"
+// region). These fixtures remain the durable runtime gate for the MethodWrapperEmitter decode path:
+// each is round-tripped with a non-nil value AND nil so a mis-decode (raw bytes, or a flipped nil
+// branch) is caught. Neither method's callback carries a `SwiftError*`, so both run on the
+// simulator (Mono JIT) and device (NativeAOT).
 
 /// Large (24-byte) frozen struct → `BigPoint?` is a "large Optional" (≥ 8 bytes) that the
 /// method wrapper widens to `UnsafeRawPointer`, alongside which the small `Int32?` is decoded.

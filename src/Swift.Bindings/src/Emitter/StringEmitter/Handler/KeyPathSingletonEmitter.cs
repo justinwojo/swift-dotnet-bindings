@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 4 — Emits typed KeyPath singleton trampolines for closed conformers of
+/// Emits typed KeyPath singleton trampolines for closed conformers of
 /// PAT-constrained generic parent types.
 ///
 /// <para>
@@ -37,14 +37,13 @@ namespace BindingsGeneration;
 ///
 /// <para>
 /// Equality of two KeyPath instances is governed by <c>AnyKeyPath.==</c> (value-
-/// equality on path content), never pointer identity — same as Session 3's
-/// foundation contract.
+/// equality on path content), never pointer identity — value equality, not pointer identity.
 /// </para>
 ///
 /// <para>
 /// Open associated-type-rooted KeyPath parameters (Root is still
 /// <c>P.AssocType</c>) are explicitly out of scope: the CSM path that substitutes
-/// those parameters per conformer remains a Phase-3+ follow-up. This emitter only
+/// those parameters per conformer is not yet implemented. This emitter only
 /// produces singletons keyed on the closed conformer's nested bag; the consumer
 /// methods that take those singletons are emitted independently (today: via
 /// concrete-rooted Swift methods in the fixture).

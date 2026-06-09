@@ -521,7 +521,7 @@ public static class WrapperValidation
                 // through the async-throws harness's catch block.
                 if (env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec))
                     return !env.MethodDecl.IsAsync || !env.MethodDecl.Throws;
-                // Non-throwing baseline (Session C): the adapter uses
+                // Non-throwing baseline: the adapter uses
                 // `await` (no try). The outer method must still be async, but
                 // it does NOT need to be throwing.
                 if (env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(spec))
@@ -532,7 +532,7 @@ public static class WrapperValidation
 
     /// <summary>
     /// Returns true when a method declares an async-throwing closure parameter
-    /// that cannot be bridged by the Session A baseline adapter. The P/Invoke
+    /// that cannot be bridged by the async baseline adapter. The P/Invoke
     /// layer emits <c>(context, startFunc)</c> whenever it sees an
     /// async-throwing closure, but the matching Swift-side adapter is only
     /// generated when the method itself is promoted to a <c>@_cdecl</c> wrapper
@@ -1648,18 +1648,18 @@ public static class WrapperValidation
     /// through the implicit self / metadata registers while the C# CallConvSwift P/Invoke hands
     /// them over as trailing <c>IntPtr</c> args (TMetadata, _selfClass) — the registers hold
     /// garbage and the call SIGSEGVs. They are suppressed at their source in
-    /// <see cref="MemberValidationPipeline"/> (P0-15, the parent-generic async gate next to the
+    /// <see cref="MemberValidationPipeline"/> (the parent-generic async gate next to the
     /// CSM routing) so no live wrong-ABI method ships. Sync methods through the legacy path are
     /// out of scope here — they go through SB0001 / <see cref="HasNonBlittablePInvokeTypes"/>.</para>
     ///
     /// <para><b>Out of scope:</b> the wrapper-library "symbol missing in wrapper dylib" case
-    /// (<c>bug-0.10.0-generic-async-wrapper-symbol-missing</c> — MusicKit
-    /// <c>MusicPlayer.Queue.insert&lt;S: Sequence&gt;</c>) cannot be detected from method
+    /// The wrapper-library "symbol missing in wrapper dylib" case for MusicKit
+    /// <c>MusicPlayer.Queue.insert&lt;S: Sequence&gt;</c> cannot be detected from method
     /// flags alone: many legitimate paths (ArraySlice, default-parameter, metatype-array,
     /// protocol-extension wrappers) set <see cref="MethodDecl.UsesWrapperLibrary"/> without
     /// a <c>@_cdecl</c> flag because they emit <c>@_silgen_name</c> wrappers whose symbols
     /// ARE present in the wrapper dylib. Distinguishing real misses requires a wrapper-export
-    /// cross-reference and is owned by Session C.</para>
+    /// cross-reference (not yet implemented).</para>
     /// </summary>
     /// <param name="env">The method environment (after all wrapper flags have been resolved).</param>
     /// <returns><c>true</c> when the C# emission must skip this method with an
@@ -1691,7 +1691,7 @@ public static class WrapperValidation
 
         // Sync methods through the legacy direct-CallConvSwift path are diagnosed via SB0001
         // / HasNonBlittablePInvokeTypes (they're emitted with an [Obsolete] warning, not
-        // skipped). The Bundle 7 trigger is async-specific because the Swift async ABI is the
+        // skipped). The trigger is async-specific because the Swift async ABI is the
         // boundary that's under-specified for direct P/Invoke.
         if (!env.MethodDecl.IsAsync)
             return false;
@@ -1702,7 +1702,7 @@ public static class WrapperValidation
         // the parent's generic signature into MethodDecl.GenericParameters, so MethodDecl.IsGeneric
         // is true even for a method with no own generic). The bare parent-generic-only async shape
         // (e.g. `Container<T>.processAsync()`) is NOT this predicate's responsibility: it is
-        // suppressed upstream by the P0-15 gate in MemberValidationPipeline.ValidateMethodEmission
+        // suppressed upstream by the parent-generic async gate in MemberValidationPipeline.ValidateMethodEmission
         // (or specialized via CSM routing) before emission ever reaches the direct path — so
         // returning false for it here is correct and does NOT mean it "flows through the legacy path".
         if (HasMethodOwnGenericParameters(env.MethodDecl))

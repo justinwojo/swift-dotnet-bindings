@@ -392,8 +392,8 @@ public class ClosureHandlerTests
         var result = handler.GetCSharpDelegateType(closure);
 
         // Tuple-element translator now recurses through ClosureHandler so Swift.String
-        // projects to "string" — same projection rule as top-level closure args. Pre-fix
-        // (Bundle 03 callback-arg projection asymmetry) the tuple branch used
+        // projects to "string" — same projection rule as top-level closure args. Pre-fix,
+        // the tuple branch used
         // TupleHandler.TranslateElementTypeToCSharp which short-circuited to
         // typeRecord.CSharpTypeName ("Swift.SwiftString").
         Assert.Equal("global::System.Func<(long, string)>", result);
@@ -556,7 +556,7 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Session B: async-throwing closures with a primitive arg and a blittable primitive
+        // Async-throwing closures with a primitive arg and a blittable primitive
         // return type are accepted by the per-arity bridge gate.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
@@ -573,7 +573,7 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Session B: arg categories are Primitive / SwiftString / SwiftClass. Bool is
+        // Arg categories are Primitive / SwiftString / SwiftClass. Bool is
         // excluded from the blittable-primitive set because C# [UnmanagedCallersOnly]
         // cannot accept a non-blittable Bool on the ABI.
         var closureTypeSpec = new ClosureTypeSpec(
@@ -591,7 +591,7 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // ObjC-bridged / ObjC-rooted class args must NOT be promoted into the Session B
+        // ObjC-bridged / ObjC-rooted class args must NOT be promoted into the
         // SwiftClass path — the Start thunk uses Arc.Retain + SwiftMarshal.MarshalFromSwift<T>,
         // which is wrong for ObjC projections (they require Handle/GetNSObject semantics).
         // The closure must fall through to the generic "unsupported async closure" skip path.
@@ -610,7 +610,7 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Session D: async-throwing closures returning Foundation.Data with zero args
+        // Async-throwing closures returning Foundation.Data with zero args
         // are routed through DataAsyncClosureHelper.RunDataAsync.
         var closureTypeSpec = new ClosureTypeSpec(null, new NamedTypeSpec("Foundation.Data"));
         closureTypeSpec.IsAsync = true;
@@ -926,7 +926,7 @@ public class ClosureHandlerTests
     }
 
     /// <summary>
-    /// Layer-B regression for bug-0.10.0-callback-arg-projection-asymmetry.md: tuple
+    /// Regression for callback-arg projection asymmetry: tuple
     /// elements inside a closure-arg tuple must go through the same translator that
     /// top-level closure args use, otherwise types with non-trivial projections
     /// (Swift.String → string, Optional&lt;T&gt; → T?) leak through as their raw runtime
@@ -974,8 +974,7 @@ public class ClosureHandlerTests
         var optionalTuple = new NamedTypeSpec("Swift.Optional", tupleType);
         var result = handler.TranslateTypeSpecToCSharp(optionalTuple);
 
-        // Inner tuple element Swift.String projects to "string" (Bundle 03 callback-arg
-        // projection asymmetry fix) — same rule as top-level closure args.
+        // Inner tuple element Swift.String projects to "string" — same rule as top-level closure args.
         Assert.Equal("Swift.SwiftOptional<(long, string)>", result);
     }
 
@@ -2042,7 +2041,7 @@ public class ClosureHandlerTests
 
     #endregion
 
-    #region Async+Throwing Closure Tests (Phase 28)
+    #region Async+Throwing Closure Tests
 
     [Fact]
     public void IsAsyncThrowingClosure_WithAsyncAndThrows_ReturnsTrue()
@@ -2273,7 +2272,7 @@ public class ClosureHandlerTests
     [Fact]
     public void IsSupportedClosure_D1_ComplexEnumInCallbackParameter_ReturnsTrue()
     {
-        // D1: Complex enums are now supported as closure parameters via heap-allocated pointer ABI.
+        // Complex enums are now supported as closure parameters via heap-allocated pointer ABI.
         // TestModule.LoadingState is a non-generic complex enum in MockTypeDatabase.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
@@ -2582,7 +2581,7 @@ public class ClosureHandlerTests
     [Fact]
     public void IsComplexEnum_ComplexEnum_ReturnsTrue()
     {
-        // D1: TestModule.LoadingState is a non-generic complex enum (no SimpleEnum flag).
+        // TestModule.LoadingState is a non-generic complex enum (no SimpleEnum flag).
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
         Assert.True(handler.IsComplexEnum(new NamedTypeSpec("TestModule.LoadingState")));
@@ -2615,7 +2614,7 @@ public class ClosureHandlerTests
     [Fact]
     public void IsSupportedClosure_D1_ComplexEnumReturn_ReturnsFalse()
     {
-        // D1: Complex enums as closure RETURN types are blocked.
+        // Complex enums as closure RETURN types are blocked.
         // Only parameters are supported via heap allocation.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
@@ -2631,7 +2630,7 @@ public class ClosureHandlerTests
     [Fact]
     public void IsSupportedClosure_D1_ComplexEnumParamWithVoidReturn_ReturnsTrue()
     {
-        // D1: Complex enum as parameter with Void return — fully supported.
+        // Complex enum as parameter with Void return — fully supported.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -2695,12 +2694,12 @@ public class ClosureHandlerTests
 
     #endregion
 
-    #region Bare Generic Closure Parameter Tests (Bug 3)
+    #region Bare Generic Closure Parameter Tests
 
     [Fact]
     public void IsSupportedClosure_BareDictionaryParameter_ReturnsFalse()
     {
-        // Bug 3: Dictionary without generic type args (e.g., from ObjC NSDictionary bridge)
+        // Dictionary without generic type args (e.g., from ObjC NSDictionary bridge)
         // should be rejected — emitting SwiftDictionary without <K,V> causes CS0305.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
@@ -2715,7 +2714,7 @@ public class ClosureHandlerTests
     [Fact]
     public void IsSupportedClosure_OptionalBareDictionaryParameter_ReturnsFalse()
     {
-        // Bug 3 variant: Optional<Dictionary> where Dictionary has no generic args.
+        // Variant: Optional<Dictionary> where Dictionary has no generic args.
         // The Optional wrapping should not hide the bare generic inner type.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
@@ -3014,7 +3013,7 @@ public class ClosureHandlerTests
                     Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Class
                 },
-                // D1: Non-generic complex enum for testing closure parameter heap allocation
+                // Non-generic complex enum for testing closure parameter heap allocation
                 ["TestModule.LoadingState"] = new TypeRecord
                 {
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LoadingState"),

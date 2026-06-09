@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Regression coverage for issue #40 / P1-01 in the async-self direction: an async instance
+/// Regression coverage for issue #40 in the async-self direction: an async instance
 /// method on an <c>@objc … : NSObject</c>-rooted Swift class. The generated wrapper keeps
 /// <c>self</c> alive across the Task continuation by retaining the self pointer into the call
 /// holder and releasing it in the completion callback. For an NSObject-rooted self that

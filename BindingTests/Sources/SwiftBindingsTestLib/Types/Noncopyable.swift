@@ -99,7 +99,7 @@ public func createFileHandle(descriptor: Int32) -> FileHandle {
     return FileHandle(descriptor: descriptor)
 }
 
-// MARK: - P0-06: consuming non-copyable deinit-runs-exactly-once probe
+// MARK: - Consuming non-copyable deinit-runs-exactly-once probe
 
 /// A noncopyable resource that feeds the shared allocation counters (see
 /// `Lifetime/OwnershipTests.swift`) so a C# test can assert its `deinit` runs EXACTLY once when the
@@ -139,7 +139,7 @@ public func createTrackedResource(id: Int32) -> TrackedResource {
     return TrackedResource(id: id)
 }
 
-// MARK: - P0-06 × throwing: consuming non-copyable on a throwing function
+// MARK: - Throwing: consuming non-copyable on a throwing function
 
 public enum TrackedResourceError: Error {
     case rejected

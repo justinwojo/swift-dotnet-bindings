@@ -355,7 +355,7 @@ namespace BindingsGeneration
             // candidates, the owns-bit) before the try so they're accessible in finally for
             // cleanup (same pattern as WrapperEmitter). The owning condition must match the
             // marshalling loop's GetOrCreate gate exactly so the owns-bit only exists when a
-            // value conformer may have been boxed at +1 (P1-03).
+            // value conformer may have been boxed at +1.
             var existentialHeaps = new List<(string HeapName, string? OwnsVar, int WitnessTableCount)>();
             if (useCdeclWrapper)
             {
@@ -424,7 +424,7 @@ namespace BindingsGeneration
                                     {
                                         proxyClassName = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
                                     }
-                                    // P1-03: thread the runtime owns-bit so the finally can run
+                                    // Thread the runtime owns-bit so the finally can run
                                     // the existential value-witness destroy only when a value
                                     // conformer was boxed at +1 (borrowed proxy/class containers
                                     // report owns=false and must not be over-released).
@@ -463,8 +463,7 @@ namespace BindingsGeneration
             // Swift enum case constructors use indirect return - allocate buffer and pass it.
             // Use the type-metadata-accessor argument list (which includes PWTs for any
             // protocol-constrained generic params) since this calls the metadata accessor
-            // PInvoke whose signature was updated by the constrained-generic fix in
-            // src/docs/constrained-generic-metadata-witness-tables.md.
+            // PInvoke that carries both metadata and witness-table arguments.
             var getMetadataCall = pinvokeHelperContext != null
                 ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList())})"
                 : "PInvoke_getMetadata()";
@@ -616,7 +615,7 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 foreach (var (heapName, ownsVar, witnessCount) in existentialHeaps)
                 {
-                    // P1-03: route through the centralized helper — it null-checks the heap,
+                    // Route through the centralized helper — it null-checks the heap,
                     // runs the existential value-witness destroy only when owns==true (the
                     // enum-case factory borrows the @in_guaranteed buffer like every other
                     // existential-param site), and frees the buffer.

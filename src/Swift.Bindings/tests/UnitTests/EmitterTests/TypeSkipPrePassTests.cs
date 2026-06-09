@@ -14,7 +14,7 @@ public class TypeSkipPrePassTests
     [Fact]
     public void Run_GenericParentWithSwiftUIConstraint_MarksSelfAndNestedAsSkipped()
     {
-        // Codex P2 regression: before the propagation fix the pre-pass only recorded
+        // Regression: before the propagation fix the pre-pass only recorded
         // the top-level generic type. A signature referencing Parent.Nested (e.g. a
         // typealias or enum case) therefore passed the member gate because
         // ReportCollector.IsTypeSkipped("Module.Parent.Nested") returned false — the

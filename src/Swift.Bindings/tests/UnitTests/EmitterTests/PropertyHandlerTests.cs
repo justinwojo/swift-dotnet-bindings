@@ -1320,7 +1320,7 @@ public class PropertyHandlerTests
         // Setter property body marshals value to (IntPtr, bool) via existential container.
         // The GetOrCreate call carries a wrap fallback so plain C# implementations of the
         // interface are auto-wrapped in the generator-emitted DataCachingProxy at the call site.
-        // P1-03: it also threads the runtime owns-bit (out __owns) so the finally can run the
+        // It also threads the runtime owns-bit (out __owns) so the finally can run the
         // existential value-witness destroy only when a value conformer was boxed at +1.
         Assert.Contains(
             "ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v, static __p => new DataCachingProxy(__p), out __owns)",
@@ -1328,7 +1328,7 @@ public class PropertyHandlerTests
         Assert.Contains("NativeMemory.Alloc", csOutput);
         Assert.Contains("Unsafe.Copy(__heap, ref __container)", csOutput);
         Assert.Contains("__hasVal", csOutput);
-        // P1-03: cleanup goes through the owns-gated destroy-and-free helper, not a bare free.
+        // Cleanup goes through the owns-gated destroy-and-free helper, not a bare free.
         Assert.Contains("DestroyAndFreeExistential(__heap, 1, __owns)", csOutput);
         // Setter passes decomposed args — NOT simple pass-through
         Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
@@ -1367,9 +1367,9 @@ public class PropertyHandlerTests
 
     #endregion
 
-    #region A-4 — Nullable struct setter pins value SafeHandle for the P/Invoke
+    #region Nullable struct setter pins value SafeHandle for the P/Invoke
 
-    // sdk-0.11.0-residual-gaps.md A-4: the decomposed Optional<inner> setter on a
+    // The decomposed Optional<inner> setter on a
     // non-generic parent passes `value?.Payload.DangerousGetHandle()` + a hasValue
     // bool to Swift. Without the SafeHandlePin bracket the GC can run between
     // DangerousGetHandle and the P/Invoke return, run `value`'s SafeHandle
@@ -1421,7 +1421,7 @@ public class PropertyHandlerTests
         // Nullable<T> (AnyHashable?/AnyType?) unwraps to T. A bare `value.Payload` is a CS1061
         // for the Nullable<T> case.
         Assert.Contains("if (value is { } __value) {", csOutput);
-        // The SafeHandlePin bracket — the A-4 fix — pins the unwrapped value's payload.
+        // The SafeHandlePin bracket — the SafeHandlePin fix — pins the unwrapped value's payload.
         Assert.Contains("using var __valuePin = new global::Swift.Runtime.SafeHandlePin(__value.Payload);", csOutput);
         // Setter must pass the pinned handle, not raw DangerousGetHandle directly.
         Assert.Contains("CurrentShape_Set(__valuePin.Handle, true);", csOutput);
@@ -1465,12 +1465,12 @@ public class PropertyHandlerTests
 
     #endregion
 
-    #region H2 Bug 1 — Optional Tuple Property
+    #region Optional Tuple Property
 
     [Fact]
     public void Emit_OptionalTupleProperty_EmitsTupleTypeNotAnyType()
     {
-        // H2 Bug 1: Optional<(BigUInt, BigUInt)> property fell through to AnyType
+        // Optional<(BigUInt, BigUInt)> property fell through to AnyType
         // because TranslateTypeSpecWithGenerics only handled NamedTypeSpec, not TupleTypeSpec.
         // Fix: Added TupleTypeSpec branch before the final fallback.
         var typeDatabase = CreateTypeDatabaseWithInt();
@@ -1612,7 +1612,7 @@ public class PropertyHandlerTests
     [Fact]
     public void ExistentialHandler_GetPublicExistentialType_MetatypeProtocol_ReturnsObject()
     {
-        // H2 Bug 6: "Any.Type" (metatype existential) is parsed as NamedTypeSpec("Any.Type")
+        // "Any.Type" (metatype existential) is parsed as NamedTypeSpec("Any.Type")
         // with IsAny=true. When converted to ProtocolListTypeSpec, the single "protocol"
         // is "Any.Type" which has no TypeRecord → GetPublicExistentialType returns "object".
         // WrapperEmitter.Return.cs now checks this and emits "return result;" instead

@@ -290,7 +290,7 @@ public class ParameterTests : TestBase
         // Pin the exact role-derived name: `Double` → `value` via
         // NameProvider.DeriveParameterNameFromType. A bare-shape regression
         // (e.g. `param`, `arg0`) would pass the sanity helper while losing
-        // the role-based naming the Session 6 fix delivers.
+        // the role-based derived name.
         AssertEqual("value", parameters[0].Name,
             $"{method.Name}.<param 0>: Double `_:` parameter must derive to `value`");
     }

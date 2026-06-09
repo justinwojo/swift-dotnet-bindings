@@ -17,8 +17,8 @@ namespace BindingsGeneration;
 /// Equality is delegated to <c>AnyKeyPath.==</c> via a runtime shim, never pointer identity:
 /// cross-module compilation can produce two distinct objects for the same logical key path.
 ///
-/// Session 3 covers the foundation pass-through path only (RequiresSwiftWrapper=false).
-/// Session 4 may flip <c>RequiresSwiftWrapper</c> true for typed-singleton trampolines.
+/// Currently covers the foundation pass-through path only (RequiresSwiftWrapper=false).
+/// <c>RequiresSwiftWrapper</c> may be flipped true for typed-singleton trampolines in the future.
 /// </summary>
 public class KeyPathProjection : ITypeProjection
 {

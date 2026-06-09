@@ -35,7 +35,7 @@ import SwiftParser
 ///    (`SwiftInterfaceContextTracker.ExtractMemberPrintedName`, lines 231-253). Bare
 ///    protocol requirements are NOT keyed by the regex parser — we mirror that. A
 ///    SEMANTIC CLIFF: SwiftSyntax could see and key bare protocol-requirement
-///    members; the regex misses them. Documented in m2-semantic-cliffs.md.
+///    members; the regex misses them.
 ///
 /// 4. **Position calculation**: 1-based line/column landing on the decl keyword
 ///    after skipping inline `@xxx(...)` annotations, mirroring
@@ -46,9 +46,9 @@ import SwiftParser
 ///    the opening line — we deliberately apply a one-line-shift for byte parity.
 ///
 ///    SEMANTIC CLIFF: the regex's last-line behavior is documented as imprecision
-///    that "tightens when SwiftSyntax replaces the regex parser post-1.0". Since
-///    M2 S2 must hold byte-equal parity, we mirror the regex (last-line). M2 S4
-///    flips this to the correct opening-line behavior.
+///    that "tightens when SwiftSyntax replaces the regex parser post-1.0". To
+///    maintain byte-equal parity we mirror the regex (last-line); a future pass
+///    will flip this to the correct opening-line behavior.
 ///
 /// 5. **First-position-wins**: `if (!positions.ContainsKey(key))` at line 3416.
 ///    Repeated decls with the same key keep the first observed line.
@@ -128,7 +128,7 @@ final class AvailabilityWalker: SyntaxVisitor {
     // `weak`, `required`, `nonisolated`, `dynamic`, `lazy`, `unowned`,
     // `nonmutating`, `indirect`, `final`-after-`mutating`, etc.). For byte-equal
     // parity we mirror the rejection. SEMANTIC CLIFF: SwiftSyntax could see all of
-    // these — see m2-semantic-cliffs.md.
+    // these modifiers, but the regex parser cannot.
 
     init(filePath: String, source: String) {
         self.filePath = filePath
@@ -284,9 +284,8 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// - If multi-line: emit (endLine, leadingWhitespace(endLine)+1) — exactly
     ///   what the regex emits on the closing line.
     ///
-    /// SEMANTIC CLIFF: see m2-semantic-cliffs.md #4 — multi-line opening-line
-    /// would be more correct; we mirror the regex's last-line behavior for
-    /// byte-equal parity.
+    /// SEMANTIC CLIFF: multi-line opening-line would be more correct; we mirror
+    /// the regex's last-line behavior for byte-equal parity.
     private func declarationPosition(anchor: TokenSyntax, declEnd: AbsolutePosition) -> SourcePositionJson? {
         let anchorLoc = converter.location(for: anchor.positionAfterSkippingLeadingTrivia)
         let endLoc = converter.location(for: declEnd)
@@ -1192,8 +1191,8 @@ enum AvailabilityClauseParser {
     }
 
     /// Mirrors `NormalizePlatformName` (line 3752). `visionOSApplicationExtension`
-    /// is INTENTIONALLY not in `isKnownPlatform` (regex parity quirk — see
-    /// m2-semantic-cliffs.md), so it never reaches this function.
+    /// is INTENTIONALLY not in `isKnownPlatform` (regex parity quirk — the regex
+    /// parser does not recognize this platform), so it never reaches this function.
     private static func normalizePlatformName(_ name: String) -> String {
         switch name {
         case "iOS", "iOSApplicationExtension": return "iOS"

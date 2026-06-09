@@ -598,8 +598,8 @@ public class PInvokeHelperEmitterTests
     #endregion
 
     #region Constrained-generic metadata accessor tests
-    // These tests cover the conformance pre-flattening introduced in
-    // src/docs/constrained-generic-metadata-witness-tables.md. They run against
+    // These tests cover the conformance pre-flattening for constrained-generic metadata
+    // and witness-table accessor generation. They run against
     // every type-decl shape that the four type handlers feed into
     // PInvokeHelperContext.CreateIfGeneric(decl, typeDb): generic enum, generic
     // frozen struct, generic non-frozen struct, generic class. Test names use
@@ -704,11 +704,10 @@ public class PInvokeHelperEmitterTests
 
         var entry = Assert.Single(ctx.PwtEntries);
         Assert.True(entry.IsResolvable);
-        // The bug: Session 1's emission path produced "Swift.Foundation.IError"
+        // The emission path previously produced "Swift.Foundation.IError"
         // (synthesizing 'I' + Target.Name and qualifying with the remapped C#
-        // namespace). The fix produces a bare "IError" instead — same shape as
-        // the pre-Session-1 output that Alamofire's own 'public interface IError'
-        // satisfies in the consuming module.
+        // namespace). The fix produces a bare "IError" instead — the same shape that
+        // Alamofire's own 'public interface IError' satisfies in the consuming module.
         Assert.DoesNotContain("Swift.Foundation", entry.ResolvableInterfaceName);
         Assert.Equal("IError", entry.ResolvableInterfaceName);
     }
@@ -757,7 +756,7 @@ public class PInvokeHelperEmitterTests
     [Fact]
     public void Emit_GenericNonFrozenStruct_MultipleConstraintsLexOrder_OrderedAlphabetically()
     {
-        // runtime-metadata.md: PWTs for a single generic param are emitted in
+        // PWTs for a single generic param are emitted in
         // lexicographic order of the protocol's module-qualified name. We
         // intentionally feed the conformances in REVERSE alphabetical order so
         // any test failure is unambiguous (the natural list order would otherwise
@@ -790,7 +789,7 @@ public class PInvokeHelperEmitterTests
     [Fact]
     public void Emit_GenericClass_MultipleParamsAndConstraints_FollowsRuntimeMetadataOrdering()
     {
-        // runtime-metadata.md ordering: type metadata for every generic param
+        // Runtime metadata ordering: type metadata for every generic param
         // first (declaration order), THEN PWT args grouped by generic param,
         // sorted lex by protocol module-qualified name within each param.
         // This fixture uses 2 params × 3 total conformances = 2 metadata + 3 PWT

@@ -128,7 +128,7 @@ public static class OptionalPointerWrapperEmitter
 
         // 2. Method arguments
         int argIndex = 0;
-        // Sibling bindings so a reserved-name escape also dodges a sibling user param (P1-22).
+        // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         var optSiblings = CdeclParamMapper.CollectSiblingBindingNames(methodDecl.CSSignature.Skip(1));
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -405,7 +405,7 @@ public static class OptionalPointerWrapperEmitter
         // Register the @_cdecl symbol for the wrapper-symbol contract — the
         // @_silgen_name branch isn't an SBW_… cdecl wrapper so the contract
         // check (which only fires for SBW_-shaped entry points) wouldn't see it.
-        // S5 audited (Tier B): the optional-pointer wrapper path is mutually exclusive
+        // the optional-pointer wrapper path is mutually exclusive
         // with MethodWrapperEmitter for the same method (handler-pipeline gates ensure
         // only one fires); the method's mangled name is unique per overload, so the
         // per-kind method bucket is collision-safe.

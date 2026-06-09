@@ -95,7 +95,7 @@ public class ClassPayloadEnumTests : TestBase
         counter?.Dispose();
     }
 
-    /// Regression test for bug-0.10.0-enum-case-payload-extractor-missing.md.
+    /// Regression test for the enum-case payload-extractor-missing bug.
     /// Locks in the StripeFinancialConnections.Result emission shape: a Result-style
     /// enum with a *labeled* class success payload, a no-payload cancel case, and a
     /// labeled `any Swift.Error` failure case. Pre-fix only the AnyError-payload case
@@ -163,7 +163,7 @@ public class ClassPayloadEnumTests : TestBase
         }
     }
 
-    // ---- @objc:NSObject enum payloads (issue #40 / P1-01 — enum direction) ----
+    // ---- @objc:NSObject enum payloads (issue #40 — enum direction) ----
     //
     // The pure-Swift tests above route the same extraction sites, but for them swift_retain and
     // swift_unknownObjectRetain are indistinguishable. These variants carry an @objc:NSObject

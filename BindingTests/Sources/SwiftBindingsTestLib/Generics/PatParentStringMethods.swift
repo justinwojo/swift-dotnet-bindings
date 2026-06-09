@@ -2,15 +2,14 @@
 // Licensed under the MIT License.
 //
 // Regression fixture for CSM admission of `Swift.String` parameters on
-// parent-only methods (Session 6, Commit B). Before this work the CSM
-// engine's `AreNonGenericParamsCompatible` admission gate — and its
-// sibling allowlists on the sync / async method-generic bridges — only
-// accepted three `ParamAbiCategory` values: `Primitive`, `ObjCHandle`,
-// and `PayloadHandle`. The `Utf8Slice` category (Swift.String marshalled
-// as a 2-machine-word `SBW_Utf8Slice`) was rejected, so any parent-only
-// method that took a `String` argument fell back to the
-// `BoundGenericsHandler` path — the same path that crashes Mono JIT on
-// `GenericContainer.count()/tagBytes()`.
+// parent-only methods. Before the fix, the CSM engine's
+// `AreNonGenericParamsCompatible` admission gate — and its sibling allowlists
+// on the sync / async method-generic bridges — only accepted three
+// `ParamAbiCategory` values: `Primitive`, `ObjCHandle`, and `PayloadHandle`.
+// The `Utf8Slice` category (Swift.String marshalled as a 2-machine-word
+// `SBW_Utf8Slice`) was rejected, so any parent-only method that took a
+// `String` argument fell back to the `BoundGenericsHandler` path — the same
+// path that crashes Mono JIT on `GenericContainer.count()/tagBytes()`.
 //
 // `TaggedBag<Item: Tagger>` mirrors `CubbyBag<Item: Cubby>` from
 // `PatParentOnlyMethods.swift` (sync) and `AsyncBag<Item: AsyncBagItem>`

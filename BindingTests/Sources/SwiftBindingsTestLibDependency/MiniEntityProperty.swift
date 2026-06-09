@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - Cross-assembly KeyPath-init factory fixture (Session 8b.3)
+// MARK: - Cross-assembly KeyPath-init factory fixture
 //
 // `MiniEntityProperty<Value>` is a deliberate, minimal stand-in for AppIntents'
 // `EntityProperty<Value>`: a generic reference type, living in a *dependency*

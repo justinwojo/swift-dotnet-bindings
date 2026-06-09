@@ -7,8 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Pins the Session 5b fix for the autoBridge Swift-only existential filter
-/// regression. Mirrors the RealityKit
+/// Pins the autoBridge Swift-only existential filter fix. Mirrors the RealityKit
 /// <c>MultipeerConnectivityService.Owner(Entity) -&gt; any RealityFoundation.SynchronizationPeerID</c>
 /// suppression pattern via Foundation.LocalizedError on a BindingTests-owned
 /// fixture.

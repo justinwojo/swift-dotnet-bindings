@@ -196,7 +196,7 @@ public class ProtocolExtensionClosureBridgeTests
     [Fact]
     public void TryEmit_PInvoke_UserSelfParam_DoesNotDuplicateSyntheticSelf()
     {
-        // P1-22 (C1): the protocol-extension P/Invoke ABI prepends a synthetic `self_` pointer.
+        // The protocol-extension P/Invoke ABI prepends a synthetic `self_` pointer.
         // A user non-closure parameter also spelled `self_` would emit `IntPtr self_, …, IntPtr self_`
         // — a CS0100 duplicate-parameter-name error the generator produced at exit 0 (broken C# that
         // only fails at compile). The synthetic-name guard reserves `self_` against the user param
@@ -318,7 +318,7 @@ public class ProtocolExtensionClosureBridgeTests
 
     #endregion
 
-    #region P0-01: non-throwing closure callbacks fail fast, never swallow
+    #region Non-throwing closure callbacks fail fast, never swallow
 
     // A non-throwing Swift closure has no error channel, so a managed exception escaping the
     // delegate must not unwind into native Swift (SIGABRT) and must not be silently swallowed

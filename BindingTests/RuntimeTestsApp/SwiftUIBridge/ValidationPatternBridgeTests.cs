@@ -12,7 +12,7 @@ namespace RuntimeTestsApp.SwiftUIBridge;
 
 /// <summary>
 /// Runtime tests for SwiftUI bridge views replicating third-party validation library patterns.
-/// Verifies that bridge parameter gates from Sessions 2-3 work end-to-end on the iOS Simulator:
+/// Verifies that bridge parameter gates work end-to-end on the iOS Simulator:
 ///   NoParamBlurView       → AlertToast.BlurView (zero-param init)
 ///   PlayerStyleView       → YouTubePlayerKit.YouTubePlayerView (class + string)
 ///   FormatActionView      → RichTextKit.ActionButton (non-raw-value enum / BoundStruct)

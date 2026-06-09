@@ -303,7 +303,7 @@ public static partial class SwiftUIBridgeEmitter
                 null, constructors);
         }
 
-        // 6. ABI-driven async inference (Phase 2).
+        // 6. ABI-driven async inference.
         if (context?.ModuleDecl != null)
         {
             var tempInfo = new ViewBridgeInfo(viewType.Name, moduleName,
@@ -755,7 +755,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         sb.AppendLine();
 
-        // Init — failable so out-of-range BoundEnum raw values (P0-03) surface as a nil
+        // Init — failable so out-of-range BoundEnum raw values surface as a nil
         // session/handle (→ C# InvalidOperationException) instead of trapping the process.
         sb.Append($"    init?(");
         var initParams = new List<string>();
@@ -836,7 +836,7 @@ public static partial class SwiftUIBridgeEmitter
             else if (!hasUpdatableParams && param.Kind == BridgeParameterKind.BoundStruct)
             {
                 if (param.IsObjCBridgeable)
-                    // P0-04: ObjC-bridgeable struct (e.g. URL→NSURL) crosses the ABI as an ObjC
+                    // ObjC-bridgeable struct (e.g. URL→NSURL) crosses the ABI as an ObjC
                     // object pointer (C# passes `.Handle`), NOT raw Swift struct bytes. Reading it
                     // via assumingMemoryBound reinterprets an object pointer as struct memory →
                     // type confusion / SIGSEGV. Reconstruct the bridged value instead.
@@ -850,7 +850,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"        if let ptr = {param.Name}Ptr, {param.Name}Count > 0 {{");
                 if (inner.Kind == BridgeParameterKind.BoundEnum)
                 {
-                    // P0-03: validate every raw value before constructing the session. A single
+                    // Validate every raw value before constructing the session. A single
                     // out-of-range element fails creation (return nil → C# InvalidOperationException)
                     // rather than trapping the process or silently defaulting/dropping the element.
                     sb.AppendLine($"            var {param.Name}Elements: [{inner.BridgeTypeName}] = []");
@@ -920,7 +920,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"var {handlesVar} = Set<UnsafeMutableRawPointer>()");
         sb.AppendLine();
 
-        // S5 audited (Tier C): SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
+        // SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
         // Create function
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Create");
         sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");
@@ -1048,7 +1048,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("}");
         sb.AppendLine();
 
-        // S5 audited (Tier C): SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
+        // SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
         // GetViewController function
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
@@ -1077,7 +1077,7 @@ public static partial class SwiftUIBridgeEmitter
         // managed handles outlive any Swift state that may capture them. C# may
         // not free those handles itself after calling _Free because the off-main
         // path returns before release runs.
-        // S5 audited (Tier C): SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
+        // SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(");
@@ -1314,7 +1314,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundEnum)
         {
-            // P0-03: out-of-range raw value fails creation (return nil from the failable init →
+            // Out-of-range raw value fails creation (return nil from the failable init →
             // C# InvalidOperationException) instead of trapping via force-unwrap.
             sb.AppendLine($"        guard let {param.Name}Converted = {param.BridgeTypeName}(rawValue: {param.Name}) else {{ return nil }}");
         }
@@ -1338,7 +1338,7 @@ public static partial class SwiftUIBridgeEmitter
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
             if (param.IsObjCBridgeable)
-                // P0-04: ObjC-bridgeable struct crosses the ABI as an ObjC object pointer, not
+                // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer, not
                 // raw struct bytes — reconstruct the bridged value via Unmanaged<AnyObject>.
                 sb.AppendLine($"        let {param.Name}Converted = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
             else
@@ -1360,7 +1360,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             var inner = param.InnerParameter!;
             if (inner.IsObjCBridgeable)
-                // P0-04: ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
+                // ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
                 sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
             else
                 sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
@@ -1370,7 +1370,7 @@ public static partial class SwiftUIBridgeEmitter
             var inner = param.InnerParameter!;
             if (inner.Kind == BridgeParameterKind.BoundEnum)
             {
-                // P0-03: validate a present raw value; out-of-range fails creation (return nil)
+                // Validate a present raw value; out-of-range fails creation (return nil)
                 // rather than trapping. A nil Optional (HasValue == 0) stays nil.
                 sb.AppendLine($"        let {param.Name}Converted: {GetSwiftNativeType(param)}");
                 sb.AppendLine($"        if {param.Name}HasValue != 0 {{");
@@ -1448,7 +1448,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
             var funcName = $"{prefix}_Update{pascalName}";
-            // S5 audited (Tier C): SwiftUI per-param updater in `_direct_helper` bucket. funcName combines per-view `prefix` + per-param Pascal name — unique within the bridge.
+            // SwiftUI per-param updater in `_direct_helper` bucket. funcName combines per-view `prefix` + per-param Pascal name — unique within the bridge.
             emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
@@ -1573,7 +1573,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundEnum)
         {
-            // P0-03: out-of-range raw value leaves state unchanged (return) instead of trapping.
+            // Out-of-range raw value leaves state unchanged (return) instead of trapping.
             sb.AppendLine($"        guard let newValueConverted = {param.BridgeTypeName}(rawValue: newValue) else {{ return }}");
             sb.AppendLine($"        session.state.{param.Name} = newValueConverted");
         }
@@ -1594,7 +1594,7 @@ public static partial class SwiftUIBridgeEmitter
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
             if (param.IsObjCBridgeable)
-                // P0-04: ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
+                // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
                 sb.AppendLine($"        session.state.{param.Name} = Unmanaged<AnyObject>.fromOpaque(newValuePtr).takeUnretainedValue() as! {param.BridgeTypeName}");
             else
                 sb.AppendLine($"        session.state.{param.Name} = newValuePtr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
@@ -1614,7 +1614,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             var inner = param.InnerParameter!;
             if (inner.IsObjCBridgeable)
-                // P0-04: ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
+                // ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
                 sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
             else
                 sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
@@ -1624,7 +1624,7 @@ public static partial class SwiftUIBridgeEmitter
             var inner = param.InnerParameter!;
             if (inner.Kind == BridgeParameterKind.BoundEnum)
             {
-                // P0-03: a present out-of-range raw value leaves state unchanged (return) rather
+                // A present out-of-range raw value leaves state unchanged (return) rather
                 // than trapping; a nil Optional (HasValue == 0) clears the state to nil.
                 sb.AppendLine($"        if newValueHasValue != 0 {{");
                 sb.AppendLine($"            guard let newValueCase = {inner.BridgeTypeName}(rawValue: newValueValue) else {{ return }}");
@@ -2004,7 +2004,7 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var mod in modifiers)
         {
             var funcName = $"{prefix}_Set{mod.PascalName}";
-            // S5 audited (Tier C): SwiftUI per-modifier setter in `_direct_helper` bucket. funcName combines per-view `prefix` + per-modifier Pascal name — unique within the bridge.
+            // SwiftUI per-modifier setter in `_direct_helper` bucket. funcName combines per-view `prefix` + per-modifier Pascal name — unique within the bridge.
             emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
@@ -2074,7 +2074,7 @@ public static partial class SwiftUIBridgeEmitter
                 }
                 else if (param.Kind == BridgeParameterKind.BoundEnum)
                 {
-                    // P0-03: a present out-of-range raw value leaves the modifier state unchanged
+                    // A present out-of-range raw value leaves the modifier state unchanged
                     // (return) rather than trapping; a nil Optional (hasValue == 0) clears it.
                     sb.AppendLine($"        if hasValue != 0 {{");
                     sb.AppendLine($"            guard let modCase = {param.BridgeTypeName}(rawValue: value) else {{ return }}");
@@ -2237,7 +2237,6 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.ViewName}_GetViewController\")");
         sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.ViewName}_Free\")");
         sb.AppendLine($"//");
-        sb.AppendLine($"// See: src/docs/swiftui-bridge-design.md");
         sb.AppendLine();
     }
 
@@ -2328,7 +2327,6 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"//   - {info.ViewName} ({info.Classification}: {paramSummary})");
             }
             sb.AppendLine("//");
-            sb.AppendLine("// See: src/docs/swiftui-bridge-design.md");
         }
 
         sb.AppendLine();
@@ -2605,8 +2603,7 @@ public static partial class SwiftUIBridgeEmitter
         // Dispose pattern with finalizer: GC-driven cleanup is the only fallback when a
         // SwiftUI consumer constructs a session and stores it on a struct View without
         // a using/explicit-Dispose handshake. Without the finalizer, both the +1-retained
-        // native session pointer and every pinned GCHandle leak permanently. Pairs with
-        // bug-0.10.0-swiftui-bridge-session-missing-finalizer.
+        // native session pointer and every pinned GCHandle leak permanently.
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
         sb.AppendLine("            Dispose(disposing: true);");
@@ -2729,7 +2726,7 @@ public static partial class SwiftUIBridgeEmitter
         requiredParams.Add("Action? onAppear = null");
         requiredParams.Add("Action? onDisappear = null");
 
-        // P1-22: the Create factory hardcodes bookkeeping locals (handle/session/closureHandles
+        // The Create factory hardcodes bookkeeping locals (handle/session/closureHandles
         // and the loop locals h/fn/i). A View whose init param projects to one of those names
         // would shadow the local → CS0136/CS0128 and the binding fails to compile. Reserve every
         // synthetic through a scope seeded with the factory's user-facing param identifiers so the
@@ -3154,7 +3151,6 @@ public static partial class SwiftUIBridgeEmitter
     {
         var paramSummary = GetInitParamSummary(info);
         sb.AppendLine($"    // BRIDGE TEMPLATE: {info.ViewName} ({info.Classification}: {paramSummary})");
-        sb.AppendLine($"    // See: src/docs/swiftui-bridge-design.md");
         sb.AppendLine();
     }
 
@@ -3381,8 +3377,8 @@ public static partial class SwiftUIBridgeEmitter
 
         // Collect ObjC-bridgeable BoundStruct args that need withExtendedLifetime nesting:
         // they cross the ABI as ObjC object pointers (Unmanaged.passUnretained) and must be
-        // held alive across the synchronous callback (P0-04/P1-19), exactly like the Result
-        // success branch. Non-ObjC BoundStructs use the heap-allocate path below instead.
+        // held alive across the synchronous callback, exactly like the Result success branch.
+        // Non-ObjC BoundStructs use the heap-allocate path below instead.
         var objcArgIndices = new List<int>();
         for (int i = 0; i < closureArgs.Count; i++)
         {
@@ -3428,12 +3424,12 @@ public static partial class SwiftUIBridgeEmitter
             {
                 if (closureArgs[i].IsObjCBridgeable)
                 {
-                    // P0-04/P1-19: an ObjC-bridgeable struct (URL→NSURL, Data→NSData) crosses the
-                    // ABI as an ObjC object pointer, NOT raw Swift struct bytes. Heap-allocating it
-                    // and letting C# read it via MarshalFromSwift (assumingMemoryBound) reinterprets
-                    // an object pointer as struct memory → type confusion / SIGSEGV. Bridge to an
-                    // object here and deliver Unmanaged.passUnretained(...).toOpaque() below, held
-                    // alive across the synchronous callback by withExtendedLifetime.
+                    // An ObjC-bridgeable struct (URL→NSURL, Data→NSData) crosses the ABI as an ObjC
+                    // object pointer, NOT raw Swift struct bytes. Heap-allocating it and letting C#
+                    // read it via MarshalFromSwift (assumingMemoryBound) reinterprets an object
+                    // pointer as struct memory → type confusion / SIGSEGV. Bridge to an object here
+                    // and deliver Unmanaged.passUnretained(...).toOpaque() below, held alive across
+                    // the synchronous callback by withExtendedLifetime.
                     sb.Append($"            let arg{i}Obj = arg{i} as AnyObject\n");
                     continue;
                 }
@@ -3441,8 +3437,8 @@ public static partial class SwiftUIBridgeEmitter
                 sb.Append($"            let arg{i}Ptr = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{typeName}>.size, alignment: MemoryLayout<{typeName}>.alignment)\n");
                 if (closureArgs[i].StructProjection == StructProjectionKind.FrozenWithMemory)
                 {
-                    // P1-20: a frozen struct with reference-holding fields (ClassWithBufferStruct)
-                    // is *copied* by the C# side via InitializeWithCopy into its own SafeHandle-owned
+                    // A frozen struct with reference-holding fields (ClassWithBufferStruct) is
+                    // *copied* by the C# side via InitializeWithCopy into its own SafeHandle-owned
                     // buffer — C# does NOT adopt this pointer (see SwiftMarshal.DestroyWireBufferRetains
                     // docs). Without a Swift-side deinit, the source buffer keeps its +1 retains on the
                     // heap fields, and the allocation itself, forever. Capture the typed pointer and
@@ -3475,7 +3471,7 @@ public static partial class SwiftUIBridgeEmitter
         // Open a withExtendedLifetime block for each ObjC-bridgeable BoundStruct arg, nested
         // inside the String blocks. passUnretained yields an untracked raw pointer; without this
         // ARC may release the bridged object before the synchronous C# trampoline dereferences
-        // it → use-after-free (P1-19). The `return` prefix propagates a non-void result up.
+        // it → use-after-free. The `return` prefix propagates a non-void result up.
         for (int o = 0; o < objcArgIndices.Count; o++)
         {
             var oi = objcArgIndices[o];
@@ -3693,7 +3689,7 @@ public static partial class SwiftUIBridgeEmitter
                         // ObjC-bridgeable struct: the Swift side delivered the bridged object
                         // pointer (Unmanaged.passUnretained). GetNSObject wraps it without ownership
                         // transfer — reading it via MarshalFromSwift (assumingMemoryBound) would
-                        // reinterpret an object pointer as raw struct bytes → type confusion (P0-04).
+                        // reinterpret an object pointer as raw struct bytes → type confusion.
                         sb.AppendLine($"                var arg{i}Obj = ObjCRuntime.Runtime.GetNSObject<{a.CSharpTypeName}>(arg{i})!;");
                     else
                         sb.AppendLine($"                var arg{i}Obj = ({a.CSharpTypeName})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{a.CSharpTypeName}>(arg{i});");
@@ -4063,13 +4059,13 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (branchParam.IsObjCBridgeable)
             {
-                // P1-19: ObjC-bridgeable struct (e.g. Data → NSData, URL → NSURL) crosses the
-                // ABI as an ObjC object pointer. `value as AnyObject` materializes a *bridged
-                // temporary* distinct from the Swift `value` case binding — the binding keeps
-                // the Swift value alive, NOT the bridged object. Because `passUnretained(...)
-                // .toOpaque()` yields an untracked raw pointer, ARC may release that temporary
-                // before the (synchronous) C# callback dereferences it → use-after-free. Bind
-                // the bridged object to a local and hold it across the call with
+                // ObjC-bridgeable struct (e.g. Data → NSData, URL → NSURL) crosses the ABI as
+                // an ObjC object pointer. `value as AnyObject` materializes a *bridged temporary*
+                // distinct from the Swift `value` case binding — the binding keeps the Swift value
+                // alive, NOT the bridged object. Because `passUnretained(...).toOpaque()` yields
+                // an untracked raw pointer, ARC may release that temporary before the (synchronous)
+                // C# callback dereferences it → use-after-free. Bind the bridged object to a local
+                // and hold it across the call with
                 // withExtendedLifetime so it outlives the raw-pointer use.
                 sb.Append($"                let {varName}Obj = {varName} as AnyObject\n");
                 sb.Append($"                withExtendedLifetime({varName}Obj) {{\n");
@@ -4085,12 +4081,12 @@ public static partial class SwiftUIBridgeEmitter
                 sb.Append($"                let {varName}Ptr = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{typeName}>.size, alignment: MemoryLayout<{typeName}>.alignment)\n");
                 if (branchParam.StructProjection == StructProjectionKind.FrozenWithMemory)
                 {
-                    // P1-20 (see BuildComplexClosureViewInitArg): a frozen-with-memory struct is
-                    // copied (InitializeWithCopy) by C#, not adopted, so the Swift source buffer must
-                    // be deinitialized + deallocated after the synchronous callback returns — otherwise
-                    // the buffer and its +1 heap-field retains leak. Control flow here is linear (no
-                    // early return between the call and cleanup), so inline rather than defer. Non-frozen
-                    // structs are adopted by C#'s SafeHandle and must NOT be freed here (double-free).
+                    // A frozen-with-memory struct is copied (InitializeWithCopy) by C#, not adopted,
+                    // so the Swift source buffer must be deinitialized + deallocated after the
+                    // synchronous callback returns — otherwise the buffer and its +1 heap-field
+                    // retains leak. Control flow here is linear (no early return between the call and
+                    // cleanup), so inline rather than defer. Non-frozen structs are adopted by C#'s
+                    // SafeHandle and must NOT be freed here (double-free).
                     sb.Append($"                let {varName}Typed = {varName}Ptr.initializeMemory(as: {typeName}.self, repeating: {varName}, count: 1)\n");
                     sb.Append($"                {cbName}?({varName}Ptr, {udName})\n");
                     sb.Append($"                {varName}Typed.deinitialize(count: 1)\n");

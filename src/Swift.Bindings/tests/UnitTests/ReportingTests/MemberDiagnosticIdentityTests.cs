@@ -10,7 +10,7 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Identity-construction and equality tests for <see cref="MemberDiagnosticIdentity"/>.
-/// Drives the M1 overload-stable diagnostic identity contract (gameplan §M1):
+/// Drives the overload-stable diagnostic identity contract:
 /// <c>(Module, DeclPath, Kind, BaseName, ParameterLabels[i] + ParameterTypes[i],
 /// Accessor, MangledSymbol)</c> jointly determine equality, and field-level
 /// differences in any of those components produce distinct identities.

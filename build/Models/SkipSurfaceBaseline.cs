@@ -11,8 +11,7 @@ using Nuke.Common.IO;
 
 /// <summary>
 /// Typed model for <c>build/baselines/skip-surface-baseline.json</c> — Layer B trend gate over
-/// mechanically-parseable skip markers in generator output (see
-/// <c>src/docs/0.10.0-fix-plan.md</c> §"Layer B"). Mirrors the
+/// mechanically-parseable skip markers in generator output. Mirrors the
 /// <see cref="ValidationBaseline"/> ratchet pattern.
 ///
 /// <para><b>Scope</b>: skip-class regressions only. Shape-class projection bugs

@@ -183,7 +183,7 @@ public class SwiftInterfaceTypedThrowsTests
         finally { File.Delete(path); }
     }
 
-    // --- P1-27 B1: depth-aware, string-literal-safe extraction ---
+    // --- Depth-aware, string-literal-safe extraction ---
     // The old extractor took the LAST `throws(` match on the line, which misfired on a
     // function that returns a throwing closure (the closure's throws lives after the
     // function's own depth-0 `->`) and on a `throws(` appearing inside a string literal.

@@ -2750,9 +2750,8 @@ public class AbiSafetyTests
 
     #region IsSkippedWrapperDirectPInvoke Tests
     //
-    // ABI correctness — Bundle 7 refined detector for
-    // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper (StoreKit
-    // Product.purchase(confirmIn: some UIScene)).
+    // ABI correctness — detector for the skipped-wrapper direct-CallConvSwift P/Invoke pattern
+    // (e.g. StoreKit Product.purchase(confirmIn: some UIScene)).
     //
     // The flag-family early returns (UsesCdeclWrapper / UsesNativeThunk /
     // HasOptionalPointerWrapper / HasClosureCdeclWrapper / UsesWrapperLibrary) are part of the
@@ -2829,8 +2828,8 @@ public class AbiSafetyTests
         // signature into MethodDecl.GenericParameters, so MethodDecl.IsGeneric is true even
         // though there is no method-own generic to plumb. This predicate scopes to method-own
         // generics via HasMethodOwnGenericParameters and returns false here — the bare
-        // parent-generic-only async shape is owned UPSTREAM by the P0-15 gate in
-        // MemberValidationPipeline (suppressed) or by CSM specialization routing, not by the
+        // parent-generic-only async shape is suppressed UPSTREAM by the async-on-generic-parent
+        // gate in MemberValidationPipeline or by CSM specialization routing, not by the
         // legacy direct path; this predicate is simply not the one that decides that case.
         // (See IsSkippedWrapperDirectPInvoke_AsyncOnGenericParentWithMethodOwnGeneric_ReturnsTrue
         // for the combined parent+method-own shape this predicate DOES own.)
@@ -2858,16 +2857,16 @@ public class AbiSafetyTests
     {
         // Box<T>.load<U: SomeProtocol>(_ u: U) async -> Int32 shape: BOTH a generic parent
         // (T, folded into MethodDecl.GenericParameters by the parser) AND a method-own generic
-        // (U). This is the interaction between two gates: the parent-generic async gate (P0-15 in
-        // MemberValidationPipeline) deliberately EXCLUDES method-own-generic methods (its predicate
+        // (U). This is the interaction between two gates: the async-on-generic-parent gate in
+        // MemberValidationPipeline deliberately EXCLUDES method-own-generic methods (its predicate
         // is `!HasMethodOwnGenericParameters`), leaving this combined shape to THIS predicate.
         // UsesWrapperLibrary stays false for it in the real pipeline (the async-generic bridge bails
         // on a generic parent before emitting a @_silgen_name wrapper, and the cdecl method-wrapper
         // emitter bails on method-own generics), so the predicate does NOT early-return on the
         // wrapper-library branch — it must fall through to the method-own-generics check and skip,
         // so no live wrong-ABI method ships. This pins that line so a future reorder of the gate (or
-        // a change to HasMethodOwnGenericParameters) can't silently let the combined shape leak past
-        // P0-15 AND this predicate into a live CallConvSwift P/Invoke.
+        // a change to HasMethodOwnGenericParameters) can't silently let the combined shape leak into
+        // a live CallConvSwift P/Invoke.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2887,7 +2886,7 @@ public class AbiSafetyTests
         var env = new MethodEnvironment(method, typeDb);
 
         // Sanity: the shape really does carry a method-own generic distinct from the parent's,
-        // so it is excluded by P0-15 and must be caught here instead.
+        // so it is excluded by the async-on-generic-parent gate and must be caught here instead.
         Assert.True(WrapperValidation.HasMethodOwnGenericParameters(method));
         Assert.True(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
     }
@@ -2936,7 +2935,7 @@ public class AbiSafetyTests
     {
         // The discriminator is async-specific. Sync methods with closure / existential params
         // have their own diagnostic path (SB0001 / HasNonBlittablePInvokeTypes for non-blittable
-        // shapes). The Bundle 7 trigger must NOT shadow that path.
+        // shapes). This trigger must NOT shadow that path.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

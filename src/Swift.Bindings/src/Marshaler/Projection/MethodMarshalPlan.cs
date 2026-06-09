@@ -7,7 +7,7 @@ namespace BindingsGeneration;
 /// A complete marshalling plan for a Swift method call from C#.
 /// Composes per-parameter MarshalPlans (from TypeProjectionFactory) with
 /// method-level concerns (SwiftSelf, SwiftError, generic metadata, etc.).
-/// Consumed by Sessions 5B/5C for plan-driven emission.
+/// Consumed by the plan-driven emitters.
 /// </summary>
 public record MethodMarshalPlan
 {

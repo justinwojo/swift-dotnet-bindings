@@ -36,9 +36,9 @@ public class SimpleModel {
     }
 }
 
-// MARK: - Audit Session 5 supporting types
+// MARK: - Bridge test supporting types
 
-/// Frozen struct with a reference-holding String field for P1-20 closure arg testing.
+/// Frozen struct with a reference-holding String field for closure arg testing.
 /// @frozen ensures the bridge emits CallConvSwift layout (not resilient indirect pointer).
 @frozen public struct FrozenRefArg {
     public let s: String

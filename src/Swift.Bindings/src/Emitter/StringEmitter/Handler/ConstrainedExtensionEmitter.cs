@@ -51,7 +51,7 @@ public static class ConstrainedExtensionEmitter
         // SafeHandle path covers it. A value-type-projected frozen-struct generic
         // with a same-type-constrained property is theoretical for current
         // validation libraries; supporting it requires teaching this emitter to
-        // emit address/buffer-based dispatch, which is out of scope for Bundle 02.
+        // emit address/buffer-based dispatch, which is out of scope here.
         if (typeDecl is StructDecl sd && sd.IsFrozen)
         {
             var typeRecord = typeDatabase.GetTypeRecordOrThrow(typeDecl.SwiftTypeName);
@@ -61,7 +61,7 @@ public static class ConstrainedExtensionEmitter
                     $"Skipping constrained-extension emission for value-type-projected frozen struct {typeDecl.Name}: " +
                     "ConstrainedExtensionEmitter assumes SafeHandle-backed Payload, " +
                     "but value-type-projected frozen structs expose direct backing fields. " +
-                    "See bug-0.10.0-property-accessor-bound-to-specialization-symbol.md.");
+                    "Value-type-projected frozen structs expose direct backing fields rather than SafeHandle-backed Payload.");
                 return;
             }
         }

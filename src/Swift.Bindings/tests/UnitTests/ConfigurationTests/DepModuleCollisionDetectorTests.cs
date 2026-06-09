@@ -110,8 +110,7 @@ namespace BindingsGeneration.Tests
         public void HasObjCInterfaceInHeaders_CategoryInterface_Detects()
         {
             // `@interface Foo (Cat)` still makes Swift import a class named Foo.
-            // Codex round-3 sign-off: category matching is acceptable and the
-            // collision risk is real.
+            // Category matching is acceptable and the collision risk is real.
             using var headersDir = new TempDir();
             File.WriteAllText(Path.Combine(headersDir.Path, "Foo.h"),
                 "@interface Foo (DepCategory)\n- (void)bar;\n@end\n");

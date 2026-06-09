@@ -11,7 +11,7 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// Tests for AbiContractChecker — post-generation ABI contract validation.
 /// Verifies CC-001, CC-002, CC-003, CC-004, and Tj thunk cross-module checks,
-/// including the 4 refinements from Phase 4B.
+/// including the 4 checker refinements.
 /// </summary>
 public class AbiContractCheckerTests
 {

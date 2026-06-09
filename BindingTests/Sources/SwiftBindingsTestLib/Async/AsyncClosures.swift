@@ -6,11 +6,11 @@ import Foundation
 // MARK: - Async Closure Parameters
 // Tests: Functions accepting async closures, calling with await
 // Expected C#: Func<Task<T>> or similar async delegate pattern
-// Most shapes are still guarded — Session A only ungates the baseline
+// Most shapes are still guarded — only the baseline
 // `@escaping () async throws -> T` shape where T is a BitwiseCopyable primitive
-// and the outer method is `async throws`.
+// and the outer method is `async throws` is currently ungated.
 
-/// Baseline async-throwing closure shape supported by Session A:
+/// Baseline async-throwing closure shape:
 /// no args, BitwiseCopyable primitive return, outer method is `async throws`.
 public func callAsyncThrowingClosure(_ closure: @escaping () async throws -> Int32) async throws -> Int32 {
     return try await closure()
@@ -26,7 +26,7 @@ public func callAsyncThrowingClosureTwice(_ closure: @escaping () async throws -
     return a &+ b
 }
 
-// MARK: - Session B: arg-bearing async-throwing closures
+// MARK: - Arg-bearing async-throwing closures
 // Exercises the per-arity adapter that marshals closure args from Swift to C#
 // synchronously before Task.Run spawns the managed async work.
 
@@ -80,12 +80,11 @@ public func callAsyncThrowingClosureOneArgForError(
     return try await closure(value)
 }
 
-/// Session D: async-throwing closure returning Foundation.Data. Routed through
+/// Async-throwing closure returning Foundation.Data. Routed through
 /// DataAsyncClosureHelper.RunDataAsync + a Data-shaped Swift box that resumes
 /// with Data(bytes: bytesPtr, count: length). The outer method returns a byte
-/// checksum (Int64) rather than Data itself — Data return from the *closure* is
-/// in scope for Session D, but Data return from the *outer async method* is a
-/// separate (pre-existing) gap in the async outer-method emitter and out of scope
+/// checksum (Int64) rather than Data itself — Data return from the *outer async
+/// method* is a separate gap in the async outer-method emitter and out of scope
 /// here. Checksumming proves the full byte payload round-tripped intact.
 public func callAsyncThrowingDataClosure(_ closure: @escaping () async throws -> Data) async throws -> Int64 {
     let data = try await closure()
@@ -94,18 +93,17 @@ public func callAsyncThrowingDataClosure(_ closure: @escaping () async throws ->
     return sum
 }
 
-// MARK: - Session F: async-throwing closures returning Swift.String
+// MARK: - Async-throwing closures returning Swift.String
 // Routed through StringAsyncClosureHelper.RunStringAsync + a String-shaped Swift
 // box that resumes with String(decoding: UnsafeBufferPointer(...), as: UTF8.self).
-// Unlocks StripeConnect's only public ctor and PaymentSheet.IntentConfiguration
-// handlers. Unlike Data, String supports full 0–4 arity.
+// Unlike Data, String supports full 0–4 arity.
 
-/// Session F: no-arg async-throwing closure returning Swift.String.
+/// No-arg async-throwing closure returning Swift.String.
 public func callAsyncThrowingStringClosure(_ closure: @escaping () async throws -> String) async throws -> String {
     return try await closure()
 }
 
-/// Session F: invokes the same String-returning async-throwing closure twice.
+/// Invokes the same String-returning async-throwing closure twice.
 /// Validates per-invocation continuation box / adapter lifetime.
 public func callAsyncThrowingStringClosureTwice(_ closure: @escaping () async throws -> String) async throws -> String {
     let a = try await closure()
@@ -113,22 +111,21 @@ public func callAsyncThrowingStringClosureTwice(_ closure: @escaping () async th
     return a + "|" + b
 }
 
-/// Session F: arity-1 primitive arg, String return.
+/// Arity-1 primitive arg, String return.
 public func callAsyncThrowingStringClosureArity1(
     _ closure: @escaping (Int32) async throws -> String
 ) async throws -> String {
     return try await closure(42)
 }
 
-/// Session F: arity-2 mixed (Int32, String) arg, String return. Shape matches
-/// PaymentSheet.IntentConfiguration.ConfirmHandler.
+/// Arity-2 mixed (Int32, String) arg, String return.
 public func callAsyncThrowingStringClosureArity2(
     _ closure: @escaping (Int32, String) async throws -> String
 ) async throws -> String {
     return try await closure(7, "hello")
 }
 
-// MARK: - Session C: non-throwing async closures (primitive return, 0–4 args)
+// MARK: - Non-throwing async closures (primitive return, 0–4 args)
 // Baseline non-throwing shape: `@escaping (Args) async -> T` where T is a
 // BitwiseCopyable primitive and the outer method is `async`. Exceptions inside
 // the managed closure trigger Environment.FailFast (no Swift error channel).
@@ -153,8 +150,8 @@ public func callAsyncClosureWithParam(_ value: Int32, closure: @escaping (Int32)
 }
 
 /// Arity-3 mixed non-throwing: `(Int32, String, AsyncClosureArgBox) async -> Int32`.
-/// Mirrors `callAsyncThrowingClosureThreeArgs` for the Session C non-throwing
-/// bridge so the String + class arg categories are exercised end-to-end on the
+/// Mirrors `callAsyncThrowingClosureThreeArgs` for the non-throwing path
+/// so the String + class arg categories are exercised end-to-end on the
 /// non-throwing path (not just primitives).
 public func callAsyncClosureThreeArgs(
     _ n: Int32,

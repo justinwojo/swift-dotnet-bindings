@@ -19,8 +19,8 @@ namespace BindingsGeneration
     /// instantiations resolved at runtime through <c>SwiftObjectHelper&lt;T&gt;</c> and
     /// <c>SwiftObjectReflectionHelper</c>. Mirroring the runtime's own descriptor for
     /// <c>Swift.SwiftArray`1</c> (see <c>src/Swift.Runtime/src/ILLink.Descriptors.xml</c>),
-    /// we list every emitted open generic with <c>preserve="all"</c>. Codex r1 HIGH for
-    /// RC-AOT flagged this descriptor as load-bearing alongside the cctor.
+    /// we list every emitted open generic with <c>preserve="all"</c>. This descriptor
+    /// is load-bearing alongside the cctor for NativeAOT trimming.
     ///
     /// The consumer csproj must root this file via <c>TrimmerRootDescriptor</c>; the
     /// embedded-resource entry is for downstream consumers that pick up the binding

@@ -9,7 +9,7 @@ namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
 /// Tests for string marshalling round-trips across the Swift/C# boundary.
-/// Covers Phase 55 regression (string enum round-trip) and general string interop.
+/// Covers the string enum round-trip regression and general string interop.
 /// </summary>
 public class StringMarshallingTests : TestBase
 {
@@ -102,11 +102,11 @@ public void TestUnicodeMixed()
 
     #endregion
 
-    #region String Enum Raw Value Round-Trips (Phase 55 regression)
+    #region String Enum Raw Value Round-Trips (string enum regression)
 
     public void TestLogLevelRawValueRoundTrip()
     {
-        // Phase 55 regression: string enum FromRawValue round-trip
+        // String enum FromRawValue round-trip
         // Create LogLevel from raw value, extract raw value back, compare
         var result = TestLibFunctions.ValidateLogLevelRoundTrip("[INFO]");
         AssertTrue(result, "LogLevel [INFO] round-trip");

@@ -9,7 +9,7 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Phase 4 Layer 1 — verifies the per-module error-type registry built by
+/// Layer 1 — verifies the per-module error-type registry built by
 /// <see cref="ErrorEnumRegistryEmitter"/>. The registry feeds the wire-format
 /// extension, Swift cascade helper, and C# typed-exception dispatcher emitted
 /// by subsequent layers, so its determinism (alphabetical ordering, idempotent

@@ -15,7 +15,7 @@ public class ReportCollectorTests
     [Fact]
     public void RecordTypeSkipped_AfterRecordTypeEmitted_IsSilentlySuppressed()
     {
-        // Codex P2 regression: ReportCollector.RecordTypeSkipped silently bails out when
+        // Regression: ReportCollector.RecordTypeSkipped silently bails out when
         // the type is already in EmittedTypeKeys (RecordTypeEmitted -> ... -> RecordTypeSkipped
         // is a no-op). Handlers therefore MUST call any "skip gate" check BEFORE
         // RecordTypeEmitted, otherwise skipped types are double-counted as emitted and
@@ -47,8 +47,8 @@ public class ReportCollectorTests
     {
         // Mirror of the test above: when ShouldSkip runs FIRST (the new handler ordering),
         // the skip is recorded correctly and the subsequent RecordTypeEmitted call is itself
-        // suppressed by the skip-set. This is the path the handlers should hit after the
-        // Codex P2 fix; if a handler regresses to recording emit before checking the gate,
+        // suppressed by the skip-set. This is the path the handlers should hit with the
+        // correct ordering; if a handler regresses to recording emit before checking the gate,
         // the test above will fire but this one will keep passing — the asymmetry is the
         // signal that a regression is in the handler, not in the collector.
         var moduleDecl = CreateModuleDecl();
@@ -419,12 +419,12 @@ public class ReportCollectorTests
     [Fact]
     public void RecordMemberSkipped_DistinctMethodOverloads_RecordEachAsSeparateSkip()
     {
-        // Bug fix per architecture-gameplan §M1: previously RecordMemberSkipped
-        // dedup'd on "Kind:ContainingType:Name" and refused to record any skip
-        // beyond the first whenever the same triple was already in the skip-or-
-        // emit set, which collapsed all overloads of foo(...) into one entry.
-        // After the M1 identity fix, two overloads with the same base name but
-        // different parameter signatures must each appear in SkippedItems.
+        // Previously RecordMemberSkipped dedup'd on "Kind:ContainingType:Name"
+        // and refused to record any skip beyond the first whenever the same
+        // triple was already in the skip-or-emit set, which collapsed all
+        // overloads of foo(...) into one entry. After the identity fix, two
+        // overloads with the same base name but different parameter signatures
+        // must each appear in SkippedItems.
         //
         // Pre-fix behavior would have asserted Single(report.SkippedItems)
         // here — the assertion below would have failed with one entry. That's

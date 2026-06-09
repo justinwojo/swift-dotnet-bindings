@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Collisions;
 
 /// <summary>
-/// P1-21 (property rename across the async + completion-handler paths): extends the property-rename
+/// Property rename across the async + completion-handler paths: extends the property-rename
 /// concern into emission paths that produce their OWN name shape. <c>AsyncPropertyMethodCollider</c>
 /// has a stored property <c>data</c> and two overloads of <c>data(times:)</c> — a Swift-native
 /// <c>async</c> one and a completion-handler one. Both must observe the <c>data</c> property rename,

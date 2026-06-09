@@ -31,7 +31,7 @@ public static class AsyncClosureHelper
     /// <c>_SBClosureCtx</c> owner-token box wrapping the context pointer (emitted into the
     /// async wrapper's <c>_SBW_AsyncClosureHandoff.ctxOwner</c>): when Swift ARC releases
     /// the adapter closure, the box's deinit upcalls <see cref="SwiftClosureContext"/>'s
-    /// free trampoline and releases the handle exactly once (P1-18). When
+    /// free trampoline and releases the handle exactly once. When
     /// libSwiftBindingsRuntime is absent the box degrades to a no-deinit fallback and the
     /// handle leaks as it did before — matching the sync escaping-closure contract.
     /// </remarks>
@@ -86,7 +86,7 @@ public static class AsyncClosureHelper
         });
     }
 
-    // ---- Per-arity arg-bearing overloads (Session B) ----
+    // ---- Per-arity arg-bearing overloads ----
     // Args must be marshaled to managed values by the caller BEFORE invoking these
     // helpers; Swift-owned pointers die the moment the Start thunk returns. The
     // helpers then spawn Task.Run and call state.AsyncFunc(args...) on the pool.
@@ -287,7 +287,7 @@ public static class AsyncClosureHelper
         });
     }
 
-    // ---- Non-throwing variants (Session C) ----
+    // ---- Non-throwing variants ----
     // Mirror the throwing RunAsync family for @escaping (...) async -> T closures.
     // Key difference: the Swift closure has no error channel, so a C# exception
     // cannot surface as a `throws` resume. Explicit try/catch -> Environment.FailFast

@@ -11,10 +11,10 @@ namespace BindingsGeneration.Tests;
 /// Demangler tests: DemangleSymbol() path, symbol category coverage,
 /// complex generics, and edge cases.
 /// </summary>
-public class DemanglerSession2Tests
+public class DemangleSymbolTests
 {
     // ================================================================
-    // D6b: DemangleSymbol() public API path tests
+    // DemangleSymbol() public API path tests
     // ================================================================
 
     [Fact]
@@ -106,7 +106,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6b: IsSwiftSymbol() tests
+    // IsSwiftSymbol() tests
     // ================================================================
 
     [Theory]
@@ -125,7 +125,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6c: SymbolicReferenceResolver tests
+    // SymbolicReferenceResolver tests
     // ================================================================
 
     [Fact]
@@ -185,7 +185,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — property getter/setter
+    // Symbol category tests — property getter/setter
     // ================================================================
 
     [Fact]
@@ -222,7 +222,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — subscript
+    // Symbol category tests — subscript
     // ================================================================
 
     [Fact]
@@ -237,7 +237,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — operator
+    // Symbol category tests — operator
     // ================================================================
 
     [Fact]
@@ -253,7 +253,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — async functions
+    // Symbol category tests — async functions
     // ================================================================
 
     [Fact]
@@ -280,7 +280,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — static methods
+    // Symbol category tests — static methods
     // ================================================================
 
     [Fact]
@@ -308,7 +308,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — inout parameters
+    // Symbol category tests — inout parameters
     // ================================================================
 
     [Fact]
@@ -324,7 +324,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — metadata accessor
+    // Symbol category tests — metadata accessor
     // ================================================================
 
     [Fact]
@@ -338,7 +338,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — protocol conformance descriptor
+    // Symbol category tests — protocol conformance descriptor
     // ================================================================
 
     [Fact]
@@ -354,7 +354,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — default argument initializer
+    // Symbol category tests — default argument initializer
     // ================================================================
 
     [Fact]
@@ -369,7 +369,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — extension methods
+    // Symbol category tests — extension methods
     // ================================================================
 
     [Fact]
@@ -385,7 +385,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — metatype / metaclass
+    // Symbol category tests — metatype / metaclass
     // ================================================================
 
     [Fact]
@@ -409,7 +409,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — dispatch thunk (allocator)
+    // Symbol category tests — dispatch thunk (allocator)
     // ================================================================
 
     [Fact]
@@ -423,7 +423,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D7: Complex generics tests
+    // Complex generics tests
     // ================================================================
 
     [Fact]
@@ -497,7 +497,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D8: Edge case tests — empty/null/malformed input
+    // Edge case tests — empty/null/malformed input
     // ================================================================
 
     [Fact]
@@ -579,7 +579,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D8: Edge case tests — Run() with Swift 4 prefixes
+    // Edge case tests — Run() with Swift 4 prefixes
     // ================================================================
 
     [Theory]
@@ -593,7 +593,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D8: Edge case tests — reuse of demangler instance
+    // Edge case tests — reuse of demangler instance
     // ================================================================
 
     [Fact]
@@ -618,7 +618,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Additional symbol categories — protocol witness tables from real TBD
+    // Additional symbol categories — protocol witness tables from real TBD
     // ================================================================
 
     [Fact]
@@ -633,7 +633,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — property modify accessor
+    // Symbol category tests — property modify accessor
     // ================================================================
 
     [Fact]
@@ -648,7 +648,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category — functions with closure parameters
+    // Symbol category — functions with closure parameters
     // ================================================================
 
     [Fact]
@@ -665,7 +665,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Throwing functions
+    // Throwing functions
     // ================================================================
 
     [Fact]
@@ -682,7 +682,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category — nominal type descriptor
+    // Symbol category — nominal type descriptor
     // ================================================================
 
     [Fact]
@@ -696,7 +696,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — reabstraction thunk (real symbol)
+    // Symbol category tests — reabstraction thunk (real symbol)
     // ================================================================
 
     [Fact]
@@ -710,7 +710,7 @@ public class DemanglerSession2Tests
     }
 
     // ================================================================
-    // D6: Symbol category tests — value witness table (real symbol)
+    // Symbol category tests — value witness table (real symbol)
     // ================================================================
 
     [Fact]

@@ -213,9 +213,9 @@ public class ClassParamCallbackTests : TestBase
         GC.KeepAlive(impl);
     }
 
-    // ---- P1-01: ARC on the extraction carriers (ExtractCopiedValue / ExtractCopiedElement) ----
+    // ---- ARC on the extraction carriers (ExtractCopiedValue / ExtractCopiedElement) ----
     //
-    // The audit-P1-01 fix upgrades two copy-out sites from native swift_retain to the
+    // The fix upgrades two copy-out sites from native swift_retain to the
     // isa-dispatching swift_unknownObjectRetain. Reaching those EXACT sites with an
     // @objc:NSObject payload (so the two retain primitives actually diverge) needs the right
     // carriers — verified against the generated bindings:
@@ -227,7 +227,7 @@ public class ClassParamCallbackTests : TestBase
 
     /// <summary>
     /// <c>Result&lt;@objc class, Error&gt;.Success</c> extraction — the genuine
-    /// <c>ExtractCopiedValue</c> (P1-01 <c>:466</c>) probe. The copy-out must take an ObjC-aware
+    /// <c>ExtractCopiedValue</c> probe. The copy-out must take an ObjC-aware
     /// retain; disposing the extracted wrapper + the carrier must leave the Swift global's
     /// instance live (live == 1). A native <c>swift_retain</c> on the NSObject subclass fails to
     /// register the +1, so the extracted wrapper's Dispose over-releases the global's instance.
@@ -259,7 +259,7 @@ public class ClassParamCallbackTests : TestBase
 
     /// <summary>
     /// <c>Optional&lt;(@objc class, scalar)&gt;</c> extraction — the genuine
-    /// <c>ExtractCopiedElement</c> (P1-01 <c>:1515</c>) probe. Wrapping the tuple in
+    /// <c>ExtractCopiedElement</c> probe. Wrapping the tuple in
     /// <c>Optional</c> routes it through the runtime <c>MarshalTupleFromSwift</c> (unlike a bare
     /// tuple, which the emitter unrolls), so the class element is copied out of a borrowed tuple
     /// slot. Disposing the extracted element must leave the Swift global's instance live.
@@ -286,7 +286,7 @@ public class ClassParamCallbackTests : TestBase
         TestLogger.Info("Optional<(@objc, scalar)>: extracted-element Dispose left the global-owned ref intact");
     }
 
-    // ---- Adjacent return paths (NOT P1-01 extraction sites — see ClassParamCallback.swift) ----
+    // ---- Adjacent return paths (NOT extraction sites — see ClassParamCallback.swift) ----
 
     /// <summary>
     /// <c>Optional&lt;@objc class&gt;</c> return marshalled inline as
@@ -313,8 +313,7 @@ public class ClassParamCallbackTests : TestBase
     /// and the payloads leaked. <c>OptionalProjection</c> now emits
     /// <c>GetINativeObject&lt;T&gt;(ptr, true)</c> (owns:true), adopting that single +1 so Dispose/finalize
     /// releases exactly once. This is a SEPARATE return-direction leak from the issue #40 receiver crash;
-    /// allocating N payloads and disposing each must leave zero live. See
-    /// src/docs/protocol-proxy-class-param-receiver-fix.md.
+    /// allocating N payloads and disposing each must leave zero live.
     /// </summary>
     public void TestOptionalObjCPayloadReturnNoLeak_KnownFixA()
     {

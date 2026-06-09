@@ -5,8 +5,8 @@ import Foundation
 
 // MARK: - Callback-arg projection asymmetry
 //
-// Layer-A regression for the Bundle 03 callback-arg projection bug
-// (`bug-0.10.0-callback-arg-projection-asymmetry.md`). Mirrors Nuke 13.0.5's
+// Regression for the callback-arg projection asymmetry bug.
+// Mirrors Nuke 13.0.5's
 // `loadData(... completion: @escaping ((Foundation.Data, Foundation.URLResponse?)) -> Void)`
 // shape: a callback closure whose argument is a tuple containing types that have
 // non-trivial projections in the rest of the SDK

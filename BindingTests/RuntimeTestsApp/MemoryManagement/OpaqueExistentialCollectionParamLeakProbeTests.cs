@@ -11,7 +11,7 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// Probes ARC balance for passing Swift-vended (borrowed) OPAQUE (non-class-bound) existential
 /// conformers BACK to Swift as a collection element — <c>[any BugReproExistentialItem]</c> /
 /// <c>[String: any BugReproExistentialItem]</c>. This is the opaque sibling of the class-bound
-/// PARAM/WRITE carrier audit (P1-08): a non-class-bound <c>any P</c> strides over the full 40-byte
+/// PARAM/WRITE carrier: a non-class-bound <c>any P</c> strides over the full 40-byte
 /// <see cref="Swift.Runtime.ExistentialContainer1"/>, not the compact 16-byte
 /// <see cref="Swift.Runtime.ClassExistentialContainer1"/>.
 ///

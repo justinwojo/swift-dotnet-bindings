@@ -581,15 +581,13 @@ public class SilgenNameTrampolineTests
     [Fact]
     public void Async_WithClosureParam_NoConversion_SkippedAsAbiUnsafe()
     {
-        // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper.
-        //
         // An async method whose signature carries a non-baseline closure parameter is rejected
-        // by HasCdeclCompatibleFunctionShape (no @_cdecl wrapper produced). Pre-Bundle 7 the
+        // by HasCdeclCompatibleFunctionShape (no @_cdecl wrapper produced). Previously the
         // legacy path emitted an `@_silgen_name` Swift trampoline plus a CallConvSwift P/Invoke
         // into Swift's async ABI — genuinely ABI-unsafe at runtime: closure ownership transfer
-        // needs the destroy-thunk projection that lives only on the cdecl-wrapped path. The
-        // Bundle 7 refined trigger in WrapperValidation.IsSkippedWrapperDirectPInvoke now
-        // recognises this shape (async + closure param) and skips the method with an
+        // needs the destroy-thunk projection that lives only on the cdecl-wrapped path.
+        // WrapperValidation.IsSkippedWrapperDirectPInvoke recognises this shape
+        // (async + closure param) and skips the method with an
         // "ABI-unsafe direct call" diagnostic instead of emitting a working-looking-but-broken
         // API. The mirror unit-level test lives in
         // AbiSafetyTests.IsSkippedWrapperDirectPInvoke_AsyncWithClosureParam_ReturnsTrue.

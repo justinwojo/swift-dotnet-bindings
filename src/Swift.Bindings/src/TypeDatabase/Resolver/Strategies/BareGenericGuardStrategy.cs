@@ -15,7 +15,7 @@ namespace BindingsGeneration;
 /// triggers the standard skip path.
 /// </summary>
 /// <remarks>
-/// Pre-M4-Session-2 the legacy <c>GetTypeRecordOrAnyType</c> branch carried
+/// The legacy <c>GetTypeRecordOrAnyType</c> branch previously carried
 /// this guard while the sibling <c>TryGetTypeRecord</c> /
 /// <c>GetTypeRecordOrThrow</c> overloads silently returned the bare
 /// <see cref="TypeRecord"/> registered in the database. Folding the guard

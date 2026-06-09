@@ -450,9 +450,9 @@ public func sbw_swiftUnknownObjectRelease(_ ptr: UnsafeMutableRawPointer) {
 
 // MARK: - Escaping-Closure Context Owner Token
 //
-// Single root cause for two 0.10.x leaks:
-//   - bug-0.10.0-callback-trampoline-gchandle-leak.md (Cat 2/3/4)
-//   - bug-0.10.0-async-task-wrapper-leaks-existential-heap.md (Case 2)
+// Single root cause for two leak classes:
+//   - Callback trampoline GCHandle leak (categories 2/3/4)
+//   - Async task wrapper leaks existential heap (case 2)
 //
 // Both leak the same way: C# allocates a `GCHandle` for the captured managed
 // delegate, packs the pinned `IntPtr` into a Swift `@escaping` closure context,

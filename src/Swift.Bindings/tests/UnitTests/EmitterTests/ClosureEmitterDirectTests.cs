@@ -1547,9 +1547,9 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void CanUseInvokeThunk_ThrowingClosure_ReturnsTrue()
     {
-        // Throwing closures gained invoke-thunk support via the Cdecl error-out parameter
-        // (Session 4c, Shape 1) — both args and returns marshal via the same primitive/enum/class
-        // gates as non-throwing closures, with an explicit error-out pointer threaded through.
+        // Throwing closures gained invoke-thunk support via the Cdecl error-out parameter —
+        // both args and returns marshal via the same primitive/enum/class gates as non-throwing
+        // closures, with an explicit error-out pointer threaded through.
         var typeDatabase = CreateTypeDatabaseWithSwiftInt();
         var closureHandler = new ClosureHandler(typeDatabase);
         var closureTypeSpec = new ClosureTypeSpec(
@@ -1739,7 +1739,7 @@ public class ClosureEmitterDirectTests
         Assert.False(ClosureEmitter.IsInvokeThunkCompatibleReturn(unknownType, closureHandler));
     }
 
-    // --- By-value struct args through the invoke thunk (§6 #4) -------------------------
+    // --- By-value struct args through the invoke thunk -------------------------
     // A closure RETURNED from Swift that takes a by-value struct argument must route
     // through the @_cdecl invoke thunk, not the raw `delegate* unmanaged[Swift]` lambda
     // (which SIGSEGVs on Mono JIT / NativeAOT when invoked from a display-class method).
@@ -1883,7 +1883,7 @@ public class ClosureEmitterDirectTests
     public void CanUseInvokeThunk_StringArg_PrimitiveReturn_ReturnsTrue()
     {
         // (String) -> Int32 — Swift.String is a frozen value struct, so the closure must stay
-        // on the invoke-thunk path (the documented Codex High #1 repro shape).
+        // on the invoke-thunk path (the documented repro shape).
         var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
         var closureHandler = new ClosureHandler(typeDatabase);
         var closureTypeSpec = new ClosureTypeSpec(
@@ -1896,7 +1896,7 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void EmitCSharpInvokeThunkHelper_StringArg_ConvertsViaSwiftStringNotMetadataThrow()
     {
-        // Codex High #1: Swift.String projects to C# `string`, which has NO Swift TypeMetadata.
+        // Swift.String projects to C# `string`, which has NO Swift TypeMetadata.
         // The generic GetTypeMetadataOrThrow<string>() path throws at runtime before the closure
         // is ever invoked. The invoker must instead convert to the metadata-bearing SwiftString
         // and marshal its inline Swift representation into a heap buffer (then Destroy+Free it).
@@ -1937,7 +1937,7 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void EmitCSharpInvokeThunkHelper_DataArg_ConvertsViaFromByteArrayNotMetadataThrow()
     {
-        // Codex High #1 (Data variant): Foundation.Data projects to C# `byte[]`, which has no
+        // Foundation.Data projects to C# `byte[]`, which has no
         // Swift TypeMetadata. Convert to the metadata-bearing Foundation.Data via FromByteArray.
         var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
         var closureHandler = new ClosureHandler(typeDatabase);
@@ -1948,7 +1948,7 @@ public class ClosureEmitterDirectTests
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
 
-        // Codex r2 Medium: the invoke-thunk Data path references Swift.Foundation.Data, which
+        // The invoke-thunk Data path references Swift.Foundation.Data, which
         // lives in the SwiftBindings.Apple supplement. The csproj emitter only adds that
         // PackageReference when the supplement dependency is recorded — verify this path records
         // it (the closure-delegate translation bypasses the projection path that normally would).
@@ -1971,7 +1971,7 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void EmitCSharpInvokeThunkHelper_MultipleHeapStructArgs_AllocInsideTryWithNullGuardedCleanup()
     {
-        // Grok High #1: with N>1 heap struct args, the prologue allocations must sit INSIDE the
+        // With N>1 heap struct args, the prologue allocations must sit INSIDE the
         // try so a later arg's alloc failure cannot leak an earlier arg's buffer. Buffer pointers
         // are declared null before the try and the finally Destroy+Free's only the non-null ones.
         var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
@@ -2010,7 +2010,7 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void EmitThrowingClosureReturnMarshalling_StringArgFallback_ConvertsViaSwiftStringNotMetadataThrow()
     {
-        // Codex+Grok Medium: the THROWING closure return fallback (the inline-lambda path taken
+        // The THROWING closure return fallback (the inline-lambda path taken
         // when CanUseInvokeThunk is false — no invoke-thunk entry point passed) marshalled a
         // Swift.String arg via the same generic GetTypeMetadataOrThrow<string>() path the
         // invoke-thunk path already avoids. `string` carries no Swift TypeMetadata, so the
@@ -2083,7 +2083,7 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void EmitThrowingClosureReturnMarshalling_MultipleHeapStructArgsFallback_AllocInsideTryWithNullGuardedCleanup()
     {
-        // Codex+Grok Medium: the throwing fallback allocated non-frozen heap buffers in the
+        // The throwing fallback allocated non-frozen heap buffers in the
         // prologue BEFORE the try, so a later arg's InitializeWithCopy failure leaked an earlier
         // arg's buffer. Buffers must be declared null before the try, allocated INSIDE it, and
         // Destroy+Free'd in a null-guarded finally — matching the invoke-thunk path.
@@ -2364,9 +2364,9 @@ public class ClosureEmitterDirectTests
 
     #endregion
 
-    #region S-4 — Frozen-struct-with-ref-fields closure arg defer-deallocate
+    #region Frozen-struct-with-ref-fields closure arg defer-deallocate
 
-    // sdk-0.11.0-residual-gaps.md S-4: a closure parameter typed as a frozen struct
+    // A closure parameter typed as a frozen struct
     // with ref-type fields (IsFrozenStructProjectedAsClass) hits a copy-transfer
     // path on the C# side — `NewFromPayload` `InitializeWithCopy`s into a fresh
     // `NativeMemory.Alloc` buffer (see `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`),
@@ -2394,7 +2394,7 @@ public class ClosureEmitterDirectTests
         var result = string.Join("\n", lines);
         Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
         Assert.Contains("__heap_0.initializeMemory(as: TestModule.FrozenStructWithRef.self", result);
-        // The defer-deallocate is the S-4 fix — without it the buffer leaks
+        // The defer-deallocate fix — without it the buffer leaks
         // on every closure invocation because C# does NOT take ownership of
         // the source pointer for the IsFrozenStructProjectedAsClass path.
         Assert.Contains("defer", result);
@@ -2432,7 +2432,7 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void SwiftClosureAdapter_ComplexEnumArg_RemainsWithoutDefer()
     {
-        // Regression sanity: the S-4 fix must NOT change the complex-enum path —
+        // Regression sanity: the defer-deallocate fix must NOT change the complex-enum path —
         // those still transfer ownership to C# (SwiftSafeHandle pairs VWT.Destroy
         // + NativeMemory.Free on disposal). Double-freeing would happen if a
         // defer were added here.
@@ -2485,7 +2485,7 @@ public class ClosureEmitterDirectTests
                 Kind = TypeRecordKind.Struct
             });
         // Complex enum sibling — used by SwiftClosureAdapter_ComplexEnumArg_RemainsWithoutDefer
-        // to confirm the S-4 fix didn't regress the existing complex-enum heap-no-defer
+        // to confirm the defer-deallocate fix didn't regress the existing complex-enum heap-no-defer
         // contract.
         testModule.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("TestModule.LoadingState"),

@@ -8,7 +8,7 @@ namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
 /// Runtime tests for the legacy <c>SwiftClosureData</c> escaping-closure
-/// owner-token plumbing (N-3 in sdk-0.11.0-residual-gaps.md). Confirms that a
+/// owner-token plumbing. Confirms that a
 /// managed delegate captured by an escaping closure handed to Swift becomes
 /// collectible after Swift releases its strong reference — proving the
 /// <c>_SBClosureCtx</c> box's deinit upcalls the C# free trampoline and frees
@@ -97,7 +97,7 @@ public class EscapingClosureLifetimeTests : TestBase
     /// </summary>
     [SkipOnSimulator("N-3 owner-token box lives in libSwiftBindingsRuntime.dylib. " +
         "RuntimeTestsApp sets IncludeSwiftBindingsRuntimeNative=false (to avoid the " +
-        "InstallNameTool .dylib.tmp rename failure documented in AGENTS.md), so on " +
+        "InstallNameTool .dylib.tmp rename failure on simulator), so on " +
         "simulator the wrapper falls back to _SBClosureCtxFallback — a no-deinit class " +
         "that intentionally preserves the prior leak behaviour (see ClosureContextHelperEmitter.cs " +
         "lines 55-60 and SwiftClosureContext.cs catch DllNotFoundException). The device " +

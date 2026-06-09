@@ -616,7 +616,7 @@ public static class NativeThunkEmitter
             // struct passed by pointer, including ~Copyable). Only `consuming` (+1, Owned) is
             // unsafe: the bare tail-call thunk forwards the C# buffer pointer with no ownership
             // modeling, so Swift consumes/deinitializes the value AND the C# SafeHandle destroys
-            // the same buffer → double-free (P0-06). Route consuming params to the @_cdecl wrapper,
+            // the same buffer → double-free. Route consuming params to the @_cdecl wrapper,
             // which models ownership (Swift-side `.move()` + C#-side MarkConsumed). Borrowing
             // (Shared) and default params are +0 — the caller retains ownership, so forwarding the
             // same initialized buffer pointer is ABI-correct and stays on the thunk. (InOut is
@@ -719,7 +719,7 @@ public static class NativeThunkEmitter
         // ≤ 8 bytes it is NOT safe to tail-call as if it were a single integer register. A struct
         // holding a single Float/Double (or any float-containing shape TypeLowering declined as
         // divergent) is returned in d0/xmm0 by swiftcc, while an integer tail-call reads x0/%rax and
-        // sees 0 (P1-09). Without a layout we cannot tell integer from floating-point, so decline to
+        // sees 0. Without a layout we cannot tell integer from floating-point, so decline to
         // the @_cdecl wrapper, whose C-ABI return is correct by construction.
 
         // Everything else: multi-register, float-divergent, or unknown layout — needs bridging

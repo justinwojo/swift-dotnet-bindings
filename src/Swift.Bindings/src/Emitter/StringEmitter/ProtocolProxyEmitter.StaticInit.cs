@@ -127,7 +127,6 @@ public partial class ProtocolProxyEmitter
         // empty child that inherits a cross-module parent (e.g. `protocol Child:
         // OtherModule.Parent {}`) can still receive inherited dispatch through the
         // parent's `_p_vtable` global in the bound module's wrapper.
-        // See bug-0.10.0-proxy-vtable-setters-not-exported.md.
         var emitChildVtablePopulation = _setVtableEmitted;
         if (!emitChildVtablePopulation)
         {

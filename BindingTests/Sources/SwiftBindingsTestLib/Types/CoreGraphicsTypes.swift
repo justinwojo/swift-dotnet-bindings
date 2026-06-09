@@ -69,7 +69,7 @@ public func scaleCGFloat(_ value: CGFloat, by factor: CGFloat) -> CGFloat {
 
 // MARK: - CoreGraphics CFType Reference Types
 //
-// Regression coverage for bug-0.10.0-cgimage-projected-as-intptr:
+// Regression coverage for CGImage/CGColor projected as IntPtr instead of managed wrappers:
 //
 // CGImage / CGColor (and the CG* CFType family) must project to the canonical
 // `CoreGraphics.CGImage` / `CoreGraphics.CGColor` wrappers from dotnet/macios,

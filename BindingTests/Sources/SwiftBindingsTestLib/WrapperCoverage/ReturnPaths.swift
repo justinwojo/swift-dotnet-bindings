@@ -47,7 +47,7 @@ public class TransformFactory {
 /// metadata-less (`Swift.String` → `string`). The thunk must convert the
 /// incoming `string` to `Swift.SwiftString` and marshal it through a retaining
 /// value-witness copy rather than calling `GetTypeMetadataOrThrow<string>()`,
-/// which throws at runtime. Tracked as a finding from the §6 audit.
+/// which throws at runtime.
 public class StringArgTransformFactory {
     public let factor: Int32
 

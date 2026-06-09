@@ -92,8 +92,8 @@ public class MemberSignatureNormalizerTests
     }
 
     /// <summary>
-    /// Direct regression test for the Family-F generic-specialized overload bug
-    /// surfaced by Codex round 1. Before the fix, both forms reduced to "Array"
+    /// Direct regression test for the Family-F generic-specialized overload bug.
+    /// Before the fix, both forms reduced to "Array"
     /// and the disamb logic counted only one distinct signature, causing the
     /// availability annotation to be stored under the bare key and broadcast
     /// across both overloads.

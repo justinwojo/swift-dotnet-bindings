@@ -592,7 +592,7 @@ public class ExistentialHandler
                     // types at the use site, so the PAT degradation does NOT apply: the
                     // surface is fully closed-form. Project as `IP<X, Y>` if every
                     // argument resolves through the type database. (Cases 1 and 2 in
-                    // gap-0.10.0-everyprotocol-and-existentials.md.)
+                    // Constrained existential: binds associated types at the use site.)
                     if (firstProtocol.GenericParameters.Count > 0 &&
                         TryResolveExistentialGenericArgs(firstProtocol, out var constrainedArgs))
                     {
@@ -623,7 +623,7 @@ public class ExistentialHandler
             // an associated-type reference, fall back to AnyType — that preserves the
             // API surface without synthesising broken closed-form C# (the previous
             // 0.10.0 behaviour collapsed every generic existential to AnyType, see
-            // gap-0.10.0-everyprotocol-and-existentials.md Cases 1 and 2).
+            // Constrained existential Cases 1 and 2: concrete-arg `any P<X>` and plain `any P`).
             if (firstProtocol.GenericParameters.Count > 0)
             {
                 if (TryResolveExistentialGenericArgs(firstProtocol, out var resolvedArgs))
@@ -793,7 +793,7 @@ public class ExistentialHandler
             // (see ProtocolProxyEmitter.GetProxyClassName which uses ProtocolDecl.Name —
             // the leaf), so the call-site reference must match. The cross-module
             // qualification still happens later via QualifyProxyClassName.
-            // See bug-0.10.0-nested-protocol-i-prefix.md.
+            // The proxy class is emitted at module level using the leaf name; the call-site reference must match.
             var protocolName = LeafName(protocolList.Protocols.Keys.First().NameWithoutModule);
             return $"{protocolName}Proxy";
         }

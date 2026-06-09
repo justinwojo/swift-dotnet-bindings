@@ -72,7 +72,7 @@ partial class Build
             var branch = GetGitBranch();
             var outputBase = (AbsolutePath)Path.Combine(Path.GetTempPath(), $"binding-validation-{branch}");
 
-            // --- Phase 1: Prerequisites ---
+            // --- Prerequisites ---
             Log.Information("=== Library Validation ===");
             Log.Information("");
 
@@ -163,7 +163,7 @@ partial class Build
                     string.Join(" ", manualMissing));
             Log.Information("");
 
-            // --- Phase 2: Build Generator ---
+            // --- Build Generator ---
             if (!Quick)
                 BuildGeneratorIfChanged(outputBase);
 
@@ -203,12 +203,12 @@ partial class Build
             // --- Results tracking ---
             var results = new ConcurrentDictionary<string, TargetResult>();
 
-            // --- Phase 3: Generate, Compile Wrappers, and Compile C# ---
+            // --- Binding Pipeline ---
             Log.Information("--- Binding Pipeline ---");
 
             var semaphore = new SemaphoreSlim(maxJobs);
 
-            // === Phase 3a: Generate All Bindings (parallel) ===
+            // === Generate All Bindings (parallel) ===
             Log.Debug("Phase 3a: Generating {Count} targets with {Jobs} parallel workers...",
                 totalTargets, maxJobs);
             var phase3aStart = DateTime.UtcNow;
@@ -223,14 +223,14 @@ partial class Build
             Log.Debug("Phase 3a completed in {Seconds}s",
                 (int)(DateTime.UtcNow - phase3aStart).TotalSeconds);
 
-            // Display Phase 3a results in manifest order
+            // Display generate results in manifest order
             foreach (var target in displayTargets)
             {
                 if (results.TryGetValue(target.Name, out var r) && r.GenOutput != null)
                     Log.Information("{Output}", r.GenOutput);
             }
 
-            // === Phase 3b: Compile Swift Wrappers (parallel) ===
+            // === Compile Swift Wrappers (parallel) ===
             Log.Information("");
             Log.Debug("Phase 3b: Compiling Swift wrappers with {Jobs} parallel workers...", maxJobs);
             var phase3bStart = DateTime.UtcNow;
@@ -245,7 +245,7 @@ partial class Build
             Log.Debug("Phase 3b completed in {Seconds}s",
                 (int)(DateTime.UtcNow - phase3bStart).TotalSeconds);
 
-            // Display Phase 3b results and compute swift counters
+            // Display wrapper compile results and compute swift counters
             int swiftPassed = 0, swiftFailed = 0, swiftNoWrapper = 0;
             foreach (var target in displayTargets)
             {
@@ -272,7 +272,7 @@ partial class Build
                         swiftPassed, swiftTested, swiftFailed, noWrapNote);
             }
 
-            // === Phase 3c: C# Compile Gate ===
+            // === C# Compile Gate ===
             Log.Information("");
             Log.Information("--- Compile Gate ---");
 
@@ -280,7 +280,7 @@ partial class Build
             var nonDepTargets = sortedTargets.Where(t => !hasDeps.Contains(t.Name.Split('@')[0])).ToList();
             var depTargets = sortedTargets.Where(t => hasDeps.Contains(t.Name.Split('@')[0])).ToList();
 
-            // Phase 3c-standalone: Compile non-dep targets in parallel
+            // Compile non-dep targets in parallel
             if (nonDepTargets.Count > 0)
             {
                 Log.Debug("Phase 3c: Compiling {Count} standalone targets with {Jobs} parallel workers...",
@@ -335,7 +335,7 @@ partial class Build
                         compilePassed, compileTested, compileFailed);
             }
 
-            // === Phase 3c-dependency: Cascading Dependency Gate ===
+            // === Cascading Dependency Gate ===
             int depPassed = 0, depFailed = 0, depSkipped = 0, depTotal = 0;
 
             if (depTargets.Count > 0)
@@ -485,7 +485,7 @@ partial class Build
 
             Log.Information("");
 
-            // === Phase 4: Baseline & Regression Detection ===
+            // === Baseline & Regression Detection ===
             bool isFullRun = Filter == null && Tier == 0;
 
             // Build current library results for baseline
@@ -598,7 +598,7 @@ partial class Build
                 Log.Information("");
             }
 
-            // === Phase 5: Regression Detection ===
+            // === Regression Detection ===
             if (prevBaseline.Gate.Libraries.Count > 0)
             {
                 Log.Information("--- Regression Check ---");
@@ -700,7 +700,7 @@ partial class Build
         });
 
     // ============================================================
-    // Phase 3a: Generate Bindings
+    // Generate Bindings
     // ============================================================
 
     void GenerateTarget(ValidationTarget target, AbsolutePath outputBase,
@@ -790,7 +790,7 @@ partial class Build
     }
 
     // ============================================================
-    // Phase 3a (apple-framework mode): xcrun → digester → generator
+    // Generate Bindings (apple-framework mode): xcrun → digester → generator
     // ============================================================
 
     void GenerateAppleFrameworkTarget(ValidationTarget target, AbsolutePath outputBase,
@@ -895,19 +895,18 @@ partial class Build
 
             // Step 3b: generate dep module databases inline.
             //
-            // Strategy (a) from the Session 1 plan: each apple-framework target produces
-            // its own deps' module database XMLs as a prelude inside its own outdir
-            // (.deps/<DepModule>/<DepModule>Database.xml), then threads them into the
-            // primary generator via --module-database. This is deterministic under Phase
-            // 3a parallelism — every dependent self-contains its dep DB generation, no
-            // cross-task ordering is required, and a `--filter` that excludes the dep
-            // still works because we don't rely on the dep target running.
+            // Each apple-framework target produces its own deps' module database XMLs as a
+            // prelude inside its own outdir (.deps/<DepModule>/<DepModule>Database.xml), then
+            // threads them into the primary generator via --module-database. This is
+            // deterministic under parallelism — every dependent self-contains its dep DB
+            // generation, no cross-task ordering is required, and a `--filter` that excludes
+            // the dep still works because we don't rely on the dep target running.
             //
-            // The trade-off vs strategy (b) (topological scheduling) is duplicated work
-            // when both dep and dependent are in the same run: the dep generates fully
-            // as its own target AND inline as a prelude here. Acceptable for Session 1 —
-            // the inline pass uses --skip-wrapper-compilation + --sdk-mode so it only
-            // runs the parser + emitter (cheap) and skips wrapper compile + csproj.
+            // The trade-off vs topological scheduling is duplicated work when both dep and
+            // dependent are in the same run: the dep generates fully as its own target AND
+            // inline as a prelude here. Acceptable because the inline pass uses
+            // --skip-wrapper-compilation + --sdk-mode so it only runs the parser + emitter
+            // (cheap) and skips wrapper compile + csproj.
             var depDatabasePaths = new List<AbsolutePath>();
             var depDbFailures = new List<string>();
             if (target.Dependencies.Count > 0)
@@ -939,7 +938,7 @@ partial class Build
 
             // Step 4: invoke the generator in direct mode. No --sdk-mode (we WANT the
             // csproj + wrapper xcframework emitted) and no --skip-wrapper-compilation
-            // (the wrapper compiles inline so Phase 3b can be a no-op for this mode).
+            // (the wrapper compiles inline so the wrapper-compile step is a no-op for this mode).
             var verbosity = Verbose ? "1" : "0";
             var libraryNameArg = $@"\@rpath/{frameworkModule}.framework/{frameworkModule}";
             var genArgs = new List<string>
@@ -999,8 +998,8 @@ partial class Build
     }
 
     // ============================================================
-    // Phase 3a (apple-framework mode): generate a dependency's module
-    // database XML as a prelude to the dependent's primary generation.
+    // Generate a dependency's module database XML (apple-framework mode)
+    // as a prelude to the dependent's primary generation.
     // ============================================================
     //
     // Apple `@_implementationOnly` umbrella re-exports (e.g. RealityKit re-exports
@@ -1140,7 +1139,7 @@ partial class Build
         result.Lines = csFile != null ? File.ReadLines(csFile).Count() : 0;
 
         // Direct mode compiles the wrapper inline, so its status is determined here
-        // rather than in Phase 3b.
+        // rather than in the wrapper-compile step.
         if (result.Gen is "ok")
         {
             result.SwiftCompile = CheckSwiftWrapper(outdir);
@@ -1183,8 +1182,8 @@ partial class Build
                  + (result.GenVerbose != null ? $"\n    {result.GenVerbose}" : ""),
         };
 
-        // Render swift compile output for apple-framework targets here (Phase 3b's
-        // CompileWrapper is a no-op for this mode). Mirrors the formatting used by
+        // Render swift compile output for apple-framework targets here (CompileWrapper
+        // is a no-op for this mode). Mirrors the formatting used by
         // CompileWrapper so all targets read consistently in the gate output.
         result.SwiftOutput = result.SwiftCompile switch
         {
@@ -1472,7 +1471,7 @@ partial class Build
     }
 
     // ============================================================
-    // Phase 3b: Compile Swift Wrappers
+    // Compile Swift Wrappers
     // ============================================================
 
     void CompileWrapper(ValidationTarget target, AbsolutePath outputBase,
@@ -1489,7 +1488,7 @@ partial class Build
             return;
         }
 
-        // apple-framework direct mode compiles the wrapper inline during Phase 3a
+        // apple-framework direct mode compiles the wrapper inline during generation
         // (no --skip-wrapper-compilation). The SwiftCompile status is stamped by the
         // generator pass; nothing to do here.
         if (target.Mode == "apple-framework")
@@ -1589,7 +1588,7 @@ partial class Build
     }
 
     // ============================================================
-    // Phase 3c: Compile C# (standalone, non-dependency)
+    // Compile C# (standalone, non-dependency)
     // ============================================================
 
     void CompileTarget(ValidationTarget target, AbsolutePath outputBase,
@@ -2015,7 +2014,7 @@ $"""
 
         // Each *.framework dir produced by the wrapper pipeline must contain BOTH
         // the compiled binary AND an embedded Info.plist. A missing per-slice plist
-        // is the failure documented in ship-blockers Issue 1 — the SDK's merge
+        // is the failure tracked as Issue 1 — the SDK's merge
         // target builds the device slice via `swiftc -emit-library` which emits
         // only a binary, so the merged xcframework can ship with a slice that
         // lacks Info.plist and is uninstallable on device.
@@ -2512,19 +2511,19 @@ $"""
 /// </summary>
 class TargetResult
 {
-    // Phase 3a: Generation
+    // Generation
     public string Gen { get; set; } = "unknown";
     public int GenSeconds { get; set; }
     public string? GenVerbose { get; set; }
     public string? GenOutput { get; set; }
     public int Lines { get; set; }
 
-    // Phase 3b: Swift wrapper compilation
+    // Swift wrapper compilation
     public string SwiftCompile { get; set; } = "unknown";
     public string? SwiftVerbose { get; set; }
     public string? SwiftOutput { get; set; }
 
-    // Phase 3c: C# compilation
+    // C# compilation
     public string Compile { get; set; } = "unknown";
     public string? DepCompile { get; set; } = "none";
     public int Errors { get; set; }

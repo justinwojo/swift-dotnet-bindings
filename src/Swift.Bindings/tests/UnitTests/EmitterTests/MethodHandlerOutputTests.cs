@@ -278,7 +278,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void Emit_GenericMethod_WithAssociatedTypeProtocolConstraint_SkipsEmission()
     {
-        // This gate is now in MemberValidationPipeline (Phase 4).
+        // This gate is now in MemberValidationPipeline (Gate 4).
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
 
@@ -466,7 +466,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void Emit_AsyncMethodWithPrivateName_UsesNormalizedNameInBody()
     {
-        // Regression test for Bug 2: async body used ABI p.Name (e.g. "_for")
+        // Regression test: async body used ABI p.Name (e.g. "_for")
         // instead of normalized NameProvider.GetCSharpParameterName (e.g. "request")
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
@@ -1034,7 +1034,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void MethodHandler_ThunkClosureInGenericType_SkipsEmission()
     {
-        // This gate is now in MemberValidationPipeline (Phase 3).
+        // This gate is now in MemberValidationPipeline (Gate 3).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
@@ -1149,7 +1149,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void ConstructorHandler_ThunkClosureInGenericType_SkipsEmission()
     {
-        // This gate is now in MemberValidationPipeline (Phase 3).
+        // This gate is now in MemberValidationPipeline (Gate 3).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
@@ -1649,7 +1649,7 @@ public class MethodHandlerOutputTests
     {
         // Optional closures are always escaping in Swift. The cleanup path used to
         // free unconditionally on the inner ClosureTypeSpec.IsEscaping check, which
-        // was wrong for the stored-handler shape (Bug 1 Cat 3). After the closure-
+        // was wrong for the stored-handler shape. After the closure-
         // context owner-token fix, Swift's `_SBClosureCtx` ARC box owns the GCHandle
         // once the wrapper body runs, so the C# `finally` must skip its own free in
         // the steady-state path. The remaining free is gated on a transfer flag —

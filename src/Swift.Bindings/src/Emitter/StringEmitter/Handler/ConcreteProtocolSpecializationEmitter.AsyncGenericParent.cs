@@ -9,7 +9,7 @@ namespace BindingsGeneration;
 /// Parent-only async CSM emission — the async sibling of the sync emission inside
 /// <see cref="ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent"/>.
 /// <para>
-/// Before Session 5 the async CSM path hard-rejected generic parents at three sites:
+/// The async CSM path previously hard-rejected generic parents at three sites:
 /// <c>PassesAsyncMethodLevelGuards</c> (blanket <c>parentTypeDecl.IsGeneric</c>),
 /// <c>EmitConcreteSpecializationsForGenericParent</c> (an <c>if (method.IsAsync) continue;</c>
 /// skip inside the per-conformer extension loop), and <c>IsCsmAsyncEligible</c>
@@ -23,7 +23,7 @@ namespace BindingsGeneration;
 /// substitutes through the parent's associated-type table to a closed ISwiftObject.
 /// </para>
 /// <para>
-/// Hand-rolled per the Codex Session 5 architecture consult: the existing async harness
+/// Hand-rolled to avoid large refactors: the existing async harness
 /// machinery (<see cref="AsyncHarnessEmitter"/> + <see cref="WrapperEmitter"/>) is
 /// instance-shaped, references <c>_payload</c> / <c>_handle</c> / <c>this</c> throughout
 /// the emit pipeline, and the Swift wrapper template branches on <c>MethodType.Static</c>
@@ -35,7 +35,7 @@ namespace BindingsGeneration;
 /// </summary>
 public static partial class ConcreteProtocolSpecializationEmitter
 {
-    // ─── Phase 4a eligibility (consumed by MemberValidationPipeline) ─────
+    // ─── Eligibility (consumed by MemberValidationPipeline) ─────
 
     /// <summary>
     /// Returns true if the method will be routed through the parent-only async CSM
@@ -44,8 +44,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// <para>
     /// Mirrors the skip conditions of <see cref="TryEmitParentOnlyAsyncOverload"/> exactly
     /// so the predicate cannot declare suppressibility for a method the emitter will then
-    /// drop (same contract as Session 2's
-    /// <c>IsCsmSyncEligibleForGenericParent</c>). The pipeline calls this AFTER the closed-
+    /// drop (same contract as <c>IsCsmSyncEligibleForGenericParent</c>). The pipeline calls this AFTER the closed-
     /// conformer async eligibility predicate <c>IsCsmAsyncEligible</c> so the two routes
     /// don't trip over each other.
     /// </para>
@@ -69,7 +68,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (!parentTypeDecl.IsGeneric) return false;
 
         // Nested generic parents can't host an extension class on a closed receiver
-        // from outside their enclosing type — same restriction as Session 2 sync.
+        // from outside their enclosing type — same restriction as sync CSM.
         if (parentTypeDecl.ParentDecl is TypeDecl) return false;
 
         // Value-type parents only. The Swift wrapper does `let __self = self_.pointee`
@@ -77,7 +76,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // (value-type copy is Sendable when the constraint chain is) but a class parent
         // would copy the strong reference into the Task, extending lifetime past the
         // synchronous wrapper return and tangling with ARC + Sendable enforcement.
-        // The Session 5 design target (MusicLibraryRequest<T>) is a struct; lift to
+        // Value-type copy is Sendable when the constraint chain is; lift to
         // class parents only when an emit shape that retains/releases through a separate
         // capture box is implemented.
         if (parentTypeDecl is ClassDecl) return false;
@@ -121,7 +120,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (pairingCount == 0 || pairingCount > MaxCsmCartesianProductSize) return false;
 
         // Walk the cartesian product the same way the emitter does and return true on
-        // the first pairing that fully validates. Mirrors Session 2 sync.
+        // the first pairing that fully validates.
         foreach (var pairing in CartesianPairings(specializable.SpecializableParams))
         {
             if (!ConformerPairingSatisfiesCoupling(pairing)) continue;
@@ -374,7 +373,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // associated-type reference — without a known resolution we'd emit invalid Swift
         // and C# referencing a placeholder identifier.
         var returnSpec = method.CSSignature.First().SwiftTypeSpec;
-        if (returnSpec.IsEmptyTuple) return false; // void-returning async — out of Session 5 scope
+        if (returnSpec.IsEmptyTuple) return false; // void-returning async — not yet supported
 
         var current = returnSpec;
         for (int i = 0; i < pairing.Count; i++)
@@ -440,8 +439,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// <see cref="CdeclParamMapper.IsBlittablePrimitiveSwiftType"/> (Int/UInt/Float/Double
     /// family, CGFloat). <c>MarshalFromSwift&lt;T&gt;</c> returns a *value copy*, so the
     /// success-callback OWNS the carrier and MUST <c>NativeMemory.Free</c> it after
-    /// reading. Session 6 lift — Session 5 originally rejected blittable returns
-    /// conservatively.</description></item>
+    /// reading. Blittable returns were previously rejected conservatively.</description></item>
     /// </list>
     /// <para>
     /// Deliberately rejected (each would need its own emit shape, deferred to a future
@@ -882,7 +880,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             publicParams.Add($"string {csName}");
         }
 
-        // P1-22: the public method body hardcodes synthetic locals (tcs, resultPtr, holder,
+        // The public method body hardcodes synthetic locals (tcs, resultPtr, holder,
         // handle). A user parameter spelling any of them would shadow the synthetic (CS0136)
         // and the generator would emit uncompilable C# at exit 0. Reserve each against the
         // in-scope user identifiers (the `self` receiver + every Utf8Slice param); with no

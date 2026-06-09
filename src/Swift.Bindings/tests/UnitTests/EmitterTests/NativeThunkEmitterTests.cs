@@ -287,7 +287,7 @@ namespace BindingsGeneration.Tests
         [InlineData(8)]
         public void ShouldEmitThunk_SmallFrozenStructReturn_NoLayout_ReturnsFalse(int inlineSize)
         {
-            // P1-09: a ≤8-byte frozen struct WITHOUT ABI field layout. TypeLowering returns null
+            // A ≤8-byte frozen struct WITHOUT ABI field layout. TypeLowering returns null
             // (register file unknown), so we can't tell whether the field is an integer (returned in
             // x0/%rax) or a Float/Double (returned in d0/%xmm0). The removed "frozen struct ≤ 8 bytes
             // → single register, no bridge" fast path tail-called it as if it were an integer; for a
@@ -1889,7 +1889,7 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
-        #region Bug Fix: Indirect consuming/non-copyable params rejected from thunks (P0-06)
+        #region Bug Fix: Indirect consuming/non-copyable params rejected from thunks
 
         [Theory]
         // consuming (+1) is the ONLY indirect ownership that the bare thunk gets wrong.
@@ -1901,7 +1901,7 @@ namespace BindingsGeneration.Tests
         public void ShouldEmitThunk_IndirectNonCopyableParam_DeclinesOnlyForConsuming(
             ParameterOwnership ownership, bool expectThunk)
         {
-            // P0-06: a non-copyable (~Copyable) struct parameter is address-only — TypeLowering
+            // A non-copyable (~Copyable) struct parameter is address-only — TypeLowering
             // returns IsIndirect=true with ZERO register slots, so it is passed by buffer pointer.
             // An earlier gate admitted any param with Slots.Count <= 1 (and 0 <= 1), so it wrongly
             // tail-call-thunked the buffer pointer with no ownership modeling: a `consuming` (+1)
@@ -2347,7 +2347,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void EmitThunk_ThrowingClassConstructor_ErrorLeadsAndShiftsArgs()
         {
-            // P0-05: a throwing class constructor is the one thunked shape whose error-out pointer
+            // A throwing class constructor is the one thunked shape whose error-out pointer
             // LEADS the value arguments. CdeclSignatureContract orders it [ErrorOut][Arguments]
             // [Metadata]: the error-out lands in x0 and the two value args occupy x1/x2 on the cdecl
             // side. The thunk must capture error-out from x0 (NOT a trailing register) and shift the

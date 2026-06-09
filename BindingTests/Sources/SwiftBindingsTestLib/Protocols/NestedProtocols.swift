@@ -3,7 +3,7 @@
 
 // MARK: - Nested-Protocol Type Reference (Nuke 13.x ImagePipeline.Delegate pattern)
 //
-// Regression coverage for bug-0.10.0-nested-protocol-i-prefix:
+// Regression coverage for nested-protocol `I`-prefix misplacement:
 //
 // When a Swift protocol is declared as a nested type (e.g. ImagePipeline.Delegate),
 // the generator must emit references to it as `ImagePipeline.IDelegate`, NOT as

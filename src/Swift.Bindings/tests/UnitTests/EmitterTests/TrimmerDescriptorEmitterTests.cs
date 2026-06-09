@@ -11,9 +11,8 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// Tests for <see cref="TrimmerDescriptorEmitter"/> — the per-module
 /// <c>ILLink.Descriptors.xml</c> writer that closes the NativeAOT trimming gap
-/// for generated open-generic ISwiftObject types (RC-AOT). The Codex r1 HIGH
-/// finding flagged the descriptor as load-bearing alongside the eager cctor;
-/// these tests guard the wire-format invariants ILC depends on.
+/// for generated open-generic ISwiftObject types. The descriptor is load-bearing
+/// alongside the eager cctor; these tests guard the wire-format invariants ILC depends on.
 /// </summary>
 public class TrimmerDescriptorEmitterTests
 {

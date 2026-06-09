@@ -181,7 +181,7 @@ public class CancellationTokenEmitterTests
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
         // Registry key is the monotonic _sbwCancelKey, NOT the recyclable GCHandle
-        // context (_sbwTask). See P1-17 region below for the rationale.
+        // context (_sbwTask). See the Cancellation Key Recycle Fix region below for the rationale.
         Assert.Contains("_sbwRegisterTask(_sbwCancelKey, _entry)", swiftOutput);
     }
 
@@ -305,7 +305,7 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void AsyncWrapper_UntypedThrows_ErrorCallbackUsesUnifiedSixParam()
     {
-        // Phase 4 unified wire format: typed-throws, plain-throws cascade, and untyped
+        // Unified wire format: typed-throws, plain-throws cascade, and untyped
         // throws all share a single 6-param shape
         // (errorPtr?, errorSize, msgPtr?, isCancellation, _sbwTask, errorTypeId).
         // Untyped fixture has no registered error types, so the body passes
@@ -467,7 +467,7 @@ public class CancellationTokenEmitterTests
 
     #endregion
 
-    #region Cancellation Key Recycle Fix (P1-17)
+    #region Cancellation Key Recycle Fix
 
     // The Swift cancellation registry (_sbwActiveTasks) must be keyed by a value that is
     // NEVER reused while an entry is live. Previously the key was the GCHandle pointer

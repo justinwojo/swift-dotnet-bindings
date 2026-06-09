@@ -129,7 +129,7 @@ namespace BindingsGeneration
         /// Marshalled identically to <see cref="IsUnsafeRawBufferPointer"/> at the C ABI boundary
         /// (split into IntPtr pointer + nint length); the C# side exposes Span&lt;byte&gt; instead of
         /// ReadOnlySpan&lt;byte&gt; so callers can observe Swift-side mutations after the synchronous call.
-        /// See <c>src/docs/Design/unsafe-mutable-raw-buffer-pointer.md</c>.
+        /// The read-only/mutable distinction lives only on the Swift wrapper side.
         /// </summary>
         public static bool IsUnsafeMutableRawBufferPointer(TypeSpec? typeSpec)
         {

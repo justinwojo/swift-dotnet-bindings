@@ -858,7 +858,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void FilterThunkAssembly_Fallback_DoesNotMatchUnrelatedTypeWithSharedSuffix()
         {
-            // Codex review: "AddressVerificationSheet.simulatorDocumentCameraImages" must NOT match
+            // "AddressVerificationSheet.simulatorDocumentCameraImages" must NOT match
             // a sim-only entry for "IdentityVerificationSheet.simulatorDocumentCameraImages" just
             // because both share the suffix "VerificationSheet". The suffix match requires a Swift
             // substitution pattern (uppercase letter) immediately before the length-prefixed suffix.

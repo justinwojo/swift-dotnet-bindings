@@ -7,8 +7,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Regression coverage for
-/// <c>bug-0.10.0-foundation-dimension-constraint-not-projected.md</c> (Bundle 04 #5).
+/// Regression coverage for the Foundation.Dimension class-constraint projection
+/// gap in WeatherKit's <c>Trend&lt;Dimension&gt;</c> family.
 /// WeatherKit declares <c>Trend&lt;Dimension&gt; where Dimension : Foundation.Dimension</c>,
 /// a TYPE-level generic constrained over a class hierarchy. Pre-fix the parser
 /// tagged the <c>:</c> clause as <see cref="ConformanceKind.Protocol"/> and the

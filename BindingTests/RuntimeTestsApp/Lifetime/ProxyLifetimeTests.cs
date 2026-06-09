@@ -67,7 +67,7 @@ public class ProxyLifetimeTests : TestBase
     // deterministic Swift alloc/dealloc counters return to baseline,
     // `CFGetRetainCount` returns to baseline for bridged ObjC objects, RSS
     // stays under a budget, and no finalizer-thread exceptions are logged.
-    // See `src/docs/0.10.0-fix-plan.md` §"Layer C — lifetime harness".
+    // Layer C — lifetime harness: exercises proxy cleanup through GC finalization.
 
     /// <summary>
     /// Number of GC cycles to run before asserting — ProxyCleanup's finalizer
@@ -302,8 +302,8 @@ public class ProxyLifetimeTests : TestBase
     }
 
     /// <summary>
-    /// Codex P0 regression: impl is GC'd while Swift still holds a STRONG
-    /// retain on the proxy. The tracker releases our +1 (via the cleanup
+    /// Regression: impl is GC'd while Swift still holds a STRONG retain on
+    /// the proxy. The tracker releases our +1 (via the cleanup
     /// finalizer) but Swift's strong retain keeps the EveryProtocol alive,
     /// so <see cref="ProxyLifetimeTracker.OnEveryProtocolDeinit"/> never
     /// fires and <see cref="SwiftObjectRegistry.TryGetProxyFromContainer"/>
@@ -429,8 +429,8 @@ internal class PingReceiverImpl : IProxyLifetimeReceiver
 /// <summary>
 /// Plain C# implementation used by
 /// <see cref="ProxyLifetimeTests.TestStrongSwiftRetainSurvivesImplGc"/>.
-/// The Codex P0 scenario needs an impl that the test can deliberately let
-/// become unreachable while Swift still strongly retains the wrapping proxy.
+/// This scenario needs an impl that the test can deliberately let become
+/// unreachable while Swift still strongly retains the wrapping proxy.
 /// Lives in this file (not AutoWrappedDelegateTests.cs) to keep the
 /// dead-impl regression coverage next to the other lifetime tests.
 /// </summary>

@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - Typed KeyPath singleton fixtures (Session 4)
+// MARK: - Typed KeyPath singleton fixtures
 //
-// The IN-path counterpart to KeyPathFoundation.swift. Session 4 emits one Swift
-// `@_cdecl` trampoline per stored property of a closed conformer's nested bag
+// The IN-path counterpart to KeyPathFoundation.swift. The emitter produces one
+// Swift `@_cdecl` trampoline per stored property of a closed conformer's nested bag
 // (e.g. `MockBookSession4.LibraryFilter.title`) and surfaces them as C#
 // `public static` properties (`MockBookSession4LibraryFilterKeyPaths.Title`),
 // initialised lazily by the trampoline.
@@ -58,14 +58,10 @@ public struct MockMovieSession4: Session4_Filterable {
 // MARK: Generic parent — the consumer-demand signal
 //
 // The parent's API references `KeyPath<Item.LibraryFilter, *>` parameters,
-// which is what triggers Session 4's singleton-emission walk. The method
-// signature itself is not required to bind through CSM in this session — the
-// open-associated-type-rooted KeyPath substitution is out of scope for Session
-// 4 (called out as a Phase-3+ follow-up in `00-overview.md`).
-//
-// The methods are defined so the demand walk has something to recognise. C#
-// consumers exercise the IN path through the concrete-rooted readers below
-// rather than calling these open-generic methods directly.
+// which is what triggers the singleton-emission walk. The methods are defined
+// so the demand walk has something to recognise. C# consumers exercise the IN
+// path through the concrete-rooted readers below rather than calling these
+// open-generic methods directly.
 
 public struct BagSession4<Item: Session4_Filterable> {
     public init() {}
@@ -74,7 +70,7 @@ public struct BagSession4<Item: Session4_Filterable> {
         matching keyPath: KeyPath<Item.LibraryFilter, Value>,
         equalTo value: Value
     ) -> Int {
-        // Implementation is irrelevant for binding-test purposes — Session 4's
+        // Implementation is irrelevant for binding-test purposes — the
         // demand walk only inspects the signature.
         return 0
     }
@@ -89,16 +85,16 @@ public struct BagSession4<Item: Session4_Filterable> {
 
 // MARK: Concrete consumers — exercise the IN path without CSM
 //
-// Session 4 only emits the singletons. The closed-conformer CSM substitution
-// that would turn `BagSession4<MockBookSession4>.count<V>(matching:equalTo:)`
+// The singleton emitter only emits the singletons; the closed-conformer CSM
+// substitution that would turn `BagSession4<MockBookSession4>.count<V>(matching:equalTo:)`
 // into a directly-callable C# method requires the engine to substitute
 // `Item.LibraryFilter` → `MockBookSession4.LibraryFilter` inside the KeyPath
-// generic argument — which is the explicit Phase-3+ follow-up.
+// generic argument.
 //
-// To prove the singletons round-trip into Swift consumers TODAY, these
-// concrete-rooted (non-generic) readers take a typed `KeyPath<R, V>` and read
-// through it via `subscript(keyPath:)`. They bind through the existing
-// foundation path (Session 3) without needing any closed-conformer CSM work.
+// To prove the singletons round-trip into Swift consumers, these concrete-rooted
+// (non-generic) readers take a typed `KeyPath<R, V>` and read through it via
+// `subscript(keyPath:)`. They bind through the existing foundation path without
+// needing any closed-conformer CSM work.
 
 public class MockBookSession4Consumer {
     public class func readTitle(
@@ -122,8 +118,8 @@ public class MockBookSession4Consumer {
         return filter[keyPath: kp]
     }
 
-    // Value-equality check via AnyKeyPath.== — exercises Session 3's runtime
-    // shim from a Session-4-emitted singleton path.
+    // Value-equality check via AnyKeyPath.== — exercises the runtime
+    // shim from a typed-singleton path.
     public class func samePath(
         _ a: KeyPath<MockBookSession4.LibraryFilter, String>,
         _ b: KeyPath<MockBookSession4.LibraryFilter, String>

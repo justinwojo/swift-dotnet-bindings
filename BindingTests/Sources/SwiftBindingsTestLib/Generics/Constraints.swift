@@ -155,7 +155,7 @@ public class CollectionHost {
     }
 }
 
-// MARK: - M2: Generic Constructor with PWT (DifferenceKit DifferentiableBox pattern)
+// MARK: - Generic Constructor with PWT (DifferenceKit DifferentiableBox pattern)
 
 /// Generic class where the constructor requires both type metadata and a protocol witness table.
 /// The PWT is for the Describable constraint.
@@ -171,7 +171,7 @@ public class ConstrainedBox<T: Describable> {
     }
 }
 
-// MARK: - Issue C — Parent-generic sugared type parameter in bound generic
+// MARK: - Parent-generic sugared type parameter in bound generic
 
 /// Protocol constraint for CollectibleBag.
 public protocol CollectibleItem {
@@ -219,13 +219,14 @@ public func makeCoinBag(firstId: String, secondId: String) -> CollectibleBag<Col
 
 // MARK: - MusicKit.MusicItemCollection shape with nint-arithmetic Collection methods
 //
-// Session 2 Issue C regression fixture. Generic struct conforming to `Collection`
-// where methods like `index(_:offsetBy:) -> Int`, `distance(from:to:) -> Int`, and
-// `index(after:) -> Int` are pure Int arithmetic — their ABI signatures never
-// reference the parent's generic parameter `Item`. Before the relaxation in
-// `GenericDispatchEmitter.CanEmitStaticDispatch` the `signatureReferencesT`
-// hard-gate rejected them on generic struct parents, matching the MusicKit
-// `MusicItemCollection<TMusicItemType>` skip reason of `generic_parent`.
+// Regression fixture for generic Collection parent-only methods. Generic struct
+// conforming to `Collection` where methods like `index(_:offsetBy:) -> Int`,
+// `distance(from:to:) -> Int`, and `index(after:) -> Int` are pure Int arithmetic
+// — their ABI signatures never reference the parent's generic parameter `Item`.
+// Before the relaxation in `GenericDispatchEmitter.CanEmitStaticDispatch` the
+// `signatureReferencesT` hard-gate rejected them on generic struct parents,
+// matching the MusicKit `MusicItemCollection<TMusicItemType>` skip reason of
+// `generic_parent`.
 //
 // Collection-family stored/computed properties (`startIndex`, `endIndex`, `items`)
 // are also declared directly on this type — a separate fix in
@@ -260,7 +261,7 @@ public struct MusicItemBag<Item: CollectibleItem>: Collection {
         return end - start
     }
 
-    // Round 6: `formIndex(_:offsetBy:)` with an `inout` nint parameter on a generic
+    // `formIndex(_:offsetBy:)` with an `inout` nint parameter on a generic
     // struct parent. Matches MusicKit's `MusicItemCollection<TMusicItemType>.formIndex(nint)`
     // ABI shape — inout non-T-referencing type on a generic non-frozen struct. Before the
     // relaxation in `MethodWrapperEmitter.ShouldEmitWrapper` (and the matching shared guard
@@ -285,8 +286,8 @@ public func makeMusicItemBag(firstId: String, secondId: String, thirdId: String)
 
 // MARK: - WeatherKit.Forecast<Element> shape — Collection with PRIVATE backing
 //
-// Session 3 Issue E.2 regression fixture. Generic struct conforming to
-// `Collection` where the backing array is PRIVATE — only `startIndex`,
+// Regression fixture for Collection with private backing storage. Generic struct
+// conforming to `Collection` where the backing array is PRIVATE — only `startIndex`,
 // `endIndex`, `subscript(Int) -> Element`, and `index(after:)` are public.
 // The existing `MusicItemBag` fixture has a *public* `items: [Item]` property
 // that the pre-fix `CollectionProjectionEmitter.TryFindBacking` used as the
@@ -299,7 +300,7 @@ public func makeMusicItemBag(firstId: String, secondId: String, thirdId: String)
 // `StartIndex` / `EndIndex`, and `this[int]` / `GetEnumerator` via the
 // type's `subscript(Int) -> Element` witness — without any visible `[Element]`
 // property to delegate to. Element type is `CollectibleCoin` to reuse the
-// Session 2 `CollectibleItem` witness table plumbing.
+// `CollectibleItem` witness table plumbing.
 public struct ForecastSeries<Element: CollectibleItem>: Collection {
     private let storage: [Element]
 
@@ -327,11 +328,11 @@ public func makeForecastSeries(firstId: String, secondId: String, thirdId: Strin
 
 // MARK: - WeatherKit.Forecast<Element> Apple-shape — parent over 3-PWT threshold
 //
-// Round 5 Session 3 actual-cause fixture. `ForecastSeries<Element>` above uses
-// `CollectibleItem` (no Self requirement, no associated types) so its metadata
-// accessor stays thin-mode and its PWTs are all resolvable as static C#
-// interfaces. Apple's `WeatherKit.Forecast<Element>` constrains Element by
-// `Decodable & Encodable & Equatable & Sendable` — three non-marker PWTs that
+// Regression fixture for the actual-cause when the parent generic exceeds 3 PWTs.
+// `ForecastSeries<Element>` above uses `CollectibleItem` (no Self requirement, no
+// associated types) so its metadata accessor stays thin-mode and its PWTs are all
+// resolvable as static C# interfaces. Apple's `WeatherKit.Forecast<Element>` constrains
+// Element by `Decodable & Encodable & Equatable & Sendable` — three non-marker PWTs that
 // all carry Self requirements AND push (1 metadata + 3 PWTs) > 3 register slots,
 // flipping the parent type's metadata accessor to buffer-mode ABI.
 //
@@ -384,7 +385,7 @@ public func makeAppleShapedForecast(
 
 // MARK: - RealityKit.RealityRenderer.EntityCollection shape — class-bounded sequence param
 //
-// Reproduces RealityFoundation Bug 3: a non-generic value type with a method
+// Reproduces a RealityFoundation pattern: a non-generic value type with a method
 // `insert<S: Sequence>(contentsOf source: S, beforeIndex i: Int) where S.Element : SomeClass`.
 // The class-inheritance bound is encoded in `genericSig` as `S.Element : SomeClass`, which the
 // parser routes through `ConformanceKind.Protocol` (Swift writes any `:` clause that way). The
@@ -435,9 +436,9 @@ public func makeAnimalRoster(firstName: String, secondName: String) -> AnimalRos
     ])
 }
 
-// MARK: - Bug 3 Follow-up: Protocol-target associated-type constraint
+// MARK: - Protocol-target associated-type constraint
 //
-// Closes the gap left open after the original Bug 3 fix. The bilateral pairing
+// Closes the gap left open after the original class-constraint fix. The bilateral pairing
 // filter previously passed through `ConformanceKind.Protocol` entries when the
 // constraint target was itself a protocol (e.g., `where S.Element : SomeProtocol`).
 // Pre-fix, the engine paired every Sequence conformer in the pool with
@@ -557,9 +558,9 @@ public func readSelfReqAnchored(_ value: any SelfReqAnchored) -> String {
 
 // MARK: - Class-bounded type-level generic (WeatherKit Trend<Dimension> shape)
 //
-// Regression coverage for
-// `bug-0.10.0-foundation-dimension-constraint-not-projected.md` (Bundle 04 #5).
-// WeatherKit declares `Trend<Dimension> where Dimension : Foundation.Dimension`
+// Regression coverage for the Foundation.Dimension constraint projection bug
+// WeatherKit declares
+// `Trend<Dimension> where Dimension : Foundation.Dimension`
 // (and TrendBaseline / Percentiles in the same family). Pre-fix the parser
 // tagged the `:` constraint as `ConformanceKind.Protocol` and PInvokeHelper-
 // Emitter's flatten-conformances gate added it to the `unresolved` list when

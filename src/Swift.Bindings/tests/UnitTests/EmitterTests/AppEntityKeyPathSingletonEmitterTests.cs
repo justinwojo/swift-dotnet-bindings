@@ -80,7 +80,7 @@ public class AppEntityKeyPathSingletonEmitterTests
     // The AppEntity emitter calls KeyPathBagWalker.IsEmittableProperty with
     // allowComputed: true, because a concrete root forms valid KeyPaths for computed
     // properties (`\Root.getOnly` → KeyPath, `\Root.getSet` → WritableKeyPath). The
-    // Session 4 nested-bag path keeps the default (allowComputed: false) so only stored
+    // nested-bag path keeps the default (allowComputed: false) so only stored
     // bag fields are KeyPath leaves. These pin both sides of that switch.
 
     [Fact]
@@ -95,7 +95,7 @@ public class AppEntityKeyPathSingletonEmitterTests
     public void ComputedProperty_RejectedByDefault_AdmittedWithAllowComputed()
     {
         var computed = BuildProperty("summary", hasStorage: false, hasSetter: false);
-        // Session 4 nested-bag default: computed property is rejected as a non-stored leaf.
+        // Nested-bag default: computed property is rejected as a non-stored leaf.
         Assert.Equal("!HasStorage",
             KeyPathBagWalker.WhyPropertyNotEmittable(computed, allowAbstract: false, allowComputed: false));
         // AppEntity-direct-root path: admitted.

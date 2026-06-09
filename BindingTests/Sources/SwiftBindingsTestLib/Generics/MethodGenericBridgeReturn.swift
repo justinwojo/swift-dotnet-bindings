@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// Audit P0-12 / P1-28 compile gate for the SYNCHRONOUS MethodGenericBridge (MGB) indirect-result
+// Compile gate for the SYNCHRONOUS MethodGenericBridge (MGB) indirect-result
 // path — the bridge that emits a C# P/Invoke whose Swift @_cdecl symbol ends in `_XM` (not `_XMA`,
 // the async variant). MGB fires for a method with a single class-bound, protocol-constrained,
 // method-own generic parameter; it is shadowed by CSM whenever CSM has conformers for the
@@ -19,10 +19,10 @@
 // wire-retain destroy, no double-free) is asserted directly on the emitted shape by the unit
 // tests in MethodGenericBridgeEmitterTests.cs.
 //
-// P0-12: the buffer was a fixed `Marshal.AllocHGlobal(256)` — a heap overflow for any return
-// whose Swift stride exceeds 256 bytes. The fix sizes via `GetSwiftTypeSize<T>()`, so the emitted
-// size is correct regardless of stride (the overflow was a runtime fault; a small struct exercises
-// the same emission shape the large one would).
+// Indirect-result buffer fix: the buffer was a fixed `Marshal.AllocHGlobal(256)` — a heap overflow
+// for any return whose Swift stride exceeds 256 bytes. The fix sizes via `GetSwiftTypeSize<T>()`,
+// so the emitted size is correct regardless of stride (the overflow was a runtime fault; a small
+// struct exercises the same emission shape the large one would).
 
 /// Plain class-bound protocol. `: AnyObject` makes the MGB existential-opening bridge sound
 /// (it uses `Unmanaged<AnyObject>.fromOpaque`). No associated types, no Self requirement.
@@ -40,8 +40,8 @@ public struct BridgeBox {
 
 /// `@frozen` struct carrying a class (reference) field → projected as ClassWithBufferStruct
 /// (RequiresMemoryManagement). Routes to the MGB wire-destroy branch: the wire buffer is copied
-/// out, its +1 ref-field retains are VWT-destroyed, then the C#-owned buffer is freed (P1-28 —
-/// without the destroy, every call leaked +1 on `holder`).
+/// out, its +1 ref-field retains are VWT-destroyed, then the C#-owned buffer is freed. Without
+/// the VWT destroy, every call leaked +1 on `holder`.
 @frozen
 public struct BridgeRefBox {
     public let holder: BridgeRefHolder
@@ -68,7 +68,7 @@ public final class BridgeHost {
         return BridgeRefBox(holder: BridgeRefHolder(tag: provider.bridgeTag))
     }
 
-    // ── Synthetic-name collisions on the MGB path (P1-22 class) ──────────────────────
+    // ── Synthetic-name collisions on the MGB path ──────────────────────
     //
     // The MGB Swift wrapper hand-emits the generic-parameter pointer binding as `_{label}`
     // (NOT through the keyword/reserved escape that Map applies to non-generic params), and

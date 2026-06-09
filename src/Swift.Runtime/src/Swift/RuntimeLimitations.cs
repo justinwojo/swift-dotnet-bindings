@@ -7,8 +7,8 @@ namespace Swift;
 
 /// <summary>
 /// Exhaustive, queryable registry of every known upstream .NET runtime limitation
-/// affecting Swift interop. Each entry maps to a confirmed upstream bug documented
-/// in src/docs/Future/upstream-issues-README.md and the per-issue files alongside it.
+/// affecting Swift interop. Each entry maps to a confirmed upstream bug with a
+/// reproduction and per-issue documentation.
 ///
 /// Key principle: this registry is exhaustive. If a runtime crash doesn't match
 /// a registered limitation, it is definitively a generator bug.
@@ -17,8 +17,7 @@ public static class RuntimeLimitations
 {
     /// <summary>
     /// Exhaustive enum of every known upstream runtime limitation.
-    /// Each value maps to a confirmed upstream bug with a reproduction
-    /// and workaround documented in src/docs/Future/upstream-issues-README.md.
+    /// Each value maps to a confirmed upstream bug with a reproduction and workaround.
     /// </summary>
     internal enum Limitation
     {
@@ -52,8 +51,7 @@ public static class RuntimeLimitations
         /// Mono: SafeHandle/SwiftSelf lifetime not preserved across async P/Invoke
         /// suspension points. GC can collect the SafeHandle while Swift async operation
         /// is in flight, causing SIGSEGV.
-        /// Upstream: tracking-issue comment item (no standalone bug filing — see
-        /// src/docs/Future/upstream-issues-README.md § "Tracking-issue comment").
+        /// Upstream: tracking-issue comment item (no standalone bug filing).
         /// NativeAOT confirmed NOT affected.
         /// Workaround: DangerousGetHandle() + explicit Arc.Retain/Release, or
         /// @_cdecl wrapper accepting UnsafeMutableRawPointer.

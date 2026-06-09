@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - GenericIndexableCollection — Session 5 fixture
+// MARK: - GenericIndexableCollection
 //
 // Mirrors MusicKit's `MusicItemCollection<MusicItemType>: Collection` shape:
 // a generic struct whose Collection conformance members are declared inside

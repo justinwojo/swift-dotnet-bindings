@@ -89,7 +89,7 @@ public struct ExistentialContainer0 : IExistentialContainer
             {
                 // A C# `int` is 32-bit — box it as Swift.Int32 (NOT Swift.Int, which is 64-bit).
                 // Tagging it with the distinct Int32 metadata is what lets Unbox round-trip it
-                // back to a C# `int` instead of silently widening to `long` (audit P1-06). The
+                // back to a C# `int` instead of silently widening to `long`. The
                 // metadata cache maps typeof(int) -> `$ss5Int32VN` (Swift.Int32).
                 if (!TypeMetadata.Cache.TryGet(typeof(int), out var metadata))
                     throw new SwiftRuntimeException("Cannot get Swift.Int32 metadata");
@@ -132,7 +132,7 @@ public struct ExistentialContainer0 : IExistentialContainer
                 // Non-primitive payloads (any generated Swift wrapper) box through the value
                 // witness table using the value's own Swift type metadata, instead of throwing.
                 // This is the runtime sibling of ExistentialContainerFactory.CreateAny<T> for the
-                // bare-`Any` path, where the per-element static type is only `object` (audit P1-06).
+                // bare-`Any` path, where the per-element static type is only `object`.
                 if (value is ISwiftObject swiftObject)
                     return ExistentialContainerFactory.CreateAnyRuntime(swiftObject);
 
@@ -166,7 +166,7 @@ public struct ExistentialContainer0 : IExistentialContainer
             return (long)container.Payload0;
         }
 
-        // Swift.Int32 round-trips back to a C# `int` (audit P1-06): a value boxed from a C# `int`
+        // Swift.Int32 round-trips back to a C# `int`: a value boxed from a C# `int`
         // carries Int32 metadata, so recover it as `int` rather than widening to `long`. Checked
         // after the Swift.Int (nint) branch — the two metadata pointers are distinct.
         if (TypeMetadata.Cache.TryGet(typeof(int), out var int32Meta) && metadata.Equals(int32Meta.Value))
@@ -348,7 +348,7 @@ public struct ClassExistentialContainer1
     /// exactly one owned +1 — minting for the borrowed layout, donating the boxable layout's existing
     /// +1 — because Swift's array element write is <c>__owned</c> (consuming) and the
     /// class-existential value-witness table releases word0 once on destroy. Using this bare
-    /// narrowing for an array element (as the original P1-08 carrier path did) over-releases the
+    /// narrowing for an array element (as the original carrier path did) over-releases the
     /// borrowed proxy and leaks the boxable +1.
     /// </para>
     /// </summary>
@@ -1091,7 +1091,7 @@ public static class ExistentialContainerFactory
     /// The boxed-vs-borrowed distinction is a RUNTIME property of <paramref name="value"/>, not
     /// something the call site can decide statically (the emitted parameter type is the erased
     /// interface, and both a boxable value conformer and a proxy are assignable to it — audit
-    /// P1-03). This overload carries the decision out of the single branch point so cleanup uses
+    /// This overload carries the decision out of the single branch point so cleanup uses
     /// the exact signal that made it, rather than re-testing <c>is</c> at each call site (which
     /// would drift if branch precedence ever changed).
     ///
@@ -1373,7 +1373,7 @@ public static class ExistentialContainerFactory
     /// <b>Borrowed (proxy/auto-wrap — <c>ownsContainer == false</c>):</b> the container ALIASES a +1
     /// owned by the proxy / <see cref="ProxyLifetimeTracker"/>. MINT a fresh owned copy so the array
     /// owns its own reference and the source proxy keeps its. Without this the <c>__owned</c> consume
-    /// plus the carrier's value-witness destroy over-released the proxy's only +1 (audit P1-08 opaque
+    /// plus the carrier's value-witness destroy over-released the proxy's only +1 (opaque-existential
     /// sibling).
     /// </description></item>
     /// <item><description>
@@ -1439,7 +1439,7 @@ public static class ExistentialContainerFactory
             // container, so the aliased (+0) fallback is safe there. A genuine value-witness fault
             // from CopyWireBufferRetains (which runs only AFTER metadata resolves) throws a DIFFERENT
             // type and is intentionally NOT caught — masking it would hand a borrowed (+0) carrier to
-            // an __owned consume and re-introduce the P1-08 over-release.
+            // an __owned consume and re-introduce the over-release.
             return container;
         }
     }
@@ -1457,11 +1457,11 @@ public static class ExistentialContainerFactory
     /// <see langword="true"/> — the caller must run the existential value-witness <c>destroy</c> to
     /// balance that +1 once the call returns. A borrowed/+0 container (class or proxy conformer, or
     /// a well-known container such as AnyError) reports <paramref name="owns"/> ==
-    /// <see langword="false"/> and is only freed; destroying it would over-release (audit P0-09/P0-10).
+    /// <see langword="false"/> and is only freed; destroying it would over-release.
     ///
     /// Single release path shared by every existential-parameter marshalling site — method/
     /// function/constructor params (WrapperEmitter), enum-case factories (EnumHandler), and
-    /// optional-existential setters (PropertyHandler). See audit P1-03.
+    /// optional-existential setters (PropertyHandler).
     /// </remarks>
     /// <param name="heap">Buffer returned by <c>NativeMemory.Alloc</c> holding the container, or null.</param>
     /// <param name="witnessTableCount">Protocol-witness-table count of the container (EC1 = 1).</param>

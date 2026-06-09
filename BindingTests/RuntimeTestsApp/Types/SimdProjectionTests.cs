@@ -264,7 +264,7 @@ public class SimdProjectionTests : TestBase
 
     #endregion
 
-    #region Multi-SIMD constructor (RealityKit.Transform shape — §5a)
+    #region Multi-SIMD constructor (RealityKit.Transform shape)
 
     // SimdDefaultCtorStruct is a resilient (non-@frozen) struct → ClassWithOpaquePayload, the same
     // C# shape the generator gives RealityKit.Transform. Its initializer takes three SIMD parameters

@@ -9,10 +9,9 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Session 3 Issue E.2 regression: Apple's <c>WeatherKit.Forecast&lt;Element&gt;</c>
-/// conforms to Swift's <c>Collection</c> but has PRIVATE storage — only
-/// <c>startIndex</c>, <c>endIndex</c>, <c>subscript(Int) -&gt; Element</c>, and
-/// <c>index(after:)</c> are public. Before the Session 3 fix in
+/// Apple's <c>WeatherKit.Forecast&lt;Element&gt;</c> conforms to Swift's <c>Collection</c>
+/// but has PRIVATE storage — only <c>startIndex</c>, <c>endIndex</c>,
+/// <c>subscript(Int) -&gt; Element</c>, and <c>index(after:)</c> are public. Before the fix in
 /// <c>CollectionProjectionEmitter</c>, the projection only fired when a public
 /// <c>Swift.Array&lt;Element&gt;</c> backing property was emittable, so the
 /// projection was silently dropped on <c>Forecast&lt;Element&gt;</c> and
@@ -20,11 +19,11 @@ namespace RuntimeTestsApp.Generics;
 ///
 /// The fix adds a witness-dispatch fallback: the projection emits
 /// <c>Count</c> via <c>EndIndex - StartIndex</c>, <c>this[int]</c> via a
-/// freshly-minted <c>@_cdecl</c> subscript wrapper (generic static dispatch,
-/// mirroring the Session 2 property wrapper shape), and <c>GetEnumerator()</c>
-/// iterates through the projected indexer. This fixture exercises exactly that
-/// shape — private backing, no public array property, only the Collection
-/// requirements visible — so regressions surface here first.
+/// freshly-minted <c>@_cdecl</c> subscript wrapper (generic static dispatch),
+/// and <c>GetEnumerator()</c> iterates through the projected indexer. This
+/// fixture exercises exactly that shape — private backing, no public array
+/// property, only the Collection requirements visible — so regressions surface
+/// here first.
 ///
 /// These tests exercise three properties the Apple surface depends on:
 ///   1. <c>Count</c> matches the number of elements inserted.

@@ -61,8 +61,8 @@ public class IndexedStore {
 // test-lib protocols declare `func describe() -> String`). `StoredItem` is therefore a
 // "loser" in that same-signature group: the emitter emits an EMPTY
 // `extension EveryProtocol: StoredItem {}` and routes its `describe()` witness into the
-// owner's body via Swift cross-extension resolution. This name doubles as the audit item 1
-// Bug #1 end-to-end regression: the build-harness source stripper formerly stripped that
+// owner's body via Swift cross-extension resolution. This name also drives the
+// stripper/fan-out end-to-end regression: the build-harness source stripper formerly stripped that
 // empty extension while leaving `Get_EveryProtocol_StoredItem_WitnessTable` orphaned, which
 // failed to compile and triggered a coarse retry-strip cascade that silently dropped
 // unrelated symbols (e.g. `ItemBag_init`) → EntryPointNotFoundException at runtime. With the

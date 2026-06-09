@@ -23,10 +23,10 @@ namespace BindingsGeneration
     {
         /// <summary>
         /// NuGet RIDs the slicer recognizes. Mapping to <c>SupportedPlatform</c> +
-        /// <c>SupportedPlatformVariant</c> matches the table in the
-        /// <c>per-rid-xcframework-slicing.md</c> design doc. The x86_64 RIDs cover the
-        /// Intel Apple targets (osx-x64 desktop, Mac Catalyst, iOS/tvOS x86_64 simulators);
-        /// there is no x86_64 iOS/tvOS *device*, so those Intel RIDs are simulator-only.
+        /// <c>SupportedPlatformVariant</c> drives xcframework slice selection.
+        /// The x86_64 RIDs cover the Intel Apple targets (osx-x64 desktop,
+        /// Mac Catalyst, iOS/tvOS x86_64 simulators); there is no x86_64 iOS/tvOS
+        /// *device*, so those Intel RIDs are simulator-only.
         /// </summary>
         public static readonly IReadOnlyList<string> SupportedRids = new[]
         {

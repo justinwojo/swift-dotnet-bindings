@@ -3,9 +3,8 @@
 
 import SwiftBindingsTestLibDependency
 
-// Reproducer for the cross-module variant of
-// bug-0.10.0-enum-case-payload-extractor-missing.md (S-3 in
-// sdk-0.11.0-residual-gaps.md). Stripe's StripeFinancialConnections emits an
+// Reproducer for the cross-module variant of the missing enum-case payload
+// extractor bug. Stripe's StripeFinancialConnections emits an
 // enum whose `.completed(payload:)` case carries a type owned by a *different*
 // module (`FinancialConnections.FinancialConnectionsSession`), and the
 // validation pass found the extractor + factory were missing from the

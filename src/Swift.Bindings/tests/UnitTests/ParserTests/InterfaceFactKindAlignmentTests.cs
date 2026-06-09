@@ -19,7 +19,7 @@ namespace BindingsGeneration.Tests;
 /// record property would silently no-op in <see cref="InterfaceFactsAggregator"/>.
 /// <para/>
 /// Implementation note: we DO NOT freeze the expected fact list here — that's exactly the
-/// shape Codex's M2 audit flagged as a non-guard guard. Instead, reflect on
+/// shape flagged as a non-guard guard. Instead, reflect on
 /// <see cref="SwiftInterfaceFacts"/> directly, subtract a small explicit allow-list of
 /// known non-fact properties (today: just <c>Empty</c>), and assert the remaining set
 /// equals the enum names. Adding a new helper property requires extending

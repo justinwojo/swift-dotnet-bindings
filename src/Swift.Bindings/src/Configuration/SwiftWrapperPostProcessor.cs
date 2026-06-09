@@ -74,7 +74,7 @@ namespace BindingsGeneration
             "NSInvocation",
         };
 
-        // NOTE: Safety-net patterns (b)-(f) were removed in Phase 1 of the architecture refactoring.
+        // NOTE: Safety-net patterns (b)-(f) were removed during the architecture refactoring.
         // Pattern (b) self-without-_self: prevented by extension scoping in emitters.
         // Pattern (c) __self.init: prevented at emission time.
         // Pattern (e) non-escaping closure in Task: prevented at emission time.

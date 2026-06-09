@@ -66,8 +66,7 @@ public class TypeHandlerHelpersTests
     [Fact]
     public void GetImplementedInterfaces_GenericTypeConditionalEquatable_OmitsIEquatable()
     {
-        // Regression: bug-0.10.0-unconditional-equatable-on-conditional-swift-generic.
-        // A Swift generic struct/class whose Equatable conformance is conditional
+        // Regression: A Swift generic struct/class whose Equatable conformance is conditional
         // (`extension Foo : Equatable where T : Equatable`) must NOT emit IEquatable<Foo<T>>
         // when the C# generic-parameter constraints don't guarantee T's witness.
         // Without this gate, the witness-bound P/Invoke crashes at runtime.
@@ -293,8 +292,7 @@ public class TypeHandlerHelpersTests
         // is declared (and the conformer AnchorEntity lives) in RealityFoundation.
         // The interface gate must resolve to the declaring module via
         // ResolveProtocolEmissionModule so the cross-module-with-members guard does
-        // NOT misfire — otherwise Scene.AddAnchor(IHasAnchoring) refuses to compile
-        // (RC-PROXY Failure A in src/docs/apple-framework-gaps/03-proxy-callback.md).
+        // NOT misfire — otherwise Scene.AddAnchor(IHasAnchoring) refuses to compile.
         var typeDatabase = CreateTypeDatabaseWithUmbrellaProtocol(
             umbrellaModule: "RealityKit",
             declaringModule: "RealityFoundation",
@@ -399,9 +397,9 @@ public class TypeHandlerHelpersTests
     [Fact]
     public void GetImplementedInterfaces_ClosedPAT_ConcreteBindingResolves_IncludesClosedGenericInterface()
     {
-        // Closed-constrained PAT (gap-0.10.0-everyprotocol-and-existentials.md Cases 1+2):
-        // when a conformer's PAT bindings are all concrete (e.g. StringLabel: LabelledContainer
-        // where Label == String), GetImplementedInterfaces must emit IIterable<System.Int64>
+        // Closed-constrained PAT: when a conformer's PAT bindings are all concrete
+        // (e.g. StringLabel: LabelledContainer where Label == String),
+        // GetImplementedInterfaces must emit IIterable<System.Int64>
         // in the implements list so consumers can pass `new MyIterator(...)` where
         // `IIterable<long>` is expected. Without the closed-PAT loop the conformer would
         // surface as IExistentialBoxable-only and the typed call site would fail CS0029.
@@ -441,7 +439,7 @@ public class TypeHandlerHelpersTests
         // binding for TSelf produces CS0311 (TSelf constraint unsatisfiable, Digest is not an
         // IFoo) and CS0535 (missing protocol method impls) on every conformer. Regression
         // pin: this scenario silently broke CryptoKit (Sha3256 et al.) when the closed-PAT
-        // loop landed in Bundle 06 without a HasSelfRequirement gate.
+        // loop landed without a HasSelfRequirement gate.
         var typeDatabase = new TypeDatabase();
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
         swiftModule.RegisterType(
@@ -494,8 +492,7 @@ public class TypeHandlerHelpersTests
     [Fact]
     public void GetImplementedInterfaces_OpenPAT_GenericParameterBinding_DoesNotIncludeClosedGenericInterface()
     {
-        // Open-PAT exclusion gate (gap-0.10.0-everyprotocol-and-existentials.md, team-lead
-        // Path A ask #1): when the conformer is itself generic and binds the PAT to its own
+        // Open-PAT exclusion gate: when the conformer is itself generic and binds the PAT to its own
         // type parameter (e.g. GenericContainer<U>: LabelledContainer where Label == U),
         // the closed interface depends on a conformer-side parameter and must NOT be emitted —
         // open PATs still flow through the typeof(object) PAT box. Without this gate
@@ -744,7 +741,7 @@ public class TypeHandlerHelpersTests
     [Fact]
     public void QualifyNestedProtocolInterface_CrossModuleNested_InsertsParentBetweenNamespaceAndLeaf()
     {
-        // The regression Codex flagged: a cross-module nested protocol must put
+        // Regression: a cross-module nested protocol must put
         // the parent type path BETWEEN the C# namespace prefix and the leaf
         // interface name, not in front of the whole string. Prepending naively
         // would produce "Parent.OtherModule.IFoo" which is unresolvable.
@@ -958,8 +955,7 @@ public class TypeHandlerHelpersTests
         // C# interface inheritance side still skips cross-module-with-members
         // conformances (CS0535 protection), but the descriptor symbol must still land
         // in _protocolConformanceSymbols so swift_getWitnessTable can resolve at runtime
-        // existential boxing — that's the AnchorEntity / HasAnchoring scenario surfaced
-        // by RC-PROXY Failure A in src/docs/apple-framework-gaps/03-proxy-callback.md.
+        // existential boxing — that's the AnchorEntity / HasAnchoring scenario.
         var typeDatabase = CreateTypeDatabaseWithProtocol("OtherModule", "Drawable", emittedMemberCount: 3);
         var conformances = new[] {
             new TypeConformance(
@@ -1017,8 +1013,7 @@ public class TypeHandlerHelpersTests
         // EmittedMemberCount inherited from a non-empty parent does NOT bar the
         // descriptor — the dictionary entry tracks runtime witness-table resolution,
         // not C# member-stub viability. The Interface gate still handles the CS0535
-        // case independently. See src/docs/apple-framework-gaps/03-proxy-callback.md
-        // RC-PROXY Failure A.
+        // case independently.
         var typeDatabase = CreateTypeDatabaseWithInheritingProtocol("OtherModule", "StrictTaggable", parentEmittedMemberCount: 3);
         var conformances = new[] {
             new TypeConformance(
@@ -1366,7 +1361,7 @@ public class TypeHandlerHelpersTests
     [Fact]
     public void WriteSwiftEquatable_RefTypeWithSwiftWriter_PinsBothSafeHandlesAroundPInvokeEq()
     {
-        // 0.10.0 Bundle 01 (Bug 1a): the refType (non-frozen / class-projected
+        // The refType (non-frozen / class-projected
         // Equatable) Equals path used to call PInvoke_eq with raw
         // DangerousGetHandle() on both sides — no AddRef bracket, so a
         // concurrent GC finalization between the handle access and the Swift
@@ -1582,7 +1577,7 @@ public class TypeHandlerHelpersTests
         // Generic classes can't have @_cdecl wrappers (can't instantiate generic from wrapper).
         // Use a T : Equatable constraint so EquatableConformanceHelper accepts the conformance
         // as unconditional — without that, generic conditional Equatable is dropped entirely
-        // (the bug-0.10.0-unconditional-equatable-on-conditional-swift-generic fix). This test
+        // (the conditional-Equatable fix that drops IEquatable on generic conditional conformances). This test
         // is specifically about the wrapper-skip path on a *valid* generic Equatable case.
         var csOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);

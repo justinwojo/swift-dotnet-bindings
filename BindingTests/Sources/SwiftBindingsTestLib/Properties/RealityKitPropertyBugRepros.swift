@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Bug 7: Property literally named `self` on a nested struct
+// MARK: - Property literally named `self` on a nested struct
 
 /// Reproduces RealityFoundation.BindTarget where nested structs expose a
 /// declared `var self: Outer` accessor. The generator must skip wrapper
@@ -23,7 +23,7 @@ public struct BugReproBindTarget {
     }
 }
 
-// MARK: - Bug 9: Mutating struct getter (lazy-style)
+// MARK: - Mutating struct getter (lazy-style)
 
 /// Reproduces a mutating getter — a `lazy var` exposes a stored property
 /// whose getter is `mutating` because it may write the cached value back.
@@ -36,7 +36,7 @@ public struct BugReproMutatingGetter {
     public init(seed: Int32) { self.seed = seed }
 }
 
-// MARK: - Bug 11: Subscript returning a tuple
+// MARK: - Subscript returning a tuple
 
 /// Reproduces a subscript whose return type is a Swift tuple of blittable
 /// elements. The generator must project the type as a C# value tuple

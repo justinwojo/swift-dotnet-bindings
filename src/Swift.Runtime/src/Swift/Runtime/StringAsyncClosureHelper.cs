@@ -18,7 +18,7 @@ namespace Swift.Runtime;
 /// same context may be invoked more than once, so a per-invocation free would dangle a
 /// later leg. The handle's lifetime instead rides on the Swift-side <c>_SBClosureCtx</c>
 /// owner-token box (<c>_SBW_AsyncClosureHandoff.ctxOwner</c>), whose deinit frees it when
-/// Swift releases the adapter closure (P1-18); see <see cref="AsyncClosureHelper"/>.
+/// Swift releases the adapter closure; see <see cref="AsyncClosureHelper"/>.
 /// </summary>
 public static class StringAsyncClosureHelper
 {

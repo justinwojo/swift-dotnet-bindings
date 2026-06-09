@@ -9,11 +9,11 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// Pins the MemberValidationPipeline Phase 5b gate: a constructor or method
-/// whose tuple parameter has elements projected as classes/structs (P/Invoke
-/// type IntPtr but C# type is not IntPtr) must be skipped — emitting it
-/// produces uncompilable code (CS1503 at the call site, raw class tuple
-/// passed where ValueTuple of IntPtrs is expected).
+/// Pins the MemberValidationPipeline gate: a constructor or method whose tuple
+/// parameter has elements projected as classes/structs (P/Invoke type IntPtr
+/// but C# type is not IntPtr) must be skipped — emitting it produces
+/// uncompilable code (CS1503 at the call site, raw class tuple passed where
+/// ValueTuple of IntPtrs is expected).
 ///
 /// Originally surfaced by RichTextKit's RichTextImageConfiguration ctor.
 /// </summary>
@@ -32,13 +32,13 @@ public class TupleOfClassParamGateTests : TestBase
     public void TestTupleOfClassConstructorIsSkipped()
     {
         // The (string, (TupleClassElementSize, TupleClassElementSize)) constructor
-        // must NOT exist — Phase 5b skips it. Reject ANY two-parameter ctor so a
+        // must NOT exist — the gate skips it. Reject ANY two-parameter ctor so a
         // regression that emits the constructor with AnyType, object, or another
         // placeholder still fails this test.
         var ctors = typeof(TupleOfClassParamHost).GetConstructors();
         var twoParamCtor = ctors.FirstOrDefault(c => c.GetParameters().Length == 2);
         AssertTrue(twoParamCtor is null,
-            "Tuple-of-class constructor must be skipped by Phase 5b gate");
+            "Tuple-of-class constructor must be skipped by the validation gate");
     }
 
     public void TestElementSizeStillUsable()

@@ -6,9 +6,9 @@
 // Parses mechanically-detectable skip markers from generated `.cs` output and
 // diffs against `build/baselines/skip-surface-baseline.json`. Wired as a
 // post-step in the `binding-tests` --compile-only path (gated by
-// --skip-surface) so the gate runs against fresh generator output. Authoring
-// scope and ratchet semantics are documented in src/docs/0.10.0-fix-plan.md
-// §"Layer B — skip-surface trend gate, on authored corpus".
+// --skip-surface) so the gate runs against fresh generator output. The gate
+// ratchets the skip-class count downward over time (skip-surface trend gate
+// on authored corpus).
 //
 // The corpus the gate scans is:
 //   1. The wider BindingTests-generated output under `BindingTests/output/`,
@@ -76,8 +76,8 @@ partial class Build
             RegexOptions.Compiled);
 
     // [Obsolete("message", DiagnosticId = "SB0001", …)] — narrow to SB0001
-    // because that's the diagnostic the 0.10.0 plan calls out (see Bundle 7
-    // cross-dep with Bundle 2). SB0001 lives in the DiagnosticId named arg, not
+    // because that's the diagnostic for obsolete-via-skip surface (SB0001 lives
+    // in the DiagnosticId named arg, not
     // in the message itself, so the pattern requires SB0001 anywhere inside
     // the attribute's argument list while capturing the first string literal
     // (the message) as the reason. Optional namespace prefix mirrors the
@@ -125,7 +125,7 @@ partial class Build
             throw new Exception(
                 $"Skip-surface trend gate failed: {regressions.Count} regression(s). " +
                 $"Either fix the underlying skip OR — if intentional — update {SkipSurfaceBaselinePath.Name} " +
-                $"in the same commit. See src/docs/0.10.0-fix-plan.md §Layer B.");
+                $"in the same commit.");
         }
 
         Log.Information("Skip-surface trend gate passed (downward or flat against baseline).");
@@ -160,7 +160,7 @@ partial class Build
     /// generated C#) is intentionally not implemented in this scaffolding pass.
     /// Detecting it cleanly requires correlating two artifacts inside the
     /// generator output and is best authored alongside the skip-class fix that
-    /// first surfaces the pattern in BindingTests output. See plan-doc Bundle 7.
+    /// first surfaces the pattern in BindingTests output.
     /// The marker keyword <c>"Tombstone"</c> is reserved in the baseline schema
     /// for that work to slot into without a schema change.
     /// </remarks>

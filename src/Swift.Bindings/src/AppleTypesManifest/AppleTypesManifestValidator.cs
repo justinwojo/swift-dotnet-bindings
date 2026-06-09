@@ -7,7 +7,7 @@ using Swift.Runtime;
 
 namespace BindingsGeneration.AppleTypesManifest;
 
-// Live-SDK CI validation for the Apple types manifest (Phase 2 / M10).
+// Live-SDK CI validation for the Apple types manifest.
 //
 // For every entry whose metadata accessor is available on the host platform, this
 // validator dlsym-probes the accessor symbol in the resolved Apple framework dylib,
@@ -193,7 +193,7 @@ public static class AppleTypesManifestValidator
             // dereferences the payload beyond ref-counting, so the round-trip is
             // physically safe. For types with custom copy/destroy routines that
             // assert non-nil invariants, this gate will flag real bugs instead of
-            // pretending no-such-type exists (Phase 2 loose-gate fix).
+            // pretending no-such-type exists.
             if (probedSize > 0)
             {
                 unsafe

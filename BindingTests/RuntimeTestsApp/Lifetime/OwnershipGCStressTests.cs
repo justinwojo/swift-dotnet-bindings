@@ -26,7 +26,7 @@ public class OwnershipGCStressTests : TestBase
     // deterministic Swift alloc/dealloc counters return to baseline,
     // `CFGetRetainCount` returns to baseline for bridged ObjC objects, RSS
     // stays under a budget, and no finalizer-thread exceptions are logged.
-    // See `src/docs/0.10.0-fix-plan.md` §"Layer C — lifetime harness".
+    // Layer C — lifetime harness: stress-exercises retain/release balance under GC pressure.
 
     #region Basic Retain/Release Balance (ForceGC)
 
@@ -224,17 +224,17 @@ public class OwnershipGCStressTests : TestBase
 
     #endregion
 
-    #region Bundle 01 Lifetime Stress (TestRunFlags.Lifetime gate)
+    #region SafeHandle / Refcount Lifetime Stress (TestRunFlags.Lifetime gate)
 
     /// <summary>
-    /// 0.10.0 Bundle 01 Layer C: stress the four SafeHandle / refcount fixes
-    /// under GC pressure. Off by default for inner-loop sim runs (gated by
+    /// Stress the four SafeHandle / refcount fixes under GC pressure.
+    /// Off by default for inner-loop sim runs (gated by
     /// <see cref="TestRunFlags.Lifetime"/>); the integration serial gate
     /// enables it via <c>nuke binding-tests --lifetime</c>.
     ///
-    /// Three bug-fix surfaces are exercised in a single 10k-iteration loop:
+    /// Three fix surfaces are exercised in a single 10k-iteration loop:
     ///
-    /// 1. <b>Bug 1a — Equals pinning.</b> <c>Tag.Equals(other)</c> is the
+    /// 1. <b>Equals pinning.</b> <c>Tag.Equals(other)</c> is the
     ///    refType + eqSymbol path that historically called the @_cdecl
     ///    PInvoke_eq with raw <c>DangerousGetHandle()</c> on both operands.
     ///    The fix routes through <c>_PInvoke_eq_pinned</c>, which brackets
@@ -244,7 +244,7 @@ public class OwnershipGCStressTests : TestBase
     ///    an ObjectDisposedException or use-after-free on the underlying
     ///    Swift heap payload.
     ///
-    /// 2. <b>Bug 3 — Generic enum extractor heap-alloc.</b>
+    /// 2. <b>Generic enum extractor heap-alloc.</b>
     ///    <c>Holder&lt;IntBox&gt;.TryGetWrapped</c> exercises the class-T
     ///    branch of the bare-generic-parameter extractor: enumCopy is
     ///    stackalloc-d, the class pointer is dereferenced, and Arc.Retain
@@ -254,20 +254,20 @@ public class OwnershipGCStressTests : TestBase
     ///    + transfer-ownership. The pre-fix shape would NativeMemory.Free a
     ///    stack pointer on Dispose — undefined behavior.
     ///
-    /// 3. <b>Bug 2 — DeferredSafeHandleRelease balance.</b> Indirectly via
+    /// 3. <b>DeferredSafeHandleRelease balance.</b> Indirectly via
     ///    the <see cref="SwiftClassHandle{T}"/> dispose path executed inside
     ///    every iteration. A non-balanced AddRef would surface as an
     ///    ObjectDisposedException on the second iteration that re-uses the
     ///    same Swift heap object identity (after refcount underflow).
     ///
-    /// Bug 4 (NSArray owns:true) is generator-only — the bridged-ObjC
+    /// The NSArray owns:true fix is generator-only — the bridged-ObjC
     /// surface lives in Apple framework consumers, not BindingTests.
     /// </summary>
     public void TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor()
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Bundle 01 lifetime stress skipped (run with --lifetime to enable)");
+            TestLogger.Info("SafeHandle/refcount lifetime stress skipped (run with --lifetime to enable)");
             return;
         }
 
@@ -281,7 +281,7 @@ public class OwnershipGCStressTests : TestBase
         const int Iterations = 10_000;
         const int GCInterval = 500;
 
-        // Bug 1a — Equals stress. Tag is a non-frozen Equatable struct
+        // Equals stress. Tag is a non-frozen Equatable struct
         // (the refType + eqSymbol path patched by _PInvoke_eq_pinned).
         for (int i = 0; i < Iterations; i++)
         {
@@ -293,7 +293,7 @@ public class OwnershipGCStressTests : TestBase
             AssertFalse(a.Equals(c), $"iter {i}: Tag.Equals(c) — different value");
 
             // Don't Dispose explicitly — let GC drive finalization. That's the
-            // exact path Bug 1a was designed to protect: concurrent finalizer
+            // exact path the Equals-pinning fix was designed to protect: concurrent finalizer
             // freeing the Swift heap payload between DangerousGetHandle and
             // Swift function entry.
             if (i % GCInterval == 0)
@@ -302,7 +302,7 @@ public class OwnershipGCStressTests : TestBase
             }
         }
 
-        // Bug 3 — Generic enum extractor stress. Holder<IntBox> exercises
+        // Generic enum extractor stress. Holder<IntBox> exercises
         // the class-T branch (Arc.Retain explicit balance); Holder<SwiftString>
         // exercises the non-class branch (heap-alloc + InitializeWithCopy +
         // Free-if-not-ISwiftObject). Pre-fix Holder<SwiftString> would crash
@@ -350,22 +350,22 @@ public class OwnershipGCStressTests : TestBase
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
-            $"Bundle 01 stress completed. {Iterations * 2} IntBox + {Iterations} SwiftString " +
+            $"SafeHandle/refcount stress completed. {Iterations * 2} IntBox + {Iterations} SwiftString " +
             $"allocations; tracker: alloc={alloc} dealloc={dealloc} live={live}");
 
         // The TrackedObject counter must be zero — we never allocated any in
         // this loop. A non-zero value indicates a finalizer-thread leak from
         // a different test class; surface that explicitly so the cause is
         // diagnosable.
-        AssertEqual(0, live, "Bundle 01 stress: tracker live count returned to baseline");
+        AssertEqual(0, live, "SafeHandle/refcount stress: tracker live count returned to baseline");
     }
 
     #endregion
 
-    #region Bundle B Closure Lifetime Stress (TestRunFlags.Lifetime gate)
+    #region Closure Lifetime Stress (TestRunFlags.Lifetime gate)
 
     /// <summary>
-    /// Stress the @escaping-closure GCHandle release path (Bug 1 Cat 3).
+    /// Stress the @escaping-closure GCHandle release path.
     /// Each iteration captures a fresh TrackedObject in a delegate, hands it
     /// to a Swift closure-accepting API, drops the local reference, and
     /// forces finalizers. Post-fix the captured TrackedObject must deallocate
@@ -378,7 +378,7 @@ public class OwnershipGCStressTests : TestBase
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Bundle B closure lifetime ephemeral stress skipped (run with --lifetime to enable)");
+            TestLogger.Info("Closure lifetime ephemeral stress skipped (run with --lifetime to enable)");
             return;
         }
 
@@ -436,13 +436,13 @@ public class OwnershipGCStressTests : TestBase
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
-            $"Bundle B ephemeral closure stress: {Iterations} iterations × 2 closure shapes; " +
+            $"Ephemeral closure stress: {Iterations} iterations × 2 closure shapes; " +
             $"tracker alloc={alloc} dealloc={dealloc} live={live}");
 
         // Pre-fix this would be Iterations (every captured TrackedObject leaked).
         // Post-fix it must be zero — every adapter closure released, every
         // GCHandle freed, every SafeHandle finalized.
-        AssertEqual(0, live, "Bundle B ephemeral: all captured TrackedObjects deallocated");
+        AssertEqual(0, live, "Closure lifetime stress: all captured TrackedObjects deallocated");
     }
 
     /// <summary>
@@ -450,7 +450,7 @@ public class OwnershipGCStressTests : TestBase
     /// argument shapes (frozen struct / non-frozen struct / Optional Int32 /
     /// Optional simple enum / Optional frozen struct). The `live=0` post-loop
     /// assertion catches GCHandle/delegate-rooting leaks. Detecting unmanaged
-    /// payload-buffer leaks (the actual surface of Bug 2) requires Swift-side
+    /// payload-buffer leaks (the actual surface of DeferredSafeHandleRelease imbalance) requires Swift-side
     /// allocation counters that we don't track today.
     ///
     /// </summary>
@@ -459,7 +459,7 @@ public class OwnershipGCStressTests : TestBase
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Bundle B heap-alloc shape matrix skipped (run with --lifetime to enable)");
+            TestLogger.Info("Heap-alloc shape matrix skipped (run with --lifetime to enable)");
             return;
         }
 
@@ -539,15 +539,15 @@ public class OwnershipGCStressTests : TestBase
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
-            $"Bundle B heap-alloc shape matrix: {Iterations} iterations × 5 closure shapes; " +
+            $"Heap-alloc shape matrix: {Iterations} iterations × 5 closure shapes; " +
             $"tracker alloc={alloc} dealloc={dealloc} live={live}");
 
-        AssertEqual(0, live, "Bundle B shape matrix: all captured TrackedObjects deallocated across all 5 closure-arg shapes");
+        AssertEqual(0, live, "Shape matrix: all captured TrackedObjects deallocated across all 5 closure-arg shapes");
     }
 
     /// <summary>
     /// Stress the property-setter closure-storage release path
-    /// (bug-0.10.0-async-task-wrapper-leaks-existential-heap.md Case 2).
+    /// (async-task wrapper existential-heap leak, Case 2).
     /// Replacing or clearing `OnValueChanged` should ARC-release the previous
     /// closure storage and free the GCHandle rooting the prior C# delegate.
     ///
@@ -557,7 +557,7 @@ public class OwnershipGCStressTests : TestBase
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Bundle B property-setter replace skipped (run with --lifetime to enable)");
+            TestLogger.Info("Property-setter replace skipped (run with --lifetime to enable)");
             return;
         }
 
@@ -611,9 +611,9 @@ public class OwnershipGCStressTests : TestBase
 
         var midStats = LifetimeTracker.GetStats();
         TestLogger.Info(
-            $"Bundle B property-setter mid-run: alloc={midStats.allocations} " +
+            $"Property-setter mid-run: alloc={midStats.allocations} " +
             $"dealloc={midStats.deallocations} live={midStats.live} (expected live=1)");
-        AssertEqual(1, midStats.live, "Bundle B property-setter: only the last closure's capture is live after replacement loop");
+        AssertEqual(1, midStats.live, "Property-setter: only the last closure's capture is live after replacement loop");
 
         // Clearing the property releases the final closure box.
         holder.OnValueChanged = null;
@@ -628,8 +628,8 @@ public class OwnershipGCStressTests : TestBase
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
-            $"Bundle B property-setter post-clear: alloc={alloc} dealloc={dealloc} live={live}");
-        AssertEqual(0, live, "Bundle B property-setter: all captured TrackedObjects deallocated after clearing the property");
+            $"Property-setter post-clear: alloc={alloc} dealloc={dealloc} live={live}");
+        AssertEqual(0, live, "Property-setter: all captured TrackedObjects deallocated after clearing the property");
     }
 
     /// <summary>
@@ -644,7 +644,7 @@ public class OwnershipGCStressTests : TestBase
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Bundle B GC-pressure-during-call skipped (run with --lifetime to enable)");
+            TestLogger.Info("GC-pressure-during-call skipped (run with --lifetime to enable)");
             return;
         }
 
@@ -687,9 +687,9 @@ public class OwnershipGCStressTests : TestBase
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
-            $"Bundle B GC-pressure-during-call: {Iterations} iterations; " +
+            $"GC-pressure-during-call: {Iterations} iterations; " +
             $"tracker alloc={alloc} dealloc={dealloc} live={live}");
-        AssertEqual(0, live, "Bundle B GC pressure: all captured TrackedObjects deallocated under heavy GC pressure");
+        AssertEqual(0, live, "GC pressure: all captured TrackedObjects deallocated under heavy GC pressure");
     }
 
     #endregion

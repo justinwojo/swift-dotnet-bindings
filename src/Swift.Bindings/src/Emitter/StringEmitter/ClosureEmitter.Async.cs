@@ -10,7 +10,7 @@ public static partial class ClosureEmitter
     /// This function is called synchronously by Swift and spawns Task.Run to execute the async work.
     /// When the async work completes, it calls the appropriate Swift callback (success or error).
     ///
-    /// Per-arity (Session B): the Start thunk widens between (contextPtr, continuationBoxPtr)
+    /// Per-arity: the Start thunk widens between (contextPtr, continuationBoxPtr)
     /// and (successFuncPtr, errorFuncPtr) with one ABI-typed slot per closure arg
     /// (primitive scalar, or IntPtr for String/class). Args are marshalled synchronously
     /// BEFORE Task.Run — Swift-owned pointers die the moment this thunk returns.
@@ -62,7 +62,7 @@ public static partial class ClosureEmitter
 
         // State type: AsyncThrowingClosureState / AsyncThrowingClosureStateVoid
         // for the throwing baseline, or AsyncClosureState (primitive-return only)
-        // for the Session C non-throwing baseline. Non-throwing has no void variant
+        // for the non-throwing baseline. Non-throwing has no void variant
         // yet — the generic skip path still rejects `async -> Void` closures.
         string stateType;
         if (isThrowing)
@@ -148,7 +148,7 @@ public static partial class ClosureEmitter
 
         if (isDataReturn)
         {
-            // Data return type — same shape as Session A, no args.
+            // Data return type — baseline shape, no args.
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
                     {
@@ -187,9 +187,9 @@ public static partial class ClosureEmitter
         }
         else if (hasReturn && !isThrowing)
         {
-            // Session C non-throwing: success-only helper, no error channel.
+            // Non-throwing: success-only helper, no error channel.
             // errorFuncPtr param stays in the Start signature (uniform ABI with
-            // the throwing variant per §3.6(a)) but is intentionally unused —
+            // the throwing variant) but is intentionally unused —
             // the Swift adapter passes a sentinel pointer for it.
             csWriter.WriteLines($$"""
                     _ = errorFuncPtr; // unused on the non-throwing path — FailFast handles exceptions

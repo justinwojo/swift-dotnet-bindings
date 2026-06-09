@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - P1-10: Foundation.Data param straddling the integer-register boundary
+// MARK: - Foundation.Data param straddling the integer-register boundary
 
 /// Pins the `@_cdecl` decompose path for a `Foundation.Data` parameter that lands at or beyond the
 /// eighth integer register.

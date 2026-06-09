@@ -222,7 +222,7 @@ public static class SwiftMarshal
     /// thread crashes Mono with the <c>!ji-&gt;async</c> assertion after CallConvSwift JIT
     /// contamination — the same failure the class-bound proxy release dodges via
     /// <see cref="Arc.UnknownObjectReleaseFinalizerSafe"/>. Owned opaque existential proxies must
-    /// use this from their <c>~Proxy()</c> finalizer (audit P0-10). No-op on null buffer / invalid
+    /// use this from their <c>~Proxy()</c> finalizer. No-op on null buffer / invalid
     /// metadata.
     /// </summary>
     /// <param name="buffer">The wire buffer pointer to destroy. <c>IntPtr.Zero</c> is a no-op.</param>
@@ -479,7 +479,7 @@ public static class SwiftMarshal
     /// the instance pointer. Dereference it, take an independent ObjC-aware
     /// <see cref="Arc.UnknownObjectRetain(System.IntPtr)"/> (<c>swift_unknownObjectRetain</c> dispatches by
     /// isa, so it is correct for both pure-Swift and <c>@objc : NSObject</c>-rooted classes — native-only
-    /// <c>swift_retain</c> no-ops/over-releases on an NSObject subclass; audit P1-01), and marshal the
+    /// <c>swift_retain</c> no-ops/over-releases on an NSObject subclass), and marshal the
     /// pointer directly — <c>NewFromPayload</c> for a class expects the pointer value, not the address
     /// holding it. This folds in the hand-rolled class fast path that <c>SwiftOptional.Some</c> and
     /// <c>SwiftResult.ExtractPayloadValue</c> previously each carried.</item>
@@ -534,7 +534,7 @@ public static class SwiftMarshal
     /// and SIGSEGVs on first use. Dereference the slot, take an independent ObjC-aware
     /// <see cref="Arc.UnknownObjectRetain"/> (<c>swift_unknownObjectRetain</c> dispatches by isa, so
     /// it is correct for both pure-Swift and NSObject-rooted classes — native-only
-    /// <c>swift_retain</c> is a no-op/over-release on an NSObject subclass; audit P1-01), and build
+    /// <c>swift_retain</c> is a no-op/over-release on an NSObject subclass), and build
     /// the wrapper from the pointer via <see cref="MarshalFromSwift{T}"/> (<c>NewFromPayload</c> for
     /// a class wants the pointer value, not the address holding it).
     /// </para>
@@ -558,8 +558,8 @@ public static class SwiftMarshal
     /// semantics of <see cref="MarshalMovedValueFromSlot{T}"/>'s class branch, not the borrowed
     /// copy-out's independent retain.
     /// <para>
-    /// This is the receiver for a generic-parameter indirect return specialized to a class conformer
-    /// (audit P0-11): the Swift wrapper does <c>resultPtr.initializeMemory(as: (C).self, repeating:
+    /// This is the receiver for a generic-parameter indirect return specialized to a class conformer:
+    /// the Swift wrapper does <c>resultPtr.initializeMemory(as: (C).self, repeating:
     /// _result, count: 1)</c>, which stores the instance pointer <i>into</i> the carrier and leaves
     /// the carrier owning a single <c>+1</c>. Wrapping the carrier <i>address</i> directly (the prior
     /// <c>MarshalFromSwift&lt;C&gt;(resultPtr)</c>) reinterprets the carrier as the instance and
@@ -1063,7 +1063,7 @@ public static class SwiftMarshal
             unsafe { return Unsafe.Read<T>((void*)swiftSource); }
         }
 
-        // Handle delegate types (closures) - Phase 3 support
+        // Handle delegate types (closures)
         if (typeof(Delegate).IsAssignableFrom(typeof(T)))
         {
             // Read the Swift closure data (function pointer + context)
@@ -1600,7 +1600,7 @@ public static class SwiftMarshal
     /// <c>Kind == Class</c>): the slot word IS the instance pointer. Dereference it, take an independent
     /// <see cref="Arc.UnknownObjectRetain(System.IntPtr)"/> (<c>swift_unknownObjectRetain</c> dispatches by
     /// isa, so it is correct for both pure-Swift and <c>@objc</c>:NSObject-rooted classes; native-only
-    /// <c>swift_retain</c> no-ops / over-releases on an NSObject subclass — audit P1-01), and build
+    /// <c>swift_retain</c> no-ops / over-releases on an NSObject subclass), and build
     /// NewFromPayload from the pointer — a class's NewFromPayload wraps the pointer value directly, not
     /// the address holding it.</item>
     /// <item><b>Reference-backed non-class</b> (<see cref="ISwiftStruct"/>, bare-<see cref="ISwiftObject"/>
@@ -1620,7 +1620,7 @@ public static class SwiftMarshal
     {
         // True Swift class: the slot word is the instance pointer; deref + independent ObjC-aware retain.
         // swift_unknownObjectRetain dispatches by isa, so it is correct for both pure-Swift and
-        // @objc:NSObject-rooted classes; native-only swift_retain no-ops/over-releases on NSObject (P1-01).
+        // @objc:NSObject-rooted classes; native-only swift_retain no-ops/over-releases on NSObject.
         if (!elementType.IsValueType
             && !typeof(ISwiftStruct).IsAssignableFrom(elementType)
             && elementMetadata.IsValid
@@ -1696,7 +1696,7 @@ public static class SwiftMarshal
     /// The in-tree <c>BindingTests/RuntimeTestsApp/TrimmerRoots.xml</c>
     /// mirror plus the IlcArg in RuntimeTestsApp.csproj is what keeps the
     /// device gate green for this repo's tests; downstream NuGet consumers
-    /// are tracked as a buildTransitive followup in src/docs/roadmap.md.
+    /// are tracked as a buildTransitive followup.
     /// </para>
     /// </summary>
     [RequiresUnreferencedCode("ValueTuple constructor access")]
@@ -1823,7 +1823,7 @@ public static class SwiftMarshal
         // returns, the only remaining native handle is errorPtr. Release it eagerly, then throw.
         // This avoids the "throw inside try/finally with a P/Invoke in the cleanup block" shape,
         // which interacts poorly with the maccatalyst-x64 Mono workload runtime's exception
-        // unwinder under Rosetta (see src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md).
+        // unwinder under Rosetta (Mono maccatalyst-x64 exception unwinding instability).
         // SwiftException(string) cannot throw before reaching the throw statement, so we don't
         // need a finally to defend against an intermediate exception leaking errorPtr.
         var message = ReadErrorDescription(descPtr);

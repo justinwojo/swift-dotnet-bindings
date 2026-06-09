@@ -46,7 +46,7 @@ public static partial class SwiftUIBridgeEmitter
         ModuleEmissionContext? emissionContext)
     {
         var funcName = $"{prefix}_SetLifecycle";
-        // S5 audited (Tier C): SwiftUI lifecycle setter in `_direct_helper` bucket. funcName combines per-view `prefix` + fixed `_SetLifecycle` suffix — at most one per bridge.
+        // SwiftUI lifecycle setter in `_direct_helper` bucket. funcName combines per-view `prefix` + fixed `_SetLifecycle` suffix — at most one per bridge.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
         sb.AppendLine($"public func {funcName}(");
@@ -171,7 +171,7 @@ public static partial class SwiftUIBridgeEmitter
             return;
 
         var funcName = $"{prefix}_{functionSuffix}";
-        // S5 audited (Tier C): SwiftUI universal-modifier setter in `_direct_helper` bucket. funcName combines per-view `prefix` + per-modifier suffix; view-specific overrides skip via viewModifierNames check above.
+        // SwiftUI universal-modifier setter in `_direct_helper` bucket. funcName combines per-view `prefix` + per-modifier suffix; view-specific overrides skip via viewModifierNames check above.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
 
@@ -206,7 +206,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         // PresentAsSheet
         var funcName = $"{prefix}_PresentAsSheet";
-        // S5 audited (Tier C): SwiftUI presentation helpers in `_direct_helper` bucket. Three fixed-suffix funcs per view (`_PresentAsSheet`/`_PushOnNav`/`_Dismiss`); per-view `prefix` makes them globally unique.
+        // SwiftUI presentation helpers in `_direct_helper` bucket. Three fixed-suffix funcs per view (`_PresentAsSheet`/`_PushOnNav`/`_Dismiss`); per-view `prefix` makes them globally unique.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
         sb.AppendLine($"public func {funcName}(_ handle: UnsafeMutableRawPointer?, _ fromVC: UnsafeMutableRawPointer?) {{");
@@ -222,7 +222,7 @@ public static partial class SwiftUIBridgeEmitter
 
         // PushOnNavigationStack
         funcName = $"{prefix}_PushOnNav";
-        // S5 audited (Tier C): see PresentAsSheet above — same `_direct_helper` bucket, per-view `prefix` + fixed suffix.
+        // see PresentAsSheet above — same `_direct_helper` bucket, per-view `prefix` + fixed suffix.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
         sb.AppendLine($"public func {funcName}(_ handle: UnsafeMutableRawPointer?, _ navVC: UnsafeMutableRawPointer?) {{");
@@ -238,7 +238,7 @@ public static partial class SwiftUIBridgeEmitter
 
         // Dismiss
         funcName = $"{prefix}_Dismiss";
-        // S5 audited (Tier C): see PresentAsSheet above — same `_direct_helper` bucket, per-view `prefix` + fixed suffix.
+        // see PresentAsSheet above — same `_direct_helper` bucket, per-view `prefix` + fixed suffix.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
         sb.AppendLine($"public func {funcName}(_ handle: UnsafeMutableRawPointer?) {{");

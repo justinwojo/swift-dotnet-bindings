@@ -540,7 +540,7 @@ namespace BindingsGeneration
             // This is deliberately narrower than "any generic-class init lacking a wrapper":
             // other no-wrapper generic-class inits (e.g. a T-typed designated init that GSF
             // can't yet carry) keep their existing direct path so their in-tree regression
-            // markers continue to compile. Tracked separately in src/docs/roadmap.md.
+            // markers continue to compile.
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.UsesNativeThunk &&
                 methodEnv.ParentDecl is ClassDecl genericClassParent && genericClassParent.IsGeneric &&
@@ -1174,12 +1174,12 @@ namespace BindingsGeneration
                     if (WrapperValidation.IsMetatypeTypeIncludingOptional(p.SwiftTypeSpec)) return false;
                     if (p.SwiftTypeSpec is ClosureTypeSpec closureSpec)
                     {
-                        // Baseline async closures (Session A/B throwing + Session C
-                        // non-throwing) are bridged by the async wrapper via a
-                        // CheckedContinuation. Throwing baseline requires the outer
-                        // method to also be `throws` (adapter uses `try await` inside
-                        // the catch harness). Non-throwing baseline only requires the
-                        // outer method to be async — the adapter uses plain `await`.
+                        // Baseline async closures (throwing + non-throwing) are bridged
+                        // by the async wrapper via a CheckedContinuation. The throwing
+                        // baseline requires the outer method to also be `throws` (adapter
+                        // uses `try await` inside the catch harness). The non-throwing
+                        // baseline only requires the outer method to be async — the
+                        // adapter uses plain `await`.
                         if (methodEnv.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec))
                             return methodEnv.MethodDecl.Throws;
                         if (methodEnv.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureSpec))
@@ -1240,7 +1240,7 @@ namespace BindingsGeneration
 
             // Async-throwing closure bridge eligibility: the P/Invoke layer emits
             // (context, startFunc) for every async-throwing closure, but the matching
-            // Swift @_cdecl adapter is only produced when Phase 1 promoted this method
+            // Swift @_cdecl adapter is only produced when the method was promoted
             // to a @_cdecl wrapper AND the outer method is async throws AND the closure
             // has the baseline shape. If any of those fail, the P/Invoke disagrees with
             // the Swift side on the parameter ABI. Skip the method cleanly here.
@@ -1256,7 +1256,7 @@ namespace BindingsGeneration
             // (method-level generics, async closure/existential params). Async methods on a
             // generic *parent* are NOT caught here — they arrive with UsesWrapperLibrary set
             // (a @_silgen_name wrapper is emitted) and are suppressed at their source in
-            // MemberValidationPipeline (P0-15), because that wrapper's self + parent-type
+            // MemberValidationPipeline, because that wrapper's self + parent-type
             // metadata cannot be threaded through a fixed CallConvSwift signature.
             // See WrapperValidation.IsSkippedWrapperDirectPInvoke.
             if (!isAccessor && WrapperValidation.IsSkippedWrapperDirectPInvoke(methodEnv))
@@ -1314,14 +1314,14 @@ namespace BindingsGeneration
                     swiftWriter, methodEnv, context.GetEmissionContext());
             }
 
-            // Emit closure Swift wrapper (Phase 2 — flags already set in Phase 1)
+            // Emit closure Swift wrapper (flags already set in the promotion pass)
             if (needsClosureWrapper)
             {
                 ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,
                     useCdecl: closureCdecl, emissionContext: context.GetEmissionContext());
             }
 
-            // Emit optional pointer Swift wrapper (Phase 2 — flags already set in Phase 1)
+            // Emit optional pointer Swift wrapper (flags already set in the promotion pass)
             if (needsOptionalPointerWrapper)
             {
                 OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,

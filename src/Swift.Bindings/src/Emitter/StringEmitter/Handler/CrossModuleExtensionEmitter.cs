@@ -325,15 +325,14 @@ public static partial class CrossModuleExtensionEmitter
         if (returnCategory == null)
             return false;
 
-        // Phase 1 limitation: non-frozen-struct and frozen-value-struct returns require
-        // a @_cdecl Swift trampoline because Swift's CallConvSwift returns small structs
-        // in registers (x0+x1 for Swift.String, d0+d1 for `struct Point { Double; Double }`),
-        // not via the SwiftIndirectResult slot. The class-receiver path dispatches the raw
-        // CallConvSwift symbol — that works for void, primitive, SwiftClass, and ObjCClass
-        // returns (single-register or primitive returns). Struct returns silently leave the
-        // indirect buffer untouched and surface as empty results. The cross-module struct
-        // RECEIVER path (EmitStruct below) generates its own trampolines and can return
-        // frozen structs; that is gated to that path only.
+        // Non-frozen-struct and frozen-value-struct returns require a @_cdecl Swift trampoline
+        // because Swift's CallConvSwift returns small structs in registers (x0+x1 for Swift.String,
+        // d0+d1 for `struct Point { Double; Double }`), not via the SwiftIndirectResult slot.
+        // The class-receiver path dispatches the raw CallConvSwift symbol — that works for void,
+        // primitive, SwiftClass, and ObjCClass returns (single-register or primitive returns).
+        // Struct returns silently leave the indirect buffer untouched and surface as empty results.
+        // The cross-module struct RECEIVER path (EmitStruct below) generates its own trampolines
+        // and can return frozen structs; that is gated to that path only.
         if (returnCategory == ReturnKind.NonFrozenStruct || returnCategory == ReturnKind.FrozenStruct)
             return false;
 
@@ -511,7 +510,7 @@ public static partial class CrossModuleExtensionEmitter
         if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
             return false;
 
-        // Phase 1 limitation — see TryEmitMethodExtension for rationale.
+        // Same limitation as TryEmitMethodExtension: struct returns need trampolines not available on the class-receiver path.
         if (returnCategory.Value == ReturnKind.NonFrozenStruct || returnCategory.Value == ReturnKind.FrozenStruct)
             return false;
 

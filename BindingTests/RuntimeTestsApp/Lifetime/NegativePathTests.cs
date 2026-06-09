@@ -26,7 +26,7 @@ public class NegativePathTests : TestBase
     // deterministic Swift alloc/dealloc counters return to baseline,
     // `CFGetRetainCount` returns to baseline for bridged ObjC objects, RSS
     // stays under a budget, and no finalizer-thread exceptions are logged.
-    // See `src/docs/0.10.0-fix-plan.md` §"Layer C — lifetime harness".
+    // Layer C — lifetime harness: exercises error and negative-path disposal.
 
     #region Invalid Enum FromRawValue
 

@@ -24,8 +24,7 @@ namespace BindingsGeneration
     /// error callbacks) for async methods. This is the sole live C# async emitter.
     /// The matching Swift <c>@_cdecl</c>/<c>@_silgen_name</c> wrapper body is emitted by the
     /// live Swift-side path <see cref="WrapperEmitter"/>.<c>Async.EmitAsync</c>; this class no
-    /// longer owns any Swift emission (the former <c>BuildSwift*</c> duplicate was deleted —
-    /// see REMEDIATION-PLAN.md Session 1 live/dead map).
+    /// longer owns any Swift emission (the former <c>BuildSwift*</c> duplicate was deleted).
     ///
     /// Originally lived as private helpers on <see cref="WrapperEmitter"/>. Extracted so the
     /// concrete-protocol specialization (CSM) path can emit the same harness for specialized
@@ -91,7 +90,7 @@ namespace BindingsGeneration
             _emissionContext = emissionContext;
             _tupleHelpers = tupleHelpers;
 
-            // Phase 4 plain-throws cascade gate — mirrors the resolver in WrapperEmitter.cs.
+            // Plain-throws cascade gate — mirrors the resolver in WrapperEmitter.cs.
             // A plain `async throws` method routes through the cascade-dispatch path when the
             // module has registered Error-conforming types; otherwise the existing 3-param
             // stringification fallback applies.
@@ -1263,7 +1262,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Builds the C# error callback code block (delegate + method) for async wrappers.
-        /// Phase 4 unified wire format: all branches (typed throws, plain-throws cascade,
+        /// Unified wire format: all branches (typed throws, plain-throws cascade,
         /// untyped throws) emit the same 6-param callback
         /// (errorPtr, errorSize, errorMessagePtr, isCancellation, task, errorTypeId).
         /// Body branches differ — typed marshals a static error type from <c>errorPtr</c>;
@@ -1363,7 +1362,7 @@ namespace BindingsGeneration
             }
             else if (_useCascadeErrorCallback)
             {
-                // Phase 4 plain-throws cascade: 6-param wire format. The Swift cascade
+                // Plain-throws cascade: 6-param wire format. The Swift cascade
                 // dispatcher (_SBW_dispatchSwiftError_{Module}) hands us errorTypeId +
                 // a typed buffer for registered error types, or id 0 for untyped fallthrough.
                 // The per-module C# helper class (_SbwModuleErrorRegistry_{Module}) consumes
@@ -1403,7 +1402,7 @@ namespace BindingsGeneration
                 """;
             }
 
-            // Phase 4 unified wire format: typed-throws, plain-throws cascade, and untyped
+            // Unified wire format: typed-throws, plain-throws cascade, and untyped
             // throws all emit the same 6-param C# delegate. Body branches above still differ
             // (typed marshals a static error type, cascade dispatches via per-module helper,
             // untyped reads only the message), but the wire and delegate type are uniform.

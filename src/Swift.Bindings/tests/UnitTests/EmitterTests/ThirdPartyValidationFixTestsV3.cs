@@ -242,7 +242,7 @@ public class ThirdPartyValidationFixTestsV3
     [Fact]
     public void IsSupportedClosureParameterType_ComplexEnum_ReturnsTrue()
     {
-        // D1: Complex enums now supported — heap-allocated pointer ABI via MethodClosureBridge.
+        // Complex enums now supported — heap-allocated pointer ABI via MethodClosureBridge.
         var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: false, requiresMemMgmt: true);
         var handler = new ClosureHandler(typeDatabase);
 
@@ -370,7 +370,7 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithString();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Session B: (String) async throws -> Int — String is a supported arg category
+        // (String) async throws -> Int — String is a supported arg category
         // via the per-arity bridge; return type must still be a blittable primitive.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.String"),
@@ -387,7 +387,7 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithString();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Session F: Swift.String return is routed through StringAsyncClosureHelper
+        // Swift.String return is routed through StringAsyncClosureHelper
         // (UTF-8 bytesPtr+length success ABI) — accepted by the baseline bridge.
         var closureTypeSpec = new ClosureTypeSpec(
             TupleTypeSpec.Empty,
@@ -404,7 +404,7 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithString();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Session F: (Int32, String) async throws -> String — full arity is supported
+        // (Int32, String) async throws -> String — full arity is supported
         // for String returns (unlike Foundation.Data, which is zero-arg only).
         var args = new TupleTypeSpec(new List<TypeSpec>
         {
@@ -775,7 +775,7 @@ public class ThirdPartyValidationFixTestsV3
     [Fact]
     public void DictionaryException_NestedExistential_NowAdmittedViaRecursion()
     {
-        // Symmetric recursion direction (audit L229): Dictionary<String, Array<any P>> buries the
+        // Symmetric recursion direction: Dictionary<String, Array<any P>> buries the
         // existential inside the Array that sits in the Dictionary's VALUE slot. The gate recurses
         // Dictionary value -> Array element -> existential. Key position stays non-existential (String).
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();

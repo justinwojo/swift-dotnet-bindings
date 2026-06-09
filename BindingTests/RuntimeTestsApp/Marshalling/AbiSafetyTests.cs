@@ -431,7 +431,7 @@ public class AbiSafetyRuntimeTests : TestBase
 
     #endregion
 
-    #region HashHolder — Multi-Word Reference Field Buffer Sizing (P1-15)
+    #region HashHolder — Multi-Word Reference Field Buffer Sizing
 
     public void TestHashHolderConstructAndReadTag()
     {
@@ -467,7 +467,7 @@ public class AbiSafetyRuntimeTests : TestBase
 
     #endregion
 
-    #region PrimitiveOptionalHolder — Optional<8-byte-primitive> two-word Buffer sizing (P1-15)
+    #region PrimitiveOptionalHolder — Optional<8-byte-primitive> two-word Buffer sizing
 
     public void TestPrimitiveOptionalHolderFactoryReadsTag()
     {

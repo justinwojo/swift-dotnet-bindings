@@ -135,10 +135,10 @@ public class BoundGenericsHandlerTests
 
     #endregion
 
-    #region Nested Existential Container Admission Gate (audit L229 scoping)
+    #region Nested Existential Container Admission Gate
 
-    // These pin IsContainerWithSupportedDirectExistential — the admission gate broadened by audit
-    // L229 to support nested existential CONTAINERS. The recursion must admit genuine nested
+    // These pin IsContainerWithSupportedDirectExistential — the admission gate that
+    // supports nested existential CONTAINERS. The recursion must admit genuine nested
     // Array/Dictionary leaves but MUST NOT descend into an Optional-wrapped existential element,
     // which lowers to the same Array<Optional<existential>> ABI shape as a variadic
     // ExpressibleByArrayLiteral init (GRDB.StatementArguments) that the @_cdecl wrapper cannot
@@ -495,7 +495,7 @@ public class BoundGenericsHandlerTests
     [Fact]
     public void TryGetFirstUnsatisfiedConstraint_ConcreteTypeTransitiveConformance_ReturnsFalse()
     {
-        // A1 fix for Codex finding #1: ConcreteType : ChildProtocol should satisfy
+        // ConcreteType : ChildProtocol should satisfy
         // T : ParentProtocol when ChildProtocol : ParentProtocol.
         // This tests the concrete-type path (not generic-parameter path).
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -633,13 +633,12 @@ public class BoundGenericsHandlerTests
     [Fact]
     public void TryGetFirstUnsatisfiedConstraint_ExternalClassBoundConstraint_TypeDatabaseSubclass_ReturnsFalse()
     {
-        // Codex round-1 P2 finding: external XML/database-owned subclasses
+        // External XML/database-owned subclasses
         // (e.g. Foundation.UnitTemperature satisfying Foundation.Dimension)
         // must satisfy a class-bound generic constraint even though they have
         // no local TypeDecl. Without this path, the typeArgumentDecl == null
         // short-circuit returns false and the consuming member is silently
-        // skipped — exactly the bug-shape described in
-        // bug-0.10.0-foundation-dimension-constraint-not-projected.md.
+        // skipped.
         var types = new Dictionary<string, TypeRecord>
         {
             ["Foundation.Dimension"] = new TypeRecord
@@ -3068,7 +3067,7 @@ public class BoundGenericsHandlerTests
 
     #endregion
 
-    #region IsContainerWithSupportedDirectExistential — KeyPath family (Session 6c Blocker D)
+    #region IsContainerWithSupportedDirectExistential — KeyPath family
 
     // Build a TypeDatabase populated for KeyPath<any P, V> admission tests.
     // Includes Swift.String / Swift.Int / Swift.Bool / Swift.Double for V projection,
@@ -3277,7 +3276,7 @@ public class BoundGenericsHandlerTests
         // !IsExistential check but Project() returns null because the factory's
         // bound-generic fallback can't resolve a public C# spelling for an arbitrary
         // user struct sitting in the KeyPath Value slot. The reviewer-required
-        // projectability gate (Codex F4/F6, Grok F6) catches this and rejects so the
+        // projectability gate catches this and rejects so the
         // emitted KeyPath<Root, TValue> public signature can't reference an unspellable
         // TValue.
         var db = BuildKeyPathAdmissionTypeDatabase();

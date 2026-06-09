@@ -230,8 +230,8 @@ namespace BindingsGeneration
 
             // Sibling bindings: this emitter binds each param to its external label (p.Name), or
             // arg{i} for an unnamed param — NOT the canonical PrivateName??Name — so collect the set
-            // with that exact formula so a reserved-name escape also dodges a sibling user binding
-            // (P1-22). Both loops recompute the identical raw name + reuse this set, keeping decl and
+            // with that exact formula so a reserved-name escape also dodges a sibling user binding.
+            // Both loops recompute the identical raw name + reuse this set, keeping decl and
             // call in sync.
             var markerSiblings = new HashSet<string>(StringComparer.Ordinal);
             for (int si = 1; si < methodDecl.CSSignature.Count; si++)

@@ -48,8 +48,8 @@ namespace BindingsGeneration
         /// items. Derived from <see cref="Tfm"/> + <see cref="PlatformVersion"/> — do NOT
         /// set independently in <see cref="PlatformInfoFactory"/>, or the two can drift.
         /// Was previously named <c>LibTfm</c> and assigned per-platform; the rename +
-        /// derivation was a Codex-review response to collapse the drift surface down
-        /// to a single source. The CLI flag plumbing was added for the Apple-framework
+        /// derivation collapses the drift surface down to a single source. The CLI
+        /// flag plumbing was added for the Apple-framework
         /// publishing release.
         /// </summary>
         public string PackTfm => $"{Tfm}{PlatformVersion}";
