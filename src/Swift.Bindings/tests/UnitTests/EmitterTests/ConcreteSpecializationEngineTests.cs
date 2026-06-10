@@ -4,6 +4,8 @@
 #nullable enable
 
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -508,6 +510,106 @@ public class ConcreteSpecializationEngineTests
         Assert.Single(result);
         Assert.True(result[0].Method.IsConstructor, "Generic constructor should be specializable");
         Assert.Single(result[0].SpecializableParams);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ThrowingConstructor_NestedConformer_EmitsThrowingFromFactory()
+    {
+        // The CSM dispatcher historically dropped `IsConstructor && Throws`, so a throwing generic
+        // initializer (the CryptoKit HPKE Sender/Recipient shape — every HPKE init is
+        // `init<…>(…) throws`) never produced a From{Conformer} factory even though the wrapper +
+        // ConstructorAdmissibility machinery composes throws+ctor. This drives the full sync CSM
+        // emission path (not just discovery) over a deeply-nested THREE-segment conformer
+        // (`TestLib.Outer.Inner`, exactly HPKE's `Curve25519.KeyAgreement.PublicKey` depth) and
+        // asserts (a) the per-conformer factory is emitted and (b) it is a *throwing* factory —
+        // the wrapper carries the error-out parameter. Before the skip was lifted this emitted
+        // nothing; it is the unit-level red/green witness for the dispatcher change.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.Outer.Inner");
+        db.Register(conformerTypeName, "TestLib", "Outer.Inner");
+        // The host's result type must project for the factory return type.
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Box"), "TestLib", "Box");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.Outer.Inner", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateStructWithProtocolConstrainedConstructor(
+            "Box", "TestLib.Processable", throws: true);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // (a) the per-conformer factory exists for the three-segment conformer
+        Assert.Contains("FromTestLib_Outer_Inner", cs);
+        // (b) it is a throwing factory — the C# P/Invoke + factory carry the Swift error-out,
+        // and the @_cdecl wrapper opens a do/catch. Asserting these (not exact strings) pins the
+        // throwing-ctor ABI without coupling to formatting.
+        Assert.Contains("errorPtr", cs);
+        Assert.Contains("errorOut", swift);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ThrowingConstructor_ConcreteDataParam_MarshalsViaByteArray()
+    {
+        // HPKE's Sender/Recipient inits carry a concrete `info: Foundation.Data` param alongside
+        // the specializable generic key. Foundation.Data classifies as the NativeRemapped ABI
+        // category (Data ↔ NSData), which the concrete-param compatibility preflight historically
+        // rejected — so a generic init with a concrete Data param dropped to a generic-only stub
+        // even after the throwing-ctor skip was lifted, and HPKE construction stayed unreachable.
+        // This drives the full sync CSM emission over a three-segment conformer whose throwing
+        // init takes a concrete Data param and asserts the factory (i) is emitted, (ii) exposes
+        // the idiomatic byte[] public surface, and (iii) crosses the @_cdecl boundary as the
+        // ownership-balanced two-Int-word decomposition (C# FromByteArray + Swift unsafeBitCast
+        // back to Foundation.Data) rather than a pointer/handle. Before the NativeRemapped arm
+        // this emitted nothing.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.Outer.Inner");
+        db.Register(conformerTypeName, "TestLib", "Outer.Inner");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Box"), "TestLib", "Box");
+        // Foundation.Data registered with a NativeTypeName so ClassifyParam returns NativeRemapped,
+        // matching the production classification that the fix admits.
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Foundation.Data"), "Swift.Foundation", "Data",
+            nativeTypeName: CSharpTypeName.FromNamespaceAndName("Foundation", "NSData"));
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.Outer.Inner", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateStructWithProtocolConstrainedConstructor(
+            "Box", "TestLib.Processable", throws: true, withConcreteDataParam: true);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // (i) the factory is emitted for the three-segment conformer despite the concrete Data param
+        Assert.Contains("FromTestLib_Outer_Inner", cs);
+        // (ii) idiomatic byte[] public surface for the concrete Data param
+        Assert.Contains("byte[] info", cs);
+        // (iii) C# converts via FromByteArray then decomposes into two nint words; the Swift wrapper
+        // reconstructs via unsafeBitCast to Foundation.Data. Semantic checks, not exact formatting.
+        // The word naming ({name}_w0/{name}_w1 off a {name}Swift holder) matches the ordinary-cdecl
+        // Data decomposition (WrapperEmitter.Marshalling) so the two Data emitters stay in sync.
+        Assert.Contains("Swift.Foundation.Data.FromByteArray(info)", cs);
+        Assert.Contains("info_w0", cs);
+        Assert.Contains("info_w1", cs);
+        Assert.Contains("to: Foundation.Data.self", swift);
     }
 
     [Fact]
@@ -1281,7 +1383,9 @@ public class ConcreteSpecializationEngineTests
     {
         private readonly Dictionary<string, TypeRecord> _records = new();
 
-        public string? AsyncLibraryName => null;
+        // Settable so a test can flip IsXCFrameworkMode on (it keys off a non-empty
+        // AsyncLibraryName) and drive the wrapper-emitting CSM path, not just discovery.
+        public string? AsyncLibraryName { get; set; }
         public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => _records.ContainsKey(swiftTypeName.ToString());
         public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
             => _records.TryGetValue(swiftTypeName.ToString(), out record);
@@ -1291,7 +1395,8 @@ public class ConcreteSpecializationEngineTests
         public void Register(SwiftTypeName swiftTypeName, string csNamespace, string csName,
             TypeRecordKind kind = TypeRecordKind.Struct,
             SwiftTypeName? superclass = null,
-            IReadOnlyList<SwiftTypeName>? protocolConformances = null)
+            IReadOnlyList<SwiftTypeName>? protocolConformances = null,
+            CSharpTypeName? nativeTypeName = null)
         {
             _records[swiftTypeName.ToString()] = new TypeRecord
             {
@@ -1302,6 +1407,9 @@ public class ConcreteSpecializationEngineTests
                 Kind = kind,
                 SuperclassTypeName = superclass,
                 ProtocolConformances = protocolConformances,
+                // A non-null NativeTypeName makes MethodClosureBridge.ClassifyParam return the
+                // NativeRemapped category (Foundation.Data ↔ NSData), matching production.
+                NativeTypeName = nativeTypeName,
             };
         }
     }
@@ -1733,13 +1841,27 @@ public class ConcreteSpecializationEngineTests
     }
 
     private static StructDecl CreateStructWithProtocolConstrainedConstructor(
-        string typeName, string protocolName)
+        string typeName, string protocolName, bool throws = false, bool withConcreteDataParam = false)
     {
         var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
         var conformance = new GenericParameterConformance(
             new[] { "τ_0_0" }, protocolTypeName, ConformanceKind.Protocol);
 
         var paramTypeSpec = new NamedTypeSpec("τ_0_0");
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            // Return type (first element) — constructor returns Self (Box here)
+            new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec($"TestLib.{typeName}"), IsGeneric = false },
+            // Parameter of generic type
+            new() { Name = "source", PrivateName = "source", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = paramTypeSpec, IsGeneric = true }
+        };
+        if (withConcreteDataParam)
+        {
+            // A concrete (non-generic) Foundation.Data param alongside the generic one — the HPKE
+            // `init(recipientKey:ciphersuite:info:)` shape that drove the NativeRemapped fix.
+            csSignature.Add(new() { Name = "info", PrivateName = "info", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Foundation.Data"), IsGeneric = false });
+        }
 
         var ctor = new MethodDecl
         {
@@ -1749,20 +1871,14 @@ public class ConcreteSpecializationEngineTests
             MangledName = $"$s{typeName}init",
             MethodType = MethodType.Static,
             IsConstructor = true,
-            Throws = false,
+            Throws = throws,
             IsAsync = false,
             Visibility = Visibility.Public,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
             },
-            CSSignature = new List<ArgumentDecl>
-            {
-                // Return type (first element) — constructor returns Self (Box here)
-                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec($"TestLib.{typeName}"), IsGeneric = false },
-                // Parameter of generic type
-                new() { Name = "source", PrivateName = "source", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = paramTypeSpec, IsGeneric = true }
-            },
+            CSSignature = csSignature,
             AvailabilityAnnotations = null
         };
 

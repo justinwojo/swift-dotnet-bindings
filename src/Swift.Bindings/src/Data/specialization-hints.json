@@ -20,6 +20,37 @@
       ]
     },
     {
+      "protocol": "CryptoKit.HPKEDiffieHellmanPublicKey",
+      "conformers": [
+        { "swiftType": "CryptoKit.Curve25519.KeyAgreement.PublicKey", "csharpType": "Curve25519.KeyAgreement.PublicKey", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.P256.KeyAgreement.PublicKey", "csharpType": "P256.KeyAgreement.PublicKey", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.P384.KeyAgreement.PublicKey", "csharpType": "P384.KeyAgreement.PublicKey", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.P521.KeyAgreement.PublicKey", "csharpType": "P521.KeyAgreement.PublicKey", "modules": ["CryptoKit"] }
+      ]
+    },
+    {
+      "protocol": "CryptoKit.HPKEDiffieHellmanPrivateKey",
+      "conformers": [
+        { "swiftType": "CryptoKit.Curve25519.KeyAgreement.PrivateKey", "csharpType": "Curve25519.KeyAgreement.PrivateKey", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.P256.KeyAgreement.PrivateKey", "csharpType": "P256.KeyAgreement.PrivateKey", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.P384.KeyAgreement.PrivateKey", "csharpType": "P384.KeyAgreement.PrivateKey", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.P521.KeyAgreement.PrivateKey", "csharpType": "P521.KeyAgreement.PrivateKey", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.SecureEnclave.P256.KeyAgreement.PrivateKey", "csharpType": "SecureEnclave.P256.KeyAgreement.PrivateKey", "modules": ["CryptoKit"] }
+      ]
+    },
+    {
+      "protocol": "CryptoKit.HPKEKEMPublicKey",
+      "conformers": [
+        { "swiftType": "CryptoKit.XWingMLKEM768X25519.PublicKey", "csharpType": "XWingMLKEM768X25519.PublicKey", "modules": ["CryptoKit"] }
+      ]
+    },
+    {
+      "protocol": "CryptoKit.HPKEKEMPrivateKey",
+      "conformers": [
+        { "swiftType": "CryptoKit.XWingMLKEM768X25519.PrivateKey", "csharpType": "XWingMLKEM768X25519.PrivateKey", "modules": ["CryptoKit"] }
+      ]
+    },
+    {
       "protocol": "Foundation.ContiguousBytes",
       "conformers": [
         { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8" } },

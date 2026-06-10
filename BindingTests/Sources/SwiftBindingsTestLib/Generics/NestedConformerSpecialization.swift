@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+import Foundation
+
 // MARK: - Nested-type conformers in concrete protocol specialization
 //
 // Mirrors CryptoKit's HPKE key protocols, whose conformers are deeply-nested types
@@ -118,5 +120,69 @@ public struct CollisionVault {
         public let tag: String
         public init(tag: String) { self.tag = tag }
         public var material: String { "collision-entry:\(tag)" }
+    }
+}
+
+/// Error surfaced by the throwing generic initializers below.
+public enum SealError: Error { case rejected }
+
+/// Throwing generic-init shape on a STRUCT host — the EXACT shape of CryptoKit HPKE's
+/// Sender/Recipient initializers, which are all `init<K: …>(…) throws` constrained to
+/// nested-conformer key protocols. The non-throwing `SealedKey` above does NOT exercise the
+/// throwing-constructor specialization path: the CSM dispatcher historically skipped
+/// `IsConstructor && Throws`, so every throwing generic init dropped to a generic-only stub and
+/// HPKE construction was unreachable. Deliberately NON-frozen so it projects as a C# class with
+/// an opaque payload (`ClassWithOpaquePayload`) — exactly like HPKE.Sender/Recipient, which are
+/// also non-frozen structs. That projection still marshals through the *indirect result* ABI
+/// branch: the C# factory allocates a `resultPtr`, the `@_cdecl` wrapper writes the new value via
+/// `resultPtr.initializeMemory` on success and leaves it untouched (writing only `errorOut`) on
+/// throw, and C# frees the buffer before surfacing the Swift error as a C# exception. It does NOT
+/// use the class-pointer `Unmanaged.passRetained` return — that branch is exercised by the
+/// `ThrowingSealedRef` class host below. The specializer must emit one throwing `From{Conformer}`
+/// static factory per conformer (including the nested ones). `shouldSucceed` makes the throw
+/// deterministically testable without depending on a conformer that yields empty material.
+///
+/// The `info: Data` parameter is the load-bearing addition: it is a *concrete* (non-generic)
+/// `Foundation.Data` argument sitting alongside the specializable generic `key`, exactly like
+/// HPKE's `init(recipientKey:ciphersuite:info:)`. `Foundation.Data` classifies as the
+/// NativeRemapped ABI category (Data ↔ NSData), which the concrete-specialization preflight
+/// historically rejected — so a generic init carrying a concrete Data param dropped to a
+/// generic-only stub even after the throwing-ctor skip was lifted. The factory crosses Data as
+/// the canonical two-Int-word decomposition (public `byte[]`, Swift `unsafeBitCast`), and the
+/// descriptor folds `info`'s bytes back out so a round-trip proves the bytes survived the
+/// boundary intact.
+public struct ThrowingSealedBox {
+    public let descriptor: String
+
+    public init<K: NestedKeyMaterial>(sealing key: K, info: Data, shouldSucceed: Bool) throws {
+        guard shouldSucceed else { throw SealError.rejected }
+        let infoHex = info.map { String(format: "%02x", $0) }.joined()
+        self.descriptor = "throwing-sealed[\(key.material)|info:\(infoHex)]"
+    }
+
+    public init(descriptor: String) {
+        self.descriptor = descriptor
+    }
+}
+
+/// Throwing generic-init shape on a CLASS host — the sibling ABI branch the guard-lift newly
+/// enables. A Swift `class` projects as a C# class with ARC, so its throwing CSM init factory
+/// takes the *class-pointer* return path: the `@_cdecl` wrapper returns
+/// `Unmanaged.passRetained(_result as AnyObject).toOpaque()` on success and a non-null sentinel
+/// (`UnsafeMutableRawPointer(bitPattern: 1)!`) on the error path, and C# wraps the returned
+/// pointer in a handle only after confirming `errorOut` is null (so the sentinel is never
+/// consumed). HPKE itself only needs the struct branch (`ThrowingSealedBox`), but lifting the
+/// `IsConstructor && Throws` skip makes BOTH branches reachable, so both are pinned here.
+public final class ThrowingSealedRef {
+    public let descriptor: String
+
+    public init<K: NestedKeyMaterial>(sealing key: K, info: Data, shouldSucceed: Bool) throws {
+        guard shouldSucceed else { throw SealError.rejected }
+        let infoHex = info.map { String(format: "%02x", $0) }.joined()
+        self.descriptor = "throwing-ref[\(key.material)|info:\(infoHex)]"
+    }
+
+    public init(descriptor: String) {
+        self.descriptor = descriptor
     }
 }

@@ -103,10 +103,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // UnsafeMutableRawPointer self_ + pointee write-back after the call.
             if (method.IsAccessor) continue;
 
-            // Throwing constructors: a CSM init for a generic-parameter conformer can
-            // reach an `internal` initializer on the concrete type, which fails the Swift wrapper
-            // compile with an accessibility error. Throwing methods remain supported.
-            if (method.IsConstructor && method.Throws) continue;
+            // Throwing constructors flow through the same CanEmitConcreteOverloadForPairing /
+            // ConstructorAdmissibility preflight as non-throwing ones — `throws` and `IsConstructor`
+            // are orthogonal dimensions here. The Swift wrapper composes them (do/catch + errorOut
+            // around a `try ParentType(...)` call, class `Unmanaged.passRetained` vs struct
+            // `resultPtr.initializeMemory`), and the preflight already rejects the genuinely
+            // unsafe inits (internal/unavailable, `_const`, unrepresentable parent pins). This is
+            // the CryptoKit HPKE Sender/Recipient shape — every HPKE init is `init<…>(…) throws`.
 
             // Parent-generic specs are handled by EmitConcreteSpecializationsForGenericParent,
             // which wraps emission in a per-parent-conformer static extension class so the
@@ -858,6 +861,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         callArgs.Add($"{argLabel}Unmanaged<{swiftKpType}>.fromOpaque({b}).takeUnretainedValue()");
                         break;
                     }
+                    case MethodClosureBridge.ParamAbiCategory.NativeRemapped
+                        when IsConcreteFoundationDataParam(arg):
+                        // Foundation.Data: @_cdecl can't take Data by value (it bridges to NSData*),
+                        // so the param crosses as the canonical two-Int-word decomposition of the
+                        // 16-byte Swift.Foundation.Data struct — mirroring the ordinary cdecl
+                        // wrapper path (CdeclParamMapper Foundation.Data arm). unsafeBitCast is a
+                        // pure reinterpret with no retain, so it MOVES the +1 the C# side's
+                        // FromByteArray created into Swift (which releases it at end of call):
+                        // ownership-balanced, no leak. The word tokens carry the escaped binding
+                        // (`b` already starts with `_`) so they never collide with a sibling param.
+                        swiftParams.Add($"_ _dW0{b}: Int");
+                        swiftParams.Add($"_ _dW1{b}: Int");
+                        callArgs.Add($"{argLabel}unsafeBitCast((_dW0{b}, _dW1{b}), to: Foundation.Data.self)");
+                        break;
                     default:
                         swiftParams.Add($"_ {b}: UnsafeRawPointer");
                         callArgs.Add($"{argLabel}{b}");
@@ -1334,6 +1351,31 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         publicParams.Add($"{BuildKeyPathPublicCSharpType((NamedTypeSpec)arg.SwiftTypeSpec, typeDatabase)} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.DangerousGetHandle()");
+                        break;
+                    }
+                    case MethodClosureBridge.ParamAbiCategory.NativeRemapped
+                        when IsConcreteFoundationDataParam(arg):
+                    {
+                        // Foundation.Data: idiomatic public surface is byte[] (matching the
+                        // allowlist's IdiomaticPublicType and the Data return projection).
+                        // Convert to the inline Swift.Foundation.Data value, then decompose its
+                        // 16-byte layout into two nint words — the SAME naming + ownership-moving
+                        // shape the ordinary cdecl method/constructor wrappers use (see
+                        // WrapperEmitter.Marshalling's ShouldDecomposeDataForCdecl arm:
+                        // `{name}_w0`/`{name}_w1` words off a `{name}Swift` holder). FromByteArray's
+                        // +1 is carried in the words and released Swift-side via unsafeBitCast.
+                        // Unsafe.As/Unsafe.Add are ref-reinterprets, not pointer ops, so no `unsafe`
+                        // block. Keeping the word naming identical to the ordinary-cdecl Data path
+                        // keeps the two Data-decomposition emitters in sync.
+                        var bareName = NameProvider.StripVerbatimPrefix(csName);
+                        publicParams.Add($"byte[] {csName}");
+                        pinvokeParams.Add($"nint {bareName}_w0");
+                        pinvokeParams.Add($"nint {bareName}_w1");
+                        preludeLocals.Add($"var {bareName}Swift = global::Swift.Foundation.Data.FromByteArray({csName});");
+                        preludeLocals.Add($"nint {bareName}_w0 = System.Runtime.CompilerServices.Unsafe.As<global::Swift.Foundation.Data, nint>(ref {bareName}Swift);");
+                        preludeLocals.Add($"nint {bareName}_w1 = System.Runtime.CompilerServices.Unsafe.Add(ref System.Runtime.CompilerServices.Unsafe.As<global::Swift.Foundation.Data, nint>(ref {bareName}Swift), 1);");
+                        callArgs.Add($"{bareName}_w0");
+                        callArgs.Add($"{bareName}_w1");
                         break;
                     }
                     default:
@@ -2635,6 +2677,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
             var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
             if (!MethodClosureBridge.IsAbiCategoryPassableForCsm(category))
             {
+                // Foundation.Data classifies as NativeRemapped (Data ↔ NSData), which the
+                // closure-bridge layer treats as not-passable because it has no concrete-param
+                // renderer there. The CSM emitter DOES render it: a concrete Data param crosses
+                // the hand-authored @_cdecl boundary as the canonical two-Int-word decomposition
+                // (public byte[] → Swift.Foundation.Data.FromByteArray → two nint words → Swift
+                // unsafeBitCast back to Foundation.Data), the same ownership-balanced shape the
+                // ordinary method/constructor cdecl wrappers use (CdeclParamMapper Foundation.Data
+                // arm). Admit it here so the predicate↔emitter contract holds — the param-render
+                // switches below carry the matching NativeRemapped/Data arms.
+                if (IsConcreteFoundationDataParam(arg))
+                    continue;
                 return false;
             }
 
@@ -2653,6 +2706,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         return true;
     }
+
+    /// <summary>
+    /// A concrete (non-generic) <c>Foundation.Data</c> parameter. The CSM param-render switches
+    /// give it the two-Int-word decomposition arm (public <c>byte[]</c> on the C# side,
+    /// <c>unsafeBitCast</c> reconstruction on the Swift side), so the compatibility preflight
+    /// admits it even though it classifies as the not-otherwise-passable <c>NativeRemapped</c>
+    /// category. Kept tight to Foundation.Data — other NativeRemapped types (NSString, NSURL, …)
+    /// have no concrete-param renderer here and must still reject.
+    /// </summary>
+    private static bool IsConcreteFoundationDataParam(ArgumentDecl arg)
+        => arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == FoundationDataSwiftName;
+
+    private const string FoundationDataSwiftName = "Foundation.Data";
 
     private static bool IsGenericParamType(TypeSpec typeSpec, string genericParamName)
     {
@@ -3205,8 +3271,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     // Async with method-own generics still rejects — not yet supported.
                     continue;
                 }
-                // See top-level CSM path: throwing constructors can reach non-public inits.
-                if (method.IsConstructor && method.Throws) continue;
+                // Throwing constructors are admitted here on the same footing as non-throwing
+                // ones — see the top-level CSM path: `throws`/`IsConstructor` are orthogonal and
+                // the shared ConstructorAdmissibility preflight gates the genuinely unsafe inits.
 
                 var methodParams = spec.SpecializableParams
                     .Where(p => !p.IsParentGeneric)

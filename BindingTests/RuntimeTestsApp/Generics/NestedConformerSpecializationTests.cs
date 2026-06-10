@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Generics;
@@ -187,5 +188,103 @@ public class NestedConformerSpecializationTests : TestBase
             .FromSwiftBindingsTestLib_CollisionVault_Entry(seed);
         AssertEqual("box[collision-entry:c]", box.Describe(),
             "KeyVaultBox<CollisionVault.EntryType>.Describe extension");
+    }
+
+    // --- Shape 2 (throwing): generic THROWING initializer — the exact CryptoKit HPKE
+    // Sender/Recipient init shape (`init<K: …>(…) throws`). ThrowingSealedBox is NON-frozen so
+    // it projects as a C# class with an opaque payload, matching HPKE.Sender/Recipient — the
+    // throwing-init factory returns an opaque handle (Unmanaged.passRetained) and writes a
+    // sentinel on the error path, rather than the frozen-struct indirect-result path SealedKey
+    // uses. The specializer historically dropped `IsConstructor && Throws` in the CSM dispatcher,
+    // so every throwing generic init fell back to a generic-only stub and these factories did not
+    // exist (HPKE construction was unreachable). `shouldSucceed` makes the throw deterministic:
+    // the success path round-trips the descriptor; the false path must surface the Swift error as
+    // a C# SwiftException, with the constructed handle never escaping.
+
+    // `info` is the concrete `Foundation.Data` param that mirrors HPKE's
+    // `init(recipientKey:ciphersuite:info:)`. It crosses the factory as the public `byte[]`
+    // surface; the Swift side folds its bytes back into the descriptor as hex, so asserting the
+    // descriptor contains the round-tripped hex proves the concrete Data param survived the
+    // two-Int-word @_cdecl boundary intact alongside the specializable generic key.
+    public void TestThrowingSealedBox_FromFlatConformer_Success()
+    {
+        using var key = new FlatKeyMaterial(tag: "f");
+        using var box = ThrowingSealedBox.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xAB, 0xCD }, shouldSucceed: true);
+        AssertEqual("throwing-sealed[flat:f|info:abcd]", box.Descriptor,
+            "ThrowingSealedBox.From(FlatKeyMaterial) throwing factory — success round-trip carries concrete Data info");
+    }
+
+    public void TestThrowingSealedBox_FromTwoLevelNestedConformer_Success()
+    {
+        // Regression witness: this throwing factory only exists once the CSM throwing-ctor skip
+        // is lifted, and at exactly HPKE's two-level nesting depth — now also carrying the
+        // concrete Data `info` param that blocked HPKE construction.
+        using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
+        using var box = ThrowingSealedBox.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0x01, 0x02, 0x03 }, shouldSucceed: true);
+        AssertEqual("throwing-sealed[agree-pub:p|info:010203]", box.Descriptor,
+            "ThrowingSealedBox.From(KeyVault.Agreement.PublicKey) throwing factory — success round-trip carries concrete Data info");
+    }
+
+    public void TestThrowingSealedBox_FromCollisionConformer_Success()
+    {
+        using var key = new SwiftBindingsTestLib.CollisionVault.EntryType(tag: "c");
+        using var box = ThrowingSealedBox.FromSwiftBindingsTestLib_CollisionVault_Entry(key, new byte[] { 0xFF }, shouldSucceed: true);
+        AssertEqual("throwing-sealed[collision-entry:c|info:ff]", box.Descriptor,
+            "ThrowingSealedBox.From(CollisionVault.EntryType) throwing factory — success round-trip carries concrete Data info");
+    }
+
+    public void TestThrowingSealedBox_FromFlatConformer_Throws()
+    {
+        using var key = new FlatKeyMaterial(tag: "f");
+        AssertThrows<SwiftException>(
+            () => ThrowingSealedBox.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xAB, 0xCD }, shouldSucceed: false),
+            "ThrowingSealedBox.From(FlatKeyMaterial) error path surfaces the Swift error as SwiftException");
+    }
+
+    public void TestThrowingSealedBox_FromTwoLevelNestedConformer_Throws()
+    {
+        using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
+        AssertThrows<SwiftException>(
+            () => ThrowingSealedBox.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0x01, 0x02, 0x03 }, shouldSucceed: false),
+            "ThrowingSealedBox.From(KeyVault.Agreement.PublicKey) error path surfaces the Swift error as SwiftException");
+    }
+
+    // --- Shape 2 (throwing, CLASS host): the sibling ABI branch. ThrowingSealedRef is a Swift
+    // `class`, so its throwing CSM init factory takes the class-pointer return path
+    // (Unmanaged.passRetained on success, a non-null sentinel on the error path) rather than the
+    // struct indirect-result path above. HPKE only needs the struct branch, but lifting the
+    // throwing-ctor skip makes this branch reachable too — both are pinned so a future ABI
+    // regression in either return shape is caught.
+
+    public void TestThrowingSealedRef_FromFlatConformer_Success()
+    {
+        using var key = new FlatKeyMaterial(tag: "f");
+        using var box = ThrowingSealedRef.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xDE, 0xAD }, shouldSucceed: true);
+        AssertEqual("throwing-ref[flat:f|info:dead]", box.Descriptor,
+            "ThrowingSealedRef.From(FlatKeyMaterial) throwing class factory — success round-trip carries concrete Data info");
+    }
+
+    public void TestThrowingSealedRef_FromTwoLevelNestedConformer_Success()
+    {
+        using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
+        using var box = ThrowingSealedRef.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0xBE, 0xEF }, shouldSucceed: true);
+        AssertEqual("throwing-ref[agree-pub:p|info:beef]", box.Descriptor,
+            "ThrowingSealedRef.From(KeyVault.Agreement.PublicKey) throwing class factory — success round-trip carries concrete Data info");
+    }
+
+    public void TestThrowingSealedRef_FromFlatConformer_Throws()
+    {
+        using var key = new FlatKeyMaterial(tag: "f");
+        AssertThrows<SwiftException>(
+            () => ThrowingSealedRef.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xDE, 0xAD }, shouldSucceed: false),
+            "ThrowingSealedRef.From(FlatKeyMaterial) error path surfaces the Swift error as SwiftException (sentinel not consumed)");
+    }
+
+    public void TestThrowingSealedRef_FromTwoLevelNestedConformer_Throws()
+    {
+        using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
+        AssertThrows<SwiftException>(
+            () => ThrowingSealedRef.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0xBE, 0xEF }, shouldSucceed: false),
+            "ThrowingSealedRef.From(KeyVault.Agreement.PublicKey) error path surfaces the Swift error as SwiftException (sentinel not consumed)");
     }
 }
