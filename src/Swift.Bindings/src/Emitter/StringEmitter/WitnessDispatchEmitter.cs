@@ -1380,6 +1380,11 @@ public class WitnessDispatchEmitter
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
         var avail = _currentAvailabilityPrefix;
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
+        // Member-access name for the Swift source: recover the original Swift identifier
+        // (the parser rewrites C#-keyword names like `class` to `_class`) and backtick-escape
+        // it if it is a Swift keyword (`repeat`). The accessor/free symbols above stay on the
+        // raw parser name because they are internal @_cdecl entry points matched by the C# side.
+        var swiftMemberName = NameProvider.ParserNameToSwift(property);
         if (IsStringType(property.SwiftTypeSpec))
         {
             var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
@@ -1388,7 +1393,7 @@ public class WitnessDispatchEmitter
                 {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                     {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                    let result: String = {{bindName}}.{{property.Name}}
+                    let result: String = {{bindName}}.{{swiftMemberName}}
                     let utf8 = Array(result.utf8)
                     let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
                     if !utf8.isEmpty {
@@ -1418,7 +1423,7 @@ public class WitnessDispatchEmitter
             // real module-qualified Swift type so generic parameters survive and value types that
             // merely project to a primitive (e.g. Foundation.Date → double) keep their true type.
             var swiftReturnType = GetSwiftBlittableTypeName(property.SwiftTypeSpec);
-            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, needsMainActor, needsMutableBinding);
+            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, swiftMemberName, swiftReturnType, needsMainActor, needsMutableBinding);
         }
     }
 
@@ -1429,6 +1434,8 @@ public class WitnessDispatchEmitter
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
         var avail = _currentAvailabilityPrefix;
+        // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
+        var swiftMemberName = NameProvider.ParserNameToSwift(property);
 
         if (IsStringType(property.SwiftTypeSpec))
         {
@@ -1448,7 +1455,7 @@ public class WitnessDispatchEmitter
                     } else {
                         str = ""
                     }
-                    existential.{{property.Name}} = str
+                    existential.{{swiftMemberName}} = str
                     typedPtr.pointee = existential
                 }
 
@@ -1464,7 +1471,7 @@ public class WitnessDispatchEmitter
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
                     let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
                     var existential = typedPtr.pointee
-                    existential.{{property.Name}} = valuePtr.load(as: {{swiftType}}.self)
+                    existential.{{swiftMemberName}} = valuePtr.load(as: {{swiftType}}.self)
                     typedPtr.pointee = existential
                 }
 
@@ -2108,12 +2115,14 @@ public class WitnessDispatchEmitter
         var avail = _currentAvailabilityPrefix;
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
+        // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
+        var swiftMemberName = NameProvider.ParserNameToSwift(property);
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                 {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                let result = {{bindName}}.{{property.Name}}
+                let result = {{bindName}}.{{swiftMemberName}}
                 return Unmanaged.passRetained(result as AnyObject).toOpaque()
             }
 
@@ -2136,12 +2145,14 @@ public class WitnessDispatchEmitter
         var avail = _currentAvailabilityPrefix;
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
+        // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
+        var swiftMemberName = NameProvider.ParserNameToSwift(property);
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
                 {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                if let result = {{bindName}}.{{property.Name}} {
+                if let result = {{bindName}}.{{swiftMemberName}} {
                     return Unmanaged.passRetained(result as AnyObject).toOpaque()
                 }
                 return nil
@@ -2179,6 +2190,8 @@ public class WitnessDispatchEmitter
         var avail = _currentAvailabilityPrefix;
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
+        // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
+        var swiftMemberName = NameProvider.ParserNameToSwift(property);
 
         var swiftReturnDecl = isOptionalReturn
             ? " -> UnsafeMutableRawPointer?"
@@ -2191,7 +2204,7 @@ public class WitnessDispatchEmitter
         writer.WriteLine($"{bindKw} {bindName} = containerPtr.load(as: (any {moduleQualifiedName}).self)");
         if (isOptionalReturn)
         {
-            writer.WriteLine($"let result: ({swiftTypeName})? = {bindName}.{property.Name}");
+            writer.WriteLine($"let result: ({swiftTypeName})? = {bindName}.{swiftMemberName}");
             writer.WriteLine("if let unwrapped = result {");
             writer.Indent++;
             writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
@@ -2203,7 +2216,7 @@ public class WitnessDispatchEmitter
         }
         else
         {
-            writer.WriteLine($"let result: {swiftTypeName} = {bindName}.{property.Name}");
+            writer.WriteLine($"let result: {swiftTypeName} = {bindName}.{swiftMemberName}");
             writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
             writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
@@ -2241,12 +2254,14 @@ public class WitnessDispatchEmitter
         var avail = _currentAvailabilityPrefix;
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
+        // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
+        var swiftMemberName = NameProvider.ParserNameToSwift(property);
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutableRawPointer) {
                 {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                let result = {{bindName}}.{{property.Name}}
+                let result = {{bindName}}.{{swiftMemberName}}
                 resultBuf.assumingMemoryBound(to: {{swiftConcreteType}}.self).initialize(to: result)
             }
 
@@ -2270,7 +2285,9 @@ public class WitnessDispatchEmitter
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
-        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftCollectionType, needsMainActor, needsMutableBinding);
+        // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
+        var swiftMemberName = NameProvider.ParserNameToSwift(property);
+        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, swiftMemberName, swiftCollectionType, needsMainActor, needsMutableBinding);
     }
 
     /// <summary>

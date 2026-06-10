@@ -339,6 +339,12 @@ public static class SwiftSourceStripper
         // so Get_EveryProtocol_AmountProcessor_WitnessTable must resolve; stripped otherwise
         // because nothing referenced it before this test.
         "AmountProcessor",
+        // Keyword-named protocol MEMBERS (not labels): KeywordMemberDelegate declares
+        // `var `repeat`` and `func `class`()`, whose EveryProtocol conformance must emit
+        // backtick-escaped witness declarations. KeywordMemberDispatchTests vends a C#
+        // conformer to KeywordMemberRouter, so the witness-table getter must survive
+        // stripping; stripped otherwise because nothing referenced it before this test.
+        "KeywordMemberDelegate",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

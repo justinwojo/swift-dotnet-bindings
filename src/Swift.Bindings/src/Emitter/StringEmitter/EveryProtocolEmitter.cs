@@ -1257,7 +1257,7 @@ public class EveryProtocolEmitter
         // For PAT protocols, we use type erasure by mapping associated types to Any
         foreach (var associatedType in protocolDecl.AssociatedTypes)
         {
-            writer.WriteLine($"public typealias {associatedType.Name} = Any");
+            writer.WriteLine($"public typealias {NameProvider.EscapeSwiftKeyword(associatedType.Name)} = Any");
         }
         if (protocolDecl.AssociatedTypes.Count > 0)
         {
@@ -2438,7 +2438,7 @@ public class EveryProtocolEmitter
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
 
-        writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
+        writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
         if (hasGetter)
         {
@@ -2463,7 +2463,7 @@ public class EveryProtocolEmitter
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var swiftTypeName = RenderTypeSpecWithSelfSubstitution(property.SwiftTypeSpec);
 
-        writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
+        writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
         if (hasGetter)
         {
@@ -2514,7 +2514,7 @@ public class EveryProtocolEmitter
         // when only the filtered side has been implemented C#-side.
         bool forceSafeFanOut = plan?.HasFilteredPeers == true;
 
-        writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
+        writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
 
         if (hasGetter)
@@ -3211,7 +3211,7 @@ public class EveryProtocolEmitter
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
-        writer.WriteLine($"public func {method.Name}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
         writer.WriteLine($"fatalError(\"EveryProtocol: closure method '{method.Name}' cannot be dispatched through vtable\")");
         writer.Indent--;
@@ -3373,7 +3373,7 @@ public class EveryProtocolEmitter
         bool isOptionalReturn = hasReturn && returnType is NamedTypeSpec nts &&
             nts.Name == "Swift.Optional";
 
-        writer.WriteLine($"public func {method.Name}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
 
         if (!hasReturn)
@@ -3423,7 +3423,7 @@ public class EveryProtocolEmitter
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
-        writer.WriteLine($"public func {method.Name}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
         writer.WriteLine($"fatalError(\"EveryProtocol: Self-typed method '{method.Name}' cannot be dispatched through vtable\")");
         writer.Indent--;
@@ -3477,7 +3477,7 @@ public class EveryProtocolEmitter
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
-        writer.WriteLine($"public func {method.Name}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
         writer.WriteLine($"fatalError(\"EveryProtocol: method '{method.Name}' with an inout ObjC-bridgeable parameter cannot be dispatched through vtable\")");
         writer.Indent--;
@@ -3583,7 +3583,7 @@ public class EveryProtocolEmitter
 
         var fieldName = GetMethodVtableFieldName(method, index);
 
-        writer.WriteLine($"public func {method.Name}({parametersString}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({parametersString}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
 
         // Build argument copies for passing to vtable function
@@ -3870,7 +3870,7 @@ public class EveryProtocolEmitter
 
         var fieldName = GetMethodVtableFieldName(method, index);
 
-        writer.WriteLine($"public func {method.Name}({parametersString}) {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({parametersString}) {{");
         writer.Indent++;
 
         // Build the per-parameter passing code. For each closure param, emit the
@@ -4113,7 +4113,7 @@ public class EveryProtocolEmitter
         // fan-out shape even for a single emittable branch.
         bool forceSafeFanOut = plan?.HasFilteredPeers == true;
 
-        writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
+        writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
 
         if (hasGetter)
@@ -4238,7 +4238,7 @@ public class EveryProtocolEmitter
         var conventionCType = ClosureEmitter.GetSwiftConventionCType(retClosure, closureHandler);
         var swiftReturnTypeName = GetSwiftTypeName(retClosure);
 
-        writer.WriteLine($"public func {method.Name}() -> {swiftReturnTypeName} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}() -> {swiftReturnTypeName} {{");
         writer.Indent++;
         writer.WriteLines($$"""
             var selfProto: {{protocolName}} = self

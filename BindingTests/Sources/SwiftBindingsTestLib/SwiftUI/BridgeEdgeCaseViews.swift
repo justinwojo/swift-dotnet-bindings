@@ -14,6 +14,14 @@
 //                          synthetic trailing `userData` param of async Create
 //   HandleParamView        init params named `handle`/`session` collide with
 //                          generated C# locals in the Create factory
+//   KeywordParamView       init params named a C# keyword (`event`) and a Swift
+//                          keyword (`repeat`) — simple bridge path escaping
+//   KeywordAsyncParamView  same keyword params routed through the async Create path
+//   KeywordClosureParamView  closure init params labeled with Swift keywords
+//                          (`repeat`, `defer`) — compound cb_/ud_ locals + call labels
+//   KeywordResultClosureParamView  a `Result` closure init param labeled with a Swift
+//                          keyword (`defer`) — keyword compounds/label on the separate
+//                          Result-decomposition (onSuccess/onError) emission path
 
 // SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
 // compiler environment despite the module importing successfully.
@@ -220,6 +228,91 @@ public struct HandleParamView: View {
 
     public var body: some View {
         Text("\(handle)-\(session)")
+    }
+}
+
+// MARK: - Init params that are language keywords
+
+/// Init params named after a C# keyword (`event`) and a Swift keyword (`repeat`).
+/// The bridge must `@`-escape the C# identifier and backtick-escape the Swift one,
+/// or both generated sides fail to compile. Covers the simple (non-async) bridge path.
+public struct KeywordParamView: View {
+    public let event: Int32
+    public let `repeat`: Int32
+
+    public init(event: Int32, repeat: Int32) {
+        self.event = event
+        self.`repeat` = `repeat`
+    }
+
+    public var body: some View {
+        Text("\(event)-\(`repeat`)")
+    }
+}
+
+/// Same keyword-param shape as `KeywordParamView` but routed through the async Create
+/// factory — the `AsyncService` dependency makes construction async. Covers the
+/// data-driven async bridge path's flattened-param escaping on both language sides.
+public struct KeywordAsyncParamView: View {
+    public let event: Int32
+    public let `repeat`: Int32
+    public let service: AsyncService
+
+    public init(event: Int32, repeat: Int32, service: AsyncService) {
+        self.event = event
+        self.`repeat` = `repeat`
+        self.service = service
+    }
+
+    public var body: some View {
+        Text("\(event)-\(`repeat`)")
+    }
+}
+
+/// Init params that are CLOSURES whose labels are Swift keywords (`repeat`, a void
+/// closure; `defer`, a typed `(Int32) -> Int32` closure). The bridge derives compound
+/// Swift identifiers from each closure label — the captured callback/userData locals
+/// `cb_<name>` / `ud_<name>` and the Wrapper-init call labels. Those compounds MUST be
+/// built from the bare label, never the backtick-escaped form: `cb_`repeat`` is not a
+/// valid Swift identifier (a backtick-escaped name is a complete token and cannot be
+/// concatenated), and an escaped keyword used as a call argument label warns. Neither
+/// label is a C# keyword, so this isolates the Swift-keyword compound/label path.
+public struct KeywordClosureParamView: View {
+    public let `repeat`: () -> Void
+    public let `defer`: (Int32) -> Int32
+
+    public init(repeat: @escaping () -> Void, defer: @escaping (Int32) -> Int32) {
+        self.`repeat` = `repeat`
+        self.`defer` = `defer`
+    }
+
+    public var body: some View {
+        Button("act") {
+            `repeat`()
+            _ = `defer`(1)
+        }
+    }
+}
+
+/// Init param that is a `Result` CLOSURE whose label is a Swift keyword (`defer`). The
+/// Result-closure path is a SEPARATE emission from the void/typed closures above: the
+/// bridge DECOMPOSES the single closure into onSuccess/onError C callbacks, deriving the
+/// captured `cb_<label>` / `ud_<label>` locals and the Wrapper-init call label from the
+/// closure label. Those compounds MUST be built from the bare label — `cb_`defer`` is not a
+/// valid Swift identifier (a backtick-escaped name is a complete token and cannot be
+/// concatenated) — and the init call label must stay bare (escaping a keyword argument label
+/// warns). `Result<SimpleModel, ScanError>` mirrors the proven-bridged ResultCompletionView
+/// shape so the view bridges (not template fallback), isolating the keyword-label concern on
+/// the Result-decomposition path. A keyword bug here is a Swift compile error in the bridge.
+public struct KeywordResultClosureParamView: View {
+    public let `defer`: (Result<SimpleModel, ScanError>) -> Void
+
+    public init(defer: @escaping (Result<SimpleModel, ScanError>) -> Void) {
+        self.`defer` = `defer`
+    }
+
+    public var body: some View {
+        Text("KeywordResultClosure")
     }
 }
 

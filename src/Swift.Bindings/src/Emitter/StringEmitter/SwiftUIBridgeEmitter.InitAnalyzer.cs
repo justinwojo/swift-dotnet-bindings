@@ -160,20 +160,19 @@ public static partial class SwiftUIBridgeEmitter
     {
         var typeSpec = param.SwiftTypeSpec;
 
-        // Void closure: () -> () or () -> Void
-        if (typeSpec is ClosureTypeSpec closureSpec)
+        BridgeParameter? mapped = typeSpec switch
         {
-            return MapClosureType(param.Name, closureSpec, context);
-        }
+            // Void closure: () -> () or () -> Void
+            ClosureTypeSpec closureSpec => MapClosureType(param.Name, closureSpec, context),
+            // Named types: primitives, String, Optional<T>, enums (via TypeDatabase)
+            NamedTypeSpec namedSpec => MapNamedType(param.Name, namedSpec, context),
+            // Everything else is unsupported
+            _ => null,
+        };
 
-        // Named types: primitives, String, Optional<T>, enums (via TypeDatabase)
-        if (typeSpec is NamedTypeSpec namedSpec)
-        {
-            return MapNamedType(param.Name, namedSpec, context);
-        }
-
-        // Everything else is unsupported
-        return null;
+        // Capture the original Swift label so the View init call can emit the real label
+        // (the parser may have rewritten Name to a C#-safe form, e.g. event → _event).
+        return mapped is null ? null : mapped with { OriginalSwiftName = param.GetSwiftName() };
     }
 
     private static BridgeParameter? MapClosureType(string paramName, ClosureTypeSpec closureSpec, BridgeContext? context = null)
@@ -603,7 +602,8 @@ public static partial class SwiftUIBridgeEmitter
                     method.Name,
                     char.ToUpperInvariant(method.Name[0]) + method.Name[1..],
                     Parameter: null,
-                    IsParameterless: true));
+                    IsParameterless: true,
+                    OriginalSwiftName: method.GetSwiftName()));
             }
             else if (paramCount == 1)
             {
@@ -622,7 +622,8 @@ public static partial class SwiftUIBridgeEmitter
                     method.Name,
                     char.ToUpperInvariant(method.Name[0]) + method.Name[1..],
                     Parameter: bridgeParam,
-                    IsParameterless: false));
+                    IsParameterless: false,
+                    OriginalSwiftName: method.GetSwiftName()));
             }
             // else: multi-param → skip
         }
@@ -865,10 +866,20 @@ public static partial class SwiftUIBridgeEmitter
 /// Maps to a Set* @_cdecl function and a C# method on the Session class.
 /// </summary>
 public record BridgeModifier(
-    string MethodName,          // Swift name: "playing", "animationSpeed"
+    string MethodName,          // C#-safe base: "playing", "animationSpeed" (a C# keyword is mangled)
     string PascalName,          // C# name: "Playing", "AnimationSpeed"
     BridgeParameter? Parameter, // null for parameterless, single BridgeParameter otherwise
-    bool IsParameterless);      // true = bool toggle, false = single non-optional param
+    bool IsParameterless,       // true = bool toggle, false = single non-optional param
+    string? OriginalSwiftName = null) // the method's real Swift name (recovers a parser-mangled keyword)
+{
+    /// <summary>The modifier's real Swift method name escaped as a BARE Swift identifier
+    /// (backtick-wrapped for a Swift keyword). Built from <see cref="OriginalSwiftName"/> — NOT the
+    /// C#-safe <see cref="MethodName"/>, which for a keyword method (e.g. <c>class</c>) is mangled to
+    /// <c>_class</c> and would emit <c>result._class()</c> instead of <c>result.`class`()</c>. Use when
+    /// emitting the modifier as a Swift method call (<c>result.X()</c>); compound forms like
+    /// <c>mod_{MethodName}</c> stay on the raw C#-safe base.</summary>
+    public string SwiftCallName => NameProvider.EscapeSwiftKeyword(OriginalSwiftName ?? MethodName);
+}
 
 /// <summary>
 /// Kind of bridge parameter.
@@ -948,7 +959,14 @@ public record BridgeParameter(
     /// Codable struct. The Create/Update ABI carries the value as JSON UTF-8 bytes (ptr+len),
     /// the Swift state stores the decoded value, and a per-view Read&lt;Param&gt;Json @_cdecl
     /// exposes the current state back to C# for two-way observation.</summary>
-    bool IsBindingCodableStruct = false)
+    bool IsBindingCodableStruct = false,
+    /// <summary>The original Swift external argument label, as written in the View's init
+    /// (e.g. <c>event</c>), independent of the C#-safe <see cref="Name"/> which the parser may
+    /// have rewritten for keyword safety (<c>event</c> → <c>_event</c>). Null for synthesized
+    /// sub-parameters (closure args, Result branches) that have no real Swift label. Set by
+    /// <see cref="MapParameterType"/> from the source <see cref="ArgumentDecl"/>. Use
+    /// <see cref="SwiftLabel"/> to emit it.</summary>
+    string? OriginalSwiftName = null)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).
@@ -959,4 +977,34 @@ public record BridgeParameter(
                                     and not BridgeParameterKind.TypedClosure
                                     and not BridgeParameterKind.ResultClosure
                                     and not BridgeParameterKind.BridgeArray;
+
+    /// <summary>
+    /// <see cref="Name"/> escaped for use as a BARE C# identifier — <c>@</c>-prefixed when the
+    /// name spells a C# keyword (e.g. <c>event</c> → <c>@event</c>). Use at every site where the
+    /// bare name is emitted as a C# identifier (factory parameter, body reference, cast operand,
+    /// <c>nameof</c>, member access). Do NOT use for compound identifiers like <c>{Name}Ptr</c> —
+    /// a suffix makes them non-keywords, and <c>@eventPtr</c> would be a different identifier.
+    /// </summary>
+    public string CSharpName => NameProvider.EscapeForCSharpSignature(Name);
+
+    /// <summary>
+    /// <see cref="Name"/> escaped for use as a BARE Swift identifier — backtick-wrapped when the
+    /// name spells a Swift keyword (e.g. <c>repeat</c> → <c>`repeat`</c>). Use at every site where
+    /// the bare name is emitted as a Swift identifier, including argument labels (<c>View(`repeat`:
+    /// x)</c> is valid Swift). Do NOT use for compound identifiers like <c>{Name}Callback</c>, nor
+    /// inside <c>@_cdecl("…")</c> symbol-name string literals (which take plain C symbol chars).
+    /// </summary>
+    public string SwiftName => NameProvider.EscapeSwiftKeyword(Name);
+
+    /// <summary>
+    /// The View's ORIGINAL Swift external argument label (e.g. <c>event</c>), as it must appear in
+    /// the generated View init call (<c>View(event: …)</c>). Deliberately NOT backtick-escaped:
+    /// Swift accepts keyword argument labels bare at a call site (<c>V(class: 1, default: 2)</c>
+    /// type-checks; escaping instead emits a "does not need to be escaped" warning). Distinct from
+    /// <see cref="SwiftName"/>, which escapes the C#-safe parser-mangled <see cref="Name"/> and is
+    /// correct for the bridge's INTERNAL identifiers (state fields, locals, cdecl params) emitted
+    /// as bare Swift identifiers. Falls back to <see cref="Name"/> for synthesized sub-parameters
+    /// that carry no captured label (those are never emitted in label position).
+    /// </summary>
+    public string SwiftLabel => OriginalSwiftName ?? Name;
 }

@@ -750,7 +750,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
-                sb.AppendLine($"    let {param.Name}: {GetSwiftNativeType(param)}");
+                sb.AppendLine($"    let {param.SwiftName}: {GetSwiftNativeType(param)}");
             }
         }
         sb.AppendLine();
@@ -812,7 +812,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else
             {
-                initParams.Add($"{param.Name}: {param.SwiftAbiType}");
+                initParams.Add($"{param.SwiftName}: {param.SwiftAbiType}");
             }
         }
         sb.Append(string.Join(",\n         ", initParams));
@@ -840,9 +840,9 @@ public static partial class SwiftUIBridgeEmitter
                     // object pointer (C# passes `.Handle`), NOT raw Swift struct bytes. Reading it
                     // via assumingMemoryBound reinterprets an object pointer as struct memory →
                     // type confusion / SIGSEGV. Reconstruct the bridged value instead.
-                    sb.AppendLine($"        self.{param.Name} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                    sb.AppendLine($"        self.{param.SwiftName} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
                 else
-                    sb.AppendLine($"        self.{param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+                    sb.AppendLine($"        self.{param.SwiftName} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
@@ -859,15 +859,15 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine($"                guard let {param.Name}Element = {inner.BridgeTypeName}(rawValue: {param.Name}Raw) else {{ return nil }}");
                     sb.AppendLine($"                {param.Name}Elements.append({param.Name}Element)");
                     sb.AppendLine($"            }}");
-                    sb.AppendLine($"            self.{param.Name} = {param.Name}Elements");
+                    sb.AppendLine($"            self.{param.SwiftName} = {param.Name}Elements");
                 }
                 else
                 {
                     var elementConversion = inner.SwiftConversion != null ? $"$0 {inner.SwiftConversion}" : "$0";
-                    sb.AppendLine($"            self.{param.Name} = UnsafeBufferPointer(start: ptr, count: {param.Name}Count).map {{ {elementConversion} }}");
+                    sb.AppendLine($"            self.{param.SwiftName} = UnsafeBufferPointer(start: ptr, count: {param.Name}Count).map {{ {elementConversion} }}");
                 }
                 sb.AppendLine($"        }} else {{");
-                sb.AppendLine($"            self.{param.Name} = []");
+                sb.AppendLine($"            self.{param.SwiftName} = []");
                 sb.AppendLine($"        }}");
             }
         }
@@ -890,7 +890,12 @@ public static partial class SwiftUIBridgeEmitter
         // Convert ABI params to Swift-native values for state
         EmitSwiftStateConversions(sb, bridgeParams);
 
-        // Create state object
+        // Create state object. The argument LABEL is the bare param name (p.Name), never the
+        // backtick-escaped p.SwiftName: Swift accepts a keyword as a bare argument label and
+        // warns ("keyword 'X' does not need to be escaped in argument list") if you escape one
+        // that is valid bare. The State init declares its external label escaped (p.SwiftName)
+        // — a bare call label matches an escaped declared label, so this stays warning-free for
+        // a keyword-named param (e.g. `repeat`). The VALUE keeps its escaped/converted form.
         var stateArgs = bridgeParams.Where(p => p.IsUpdatable)
             .Select(p => $"{p.Name}: {GetSwiftConvertedVarName(p)}")
             .ToList();
@@ -907,7 +912,10 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.ResultClosure)
                 wrapperArgs.Add(BuildResultClosureViewInitArg(param));
             else if (param.Kind == BridgeParameterKind.BridgeArray)
-                wrapperArgs.Add($"{param.Name}: {param.Name}");
+                // Wrapper-init call label is the bare param name; the Wrapper init declares its
+                // external label escaped (p.SwiftName), and a bare keyword call label matches an
+                // escaped declared label warning-free. The VALUE references the escaped local.
+                wrapperArgs.Add($"{param.Name}: {param.SwiftName}");
         }
         sb.AppendLine($"        let wrapper = {prefix}_Wrapper({string.Join(", ", wrapperArgs)})");
         sb.AppendLine($"        self.hostingController = UIHostingController(rootView: wrapper)");
@@ -977,7 +985,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else
             {
-                createParams.Add($"_ {param.Name}: {param.SwiftAbiType}");
+                createParams.Add($"_ {param.SwiftName}: {param.SwiftAbiType}");
             }
         }
         sb.AppendLine(string.Join(",\n    ", createParams));
@@ -1035,7 +1043,11 @@ public static partial class SwiftUIBridgeEmitter
             }
             else
             {
-                sessionArgs.Add($"{param.Name}: {param.Name}");
+                // Argument LABEL is the bare param name; the VALUE (an identifier reference to
+                // the cdecl param) stays backtick-escaped. Escaping a keyword as a call-site
+                // label emits a "does not need to be escaped in argument list" warning, while a
+                // bare label still matches the session init's escaped declared label.
+                sessionArgs.Add($"{param.Name}: {param.SwiftName}");
             }
         }
 
@@ -1144,7 +1156,7 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
         {
             var swiftType = GetSwiftNativeType(param);
-            sb.AppendLine($"    @Published var {param.Name}: {swiftType}");
+            sb.AppendLine($"    @Published var {param.SwiftName}: {swiftType}");
         }
 
         // Modifier state vars
@@ -1172,12 +1184,12 @@ public static partial class SwiftUIBridgeEmitter
 
         // Init
         var initParams = bridgeParams.Where(p => p.IsUpdatable)
-            .Select(p => $"{p.Name}: {GetSwiftNativeType(p)}")
+            .Select(p => $"{p.SwiftName}: {GetSwiftNativeType(p)}")
             .ToList();
         sb.AppendLine($"    init({string.Join(", ", initParams)}) {{");
         foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
         {
-            sb.AppendLine($"        self.{param.Name} = {param.Name}");
+            sb.AppendLine($"        self.{param.SwiftName} = {param.SwiftName}");
         }
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -1200,20 +1212,20 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var param in bridgeParams.Where(p => !p.IsUpdatable))
         {
             if (param.Kind == BridgeParameterKind.VoidClosure)
-                sb.AppendLine($"    let {param.Name}: () -> Void");
+                sb.AppendLine($"    let {param.SwiftName}: () -> Void");
             else if (param.Kind == BridgeParameterKind.TypedClosure)
             {
                 var swiftClosureType = GetSwiftClosureType(param);
-                sb.AppendLine($"    let {param.Name}: {swiftClosureType}");
+                sb.AppendLine($"    let {param.SwiftName}: {swiftClosureType}");
             }
             else if (param.Kind == BridgeParameterKind.ResultClosure)
             {
                 var resultType = GetSwiftResultType(param);
-                sb.AppendLine($"    let {param.Name}: ({resultType}) -> Void");
+                sb.AppendLine($"    let {param.SwiftName}: ({resultType}) -> Void");
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
-                sb.AppendLine($"    let {param.Name}: {GetSwiftNativeType(param)}");
+                sb.AppendLine($"    let {param.SwiftName}: {GetSwiftNativeType(param)}");
             }
         }
 
@@ -1224,16 +1236,18 @@ public static partial class SwiftUIBridgeEmitter
         var viewInitArgs = new List<string>();
         foreach (var param in bridgeParams)
         {
+            // Label = the View's real Swift argument label (SwiftLabel); value = the bridge's
+            // internal state field / local (SwiftName, derived from the C#-safe Name).
             if (param.IsUpdatable && param.IsBinding)
-                viewInitArgs.Add($"{param.Name}: $state.{param.Name}");
+                viewInitArgs.Add($"{param.SwiftLabel}: $state.{param.SwiftName}");
             else if (param.IsUpdatable && param.IsSwiftUIImage)
-                viewInitArgs.Add($"{param.Name}: Image(systemName: state.{param.Name})");
+                viewInitArgs.Add($"{param.SwiftLabel}: Image(systemName: state.{param.SwiftName})");
             else if (param.IsUpdatable)
-                viewInitArgs.Add($"{param.Name}: state.{param.Name}");
+                viewInitArgs.Add($"{param.SwiftLabel}: state.{param.SwiftName}");
             else if (param.Kind == BridgeParameterKind.BridgeArray)
-                viewInitArgs.Add($"{param.Name}: {param.Name}");
+                viewInitArgs.Add($"{param.SwiftLabel}: {param.SwiftName}");
             else
-                viewInitArgs.Add($"{param.Name}: {param.Name}");
+                viewInitArgs.Add($"{param.SwiftLabel}: {param.SwiftName}");
         }
 
         var mergedArgs = BuildMergedInitArgs(
@@ -1265,15 +1279,24 @@ public static partial class SwiftUIBridgeEmitter
             {
                 if (mod.IsParameterless)
                 {
-                    sb.AppendLine($"        if state.mod_{mod.MethodName} {{ result = result.{mod.MethodName}() }}");
+                    sb.AppendLine($"        if state.mod_{mod.MethodName} {{ result = result.{mod.SwiftCallName}() }}");
                 }
                 else
                 {
                     var paramName = mod.Parameter!.Name;
-                    // Unnamed params (external label is _ or parser-synthesized argN) need no label
-                    var isUnlabeled = paramName == "_" || NameProvider.IsGeneratedArgName(paramName);
-                    var callArg = isUnlabeled ? "val" : $"{paramName}: val";
-                    sb.AppendLine($"        if let val = state.mod_{mod.MethodName} {{ result = result.{mod.MethodName}({callArg}) }}");
+                    // Label = the modifier's real Swift argument label: SwiftLabel recovers the
+                    // original name the parser may have rewritten for C# keyword safety
+                    // (event → _event), NOT the C#-safe .Name. It is emitted BARE — a keyword
+                    // label (e.g. `repeat`) must not be backtick-escaped here: Swift warns
+                    // ("keyword does not need to be escaped in argument list") on an escaped
+                    // call label. Detect "unlabeled" from EITHER name (external label `_` or a
+                    // parser-synthesized argN) so neither a mangled internal name nor a "_"
+                    // Swift label slips through as a spurious call label.
+                    var swiftLabel = mod.Parameter!.SwiftLabel;
+                    var isUnlabeled = paramName == "_" || NameProvider.IsGeneratedArgName(paramName)
+                        || swiftLabel == "_" || NameProvider.IsGeneratedArgName(swiftLabel);
+                    var callArg = isUnlabeled ? "val" : $"{swiftLabel}: val";
+                    sb.AppendLine($"        if let val = state.mod_{mod.MethodName} {{ result = result.{mod.SwiftCallName}({callArg}) }}");
                 }
             }
             sb.AppendLine($"        return result");
@@ -1316,7 +1339,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             // Out-of-range raw value fails creation (return nil from the failable init →
             // C# InvalidOperationException) instead of trapping via force-unwrap.
-            sb.AppendLine($"        guard let {param.Name}Converted = {param.BridgeTypeName}(rawValue: {param.Name}) else {{ return nil }}");
+            sb.AppendLine($"        guard let {param.Name}Converted = {param.BridgeTypeName}(rawValue: {param.SwiftName}) else {{ return nil }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
@@ -1391,7 +1414,7 @@ public static partial class SwiftUIBridgeEmitter
         else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
         {
             // Bool: Int32 != 0
-            sb.AppendLine($"        let {param.Name}Converted = {param.Name} {param.SwiftConversion}");
+            sb.AppendLine($"        let {param.Name}Converted = {param.SwiftName} {param.SwiftConversion}");
         }
         // Plain primitives don't need conversion — use directly
     }
@@ -1401,9 +1424,12 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static string GetSwiftConvertedVarName(BridgeParameter param)
     {
-        // Primitives without conversion don't need a Converted variable
+        // Primitives without conversion don't need a Converted variable — reference the bridge
+        // param directly, keyword-escaped (SwiftName) since it is emitted as a bare Swift
+        // identifier (e.g. the init param `repeat` must read back as `` `repeat` ``). The
+        // {Name}Converted form is a compound identifier and is keyword-safe as-is.
         if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == null)
-            return param.Name;
+            return param.SwiftName;
         return $"{param.Name}Converted";
     }
 
@@ -1532,7 +1558,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
             sb.AppendLine("            .fromOpaque(handle).takeUnretainedValue()");
             sb.AppendLine("        let data: Data");
-            sb.AppendLine($"        do {{ data = try JSONEncoder().encode(session.state.{param.Name}) }}");
+            sb.AppendLine($"        do {{ data = try JSONEncoder().encode(session.state.{param.SwiftName}) }}");
             sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONEncoder failed in Read: \\(error)\") }}");
             sb.AppendLine("        let len = data.count");
             sb.AppendLine("        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: len)");
@@ -1566,20 +1592,20 @@ public static partial class SwiftUIBridgeEmitter
         if (param.Kind == BridgeParameterKind.String)
         {
             sb.AppendLine($"        if let ptr = newValuePtr, newValueLen > 0 {{");
-            sb.AppendLine($"            session.state.{param.Name} = String(bytes: UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
+            sb.AppendLine($"            session.state.{param.SwiftName} = String(bytes: UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
             sb.AppendLine($"        }} else {{");
-            sb.AppendLine($"            session.state.{param.Name} = \"\"");
+            sb.AppendLine($"            session.state.{param.SwiftName} = \"\"");
             sb.AppendLine($"        }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundEnum)
         {
             // Out-of-range raw value leaves state unchanged (return) instead of trapping.
             sb.AppendLine($"        guard let newValueConverted = {param.BridgeTypeName}(rawValue: newValue) else {{ return }}");
-            sb.AppendLine($"        session.state.{param.Name} = newValueConverted");
+            sb.AppendLine($"        session.state.{param.SwiftName} = newValueConverted");
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
-            sb.AppendLine($"        session.state.{param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque(newValuePtr).takeUnretainedValue()");
+            sb.AppendLine($"        session.state.{param.SwiftName} = Unmanaged<{param.BridgeTypeName}>.fromOpaque(newValuePtr).takeUnretainedValue()");
         }
         else if (param.IsBindingCodableStruct)
         {
@@ -1588,36 +1614,36 @@ public static partial class SwiftUIBridgeEmitter
             // produced the buffer via EncodeToJson() so a decode failure is a programmer error.
             sb.AppendLine($"        guard let newValuePtr = newValuePtr, newValueLen > 0 else {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: nil/empty JSON buffer in Update\") }}");
             sb.AppendLine($"        let newValueData = Data(buffer: UnsafeBufferPointer(start: newValuePtr, count: newValueLen))");
-            sb.AppendLine($"        do {{ session.state.{param.Name} = try JSONDecoder().decode({param.BridgeTypeName}.self, from: newValueData) }}");
+            sb.AppendLine($"        do {{ session.state.{param.SwiftName} = try JSONDecoder().decode({param.BridgeTypeName}.self, from: newValueData) }}");
             sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONDecoder failed in Update: \\(error)\") }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
             if (param.IsObjCBridgeable)
                 // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
-                sb.AppendLine($"        session.state.{param.Name} = Unmanaged<AnyObject>.fromOpaque(newValuePtr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                sb.AppendLine($"        session.state.{param.SwiftName} = Unmanaged<AnyObject>.fromOpaque(newValuePtr).takeUnretainedValue() as! {param.BridgeTypeName}");
             else
-                sb.AppendLine($"        session.state.{param.Name} = newValuePtr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+                sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
         {
-            sb.AppendLine($"        if newValuePtr == nil {{ session.state.{param.Name} = nil }}");
-            sb.AppendLine($"        else if newValueLen > 0 {{ session.state.{param.Name} = String(bytes: UnsafeBufferPointer(start: newValuePtr!, count: newValueLen), encoding: .utf8) ?? \"\" }}");
-            sb.AppendLine($"        else {{ session.state.{param.Name} = \"\" }}");
+            sb.AppendLine($"        if newValuePtr == nil {{ session.state.{param.SwiftName} = nil }}");
+            sb.AppendLine($"        else if newValueLen > 0 {{ session.state.{param.SwiftName} = String(bytes: UnsafeBufferPointer(start: newValuePtr!, count: newValueLen), encoding: .utf8) ?? \"\" }}");
+            sb.AppendLine($"        else {{ session.state.{param.SwiftName} = \"\" }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
         {
             var inner = param.InnerParameter!;
-            sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
+            sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
         {
             var inner = param.InnerParameter!;
             if (inner.IsObjCBridgeable)
                 // ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
-                sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
+                sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
             else
-                sb.AppendLine($"        session.state.{param.Name} = newValuePtr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
+                sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped)
         {
@@ -1628,9 +1654,9 @@ public static partial class SwiftUIBridgeEmitter
                 // than trapping; a nil Optional (HasValue == 0) clears the state to nil.
                 sb.AppendLine($"        if newValueHasValue != 0 {{");
                 sb.AppendLine($"            guard let newValueCase = {inner.BridgeTypeName}(rawValue: newValueValue) else {{ return }}");
-                sb.AppendLine($"            session.state.{param.Name} = newValueCase");
+                sb.AppendLine($"            session.state.{param.SwiftName} = newValueCase");
                 sb.AppendLine($"        }} else {{");
-                sb.AppendLine($"            session.state.{param.Name} = nil");
+                sb.AppendLine($"            session.state.{param.SwiftName} = nil");
                 sb.AppendLine($"        }}");
             }
             else
@@ -1638,16 +1664,16 @@ public static partial class SwiftUIBridgeEmitter
                 string valueExpr = inner.SwiftConversion != null
                     ? $"newValueValue {inner.SwiftConversion}"
                     : "newValueValue";
-                sb.AppendLine($"        session.state.{param.Name} = newValueHasValue != 0 ? {valueExpr} : nil");
+                sb.AppendLine($"        session.state.{param.SwiftName} = newValueHasValue != 0 ? {valueExpr} : nil");
             }
         }
         else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
         {
-            sb.AppendLine($"        session.state.{param.Name} = newValue {param.SwiftConversion}");
+            sb.AppendLine($"        session.state.{param.SwiftName} = newValue {param.SwiftConversion}");
         }
         else
         {
-            sb.AppendLine($"        session.state.{param.Name} = newValue");
+            sb.AppendLine($"        session.state.{param.SwiftName} = newValue");
         }
     }
 
@@ -2409,7 +2435,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
-                createPInvokeParams.Add($"IntPtr {param.Name}");
+                createPInvokeParams.Add($"IntPtr {param.CSharpName}");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {
@@ -2423,7 +2449,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
-                createPInvokeParams.Add($"IntPtr {param.Name}");
+                createPInvokeParams.Add($"IntPtr {param.CSharpName}");
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
@@ -2432,7 +2458,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else
             {
-                createPInvokeParams.Add($"{param.CSharpPInvokeType} {param.Name}");
+                createPInvokeParams.Add($"{param.CSharpPInvokeType} {param.CSharpName}");
             }
         }
         foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
@@ -2717,9 +2743,9 @@ public static partial class SwiftUIBridgeEmitter
                 : param.Kind == BridgeParameterKind.String ? " = null"
                 : isOptionalString ? " = null" : "";
             if (defaultVal.Length > 0)
-                optionalParams.Add($"{type} {param.Name}{defaultVal}");
+                optionalParams.Add($"{type} {param.CSharpName}{defaultVal}");
             else
-                requiredParams.Add($"{type} {param.Name}");
+                requiredParams.Add($"{type} {param.CSharpName}");
         }
         requiredParams.AddRange(optionalParams);
         // Lifecycle callback params (always present, always optional).
@@ -2781,9 +2807,9 @@ public static partial class SwiftUIBridgeEmitter
                 var trampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + "Trampoline";
                 sb.AppendLine($"{indent}IntPtr {param.Name}Callback = IntPtr.Zero;");
                 sb.AppendLine($"{indent}IntPtr {param.Name}UserData = IntPtr.Zero;");
-                sb.AppendLine($"{indent}if ({param.Name} != null)");
+                sb.AppendLine($"{indent}if ({param.CSharpName} != null)");
                 sb.AppendLine($"{indent}{{");
-                sb.AppendLine($"{indent}    var {hLocal} = GCHandle.Alloc({param.Name});");
+                sb.AppendLine($"{indent}    var {hLocal} = GCHandle.Alloc({param.CSharpName});");
                 sb.AppendLine($"{indent}    {closureHandlesLocal}.Add({hLocal});");
                 sb.AppendLine($"{indent}    {param.Name}UserData = GCHandle.ToIntPtr({hLocal});");
 
@@ -2801,7 +2827,7 @@ public static partial class SwiftUIBridgeEmitter
                 foreach (var branch in new[] { "Success", "Error" })
                 {
                     var branchParam = branch == "Success" ? param.ResultSuccessParam! : param.ResultErrorParam!;
-                    var factoryName = $"{param.Name}{branch}";
+                    var factoryName = $"{param.CSharpName}{branch}";
                     var trampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + $"{branch}Trampoline";
                     sb.AppendLine($"{indent}IntPtr {factoryName}Callback = IntPtr.Zero;");
                     sb.AppendLine($"{indent}IntPtr {factoryName}UserData = IntPtr.Zero;");
@@ -2821,17 +2847,17 @@ public static partial class SwiftUIBridgeEmitter
             // String encoding (includes Optional<String> params)
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.Name} ?? \"\");");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
             }
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.Name} != null ? Encoding.UTF8.GetBytes({param.Name}) : null;");
+                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.CSharpName} != null ? Encoding.UTF8.GetBytes({param.CSharpName}) : null;");
             }
             // Binding<Codable> JSON encoding
             foreach (var param in bridgeParams.Where(p => p.IsBindingCodableStruct))
             {
-                sb.AppendLine($"{indent}ArgumentNullException.ThrowIfNull({param.Name});");
-                sb.AppendLine($"{indent}var {param.Name}Bytes = {param.Name}.EncodeToJson();");
+                sb.AppendLine($"{indent}ArgumentNullException.ThrowIfNull({param.CSharpName});");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = {param.CSharpName}.EncodeToJson();");
             }
 
             // Call with fixed block if strings or Codable bindings present
@@ -2855,17 +2881,17 @@ public static partial class SwiftUIBridgeEmitter
             // String encoding (includes Optional<String> params)
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.Name} ?? \"\");");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
             }
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.Name} != null ? Encoding.UTF8.GetBytes({param.Name}) : null;");
+                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.CSharpName} != null ? Encoding.UTF8.GetBytes({param.CSharpName}) : null;");
             }
             // Binding<Codable> JSON encoding
             foreach (var param in bridgeParams.Where(p => p.IsBindingCodableStruct))
             {
-                sb.AppendLine($"{indent}ArgumentNullException.ThrowIfNull({param.Name});");
-                sb.AppendLine($"{indent}var {param.Name}Bytes = {param.Name}.EncodeToJson();");
+                sb.AppendLine($"{indent}ArgumentNullException.ThrowIfNull({param.CSharpName});");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = {param.CSharpName}.EncodeToJson();");
             }
             EmitSimpleCreateCall(sb, info, bridgeParams, hasStrings, hasClosures, indent, handleLocal, sessionLocal, closureHandlesLocal);
         }
@@ -2912,14 +2938,14 @@ public static partial class SwiftUIBridgeEmitter
             if (inner.Kind == BridgeParameterKind.BoundEnum)
             {
                 // Extract raw values from enum array
-                sb.AppendLine($"{indent}if ({param.Name} != null && {param.Name}.Length > 0)");
+                sb.AppendLine($"{indent}if ({param.CSharpName} != null && {param.CSharpName}.Length > 0)");
                 sb.AppendLine($"{indent}{{");
-                sb.AppendLine($"{indent}    var {param.Name}Raw = new {rawArrayType}[{param.Name}.Length];");
-                sb.AppendLine($"{indent}    for (int {iLocal} = 0; {iLocal} < {param.Name}.Length; {iLocal}++)");
+                sb.AppendLine($"{indent}    var {param.Name}Raw = new {rawArrayType}[{param.CSharpName}.Length];");
+                sb.AppendLine($"{indent}    for (int {iLocal} = 0; {iLocal} < {param.CSharpName}.Length; {iLocal}++)");
                 if (inner.IsSimpleEnum)
-                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = ({rawArrayType}){param.Name}[{iLocal}];");
+                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = ({rawArrayType}){param.CSharpName}[{iLocal}];");
                 else
-                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {param.Name}[{iLocal}].RawValue;");
+                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {param.CSharpName}[{iLocal}].RawValue;");
                 sb.AppendLine($"{indent}    {param.Name}Handle = GCHandle.Alloc({param.Name}Raw, GCHandleType.Pinned);");
                 sb.AppendLine($"{indent}    {param.Name}PinnedPtr = {param.Name}Handle.AddrOfPinnedObject();");
                 sb.AppendLine($"{indent}}}");
@@ -2927,11 +2953,11 @@ public static partial class SwiftUIBridgeEmitter
             else if (inner.Kind == BridgeParameterKind.Primitive && inner.CSharpConversion != null)
             {
                 // Bool array: convert to int array
-                sb.AppendLine($"{indent}if ({param.Name} != null && {param.Name}.Length > 0)");
+                sb.AppendLine($"{indent}if ({param.CSharpName} != null && {param.CSharpName}.Length > 0)");
                 sb.AppendLine($"{indent}{{");
-                sb.AppendLine($"{indent}    var {param.Name}Raw = new int[{param.Name}.Length];");
-                sb.AppendLine($"{indent}    for (int {iLocal} = 0; {iLocal} < {param.Name}.Length; {iLocal}++)");
-                sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {param.Name}[{iLocal}] {inner.CSharpConversion};");
+                sb.AppendLine($"{indent}    var {param.Name}Raw = new int[{param.CSharpName}.Length];");
+                sb.AppendLine($"{indent}    for (int {iLocal} = 0; {iLocal} < {param.CSharpName}.Length; {iLocal}++)");
+                sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {param.CSharpName}[{iLocal}] {inner.CSharpConversion};");
                 sb.AppendLine($"{indent}    {param.Name}Handle = GCHandle.Alloc({param.Name}Raw, GCHandleType.Pinned);");
                 sb.AppendLine($"{indent}    {param.Name}PinnedPtr = {param.Name}Handle.AddrOfPinnedObject();");
                 sb.AppendLine($"{indent}}}");
@@ -2939,9 +2965,9 @@ public static partial class SwiftUIBridgeEmitter
             else
             {
                 // Primitive array: pin directly
-                sb.AppendLine($"{indent}if ({param.Name} != null && {param.Name}.Length > 0)");
+                sb.AppendLine($"{indent}if ({param.CSharpName} != null && {param.CSharpName}.Length > 0)");
                 sb.AppendLine($"{indent}{{");
-                sb.AppendLine($"{indent}    {param.Name}Handle = GCHandle.Alloc({param.Name}, GCHandleType.Pinned);");
+                sb.AppendLine($"{indent}    {param.Name}Handle = GCHandle.Alloc({param.CSharpName}, GCHandleType.Pinned);");
                 sb.AppendLine($"{indent}    {param.Name}PinnedPtr = {param.Name}Handle.AddrOfPinnedObject();");
                 sb.AppendLine($"{indent}}}");
             }
@@ -3029,7 +3055,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
             {
-                args.Add($"{param.Name} == null ? IntPtr.Zero : (IntPtr){param.Name}Ptr");
+                args.Add($"{param.CSharpName} == null ? IntPtr.Zero : (IntPtr){param.Name}Ptr");
                 args.Add($"{param.Name}Bytes?.Length ?? 0");
             }
             else if (param.IsBindingCodableStruct)
@@ -3042,22 +3068,22 @@ public static partial class SwiftUIBridgeEmitter
                 if (param.IsSimpleEnum)
                 {
                     // Simple enums are C# enum value types — cast to underlying int
-                    args.Add($"({param.CSharpPInvokeType}){param.Name}");
+                    args.Add($"({param.CSharpPInvokeType}){param.CSharpName}");
                 }
                 else
                 {
                     // Complex enums are C# classes with .RawValue property
-                    args.Add($"{param.Name}.RawValue");
+                    args.Add($"{param.CSharpName}.RawValue");
                 }
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
-                args.Add(param.IsObjCBridgeable ? $"{param.Name}.Handle" : $"{param.Name}.Payload.DangerousGetHandle()");
+                args.Add(param.IsObjCBridgeable ? $"{param.CSharpName}.Handle" : $"{param.CSharpName}.Payload.DangerousGetHandle()");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 var innerBridgeable = param.InnerParameter?.IsObjCBridgeable == true;
-                args.Add(innerBridgeable ? $"{param.Name}?.Handle ?? IntPtr.Zero" : $"{param.Name}?.Payload.DangerousGetHandle() ?? IntPtr.Zero");
+                args.Add(innerBridgeable ? $"{param.CSharpName}?.Handle ?? IntPtr.Zero" : $"{param.CSharpName}?.Payload.DangerousGetHandle() ?? IntPtr.Zero");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {
@@ -3067,40 +3093,43 @@ public static partial class SwiftUIBridgeEmitter
                     if (inner.IsSimpleEnum)
                     {
                         // Simple enum is a C# value type — use .HasValue, cast to int
-                        args.Add($"{param.Name}.HasValue ? 1 : 0");
-                        args.Add($"{param.Name}.HasValue ? ({inner.CSharpPInvokeType}){param.Name}.Value : 0");
+                        args.Add($"{param.CSharpName}.HasValue ? 1 : 0");
+                        args.Add($"{param.CSharpName}.HasValue ? ({inner.CSharpPInvokeType}){param.CSharpName}.Value : 0");
                     }
                     else
                     {
                         // Complex enum is a reference type (class) — use != null, .RawValue
-                        args.Add($"{param.Name} != null ? 1 : 0");
-                        args.Add($"{param.Name}?.RawValue ?? 0");
+                        args.Add($"{param.CSharpName} != null ? 1 : 0");
+                        args.Add($"{param.CSharpName}?.RawValue ?? 0");
                     }
                 }
                 else if (inner.CSharpConversion != null) // Bool
                 {
-                    args.Add($"{param.Name}.HasValue ? 1 : 0");
-                    args.Add($"{param.Name}.HasValue ? ({param.Name}.Value {inner.CSharpConversion}) : 0");
+                    args.Add($"{param.CSharpName}.HasValue ? 1 : 0");
+                    args.Add($"{param.CSharpName}.HasValue ? ({param.CSharpName}.Value {inner.CSharpConversion}) : 0");
                 }
                 else
                 {
-                    args.Add($"{param.Name}.HasValue ? 1 : 0");
-                    args.Add($"{param.Name} ?? 0");
+                    args.Add($"{param.CSharpName}.HasValue ? 1 : 0");
+                    args.Add($"{param.CSharpName} ?? 0");
                 }
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
                 args.Add($"{param.Name}PinnedPtr");
-                args.Add($"{param.Name}?.Length ?? 0");
+                args.Add($"{param.CSharpName}?.Length ?? 0");
             }
             else if (param.CSharpConversion != null)
             {
                 // Bool: value ? 1 : 0
-                args.Add($"{param.Name} {param.CSharpConversion}");
+                args.Add($"{param.CSharpName} {param.CSharpConversion}");
             }
             else
             {
-                args.Add(param.Name);
+                // Pass the C#-safe operand (CSharpName), consistent with every sibling branch.
+                // A C#-keyword param name must be `@`-escaped at the call site (`@event`), or the
+                // emitted native call `Create(event, …)` is invalid C#.
+                args.Add(param.CSharpName);
             }
         }
         return args;
@@ -3320,7 +3349,8 @@ public static partial class SwiftUIBridgeEmitter
 
         if (closureReturn == null)
         {
-            // (args...) -> Void
+            // (args...) -> Void. Wrapper-init call label is the bare param name (matches the
+            // Wrapper init's escaped external label warning-free for a keyword param).
             return $"{param.Name}: {{ ({argDeclStr}) in\n" +
                    $"            cb_{param.Name}?({callbackArgStr})\n" +
                    $"        }}";
@@ -3357,6 +3387,7 @@ public static partial class SwiftUIBridgeEmitter
         if (hasReturn)
         {
             var swiftReturnType = GetSwiftTypeFromAbi(closureReturn!);
+            // Wrapper-init call label is the bare param name (matches escaped decl label).
             sb.Append($"{param.Name}: {{ ({argDeclStr}) -> {swiftReturnType} in\n");
         }
         else
@@ -4006,6 +4037,7 @@ public static partial class SwiftUIBridgeEmitter
         var successParam = param.ResultSuccessParam!;
         var errorParam = param.ResultErrorParam!;
 
+        // Wrapper-init call label is the bare param name (matches escaped decl label).
         sb.Append($"{param.Name}: {{ (result: {resultType}) in\n");
 
         // Guard against nil callbacks — if C# didn't provide either callback, skip

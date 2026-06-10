@@ -320,13 +320,17 @@ public static partial class SwiftUIBridgeEmitter
                         // Check if innerParam is itself a module type (chain ref) or a leaf
                         bool isModuleType = innerParam.SwiftTypeSpec is NamedTypeSpec innerNamed
                             && ResolveModuleType(innerNamed, context.ModuleDecl) != null;
+                        // ParamLabel is the View's real Swift argument label — recover the original
+                        // name the parser may have rewritten for C# keyword safety (event → _event),
+                        // mirroring the leaf-arg path at GetViewInitOverrideArgs. It is emitted bare
+                        // at the call site (Swift accepts a keyword argument label without backticks).
                         if (isModuleType)
                         {
-                            args.Add(new ConstructionArg(innerParam.Name, ConstructionArgKind.ChainReference, ToVariableName(innerParam)));
+                            args.Add(new ConstructionArg(innerParam.GetSwiftName(), ConstructionArgKind.ChainReference, ToVariableName(innerParam)));
                         }
                         else
                         {
-                            args.Add(new ConstructionArg(innerParam.Name, ConstructionArgKind.FlattenedParam, innerParam.Name));
+                            args.Add(new ConstructionArg(innerParam.GetSwiftName(), ConstructionArgKind.FlattenedParam, innerParam.Name));
                         }
                     }
 
@@ -528,7 +532,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"final class {sessionClass} {{");
         foreach (var field in pattern.SessionFields)
         {
-            sb.AppendLine($"    let {field.Name}: {field.SwiftType}");
+            sb.AppendLine($"    let {field.SwiftName}: {field.SwiftType}");
         }
         sb.AppendLine($"    let hostingController: UIHostingController<{info.ViewName}>");
         if (pattern.ResultCallback != null)
@@ -540,14 +544,14 @@ public static partial class SwiftUIBridgeEmitter
         // Session init takes session field values + pre-built hosting controller.
         sb.AppendLine($"    @MainActor");
         sb.Append($"    init(");
-        var initParams = pattern.SessionFields.Select(f => $"{f.Name}: {f.SwiftType}").ToList();
+        var initParams = pattern.SessionFields.Select(f => $"{f.SwiftName}: {f.SwiftType}").ToList();
         initParams.Add($"hostingController: UIHostingController<{info.ViewName}>");
         sb.Append(string.Join(",\n         ", initParams));
         sb.AppendLine(") {");
 
         foreach (var field in pattern.SessionFields)
         {
-            sb.AppendLine($"        self.{field.Name} = {field.Name}");
+            sb.AppendLine($"        self.{field.SwiftName} = {field.SwiftName}");
         }
         sb.AppendLine($"        self.hostingController = hostingController");
         sb.AppendLine("    }");
@@ -580,7 +584,7 @@ public static partial class SwiftUIBridgeEmitter
             {
                 var value = arg.Kind switch
                 {
-                    ConstructionArgKind.ChainReference => arg.Value,
+                    ConstructionArgKind.ChainReference => NameProvider.EscapeSwiftKeyword(arg.Value),
                     ConstructionArgKind.FlattenedParam => FormatFlatParamSwiftValue(arg.Value, pattern.FlattenedParams),
                     ConstructionArgKind.FieldAccess => arg.Value,
                     ConstructionArgKind.Literal => arg.Value,
@@ -603,16 +607,19 @@ public static partial class SwiftUIBridgeEmitter
             var param = ctor.CSSignature[i];
             // Find matching chain step by variable name
             var step = chain.FirstOrDefault(s => s.VariableName == ToVariableName(param));
+            // Label = the View's real Swift argument label: recover the original name the parser
+            // may have rewritten for C# keyword safety (event → _event). NOT backtick-escaped —
+            // Swift accepts keyword argument labels bare at a call site (escaping would only warn).
             if (step != null)
             {
-                args.Add($"{param.Name}: {step.VariableName}");
+                args.Add($"{param.GetSwiftName()}: {step.SwiftName}");
             }
             else
             {
                 // Leaf param — apply Bool/String conversion via flattened params.
                 var varName = ToVariableName(param);
                 varName = FormatFlatParamSwiftValue(varName, pattern.FlattenedParams);
-                args.Add($"{param.Name}: {varName}");
+                args.Add($"{param.GetSwiftName()}: {varName}");
             }
         }
         return args;
@@ -695,7 +702,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else
             {
-                createParams.Add($"_ {param.Name}: {param.SwiftAbiType}");
+                createParams.Add($"_ {param.SwiftName}: {param.SwiftAbiType}");
             }
         }
         createParams.Add($"_ {readyName}: {prefix}_ReadyFn?");
@@ -718,14 +725,14 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.Kind == AsyncFlatParamKind.String)
             {
-                sb.AppendLine($"    let {param.Name}: String");
+                sb.AppendLine($"    let {param.SwiftName}: String");
                 sb.AppendLine($"    if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
-                sb.AppendLine($"        {param.Name} = String(");
+                sb.AppendLine($"        {param.SwiftName} = String(");
                 sb.AppendLine($"            bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len),");
                 sb.AppendLine($"            encoding: .utf8");
                 sb.AppendLine($"        ) ?? \"\"");
                 sb.AppendLine($"    }} else {{");
-                sb.AppendLine($"        {param.Name} = \"\"");
+                sb.AppendLine($"        {param.SwiftName} = \"\"");
                 sb.AppendLine($"    }}");
                 sb.AppendLine();
             }
@@ -751,12 +758,12 @@ public static partial class SwiftUIBridgeEmitter
             foreach (var param in boundTypeParams)
             {
                 if (param.Kind == AsyncFlatParamKind.BoundType)
-                    sb.AppendLine($"    let {param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+                    sb.AppendLine($"    let {param.SwiftName} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
                 else if (param.IsObjCBridgeable) // BoundStruct, ObjC-bridgeable
                     // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
-                    sb.AppendLine($"    let {param.Name} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                    sb.AppendLine($"    let {param.SwiftName} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
                 else // BoundStruct
-                    sb.AppendLine($"    let {param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
+                    sb.AppendLine($"    let {param.SwiftName} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
             sb.AppendLine();
         }
@@ -767,7 +774,7 @@ public static partial class SwiftUIBridgeEmitter
             if (param.Kind == AsyncFlatParamKind.BoundEnum)
             {
                 // Out-of-range raw value reports via onError and returns instead of trapping.
-                sb.AppendLine($"    guard let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.Name}) else {{");
+                sb.AppendLine($"    guard let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.SwiftName}) else {{");
                 sb.AppendLine($"        if let {errorName} = {errorName} {{");
                 sb.AppendLine($"            let msg = \"Invalid raw value for {param.BridgeTypeName}\"");
                 sb.AppendLine($"            let utf8 = Array(msg.utf8)");
@@ -788,7 +795,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.Kind == AsyncFlatParamKind.Bool)
             {
-                sb.AppendLine($"    let {param.Name}Val: Bool = {param.Name} != 0");
+                sb.AppendLine($"    let {param.Name}Val: Bool = {param.SwiftName} != 0");
             }
         }
         if (pattern.FlattenedParams.Any(p => p.Kind == AsyncFlatParamKind.Bool))
@@ -813,7 +820,7 @@ public static partial class SwiftUIBridgeEmitter
             {
                 var value = arg.Kind switch
                 {
-                    ConstructionArgKind.ChainReference => arg.Value,
+                    ConstructionArgKind.ChainReference => NameProvider.EscapeSwiftKeyword(arg.Value),
                     ConstructionArgKind.FlattenedParam => FormatFlatParamSwiftValue(arg.Value, pattern.FlattenedParams),
                     ConstructionArgKind.FieldAccess => arg.Value,
                     ConstructionArgKind.Literal => arg.Value,
@@ -827,7 +834,7 @@ public static partial class SwiftUIBridgeEmitter
             var constructorOrFactory = step.FactoryMethod != null
                 ? $"{step.SwiftTypeName}.{step.FactoryMethod}"
                 : step.SwiftTypeName;
-            sb.AppendLine($"{indent}let {step.VariableName} = {tryAwait}{constructorOrFactory}({argStr})");
+            sb.AppendLine($"{indent}let {step.SwiftName} = {tryAwait}{constructorOrFactory}({argStr})");
         }
 
         sb.AppendLine();
@@ -845,7 +852,10 @@ public static partial class SwiftUIBridgeEmitter
         // Build session — pass session field values (for retention) + pre-built hosting controller.
         // Non-retained intermediate chain steps (e.g. sdkSettings, uxSettings) are dropped here.
         sb.AppendLine($"{indent}let session = {sessionClass}(");
-        var sessionArgs = pattern.SessionFields.Select(f => $"{indent}    {f.Name}: {f.Name}").ToList();
+        // Argument LABEL is the bare field name; the VALUE stays backtick-escaped. A keyword
+        // escaped as a call-site label warns ("does not need to be escaped in argument list");
+        // a bare label still matches the session init's escaped declared label.
+        var sessionArgs = pattern.SessionFields.Select(f => $"{indent}    {f.Name}: {f.SwiftName}").ToList();
         sessionArgs.Add($"{indent}    hostingController: hc");
         sb.AppendLine(string.Join(",\n", sessionArgs));
         sb.AppendLine($"{indent})");
@@ -895,8 +905,9 @@ public static partial class SwiftUIBridgeEmitter
             return $"{paramName}Val";
         if (param != null && param.Kind == AsyncFlatParamKind.BoundEnum)
             return $"{paramName}Enum";
-        // BoundType uses original name (conversion creates local with same name)
-        return paramName;
+        // BoundType uses original name (conversion creates local with the same name).
+        // The bare reference targets the SwiftName-declared local, so escape Swift keywords.
+        return NameProvider.EscapeSwiftKeyword(paramName);
     }
 
     #endregion
@@ -930,7 +941,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else
             {
-                createPInvokeParams.Add($"{param.CSharpPInvokeType} {param.Name}");
+                createPInvokeParams.Add($"{param.CSharpPInvokeType} {param.CSharpName}");
                 csParamNames.Add(param.Name);
             }
         }
@@ -1156,9 +1167,9 @@ public static partial class SwiftUIBridgeEmitter
                 _ => "",
             };
             if (defaultVal.Length > 0)
-                optionalParams.Add($"{type} {param.Name}{defaultVal}");
+                optionalParams.Add($"{type} {param.CSharpName}{defaultVal}");
             else
-                requiredParams.Add($"{type} {param.Name}");
+                requiredParams.Add($"{type} {param.CSharpName}");
         }
         if (pattern.ResultCallback != null)
         {
@@ -1188,8 +1199,8 @@ public static partial class SwiftUIBridgeEmitter
         var boundTypeFactoryParams = pattern.FlattenedParams.Where(p => p.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundStruct).ToList();
         foreach (var param in boundTypeFactoryParams)
         {
-            sb.AppendLine($"            if ({param.Name} == IntPtr.Zero)");
-            sb.AppendLine($"                throw new ArgumentNullException(nameof({param.Name}));");
+            sb.AppendLine($"            if ({param.CSharpName} == IntPtr.Zero)");
+            sb.AppendLine($"                throw new ArgumentNullException(nameof({param.CSharpName}));");
         }
         if (boundTypeFactoryParams.Count > 0)
             sb.AppendLine();
@@ -1222,7 +1233,7 @@ public static partial class SwiftUIBridgeEmitter
         var stringParams = pattern.FlattenedParams.Where(p => p.Kind == AsyncFlatParamKind.String).ToList();
         foreach (var param in stringParams)
         {
-            sb.AppendLine($"                    var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.Name} ?? \"\");");
+            sb.AppendLine($"                    var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
         }
 
         // Fixed block for strings (if any)
@@ -1266,15 +1277,15 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == AsyncFlatParamKind.Bool)
             {
-                nativeArgs.Add($"{param.Name} ? 1 : 0");
+                nativeArgs.Add($"{param.CSharpName} ? 1 : 0");
             }
             else if (param.Kind == AsyncFlatParamKind.BoundEnum)
             {
-                nativeArgs.Add($"({param.CSharpPInvokeType}){param.Name}");
+                nativeArgs.Add($"({param.CSharpPInvokeType}){param.CSharpName}");
             }
             else
             {
-                nativeArgs.Add(param.Name);
+                nativeArgs.Add(param.CSharpName);
             }
         }
         nativeArgs.Add($"(IntPtr){readyPtrLocal}");
@@ -1334,10 +1345,16 @@ public record AsyncConstructionStep(
     bool IsAsync,
     bool Throws,
     List<ConstructionArg> Args,
-    string? FactoryMethod = null);
+    string? FactoryMethod = null)
+{
+    /// <summary><see cref="VariableName"/> escaped as a BARE Swift identifier (backtick-wrapped for a
+    /// Swift keyword). Use at the chain-step local declaration and any reference to it.</summary>
+    public string SwiftName => NameProvider.EscapeSwiftKeyword(VariableName);
+}
 
 /// <summary>
-/// An argument to a construction step.
+/// An argument to a construction step. <c>ParamLabel</c> is the original Swift argument
+/// label, emitted bare at the call site (a Swift keyword label needs no backticks there).
 /// </summary>
 public record ConstructionArg(
     string ParamLabel,
@@ -1362,7 +1379,12 @@ public enum ConstructionArgKind
 /// <summary>
 /// A field in the async session class.
 /// </summary>
-public record AsyncSessionField(string Name, string SwiftType);
+public record AsyncSessionField(string Name, string SwiftType)
+{
+    /// <summary><see cref="Name"/> escaped as a BARE Swift identifier (backtick-wrapped for a Swift
+    /// keyword). Use at the stored-property declaration, init label/param, and ctor-call sites.</summary>
+    public string SwiftName => NameProvider.EscapeSwiftKeyword(Name);
+}
 
 /// <summary>
 /// A flattened parameter for the async Create function.
@@ -1377,7 +1399,17 @@ public record AsyncFlatParam(
     string? BridgeTypeName = null,
     string? CSharpTypeName = null,
     string? SourceModule = null,
-    bool IsObjCBridgeable = false);
+    bool IsObjCBridgeable = false)
+{
+    /// <summary><see cref="Name"/> escaped as a BARE C# identifier (`@`-prefixed for a C# keyword).
+    /// Use at bare C# identifier sites; compound names like {Name}Ptr stay raw.</summary>
+    public string CSharpName => NameProvider.EscapeForCSharpSignature(Name);
+
+    /// <summary><see cref="Name"/> escaped as a BARE Swift identifier (backtick-wrapped for a Swift
+    /// keyword). Use at bare Swift identifier sites incl. argument labels; compounds stay raw, and
+    /// never inside @_cdecl symbol-name string literals.</summary>
+    public string SwiftName => NameProvider.EscapeSwiftKeyword(Name);
+}
 
 /// <summary>
 /// Kind of flattened async parameter.

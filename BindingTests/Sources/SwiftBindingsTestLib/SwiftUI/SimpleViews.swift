@@ -190,6 +190,12 @@ public struct ModifiableView: View {
     /// Single-param Bool modifier.
     public func enabled(_ flag: Bool) -> Self { return self }
 
+    /// Single-param modifier whose EXTERNAL argument label is a Swift keyword
+    /// (`repeat`). The bridge must emit the modifier call label bare (`badge(repeat: …)`)
+    /// — escaping a keyword argument label warns, and the C#-safe internal name (`count`)
+    /// must not leak as the label. Gates the keyword-label modifier call path.
+    public func badge(repeat count: Int32) -> Self { return self }
+
     public var body: some View {
         Text(title)
     }

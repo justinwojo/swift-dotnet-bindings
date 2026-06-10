@@ -157,6 +157,31 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitProtocolExtension_EscapesSwiftKeywordPropertyName()
+    {
+        // A protocol requirement whose member NAME is a Swift keyword (e.g. `repeat`)
+        // must be emitted as a backtick-escaped identifier in the conformance, or the
+        // generated Swift fails to compile (`public var repeat:` is a parse error).
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "repeat", hasGetter: true, hasSetter: false);
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public var `repeat`:", output);
+        Assert.DoesNotContain("public var repeat:", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_EscapesSwiftKeywordMethodName()
+    {
+        // A method requirement whose NAME is a Swift keyword (e.g. `class`) must be
+        // backtick-escaped in the conformance declaration.
+        var protocolDecl = CreateProtocolWithMethod("TestProtocol", "class");
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public func `class`(", output);
+        Assert.DoesNotContain("public func class(", output);
+    }
+
+    [Fact]
     public void EmitProtocolExtension_AsyncMethod_PureSwiftBase_OmitsAsyncModifier()
     {
         // Pure-Swift protocol conformances (EveryProtocol base, not EveryObjCProtocol)

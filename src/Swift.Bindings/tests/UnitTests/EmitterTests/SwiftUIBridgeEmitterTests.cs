@@ -568,6 +568,66 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("SBW_TestModule_MyView_liveHandles", swiftContent);
     }
 
+    // F3: a third-party View whose init param is spelled as a C# or Swift keyword must
+    // still produce compilable output. `event` is a C# keyword (not a Swift keyword) → the
+    // emitted C# factory param + every C# reference to it must be `@`-escaped. `repeat` is a
+    // Swift keyword (not a C# keyword) → the emitted Swift identifiers must be backtick-escaped.
+    // Pre-fix: the bridge interpolated the raw name everywhere, emitting bare `event`/`repeat`.
+    [Fact]
+    public void EmitSimpleViewBridge_EscapesCSharpKeywordParamName()
+    {
+        var views = new List<TypeDecl>
+        {
+            CreateViewWithPrimitiveAndStringInit("KeywordView", "event", "Swift.Int32", "repeat"),
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // The C# keyword param name is `@`-escaped in the factory signature and body refs.
+        Assert.Contains("@event", csContent);
+        // No bare `event` identifier survives as a parameter token (would be a compile error).
+        Assert.DoesNotContain("int event", csContent);
+        Assert.DoesNotContain("(int)event", csContent);
+        // The native-call OPERAND must also be `@`-escaped — a bare `event` argument operand
+        // is invalid C#. These delimiter-anchored shapes match only an unescaped operand; the
+        // correct `@event` form has `@` immediately before `event`, so none of them collide
+        // with it. (Pre-fix the else-branch appended raw `param.Name`, emitting `(event, …`.)
+        Assert.DoesNotContain("(event,", csContent);
+        Assert.DoesNotContain(", event,", csContent);
+        Assert.DoesNotContain("(event)", csContent);
+        Assert.DoesNotContain(", event)", csContent);
+    }
+
+    [Fact]
+    public void EmitSimpleViewBridge_EscapesSwiftKeywordParamName()
+    {
+        var views = new List<TypeDecl>
+        {
+            CreateViewWithPrimitiveAndStringInit("KeywordView", "event", "Swift.Int32", "repeat"),
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // The Swift keyword identifier is backtick-escaped wherever it appears as a Swift
+        // identifier token (struct field, init param, local, member access).
+        Assert.Contains("`repeat`", swiftContent);
+        // No bare `let repeat` / `self.repeat` survive (would be a Swift parse error).
+        Assert.DoesNotContain("let repeat:", swiftContent);
+        Assert.DoesNotContain("self.repeat ", swiftContent);
+        // The State/View/Wrapper init CALLS must use the keyword as a BARE argument label
+        // (`repeat:`), never a backtick-escaped one. Swift accepts keyword argument labels
+        // bare; escaping a valid-bare keyword label emits a "keyword 'repeat' does not need
+        // to be escaped in argument list" warning. The substring "repeat:" matches ONLY a
+        // bare label — the escaped form `` `repeat`: `` carries a backtick immediately before
+        // the colon, and DECLARATIONS (struct field / init param) all use that escaped form.
+        // So a bare "repeat:" present here proves a call label was emitted unescaped.
+        Assert.Contains("repeat:", swiftContent);
+    }
+
     [Fact]
     public void EmitSimpleViewBridge_ReportShowsGenerated()
     {
@@ -7451,6 +7511,55 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // "argument" is a legitimate label, NOT a parser-generated argN — must emit with label
         Assert.Contains("result.configure(argument: val)", swiftContent);
         Assert.DoesNotContain("result.configure(val)", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_KeywordMethodNameAndLabel_EmitEscapedNameAndBareLabel()
+    {
+        // A modifier whose Swift name is a keyword reserved in BOTH languages: the parser
+        // mangles the C#-safe Name to "_class" but records OriginalSwiftName = "class". Its
+        // single param's external argument label is the Swift keyword "repeat" (parser stores
+        // C#-safe Name = "count", OriginalSwiftName = "repeat"). The Swift modifier call must
+        // dispatch through the backtick-escaped ORIGINAL method name (`class`), never the
+        // mangled "_class", and the call label must be the BARE original keyword ("repeat:")
+        // — escaping a keyword argument LABEL warns, and the C#-safe internal name must not
+        // leak as the label. Gates the provenance-aware modifier call path (Fix B + label).
+        var view = CreateSimpleViewStruct("KeywordModView");
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "_class",
+            OriginalSwiftName = "class",
+            MangledName = "$s_class",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{view.Name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "count", PrivateName = "count", OriginalSwiftName = "repeat", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // Method dispatched through the backtick-escaped original name with the bare keyword label.
+        Assert.Contains("result.`class`(repeat: val)", swiftContent);
+        // The mangled C#-safe method name must not reach the Swift call site.
+        Assert.DoesNotContain("result._class(", swiftContent);
+        // The bare keyword method name (unescaped) would not compile in Swift.
+        Assert.DoesNotContain("result.class(", swiftContent);
+        // The C#-safe internal param name must not leak as the call label.
+        Assert.DoesNotContain("count: val", swiftContent);
+        // A backtick-escaped call LABEL would emit a Swift warning — must stay bare.
+        Assert.DoesNotContain("`repeat`: val", swiftContent);
     }
 
     // --- Test Helpers ---
