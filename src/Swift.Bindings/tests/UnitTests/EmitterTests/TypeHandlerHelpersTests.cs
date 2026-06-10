@@ -1331,16 +1331,16 @@ public class TypeHandlerHelpersTests
         var swiftWriter = new SwiftWriter(swiftOutput);
         var emissionContext = new ModuleEmissionContext();
 
-        var structDecl = CreateStructDeclWithConformances("Emphasis", CreateModuleDecl("BonMot"),
+        var structDecl = CreateStructDeclWithConformances("Emphasis", CreateModuleDecl("AttributedTextKit"),
             new TypeConformance(
-                SwiftTypeName.FromModuleQualifiedName("BonMot.Emphasis"),
+                SwiftTypeName.FromModuleQualifiedName("AttributedTextKit.Emphasis"),
                 SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
                 "$sMc"));
-        structDecl.MangledName = "$s6BonMot8EmphasisVN";
+        structDecl.MangledName = "$s15AttributedTextKit8EmphasisVN";
 
         var writer = new EqualityMethodsWriter(csWriter, structDecl, refType: true, "Emphasis",
             hasExplicitEqualityOperator: false, hasExplicitInequalityOperator: false,
-            swiftWriter: swiftWriter, emissionContext: emissionContext, wrapperLibraryName: "BonMotSwiftBindings");
+            swiftWriter: swiftWriter, emissionContext: emissionContext, wrapperLibraryName: "AttributedTextKitSwiftBindings");
         writer.WriteSwiftEquatableImplementation();
 
         var csResult = csOutput.ToString();
@@ -1350,11 +1350,11 @@ public class TypeHandlerHelpersTests
         Assert.Contains("PInvoke_eq(", csResult);
         Assert.DoesNotContain("SwiftEquatable.Equals", csResult);
         // C# should emit the P/Invoke declaration
-        Assert.Contains("LibraryImport(\"BonMotSwiftBindings\"", csResult);
+        Assert.Contains("LibraryImport(\"AttributedTextKitSwiftBindings\"", csResult);
         Assert.Contains("PInvoke_eq(IntPtr lhs, IntPtr rhs)", csResult);
         // Swift should emit the @_cdecl wrapper
         Assert.Contains("@_cdecl(", swiftResult);
-        Assert.Contains("BonMot.Emphasis.self", swiftResult);
+        Assert.Contains("AttributedTextKit.Emphasis.self", swiftResult);
         Assert.Contains("(l == r) ? 1 : 0", swiftResult);
     }
 
@@ -1520,15 +1520,15 @@ public class TypeHandlerHelpersTests
         var swiftWriter = new SwiftWriter(swiftOutput);
         var emissionContext = new ModuleEmissionContext();
 
-        var classDecl = CreateClassDeclWithConformances("ImageCache", CreateModuleDecl("Nuke"),
+        var classDecl = CreateClassDeclWithConformances("ImageCache", CreateModuleDecl("ImagePipeline"),
             new TypeConformance(
-                SwiftTypeName.FromModuleQualifiedName("Nuke.ImageCache"),
+                SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageCache"),
                 SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
                 "$sMc"));
-        classDecl.MangledName = "$s4Nuke10ImageCacheCN";
+        classDecl.MangledName = "$s13ImagePipeline10ImageCacheCN";
 
         var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "ImageCache",
-            false, false, swiftWriter, emissionContext, "NukeSwiftBindings");
+            false, false, swiftWriter, emissionContext, "ImagePipelineSwiftBindings");
         writer.WriteSwiftEquatableImplementation();
 
         var csResult = csOutput.ToString();
@@ -1539,12 +1539,12 @@ public class TypeHandlerHelpersTests
         Assert.Contains("GetSwiftHandle()", csResult);
         Assert.DoesNotContain("SwiftEquatable.Equals", csResult);
         // C# should emit the P/Invoke declaration
-        Assert.Contains("LibraryImport(\"NukeSwiftBindings\"", csResult);
+        Assert.Contains("LibraryImport(\"ImagePipelineSwiftBindings\"", csResult);
         Assert.Contains("PInvoke_eq(IntPtr lhs, IntPtr rhs)", csResult);
         // Swift should emit the @_cdecl wrapper with Unmanaged<AnyObject> (not assumingMemoryBound)
         Assert.Contains("@_cdecl(", swiftResult);
         Assert.Contains("Unmanaged<AnyObject>.fromOpaque(lhs).takeUnretainedValue()", swiftResult);
-        Assert.Contains("as! Nuke.ImageCache", swiftResult);
+        Assert.Contains("as! ImagePipeline.ImageCache", swiftResult);
         Assert.Contains("(l == r) ? 1 : 0", swiftResult);
         // Must NOT use assumingMemoryBound (that's for structs, not classes)
         Assert.DoesNotContain("assumingMemoryBound", swiftResult);
@@ -2243,11 +2243,11 @@ public class TypeHandlerHelpersTests
         var typeDatabase = new TypeDatabase();
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         testModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentApiClient"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "STPAPIClient"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PaymentApiClient"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentApiClient"),
                 MetadataAccessor = "testAccessor",
                 Kind = TypeRecordKind.Class,
                 Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement
@@ -2255,7 +2255,7 @@ public class TypeHandlerHelpersTests
         typeDatabase.AddModuleDatabase(testModule);
 
         var result = ExtensionMarshallingHelper.ClassifyParameterType(
-            new NamedTypeSpec("TestModule.STPAPIClient"), typeDatabase);
+            new NamedTypeSpec("TestModule.PaymentApiClient"), typeDatabase);
 
         Assert.Equal(ExtensionMarshallingHelper.ParamKind.ObjCClass, result);
     }
@@ -2266,11 +2266,11 @@ public class TypeHandlerHelpersTests
         var typeDatabase = new TypeDatabase();
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         testModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentApiClient"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "STPAPIClient"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PaymentApiClient"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentApiClient"),
                 MetadataAccessor = "testAccessor",
                 Kind = TypeRecordKind.Class,
                 Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement
@@ -2278,7 +2278,7 @@ public class TypeHandlerHelpersTests
         typeDatabase.AddModuleDatabase(testModule);
 
         var result = ExtensionMarshallingHelper.ClassifyReturnType(
-            new NamedTypeSpec("TestModule.STPAPIClient"), typeDatabase);
+            new NamedTypeSpec("TestModule.PaymentApiClient"), typeDatabase);
 
         Assert.Equal(ExtensionMarshallingHelper.ReturnKind.ObjCClass, result);
     }

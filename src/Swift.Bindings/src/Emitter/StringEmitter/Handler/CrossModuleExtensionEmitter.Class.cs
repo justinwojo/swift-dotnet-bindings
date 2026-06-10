@@ -371,7 +371,7 @@ public static partial class CrossModuleExtensionEmitter
     {
         // C# callback signature uses cdecl-level types (IntPtr for class refs).
         // The body bridges each arg back to the public delegate's signature
-        // (e.g. IntPtr -> STPToken? for Optional<ObjCClass>) and invokes the
+        // (e.g. IntPtr -> PaymentToken? for Optional<ObjCClass>) and invokes the
         // user-supplied Action<...>.
         var sigParts = new List<string>();
         for (int i = 0; i < closure.ClosureArgInfos.Count; i++)
@@ -623,7 +623,7 @@ public static partial class CrossModuleExtensionEmitter
         // Walk closure arguments. Each is classified individually; the supported
         // shapes are: primitive scalars, non-optional class references (ObjC or
         // pure Swift), Optional<class>, and Optional<any Error> (the standard
-        // Stripe completion-block shape). Anything else (frozen struct,
+        // async completion-block shape). Anything else (frozen struct,
         // existential container, generic, etc.) disqualifies the closure.
         var argSpecs = ExtractClosureArgSpecs(closure);
         var argInfos = new List<ClosureArgInfo>();
@@ -781,7 +781,7 @@ public static partial class CrossModuleExtensionEmitter
     {
         public required ClosureArgKind Kind { get; init; }
         // Type as it appears in the Swift native closure signature
-        // (e.g. "StripePayments.STPToken?", "(any Swift.Error)?").
+        // (e.g. "Module.ResultType?", "(any Swift.Error)?").
         public required string SwiftType { get; init; }
         // Type as it appears in the C# Action<...> public delegate signature.
         public required string CSharpType { get; init; }
@@ -796,7 +796,7 @@ public static partial class CrossModuleExtensionEmitter
 
     /// <summary>
     /// Builds the Swift expression that forwards a closure arg from its native
-    /// Swift type (e.g. <c>STPToken?</c>) to the cdecl signature (e.g.
+    /// Swift type (e.g. <c>PaymentToken?</c>) to the cdecl signature (e.g.
     /// <c>UnsafeMutableRawPointer?</c>) when invoking the C# callback.
     /// Class-typed args use <c>passRetained</c> so the C# wrapper owns +1 (its
     /// SafeHandle finalizer releases). <c>passUnretained</c> would let Swift
@@ -818,7 +818,7 @@ public static partial class CrossModuleExtensionEmitter
 
     /// <summary>
     /// Builds the C# expression that converts a cdecl callback arg back into the
-    /// public delegate's parameter type (e.g. <c>IntPtr</c> → <c>STPToken?</c>).
+    /// public delegate's parameter type (e.g. <c>IntPtr</c> → <c>PaymentToken?</c>).
     /// Class wrappers take ownership of the +1 the Swift adapter produced via
     /// <c>passRetained</c> — finalizer / Dispose drops it back to zero.
     /// </summary>
@@ -911,8 +911,8 @@ public static partial class CrossModuleExtensionEmitter
     //  Async / throws / async-throws trampoline
     // =================================================================
     //
-    // Stripe shape: `extension STPAPIClient { public func createToken(withCard:)
-    // async throws -> STPToken }`. The Swift side `async throws` collapses to
+    // `async throws` cross-module extension shape: `extension Module.ConcreteType { public func method(arg:)
+    // async throws -> ReturnType }`. The Swift side `async throws` collapses to
     // a synthetic completion-handler @_cdecl signature:
     //
     //     (Args..., completionFn, completionCtx, self_) -> Void
@@ -964,8 +964,7 @@ public static partial class CrossModuleExtensionEmitter
         // Parameter classification — closures, FrozenStruct, SimpleEnum, and
         // unsupported shapes bounce out. SimpleEnum is excluded from this drop
         // because the rawValue scalar isn't available on the bare NamedTypeSpec
-        // without re-querying the TypeRecord; the Stripe surface doesn't use
-        // SimpleEnum params on async-throws methods.
+        // without re-querying the TypeRecord.
         var parameters = new List<AsyncTrampolineParamInfo>();
         for (int i = 1; i < method.CSSignature.Count; i++)
         {

@@ -161,8 +161,8 @@ public class AsyncSwiftWrapperTests
     public void AsyncWrapper_NonFrozenStructReturnType_VwtCopiesIntoManagedBuffer()
     {
         // Non-frozen structs (RequiresMemoryManagement, not FrozenAsClass) are projected as
-        // C# classes with SwiftSafeHandle. Regression gate for the FirebaseAILogic-style crash:
-        // calling an async method that returns a non-frozen struct used to hand the raw
+        // C# classes with SwiftSafeHandle. Regression gate: calling an async method that returns
+        // a non-frozen struct used to hand the raw
         // Swift-allocated pointer to NewFromPayload, leaving the SafeHandle aliasing
         // Swift-owned memory. Subsequent property reads or Dispose() then hit freed memory,
         // and the final NativeMemory.Free on the Swift pointer mismatches allocators.
@@ -759,8 +759,8 @@ public class AsyncSwiftWrapperTests
     public void AsyncWrapper_DynamicSelfReturn_UsesParentClassName()
     {
         // DynamicSelf (Self return type) in async wrappers is emitted as a free function,
-        // where bare "Self" is invalid Swift. The wrapper must resolve Self to the parent
-        // class type name (e.g., "Alamofire.DataRequest") for MemoryLayout calculations.
+        // where bare "Self" is invalid Swift. The wrapper must resolve Self to the fully
+        // qualified parent class type name for MemoryLayout calculations.
         var (_, swiftOutput) = GenerateAsyncMethodWithDynamicSelfReturn();
 
         // Should NOT contain MemoryLayout<Self> (invalid in free functions)
@@ -792,9 +792,8 @@ public class AsyncSwiftWrapperTests
     [Fact]
     public void AsyncWrapper_TaskBaseParam_Uses_sbwTask_NotTask()
     {
-        // S11: Kingfisher's URLSession delegate methods have a parameter named "task",
-        // which collides with the async wrapper's base parameter also named "task".
-        // Fix: renamed base parameter to "_sbwTask".
+        // A method with a parameter named "task" collides with the async wrapper's base
+        // parameter also named "task". Fix: renamed base parameter to "_sbwTask".
         // Uses GenerateAsyncMethodWithComplexReturn (class return) which produces Swift output.
         var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
             returnTypeName: "TestModule.DataResult",

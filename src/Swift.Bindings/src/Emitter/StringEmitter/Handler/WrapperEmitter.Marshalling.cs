@@ -904,8 +904,7 @@ namespace BindingsGeneration
                     // fall through with no callback emitted —
                     // PInvokeEmitter projects them to AnyType so the outer method is skipped
                     // via the placeholder path instead of crashing here. Non-baseline async
-                    // non-throwing closures (e.g., Alamofire's NSHTTPURLResponse callback)
-                    // keep their legacy escaping-callback path below — the async bridge only
+                    // non-throwing closures keep their legacy escaping-callback path below — the async bridge only
                     // handles primitive-return baseline shapes.
                     if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec)
                         || _env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureTypeSpec))

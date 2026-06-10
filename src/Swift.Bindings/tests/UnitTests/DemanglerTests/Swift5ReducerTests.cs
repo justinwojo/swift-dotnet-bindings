@@ -160,12 +160,12 @@ public class Swift5ReducerTests
     public void ConvertProtocolList_SingleProtocol()
     {
         var node = MakeGlobal(MakeProtocolList(
-            MakeType(MakeNominal(NodeKind.Protocol, "RxSwift", "Disposable"))));
+            MakeType(MakeNominal(NodeKind.Protocol, "ReactiveStreams", "Disposable"))));
         var result = Swift5Reducer.Convert(node, kSymbol);
         var ts = Assert.IsType<TypeSpecReduction>(result);
         var protoList = Assert.IsType<ProtocolListTypeSpec>(ts.TypeSpec);
         Assert.Single(protoList.Protocols);
-        Assert.Equal("RxSwift.Disposable", protoList.Protocols.Keys[0].Name);
+        Assert.Equal("ReactiveStreams.Disposable", protoList.Protocols.Keys[0].Name);
     }
 
     [Fact]
@@ -229,16 +229,16 @@ public class Swift5ReducerTests
 
     /// <summary>
     /// End-to-end regression guard: a result-builder buildBlock whose variadic parameter is an
-    /// existential array (`(any Disposable)...` from RxSwift's DisposableBuilder). Before the
-    /// ProtocolList reducer rule existed, this mangled name failed reduction ("No rule for node
-    /// ProtocolList"), which silently disabled demangle-based variadic detection. swift-api-digester
-    /// renders the parameter as a plain "[any Disposable]" with no "...", so the mangled-name "d"
-    /// marker is the ONLY reliable per-overload variadic signal.
+    /// existential array (`(any Disposable)...`). Before the ProtocolList reducer rule existed,
+    /// this mangled name failed reduction ("No rule for node ProtocolList"), which silently
+    /// disabled demangle-based variadic detection. swift-api-digester renders the parameter as
+    /// a plain "[any Disposable]" with no "...", so the mangled-name "d" marker is the ONLY
+    /// reliable per-overload variadic signal.
     /// </summary>
     [Fact]
     public void Demangle_VariadicExistentialArray_DetectsVariadic()
     {
-        const string mangled = "$s7RxSwift10DisposeBagC17DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ";
+        const string mangled = "$s15ReactiveStreams10DisposeBagC17DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ";
         var result = new Swift5Demangler().Run(mangled);
         var fr = Assert.IsType<FunctionReduction>(result);
         var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
@@ -252,8 +252,8 @@ public class Swift5ReducerTests
     /// per-overload demangle signal distinguishes two overloads that share a printedName.
     /// </summary>
     [Theory]
-    [InlineData("$s9Parchment11PageBuilderV10buildBlockySayAA0B0VGAGFZ", false)]   // [Page]    — not variadic
-    [InlineData("$s9Parchment11PageBuilderV10buildBlockySayAA0B0VGAGd_tFZ", true)] // [Page]... — variadic
+    [InlineData("$s10PagingTabs11PageBuilderV10buildBlockySayAA0B0VGAGFZ", false)]   // [Page]    — not variadic
+    [InlineData("$s10PagingTabs11PageBuilderV10buildBlockySayAA0B0VGAGd_tFZ", true)] // [Page]... — variadic
     public void Demangle_ResultBuilderOverloads_VariadicDistinguishedByMarker(string mangled, bool expectedVariadic)
     {
         var result = new Swift5Demangler().Run(mangled);

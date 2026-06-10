@@ -212,7 +212,7 @@ public class ObjCBindingProjectEmitterTests
         // otherwise the ProjectReference resolution fails restore with NETSDK1005
         // ("Assets file ... doesn't have a target for 'net10.0-ios'"). Pin the
         // explicit form so a future revert is caught here, not by the validation
-        // gate's BlinkID/BRLMPrinterKit infra failures.
+        // gate's mixed-ObjC+Swift framework infra failures.
         var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
         {
@@ -346,7 +346,7 @@ public class ObjCBindingProjectEmitterTests
         }
     }
 
-    // Gap 2 (Kidoz #40 "Class X is implemented in both …"): when the source framework's native is
+    // Gap 2 (@objc:NSObject reverse-dispatch issue #40 "Class X is implemented in both …"): when the source framework's native is
     // a static archive AND a Swift wrapper carries the binding, the wrapper force-loads that archive
     // and is the sole native carrier. The companion must then DROP its own source NativeReference —
     // re-linking the same Mach-O would duplicate-register every ObjC class. Every other shape keeps

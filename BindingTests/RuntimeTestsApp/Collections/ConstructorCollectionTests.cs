@@ -132,11 +132,11 @@ public class ConstructorCollectionTests : TestBase
 
     #endregion
 
-    #region Existential Array Constructor (Swinject NativeAOT regression)
+    #region Existential Array Constructor (dependency-injection-SDK NativeAOT regression)
     // Regression test: SwiftArray<ExistentialContainer1> type init must not throw
     // TypeInitializationException when NativeAotInitialize() fails for existential types.
     // ProcessingPipeline.init(modes: [any ProcessingMode]) uses SwiftArray<ExistentialContainer1>
-    // internally — this is the same pattern as Swinject Container.init(behaviors: [any Behavior]).
+    // internally — this is the same pattern as a DI container's init(behaviors: [any Behavior]).
 
     public void TestProcessingPipelineWithExistentialArray()
     {
@@ -156,14 +156,12 @@ public class ConstructorCollectionTests : TestBase
 
     #endregion
 
-    #region Existential Array Property Getter (Nuke ImageRequest.Processors regression)
+    #region Existential Array Property Getter (existential array projection regression)
     // The `modes` property getter projects Swift's [any ProcessingMode] back to
-    // C# via SwiftArray<ExistentialContainer1>.AsProjected(e => new ProcessingModeProxy(e)) —
-    // the identical shape to Nuke's ImageRequest.Processors (IReadOnlyList<IImageProcessing>).
+    // C# via SwiftArray<ExistentialContainer1>.AsProjected(e => new ProcessingModeProxy(e)).
     // The constructor tests above only exercise the write side + modeCount(); these pin the
     // read side: the getter must project usable proxies in order, and an empty backing array
-    // must round-trip as an empty list rather than null or a throw (the exact path a default
-    // Nuke ImageRequest exercises).
+    // must round-trip as an empty list rather than null or a throw.
 
     public void TestProcessingPipelineModesGetterProjection()
     {

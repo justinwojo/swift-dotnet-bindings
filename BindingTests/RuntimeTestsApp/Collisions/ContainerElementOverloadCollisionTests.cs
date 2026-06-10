@@ -59,7 +59,7 @@ public class ContainerElementOverloadCollisionTests : TestBase
 
     #endregion
 
-    #region UrlPrefetcher (ObjC-bridge container vs custom Swift class — Nuke shape)
+    #region UrlPrefetcher (ObjC-bridge container vs custom Swift class — mixed-element overload pair)
 
     public void TestUrlPrefetcherUrlOverload()
     {
@@ -85,8 +85,7 @@ public class ContainerElementOverloadCollisionTests : TestBase
         typeof(UrlPrefetcher))]
     public void TestUrlPrefetcherBothOverloadsExist()
     {
-        // The Nuke `startPrefetching([URL]) / startPrefetching([ImageRequest])`
-        // shape: one overload bridges through NSArray of NSUrl (ObjC bridge),
+        // One overload bridges through NSArray of NSUrl (ObjC bridge),
         // the other through a typed Swift array. Both must reach C# consumers.
         var urlOverload = typeof(UrlPrefetcher).GetMethod(
             "Prefetch", new[] { typeof(IEnumerable<NSUrl>) });

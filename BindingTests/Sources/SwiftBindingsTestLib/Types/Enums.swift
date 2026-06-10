@@ -186,7 +186,7 @@ public func colorForIndex(_ index: Int32) -> Color {
     return Color(rawValue: index) ?? .red
 }
 
-// MARK: - L1: Enum with Collection Payload (Lottie MediaSource pattern)
+// MARK: - L1: Enum with Collection Payload
 
 /// Enum case carrying an array — exercises SwiftArray<SwiftString> inside DestructiveProjectEnumData.
 public enum MediaSource {
@@ -218,7 +218,7 @@ public func describeAnimationSource(_ source: AnimationSource) -> String {
     }
 }
 
-// MARK: - L4: Mixed Payload Enum with Heterogeneous Types (GRDB DatabaseValue.Storage pattern)
+// MARK: - L4: Mixed Payload Enum with Heterogeneous Types
 
 /// Enum with heterogeneous payload types (Int64, Double, String, Bool, none).
 public enum DataValue {
@@ -239,7 +239,7 @@ public func describeDataValue(_ value: DataValue) -> String {
     }
 }
 
-// MARK: - L5: Caseless Enum as Namespace (GRDB ValueReducers pattern)
+// MARK: - L5: Caseless Enum as Namespace
 
 /// Caseless enum used purely as a namespace for nested types.
 /// Generator should emit as `static partial class`.
@@ -257,7 +257,7 @@ public enum MathUtils {
     }
 }
 
-// MARK: - Enum Extension Methods (KeychainAccess/DeviceKit pattern)
+// MARK: - Enum Extension Methods
 
 /// Extension-defined methods on Color enum.
 /// Tests extension method emission (different path from inline methods like Direction.opposite()).

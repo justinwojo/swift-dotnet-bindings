@@ -9,7 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Tests the Lottie-style ValueProvider pattern:
+/// Tests the ValueProvider pattern:
 /// - Protocol with required members + extension defaults
 /// - Concrete types implementing the protocol interface at compile time
 /// - SetValueProvider pattern: passing concrete types through protocol-typed parameters

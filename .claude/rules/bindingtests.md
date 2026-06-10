@@ -87,7 +87,7 @@ When a runtime test crashes (SIGSEGV, SIGKILL, Mono JIT assertion):
 6. **Don't iterate more than 3 times on the same approach** — if 3 attempts at the same strategy don't work, step back and question the hypothesis. The root cause is probably elsewhere.
 
 ## Emission Pipeline Dual-Path Hazard
-`EmitBoundGenericArguments()` and `EmitTypeConversions()` (which calls `TryEmitParameterConversionViaProjection()`) BOTH run for the same parameters. They create variables with the `{name}Buffer` naming convention. If a new fast path in one creates `{name}Buffer`, verify the other path doesn't ALSO create it. Run `nuke validate --filter AMPopTip` as a canary — it has Optional<CGFloat> params that exercise both paths.
+`EmitBoundGenericArguments()` and `EmitTypeConversions()` (which calls `TryEmitParameterConversionViaProjection()`) BOTH run for the same parameters. They create variables with the `{name}Buffer` naming convention. If a new fast path in one creates `{name}Buffer`, verify the other path doesn't ALSO create it. Run `nuke validate` with a library that has Optional<CGFloat> params as a canary — it exercises both paths.
 
 ## Runtime Test Pre-Flight (saves 20+ min)
 Before writing runtime tests for a new batch:

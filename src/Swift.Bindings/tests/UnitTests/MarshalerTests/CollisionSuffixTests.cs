@@ -21,7 +21,7 @@ public class CollisionSuffixTests
     [Fact]
     public void ApplyCollisionSuffixToKey_ZeroIndex_ReturnsOriginal()
     {
-        var key = "HandleNextAction(string,ISTPAuthenticationContext)";
+        var key = "HandleNextAction(string,IPaymentSdkAuthenticationContext)";
         var result = InvokeApplyCollisionSuffixToKey(key, 0);
         Assert.Equal(key, result);
     }
@@ -29,17 +29,17 @@ public class CollisionSuffixTests
     [Fact]
     public void ApplyCollisionSuffixToKey_Index1_AppendsSuffix2()
     {
-        var key = "HandleNextAction(string,ISTPAuthenticationContext)";
+        var key = "HandleNextAction(string,IPaymentSdkAuthenticationContext)";
         var result = InvokeApplyCollisionSuffixToKey(key, 1);
-        Assert.Equal("HandleNextAction2(string,ISTPAuthenticationContext)", result);
+        Assert.Equal("HandleNextAction2(string,IPaymentSdkAuthenticationContext)", result);
     }
 
     [Fact]
     public void ApplyCollisionSuffixToKey_Index2_AppendsSuffix3()
     {
-        var key = "HandleNextAction(string,ISTPAuthenticationContext)";
+        var key = "HandleNextAction(string,IPaymentSdkAuthenticationContext)";
         var result = InvokeApplyCollisionSuffixToKey(key, 2);
-        Assert.Equal("HandleNextAction3(string,ISTPAuthenticationContext)", result);
+        Assert.Equal("HandleNextAction3(string,IPaymentSdkAuthenticationContext)", result);
     }
 
     [Fact]

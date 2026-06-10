@@ -57,7 +57,7 @@ partial class Build
     const string MixedDirectVersion = "0.0.0-mixeddirect";
     const string MixedDirectAppleVersion = "26.2.0-mixeddirect";
 
-    // STATIC source (the Kidoz #40 condition): the wrapper force-loads the ObjC archive and is the
+    // STATIC source (the issue #40 condition): the wrapper force-loads the ObjC archive and is the
     // sole carrier, and the companion's own source NativeReference is dropped (Gap 2). Distinct
     // module/class names from --mixed-pack so neither leg's symbols can satisfy the other's checks.
     const string MixedDirectModule = "SbMixedDirect";
@@ -346,7 +346,7 @@ partial class Build
             if (text.Contains("<NativeReference Include=", StringComparison.Ordinal))
                 Assert.Fail(
                     $"--mixed-direct STRUCTURAL: generated companion csproj '{path}' still emits an active source <NativeReference> for a static source whose wrapper carries the archive. " +
-                    "The Gap-2 drop did NOT happen, so the static archive links twice and every ObjC class duplicate-registers (Kidoz #40). " +
+                    "The Gap-2 drop did NOT happen, so the static archive links twice and every ObjC class duplicate-registers (issue #40). " +
                     "This is the build-time cause; duplicate registration is only a non-fatal runtime warning, so this assert catches a bake/flag regression the launch grep can miss.");
             if (!text.Contains("Source NativeReference dropped (Gap 2)", StringComparison.Ordinal))
                 Assert.Fail(

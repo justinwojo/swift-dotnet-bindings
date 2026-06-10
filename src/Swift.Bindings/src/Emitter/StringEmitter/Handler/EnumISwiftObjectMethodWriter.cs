@@ -129,7 +129,7 @@ namespace BindingsGeneration
                     // Try wrapper DLL first (Cdecl), fall back to dylib (CallConvSwift)
                     // when the wrapper wasn't compiled for this module.
                     // This handles multi-module frameworks where some modules' wrappers
-                    // fail to compile (e.g., Stripe sub-modules).
+                    // fail to compile (e.g., sub-modules with inaccessible SPI members).
                     _writer.WriteLines("""
                         static TypeMetadata ISwiftObject.GetTypeMetadata()
                         {

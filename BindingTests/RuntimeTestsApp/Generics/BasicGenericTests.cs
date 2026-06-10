@@ -453,7 +453,7 @@ public class BasicGenericTests : TestBase
         // Exercises NonFrozenStructHandler.cs's metadata-accessor PInvoke and
         // the eager _payloadSize field initializer for a constrained generic
         // non-frozen struct (DescribableHolder<T> where T: Describable). This
-        // is the precise code path that originally PAC-trapped Lottie on
+        // is the precise code path that originally PAC-trapped on
         // NativeAOT/arm64e before the PWT arg was threaded through.
         var metadata = SwiftObjectHelper<DescribableHolder<SimpleItem>>.GetTypeMetadata();
         AssertTrue(metadata.Handle != IntPtr.Zero, "DescribableHolder<SimpleItem> metadata handle is non-zero");

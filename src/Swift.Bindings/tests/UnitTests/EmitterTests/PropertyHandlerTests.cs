@@ -287,8 +287,7 @@ public class PropertyHandlerTests
     [Fact]
     public void Emit_OptionalAsyncThrowingClosureProperty_SkipsEmission()
     {
-        // Regression: Stripe's StripePaymentSheet.ConfirmHandler shape — setter-only
-        // property whose type is Optional<(STPPaymentMethod, Bool) async throws -> String>.
+        // Regression: a setter-only property whose type is Optional<async throws closure>.
         // The async-throwing bridge synthesizes a Swift closure for *invocation* inside
         // an async outer method; it cannot construct a stored async closure value from
         // a C# function pointer. Before this skip, the setter accessor emitted
@@ -362,11 +361,11 @@ public class PropertyHandlerTests
             moduleDecl,
             "T",
             "TestModule.AnyInterpolatable");
-        CreateStructDeclForEmission("LottieVector3D", moduleDecl);
+        CreateStructDeclForEmission("VectorAnimationVector3D", moduleDecl);
 
         var propertyType = new NamedTypeSpec(
             constrainedStorageDecl.SwiftTypeName.ModuleQualifiedName,
-            new NamedTypeSpec("TestModule.LottieVector3D"));
+            new NamedTypeSpec("TestModule.VectorAnimationVector3D"));
         var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "storage", propertyType, hasGetter: true, hasSetter: false);
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
@@ -461,8 +460,7 @@ public class PropertyHandlerTests
     public void Emit_CdeclPropertyStringGetter_UsesGlobalSystemQualification()
     {
         // @_cdecl string property getters decode Utf8Slice via Marshal.PtrToStringUTF8.
-        // Must use global::System to avoid shadowing when a type member is named "System"
-        // (e.g. XMLCoder.XMLDocumentType.System).
+        // Must use global::System to avoid shadowing when a type member is named "System".
         var typeDatabase = CreateTypeDatabaseWithInt();
         var moduleDecl = CreateModuleDeclForEmission("TestModule");
         var classDecl = CreateClassDeclForEmission("DocType", moduleDecl);

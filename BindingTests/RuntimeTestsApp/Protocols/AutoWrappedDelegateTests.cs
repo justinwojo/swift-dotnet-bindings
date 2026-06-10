@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Regression tests for justinwojo/swift-dotnet-bindings#16 (GDPerformanceView).
+/// Regression tests for justinwojo/swift-dotnet-bindings#16 (performance-overlay library).
 ///
 /// Covers the user-facing contract: a plain C# class implementing a generated protocol
 /// interface can be assigned directly to a delegate property, passed to a constructor,
@@ -27,8 +27,8 @@ public class AutoWrappedDelegateTests : TestBase
     public AutoWrappedDelegateTests(TestResults results) : base(results) { }
 
     /// <summary>
-    /// Property setter path: reproduces the exact shape from the GDPerformanceView
-    /// repro (<c>monitor.Delegate = dele;</c>). The delegate is a plain C# class that
+    /// Property setter path: reproduces the exact shape from the performance-overlay
+    /// library repro (<c>monitor.Delegate = dele;</c>). The delegate is a plain C# class that
     /// only implements the generated interface. Asserts on <c>LastNotifiedSlot</c>
     /// so the test fails if the weak slot's proxy is missing — a strong-delegate
     /// fallback can no longer silently mask a regression because <c>fire()</c>

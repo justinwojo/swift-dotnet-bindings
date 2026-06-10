@@ -192,14 +192,14 @@ public class ConformanceGraphResolutionTests
     {
         // Graph has a chained entry (AssociatedTypeReferenceSpec) — should skip it
         var graph = new ConformanceGraph();
-        graph.AddWitness("GRDB.SomeType", "GRDB.SomeProtocol", "Fetcher",
+        graph.AddWitness("RecordStore.SomeType", "RecordStore.SomeProtocol", "Fetcher",
             new AssociatedTypeReferenceSpec("τ_0_0", "Fetcher")); // Chained
 
         var typeDatabase = new MockTypeDatabase();
         var handler = new BoundGenericsHandler(typeDatabase, graph);
 
-        var conformingType = CreateClassDecl("SomeType", "GRDB",
-            conformances: new[] { CreateConformance("GRDB.SomeProtocol") });
+        var conformingType = CreateClassDecl("SomeType", "RecordStore",
+            conformances: new[] { CreateConformance("RecordStore.SomeProtocol") });
 
         var assocRef = new AssociatedTypeReferenceSpec("τ_0_0", "Fetcher");
         var arraySpec = new NamedTypeSpec("Swift.Array");

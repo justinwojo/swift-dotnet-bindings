@@ -203,7 +203,7 @@ namespace BindingsGeneration
             if (hasInlinable && !hasAccessControl && _facts.PublicMemberNames.Count == 0)
                 return true;
 
-            // @_spi types are only visible to SPI consumers (e.g., other Stripe modules).
+            // @_spi types are only visible to SPI consumers (e.g., other modules in the same SPI group).
             // They are not part of the public API and should not appear in generated bindings.
             // Check both declAttributes and spi_group_names (different Swift compiler versions
             // use one or the other).
@@ -909,8 +909,7 @@ namespace BindingsGeneration
             //      ModuleName == moduleDecl.Name) AND the receiver is a Class or Struct
             //      → this is `extension ForeignModule.ForeignType { ... }`. Keep it and
             //      route through CrossModuleExtensionEmitter — regardless of whether the
-            //      source module is third-party (StripePayments → StripeCore.STPAPIClient)
-            //      or Apple (RealityKit → RealityFoundation.AccessibilityComponent.RotorType).
+            //      source module is third-party or Apple (e.g., RealityKit → RealityFoundation.AccessibilityComponent.RotorType).
             //      The children-first ordering is load-bearing: prior to it, an Apple
             //      framework registered under `concreteClassFallback` (e.g. RealityFoundation)
             //      would short-circuit through the system-re-export path below and end up
@@ -923,7 +922,7 @@ namespace BindingsGeneration
             //      so canonical names like `Foundation.URL` flow through normally.
             //
             //   3. Otherwise → pure third-party re-export. Drop the node.
-            //      Example: StripeCryptoOnramp re-exports STPAPIClient with no extension
+            //      Example: a module that re-exports a type from another module with no extension
             //      children of its own — it would mis-claim ownership of the type if kept.
             if (!string.IsNullOrEmpty(node.ModuleName) &&
                 !string.IsNullOrEmpty(moduleDecl.Name) &&
@@ -995,7 +994,7 @@ namespace BindingsGeneration
             }
 
             // When a system-module type appears in another module's ABI (e.g., Swift.KeyPath
-            // extended by RichTextKit), use the type's actual module for name qualification.
+            // extended by a third-party module), use the type's actual module for name qualification.
             string? moduleNameOverride = null;
             if (!string.IsNullOrEmpty(node.ModuleName) && parentDecl is ModuleDecl md2 && node.ModuleName != md2.Name)
             {
@@ -1210,8 +1209,7 @@ namespace BindingsGeneration
                     // path uses ConversationManagerDelegateProxy, not EveryProtocol.
                     //
                     // The gate is scoped to native-Swift protocols. `@objc` protocols
-                    // (BonMot.AdaptableTextContainer, SwiftyGifDelegate, …) and `@objc
-                    // optional` members dispatch through the ObjC selector table rather
+                    // and `@objc optional` members dispatch through the ObjC selector table rather
                     // than a Swift witness table — they never emit a `Tq` descriptor,
                     // so a missing one means nothing for them. Treating them as missing
                     // would suppress proxy classes for every `@objc` protocol on every
@@ -3142,7 +3140,7 @@ namespace BindingsGeneration
         /// The node's children represent the protocols in the composition.
         /// An empty composition (no children with printedName "Any") represents 'Any'.
         /// In practice, ABI JSON ProtocolComposition nodes have no children —
-        /// the protocol list is encoded in the printedName (e.g., "any CryptoSwift.Cryptor &amp; CryptoSwift.Updatable").
+        /// the protocol list is encoded in the printedName (e.g., "any Module.ProtocolA &amp; Module.ProtocolB").
         /// </summary>
         private TypeSpec CreateProtocolCompositionTypeSpec(Node node)
         {

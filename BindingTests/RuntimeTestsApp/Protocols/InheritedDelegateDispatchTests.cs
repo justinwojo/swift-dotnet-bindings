@@ -8,7 +8,7 @@ using SwiftBindingsTestLibDependency;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Regression tests for justinwojo/swift-dotnet-bindings#40 (Kidoz SDK delegate crash).
+/// Regression tests for justinwojo/swift-dotnet-bindings#40 (ad-network SDK delegate crash).
 ///
 /// Shape: a child protocol that inherits all its requirements from a parent protocol
 /// with no new requirements of its own — <c>protocol ChildDelegate: ParentDelegate {}</c>.
@@ -21,7 +21,7 @@ namespace RuntimeTestsApp.Protocols;
 ///   Layer 1 — parent vtable nil: only the child proxy's cctor runs when the
 ///   user assigns a C# impl, so the parent's Swift <c>_p_vtable</c> module-global
 ///   is never populated. Swift force-unwraps the nil function pointer and crashes
-///   (the exact symptom in the Kidoz bug report).
+///   (the exact symptom in the issue #40 bug report).
 ///
 ///   Layer 2 — receiver cross-proxy lookup: even with the vtable populated, the
 ///   parent receiver's <c>TryGetProxy&lt;ParentProxy&gt;</c> returns null when the
@@ -37,7 +37,7 @@ public class InheritedDelegateDispatchTests : TestBase
     public InheritedDelegateDispatchTests(TestResults results) : base(results) { }
 
     /// <summary>
-    /// The Kidoz repro: assign a C# class implementing the CHILD interface to a
+    /// The issue #40 repro: assign a C# class implementing the CHILD interface to a
     /// child-typed delegate property, then call a Swift method that dispatches the
     /// inherited parent requirement through that delegate. Pre-fix this crashes
     /// on the nil parent vtable. The fix forces the parent proxy's cctor in the
@@ -240,7 +240,7 @@ internal class InheritedNonEmptyChildDelegateImpl : IInheritedNonEmptyChildDeleg
 
 /// <summary>
 /// Cross-module variant: parent protocol lives in SwiftBindingsTestLibDependency,
-/// child protocol lives here and inherits across the module boundary. The Kidoz
+/// child protocol lives here and inherits across the module boundary. The issue #40
 /// repro's third remaining shape — the C# class implements only the child
 /// interface and Swift dispatches the inherited cross-module method through the
 /// parent's witness table.

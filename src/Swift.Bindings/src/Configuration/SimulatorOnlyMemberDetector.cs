@@ -84,11 +84,11 @@ namespace BindingsGeneration
                     // "Identity" prevents false positives from names like "IdentityCard".
                     //
                     // Swift also uses substitution indices (e.g., "0B") to compress shared
-                    // prefixes between the module name and type name. For example, module
-                    // "StripeIdentity" + type "IdentityVerificationSheet" mangles as
-                    // "14StripeIdentity0B17VerificationSheet" — the shared "Identity" prefix
-                    // is replaced by "0B". In this case, "29IdentityVerificationSheet" won't
-                    // appear literally, but "17VerificationSheet" (a suffix) will.
+                    // prefixes between the module name and type name. For example, a module
+                    // whose name shares a prefix with a type name mangles as
+                    // "{len}{moduleName}0B{len}{suffix}" — the shared prefix
+                    // is replaced by "0B". In this case, the full type name won't
+                    // appear literally, but the non-shared suffix length-prefixed form will.
                     // We handle this by trying length-prefixed suffixes preceded by a Swift
                     // substitution pattern (uppercase letter terminator, e.g., "B", "C").
                     var lastDot = entry.QualifiedName.LastIndexOf('.');
@@ -267,7 +267,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Regex matching the comment lines that precede @_cdecl wrapper blocks.
-        /// Captures the fully-qualified member path (e.g., "StripeIdentity.IdentityVerificationSheet.simulatorDocumentCameraImages").
+        /// Captures the fully-qualified member path (e.g., "ModuleName.TypeName.memberName").
         /// </summary>
         private static readonly Regex WrapperCommentRegex = new(
             @"// (?:Property [gs]etter|Method|Constructor|Enum case factory) @_cdecl wrapper for (.+)\.",
@@ -279,7 +279,7 @@ namespace BindingsGeneration
         /// Uses mangled name hashes to precisely identify overloads in the @_cdecl function name.
         /// </summary>
         /// <param name="content">Swift wrapper file content.</param>
-        /// <param name="moduleName">The module name (e.g., "StripeIdentity").</param>
+        /// <param name="moduleName">The module name (e.g., "MyModule").</param>
         /// <param name="simOnly">Simulator-only detection result with qualified names and mangled hashes.</param>
         /// <returns>The content with #if guards applied, and count of guarded blocks.</returns>
         public static (string Content, int GuardedCount) ApplySimulatorGuards(
@@ -368,7 +368,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Resolves a qualified path from a wrapper comment to a member name in the simulator-only set.
-        /// Handles module-qualified paths (e.g., "StripeIdentity.Type.member" → "Type.member").
+        /// Handles module-qualified paths (e.g., "ModuleName.Type.member" → "Type.member").
         /// Returns the resolved name or null if not found.
         /// </summary>
         private static string? ResolveQualifiedName(string qualifiedPath, string moduleName, IReadOnlySet<string> simulatorOnlyNames)

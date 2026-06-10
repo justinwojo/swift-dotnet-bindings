@@ -403,7 +403,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void ClassParamView_UpdateModel(IntPtr handle, IntPtr newValue);
 
-    // --- NoParamBlurView (AlertToast BlurView pattern) ---
+    // --- NoParamBlurView (toast-banner BlurView pattern) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NoParamBlurView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr NoParamBlurView_Create();
@@ -416,7 +416,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void NoParamBlurView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
-    // --- PlayerStyleView (YouTubePlayerKit pattern) ---
+    // --- PlayerStyleView (video-player-kit pattern) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr PlayerStyleView_Create(IntPtr playerPtr, IntPtr titlePtr, int titleLen);
@@ -429,7 +429,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void PlayerStyleView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
-    // --- FormatActionView (RichTextKit ActionButton pattern — BoundStruct enum) ---
+    // --- FormatActionView (rich-text-editor ActionButton pattern — BoundStruct enum) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatActionView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr FormatActionView_Create(IntPtr actionPtr);
@@ -442,7 +442,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void FormatActionView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
-    // --- FormatMenuView (RichTextKit Menu pattern — closure with BoundStruct) ---
+    // --- FormatMenuView (rich-text-editor Menu pattern — closure with BoundStruct) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatMenuView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr FormatMenuView_Create(IntPtr onFormatCallback, IntPtr onFormatUserData);
@@ -455,7 +455,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void FormatMenuView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
-    // --- RichToolbarView (RichTextKit toolbar pattern — dual string) ---
+    // --- RichToolbarView (rich-text-editor toolbar pattern — dual string) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr RichToolbarView_Create(IntPtr titlePtr, int titleLen, IntPtr subtitlePtr, int subtitleLen);

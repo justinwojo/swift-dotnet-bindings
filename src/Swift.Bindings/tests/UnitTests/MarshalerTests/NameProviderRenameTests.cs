@@ -123,14 +123,14 @@ public class NameProviderRenameTests
     [Fact]
     public void GetTypeSpecLeafName_ModuleQualifiedType_ReturnsLeafName()
     {
-        var typeSpec = new NamedTypeSpec("Nuke.ImagePipeline");
-        Assert.Equal("ImagePipeline", NameProvider.GetTypeSpecLeafName(typeSpec));
+        var typeSpec = new NamedTypeSpec("ImagePipeline.ImageService");
+        Assert.Equal("ImageService", NameProvider.GetTypeSpecLeafName(typeSpec));
     }
 
     [Fact]
     public void GetTypeSpecLeafName_InnerTypeChain_ReturnsInnerLeaf()
     {
-        var typeSpec = new NamedTypeSpec("Nuke.ImagePipeline")
+        var typeSpec = new NamedTypeSpec("ImagePipeline.ImageService")
         {
             InnerType = new NamedTypeSpec("Configuration")
         };
@@ -140,7 +140,7 @@ public class NameProviderRenameTests
     [Fact]
     public void GetTypeSpecLeafName_OptionalWrapped_UnwrapsAndReturnsLeaf()
     {
-        var innerTypeSpec = new NamedTypeSpec("Nuke.ImagePipeline")
+        var innerTypeSpec = new NamedTypeSpec("ImagePipeline.ImageService")
         {
             InnerType = new NamedTypeSpec("Configuration")
         };

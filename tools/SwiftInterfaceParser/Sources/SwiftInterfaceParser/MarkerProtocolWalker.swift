@@ -23,7 +23,7 @@ import SwiftParser
 ///    equivalent (no decls inside).
 ///
 /// 3. **Key shape**: the dictionary key is the LAST dot-component of each
-///    conforming protocol name. So `extension Swift.Int : SnapKit.ConstraintOffsetTarget`
+///    conforming protocol name. So `extension Swift.Int : SomeModule.ConstraintOffsetTarget`
 ///    keys as `"ConstraintOffsetTarget"`.
 ///
 /// 4. **Value shape**: each value is a list of fully-qualified conforming type

@@ -323,7 +323,7 @@ public class ArraySliceNormalizationEmitterTests
     public void UnescapeModuleName_NormalModule_Unchanged()
     {
         Assert.Equal("TestModule", ArraySliceNormalizationEmitter.UnescapeModuleName("TestModule"));
-        Assert.Equal("CryptoSwift", ArraySliceNormalizationEmitter.UnescapeModuleName("CryptoSwift"));
+        Assert.Equal("CryptoLib", ArraySliceNormalizationEmitter.UnescapeModuleName("CryptoLib"));
         // Underscore prefix that's NOT a keyword — unchanged
         Assert.Equal("_MyModule", ArraySliceNormalizationEmitter.UnescapeModuleName("_MyModule"));
     }
@@ -410,7 +410,7 @@ public class ArraySliceNormalizationEmitterTests
         var parentDecl = CreateClassDecl("AES", moduleDecl, typeDatabase);
 
         var arraySliceUInt8 = new NamedTypeSpec("Swift.ArraySlice", new NamedTypeSpec("Swift.UInt8"));
-        var unknownType = new NamedTypeSpec("CryptoSwift.CipherModeWorker");
+        var unknownType = new NamedTypeSpec("CryptoLib.CipherModeWorker");
 
         var method = new MethodDecl
         {

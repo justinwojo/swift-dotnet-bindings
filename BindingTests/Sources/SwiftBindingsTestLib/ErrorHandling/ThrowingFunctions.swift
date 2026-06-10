@@ -59,7 +59,7 @@ public struct ThrowingStruct {
     }
 }
 
-// MARK: - S2: Traditional Throws with Typed Error (Valet SecureEnclaveValet pattern)
+// MARK: - S2: Traditional Throws with Typed Error
 
 /// Free function that throws a StorageError (Int32 raw value Error enum).
 /// The wrapper layer generates SBW_ExtractTypedError_* to extract the typed error.

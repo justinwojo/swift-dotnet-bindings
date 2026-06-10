@@ -14,7 +14,7 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class Tier2LibraryFixTests
 {
-    #region Fix 1: CAKeyframeAnimation class remapping (NVActivityIndicatorView)
+    #region Fix 1: CAKeyframeAnimation class remapping (LoadingIndicator)
 
     [Fact]
     public void TypeDatabase_CAKeyframeAnimation_RemapsToCAKeyFrameAnimation()
@@ -43,12 +43,12 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region Fix 2: P/Invoke name sanitization (Valet + BonMot)
+    #region Fix 2: P/Invoke name sanitization (emoji prefix + backtick-escaped keywords)
 
     [Fact]
     public void GetPInvokeName_EmojiInMethodName_SanitizesEmoji()
     {
-        // Valet uses 🚫 prefix for ObjC compatibility shims
+        // 🚫 prefix on ObjC compatibility shims — must be sanitized to underscores
         var method = CreateMethodDecl("🚫deprecatedMethod");
 
         var pinvokeName = NameProvider.GetPInvokeName(method);
@@ -61,7 +61,7 @@ public class Tier2LibraryFixTests
     [Fact]
     public void GetPInvokeName_BackticksInMethodName_StripsBackticks()
     {
-        // BonMot uses backtick-escaped Swift keywords like `subscript`
+        // Backtick-escaped Swift keywords like `subscript` — backticks must be stripped
         var method = CreateMethodDecl("`subscript`");
 
         var pinvokeName = NameProvider.GetPInvokeName(method);
@@ -94,7 +94,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region Fix 3: Backtick stripping at parser level (BonMot)
+    #region Fix 3: Backtick stripping at parser level
 
     [Fact]
     public void SanitizeIdentifierChars_BackticksStripped()
@@ -120,7 +120,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region Fix 4: Closure return type gate (XMLCoder crash)
+    #region Fix 4: Closure return type gate (unresolvable closure return crash)
 
     [Fact]
     public void CanEmitMethod_UnsupportedClosureReturn_ReturnsUnsupportedClosure()
@@ -137,7 +137,7 @@ public class Tier2LibraryFixTests
         var method = new MethodDecl
         {
             Name = "nodeDecoding",
-            MangledName = "$s8XMLCoder14nodeDecodingyyF",
+            MangledName = "$s8XmlCodec14nodeDecodingyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
@@ -193,7 +193,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region Fix 5: Self resolution on generic classes (Swinject)
+    #region Fix 5: Self resolution on generic classes
 
     [Fact]
     public void TypeProjectionFactory_Self_OnGenericClass_AppendsTypeParameters()
@@ -201,11 +201,11 @@ public class Tier2LibraryFixTests
         // ServiceEntry<TService>.inObjectScope() → Self
         // Should resolve to "ServiceEntry<TService>" not bare "ServiceEntry"
         var db = new MockTypeDatabase();
-        db.AddType("Swinject.ServiceEntry", new TypeRecord
+        db.AddType("DependencyContainer.ServiceEntry", new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Swinject", "ServiceEntry"),
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swinject.ServiceEntry"),
-            MetadataAccessor = "$s8Swinject12ServiceEntryMa",
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.DependencyContainer", "ServiceEntry"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("DependencyContainer.ServiceEntry"),
+            MetadataAccessor = "$s19DependencyContainer12ServiceEntryMa",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
             Kind = TypeRecordKind.Class,
         });
@@ -213,8 +213,8 @@ public class Tier2LibraryFixTests
         var parentDecl = new ClassDecl
         {
             Name = "ServiceEntry",
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swinject.ServiceEntry"),
-            MangledName = "$s8Swinject12ServiceEntryCN",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("DependencyContainer.ServiceEntry"),
+            MangledName = "$s19DependencyContainer12ServiceEntryCN",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -295,7 +295,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region Fix 6: Frozen struct metadata in enum tuples (Parchment)
+    #region Fix 6: Frozen struct metadata in enum tuples
 
     [Fact]
     public void EmitGetTypeMetadataForElement_FrozenStruct_UsesGetTypeMetadataOrThrow()
@@ -328,7 +328,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region Fix 7: Override name parity check (SVGView)
+    #region Fix 7: Override name parity check
 
     [Fact]
     public void HasMethodInResolvedAncestors_SameCSharpName_ReturnsTrue()
@@ -336,11 +336,11 @@ public class Tier2LibraryFixTests
         // Base class has method "opacity" → C# name "Opacity" (no property collision)
         // Derived class has method "opacity" → C# name "Opacity" (no property collision either)
         // Override should be emitted.
-        var baseClass = CreateClassDecl("SVGPaint");
+        var baseClass = CreateClassDecl("VectorImagePaint");
         var baseMethod = CreateEmittedMethodDecl("opacity", baseClass, isDynamicSelfReturn: true);
         baseClass.Methods.Add(baseMethod);
 
-        var derivedClass = CreateClassDecl("SVGColor");
+        var derivedClass = CreateClassDecl("VectorImageColor");
         derivedClass.ResolvedSuperclass = baseClass;
 
         var derivedMethod = CreateEmittedMethodDecl("opacity", derivedClass, isDynamicSelfReturn: true);
@@ -348,7 +348,7 @@ public class Tier2LibraryFixTests
         // Derived C# name is "Opacity" (matches base, no collision)
         var derivedCSharpName = NameProvider.GetPublicMethodName("opacity", false,
             hasReturnValue: true, propertyNames: null, isSelfReturning: true,
-            parentTypeName: "SVGColor", parameterCount: 1);
+            parentTypeName: "VectorImageColor", parameterCount: 1);
 
         var result = WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedMethod, derivedCSharpName);
 
@@ -361,11 +361,11 @@ public class Tier2LibraryFixTests
         // Base class: "opacity" → C# "Opacity" (no property collision)
         // Derived class: "opacity" → C# "WithOpacity" (has Opacity property → self-returning builder gets "With" prefix)
         // Override should NOT be emitted because C# names differ.
-        var baseClass = CreateClassDecl("SVGPaint");
+        var baseClass = CreateClassDecl("VectorImagePaint");
         var baseMethod = CreateEmittedMethodDecl("opacity", baseClass, isDynamicSelfReturn: true);
         baseClass.Methods.Add(baseMethod);
 
-        var derivedClass = CreateClassDecl("SVGColor");
+        var derivedClass = CreateClassDecl("VectorImageColor");
         derivedClass.ResolvedSuperclass = baseClass;
         // Add "Opacity" property to derived class → triggers "With" prefix for self-returning builder
         derivedClass.Properties.Add(new PropertyDecl
@@ -388,7 +388,7 @@ public class Tier2LibraryFixTests
             StringComparer.Ordinal);
         var derivedCSharpName = NameProvider.GetPublicMethodName("opacity", false,
             hasReturnValue: true, propertyNames: derivedProps, isSelfReturning: true,
-            parentTypeName: "SVGColor", parameterCount: 1);
+            parentTypeName: "VectorImageColor", parameterCount: 1);
 
         Assert.Equal("WithOpacity", derivedCSharpName);
 
@@ -418,21 +418,21 @@ public class Tier2LibraryFixTests
     [Fact]
     public void HasMethodInResolvedAncestors_ConcreteParentTypeReturn_IsSelfReturning()
     {
-        // P2 fix: concrete parent-type return (e.g., "-> SVGPaint") should be treated
+        // P2 fix: concrete parent-type return (e.g., "-> VectorImagePaint") should be treated
         // as self-returning, not just DynamicSelf/literal "Self".
-        // Base method returns "TestModule.SVGPaint" (its own concrete type) → self-returning.
-        var baseClass = CreateClassDecl("SVGPaint");
+        // Base method returns "TestModule.VectorImagePaint" (its own concrete type) → self-returning.
+        var baseClass = CreateClassDecl("VectorImagePaint");
         var baseMethod = new MethodDecl
         {
             Name = "opacity",
-            MangledName = "$s7SVGPaint7opacityyyF",
+            MangledName = "$s16VectorImagePaint7opacityyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             IsOverride = false,
             CSSignature = new List<ArgumentDecl>
             {
                 // Return type is concrete parent type (not DynamicSelf)
-                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.SVGPaint")),
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.VectorImagePaint")),
                 CreateArgument("value", new NamedTypeSpec("Swift.Double")),
             },
             GenericParameters = new List<GenericArgumentDecl>(),
@@ -457,7 +457,7 @@ public class Tier2LibraryFixTests
         });
         baseClass.Methods.Add(baseMethod);
 
-        var derivedClass = CreateClassDecl("SVGColor");
+        var derivedClass = CreateClassDecl("VectorImageColor");
         derivedClass.ResolvedSuperclass = baseClass;
         // Derived also has the property
         derivedClass.Properties.Add(new PropertyDecl
@@ -479,7 +479,7 @@ public class Tier2LibraryFixTests
             StringComparer.Ordinal);
         var derivedCSharpName = NameProvider.GetPublicMethodName("opacity", false,
             hasReturnValue: true, propertyNames: derivedProps, isSelfReturning: true,
-            parentTypeName: "SVGColor", parameterCount: 1);
+            parentTypeName: "VectorImageColor", parameterCount: 1);
         Assert.Equal("WithOpacity", derivedCSharpName);
 
         // Base should ALSO compute "WithOpacity" because concrete-type return → self-returning
@@ -568,7 +568,7 @@ public class Tier2LibraryFixTests
         // Production uses ALL declared properties for the collision set, not just emitted ones.
         // A non-emitted property (e.g., unsupported type) still occupies the name and can
         // cause a self-returning method to get the "With" prefix.
-        var baseClass = CreateClassDecl("SVGPaint");
+        var baseClass = CreateClassDecl("VectorImagePaint");
         // Add "opacity" property that is NOT emitted (e.g., unsupported type)
         baseClass.Properties.Add(new PropertyDecl
         {
@@ -584,7 +584,7 @@ public class Tier2LibraryFixTests
         var baseMethod = CreateEmittedMethodDecl("opacity", baseClass, isDynamicSelfReturn: true);
         baseClass.Methods.Add(baseMethod);
 
-        var derivedClass = CreateClassDecl("SVGColor");
+        var derivedClass = CreateClassDecl("VectorImageColor");
         derivedClass.ResolvedSuperclass = baseClass;
         // Derived also has same non-emitted property
         derivedClass.Properties.Add(new PropertyDecl
@@ -605,7 +605,7 @@ public class Tier2LibraryFixTests
         var derivedProps = new HashSet<string> { "Opacity" }; // includes non-emitted property
         var derivedCSharpName = NameProvider.GetPublicMethodName("opacity", false,
             hasReturnValue: true, propertyNames: derivedProps, isSelfReturning: true,
-            parentTypeName: "SVGColor", parameterCount: 1);
+            parentTypeName: "VectorImageColor", parameterCount: 1);
         Assert.Equal("WithOpacity", derivedCSharpName);
 
         // Ancestor parity: base also has non-emitted "opacity" property → "WithOpacity" → match
@@ -812,7 +812,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region P14C: AVCaptureDevice.FocusMode enum remap (StripeCameraCore)
+    #region P14C: AVCaptureDevice.FocusMode enum remap
 
     [Fact]
     public void AppleFrameworkValueTypes_AVCaptureDeviceFocusMode_IsValueType()
@@ -840,7 +840,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region P14C: Foundation.Formatter → NSFormatter remap (PhoneNumberKit)
+    #region P14C: Foundation.Formatter → NSFormatter remap
 
     [Fact]
     public void MapQualifiedTypeToNet_FoundationFormatter_RemapsToNSFormatter()
@@ -859,7 +859,7 @@ public class Tier2LibraryFixTests
 
     #endregion
 
-    #region P14C: UITextLayoutDirection as value type (StripeUICore)
+    #region P14C: UITextLayoutDirection as value type
 
     [Fact]
     public void AppleFrameworkValueTypes_UITextLayoutDirection_IsValueType()

@@ -253,7 +253,7 @@ public static class MetatypeHelperEmitter
     /// has associated types or a Self requirement. Counts ONLY conformances on protocols that
     /// the type database knows about so the gate ignores unknown stdlib protocols (Hashable,
     /// Collection, ...) the same way the existing legacy filter does — failing on unknown
-    /// would regress every Alamofire/GRDB/RxSwift/DifferenceKit constrained generic.
+    /// would regress constrained generics from any module with associated-type or Self-requirement protocols.
     /// </summary>
     /// <remarks>
     /// This is the fail-closed predicate used by

@@ -18,27 +18,27 @@ namespace RuntimeTestsApp.Marshalling;
 /// - >8 bytes → @_cdecl required (IsSelfTypeCdeclRequired:888)
 /// - Non-frozen instance member (RequiresCdeclForAbiSafety:713)
 ///
-/// Real-world failures: Lottie LottieColor (float SIGSEGV), Alamofire/Kingfisher/DeviceKit crashes.
+/// Guards float-field struct marshalling across the P/Invoke boundary (a class of SIGSEGV when register placement is wrong).
 /// </summary>
 public class AbiSafetyRuntimeTests : TestBase
 {
     public AbiSafetyRuntimeTests(TestResults results) : base(results) { }
 
-    #region LottieColorLike — Frozen Struct with Float Fields
+    #region VectorAnimationColorLike — Frozen Struct with Float Fields
 
-    public void TestLottieColorLikeConstruction()
+    public void TestVectorAnimationColorLikeConstruction()
     {
-        var color = new LottieColorLike(r: 1.0, g: 0.5, b: 0.25, a: 1.0);
+        var color = new VectorAnimationColorLike(r: 1.0, g: 0.5, b: 0.25, a: 1.0);
         AssertApproxEqual(1.0, color.R, message: "R field");
         AssertApproxEqual(0.5, color.G, message: "G field");
         AssertApproxEqual(0.25, color.B, message: "B field");
         AssertApproxEqual(1.0, color.A, message: "A field");
-        TestLogger.Info("LottieColorLike construction + field access passed");
+        TestLogger.Info("VectorAnimationColorLike construction + field access passed");
     }
 
-    public void TestLottieColorLikePropertyRoundTrip()
+    public void TestVectorAnimationColorLikePropertyRoundTrip()
     {
-        var color = new LottieColorLike(r: 0.0, g: 0.0, b: 0.0, a: 0.0);
+        var color = new VectorAnimationColorLike(r: 0.0, g: 0.0, b: 0.0, a: 0.0);
         color.R = 0.9;
         color.G = 0.6;
         color.B = 0.3;
@@ -47,34 +47,34 @@ public class AbiSafetyRuntimeTests : TestBase
         AssertApproxEqual(0.6, color.G, message: "G after set");
         AssertApproxEqual(0.3, color.B, message: "B after set");
         AssertApproxEqual(1.0, color.A, message: "A after set");
-        TestLogger.Info("LottieColorLike property round-trip passed");
+        TestLogger.Info("VectorAnimationColorLike property round-trip passed");
     }
 
-    public void TestLottieColorLikeBrightness()
+    public void TestVectorAnimationColorLikeBrightness()
     {
-        var color = new LottieColorLike(r: 0.9, g: 0.6, b: 0.3, a: 1.0);
+        var color = new VectorAnimationColorLike(r: 0.9, g: 0.6, b: 0.3, a: 1.0);
         var brightness = color.GetBrightness();
         AssertApproxEqual(0.6, brightness, message: "Brightness = (0.9+0.6+0.3)/3");
-        TestLogger.Info($"LottieColorLike.GetBrightness() = {brightness}");
+        TestLogger.Info($"VectorAnimationColorLike.GetBrightness() = {brightness}");
     }
 
-    public void TestLottieColorLikeWithAlpha()
+    public void TestVectorAnimationColorLikeWithAlpha()
     {
-        var color = new LottieColorLike(r: 1.0, g: 0.0, b: 0.0, a: 1.0);
+        var color = new VectorAnimationColorLike(r: 1.0, g: 0.0, b: 0.0, a: 1.0);
         var transparent = color.WithAlpha(0.5);
         AssertApproxEqual(0.5, transparent.A, message: "New alpha");
         AssertApproxEqual(1.0, transparent.R, message: "R preserved");
         AssertApproxEqual(0.0, transparent.G, message: "G preserved");
         AssertApproxEqual(0.0, transparent.B, message: "B preserved");
-        TestLogger.Info("LottieColorLike.WithAlpha passed");
+        TestLogger.Info("VectorAnimationColorLike.WithAlpha passed");
     }
 
-    public void TestLottieColorLikeDescribe()
+    public void TestVectorAnimationColorLikeDescribe()
     {
-        var color = new LottieColorLike(r: 1.0, g: 0.5, b: 0.0, a: 1.0);
+        var color = new VectorAnimationColorLike(r: 1.0, g: 0.5, b: 0.0, a: 1.0);
         var desc = color.GetDescribe();
         AssertTrue(desc.Contains("1.0"), "Description contains R value");
-        TestLogger.Info($"LottieColorLike.GetDescribe() = {desc}");
+        TestLogger.Info($"VectorAnimationColorLike.GetDescribe() = {desc}");
     }
 
     #endregion

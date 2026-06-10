@@ -11,20 +11,20 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.SwiftUIBridge;
 
 /// <summary>
-/// Runtime tests for SwiftUI bridge views replicating third-party validation library patterns.
-/// Verifies that bridge parameter gates work end-to-end on the iOS Simulator:
-///   NoParamBlurView       → AlertToast.BlurView (zero-param init)
-///   PlayerStyleView       → YouTubePlayerKit.YouTubePlayerView (class + string)
-///   FormatActionView      → RichTextKit.ActionButton (non-raw-value enum / BoundStruct)
-///   FormatMenuView        → RichTextKit.Menu (closure with BoundStruct arg)
-///   RichToolbarView       → RichTextKit toolbar views (dual string params)
+/// Runtime tests for SwiftUI bridge views exercising each supported parameter gate
+/// end-to-end on the iOS Simulator:
+///   NoParamBlurView       — zero-param init
+///   PlayerStyleView       — class + string params
+///   FormatActionView      — non-raw-value enum / BoundStruct param
+///   FormatMenuView        — closure with BoundStruct arg
+///   RichToolbarView       — dual string params
 /// </summary>
 public class ValidationPatternBridgeTests : TestBase
 {
     public ValidationPatternBridgeTests(TestResults results) : base(results) { }
 
     // ────────────────────────────────────────────────────────────────
-    // NoParamBlurView — AlertToast.BlurView pattern (zero params)
+    // NoParamBlurView — zero-param init pattern
     // ────────────────────────────────────────────────────────────────
 
     public void TestNoParamBlurView_CreateAndGetVC()
@@ -52,7 +52,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // PlayerStyleView — YouTubePlayerKit pattern (class + string)
+    // PlayerStyleView — class + string params pattern
     // ────────────────────────────────────────────────────────────────
 
     public unsafe void TestPlayerStyleView_CreateWithClassAndString()
@@ -79,7 +79,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // FormatActionView — RichTextKit ActionButton pattern (BoundStruct)
+    // FormatActionView — BoundStruct param pattern
     // ────────────────────────────────────────────────────────────────
 
     public void TestFormatActionView_CompletedOutcome()
@@ -122,7 +122,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // FormatMenuView — RichTextKit Menu pattern (closure with BoundStruct)
+    // FormatMenuView — closure with BoundStruct arg pattern
     // ────────────────────────────────────────────────────────────────
 
     public unsafe void TestFormatMenuView_ClosureFiresWithBoundStruct()
@@ -150,7 +150,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // RichToolbarView — RichTextKit toolbar pattern (dual string)
+    // RichToolbarView — dual string params pattern
     // ────────────────────────────────────────────────────────────────
 
     public unsafe void TestRichToolbarView_DualStringParams()
@@ -343,7 +343,7 @@ public class ValidationPatternBridgeTests : TestBase
         TestLogger.Info("SymbolIconView: different symbol passed");
     }
     // ────────────────────────────────────────────────────────────────
-    // ResultCompletionView — CodeScanner pattern (Result<T,E> closure)
+    // ResultCompletionView — barcode-scanner pattern (Result<T,E> closure)
     // Tests the Result closure decomposition: .success → onSuccess,
     // .failure → onError callback dispatch.
     // ────────────────────────────────────────────────────────────────
@@ -401,7 +401,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // ResultCompletionView — CodeScanner pattern (Result<T,E> closure)
+    // ResultCompletionView — barcode-scanner pattern (Result<T,E> closure)
     // Tests the Result closure decomposition: .success → onSuccess,
     // .failure → onError callback dispatch.
     // ────────────────────────────────────────────────────────────────

@@ -190,13 +190,13 @@ public class TypeOwnerRegistryTests
     [Fact]
     public void RegisterThirdPartyModule_ResolvesToThirdPartyPackage()
     {
-        TypeOwnerRegistry.RegisterThirdPartyModule("Stripe", "Stripe.Swift.iOS");
+        TypeOwnerRegistry.RegisterThirdPartyModule("PaymentSdk", "PaymentSdk.Swift.iOS");
 
-        var owner = TypeOwnerRegistry.Resolve("Stripe.PaymentIntent");
+        var owner = TypeOwnerRegistry.Resolve("PaymentSdk.PaymentIntent");
 
         Assert.Equal(TypeOwnerKind.ThirdPartyPackage, owner.Kind);
-        Assert.Equal("Stripe.Swift.iOS", owner.PackageId);
-        Assert.Equal("Stripe", owner.ModuleName);
+        Assert.Equal("PaymentSdk.Swift.iOS", owner.PackageId);
+        Assert.Equal("PaymentSdk", owner.ModuleName);
     }
 
     // ---- Level 5 — Same-module-being-generated ------------------------------------
@@ -219,12 +219,12 @@ public class TypeOwnerRegistryTests
         // owner and then generating that same package should keep module-default semantics.
         // Treating it as "local" during self-generation is an emitter concern, not a
         // registry concern — the registry always reports the canonical owner.
-        TypeOwnerRegistry.RegisterThirdPartyModule("Stripe", "Stripe.Swift.iOS");
+        TypeOwnerRegistry.RegisterThirdPartyModule("PaymentSdk", "PaymentSdk.Swift.iOS");
 
-        var owner = TypeOwnerRegistry.Resolve("Stripe.PaymentIntent", currentlyGeneratingModule: "Stripe");
+        var owner = TypeOwnerRegistry.Resolve("PaymentSdk.PaymentIntent", currentlyGeneratingModule: "PaymentSdk");
 
         Assert.Equal(TypeOwnerKind.ThirdPartyPackage, owner.Kind);
-        Assert.Equal("Stripe.Swift.iOS", owner.PackageId);
+        Assert.Equal("PaymentSdk.Swift.iOS", owner.PackageId);
     }
 
     // ---- Level 6 — Unsupported ----------------------------------------------------
@@ -387,7 +387,7 @@ public class TypeOwnerRegistryTests
 
         var owner = TypeOwnerRegistry.TryGetConformanceOwner(
             "Swift.Array<Int>",
-            "Contoso.BulkEncodable<Stripe.Customer>");
+            "Contoso.BulkEncodable<PaymentSdk.Customer>");
 
         Assert.NotNull(owner);
         Assert.Equal(expected, owner!.Value);

@@ -14,12 +14,12 @@ public class ConformanceGraphTests
     public void AddWitness_AndResolve_ReturnsCorrectType()
     {
         var graph = new ConformanceGraph();
-        var resolvedType = new NamedTypeSpec("GRDB.Statement");
+        var resolvedType = new NamedTypeSpec("RecordStore.Statement");
 
-        graph.AddWitness("GRDB.SQLStatementCursor", "GRDB.Cursor", "Element", resolvedType);
+        graph.AddWitness("RecordStore.SQLStatementCursor", "RecordStore.Cursor", "Element", resolvedType);
 
-        Assert.True(graph.TryResolve("GRDB.SQLStatementCursor", "GRDB.Cursor", "Element", out var result));
-        Assert.Equal("GRDB.Statement", result!.ToString());
+        Assert.True(graph.TryResolve("RecordStore.SQLStatementCursor", "RecordStore.Cursor", "Element", out var result));
+        Assert.Equal("RecordStore.Statement", result!.ToString());
     }
 
     [Fact]
@@ -27,7 +27,7 @@ public class ConformanceGraphTests
     {
         var graph = new ConformanceGraph();
 
-        Assert.False(graph.TryResolve("GRDB.SQLStatementCursor", "GRDB.Cursor", "Element", out var result));
+        Assert.False(graph.TryResolve("RecordStore.SQLStatementCursor", "RecordStore.Cursor", "Element", out var result));
         Assert.Null(result);
     }
 
@@ -37,10 +37,10 @@ public class ConformanceGraphTests
         var graph = new ConformanceGraph();
         Assert.Equal(0, graph.Count);
 
-        graph.AddWitness("GRDB.SQLStatementCursor", "GRDB.Cursor", "Element", new NamedTypeSpec("GRDB.Statement"));
+        graph.AddWitness("RecordStore.SQLStatementCursor", "RecordStore.Cursor", "Element", new NamedTypeSpec("RecordStore.Statement"));
         Assert.Equal(1, graph.Count);
 
-        graph.AddWitness("GRDB.RowCursor", "GRDB.Cursor", "Element", new NamedTypeSpec("GRDB.Row"));
+        graph.AddWitness("RecordStore.RowCursor", "RecordStore.Cursor", "Element", new NamedTypeSpec("RecordStore.Row"));
         Assert.Equal(2, graph.Count);
     }
 
@@ -81,9 +81,9 @@ public class ConformanceGraphTests
         var graph = new ConformanceGraph();
         var genericParam = new NamedTypeSpec("τ_0_0");
 
-        graph.AddWitness("GRDB.RecordCursor", "GRDB.Cursor", "Element", genericParam);
+        graph.AddWitness("RecordStore.RecordCursor", "RecordStore.Cursor", "Element", genericParam);
 
-        Assert.True(graph.TryResolve("GRDB.RecordCursor", "GRDB.Cursor", "Element", out var result));
+        Assert.True(graph.TryResolve("RecordStore.RecordCursor", "RecordStore.Cursor", "Element", out var result));
         Assert.Equal("τ_0_0", result!.ToString());
     }
 
@@ -94,9 +94,9 @@ public class ConformanceGraphTests
         var graph = new ConformanceGraph();
         var chained = new AssociatedTypeReferenceSpec("τ_0_0", "Fetcher");
 
-        graph.AddWitness("GRDB.SomeType", "GRDB.SomeProtocol", "Fetcher", chained);
+        graph.AddWitness("RecordStore.SomeType", "RecordStore.SomeProtocol", "Fetcher", chained);
 
-        Assert.True(graph.TryResolve("GRDB.SomeType", "GRDB.SomeProtocol", "Fetcher", out var result));
+        Assert.True(graph.TryResolve("RecordStore.SomeType", "RecordStore.SomeProtocol", "Fetcher", out var result));
         Assert.IsType<AssociatedTypeReferenceSpec>(result);
         Assert.Equal("τ_0_0.Fetcher", result!.ToString());
     }

@@ -295,7 +295,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     /// AoA/DoA/AoM probes above MISS, because their outer container is a COVARIANT <c>IReadOnlyList</c> that
     /// silently absorbs a concrete inner <c>Dictionary</c>. Here the inner <c>DictionaryProjection</c> element
     /// conversion must surface its declared <c>IReadOnlyDictionary&lt;string, IMarker&gt;</c> interface or the
-    /// generated selector is a CS0266 (the regression observed on ObjectMapper's <c>[String: [String: any P]]</c>
+    /// generated selector is a CS0266 (the regression observed on <c>[String: [String: any P]]</c>
     /// returns). Materializing the outer dict yields owned inner-dictionary carriers; enumerating each inner
     /// dict's <c>.Values</c> yields owned marker proxies. Disposing every proxy, every inner-dictionary
     /// carrier, and the outer carrier must drive the live count to 0.
@@ -344,7 +344,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
 
     /// <summary>
     /// NESTED owned <c>[String: [[String: any Marker]]]</c> return, three-level
-    /// Dictionary→Array→Dictionary: the EXACT shape that regressed FirebaseFirestore/ObjectMapper's
+    /// Dictionary→Array→Dictionary: the EXACT shape that regressed on deeply-nested
     /// <c>[String: [[String: any P]]]</c> returns. The outer Dictionary VALUE slot is INVARIANT and its
     /// value is a COVARIANT <c>IReadOnlyList</c> whose elements are concrete inner dictionaries, so the
     /// array conversion's <c>IReadOnlyList&lt;Dictionary&lt;…&gt;&gt;</c> must be cast to its declared
@@ -437,7 +437,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
     }
 
     /// <summary>
-    /// RECEIVER method-param <c>[[String: any Marker]]</c> (the FirebaseFirestore <c>mapMerge</c> shape):
+    /// RECEIVER method-param <c>[[String: any Marker]]</c> (the nested-existential-map receiver shape):
     /// Swift builds a grid of fresh <c>MarkerImpl</c> conformers and passes it into the C#
     /// impl through the generated receiver, which materializes each inner dictionary's existential value
     /// by moving it out at +1. Because the impl never disposes anything, the moved-out +1 is released

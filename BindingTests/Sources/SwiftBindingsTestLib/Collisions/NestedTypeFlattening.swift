@@ -4,7 +4,7 @@
 import Foundation
 
 // MARK: - Nested Type Flattening
-// Pattern caught in SwipeCellKit validation.
+// Pattern caught in real-world library validation (swipeable-cell shape).
 // Swift nested types (Outer.Inner) must be flattened for C# emission
 // because C# nested types have different semantics.
 

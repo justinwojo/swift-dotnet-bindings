@@ -357,7 +357,7 @@ public class EnumCaseWrapperEmitterTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var enumDecl = CreateEnumDecl("Error", moduleDecl);
-        // Unlabeled associated value: TypeLabel is null (like Nuke's .statusCodeUnacceptable(Int))
+        // Unlabeled associated value: TypeLabel is null for enum cases that carry a bare value without an argument label.
         var intSpec = new NamedTypeSpec("Swift.Int") { TypeLabel = null };
         var caseDecl = CreateCaseDecl("statusCodeUnacceptable", new List<TypeSpec> { intSpec }, moduleDecl);
 

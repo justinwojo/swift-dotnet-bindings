@@ -166,7 +166,7 @@ public class SiblingMethodDispatchTests : TestBase
             "Peer dispatch resolves the Peer's own name even after the owner vtable was primed globally");
     }
 
-    // MARK: - Async/sync effect-overload sibling divergence (Kingfisher regression)
+    // MARK: - Async/sync effect-overload sibling divergence
     //
     // SyncRefineModifier refines AsyncRefineModifierBase; both declare refineModify
     // differing only in the `async` effect, so they project to DIFFERENT C# members
@@ -174,8 +174,8 @@ public class SiblingMethodDispatchTests : TestBase
     // receiver sibling-fallback grouping omitted `async`, the two collapsed into one
     // group and the sync receiver fanned out into IAsyncRefineModifierBase emitting
     // `impl.RefineModify(...)` against an interface that only declares
-    // `RefineModifyAsync` -> CS1061 at the compile gate (the Kingfisher validate
-    // regression). The fix carries `async` in the C# fallback grouping ONLY — the Swift
+    // `RefineModifyAsync` -> CS1061 at the compile gate. The fix carries `async` in the
+    // C# fallback grouping ONLY — the Swift
     // owner/peer grouping must still OMIT it, or the async + sync witnesses both emit
     // `func refineModify(_:) -> Int32` on EveryProtocol -> Swift "invalid redeclaration".
     // With the two grouping keys decoupled the sync receiver dispatches `RefineModify`
@@ -270,7 +270,7 @@ internal class SiblingNameOwnerOnlyImpl : ISiblingNameOwner
     public string CollidingTagMethod(int n) => $"name:{n}:{_tag}";
 }
 
-// Sync refinement of an async protocol (Kingfisher shape). ISyncRefineModifier inherits
+// Sync refinement of an async protocol. ISyncRefineModifier inherits
 // IAsyncRefineModifierBase, so the impl must satisfy BOTH the sync `RefineModify` and the
 // inherited async `RefineModifyAsync` — only the sync path is exercised at runtime.
 internal class SyncRefineModifierImpl : ISyncRefineModifier

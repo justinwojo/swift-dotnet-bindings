@@ -9,7 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.ErrorHandling;
 
 /// <summary>
-/// Regression coverage for Issue D.1 (Kingfisher CacheStoreResult tombstone).
+/// Regression coverage for Issue D.1 (Result&lt;(), E&gt; tombstone).
 ///
 /// Swift.Result&lt;(), E&gt; has an empty-tuple Success. Before the fix,
 /// BoundGenericsHandler.HasNonSwiftObjectGenericArg returned true for the
@@ -18,8 +18,8 @@ namespace RuntimeTestsApp.ErrorHandling;
 /// The bypass lets the member through; SwiftResult&lt;TSuccess, TFailure&gt;
 /// has no ISwiftObject constraint, so the projection handles marshalling.
 ///
-/// These tests exercise both the struct-property path (mirrors Kingfisher's
-/// diskCacheResult) and the free-function return path, on both success and
+/// These tests exercise both the struct-property path (a stored Result&lt;(), E&gt;
+/// property) and the free-function return path, on both success and
 /// failure branches.
 /// </summary>
 public class ResultOfVoidTests : TestBase

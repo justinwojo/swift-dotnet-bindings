@@ -6,12 +6,11 @@ import Foundation
 // MARK: - Legacy SwiftClosureData escaping-closure lifetime fixture
 //
 // Supports BindingTests/RuntimeTestsApp/Lifetime/EscapingClosureLifetimeTests.cs.
-// Reproduces the Nuke ImagePipeline.loadData(didReceiveData:) shape — a sync
-// method that takes an `@escaping (Int32) -> Void` closure and stores it for
-// later invocation. Without the `_SBClosureCtx` owner-token plumbing on the
-// legacy SwiftClosureData path, the C# delegate's GCHandle leaks for the
-// lifetime of the process because Swift's release of the stored closure has
-// no notification channel back to managed code.
+// Reproduces the shape where a sync method takes an `@escaping (Int32) -> Void`
+// closure and stores it for later invocation. Without the `_SBClosureCtx`
+// owner-token plumbing on the legacy SwiftClosureData path, the C# delegate's
+// GCHandle leaks for the lifetime of the process because Swift's release of
+// the stored closure has no notification channel back to managed code.
 //
 // The harness exposes `clearStreamingCallback()` so the test can force Swift
 // to release the closure (and therefore the box), then GC + finalize to

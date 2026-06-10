@@ -3,7 +3,7 @@
 
 // MARK: - Constrained-extension protocol default reached through a renamed nested type
 //
-// Reproduces the GRDB `IndexInfo.Origin` regression: a nested struct that inline-conforms
+// Reproduces a nested-struct inline-conformance regression: a nested struct that inline-conforms
 // to a protocol whose required members are provided ONLY by a constrained protocol
 // extension (`extension P where Self: RawRepresentable, Self.RawValue: P { ... }`). The
 // parent struct has a property whose C# name collides with the nested type name, forcing
@@ -20,9 +20,8 @@
 // the gap was strictly in the interface declaration list.
 //
 // NOTE on shape: the where-clause uses the SAME protocol on both sides
-// (`Self.RawValue: ConstrainedDefaulted`), mirroring GRDB's
-// `extension DatabaseValueConvertible where Self: RawRepresentable,
-// Self.RawValue: DatabaseValueConvertible`. Earlier drafts split the where-clause
+// (`Self.RawValue: ConstrainedDefaulted`). The where-clause uses the SAME protocol on both
+// sides, which is the pattern under test. Earlier drafts split the where-clause
 // constraint into a separate `SummaryProvider` protocol, but that caused
 // `EveryProtocol` to conform to two protocols both declaring `summary`, which fires
 // the wrapper-emission sibling-fallback path with `var selfProto: SummaryProvider = self`
@@ -55,7 +54,7 @@ public struct DefaultRawValue: ConstrainedDefaulted, Hashable, Sendable {
 }
 
 /// THE constrained extension under test. Provides BOTH protocol requirements via a
-/// where-clause that ties `Self.RawValue` to the SAME protocol — the GRDB shape.
+/// where-clause that ties `Self.RawValue` to the SAME protocol.
 /// Pre-fix, `ProtocolExtensionDefaultsIndex` skipped this entire extension because
 /// `WhereConstraints.Count > 0`, leaving the validator blind to the defaults.
 extension ConstrainedDefaulted where Self: RawRepresentable, Self.RawValue: ConstrainedDefaulted {
@@ -66,7 +65,7 @@ extension ConstrainedDefaulted where Self: RawRepresentable, Self.RawValue: Cons
 /// Parent type with a property/nested-type name collision. The C# projection of
 /// `let kind: Kind` is the property `Kind`, which clashes with the nested type `Kind`.
 /// The nested-type-collision pre-pass renames the nested TYPE to `KindType` while the
-/// property keeps its name — the same shape GRDB's `IndexInfo.origin: Origin` triggers.
+/// property keeps its name — the property/nested-type name-collision trigger shape.
 @frozen
 public struct ConstraintHost {
     public let kind: Kind
@@ -75,7 +74,7 @@ public struct ConstraintHost {
     /// Nested conformer. It declares ZERO direct members for `ConstrainedDefaulted` —
     /// every requirement is reached through the constrained extension above. RawValue is
     /// `DefaultRawValue` which conforms to `ConstrainedDefaulted`, so the recursive
-    /// where-clause holds.
+    /// where-clause holds. This nested struct declares zero direct members for the protocol.
     @frozen
     public struct Kind: RawRepresentable, ConstrainedDefaulted, Hashable {
         public let rawValue: DefaultRawValue
@@ -91,8 +90,7 @@ public struct ConstraintHost {
     }
 }
 
-/// Generic carrier with a `ConstrainedDefaulted` constraint — analogue of GRDB's
-/// `DatabaseValueCursor<TValue> where TValue : DatabaseValueConvertible`. The C# emission
+/// Generic carrier with a `ConstrainedDefaulted` constraint. The C# emission
 /// preserves the constraint, so any closed instantiation over `ConstraintHost.KindType`
 /// must see the post-rename type declaring `IConstrainedDefaulted`.
 public struct DefaultedCursor<T: ConstrainedDefaulted> {

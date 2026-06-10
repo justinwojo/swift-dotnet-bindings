@@ -115,8 +115,7 @@ public class ConstructorAdmissibilityTests
         // `final class TableAlias<RowDecoder> { init(name:) where RowDecoder == () }` — the `== ()`
         // pin is dropped by GenericSignatureParser (unrepresentable target) but flagged on the
         // parameter. The init is confined to TableAlias<Void>; an open `_SBW_CI_`/GSF wrapper
-        // against the unconstrained type would not compile, so the gate must refuse it (the
-        // GRDB.TableAlias `init(name:) where RowDecoder == ()` regression).
+        // against the unconstrained type would not compile, so the gate must refuse it.
         var parent = GenericClass("TableAlias", GenericParam("RowDecoder")); // unconstrained
         var method = Ctor(ReturnArg(), Param("name", "Swift.Optional<Swift.String>"));
         method.GenericParameters.Add(GenericParam("RowDecoder", concretePin: true));

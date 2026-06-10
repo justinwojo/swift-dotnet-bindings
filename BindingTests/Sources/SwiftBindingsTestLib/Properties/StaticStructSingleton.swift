@@ -3,10 +3,9 @@
 
 import Foundation
 
-// MARK: - Static Struct Singleton (Alamofire URLEncoding.Default pattern)
+// MARK: - Static Struct Singleton
 
 /// Struct with static let properties returning Self.
-/// Real-world pattern: Alamofire URLEncoding.Default, Kingfisher DefaultImageProcessor.Default.
 public struct EncodingConfig {
     public var formatName: String
     public var maxLength: Int32

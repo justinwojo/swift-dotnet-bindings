@@ -677,13 +677,13 @@ public class PInvokeHelperEmitterTests
         // (Swift.Foundation, AnyError) — a runtime struct, not a generated interface.
         // The umbrella-aware emission path must NOT use record.CSharpTypeName.Namespace
         // for these well-known runtime protocols, because there is no
-        // 'Swift.Foundation.IError' interface — only Alamofire-style modules that
-        // declare their own 'Error' protocol provide a usable I-prefixed interface.
-        // Falling back to target.Module ("Swift") so cross-module qualification is
-        // suppressed (NameProvider.GetInterfaceName treats moduleName="Swift" as
-        // the implicit-import path) is what made Alamofire's
+        // 'Swift.Foundation.IError' interface — only modules that declare their own
+        // 'Error' protocol provide a usable I-prefixed interface. Falling back to
+        // target.Module ("Swift") so cross-module qualification is suppressed
+        // (NameProvider.GetInterfaceName treats moduleName="Swift" as the implicit-import
+        // path) is what made the consuming module's
         // 'ProtocolWitnessTable.GetOrThrowAuto<TFailure, IError>()' resolve again.
-        var moduleDecl = CreateModuleDecl("Alamofire");
+        var moduleDecl = CreateModuleDecl("NetClient");
         var classDecl = CreateConstrainedGenericClass(
             moduleDecl,
             "DataResponse",
@@ -707,7 +707,7 @@ public class PInvokeHelperEmitterTests
         // The emission path previously produced "Swift.Foundation.IError"
         // (synthesizing 'I' + Target.Name and qualifying with the remapped C#
         // namespace). The fix produces a bare "IError" instead — the same shape that
-        // Alamofire's own 'public interface IError' satisfies in the consuming module.
+        // The consuming module's own 'public interface IError' satisfies in the consuming module.
         Assert.DoesNotContain("Swift.Foundation", entry.ResolvableInterfaceName);
         Assert.Equal("IError", entry.ResolvableInterfaceName);
     }

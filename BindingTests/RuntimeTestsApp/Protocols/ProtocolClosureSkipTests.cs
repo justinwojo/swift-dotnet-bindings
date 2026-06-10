@@ -9,9 +9,8 @@ using SwiftBindingsTestLib.SwiftInterop;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// C# implementation of IEphemeralKeyProvider — mirrors the Stripe
-/// STPIssuingCardEphemeralKeyProvider shape (non-closure leading param +
-/// trailing escaping closure). The C# impl captures the version and fires the
+/// C# implementation of IEphemeralKeyProvider — non-closure leading param +
+/// trailing escaping closure. The C# impl captures the version and fires the
 /// completion with a derived key so the round trip back through the Swift
 /// trampoline is observable from the EphemeralKeyConsumer harness.
 /// </summary>
@@ -32,7 +31,7 @@ internal class TestEphemeralKeyProvider : IEphemeralKeyProvider
 
 /// <summary>
 /// C# implementation of IRetryingKeyProvider — three-arg shape (two value
-/// params + closure). Locks the gate beyond the two-arg Stripe minimum.
+/// params + closure). Locks the gate for multi-arg closure protocol methods.
 /// </summary>
 internal class TestRetryingKeyProvider : IRetryingKeyProvider
 {
@@ -287,8 +286,7 @@ internal class TestAsyncIntDelegate : IAsyncIntDelegate
 
 /// <summary>
 /// C# implementation of <see cref="IMultiShapeDelegate"/> exercising every supported
-/// closure/property/method shape in one delegate — mirrors the surface of real-world
-/// consumer protocols (Nuke <c>ImagePipelineDelegate</c>, BlinkIDUX <c>CameraModel</c>).
+/// closure/property/method shape in one delegate.
 /// Counters expose every dispatch path so the test can prove the six receivers
 /// reached the real impl rather than a fatalError stub.
 /// </summary>
@@ -388,8 +386,7 @@ internal class TestMultiShapeDelegate : IMultiShapeDelegate
 /// EventDelegate has a closure method (onComplete) that should be skipped,
 /// while non-closure members (didReceiveEvent, delegateName) should be emitted.
 ///
-/// Pattern from Starscream, RxSwift, StripeUICore: protocols mixing
-/// closure and non-closure methods.
+/// Pattern: protocols mixing closure and non-closure methods.
 ///
 /// Verification approach: If the protocol interface is emitted with the
 /// non-closure methods, EventRouter can be constructed and its methods
@@ -1185,9 +1182,8 @@ public class ProtocolClosureSkipTests : TestBase
 
     #region Multi-Shape Composite (regression sentinel)
 
-    // A single delegate composing every supported closure/property/method shape —
-    // mirrors the richness of real consumer protocols (Nuke ImagePipelineDelegate,
-    // BlinkIDUX CameraModel). Every member must dispatch through a real vtable
+    // A single delegate composing every supported closure/property/method shape.
+    // Every member must dispatch through a real vtable
     // receiver, not an `EveryProtocol: closure method` fatalError stub. If any
     // shape regresses to the fatalError path, the corresponding test crashes the
     // Swift frame and surfaces a hard failure here.
@@ -1353,10 +1349,10 @@ public class ProtocolClosureSkipTests : TestBase
 
     #endregion
 
-    #region Multi-Arg Method (Value Param + Closure) — Stripe Shape
+    #region Multi-Arg Method (Value Param + Closure) — Payment-SDK Shape
 
     // Regression for empty proxy vtable slots in multi-arg closure-protocol methods.
-    // STPIssuingCardEphemeralKeyProvider and STPCustomerEphemeralKeyProvider are
+    // IssuingCardEphemeralKeyProvider and CustomerEphemeralKeyProvider are
     // pure-Swift protocols whose only method is
     // `func createKey(withAPIVersion: String, completion: @escaping ...)` — a value
     // param plus a trailing dispatchable closure. Pre-fix the dispatch gate rejected

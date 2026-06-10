@@ -56,7 +56,7 @@ public partial class ProtocolProxyEmitter
             // Common entry-point for receivers to access the user-supplied C# impl across
             // sibling proxy types. Receivers look up by `IProtocolProxyImpl<TInterface>`
             // instead of the specific proxy class, so an inherited-protocol callback
-            // (e.g. KidozInitDelegate inheriting onInitSuccess() from SDKInitDelegate)
+            // (a sub-protocol inheriting a method from its base)
             // reaches the registered child proxy's user impl through covariance.
             {{interfaceName}}? Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>.UserImpl => _csharpImpl;
 
@@ -111,11 +111,11 @@ public partial class ProtocolProxyEmitter
         // wrapper's per-protocol `_p_vtable` module-globals are populated only by the
         // ancestor proxy's static ctor (which calls SetP_vtable). When a child protocol
         // is constructed via `new ChildProxy(impl)` — common for inheritance-only
-        // protocols like `protocol KidozInitDelegate: SDKInitDelegate {}` — only the
+        // protocols like `protocol AdNetworkInitDelegate: SDKInitDelegate {}` — only the
         // child cctor fires; the ancestor cctor never runs and its vtable stays nil.
         // Swift's witness dispatch then forwards inherited requirements through the
         // ancestor's extension body, force-unwrapping the nil function pointer
-        // (Kidoz crash repro: `_sDKInitDelegate_vtable.func_onInitSuccess_0!`).
+        // (@objc:NSObject reverse-dispatch crash repro: `_sDKInitDelegate_vtable.func_onInitSuccess_0!`).
         // RunClassConstructor is idempotent and composes transitively because every
         // ancestor proxy's own InitializeVtable also walks its ancestors.
         EmitAncestorProxyCctorInit(writer, protocolDecl);
@@ -146,7 +146,7 @@ public partial class ProtocolProxyEmitter
         // parent module's), so it must be non-nil before any inherited method
         // can be dispatched on a C# impl of the child interface. Runs even when
         // the child has no own members (empty child inheriting a cross-module
-        // parent — the Kidoz repro's cross-module variant).
+        // parent — the cross-module variant of the issue #40 repro).
         var crossModuleParentsForInit = CollectCrossModuleParents(protocolDecl);
         foreach (var parentDecl in crossModuleParentsForInit)
         {

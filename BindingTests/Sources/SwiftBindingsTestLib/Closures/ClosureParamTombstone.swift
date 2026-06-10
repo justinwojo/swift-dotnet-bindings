@@ -16,8 +16,8 @@
 // the closure parameter projected to `object?` and the body throwing
 // `NotSupportedException`.
 //
-// Reproduces the API-vanish shape seen in Nuke (`DataLoader.init`,
-// `ImageDecoderRegistry.register`, `ImagePipeline.Configuration.makeImageDecoder`).
+// Reproduces the API-vanish shape where members with unsupported closure-of-closure
+// parameters were dropped wholesale from the generated C# surface.
 
 import Foundation
 

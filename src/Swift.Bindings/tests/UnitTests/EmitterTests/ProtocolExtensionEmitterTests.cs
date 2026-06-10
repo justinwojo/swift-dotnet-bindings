@@ -19,7 +19,7 @@ namespace BindingsGeneration.Tests;
 ///     "type is not representable in Objective-C").
 /// (2) Cross-kind @_cdecl symbol collision between MethodWrapperEmitter (running
 ///     over a synthetic protocol-extension MethodDecl) and ProtocolExtensionEmitter
-///     (Kingfisher ImageDownloader.isValidStatusCode shape — swiftc rejects with
+///     (a protocol-extension default whose symbol collides with MethodWrapperEmitter — swiftc rejects with
 ///     "multiple definitions of symbol" at link time).
 /// </summary>
 public class ProtocolExtensionEmitterTests
@@ -66,13 +66,14 @@ public class ProtocolExtensionEmitterTests
     [Fact]
     public void OptionalDoubleParam_WrapperRendersUnsafeRawPointerWithTagByteDecode()
     {
-        // BlinkIDUX.ReticleStateMachineProtocol.calculateRemainingTime(stateDuration: Double? = nil)
-        // shape. Before the fix, RenderSwiftParam fell through ContainsGenericParameters and
-        // emitted bare `Swift.Optional<Swift.Double>` in the @_cdecl wrapper signature; swiftc
-        // rejected with "type is not representable in Objective-C". Wrapper must accept the
-        // payload via UnsafeRawPointer and decode using the tag-byte pattern (the C# side already
-        // ships a SwiftOptional<double> payload via DangerousGetHandle()), matching the proven
-        // pattern in CdeclParamMapper.Map for the same shape.
+        // Optional<Double> protocol-extension parameter shape
+        // (stateDuration: Double? = nil). Before the fix, RenderSwiftParam fell through
+        // ContainsGenericParameters and emitted bare `Swift.Optional<Swift.Double>` in the
+        // @_cdecl wrapper signature; swiftc rejected with "type is not representable in
+        // Objective-C". Wrapper must accept the payload via UnsafeRawPointer and decode using
+        // the tag-byte pattern (the C# side already ships a SwiftOptional<double> payload via
+        // DangerousGetHandle()), matching the proven pattern in CdeclParamMapper.Map for the
+        // same shape.
         var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyHolder", "TestProtocol");
         var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
             CreateExtMethod("remainingTime", "public func remainingTime(stateDuration: Swift.Double?) -> Swift.Double"));
@@ -200,13 +201,13 @@ public class ProtocolExtensionEmitterTests
     [Fact]
     public void OptionalClassParam_ProjectsOntoExistingMethodSignature_NotInjected()
     {
-        // Kingfisher ImageTransformable shape: a protocol-extension default whose param is
-        // Optional<SomeClass> projects to the SAME C# signature as an existing conforming-type
-        // method taking that class — nullable annotations on reference types are erased for C#
-        // overload resolution. The projected-key gate must route BOTH sides through the canonical
-        // builder (IHandler.GetProjectedCSharpMethodKey) so the Optional<class> identity strip
-        // applies symmetrically. The old hand-rolled key kept the trailing '?' on the extension
-        // side only, so the collision slipped past the gate and B15 emitted a spurious second
+        // A protocol-extension default whose param is Optional<SomeClass> projects to the SAME
+        // C# signature as an existing conforming-type method taking that class — nullable
+        // annotations on reference types are erased for C# overload resolution. The
+        // projected-key gate must route BOTH sides through the canonical builder
+        // (IHandler.GetProjectedCSharpMethodKey) so the Optional<class> identity strip applies
+        // symmetrically. The old hand-rolled key kept the trailing '?' on the extension side
+        // only, so the collision slipped past the gate and B15 emitted a spurious second
         // member (Attach2).
         var (moduleDecl, conformingType, typeDatabase) = CreateSetupWithAdditionalClass(
             "TestModule", "MyClass", "TestProtocol", "OtherClass");

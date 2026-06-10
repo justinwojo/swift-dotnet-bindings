@@ -23,55 +23,55 @@ public class ClassInheritanceParserTests
     public void ParseModule_ClassWithSuperclass_ParsesSuperclassUsr()
     {
         var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "DataRequest",
-            mangledName: "$s9Alamofire11DataRequestCN");
-        classNode.superclassUsr = "s:9Alamofire7RequestC";
-        classNode.superclassNames = new[] { "Alamofire.Request" };
+            mangledName: "$s9NetClient11DataRequestCN");
+        classNode.superclassUsr = "s:9NetClient7RequestC";
+        classNode.superclassNames = new[] { "NetClient.Request" };
 
         using var fixture = CreateParserWithNodes(classNode);
         var result = fixture.Parser.ParseModule();
 
         var classDecl = Assert.Single(result.ModuleDecl.Types);
         var cls = Assert.IsType<ClassDecl>(classDecl);
-        Assert.Equal("s:9Alamofire7RequestC", cls.SuperclassUsr);
+        Assert.Equal("s:9NetClient7RequestC", cls.SuperclassUsr);
     }
 
     [Fact]
     public void ParseModule_ClassWithSuperclassChain_ParsesSuperclassNames()
     {
         var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "UploadRequest",
-            mangledName: "$s9Alamofire13UploadRequestCN");
-        classNode.superclassUsr = "s:9Alamofire11DataRequestC";
-        classNode.superclassNames = new[] { "Alamofire.DataRequest", "Alamofire.Request" };
+            mangledName: "$s9NetClient13UploadRequestCN");
+        classNode.superclassUsr = "s:9NetClient11DataRequestC";
+        classNode.superclassNames = new[] { "NetClient.DataRequest", "NetClient.Request" };
 
         using var fixture = CreateParserWithNodes(classNode);
         var result = fixture.Parser.ParseModule();
 
         var cls = (ClassDecl)result.ModuleDecl.Types.Single();
         Assert.Equal(2, cls.SuperclassNames.Count);
-        Assert.Equal("Alamofire.DataRequest", cls.SuperclassNames[0]);
-        Assert.Equal("Alamofire.Request", cls.SuperclassNames[1]);
+        Assert.Equal("NetClient.DataRequest", cls.SuperclassNames[0]);
+        Assert.Equal("NetClient.Request", cls.SuperclassNames[1]);
     }
 
     [Fact]
     public void ParseModule_ClassWithSuperclass_DirectSuperclassNameReturnsFirst()
     {
         var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "UploadRequest",
-            mangledName: "$s9Alamofire13UploadRequestCN");
-        classNode.superclassUsr = "s:9Alamofire11DataRequestC";
-        classNode.superclassNames = new[] { "Alamofire.DataRequest", "Alamofire.Request" };
+            mangledName: "$s9NetClient13UploadRequestCN");
+        classNode.superclassUsr = "s:9NetClient11DataRequestC";
+        classNode.superclassNames = new[] { "NetClient.DataRequest", "NetClient.Request" };
 
         using var fixture = CreateParserWithNodes(classNode);
         var result = fixture.Parser.ParseModule();
 
         var cls = (ClassDecl)result.ModuleDecl.Types.Single();
-        Assert.Equal("Alamofire.DataRequest", cls.DirectSuperclassName);
+        Assert.Equal("NetClient.DataRequest", cls.DirectSuperclassName);
     }
 
     [Fact]
     public void ParseModule_RootClass_HasNullSuperclassUsr()
     {
         var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "Request",
-            mangledName: "$s9Alamofire7RequestCN");
+            mangledName: "$s9NetClient7RequestCN");
         // No superclass fields set
 
         using var fixture = CreateParserWithNodes(classNode);
@@ -87,7 +87,7 @@ public class ClassInheritanceParserTests
     public void ParseModule_ObjCDerivedClass_ParsesObjCUsr()
     {
         var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "SessionDelegate",
-            mangledName: "$s9Alamofire15SessionDelegateCN");
+            mangledName: "$s9NetClient15SessionDelegateCN");
         classNode.superclassUsr = "c:objc(cs)NSObject";
         classNode.superclassNames = new[] { "ObjectiveC.NSObject" };
 

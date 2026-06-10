@@ -54,7 +54,7 @@ public func processKeywordParam(`class` name: String, count: Int32) -> String {
     return "\(name):\(count)"
 }
 
-// MARK: - Enum Cases with Keyword Labels (S1 pattern from Alamofire)
+// MARK: - Enum Cases with Keyword Labels
 // See FilterScope.swift.disabled — the actual enum fixture for this pattern.
 // Disabled because the generator produces invalid compound identifiers (`__@in`).
-// When S1 is fixed, rename FilterScope.swift.disabled → FilterScope.swift.
+// When fixed, rename FilterScope.swift.disabled → FilterScope.swift.

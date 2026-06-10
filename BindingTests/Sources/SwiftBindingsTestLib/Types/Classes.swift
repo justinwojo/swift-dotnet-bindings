@@ -109,10 +109,9 @@ public func createAnimal(name: String, sound: String) -> Animal {
     return Animal(name: name, sound: sound)
 }
 
-// MARK: - Optional Class Constructor (Swinject Container pattern)
+// MARK: - Optional Class Constructor
 
 /// Class with optional parent reference.
-/// Real-world pattern: Swinject Container(parent: nil).
 public class TreeNode {
     public let label: String
     public let parent: TreeNode?
@@ -133,10 +132,9 @@ public class TreeNode {
     }
 }
 
-// MARK: - Multiple Class Singletons (Swinject ObjectScope pattern)
+// MARK: - Multiple Class Singletons
 
 /// Class with multiple static let singleton instances.
-/// Real-world pattern: Swinject ObjectScope.Transient, .Graph, .Container, .Weak.
 public class Scope {
     public let name: String
 
@@ -172,7 +170,7 @@ public class Puppy: Dog {
     }
 }
 
-// MARK: - Y2: Class with No Public Init (SnapKit ConstraintItem pattern)
+// MARK: - Y2: Class with No Public Init
 
 /// Class obtainable only via factory — no public constructors emitted.
 /// Tests @_hasMissingDesignatedInitializers behavior.
@@ -193,7 +191,7 @@ public func createToken(value: String) -> Token {
     return Token(value: value)
 }
 
-// MARK: - Nested Class with Property Name Collision (Kingfisher Animator pattern)
+// MARK: - Nested Class with Property Name Collision
 
 /// Class with a nested class whose name collides with a property name.
 /// When PascalCased, the property `animator` becomes `Animator` — the same as

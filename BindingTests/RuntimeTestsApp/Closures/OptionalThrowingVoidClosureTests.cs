@@ -15,8 +15,8 @@ namespace RuntimeTestsApp.Closures;
 /// non-optional-setter forwarding paths; the wrapper-symbol contract gate then rejected
 /// the throwing-closure callback's P/Invoke, the co-gater stripped the
 /// `[UnmanagedCallersOnly]` callback method, and its dangling `s_&lt;cb&gt;` field plus
-/// call-site produced CS0103 — breaking Alamofire (`Session.upload(…requestModifier:)`)
-/// and YouTubePlayerKit (`init(htmlProvider:)` + the `HtmlProvider` setter) at the compile
+/// call-site produced CS0103 — failing to compile optional throwing closure parameters like
+/// `Session.upload(…requestModifier:)` and `init(htmlProvider:)` (with `HtmlProvider` setter) at the compile
 /// gate. The compile gate alone proves the regression is fixed; these runtime tests
 /// additionally exercise the value round-trip.
 ///
@@ -28,7 +28,7 @@ namespace RuntimeTestsApp.Closures;
 /// on BOTH simulator and device.
 ///
 /// The ONE remaining simulator skip is <see cref="TestHolder_SetValidator_DelegateThrows_GracefulFault"/>:
-/// the NON-optional `Validator` setter is the YouTubePlayerKit `HtmlProvider` bypass site that
+/// the NON-optional `Validator` setter is the video-player library `HtmlProvider` bypass site that
 /// emits a genuine CallConvSwift P/Invoke (`$s…OptionalThrowingModifierHolderC9validatoryyKcvs`,
 /// `SwiftSelf` self, `delegate* unmanaged[Swift]` callback) instead of routing through the
 /// `@_cdecl` wrapper — so it is the only path here with a CallConvSwift frame. The durable fix is
@@ -42,7 +42,7 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     public void TestRunWithOptionalModifier_Nil_ReturnsFalse()
     {
-        // Alamofire shape: free function with an optional throwing-void closure param
+        // Free function with an optional throwing-void closure param
         // defaulting to nil. Passing null exercises the binding without invoking a callback,
         // so this is the durable runtime witness that the regression's binding compiles and
         // is callable on every platform. Swift returns false for the nil branch.
@@ -54,7 +54,7 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     public void TestHolderDefaultCtor_RunValidator_ReturnsTrue()
     {
-        // YTPK init shape with both parameters defaulted: the non-optional `validator`
+        // Video-player library init shape with both parameters defaulted: the non-optional `validator`
         // resolves to the Swift default closure `{ }` (the default-parameter shim bypass
         // site), and `modifier` defaults to nil. RunValidator invokes the *Swift* default
         // closure — no managed callback — so it round-trips on simulator and device.
@@ -66,8 +66,8 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     public void TestHolderDefaultCtor_RunStoredModifier_NilReturnsFalse()
     {
-        // Initializer with the optional throwing-void closure defaulted to nil (the YTPK
-        // `init(htmlProvider:)` _optbuf path). The stored modifier is nil, so RunStoredModifier
+        // Initializer with the optional throwing-void closure defaulted to nil (the video-player
+        // library `init(htmlProvider:)` _optbuf path). The stored modifier is nil, so RunStoredModifier
         // takes the nil branch without invoking a callback — safe everywhere.
         var holder = new OptionalThrowingModifierHolder();
         var result = holder.RunStoredModifier(7);
@@ -81,7 +81,7 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     public void TestRunWithOptionalModifier_Success()
     {
-        // Alamofire shape with a supplied closure that cooperatively succeeds. Exercises the
+        // A supplied optional throwing-void closure that cooperatively succeeds. Exercises the
         // throwing-closure callback whose catch block would mint via SBW_CreateError — the
         // exact wrapper symbol the regression left unregistered.
         var result = TestLibFunctions.RunWithOptionalModifier(
@@ -92,7 +92,7 @@ public class OptionalThrowingVoidClosureTests : TestBase
 
     public void TestHolder_InitModifier_Success()
     {
-        // YTPK `init(htmlProvider:)` shape: an optional throwing-void closure supplied at
+        // Video-player library `init(htmlProvider:)` shape: an optional throwing-void closure supplied at
         // construction (the _optbuf forward path), then invoked from Swift via RunStoredModifier.
         var holder = new OptionalThrowingModifierHolder(
             () => Swift.SwiftResult<Swift.SwiftVoid, SwiftError>.FromSuccess(Swift.SwiftVoid.Value),
@@ -227,7 +227,7 @@ public class OptionalThrowingVoidClosureTests : TestBase
     [SkipOnMonoJit("upstream Issue 1 (!ji->async, jit-info.c:918) — the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator + Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs")]
     public void TestHolder_SetValidator_DelegateThrows_GracefulFault()
     {
-        // Settable NON-OPTIONAL throwing-void closure property — the YTPK `HtmlProvider`
+        // Settable NON-OPTIONAL throwing-void closure property — the video-player library `HtmlProvider`
         // setter bypass site. A throwing managed delegate must mint a Swift error rather than
         // abort the process; Swift's catch yields the sentinel false.
         var holder = new OptionalThrowingModifierHolder();

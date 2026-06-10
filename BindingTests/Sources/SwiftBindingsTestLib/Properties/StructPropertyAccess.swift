@@ -6,7 +6,7 @@ import Foundation
 // MARK: - Struct Property Access Tests (R1 regression)
 
 /// Non-frozen struct with properties — tests repeated access patterns.
-/// Exercises the Nuke crash where accessing struct-typed properties on
+/// Exercises the R1 regression where accessing struct-typed properties on
 /// cached objects causes silent memory corruption or leaks.
 public struct InnerData {
     public var value: Int32
@@ -29,7 +29,7 @@ public class DataContainer {
     /// Repeated access to this property should not leak or crash.
     public var data: InnerData { _data }
 
-    /// Second access exercises the cache-hit path (Nuke pattern).
+    /// Second access exercises the lazy-cache-hit path (populate on first read, return cached on second).
     private var _cached: InnerData?
     public var cachedData: InnerData {
         if let c = _cached { return c }

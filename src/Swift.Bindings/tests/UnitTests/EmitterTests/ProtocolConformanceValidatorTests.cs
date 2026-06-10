@@ -919,9 +919,8 @@ public class ProtocolConformanceValidatorTests
     [Fact]
     public void CanFullyImplementProtocol_MissingProperty_AcceptedWhenPhantomDefaultExists()
     {
-        // Models the Lottie AnyValueProvider pattern: protocol requires typeErasedStorage,
-        // but FloatValueProvider doesn't have it. A phantom default (from PAT extension)
-        // should allow the conformance.
+        // Protocol requires typeErasedStorage but a concrete type omits it;
+        // a phantom default from a PAT extension should satisfy the conformance.
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.Provider");
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -2199,12 +2198,12 @@ public class ProtocolConformanceValidatorTests
         var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
 
         // Concrete type that conforms to both protocols but only has interpolate (2-param), not _interpolate (4-param)
-        var concreteType = CreateStructDecl("LottieVector3D", moduleDecl);
+        var concreteType = CreateStructDecl("VectorAnimationVector3D", moduleDecl);
         concreteType.Conformances = new List<TypeConformance>
         {
-            new(SwiftTypeName.FromModuleQualifiedName("TestModule.LottieVector3D"),
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationVector3D"),
                 SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"), ""),
-            new(SwiftTypeName.FromModuleQualifiedName("TestModule.LottieVector3D"),
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationVector3D"),
                 SwiftTypeName.FromModuleQualifiedName("TestModule.Interpolatable"), "")
         };
 
@@ -2226,7 +2225,7 @@ public class ProtocolConformanceValidatorTests
         var protocolDecl = CreateProtocolWithVoidMethod("AnyInterpolatable", "_interpolate", moduleDecl);
         moduleDecl.Protocols.Add(protocolDecl);
 
-        var concreteType = CreateStructDecl("LottieVector3D", moduleDecl);
+        var concreteType = CreateStructDecl("VectorAnimationVector3D", moduleDecl);
 
         // No extension defaults index
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);

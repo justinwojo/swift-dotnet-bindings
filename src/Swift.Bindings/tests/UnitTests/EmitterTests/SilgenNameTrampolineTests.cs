@@ -200,9 +200,9 @@ public class SilgenNameTrampolineTests
     public void IsNonPrimitiveFrozenStructParam_FrozenStruct_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
-            ("TestModule.LottieColor", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+            ("TestModule.VectorAnimationColor", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
 
-        var arg = CreateArgument("color", new NamedTypeSpec("TestModule.LottieColor"));
+        var arg = CreateArgument("color", new NamedTypeSpec("TestModule.VectorAnimationColor"));
 
         Assert.True(MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, typeDb));
     }
@@ -256,7 +256,7 @@ public class SilgenNameTrampolineTests
     [Fact]
     public void IsNonPrimitiveFrozenStructParam_CustomFrozenStruct_ReturnsTrue()
     {
-        // Custom frozen structs (LottieColor, etc.) must still be blocked —
+        // Custom frozen structs must still be blocked —
         // they trigger "Swift structs cannot be represented in Objective-C" at wrapper compilation.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.CustomColor", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
@@ -553,7 +553,7 @@ public class SilgenNameTrampolineTests
 
         // Actor parent with async instance method → routed through @_cdecl async wrapper.
         // Task { await self.method() } hops to the actor's executor automatically,
-        // unblocking SB0001 fallbacks for sync-on-actor APIs like BlinkID's actor types.
+        // unblocking SB0001 fallbacks for sync-on-actor APIs on custom-actor-isolated types.
         Assert.Contains("@_cdecl", swiftOutput);
         Assert.DoesNotContain("@_silgen_name", swiftOutput);
     }

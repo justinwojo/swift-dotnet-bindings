@@ -370,8 +370,6 @@ public class AsyncThrowingClosureTests : TestBase
 
     /// <summary>
     /// Arity-2: closure receives (Int32, String), returns a String.
-    /// Shape matches PaymentSheet.IntentConfiguration confirm handlers — the
-    /// exact pattern that needed to unblock for StripePaymentSheet.
     /// </summary>
     public async Task TestStringReturnClosureArity2()
     {

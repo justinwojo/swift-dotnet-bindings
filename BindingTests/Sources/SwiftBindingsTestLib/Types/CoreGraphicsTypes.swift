@@ -94,8 +94,7 @@ public func maybeColor(_ withColor: Bool) -> CGColor? {
     return withColor ? CGColor(srgbRed: 0.0, green: 1.0, blue: 0.0, alpha: 1.0) : nil
 }
 
-/// Returns a 1x1 `CGImage` drawn into an in-memory bitmap context. Mirrors the
-/// Lottie `BundleImageProvider.imageForAsset` shape — the consumer-facing
+/// Returns a 1x1 `CGImage` drawn into an in-memory bitmap context. The consumer-facing
 /// return type must be `CoreGraphics.CGImage?`, not `System.IntPtr?`.
 public func makeOnePixelImage() -> CGImage? {
     let colorSpace = CGColorSpaceCreateDeviceRGB()

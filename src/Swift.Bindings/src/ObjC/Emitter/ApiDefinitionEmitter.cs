@@ -63,7 +63,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("}");
 
         // Post-process: for [Model] delegate protocols, the type mapper emits I-prefixed references
-        // (e.g., IFIRMessagingDelegate) but [Protocol, Model] interfaces use bare names.
+        // but [Protocol, Model] interfaces use bare names.
         // bgen generates both IFoo (interface) and Foo (class), so references should use the bare
         // name (class type) for [Model] protocols to match the Xamarin convention.
         var result = sb.ToString();

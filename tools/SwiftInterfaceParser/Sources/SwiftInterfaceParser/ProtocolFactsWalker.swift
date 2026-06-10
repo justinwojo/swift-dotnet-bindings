@@ -83,7 +83,7 @@ final class ProtocolFactsWalker: SyntaxVisitor {
         self.aliasRegexes = aliases.compactMap { name in
             // Word-boundary match for the alias name. NSRegularExpression's `\b`
             // treats `.` as a non-word char so `\bFTS5TokenCallback\b` matches
-            // inside `GRDB.FTS5TokenCallback`.
+            // inside `SomeModule.FTS5TokenCallback`.
             guard let r = try? NSRegularExpression(
                 pattern: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b",
                 options: []) else { return nil }

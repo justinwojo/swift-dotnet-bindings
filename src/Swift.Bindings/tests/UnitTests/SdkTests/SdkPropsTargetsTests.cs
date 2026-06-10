@@ -831,7 +831,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Targets_CompileSwiftWrapper_FiltersObjCProjectReferences()
         {
-            // ObjC ProjectReferences (e.g. BlinkID.ObjC.iOS.csproj) don't have
+            // ObjC ProjectReferences (e.g. Foo.ObjC.iOS.csproj) don't have
             // GetSwiftFrameworkSearchPaths target, causing MSB4057 errors.
             // Fix: filter into _SwiftBindingProjectReference excluding .ObjC. items.
             var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
@@ -852,8 +852,8 @@ namespace BindingsGeneration.Tests
         public void Targets_CompileSwiftWrapper_IncludesBothResolvedAndExplicitDeps()
         {
             // Both _ResolvedDepXCFramework (from ProjectReference) and SwiftFrameworkDependency
-            // (explicit) are always included. Non-binding frameworks (e.g., Stripe3DS2) have no
-            // ProjectReference but still need -F search paths for wrapper compilation.
+            // (explicit) are always included. Non-binding frameworks have no ProjectReference
+            // but still need -F search paths for wrapper compilation.
             // Duplicate modules are handled by the generator (skip, not error).
             var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
             var targetEnd = TargetsContent.IndexOf("</Target>", targetStart, StringComparison.Ordinal);

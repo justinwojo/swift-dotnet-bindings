@@ -17,9 +17,8 @@ namespace BindingsGeneration.Tests;
 /// nested types are passed to the supplied recurse callback. Emission-context
 /// nesting-stack behavior is not asserted here.
 ///
-/// Downstream consumers (CryptoKit, Nuke, BlinkID) write `using Module.Facade;`
-/// against this shape, so a regression to `static partial class` would silently
-/// break their compile.
+/// Downstream consumers write `using Module.Facade;` against this shape, so a regression
+/// to `static partial class` would silently break their compile.
 /// </summary>
 public class NamespaceFacadeEmitterTests
 {
@@ -29,22 +28,21 @@ public class NamespaceFacadeEmitterTests
     public void Emit_StructFacade_WritesNamespaceBlock()
     {
         var nested = CreateNestedStruct("Inner");
-        var facade = CreateStruct("BlinkIDSDK", nestedTypes: new[] { nested });
+        var facade = CreateStruct("DocScanSDK", nestedTypes: new[] { nested });
 
         var output = EmitToString(facade);
 
-        Assert.Contains("namespace BlinkIDSDK", output);
-        Assert.DoesNotContain("static partial class BlinkIDSDK", output);
-        Assert.DoesNotContain("partial class BlinkIDSDK", output);
+        Assert.Contains("namespace DocScanSDK", output);
+        Assert.DoesNotContain("static partial class DocScanSDK", output);
+        Assert.DoesNotContain("partial class DocScanSDK", output);
     }
 
     [Fact]
     public void Emit_EnumFacade_WritesNamespaceBlock()
     {
         // Caseless enum with nested types is the canonical Swift
-        // "uninhabited enum as namespace" idiom (HPKE, AES, Insecure in
-        // CryptoKit; ImageProcessors / ImageDecoders in Nuke). Emit as a
-        // real C# namespace, never `static partial class`.
+        // "uninhabited enum as namespace" idiom (e.g. HPKE, AES, Insecure in CryptoKit).
+        // Emit as a real C# namespace, never `static partial class`.
         var nested = CreateNestedStruct("Inner");
         var facade = CreateEnum("HPKE", nestedTypes: new[] { nested });
 

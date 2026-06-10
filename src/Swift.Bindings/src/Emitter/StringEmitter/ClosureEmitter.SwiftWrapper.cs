@@ -768,8 +768,7 @@ public static partial class ClosureEmitter
         // a C function pointer — the C# side receives a borrowed pointer and has no way to
         // signal mutation back. Reject early so higher-level gates fall back to the
         // non-Cdecl path (which may or may not support inout, but at least won't mis-compile).
-        // Surfaces e.g. `Nuke.ImagePipeline.init(delegate:_:)` whose trailing closure is
-        // `(inout ImagePipeline.Configuration) -> Void`.
+        // Surfaces on methods whose trailing closure is `(inout T) -> Void`.
         if (typeSpec.IsInOut)
             return false;
 

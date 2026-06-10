@@ -9,11 +9,9 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Patterns;
 
 /// <summary>
-/// Tests the Nuke ImagePipeline.Cache pattern:
-/// - Nested class with CRUD-like methods (store, retrieve, remove, contains)
-/// - Optional return values from cache query methods
-/// - Bool-returning containment check
-/// - Pipeline singleton with cache property access
+/// Tests a pipeline class with a nested Cache class: CRUD-like methods (store,
+/// retrieve, remove, contains), optional return values from cache query methods,
+/// a Bool-returning containment check, and a pipeline singleton with cache property access.
 ///
 /// Exercises N6 (Pipeline.Cache methods verification) from the library parity roadmap.
 /// </summary>

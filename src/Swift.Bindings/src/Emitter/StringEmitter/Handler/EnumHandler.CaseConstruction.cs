@@ -36,8 +36,7 @@ namespace BindingsGeneration
                 // NamedTypeSpec whose resolved name has AnyType embedded in its generic args
                 // (the StoreKit2 nested-type bug: "VerificationResult.VerificationError<Swift.AnyType>" —
                 // outer-generic-args mis-placed onto inner nested type, a pre-existing emitter bug).
-                // Plain tuple elements that resolve directly to AnyType (Lottie's "(Int, UnknownType)"
-                // pattern) are still emittable: the per-element factory body uses
+                // Plain tuple elements that resolve directly to AnyType (e.g. "(Int, UnknownType)") are still emittable: the per-element factory body uses
                 // value0.ItemN.Payload.DangerousGetHandle(), which compiles since Swift.AnyType has a Payload.
                 if (HasUnsupportedAnyTypeInPayload(typeSpec, csharpType, typeDatabase, boundGenericsHandler, enumGenericParams, moduleDecl))
                 {
@@ -149,8 +148,7 @@ namespace BindingsGeneration
 
             // Mirror Swift @available on the case onto the C# factory method —
             // matches SimpleEnum's per-case emission. Without this, deprecated /
-            // platform-restricted enum cases (Family-F-3: 9 LottiePlaybackMode
-            // cases marked @available(*, deprecated)) lower to factory methods
+            // platform-restricted enum cases lower to factory methods
             // with no [Obsolete] / [SupportedOSPlatform] guard.
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
                 csWriter, caseDecl, parentDecl: enumDecl, emitObsolete: true);
@@ -1107,8 +1105,7 @@ namespace BindingsGeneration
         ///     (opaque value has no marshallable factory shape), and
         /// (2) a tuple element is a bound generic whose resolved name has AnyType
         ///     embedded in a generic-arg position.
-        /// Plain tuple elements that resolve directly to AnyType (e.g. Lottie's
-        /// <c>(Int, UnknownType)</c>) stay emittable — <c>Swift.AnyType</c> has a
+        /// Plain tuple elements that resolve directly to AnyType (e.g. <c>(Int, UnknownType)</c>) stay emittable — <c>Swift.AnyType</c> has a
         /// <c>.Payload</c> property and the per-element factory body compiles.
         /// </summary>
         private static bool HasUnsupportedAnyTypeInPayload(TypeSpec typeSpec, string csharpType,

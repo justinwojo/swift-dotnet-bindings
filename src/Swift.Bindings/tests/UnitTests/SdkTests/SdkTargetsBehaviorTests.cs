@@ -97,13 +97,13 @@ namespace BindingsGeneration.Tests
         public void FindTypeD_DiscoversXCFrameworkDirectory()
         {
             // Create a directory bundle (what xcframeworks actually are)
-            var xcfwDir = Path.Combine(_tempDir, "Nuke.xcframework");
+            var xcfwDir = Path.Combine(_tempDir, "ImagePipeline.xcframework");
             Directory.CreateDirectory(xcfwDir);
 
             var result = RunFind(_tempDir);
 
             Assert.Equal(0, result.ExitCode);
-            Assert.Contains("Nuke.xcframework", result.StdOut);
+            Assert.Contains("ImagePipeline.xcframework", result.StdOut);
         }
 
         [Fact]
@@ -158,8 +158,8 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void FindTypeD_DiscoversMultipleXCFrameworks()
         {
-            Directory.CreateDirectory(Path.Combine(_tempDir, "Nuke.xcframework"));
-            Directory.CreateDirectory(Path.Combine(_tempDir, "Lottie.xcframework"));
+            Directory.CreateDirectory(Path.Combine(_tempDir, "ImagePipeline.xcframework"));
+            Directory.CreateDirectory(Path.Combine(_tempDir, "VectorAnimation.xcframework"));
             Directory.CreateDirectory(Path.Combine(_tempDir, "NotAnXCFW")); // should not match
 
             var result = RunFind(_tempDir);
@@ -167,8 +167,8 @@ namespace BindingsGeneration.Tests
 
             Assert.Equal(0, result.ExitCode);
             Assert.Equal(2, lines.Length);
-            Assert.Contains(lines, l => l.Contains("Nuke.xcframework"));
-            Assert.Contains(lines, l => l.Contains("Lottie.xcframework"));
+            Assert.Contains(lines, l => l.Contains("ImagePipeline.xcframework"));
+            Assert.Contains(lines, l => l.Contains("VectorAnimation.xcframework"));
         }
 
         // ── IntermediateOutputPath resolution ──
@@ -369,15 +369,15 @@ namespace BindingsGeneration.Tests
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
             // Create a "dependency" sibling project directory
-            var siblingDir = Path.Combine(_tempDir, "StripeCore.Swift.iOS");
+            var siblingDir = Path.Combine(_tempDir, "PaymentSdkCore.Swift.iOS");
             Directory.CreateDirectory(siblingDir);
-            File.WriteAllText(Path.Combine(siblingDir, "StripeCore.Swift.iOS.csproj"),
+            File.WriteAllText(Path.Combine(siblingDir, "PaymentSdkCore.Swift.iOS.csproj"),
                 "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
 
             // Create fake xcframework inside a "binding project" directory
-            var bindingDir = Path.Combine(_tempDir, "StripePaymentSheet.Swift.iOS");
+            var bindingDir = Path.Combine(_tempDir, "PaymentSdkSheet.Swift.iOS");
             Directory.CreateDirectory(bindingDir);
-            var fakeXcfw = Path.Combine(bindingDir, "StripePaymentSheet.xcframework");
+            var fakeXcfw = Path.Combine(bindingDir, "PaymentSdkSheet.xcframework");
             Directory.CreateDirectory(fakeXcfw);
 
             // Create binding-metadata.props with dependency pointing near the sibling
@@ -385,17 +385,17 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(intermediateDir);
 
             // The xcframework path is inside bindingDir, so grandparent is _tempDir,
-            // and peer subdirectory search will find _tempDir/StripeCore.Swift.iOS/StripeCore.Swift.iOS.csproj
-            var depsValue = $"StripeCore|StripeCore.Swift.iOS|25.6.2|{fakeXcfw}";
+            // and peer subdirectory search will find _tempDir/PaymentSdkCore.Swift.iOS/PaymentSdkCore.Swift.iOS.csproj
+            var depsValue = $"PaymentSdkCore|PaymentSdkCore.Swift.iOS|25.6.2|{fakeXcfw}";
             var metadataProps = $"""
                 <Project>
                   <PropertyGroup>
                     <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
                     <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
-                    <_SwiftBindingModuleName>StripePaymentSheet</_SwiftBindingModuleName>
+                    <_SwiftBindingModuleName>PaymentSdkSheet</_SwiftBindingModuleName>
                     <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
                     <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
-                    <_SwiftBindingWrapperModuleName>StripePaymentSheetSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperModuleName>PaymentSdkSheetSwiftBindings</_SwiftBindingWrapperModuleName>
                     <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
                     <_SwiftBindingDependencies>{depsValue}</_SwiftBindingDependencies>
                   </PropertyGroup>
@@ -440,7 +440,7 @@ namespace BindingsGeneration.Tests
                 $"_ResolveSwiftAutoDetectedDependencies test failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
 
             var output = result.StdOut + "\n" + result.StdErr;
-            Assert.Contains("StripeCore.Swift.iOS.csproj", output);
+            Assert.Contains("PaymentSdkCore.Swift.iOS.csproj", output);
         }
 
         // ── Multi-framework first-build ordering (Gap #7): _BuildSiblingSwiftBindingDeps
@@ -599,11 +599,11 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void CompileSwiftUIBridge_IncludesFrameworkDependencyAlongsideProjectRefDep()
         {
-            // A bare SwiftFrameworkDependency (a framework with no binding project, e.g. Stripe3DS2)
-            // must still reach the bridge compile even when a ProjectReference dep
-            // (_ResolvedDepXCFramework) is ALSO present. Previously it was dropped whenever
-            // _ResolvedDepXCFramework was non-empty, failing bridge compilation (SWIFTBIND052) so
-            // bridge views threw DllNotFound. The bridge now mirrors _CompileSwiftWrapper exactly.
+            // A bare SwiftFrameworkDependency (a framework with no binding project) must still
+            // reach the bridge compile even when a ProjectReference dep (_ResolvedDepXCFramework)
+            // is ALSO present. Previously it was dropped whenever _ResolvedDepXCFramework was
+            // non-empty, failing bridge compilation (SWIFTBIND052) so bridge views threw
+            // DllNotFound. The bridge now mirrors _CompileSwiftWrapper exactly.
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             var stubDir = StubGeneratorDir.Value;
             SkipUnless(stubDir != null, "Could not build stub generator DLL");
@@ -630,7 +630,7 @@ namespace BindingsGeneration.Tests
                 "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
 
             var resolvedDep = Path.Combine(_tempDir, "ResolvedSibling.xcframework");
-            var explicitDep = Path.Combine(_tempDir, "Stripe3DS2.xcframework");
+            var explicitDep = Path.Combine(_tempDir, "PaymentSdk3DS2.xcframework");
 
             // _ResolvedDepXCFramework is normally produced by _CompileSwiftWrapper; inject it
             // directly since we invoke the bridge target in isolation. SwiftFrameworkDependency is
@@ -670,12 +670,12 @@ namespace BindingsGeneration.Tests
             Assert.Contains("--compile-bridge-only", output);
             // Both deps must be on the bridge -F path simultaneously.
             Assert.Contains("ResolvedSibling.xcframework", output);
-            Assert.Contains("Stripe3DS2.xcframework", output);
+            Assert.Contains("PaymentSdk3DS2.xcframework", output);
         }
 
         // ── Author-declared SwiftLinkFramework/SwiftLinkLibrary must reach the WRAPPER compile
         //    (the pass that actually links), so a force-loaded static-archive source that depends
-        //    on an autolink-hint-free system framework (Kidoz/MediaPipe shape) resolves. ──
+        //    on an autolink-hint-free system framework (static-archive-no-autolink shape) resolves. ──
 
         [Fact]
         public void CompileSwiftWrapper_ForwardsLinkFrameworkAndLibraryToGenerator()
@@ -1813,8 +1813,7 @@ namespace BindingsGeneration.Tests
         // (SwiftBindings.Runtime, the SDK-injected Microsoft.NET.ILLink.Tasks). The
         // resulting nuspec / dgspec then declares the wrong version range for those deps,
         // surfacing downstream as NU1605 package-downgrade restore failures (e.g. the
-        // SwiftWrapperRequired=false libraries in swift-dotnet-packages: BlinkID, BlinkIDUX,
-        // and the eleven cross-referencing Stripe.* packages all hit this once the
+        // SwiftWrapperRequired=false libraries hit this once the
         // generator's binding-metadata.props existed on disk from a prior build).
         //
         // The fix is the per-item `Condition="'%(Identity)' == 'SwiftBindings.Apple'"` on

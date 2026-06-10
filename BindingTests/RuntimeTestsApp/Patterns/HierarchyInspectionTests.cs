@@ -9,7 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Patterns;
 
 /// <summary>
-/// Tests the Lottie animation hierarchy inspection pattern:
+/// Tests the animation hierarchy inspection pattern:
 /// - allKeypaths() returning string array
 /// - Point/rect coordinate conversion with optional returns
 /// - Node enable/disable by keypath

@@ -19,8 +19,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                EmitTargets(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.True(File.Exists(Path.Combine(dir, "Nuke.Swift.iOS.targets")));
+                EmitTargets(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
+                Assert.True(File.Exists(Path.Combine(dir, "ImagePipeline.Swift.iOS.targets")));
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -31,8 +31,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("Nuke.xcframework", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("ImagePipeline.xcframework", content);
                 Assert.Contains("<Kind>Framework</Kind>", content);
             }
             finally { Directory.Delete(dir, true); }
@@ -44,8 +44,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.Contains("NukeSwiftBindings.xcframework", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
+                Assert.Contains("ImagePipelineSwiftBindings.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -56,8 +56,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.DoesNotContain("NukeSwiftBindings.xcframework", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.DoesNotContain("ImagePipelineSwiftBindings.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -81,9 +81,9 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("_SwiftBinding_Nuke_Injected", content);
-                Assert.Contains("Condition=\"'$(_SwiftBinding_Nuke_Injected)' != 'true'\"", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("_SwiftBinding_ImagePipeline_Injected", content);
+                Assert.Contains("Condition=\"'$(_SwiftBinding_ImagePipeline_Injected)' != 'true'\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -94,9 +94,9 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("<SwiftBindingFramework Include=\"Nuke\">", content);
-                Assert.Contains("<SourcePackage>Nuke.Swift.iOS</SourcePackage>", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("<SwiftBindingFramework Include=\"ImagePipeline\">", content);
+                Assert.Contains("<SourcePackage>ImagePipeline.Swift.iOS</SourcePackage>", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -107,7 +107,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 Assert.Contains("SWIFTBIND011", content);
                 Assert.Contains("System.Version", content);
             }
@@ -120,7 +120,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "BlinkID", "BlinkID.Swift.iOS", "16.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "DocScan", "DocScan.Swift.iOS", "16.0", hasWrapper: false);
                 Assert.Contains("16.0", content);
                 Assert.Contains("requires iOS 16.0+", content);
             }
@@ -133,7 +133,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 Assert.Contains("BeforeTargets=\"ResolveNativeReferences\"", content);
                 Assert.Contains("BeforeTargets=\"Build\"", content);
             }
@@ -146,7 +146,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: true);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
                 Assert.Contains("$(MSBuildThisFileDirectory)", content);
                 Assert.Contains("../../runtimes/ios-arm64/native/", content);
             }
@@ -159,7 +159,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 // Must use CompareTo(...) < 0 (numeric), NOT < between Version objects (lexicographic)
                 Assert.Contains(".CompareTo(", content);
                 Assert.Contains("&lt; 0", content);
@@ -221,7 +221,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void SanitizeModuleName_SimpleNameUnchanged()
         {
-            Assert.Equal("Nuke", ConsumerTargetsEmitter.SanitizeModuleName("Nuke"));
+            Assert.Equal("ImagePipeline", ConsumerTargetsEmitter.SanitizeModuleName("ImagePipeline"));
         }
 
         [Fact]
@@ -255,7 +255,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 Assert.Contains("SwiftBindingsInteropMode", content);
                 Assert.Contains("Auto", content);
             }
@@ -268,7 +268,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 Assert.Contains("$(PublishAot)", content);
                 Assert.Contains("'true'", content);
             }
@@ -281,7 +281,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 Assert.Contains("SB0001", content);
                 Assert.Contains("<NoWarn>$(NoWarn);SB0001</NoWarn>", content);
             }
@@ -294,7 +294,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 // SB0002 (missing symbol) should never be suppressed — always relevant regardless of runtime
                 Assert.DoesNotContain("SB0002", content);
             }
@@ -307,7 +307,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 Assert.Contains("'$(SwiftBindingsInteropMode)' == 'Direct'", content);
             }
             finally { Directory.Delete(dir, true); }
@@ -319,7 +319,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 // Second PropertyGroup: when still Auto (PublishAot != true), resolves to Safe
                 Assert.Contains("'$(SwiftBindingsInteropMode)' == 'Auto'", content);
                 Assert.Contains(">Safe<", content);
@@ -344,8 +344,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')\"", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -356,8 +356,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/NukeSwiftBindings.xcframework')\"", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipelineSwiftBindings.xcframework')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -381,8 +381,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "BlinkID", "BlinkID.Swift.iOS", "16.0", hasWrapper: false);
-                Assert.Contains("BlinkID.xcframework", content);
+                var content = EmitAndRead(dir, "DocScan", "DocScan.Swift.iOS", "16.0", hasWrapper: false);
+                Assert.Contains("DocScan.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -393,8 +393,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Lottie", "Lottie.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.Contains("LottieSwiftBindings.xcframework", content);
+                var content = EmitAndRead(dir, "VectorAnimation", "VectorAnimation.Swift.iOS", "15.0", hasWrapper: true);
+                Assert.Contains("VectorAnimationSwiftBindings.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -416,7 +416,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
                 Assert.Contains("<SwiftModuleDatabase Include=", content);
             }
             finally { Directory.Delete(dir, true); }
@@ -428,8 +428,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("<ModuleName>Nuke</ModuleName>", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("<ModuleName>ImagePipeline</ModuleName>", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -440,8 +440,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("<SourcePackage>Nuke.Swift.iOS</SourcePackage>", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("<SourcePackage>ImagePipeline.Swift.iOS</SourcePackage>", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -452,8 +452,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)NukeDatabase.xml')\"", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)ImagePipelineDatabase.xml')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -464,8 +464,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("NukeDatabase.xml", content);
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("ImagePipelineDatabase.xml", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -487,9 +487,9 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0",
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0",
                     hasWrapper: true, hasBridge: true);
-                Assert.Contains("NukeBridge.xcframework", content);
+                Assert.Contains("ImagePipelineBridge.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -500,9 +500,9 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0",
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0",
                     hasWrapper: true, hasBridge: false);
-                Assert.DoesNotContain("NukeBridge.xcframework", content);
+                Assert.DoesNotContain("ImagePipelineBridge.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -513,10 +513,10 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Lottie", "Lottie.Swift.iOS", "15.0",
+                var content = EmitAndRead(dir, "VectorAnimation", "VectorAnimation.Swift.iOS", "15.0",
                     hasWrapper: true, hasBridge: true);
-                Assert.Contains("LottieSwiftBindings.xcframework", content);
-                Assert.Contains("LottieBridge.xcframework", content);
+                Assert.Contains("VectorAnimationSwiftBindings.xcframework", content);
+                Assert.Contains("VectorAnimationBridge.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -530,16 +530,16 @@ namespace BindingsGeneration.Tests
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = dir,
-                    ModuleName = "Nuke",
-                    PackageId = "Nuke.Swift.iOS",
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
                     EffectiveMinimumOSVersion = "15.0",
                     HasWrapperXCFramework = true,
                     HasBridgeXCFramework = true,
                 }, NullLogger.Instance);
 
                 var localContent = File.ReadAllText(
-                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
-                Assert.Contains("NukeBridge.xcframework", localContent);
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
+                Assert.Contains("ImagePipelineBridge.xcframework", localContent);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -554,12 +554,12 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0",
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0",
                     hasWrapper: true, hasBridge: true);
-                Assert.Contains("NukeBridge.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
+                Assert.Contains("ImagePipelineBridge.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
                 // The wrapper carries the real ABI and is required on macOS — it must
                 // NOT inherit the bridge's macOS exclusion.
-                Assert.DoesNotContain("NukeSwiftBindings.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
+                Assert.DoesNotContain("ImagePipelineSwiftBindings.xcframework') AND !$(TargetFramework.Contains('-macos'))", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -573,17 +573,17 @@ namespace BindingsGeneration.Tests
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = dir,
-                    ModuleName = "Nuke",
-                    PackageId = "Nuke.Swift.iOS",
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
                     EffectiveMinimumOSVersion = "15.0",
                     HasWrapperXCFramework = true,
                     HasBridgeXCFramework = true,
                 }, NullLogger.Instance);
 
                 var localContent = File.ReadAllText(
-                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
-                Assert.Contains("NukeBridge.xcframework') AND !$(TargetFramework.Contains('-macos'))", localContent);
-                Assert.DoesNotContain("NukeSwiftBindings.xcframework') AND !$(TargetFramework.Contains('-macos'))", localContent);
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
+                Assert.Contains("ImagePipelineBridge.xcframework') AND !$(TargetFramework.Contains('-macos'))", localContent);
+                Assert.DoesNotContain("ImagePipelineSwiftBindings.xcframework') AND !$(TargetFramework.Contains('-macos'))", localContent);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -619,7 +619,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 Assert.Contains("'$(RuntimeIdentifier)' == 'maccatalyst-x64'", content);
                 Assert.Contains("MtouchInterpreter", content);
                 Assert.Contains("UseInterpreter", content);
@@ -634,7 +634,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 Assert.Contains("SwiftBindingsMacCatalystX64UseJit", content);
             }
             finally { Directory.Delete(dir, true); }
@@ -647,7 +647,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 Assert.Contains("<MtouchInterpreter Condition=\"'$(MtouchInterpreter)' == ''\">all</MtouchInterpreter>", content);
                 Assert.Contains("<UseInterpreter Condition=\"'$(UseInterpreter)' == ''\">true</UseInterpreter>", content);
             }
@@ -661,7 +661,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 Assert.Contains("_SwiftBindingsAnnounceMacCatalystX64Workaround", content);
                 Assert.Contains("Importance=\"high\"", content);
                 Assert.Contains("upstream-issue-04", content);
@@ -682,7 +682,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 Assert.DoesNotContain("forcing Mono interpreter", content);
                 Assert.Contains("defaults MtouchInterpreter and UseInterpreter", content);
                 Assert.Contains("$(MtouchInterpreter)", content);
@@ -700,7 +700,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 Assert.Contains("https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations", content);
                 // The wiki URL must appear inside the <Message Text="..."> attribute, not just in a comment.
                 var messageIdx = content.IndexOf("_SwiftBindingsAnnounceMacCatalystX64Workaround", StringComparison.Ordinal);
@@ -718,9 +718,9 @@ namespace BindingsGeneration.Tests
             try
             {
                 var contentA = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 var contentB = ConsumerTargetsTestHelper.EmitAndRead(
-                    dir, "Lottie", "Lottie.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                    dir, "VectorAnimation", "VectorAnimation.Swift.MacCatalyst", "15.0", hasWrapper: true);
                 Assert.Contains("_SwiftBindingsMacCatalystX64WorkaroundAnnounced", contentA);
                 Assert.Contains("_SwiftBindingsMacCatalystX64WorkaroundAnnounced", contentB);
             }
@@ -738,8 +738,8 @@ namespace BindingsGeneration.Tests
             try
             {
                 ConsumerTargetsTestHelper.EmitTargets(
-                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
-                var projRefPath = Path.Combine(dir, "Nuke.Swift.MacCatalyst.ProjectReference.targets");
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                var projRefPath = Path.Combine(dir, "ImagePipeline.Swift.MacCatalyst.ProjectReference.targets");
                 Assert.True(File.Exists(projRefPath));
                 var content = File.ReadAllText(projRefPath);
                 Assert.Contains("'$(RuntimeIdentifier)' == 'maccatalyst-x64'", content);
@@ -775,15 +775,15 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitNupkg(dir, "Nuke", "Nuke.Swift.iOS", NativeLinkage.Static, hasWrapper: true);
+                var content = EmitNupkg(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", NativeLinkage.Static, hasWrapper: true);
                 // Wrapper (force-load carrier) is referenced...
-                Assert.Contains("native/NukeSwiftBindings.xcframework", content);
+                Assert.Contains("native/ImagePipelineSwiftBindings.xcframework", content);
                 // ...and the source is kept, but only as a fallback gated on the wrapper's absence,
                 // so it self-heals to the sole carrier if the wrapper compile soft-failed.
-                Assert.Contains("native/Nuke.xcframework", content);
+                Assert.Contains("native/ImagePipeline.xcframework", content);
                 Assert.Contains(
-                    "!Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/NukeSwiftBindings.xcframework') "
-                    + "AND Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')",
+                    "!Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipelineSwiftBindings.xcframework') "
+                    + "AND Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')",
                     content);
             }
             finally { Directory.Delete(dir, true); }
@@ -795,11 +795,11 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var content = EmitNupkg(dir, "Nuke", "Nuke.Swift.iOS", NativeLinkage.Dynamic, hasWrapper: true);
+                var content = EmitNupkg(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", NativeLinkage.Dynamic, hasWrapper: true);
                 // Dynamic source is always carried by the source xcframework — plain Exists, no
                 // wrapper-absent fallback (the wrapper and source coexist).
                 Assert.Contains(
-                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')\"",
+                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')\"",
                     content);
                 Assert.DoesNotContain("!Exists(", content);
             }
@@ -814,11 +814,11 @@ namespace BindingsGeneration.Tests
             {
                 // Static source but no wrapper to carry it: the source IS the sole carrier and
                 // must be referenced unconditionally — dropping it would link no native at all.
-                var content = EmitNupkg(dir, "Nuke", "Nuke.Swift.iOS", NativeLinkage.Static, hasWrapper: false);
+                var content = EmitNupkg(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", NativeLinkage.Static, hasWrapper: false);
                 Assert.Contains(
-                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')\"",
+                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')\"",
                     content);
-                Assert.DoesNotContain("NukeSwiftBindings.xcframework", content);
+                Assert.DoesNotContain("ImagePipelineSwiftBindings.xcframework", content);
                 Assert.DoesNotContain("!Exists(", content);
             }
             finally { Directory.Delete(dir, true); }
@@ -830,14 +830,14 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var sourceXcfw = Path.Combine(dir, "Nuke.xcframework");
+                var sourceXcfw = Path.Combine(dir, "ImagePipeline.xcframework");
                 Directory.CreateDirectory(sourceXcfw);
 
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = dir,
-                    ModuleName = "Nuke",
-                    PackageId = "Nuke.Swift.iOS",
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
                     EffectiveMinimumOSVersion = "15.0",
                     HasWrapperXCFramework = true,
                     XcframeworkPath = sourceXcfw,
@@ -845,13 +845,13 @@ namespace BindingsGeneration.Tests
                 }, NullLogger.Instance);
 
                 var prContent = File.ReadAllText(
-                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
                 // The local source archive always exists on disk here, so the !Exists(wrapper)
                 // guard is what keeps it inert while the wrapper is present and active when not.
-                Assert.Contains("NukeSwiftBindings.xcframework", prContent);
+                Assert.Contains("ImagePipelineSwiftBindings.xcframework", prContent);
                 Assert.Contains(
-                    "!Exists('$(MSBuildThisFileDirectory)NukeSwiftBindings.xcframework') "
-                    + "AND Exists('$(MSBuildThisFileDirectory)Nuke.xcframework')",
+                    "!Exists('$(MSBuildThisFileDirectory)ImagePipelineSwiftBindings.xcframework') "
+                    + "AND Exists('$(MSBuildThisFileDirectory)ImagePipeline.xcframework')",
                     prContent);
             }
             finally { Directory.Delete(dir, true); }
@@ -863,14 +863,14 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var sourceXcfw = Path.Combine(dir, "Nuke.xcframework");
+                var sourceXcfw = Path.Combine(dir, "ImagePipeline.xcframework");
                 Directory.CreateDirectory(sourceXcfw);
 
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = dir,
-                    ModuleName = "Nuke",
-                    PackageId = "Nuke.Swift.iOS",
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
                     EffectiveMinimumOSVersion = "15.0",
                     HasWrapperXCFramework = true,
                     XcframeworkPath = sourceXcfw,
@@ -878,8 +878,8 @@ namespace BindingsGeneration.Tests
                 }, NullLogger.Instance);
 
                 var prContent = File.ReadAllText(
-                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
-                Assert.Contains("Nuke.xcframework\"", prContent);
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
+                Assert.Contains("ImagePipeline.xcframework\"", prContent);
                 Assert.DoesNotContain("!Exists(", prContent);
             }
             finally { Directory.Delete(dir, true); }
@@ -924,24 +924,24 @@ namespace BindingsGeneration.Tests
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = dir,
-                    ModuleName = "Nuke",
-                    PackageId = "Nuke.Swift.iOS",
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
                     EffectiveMinimumOSVersion = "15.0",
                     HasWrapperXCFramework = true,
-                    ObjCCompanionProjectFileName = "Nuke.ObjC.iOS.csproj",
+                    ObjCCompanionProjectFileName = "ImagePipeline.ObjC.iOS.csproj",
                 }, NullLogger.Instance);
 
                 var prContent = File.ReadAllText(
-                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
 
                 // A dedicated target resolves the companion's built output via GetTargetPath and
                 // injects it as a plain <Reference> (which never promotes to a nuspec <dependency>),
                 // running before RAR so the consumer's C# compile sees the ObjC types.
-                Assert.Contains("_ResolveLocalNukeObjCCompanionReference", prContent);
-                Assert.Contains("$(MSBuildThisFileDirectory)Nuke.ObjC.iOS.csproj", prContent);
+                Assert.Contains("_ResolveLocalImagePipelineObjCCompanionReference", prContent);
+                Assert.Contains("$(MSBuildThisFileDirectory)ImagePipeline.ObjC.iOS.csproj", prContent);
                 Assert.Contains("Targets=\"GetTargetPath\"", prContent);
                 Assert.Contains("BeforeTargets=\"ResolveAssemblyReferences\"", prContent);
-                Assert.Contains("<Reference Include=\"@(_SwiftBindingNukeObjCCompanionAssembly)\">", prContent);
+                Assert.Contains("<Reference Include=\"@(_SwiftBindingImagePipelineObjCCompanionAssembly)\">", prContent);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -955,15 +955,15 @@ namespace BindingsGeneration.Tests
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = dir,
-                    ModuleName = "Nuke",
-                    PackageId = "Nuke.Swift.iOS",
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
                     EffectiveMinimumOSVersion = "15.0",
                     HasWrapperXCFramework = true,
-                    ObjCCompanionProjectFileName = "Nuke.ObjC.iOS.csproj",
+                    ObjCCompanionProjectFileName = "ImagePipeline.ObjC.iOS.csproj",
                 }, NullLogger.Instance);
 
                 var prContent = File.ReadAllText(
-                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
 
                 // The companion-resolve target only runs once the companion csproj Exists (path c local
                 // dev), so an empty GetTargetPath result there is a genuine failure: the consumer's C#
@@ -972,7 +972,7 @@ namespace BindingsGeneration.Tests
                 // sibling of SWIFTBIND041 (SDK-direct) and SWIFTBIND039 (pack).
                 Assert.Contains("Code=\"SWIFTBIND042\"", prContent);
                 Assert.Contains(
-                    "'@(_SwiftBindingNukeObjCCompanionAssembly)' == ''", prContent);
+                    "'@(_SwiftBindingImagePipelineObjCCompanionAssembly)' == ''", prContent);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -987,15 +987,15 @@ namespace BindingsGeneration.Tests
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = dir,
-                    ModuleName = "Nuke",
-                    PackageId = "Nuke.Swift.iOS",
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
                     EffectiveMinimumOSVersion = "15.0",
                     HasWrapperXCFramework = true,
                     ObjCCompanionProjectFileName = null,
                 }, NullLogger.Instance);
 
                 var prContent = File.ReadAllText(
-                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
 
                 Assert.DoesNotContain("ObjCCompanionReference", prContent);
                 Assert.DoesNotContain("GetTargetPath", prContent);

@@ -1646,7 +1646,7 @@ public partial class ProtocolProxyEmitter
         var containerConv = innerContainer.GetReturnContainerConversion($"{varName}.Some");
         var someExpr = containerConv ?? $"{varName}.Some";
         // Cast the some arm to the idiomatic type to avoid ternary covariance issues.
-        // e.g., Dictionary<string, MixpanelTypeProxy> vs IReadOnlyDictionary<string, IMixpanelType>
+        // e.g., Dictionary<string, TypeProxy> vs IReadOnlyDictionary<string, IType>
         return $"({varName}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : ({idiomaticType}){someExpr})";
     }
 
@@ -1907,7 +1907,7 @@ public partial class ProtocolProxyEmitter
     /// <c>[classRef][witnessTable]</c> layout). Reads <see cref="TypeRecordFlags.ClassBound"/>
     /// off the protocol's own TypeRecord; ModuleProcessor walks the inheritance chain
     /// when setting the flag so a child protocol inheriting class-boundedness from any
-    /// ancestor (Kidoz issue #40) is correctly classified here without a second walk.
+    /// ancestor (issue #40) is correctly classified here without a second walk.
     /// Also used by ProtocolProxyEmitter.SwiftObject.cs for the Swift→C# wrap factory.
     /// </summary>
     private bool IsProtocolClassBound(ProtocolDecl protocolDecl)
@@ -1987,7 +1987,7 @@ public partial class ProtocolProxyEmitter
         // is `: AnyObject` makes Child class-bound too. ModuleProcessor walks the chain
         // when setting TypeRecordFlags.ClassBound, so reading the flag here is sufficient.
         // Without the 2-word layout, Swift reads WT from Payload1 (which C# leaves zero)
-        // → SIGSEGV on the first witness dispatch (Kidoz issue #40 repro).
+        // → SIGSEGV on the first witness dispatch (@objc:NSObject reverse-dispatch repro, issue #40).
         var useClassBoundContainerLayout = IsProtocolClassBound(protocolDecl) || _useObjCBase;
         var containerInitLines = useClassBoundContainerLayout
             ? "_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;"

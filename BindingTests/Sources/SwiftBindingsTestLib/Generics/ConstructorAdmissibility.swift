@@ -144,7 +144,7 @@ extension CtorAdmBox where Value.Element: CtorAdmCollectionish {
 
 // MARK: - Facet (e): concrete same-type pin on an UNCONSTRAINED generic parent
 //
-// Reproduces the GRDB.TableAlias<RowDecoder> regression. Unlike facets (a)–(d),
+// Reproduces the unconstrained-generic-parent regression. Unlike facets (a)–(d),
 // the generic parameter here carries NO protocol constraint — there is no PAT to
 // enumerate conformers from, so CSM never produces a closed form. The class has
 // two inits:

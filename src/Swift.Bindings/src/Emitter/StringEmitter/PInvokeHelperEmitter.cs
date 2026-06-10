@@ -15,13 +15,13 @@ public sealed record HelperPwtEntry(
     string GenericParamCsName,
     /// <summary>The simple protocol name (e.g. "AnyInterpolatable", "Hashable").</summary>
     string ProtocolName,
-    /// <summary>The fully-qualified protocol name (e.g. "Lottie.AnyInterpolatable") — used as the lex sort key for witness-table ordering.</summary>
+    /// <summary>The fully-qualified protocol name (e.g. "Module.ProtocolName") — used as the lex sort key for witness-table ordering.</summary>
     string ProtocolModuleQualifiedName,
     /// <summary>True when the protocol can be projected as a static C# interface (no associated types or Self requirements and present in the TypeDatabase).</summary>
     bool IsResolvable,
     /// <summary>For resolvable conformances: the C# interface name (e.g. "ISwiftHashable", "IDescribable").</summary>
     string? ResolvableInterfaceName,
-    /// <summary>For unresolvable conformances: the protocol descriptor symbol (e.g. "$s6Lottie16AnyInterpolatableMp").</summary>
+    /// <summary>For unresolvable conformances: the protocol descriptor symbol (e.g. "$s{len}{Module}{len}{Protocol}Mp").</summary>
     string? DescriptorSymbol,
     /// <summary>For unresolvable conformances: the dylib path that exports the descriptor.</summary>
     string? LibraryPath);
@@ -319,7 +319,7 @@ public class PInvokeHelperContext
                     // reach this branch, so the only members of IsWellKnownRuntimeProtocol
                     // that can show up here are Swift.Error and _Concurrency.Actor.
                     //
-                    // Swift.Error: emit bare "IError" — Alamofire-style modules that
+                    // Swift.Error: emit bare "IError" — modules that
                     //   declare their own 'public protocol Error' provide a usable
                     //   IError interface in the consumer module, so PWT extraction
                     //   `ProtocolWitnessTable.GetOrThrowAuto<TFailure, IError>()`

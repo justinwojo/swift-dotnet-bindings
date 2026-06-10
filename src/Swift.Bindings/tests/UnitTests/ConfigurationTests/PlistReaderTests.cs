@@ -145,9 +145,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ReadPlistDict_NukeInnerPlist_ExtractsMinimumOSVersion()
+        public void ReadPlistDict_FrameworkInnerPlist_ExtractsMinimumOSVersion()
         {
-            // Integration-style test with mock plutil returning real Nuke-like data
+            // Integration-style test with mock plutil returning framework plist data
             var runner = new MockCommandRunner();
             var plistXml = """
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -156,7 +156,7 @@ namespace BindingsGeneration.Tests
                     <key>CFBundleShortVersionString</key>
                     <string>12.8.0</string>
                     <key>CFBundleIdentifier</key>
-                    <string>com.github.kean.Nuke</string>
+                    <string>com.example.imagepipeline</string>
                     <key>MinimumOSVersion</key>
                     <string>13.0</string>
                     <key>DTPlatformVersion</key>
@@ -200,7 +200,7 @@ namespace BindingsGeneration.Tests
                     <plist version="1.0">
                     <dict>
                         <key>CFBundleIdentifier</key>
-                        <string>com.swiftbindings.NukeSwiftBindings</string>
+                        <string>com.swiftbindings.ImagePipelineSwiftBindings</string>
                         <key>MinimumOSVersion</key>
                         <string>13.0</string>
                     </dict>
@@ -212,7 +212,7 @@ namespace BindingsGeneration.Tests
                 var result = PlistReader.ReadPlistDict(plistPath, null, _logger);
 
                 Assert.NotNull(result);
-                Assert.Equal("com.swiftbindings.NukeSwiftBindings", result["CFBundleIdentifier"]);
+                Assert.Equal("com.swiftbindings.ImagePipelineSwiftBindings", result["CFBundleIdentifier"]);
                 Assert.Equal("13.0", result["MinimumOSVersion"]);
             }
             finally { Directory.Delete(dir, true); }

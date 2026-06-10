@@ -53,11 +53,11 @@ public class BindingArtifactManifestTests
     [Fact]
     public void Projection_AllMethodsCoGated_DrainsToZero()
     {
-        // GRDB-style: 18 emitted methods, 18 cogated → 0 emitted, 18 distinct skipped items.
+        // 18 emitted methods, 18 cogated → 0 emitted, 18 distinct skipped items.
         // Wrapper-side capture produces Heuristic identities — public C# decls have no
         // 1:1 mangled wrapper symbol; the wrapper that triggered the cascade is an
         // internal trampoline.
-        var report = new BindingReport { ModuleName = "GRDB" };
+        var report = new BindingReport { ModuleName = "RecordStore" };
         report.TotalMembers = 18;
         report.EmittedMembers = 18;
         report.EmittedMembersByKind[BindingItemKind.Method] = 18;
@@ -65,11 +65,11 @@ public class BindingArtifactManifestTests
         var wrapper = new WrapperSection { Status = PhaseStatus.Success };
         for (int i = 0; i < 18; i++)
             ((List<CoGatedMember>)wrapper.CSharpCoGatedMembers).Add(
-                Heuristic($"M{i}", "GRDB.Db", i));
+                Heuristic($"M{i}", "RecordStore.Db", i));
 
         var manifest = new BindingArtifactManifest
         {
-            Module = "GRDB",
+            Module = "RecordStore",
             Generation = GenerationSection.From(report),
             Wrapper = wrapper,
         };

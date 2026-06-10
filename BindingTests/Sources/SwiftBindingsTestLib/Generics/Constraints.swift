@@ -155,7 +155,7 @@ public class CollectionHost {
     }
 }
 
-// MARK: - Generic Constructor with PWT (DifferenceKit DifferentiableBox pattern)
+// MARK: - Generic Constructor with PWT
 
 /// Generic class where the constructor requires both type metadata and a protocol witness table.
 /// The PWT is for the Describable constraint.

@@ -68,7 +68,7 @@ public class ProtocolExtensionArrayParamTests
         // Conversion via unsafeBitCast to module-qualified [Swift.Int].self
         // (Module-qualified to avoid leaf-name ambiguity when the wrapper compiles against
         // multiple modules that declare the same protocol/type name — e.g.
-        // Foundation.Expression vs FirebaseFirestore.Expression.)
+        // Foundation.Expression vs a same-named type from another module.)
         Assert.Contains("unsafeBitCast(", wrapperLines);
         Assert.Contains("[Swift.Int].self", wrapperLines);
     }

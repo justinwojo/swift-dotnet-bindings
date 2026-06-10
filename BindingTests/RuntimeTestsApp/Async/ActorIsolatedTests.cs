@@ -197,7 +197,7 @@ public class ActorIsolatedTests : TestBase
     #endregion
 
     #region WorkItem (async-throws at Swift source level — shell-stub)
-    // BlinkIDUX.CaptureService shape. See Actors.swift scope note: executor isolation
+    // Async-throws actor method. See Actors.swift scope note: executor isolation
     // is deferred; the wrapper dispatches through `Task { await self.method() }`.
 
     public async Task TestWorkItem_RunIncrementsAcrossAwaits()

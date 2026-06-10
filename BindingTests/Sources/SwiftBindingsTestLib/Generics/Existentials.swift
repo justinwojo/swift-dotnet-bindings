@@ -59,7 +59,7 @@ public func makeOpaqueComposition(id: String, text: String) -> some Describable 
     return SimpleItem(id: id, label: text)
 }
 
-// MARK: - R1: ExistentialContainer0 (Any) (DifferenceKit AnyDifferentiable pattern)
+// MARK: - R1: ExistentialContainer0 (Any)
 
 /// Class with a property returning unconstrained `Any`.
 /// Tests ExistentialContainer0 marshalling (distinct from ExistentialContainer1).

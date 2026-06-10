@@ -19,8 +19,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                File.WriteAllText(Path.Combine(dir, "Nuke.arm64.s"), ".globl _thunk_test\n_thunk_test:\n  ret");
-                File.WriteAllText(Path.Combine(dir, "Nuke2.arm64.s"), ".globl _thunk_test2\n_thunk_test2:\n  ret");
+                File.WriteAllText(Path.Combine(dir, "ImagePipeline.arm64.s"), ".globl _thunk_test\n_thunk_test:\n  ret");
+                File.WriteAllText(Path.Combine(dir, "ImagePipeline2.arm64.s"), ".globl _thunk_test2\n_thunk_test2:\n  ret");
                 var files = NativeThunkCompiler.CollectAssemblyFiles(dir);
                 Assert.Equal(2, files.Count);
                 Assert.All(files, f => Assert.EndsWith(".arm64.s", f));
@@ -34,13 +34,13 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                File.WriteAllText(Path.Combine(dir, "Nuke.arm64.s"), "thunk code");
-                File.WriteAllText(Path.Combine(dir, "Nuke.swift"), "swift code");
-                File.WriteAllText(Path.Combine(dir, "Nuke.cs"), "csharp code");
-                File.WriteAllText(Path.Combine(dir, "Nuke.s"), "other asm");
+                File.WriteAllText(Path.Combine(dir, "ImagePipeline.arm64.s"), "thunk code");
+                File.WriteAllText(Path.Combine(dir, "ImagePipeline.swift"), "swift code");
+                File.WriteAllText(Path.Combine(dir, "ImagePipeline.cs"), "csharp code");
+                File.WriteAllText(Path.Combine(dir, "ImagePipeline.s"), "other asm");
                 var files = NativeThunkCompiler.CollectAssemblyFiles(dir);
                 Assert.Single(files);
-                Assert.Contains("Nuke.arm64.s", files[0]);
+                Assert.Contains("ImagePipeline.arm64.s", files[0]);
             }
             finally { Directory.Delete(dir, true); }
         }

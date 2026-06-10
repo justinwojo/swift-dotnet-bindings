@@ -294,7 +294,7 @@ public class ErrorEnumRegistryEmitterTests
         // dispatcher operates from the wrapper module, which only sees `public`
         // declarations through plain `import Module`; an `as? Module.InternalType`
         // in the wrapper produces "module 'X' has no member named Y" / "no type
-        // named Y in module 'X'" (real-world example: CryptoSwift's
+        // named Y in module 'X'" (real-world example: a class like
         // `@usableFromInline internal class StreamDecryptor.Error`).
         var moduleDecl = BuildModule();
         var internalError = BuildErrorEnum(moduleDecl, "StreamDecryptorError", "Swift.Error");
@@ -315,7 +315,7 @@ public class ErrorEnumRegistryEmitterTests
         // `@usableFromInline internal` parent class hides any nested types from the
         // wrapper module's import-time visibility, so a publicly-spelled nested error
         // inside it cannot appear in the cascade dispatcher either. Mirrors the
-        // CryptoSwift `StreamDecryptor.Error` shape directly.
+        // An `@usableFromInline internal` outer class with a nested error enum directly.
         var moduleDecl = BuildModule();
         var internalOuter = BuildOuterStruct(moduleDecl, "StreamDecryptor");
         internalOuter.IsModuleInternal = true;
@@ -354,7 +354,7 @@ public class ErrorEnumRegistryEmitterTests
     [Fact]
     public void Precompute_NestedInGenericParent_NotRegistered()
     {
-        // Reproduces the Alamofire / RealityFoundation regression shape:
+        // A nested error type under an open generic parent cannot be registered:
         // `DecodableWebSocketMessageDecoder<TValue>.Error` (and the equivalent
         // `FromToByAction<TValue>.DecodingErrors`). The cascade dispatcher renders
         // module-qualified names verbatim (`global::Module.Outer.Inner`) and has no

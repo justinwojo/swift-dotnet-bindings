@@ -75,9 +75,9 @@ public class ClassHandlerTests
     [Fact]
     public void ClassDecl_HasCorrectSwiftTypeName()
     {
-        var classDecl = CreateClassDecl("ImageLoader", moduleName: "Nuke");
+        var classDecl = CreateClassDecl("ImageLoader", moduleName: "ImagePipeline");
 
-        Assert.Equal("Nuke.ImageLoader", classDecl.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("ImagePipeline.ImageLoader", classDecl.SwiftTypeName.ModuleQualifiedName);
     }
 
     [Fact]

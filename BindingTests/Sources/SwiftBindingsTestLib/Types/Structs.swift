@@ -219,7 +219,7 @@ public struct FrozenStructWithProperties {
 /// Frozen struct with 4 Double fields (32 bytes) — triggers SwiftIndirectResult on ARM64.
 /// Tests that frozen struct constructors get @_cdecl wrappers. Previously, this pattern
 /// used CallConvSwift + SwiftIndirectResult which crashed Mono JIT
-/// (URLEncoding(destination:arrayEncoding:boolEncoding:) pattern from Alamofire).
+/// (large frozen struct with multiple encoding parameters).
 @frozen
 public struct FrozenRect {
     public var x: Double
@@ -400,7 +400,7 @@ public func setMembershipCountAsync(_ values: Set<Int> = []) async -> Int {
     return values.count
 }
 
-// MARK: - V1: Method Overloading by Parameter Type (KeychainSwift Set pattern)
+// MARK: - V1: Method Overloading by Parameter Type
 
 /// Struct with 4 overloaded methods differing only by parameter type.
 /// Each overload has a different mangled name and marshalling path.
@@ -424,7 +424,7 @@ public struct Converter {
     }
 }
 
-// MARK: - V2: @available Annotations (Parchment SupportedOSPlatform pattern)
+// MARK: - V2: @available Annotations
 
 /// Type with @available annotation → C# [SupportedOSPlatform].
 @available(iOS 14.0, *)
@@ -441,7 +441,7 @@ public struct ModernFeature {
     }
 }
 
-// MARK: - W3: Swift Float (32-bit) Properties (AMPopTip ShadowRadius pattern)
+// MARK: - W3: Swift Float (32-bit) Properties
 
 /// Frozen struct with Float (32-bit) stored properties.
 /// Distinct from Double/CGFloat — uses `Sf` suffix in mangled name.

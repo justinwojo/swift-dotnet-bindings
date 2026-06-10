@@ -7,8 +7,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Regression coverage for the GRDB <c>IndexInfo.Origin</c> shape: a nested struct that
-/// satisfies a protocol's requirements ONLY through a constrained protocol extension
+/// Regression coverage for a nested struct that satisfies a protocol's requirements ONLY
+/// through a constrained protocol extension
 /// (<c>extension P where Self: RawRepresentable, Self.RawValue: Q</c>), where the parent
 /// type's property of the nested type forces the nested-type-collision pre-pass to
 /// rename the nested type with a <c>Type</c> suffix.

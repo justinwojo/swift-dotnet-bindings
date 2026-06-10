@@ -414,7 +414,7 @@ public static class SwiftInterfaceAccessParser
 
     /// <summary>
     /// Regex for qualified imported global-actor annotations such as
-    /// <c>@Dependency.ImagePipelineActor</c>. Requires at least one module-prefix
+    /// <c>@Module.CustomActor</c>. Requires at least one module-prefix
     /// segment and an <c>Actor</c> suffix on the leaf identifier. Excludes the
     /// built-in <c>MainActor</c> (which has its own <see cref="TypeDecl.IsMainActorIsolated"/>
     /// path) via negative lookahead. Qualification + <c>Actor</c> suffix is the
@@ -429,7 +429,7 @@ public static class SwiftInterfaceAccessParser
 
     /// <summary>
     /// Returns a set of qualified type paths for types annotated with a custom global actor
-    /// (e.g., <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
+    /// (e.g., <c>@CustomActor class MyClass</c>). Distinct from
     /// <see cref="GetCustomActorTypes"/>, which returns types declared with the
     /// <c>actor</c> keyword. The supplied <paramref name="customActorTypeNames"/> is the
     /// short-name set produced by <see cref="GetCustomActorTypes"/>; this method then
@@ -448,8 +448,8 @@ public static class SwiftInterfaceAccessParser
     /// <summary>
     /// Same scan as <see cref="GetCustomActorIsolatedTypes"/>, but also records which actor
     /// short name annotates each type. The returned map's keys are qualified type paths
-    /// (e.g., "ImagePrefetcher" or "Outer.ImageCache") and values are the matched actor's
-    /// leaf identifier (e.g., "ImagePipelineActor"). The value is retained for diagnostics
+    /// (e.g., "TypeName" or "Outer.TypeName") and values are the matched actor's
+    /// leaf identifier (e.g., "CustomActor"). The value is retained for diagnostics
     /// and SWIFTBIND022 skip-reason reporting and to give the parser context when tagging
     /// constructors as <c>IsAsync</c> for the async-factory rewrite — synchronous
     /// constructors on these types are wholesale-skipped (no <c>assumeIsolated</c> hop is
@@ -463,9 +463,9 @@ public static class SwiftInterfaceAccessParser
         if (!File.Exists(swiftInterfacePath))
             return result;
 
-        // GetCustomActorTypes returns qualified paths (e.g., "Outer.ImagePipelineActor"
+        // GetCustomActorTypes returns qualified paths (e.g., "Outer.CustomActor"
         // for nested actors). Swift annotations on the consumer side use the leaf name
-        // (e.g., `@ImagePipelineActor`), so normalize to short names before building the regex.
+        // (e.g., `@CustomActor`), so normalize to short names before building the regex.
         var shortNames = customActorTypeNames?
             .Select(n => n.Substring(n.LastIndexOf('.') + 1))
             .Where(n => n.Length > 0)
@@ -597,9 +597,9 @@ public static class SwiftInterfaceAccessParser
         => GetActorIsolatedMembers(swiftInterfacePath, customActorTypeNames: null, mainActorMembers: out _);
 
     /// <summary>
-    /// Extended overload that also detects custom actor annotations (e.g., @BlinkID.ProcessingActor)
+    /// Extended overload that also detects custom actor annotations (e.g., @Module.CustomActor)
     /// in addition to @MainActor. The customActorTypeNames set contains unqualified actor type names
-    /// (e.g., "ProcessingActor") from GetCustomActorTypes().
+    /// (e.g., "CustomActor") from GetCustomActorTypes().
     ///
     /// The mainActorMembers out-parameter receives only @MainActor-annotated members (a subset of
     /// the return value). This enables distinguishing @MainActor from custom actor isolation in
@@ -1037,7 +1037,7 @@ public static class SwiftInterfaceAccessParser
     /// Parses a <c>*.private.swiftinterface</c> for <c>@_spi(...) extension Mod.Type : Proto1, Proto2 { ... }</c>
     /// blocks and returns the set of conformances unreachable under a plain (non-<c>@_spi</c>)
     /// <c>import</c>. Each entry has the form <c>"QualifiedType::UnqualifiedProtocol"</c>
-    /// (e.g., <c>"StripeCore.StripeAPI.BankAccountToken::Equatable"</c>).
+    /// (e.g., <c>"Module.ParentType.NestedType::ProtocolName"</c>).
     /// <para/>
     /// SPI extensions are syntactically valid Swift but their conformances are stripped from
     /// the module's public interface — a wrapper that does <c>import Foo</c> (not
@@ -1257,7 +1257,7 @@ public static class SwiftInterfaceAccessParser
 
     /// <summary>
     /// Parses a .swiftinterface file and returns the set of protocol names declared in
-    /// the module. Names are unqualified (e.g., "KFOptionSetter"). Used to distinguish
+    /// the module. Names are unqualified (e.g., "ProtocolName"). Used to distinguish
     /// protocol extensions from type extensions when parsing extension blocks.
     /// </summary>
     /// <summary>
@@ -1364,8 +1364,8 @@ public static class SwiftInterfaceAccessParser
                 {
                     foreach (var alias in conventionTypealiases)
                     {
-                        // Match the typealias name as a whole word type reference (e.g., "GRDB.FTS5TokenCallback"
-                        // or bare "FTS5TokenCallback"), using word boundary to avoid substring false positives
+                        // Match the typealias name as a whole word type reference (e.g., "Module.TypealiasName"
+                        // or bare "TypealiasName"), using word boundary to avoid substring false positives
                         if (Regex.IsMatch(trimmed, $@"\b{Regex.Escape(alias)}\b"))
                         {
                             result.Add(currentProtocol);
@@ -1698,7 +1698,7 @@ public static class SwiftInterfaceAccessParser
 
     /// <summary>
     /// Parses a .swiftinterface file and returns protocol extension methods grouped by
-    /// fully-qualified protocol name (e.g., "Kingfisher.KFOptionSetter").
+    /// fully-qualified protocol name (e.g., "Module.ProtocolName").
     /// Only collects methods from extensions of known protocols (provided by protocolNames).
     /// Handles #if compiler(...) blocks, multi-line signatures, @MainActor annotations,
     /// and where constraints on extension headers.
@@ -2697,7 +2697,7 @@ public static class SwiftInterfaceAccessParser
                 pushedScope = true;
             }
 
-            // Check for extension declarations (e.g., "extension CryptoSwift.AES {")
+            // Check for extension declarations (e.g., "extension Module.Type {")
             // Extensions can contain internal members that belong to the extended type.
             if (!pushedScope)
             {
@@ -4753,7 +4753,7 @@ public static class SwiftInterfaceAccessParser
 
     /// <summary>
     /// Parses @autoclosure annotations from parameter declarations in a .swiftinterface file.
-    /// Returns a dictionary mapping qualified member keys (e.g., "LottieLogger.assert(_:_:fileID:line:)")
+    /// Returns a dictionary mapping qualified member keys (e.g., "Module.TypeName.method(_:_:)")
     /// to index-aligned lists of booleans indicating which parameters have @autoclosure.
     /// </summary>
     public static Dictionary<string, List<bool>> GetAutoclosureParameters(string swiftInterfacePath)
@@ -5025,7 +5025,7 @@ public static class SwiftInterfaceAccessParser
     /// The .swiftinterface is the only source that preserves them.
     /// <para/>
     /// Returns a dictionary mapping qualified member keys (e.g.,
-    /// <c>"GRDB.ValueObservationMainActorScheduler.scheduleOnMainActor(_:)"</c>) to a
+    /// <c>"Module.TypeName.methodName(_:)"</c>) to a
     /// per-parameter list of normalized attribute-name lists (<c>"MainActor"</c>,
     /// <c>"Sendable"</c>). Only members where at least one parameter carries at least one
     /// such attribute are included; callers should treat a missing key as "no attributes."

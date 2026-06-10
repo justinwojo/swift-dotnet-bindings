@@ -396,8 +396,8 @@ public class WrapperConsistencyTests
     {
         // SWIFTBIND022 narrows blocking to constructors via CanEmitMember; this helper
         // must remain permissive for plain instance members on a custom-global-actor type.
-        // A nonisolated method on @ImagePipelineActor class X compiles fine in a synchronous
-        // @_cdecl wrapper because the call doesn't cross the actor boundary.
+        // A nonisolated method on a custom-global-actor-isolated class compiles fine in a
+        // synchronous @_cdecl wrapper because the call doesn't cross the actor boundary.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("ImagePrefetcher", moduleDecl);
         classDecl.IsCustomActorIsolated = true;
@@ -424,8 +424,8 @@ public class WrapperConsistencyTests
         // synchronous foreign entry into a custom global actor's isolation domain). But
         // an explicit `nonisolated` modifier opts the init out of that domain, so it's
         // safe to dispatch directly. The gate must honor `MethodDecl.IsNonisolated` and
-        // accept the wrapper; this is what makes Nuke 13's @ImagePipelineActor classes
-        // (`ImagePipeline`, `ImagePrefetcher`, `TaskQueue`) reachable from C# via
+        // accept the wrapper; this is what makes custom-global-actor-isolated classes
+        // (ImagePipeline, ImagePrefetcher, TaskQueue) reachable from C# via
         // `new ImagePipeline(...)` instead of being silently dropped.
         var (moduleDecl, typeDb) = CreateTestEnvironment("ImagePipeline");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -457,21 +457,21 @@ public class WrapperConsistencyTests
     {
         // Parameterized-protocol pattern: `EventStream<UIEvent>` where EventStream is a protocol
         // with a primary associated type. Requires iOS 16+ runtime; must be blocked.
-        var (_, typeDb) = CreateTestEnvironment("BlinkIDUX");
-        var testModule = new ModuleTypeDatabase("BlinkIDUX", "/tmp/BlinkIDUX.dylib");
+        var (_, typeDb) = CreateTestEnvironment("DocScanUX");
+        var testModule = new ModuleTypeDatabase("DocScanUX", "/tmp/DocScanUX.dylib");
         testModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.EventStream"),
+            SwiftTypeName.FromModuleQualifiedName("DocScanUX.EventStream"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BlinkIDUX", "EventStream"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.EventStream"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("DocScanUX", "EventStream"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("DocScanUX.EventStream"),
                 MetadataAccessor = "$sMp",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol,
             });
         typeDb.AddModuleDatabase(testModule);
 
-        var typeSpec = new NamedTypeSpec("BlinkIDUX.EventStream");
+        var typeSpec = new NamedTypeSpec("DocScanUX.EventStream");
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
 
         Assert.True(WrapperValidation.ContainsParameterizedProtocol(typeSpec, typeDb));
@@ -582,7 +582,7 @@ public class WrapperConsistencyTests
     [Fact]
     public void IsMetatypeTypeIncludingOptional_OptionalMetatype_ReturnsTrue()
     {
-        // Bug-2 pin: Optional<AnyClass.Type> (Parchment shape) must be detected so the
+        // Bug-2 pin: Optional<AnyClass.Type> must be detected so the
         // wrapper-eligibility gates skip it instead of slipping through and emitting a
         // Swift wrapper rendering "(any AnyClass.Type).self" — which is invalid Swift.
         var optAnyClass = new NamedTypeSpec("Swift.Optional");
@@ -2004,7 +2004,7 @@ public class WrapperConsistencyTests
     public void DetermineConstructorWrapperDecision_NonFrozenStruct_WrapperRequired()
     {
         // Non-frozen struct constructors require @_cdecl (SwiftIndirectResult + Mono JIT crash).
-        // E.g., LottieColor(r:g:b:a:denominator:) — all primitive params, but non-frozen struct
+        // E.g., a non-frozen struct init with all primitive params:
         // constructor uses SwiftIndirectResult which Mono JIT can't handle with CallConvSwift.
         var (moduleDecl, typeDb) = CreateTestEnvironment("OpaquePoint");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";

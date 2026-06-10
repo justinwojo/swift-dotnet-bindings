@@ -2212,8 +2212,8 @@ public class TypeDatabaseExtensionsTests
     }
 
     // --- CoreMedia.CMSampleBuffer (CFTypeRef-backed class, mirrors CTFont) ---
-    // Regression scaffold: without this entry, BlinkIDUX SampleBuffer and any
-    // property typed `CMSampleBuffer` silently tombstones the enclosing type.
+    // Regression scaffold: without this entry, any property typed `CMSampleBuffer`
+    // silently tombstones the enclosing type.
 
     [Fact]
     public async Task LoadCoreMediaDatabase_CMSampleBuffer_ResolvesAsObjCBridgedClass()
@@ -2233,7 +2233,7 @@ public class TypeDatabaseExtensionsTests
 
     // --- Actor metadata reachability: marker protocols + _Concurrency stubs ---
     //
-    // Custom global-actor-isolated types (e.g. Nuke 13.x's ImagePipelineActor) declare
+    // Custom global-actor-isolated types declare
     // conformance to the four compile-time marker protocols (Sendable / Copyable /
     // Escapable / SendableMetatype) and to _Concurrency.Actor, plus an implicit
     // unownedExecutor property returning _Concurrency.UnownedSerialExecutor. Before

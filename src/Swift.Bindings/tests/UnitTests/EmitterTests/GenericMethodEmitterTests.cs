@@ -71,7 +71,7 @@ public class GenericMethodEmitterTests
     {
         var conformance = new GenericParameterConformance(
             new[] { "τ_0_0" },
-            SwiftTypeName.FromModuleQualifiedName("Nuke.ImageProcessing"),
+            SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageProcessing"),
             ConformanceKind.Protocol
         );
 
@@ -83,7 +83,7 @@ public class GenericMethodEmitterTests
         );
 
         Assert.Single(decl.GenericConformances);
-        Assert.Equal("Nuke.ImageProcessing", decl.GenericConformances[0].ConformanceTarget.ModuleQualifiedName);
+        Assert.Equal("ImagePipeline.ImageProcessing", decl.GenericConformances[0].ConformanceTarget.ModuleQualifiedName);
     }
 
     [Fact]

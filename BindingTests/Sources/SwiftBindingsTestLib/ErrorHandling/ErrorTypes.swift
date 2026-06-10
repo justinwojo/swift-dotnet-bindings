@@ -19,7 +19,7 @@ public enum MathError: Error {
     case negativeInput
 }
 
-// MARK: - S2: Simple Int32 Raw Value Error (Valet KeychainError pattern)
+// MARK: - S2: Simple Int32 Raw Value Error
 
 /// Error enum with Int32 raw value — projected as a simple C# enum.
 /// The SBW_ExtractTypedError_* wrapper extracts this from traditional `throws`.

@@ -26,9 +26,9 @@ public class ConditionalExtensionConstraintTests
         // Scenario: extension Table<T> where T: FetchableRecord { func fetchCursor() }
         // FetchableRecord has no associated types → should emit
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
+            ("RecordStore.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
 
         var method = CreateMethodDecl("fetchCursor", parentType, moduleDecl,
@@ -36,7 +36,7 @@ public class ConditionalExtensionConstraintTests
             {
                 CreateGenericParam("τ_0_0", "T",
                     ("Swift.Equatable", ConformanceKind.Protocol),       // parent baseline
-                    ("GRDB.FetchableRecord", ConformanceKind.Protocol))  // conditional extension extra
+                    ("RecordStore.FetchableRecord", ConformanceKind.Protocol))  // conditional extension extra
             });
 
         var methodEnv = new MethodEnvironment(method, typeDatabase);
@@ -49,9 +49,9 @@ public class ConditionalExtensionConstraintTests
         // Scenario: extension Table<T> where T: Cursor { ... }
         // Cursor has associated types → should still skip
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+            ("RecordStore.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
 
         var method = CreateMethodDecl("process", parentType, moduleDecl,
@@ -59,7 +59,7 @@ public class ConditionalExtensionConstraintTests
             {
                 CreateGenericParam("τ_0_0", "T",
                     ("Swift.Equatable", ConformanceKind.Protocol),
-                    ("GRDB.Cursor", ConformanceKind.Protocol))
+                    ("RecordStore.Cursor", ConformanceKind.Protocol))
             });
 
         var methodEnv = new MethodEnvironment(method, typeDatabase);
@@ -71,9 +71,9 @@ public class ConditionalExtensionConstraintTests
     {
         // Protocol with HasSelfRequirement → should still skip (aligned with PInvokeEmitter)
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.SelfRefProtocol", TypeRecordKind.Protocol, TypeRecordFlags.HasSelfRequirement));
+            ("RecordStore.SelfRefProtocol", TypeRecordKind.Protocol, TypeRecordFlags.HasSelfRequirement));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
 
         var method = CreateMethodDecl("compare", parentType, moduleDecl,
@@ -81,7 +81,7 @@ public class ConditionalExtensionConstraintTests
             {
                 CreateGenericParam("τ_0_0", "T",
                     ("Swift.Equatable", ConformanceKind.Protocol),
-                    ("GRDB.SelfRefProtocol", ConformanceKind.Protocol))
+                    ("RecordStore.SelfRefProtocol", ConformanceKind.Protocol))
             });
 
         var methodEnv = new MethodEnvironment(method, typeDatabase);
@@ -97,16 +97,16 @@ public class ConditionalExtensionConstraintTests
         // line 85), so the constraint is never enforced and P/Invoke would lack the
         // required witness table parameter.
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+            ("RecordStore.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
-        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "GRDB.Cursor");
+        var moduleDecl = CreateModuleDecl("RecordStore");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "RecordStore.Cursor");
 
         var method = CreateMethodDecl("process", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T",
-                    ("GRDB.Cursor", ConformanceKind.Protocol))  // same as parent — PAT, still blocked
+                    ("RecordStore.Cursor", ConformanceKind.Protocol))  // same as parent — PAT, still blocked
             });
 
         var methodEnv = new MethodEnvironment(method, typeDatabase);
@@ -120,16 +120,16 @@ public class ConditionalExtensionConstraintTests
         // This is a supported parent-baseline constraint → correctly skipped
         // (handled by type-level where clause).
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
+            ("RecordStore.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
-        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "GRDB.FetchableRecord");
+        var moduleDecl = CreateModuleDecl("RecordStore");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "RecordStore.FetchableRecord");
 
         var method = CreateMethodDecl("fetch", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T",
-                    ("GRDB.FetchableRecord", ConformanceKind.Protocol))  // same as parent — supported, skipped
+                    ("RecordStore.FetchableRecord", ConformanceKind.Protocol))  // same as parent — supported, skipped
             });
 
         var methodEnv = new MethodEnvironment(method, typeDatabase);
@@ -142,16 +142,16 @@ public class ConditionalExtensionConstraintTests
         // Method-own type parameter (τ_1_0) constrained on protocol with associated types
         // → should be blocked (it's not a parent-baseline constraint)
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+            ("RecordStore.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
 
         var method = CreateMethodDecl("process", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T", ("Swift.Equatable", ConformanceKind.Protocol)),
-                CreateGenericParam("τ_1_0", "U", ("GRDB.Cursor", ConformanceKind.Protocol))
+                CreateGenericParam("τ_1_0", "U", ("RecordStore.Cursor", ConformanceKind.Protocol))
             });
 
         var methodEnv = new MethodEnvironment(method, typeDatabase);
@@ -162,7 +162,7 @@ public class ConditionalExtensionConstraintTests
     public void HasUnsupportedProtocolConstraints_NonGenericMethod_ReturnsFalse()
     {
         var typeDatabase = CreateTypeDatabase();
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
 
         var method = CreateMethodDecl("simpleMethod", parentType, moduleDecl,
@@ -183,16 +183,16 @@ public class ConditionalExtensionConstraintTests
         // so plain stored properties on PAT-constrained generic parents emit per
         // closed conformer instead of being silently dropped.
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+            ("RecordStore.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
-        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "GRDB.Cursor");
+        var moduleDecl = CreateModuleDecl("RecordStore");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "RecordStore.Cursor");
 
         var accessor = CreateMethodDecl("getLimit", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T",
-                    ("GRDB.Cursor", ConformanceKind.Protocol))  // parent baseline — PAT
+                    ("RecordStore.Cursor", ConformanceKind.Protocol))  // parent baseline — PAT
             });
 
         var accessorEnv = new MethodEnvironment(accessor, typeDatabase);
@@ -207,16 +207,16 @@ public class ConditionalExtensionConstraintTests
         // Supported parent-baseline protocols are still allowed — same as the
         // general gate's behaviour.
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
+            ("RecordStore.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
-        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "GRDB.FetchableRecord");
+        var moduleDecl = CreateModuleDecl("RecordStore");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "RecordStore.FetchableRecord");
 
         var accessor = CreateMethodDecl("getName", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T",
-                    ("GRDB.FetchableRecord", ConformanceKind.Protocol))
+                    ("RecordStore.FetchableRecord", ConformanceKind.Protocol))
             });
 
         var accessorEnv = new MethodEnvironment(accessor, typeDatabase);
@@ -231,16 +231,16 @@ public class ConditionalExtensionConstraintTests
         // must still block this — only parent-baseline conformances are
         // filtered out.
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+            ("RecordStore.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
 
         var accessor = CreateMethodDecl("process", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T", ("Swift.Equatable", ConformanceKind.Protocol)),
-                CreateGenericParam("τ_1_0", "U", ("GRDB.Cursor", ConformanceKind.Protocol))
+                CreateGenericParam("τ_1_0", "U", ("RecordStore.Cursor", ConformanceKind.Protocol))
             });
 
         var accessorEnv = new MethodEnvironment(accessor, typeDatabase);
@@ -251,7 +251,7 @@ public class ConditionalExtensionConstraintTests
     public void HasAccessorOwnUnsupportedProtocolConstraints_NonGenericMethod_ReturnsFalse()
     {
         var typeDatabase = CreateTypeDatabase();
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
 
         var accessor = CreateMethodDecl("simpleAccessor", parentType, moduleDecl,
@@ -274,20 +274,20 @@ public class ConditionalExtensionConstraintTests
         // C# cannot express method-level `where` constraints on parent type parameters
         // (CS0699), so the bound generic constraint is unsatisfied and the method is skipped.
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
+            ("RecordStore.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
-        CreateGenericStructDecl("RecordCursor", moduleDecl, "T", "GRDB.FetchableRecord");
+        CreateGenericStructDecl("RecordCursor", moduleDecl, "T", "RecordStore.FetchableRecord");
 
-        var boundGeneric = new NamedTypeSpec("GRDB.RecordCursor", new NamedTypeSpec("τ_0_0"));
+        var boundGeneric = new NamedTypeSpec("RecordStore.RecordCursor", new NamedTypeSpec("τ_0_0"));
 
         var method = CreateMethodDecl("fetchCursor", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T",
                     ("Swift.Equatable", ConformanceKind.Protocol),
-                    ("GRDB.FetchableRecord", ConformanceKind.Protocol))
+                    ("RecordStore.FetchableRecord", ConformanceKind.Protocol))
             });
 
         var handler = new BoundGenericsHandler(typeDatabase);
@@ -305,20 +305,20 @@ public class ConditionalExtensionConstraintTests
         // (protocols with associated types can't be expressed as C# constraints).
         // The method is blocked at HasUnsupportedProtocolConstraints, not here.
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+            ("RecordStore.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
-        CreateGenericStructDecl("CursorWrapper", moduleDecl, "T", "GRDB.Cursor");
+        CreateGenericStructDecl("CursorWrapper", moduleDecl, "T", "RecordStore.Cursor");
 
-        var boundGeneric = new NamedTypeSpec("GRDB.CursorWrapper", new NamedTypeSpec("τ_0_0"));
+        var boundGeneric = new NamedTypeSpec("RecordStore.CursorWrapper", new NamedTypeSpec("τ_0_0"));
 
         var method = CreateMethodDecl("wrapCursor", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T",
                     ("Swift.Equatable", ConformanceKind.Protocol),
-                    ("GRDB.Cursor", ConformanceKind.Protocol))
+                    ("RecordStore.Cursor", ConformanceKind.Protocol))
             });
 
         var handler = new BoundGenericsHandler(typeDatabase);
@@ -335,20 +335,20 @@ public class ConditionalExtensionConstraintTests
         // ShouldSkipConstraint correctly skips this (Self requirement protocols
         // can't be used as C# constraints). Blocked at HasUnsupportedProtocolConstraints.
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.Comparable", TypeRecordKind.Protocol, TypeRecordFlags.HasSelfRequirement));
+            ("RecordStore.Comparable", TypeRecordKind.Protocol, TypeRecordFlags.HasSelfRequirement));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
-        CreateGenericStructDecl("SortedCollection", moduleDecl, "T", "GRDB.Comparable");
+        CreateGenericStructDecl("SortedCollection", moduleDecl, "T", "RecordStore.Comparable");
 
-        var boundGeneric = new NamedTypeSpec("GRDB.SortedCollection", new NamedTypeSpec("τ_0_0"));
+        var boundGeneric = new NamedTypeSpec("RecordStore.SortedCollection", new NamedTypeSpec("τ_0_0"));
 
         var method = CreateMethodDecl("sorted", parentType, moduleDecl,
             genericParams: new List<GenericArgumentDecl>
             {
                 CreateGenericParam("τ_0_0", "T",
                     ("Swift.Equatable", ConformanceKind.Protocol),
-                    ("GRDB.Comparable", ConformanceKind.Protocol))
+                    ("RecordStore.Comparable", ConformanceKind.Protocol))
             });
 
         var handler = new BoundGenericsHandler(typeDatabase);
@@ -363,13 +363,13 @@ public class ConditionalExtensionConstraintTests
     {
         // No conditional extension — parent type doesn't satisfy, method doesn't help
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
+            ("RecordStore.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
-        CreateGenericStructDecl("RecordCursor", moduleDecl, "T", "GRDB.FetchableRecord");
+        CreateGenericStructDecl("RecordCursor", moduleDecl, "T", "RecordStore.FetchableRecord");
 
-        var boundGeneric = new NamedTypeSpec("GRDB.RecordCursor", new NamedTypeSpec("τ_0_0"));
+        var boundGeneric = new NamedTypeSpec("RecordStore.RecordCursor", new NamedTypeSpec("τ_0_0"));
 
         // Method does NOT include FetchableRecord in its constraints
         var method = CreateMethodDecl("fetchCursor", parentType, moduleDecl,
@@ -391,13 +391,13 @@ public class ConditionalExtensionConstraintTests
     {
         // When contextDecl is a PropertyDecl (not MethodDecl), no method fallback occurs
         var typeDatabase = CreateTypeDatabase(
-            ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
+            ("RecordStore.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
-        var moduleDecl = CreateModuleDecl("GRDB");
+        var moduleDecl = CreateModuleDecl("RecordStore");
         var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
-        CreateGenericStructDecl("RecordCursor", moduleDecl, "T", "GRDB.FetchableRecord");
+        CreateGenericStructDecl("RecordCursor", moduleDecl, "T", "RecordStore.FetchableRecord");
 
-        var boundGeneric = new NamedTypeSpec("GRDB.RecordCursor", new NamedTypeSpec("τ_0_0"));
+        var boundGeneric = new NamedTypeSpec("RecordStore.RecordCursor", new NamedTypeSpec("τ_0_0"));
 
         var propertyContext = new PropertyDecl
         {
@@ -470,7 +470,7 @@ public class ConditionalExtensionConstraintTests
 
         var methodParam = CreateGenericParam("τ_0_0", "T",
             ("Swift.Equatable", ConformanceKind.Protocol),
-            ("GRDB.FetchableRecord", ConformanceKind.Protocol));
+            ("RecordStore.FetchableRecord", ConformanceKind.Protocol));
 
         var extraConformance = methodParam.GenericConformances[1]; // FetchableRecord
         Assert.True(MethodValidationGates.IsConditionalExtensionConstraint(methodParam, extraConformance, parentParams));
@@ -486,7 +486,7 @@ public class ConditionalExtensionConstraintTests
 
         var methodParam = CreateGenericParam("τ_0_0", "T",
             ("Swift.Equatable", ConformanceKind.Protocol),
-            ("GRDB.FetchableRecord", ConformanceKind.Protocol));
+            ("RecordStore.FetchableRecord", ConformanceKind.Protocol));
 
         var baselineConformance = methodParam.GenericConformances[0]; // Equatable
         Assert.False(MethodValidationGates.IsConditionalExtensionConstraint(methodParam, baselineConformance, parentParams));
@@ -496,7 +496,7 @@ public class ConditionalExtensionConstraintTests
     public void IsConditionalExtensionConstraint_NoParentParams_ReturnsTrue()
     {
         var methodParam = CreateGenericParam("τ_0_0", "T",
-            ("GRDB.FetchableRecord", ConformanceKind.Protocol));
+            ("RecordStore.FetchableRecord", ConformanceKind.Protocol));
 
         var conformance = methodParam.GenericConformances[0];
         Assert.True(MethodValidationGates.IsConditionalExtensionConstraint(methodParam, conformance, null));
@@ -512,7 +512,7 @@ public class ConditionalExtensionConstraintTests
         };
 
         var methodParam = CreateGenericParam("τ_1_0", "U",
-            ("GRDB.FetchableRecord", ConformanceKind.Protocol));
+            ("RecordStore.FetchableRecord", ConformanceKind.Protocol));
 
         var conformance = methodParam.GenericConformances[0];
         Assert.True(MethodValidationGates.IsConditionalExtensionConstraint(methodParam, conformance, parentParams));
@@ -526,8 +526,8 @@ public class ConditionalExtensionConstraintTests
     /// Well-known runtime-only marker protocols (Sendable / Copyable / Escapable /
     /// SendableMetatype / _Concurrency.Actor) MUST be dropped from generic where clauses but
     /// MUST NOT block the method itself. These tests lock in the gate split — if either gate
-    /// regresses, real-world libraries (Alamofire / GRDB / Kingfisher / Nuke) either fail to
-    /// compile (CS0246 ISendableMetatype) or silently lose 70+ emitted members.
+    /// regresses, modules that use constrained generics either fail to compile
+    /// (CS0246 ISendableMetatype) or silently lose 70+ emitted members.
     /// </summary>
     [Theory]
     [InlineData("Swift.Sendable")]
@@ -585,7 +585,7 @@ public class ConditionalExtensionConstraintTests
         var typeDatabase = CreateTypeDatabase(
             ("Swift.Sendable", TypeRecordKind.Protocol, TypeRecordFlags.None));
 
-        var moduleDecl = CreateModuleDecl("Nuke");
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
         var parentType = CreateGenericStructDecl("Pipeline", moduleDecl, "T", "Swift.Equatable");
 
         var method = CreateMethodDecl("send", parentType, moduleDecl,

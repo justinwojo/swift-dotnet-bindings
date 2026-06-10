@@ -40,7 +40,7 @@ public final class ClosureClassReturnHolder {
     }
 
     /// Static closure property returning a class.
-    /// Same pattern as PhoneNumberKit's defaultUtility property.
+    /// Exercises the static-closure-property returning a class shape.
     public static var defaultCounter: () -> FinalCounter {
         return { FinalCounter(count: 0) }
     }

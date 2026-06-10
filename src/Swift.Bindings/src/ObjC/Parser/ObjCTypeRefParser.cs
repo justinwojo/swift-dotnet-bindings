@@ -537,7 +537,7 @@ public static class ObjCTypeRefParser
         // Protocol qualifications: NSObject<NSCopying, NSSecureCoding> *
         //   — all args are simple identifiers (no *, <, (, spaces)
         //   — base type is NOT a known generic container
-        // Generic parameters: NSArray<NSString *> *, RLMResults<ObjectType> *
+        // Generic parameters: NSArray<NSString *> *, MOSResults<ObjectType> *
         //   — args contain pointer/complex types
         //   — OR base type IS a known generic container (Foundation or discovered from AST)
         var isKnownGenericContainer = KnownGenericContainers.Contains(baseName) ||

@@ -373,7 +373,7 @@ public class TupleHandlerTests
     {
         var tuple = new TupleTypeSpec(new List<TypeSpec>
         {
-            new NamedTypeSpec("Nuke.ImageResponse"),
+            new NamedTypeSpec("ImagePipeline.ImageResponse"),
             new NamedTypeSpec("Swift.Int")
         });
 
@@ -387,7 +387,7 @@ public class TupleHandlerTests
     {
         var tuple = new TupleTypeSpec(new List<TypeSpec>
         {
-            new NamedTypeSpec("Nuke.ImageTask"),
+            new NamedTypeSpec("ImagePipeline.ImageTask"),
             new NamedTypeSpec("Swift.Bool")
         });
 
@@ -416,7 +416,7 @@ public class TupleHandlerTests
     {
         // Optional<NonFrozenStruct> → P/Invoke IntPtr vs C# SwiftOptional<T> → mismatch
         var optionalResponse = new NamedTypeSpec("Swift.Optional");
-        optionalResponse.GenericParameters.Add(new NamedTypeSpec("Nuke.ImageResponse"));
+        optionalResponse.GenericParameters.Add(new NamedTypeSpec("ImagePipeline.ImageResponse"));
         var tuple = new TupleTypeSpec(new List<TypeSpec>
         {
             optionalResponse,
@@ -587,19 +587,19 @@ public class TupleHandlerTests
                     Kind = TypeRecordKind.Struct
                 },
                 // Non-frozen struct (ClassWithOpaquePayload)
-                ["Nuke.ImageResponse"] = new TypeRecord
+                ["ImagePipeline.ImageResponse"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
-                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageResponse"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageResponse"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
                     Kind = TypeRecordKind.Struct
                 },
                 // Swift class
-                ["Nuke.ImageTask"] = new TypeRecord
+                ["ImagePipeline.ImageTask"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageTask"),
-                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageTask"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageTask"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageTask"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Class

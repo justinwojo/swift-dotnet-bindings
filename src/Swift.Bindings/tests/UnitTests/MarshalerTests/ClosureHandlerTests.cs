@@ -888,10 +888,10 @@ public class ClosureHandlerTests
 
         // Optional<ImageDecodingContext> — non-frozen struct (C# class) → T? (nullable annotation)
         // Must align with TypeConversionHandler protocol interface path
-        var optionalNonFrozen = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageDecodingContext"));
+        var optionalNonFrozen = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("ImagePipeline.ImageDecodingContext"));
         var result = handler.TranslateTypeSpecToCSharp(optionalNonFrozen);
 
-        Assert.Equal("Nuke.ImageDecodingContext?", result);
+        Assert.Equal("ImagePipeline.ImageDecodingContext?", result);
     }
 
     [Fact]
@@ -902,10 +902,10 @@ public class ClosureHandlerTests
 
         // Optional<ImageTask> — class → T? (nullable annotation)
         // Must align with TypeConversionHandler protocol interface path
-        var optionalClass = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageTask"));
+        var optionalClass = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("ImagePipeline.ImageTask"));
         var result = handler.TranslateTypeSpecToCSharp(optionalClass);
 
-        Assert.Equal("Nuke.ImageTask?", result);
+        Assert.Equal("ImagePipeline.ImageTask?", result);
     }
 
     [Fact]
@@ -1082,8 +1082,8 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Closure: () -> Nuke.ImageResponse (non-frozen struct)
-        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Nuke.ImageResponse"));
+        // Closure: () -> ImagePipeline.ImageResponse (non-frozen struct)
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("ImagePipeline.ImageResponse"));
 
         Assert.True(handler.RequiresIndirectReturnMarshalling(closure));
     }
@@ -1416,7 +1416,7 @@ public class ClosureHandlerTests
         // Regression: bare generic parameter TypeSpecs like `τ_0_0` or `T` have no module and
         // can't be module-qualified. Without the guard, `SwiftTypeName.FromModuleQualifiedName`
         // throws ArgumentException("Invalid module-qualified name: τ_0_0") and tanks generation
-        // for Swinject-style libraries whose closures carry generic-parameter args.
+        // for generic classes whose closures carry generic-parameter args.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -1740,12 +1740,12 @@ public class ClosureHandlerTests
     [Fact]
     public void IsSupportedClosure_WithOptionalModuleLocalTypeParameter_ReturnsTrue()
     {
-        // Closure: (Nuke.ImageResponse?, Int64, Int64) -> ()
+        // Closure: (ImagePipeline.ImageResponse?, Int64, Int64) -> ()
         // Direct Optional<NonFrozenStruct> params use void* in callbacks with SwiftMarshal conversion.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageResponse"));
+        var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("ImagePipeline.ImageResponse"));
         var tupleElements = new List<TypeSpec>
         {
             optionalImageResponse,
@@ -1768,7 +1768,7 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageResponse"));
+        var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("ImagePipeline.ImageResponse"));
         var tupleElements = new List<TypeSpec>
         {
             optionalImageResponse,
@@ -1800,7 +1800,7 @@ public class ClosureHandlerTests
 
         var tuple = new TupleTypeSpec(new List<TypeSpec>
         {
-            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            new NamedTypeSpec("ImagePipeline.ImageDecodingContext"),
             new NamedTypeSpec("Swift.Int64")
         });
         var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
@@ -1817,7 +1817,7 @@ public class ClosureHandlerTests
 
         var tuple = new TupleTypeSpec(new List<TypeSpec>
         {
-            new NamedTypeSpec("Nuke.ImageTask"),
+            new NamedTypeSpec("ImagePipeline.ImageTask"),
             new NamedTypeSpec("Swift.Int64")
         });
         var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
@@ -1838,7 +1838,7 @@ public class ClosureHandlerTests
         // EachArgument gives: (NonFrozenStruct, Int) as TupleTypeSpec, String as NamedTypeSpec
         var innerTuple = new TupleTypeSpec(new List<TypeSpec>
         {
-            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            new NamedTypeSpec("ImagePipeline.ImageDecodingContext"),
             new NamedTypeSpec("Swift.Int64")
         });
         var argsWrapper = new TupleTypeSpec(new List<TypeSpec>
@@ -1898,7 +1898,7 @@ public class ClosureHandlerTests
         var handler = new ClosureHandler(typeDatabase);
 
         // ImageDecodingContext is a non-frozen struct in our mock database
-        var typeSpec = new NamedTypeSpec("Nuke.ImageDecodingContext");
+        var typeSpec = new NamedTypeSpec("ImagePipeline.ImageDecodingContext");
 
         Assert.True(handler.IsNonFrozenStruct(typeSpec));
     }
@@ -1946,7 +1946,7 @@ public class ClosureHandlerTests
 
         // Closure: (ImageDecodingContext) -> Void
         var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            new NamedTypeSpec("ImagePipeline.ImageDecodingContext"),
             TupleTypeSpec.Empty);
 
         Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
@@ -1960,7 +1960,7 @@ public class ClosureHandlerTests
 
         // Closure: (ImageDecodingContext) -> Void - non-frozen struct needs special marshalling
         var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            new NamedTypeSpec("ImagePipeline.ImageDecodingContext"),
             TupleTypeSpec.Empty);
 
         Assert.True(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
@@ -2004,7 +2004,7 @@ public class ClosureHandlerTests
         var argsWrapper = new TupleTypeSpec(new List<TypeSpec>
         {
             new NamedTypeSpec("Swift.Int"),
-            new NamedTypeSpec("Nuke.ImageDecodingContext")
+            new NamedTypeSpec("ImagePipeline.ImageDecodingContext")
         });
         var closureTypeSpec = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
 
@@ -2019,7 +2019,7 @@ public class ClosureHandlerTests
 
         // Closure: (ImageTask) -> Void — class type should be invocable
         var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Nuke.ImageTask"),
+            new NamedTypeSpec("ImagePipeline.ImageTask"),
             TupleTypeSpec.Empty);
 
         Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
@@ -2261,7 +2261,7 @@ public class ClosureHandlerTests
         var handler = new ClosureHandler(typeDatabase);
 
         var optionalReturn = new NamedTypeSpec("Swift.Optional");
-        optionalReturn.GenericParameters.Add(new NamedTypeSpec("Nuke.ImageTask"));
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("ImagePipeline.ImageTask"));
 
         var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalReturn);
         closure.Attributes.Add(new TypeSpecAttribute("escaping"));
@@ -2303,12 +2303,12 @@ public class ClosureHandlerTests
     [Fact]
     public void IsSupportedClosure_ClassInCallbackParameter_ReturnsTrue()
     {
-        // Q3: Classes (Nuke.ImageTask) pass Layer 1 — they are in the type database.
+        // Q3: Classes (ImagePipeline.ImageTask) pass Layer 1 — they are in the type database.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
         var closure = new ClosureTypeSpec(
-            new NamedTypeSpec("Nuke.ImageTask"),
+            new NamedTypeSpec("ImagePipeline.ImageTask"),
             TupleTypeSpec.Empty);
         closure.Attributes.Add(new TypeSpecAttribute("escaping"));
 
@@ -2338,7 +2338,7 @@ public class ClosureHandlerTests
         var handler = new ClosureHandler(typeDatabase);
 
         var optionalClass = new NamedTypeSpec("Swift.Optional",
-            new NamedTypeSpec("Nuke.ImageTask"));
+            new NamedTypeSpec("ImagePipeline.ImageTask"));
         var closure = new ClosureTypeSpec(optionalClass, TupleTypeSpec.Empty);
         closure.Attributes.Add(new TypeSpecAttribute("escaping"));
 
@@ -2350,7 +2350,7 @@ public class ClosureHandlerTests
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
-        Assert.True(handler.IsClassType(new NamedTypeSpec("Nuke.ImageTask")));
+        Assert.True(handler.IsClassType(new NamedTypeSpec("ImagePipeline.ImageTask")));
     }
 
     [Fact]
@@ -2392,8 +2392,8 @@ public class ClosureHandlerTests
         // PassKit types have no scanned TypeRecord but must resolve via the synthetic
         // ObjCBridged fallback in TypeDatabaseExtensions (apple-frameworks.json registers
         // PassKit with autoBridge=true and PK prefix). Without the NamedTypeSpec-overload
-        // migration this returned false, causing StripeApplePay/StripeIssuing completion
-        // handlers like `(PKPaymentAuthorizationResult) -> Void` to be skipped.
+        // migration this returned false, causing PassKit completion handlers like
+        // `(PKPaymentAuthorizationResult) -> Void` to be skipped.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
         Assert.True(handler.IsObjCBridgedClass(new NamedTypeSpec("PassKit.PKPaymentAuthorizationResult")));
@@ -2423,7 +2423,7 @@ public class ClosureHandlerTests
     {
         // End-to-end: a closure parameter whose type resolves via the synthetic ObjC
         // fallback must pass IsSupportedClosureParameterType. Pairs with the PassKit
-        // completion-handler unblock for StripeApplePay / StripeIssuing.
+        // completion-handler unblock for PassKit-typed closures.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -2559,7 +2559,7 @@ public class ClosureHandlerTests
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
-        Assert.True(handler.IsReferenceType(new NamedTypeSpec("Nuke.ImageTask")));
+        Assert.True(handler.IsReferenceType(new NamedTypeSpec("ImagePipeline.ImageTask")));
     }
 
     [Fact]
@@ -2600,7 +2600,7 @@ public class ClosureHandlerTests
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
-        Assert.False(handler.IsComplexEnum(new NamedTypeSpec("Nuke.ImageTask")));
+        Assert.False(handler.IsComplexEnum(new NamedTypeSpec("ImagePipeline.ImageTask")));
     }
 
     [Fact]
@@ -2945,28 +2945,28 @@ public class ClosureHandlerTests
                     Kind = TypeRecordKind.Struct
                 },
                 // Non-frozen struct for testing closure parameters (like ImageDecodingContext)
-                ["Nuke.ImageDecodingContext"] = new TypeRecord
+                ["ImagePipeline.ImageDecodingContext"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageDecodingContext"),
-                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageDecodingContext"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageDecodingContext"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageDecodingContext"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
                     Kind = TypeRecordKind.Struct
                 },
                 // Non-frozen struct for testing closure parameters (like ImageResponse)
-                ["Nuke.ImageResponse"] = new TypeRecord
+                ["ImagePipeline.ImageResponse"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
-                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageResponse"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageResponse"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
                     Kind = TypeRecordKind.Struct
                 },
                 // Swift class for testing tuple element mismatch in closures
-                ["Nuke.ImageTask"] = new TypeRecord
+                ["ImagePipeline.ImageTask"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageTask"),
-                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageTask"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageTask"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageTask"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Class

@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Optional Throwing-Void Closure Parameters (Alamofire / YouTubePlayerKit shape)
+// MARK: - Optional Throwing-Void Closure Parameters
 //
 // Regression guard for the optional escaping throwing closure returning Void as a
 // method/init parameter — `((T) throws -> Void)? = nil`. The C# binding emits a
@@ -14,12 +14,10 @@ import Foundation
 // contract gate rejected the callback's P/Invoke, the co-gater stripped the
 // `[UnmanagedCallersOnly]` callback method, and its one-line `s_<cb> = &<cb>` field
 // plus the `new SwiftClosureData((IntPtr)s_<cb>, …)` call-site dangled → CS0103
-// "name does not exist." These shapes broke Alamofire (`Session.upload(…requestModifier:)`)
-// and YouTubePlayerKit (`init(htmlProvider:)` + the `HtmlProvider` setter) at the
-// compile gate. This fixture is the durable in-repo reproduction across a free-function
-// parameter, an initializer parameter, a default-valued non-optional parameter, and both
-// optional and non-optional settable properties — every bypass site the handler-layer
-// error-mint registration now covers.
+// "name does not exist." This fixture is the durable in-repo reproduction across a
+// free-function parameter, an initializer parameter, a default-valued non-optional
+// parameter, and both optional and non-optional settable properties — every bypass site
+// the handler-layer error-mint registration now covers.
 //
 // NOTE: the struct-argument shape `(RequestConfig) throws -> Void` is exercised on BOTH the
 // *parameter* direction (free function + initializer), where the C# delegate is marshalled
@@ -43,9 +41,9 @@ public struct RequestConfig {
 // Initializers/Throwing.swift) for a non-positive timeout — driving the throwing branch of the
 // throwing-closure RETURN invoker.
 
-/// Free function with an OPTIONAL throwing-void closure parameter defaulting to nil —
-/// the Alamofire `Session.upload(…requestModifier:)` shape (the `_optbuf` native-forward
-/// path). Returns true iff the closure was supplied and ran without throwing.
+/// Free function with an OPTIONAL throwing-void closure parameter defaulting to nil
+/// (the `_optbuf` native-forward path). Returns true iff the closure was supplied
+/// and ran without throwing.
 public func runWithOptionalModifier(
     timeout: Int32,
     modifier: ((RequestConfig) throws -> Void)? = nil
@@ -59,21 +57,18 @@ public func runWithOptionalModifier(
     }
 }
 
-/// Holds throwing-void closures provided at construction and via settable properties —
-/// the YouTubePlayerKit `init(htmlProvider:)` + `HtmlProvider` setter shapes.
+/// Holds throwing-void closures provided at construction and via settable properties.
 public final class OptionalThrowingModifierHolder {
     /// Settable OPTIONAL throwing-void closure property (Optional closure-setter branch).
     public var onComplete: (() throws -> Void)?
 
-    /// Settable NON-OPTIONAL throwing-void closure property — the actual YouTubePlayerKit
-    /// `HtmlProvider` setter bypass site (PropertyWrapperEmitter's non-optional
-    /// closure-setter branch, outside the adapter funnel).
+    /// Settable NON-OPTIONAL throwing-void closure property — the
+    /// PropertyWrapperEmitter non-optional closure-setter branch, outside the adapter funnel.
     public var validator: () throws -> Void
 
     /// Initializer taking an OPTIONAL throwing-void closure with a struct argument and a
-    /// default of nil (YouTubePlayerKit `init(htmlProvider:)` shape, the `_optbuf` path),
-    /// plus a default-valued NON-optional throwing-void closure exercising the
-    /// default-parameter shim bypass.
+    /// default of nil (the `_optbuf` path), plus a default-valued NON-optional
+    /// throwing-void closure exercising the default-parameter shim bypass.
     public init(
         validator: @escaping () throws -> Void = { },
         modifier: ((RequestConfig) throws -> Void)? = nil

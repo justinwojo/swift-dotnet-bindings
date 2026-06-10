@@ -190,9 +190,8 @@ public static class SwiftClosureMarshaller
     /// the closure-context owner-token bridge when present.
     /// </summary>
     /// <remarks>
-    /// Used by trampolines on the legacy <c>SwiftClosureData</c> escaping path
-    /// (e.g. <c>ImagePipeline.loadData(didReceiveData:)</c>) — the cdecl path
-    /// must continue using <see cref="GetDelegateFromContext{TDelegate}"/>
+    /// Used by trampolines on the legacy <c>SwiftClosureData</c> escaping path.
+    /// The cdecl path must continue using <see cref="GetDelegateFromContext{TDelegate}"/>
     /// because the Swift wrapper unboxes before calling the C# trampoline.
     /// </remarks>
     public static TDelegate GetDelegateFromBoxedContext<TDelegate>(IntPtr maybeBoxedContext) where TDelegate : Delegate

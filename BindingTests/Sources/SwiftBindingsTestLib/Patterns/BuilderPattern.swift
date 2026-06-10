@@ -3,10 +3,9 @@
 
 import Foundation
 
-// MARK: - Builder Pattern (KeychainAccess .withAccessibility().withLabel() pattern)
+// MARK: - Builder Pattern
 
 /// Class with chained builder methods returning Self.
-/// Real-world pattern: KeychainAccess Keychain.withAccessibility().withLabel().
 public class RequestBuilder {
     public var url: String
     public var method: String

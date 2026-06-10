@@ -444,7 +444,7 @@ public class ProtocolSignatureHelperTests
     {
         // Non-frozen structs are emitted as C# classes (ClassWithOpaquePayload),
         // so Optional<NonFrozenStruct> and NonFrozenStruct are the same CLR type.
-        // Reproduces: Parchment PageBuilder.BuildExpression(Page) vs BuildExpression(Page?)
+        // Reproduces: BuildExpression(Page) vs BuildExpression(Page?) — Optional<NonFrozenStruct> dedup
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         module.RegisterType(
@@ -557,7 +557,7 @@ public class ProtocolSignatureHelperTests
     [Fact]
     public void NormalizeContainer_ArrayAndSet_ProduceSameKey()
     {
-        // Reproduces: ObjectMapper Mapper.toJSONString(Array<N>) vs toJSONString(Set<N>)
+        // Reproduces: toJSONString(Array<N>) vs toJSONString(Set<N>)
         // Both project to IEnumerable<N> — must produce same dedup key
         var typeDatabase = new TypeDatabase();
         var arrayType = new NamedTypeSpec("Swift.Array");

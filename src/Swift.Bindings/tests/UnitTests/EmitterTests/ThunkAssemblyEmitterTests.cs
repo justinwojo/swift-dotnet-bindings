@@ -933,9 +933,9 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void GenerateThunkSymbol_ContainsModuleName()
         {
-            var symbol = ThunkAssemblyEmitter.GenerateThunkSymbol("Nuke", "$s4Nuke5ImageC");
+            var symbol = ThunkAssemblyEmitter.GenerateThunkSymbol("ImagePipeline", "$s13ImagePipeline5ImageC");
 
-            Assert.StartsWith("thunk_Nuke_", symbol);
+            Assert.StartsWith("thunk_ImagePipeline_", symbol);
         }
 
         [Fact]

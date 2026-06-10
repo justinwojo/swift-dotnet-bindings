@@ -54,8 +54,8 @@ public class SwiftErrorMintEmitterTests
     [Fact]
     public void Method_OptionalThrowingClosureParam_EmitsAndRegistersHelper()
     {
-        // Optional<(Int32) throws -> Void> = nil — the Alamofire/_optbuf bypass shape: a
-        // "large optional" forwarded to Swift natively with no adapter funnel.
+        // Optional<(Int32) throws -> Void> = nil — a "large optional" throwing closure
+        // forwarded to Swift natively with no adapter funnel.
         var env = MethodEnvWithClosureParam(OptionalOf(ThrowingVoidClosure()));
         var ctx = new ModuleEmissionContext();
         var (swift, _) = Run(w => SwiftErrorMintEmitter.EmitForMethodIfNeeded(w, env, ctx));
@@ -138,7 +138,7 @@ public class SwiftErrorMintEmitterTests
     [Fact]
     public void Property_NonOptionalThrowingClosure_EmitsAndRegistersHelper()
     {
-        // YouTubePlayerKit's htmlProvider shape: var htmlProvider: (T) throws -> String.
+        // Non-optional throwing closure property: var htmlProvider: (T) throws -> String.
         // The non-optional closure-setter branch forwards the closure natively, so the setter
         // callback's SBW_CreateError reference would otherwise go unregistered.
         var property = PropertyWithType(ThrowingStringClosure());
@@ -175,10 +175,10 @@ public class SwiftErrorMintEmitterTests
     public void Property_OptionalAsyncThrowingClosure_DoesNotEmitHelper()
     {
         // Regression for PropertyHandlerTests.Emit_OptionalAsyncThrowingClosureProperty_SkipsEmission:
-        // an Optional<async-throwing closure> property (Stripe ConfirmHandler shape) is skipped from
-        // emission entirely and propagates errors via its continuation, never via SBW_CreateError —
-        // the handler-layer helper must NOT fire for it (else the skipped property leaves a stray
-        // @_cdecl helper in the otherwise-empty Swift output).
+        // an Optional<async-throwing closure> property is skipped from emission entirely and
+        // propagates errors via its continuation, never via SBW_CreateError — the handler-layer
+        // helper must NOT fire for it (else the skipped property leaves a stray @_cdecl helper
+        // in the otherwise-empty Swift output).
         var property = PropertyWithType(OptionalOf(AsyncThrowingStringClosure()));
         var ctx = new ModuleEmissionContext();
         var (swift, _) = Run(w => SwiftErrorMintEmitter.EmitForPropertyIfNeeded(w, property, ctx));

@@ -16,15 +16,15 @@ public class MetadataWrapperEmitterTests
     [Fact]
     public void GetMetadataSymbolName_TopLevelType_CorrectFormat()
     {
-        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("Nuke", "Nuke.ImagePipeline");
-        Assert.StartsWith("SBW_GetMetadata_Nuke_Nuke_ImagePipeline_", symbol);
+        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("ImagePipeline", "ImagePipeline.ImageService");
+        Assert.StartsWith("SBW_GetMetadata_ImagePipeline_ImagePipeline_ImageService_", symbol);
     }
 
     [Fact]
     public void GetMetadataSymbolName_NestedType_IncludesParent()
     {
-        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("Nuke", "Nuke.ImageRequest.Priority");
-        Assert.StartsWith("SBW_GetMetadata_Nuke_Nuke_ImageRequest_Priority_", symbol);
+        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("ImagePipeline", "ImagePipeline.ImageRequest.Priority");
+        Assert.StartsWith("SBW_GetMetadata_ImagePipeline_ImagePipeline_ImageRequest_Priority_", symbol);
         Assert.DoesNotContain(".", symbol.Substring("SBW_GetMetadata_".Length));
     }
 
@@ -42,13 +42,13 @@ public class MetadataWrapperEmitterTests
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
         var ctx = new ModuleEmissionContext();
-        var symbol = "SBW_GetMetadata_Nuke_Nuke_ImagePipeline_ABCD1234";
+        var symbol = "SBW_GetMetadata_ImagePipeline_ImagePipeline_ImageService_ABCD1234";
 
-        MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "Nuke", "Nuke.ImagePipeline", symbol, ctx);
+        MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "ImagePipeline", "ImagePipeline.ImageService", symbol, ctx);
 
         var output = sw.ToString();
         Assert.Contains($"@_cdecl(\"{symbol}\")", output);
-        Assert.Contains("unsafeBitCast(Nuke.ImagePipeline.self as Any.Type, to: UnsafeMutableRawPointer.self)", output);
+        Assert.Contains("unsafeBitCast(ImagePipeline.ImageService.self as Any.Type, to: UnsafeMutableRawPointer.self)", output);
         Assert.Contains("-> UnsafeMutableRawPointer", output);
     }
 
@@ -79,7 +79,7 @@ public class MetadataWrapperEmitterTests
     ///   2. Emit the C# P/Invoke targeting the dylib's metadata accessor (CallConvSwift),
     ///      NOT the wrapper library (Cdecl)
     /// This ensures no dangling symbol references between C# and Swift.
-    /// The full handler pipeline is exercised by CryptoSwift validation (42/56 baseline).
+    /// The full handler pipeline is exercised by real-world validation (42/56 baseline).
     /// </summary>
     [Fact]
     public void InternalType_SwiftWrapperSkipped_CSharpFallbackUsed()
@@ -89,13 +89,13 @@ public class MetadataWrapperEmitterTests
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
-        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("CryptoSwift", "CryptoSwift.BlockEncryptor");
+        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("CryptoLib", "CryptoLib.BlockEncryptor");
 
         bool isModuleInternal = true;
 
         // Gate: skip Swift wrapper for internal types
         if (!isModuleInternal)
-            MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "CryptoSwift", "CryptoSwift.BlockEncryptor", symbol, ctx);
+            MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "CryptoLib", "CryptoLib.BlockEncryptor", symbol, ctx);
 
         var swiftOutput = sw.ToString();
         Assert.DoesNotContain("@_cdecl", swiftOutput);
@@ -105,13 +105,13 @@ public class MetadataWrapperEmitterTests
         // rather than the wrapper library (Cdecl).
         // The handler emits: LibraryPath = libPath (dylib), EntryPoint = mangledName+"Ma"
         // instead of: LibraryPath = wrapperLib, EntryPoint = SBW_GetMetadata_...
-        string expectedDylibEntry = "$s11CryptoSwift14BlockEncryptorCMa"; // mangled + "Ma"
+        string expectedDylibEntry = "$s11CryptoLib14BlockEncryptorCMa"; // mangled + "Ma"
         string unexpectedWrapperEntry = symbol; // SBW_GetMetadata_...
 
         // In the handler, internal types get:
-        //   [DllImport("CryptoSwift")] static extern TypeMetadata PInvoke_getMetadata();
+        //   [DllImport("<dylib>")] static extern TypeMetadata PInvoke_getMetadata();
         // Public types get:
-        //   [DllImport("CryptoSwiftSwiftBindings", EntryPoint = "SBW_GetMetadata_...")]
+        //   [DllImport("<module>SwiftBindings", EntryPoint = "SBW_GetMetadata_...")]
         //   [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         //   static extern TypeMetadata PInvoke_getMetadata();
         Assert.NotEqual(expectedDylibEntry, unexpectedWrapperEntry);
@@ -124,16 +124,16 @@ public class MetadataWrapperEmitterTests
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
-        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("Nuke", "Nuke.ImagePipeline");
+        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("ImagePipeline", "ImagePipeline.ImageService");
 
         bool isModuleInternal = false;
 
         if (!isModuleInternal)
-            MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "Nuke", "Nuke.ImagePipeline", symbol, ctx);
+            MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "ImagePipeline", "ImagePipeline.ImageService", symbol, ctx);
 
         var swiftOutput = sw.ToString();
         Assert.Contains("@_cdecl", swiftOutput);
-        Assert.Contains("Nuke.ImagePipeline.self", swiftOutput);
+        Assert.Contains("ImagePipeline.ImageService.self", swiftOutput);
     }
 
     /// <summary>

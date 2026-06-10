@@ -17,8 +17,8 @@ namespace BindingsGeneration.Tests
     public class OtoolParsingTests
     {
         private const string SampleOtoolOutput = """
-            /path/to/NukeUI.framework/NukeUI:
-            	@rpath/Nuke.framework/Nuke (compatibility version 0.0.0, current version 0.0.0)
+            /path/to/ImagePipelineUI.framework/ImagePipelineUI:
+            	@rpath/ImagePipeline.framework/ImagePipeline (compatibility version 0.0.0, current version 0.0.0)
             	/usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)
             	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1311.0.0)
             	/usr/lib/swift/libswiftCore.dylib (compatibility version 1.0.0, current version 5.9.0)
@@ -27,28 +27,28 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ParseOtoolOutput_SingleRpathDep_ExtractsCorrectly()
         {
-            var result = BinaryDependencyAnalyzer.ParseOtoolOutput(SampleOtoolOutput, "NukeUI");
+            var result = BinaryDependencyAnalyzer.ParseOtoolOutput(SampleOtoolOutput, "ImagePipelineUI");
             Assert.Single(result);
-            Assert.Equal("Nuke", result[0].FrameworkName);
-            Assert.Equal("@rpath/Nuke.framework/Nuke", result[0].InstallName);
+            Assert.Equal("ImagePipeline", result[0].FrameworkName);
+            Assert.Equal("@rpath/ImagePipeline.framework/ImagePipeline", result[0].InstallName);
         }
 
         [Fact]
         public void ParseOtoolOutput_MultipleRpathDeps_ExtractsAll()
         {
             var output = """
-                /path/to/StripePaymentSheet.framework/StripePaymentSheet:
-                	@rpath/StripeCore.framework/StripeCore (compatibility version 0.0.0, current version 0.0.0)
-                	@rpath/StripeUICore.framework/StripeUICore (compatibility version 0.0.0, current version 0.0.0)
-                	@rpath/StripePaymentsUI.framework/StripePaymentsUI (compatibility version 0.0.0, current version 0.0.0)
+                /path/to/PaymentSdkSheet.framework/PaymentSdkSheet:
+                	@rpath/PaymentSdkCore.framework/PaymentSdkCore (compatibility version 0.0.0, current version 0.0.0)
+                	@rpath/PaymentSdkUICore.framework/PaymentSdkUICore (compatibility version 0.0.0, current version 0.0.0)
+                	@rpath/PaymentSdkPaymentsUI.framework/PaymentSdkPaymentsUI (compatibility version 0.0.0, current version 0.0.0)
                 	/usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)
                 """;
 
-            var result = BinaryDependencyAnalyzer.ParseOtoolOutput(output, "StripePaymentSheet");
+            var result = BinaryDependencyAnalyzer.ParseOtoolOutput(output, "PaymentSdkSheet");
             Assert.Equal(3, result.Count);
-            Assert.Equal("StripeCore", result[0].FrameworkName);
-            Assert.Equal("StripeUICore", result[1].FrameworkName);
-            Assert.Equal("StripePaymentsUI", result[2].FrameworkName);
+            Assert.Equal("PaymentSdkCore", result[0].FrameworkName);
+            Assert.Equal("PaymentSdkUICore", result[1].FrameworkName);
+            Assert.Equal("PaymentSdkPaymentsUI", result[2].FrameworkName);
         }
 
         [Fact]
@@ -81,12 +81,12 @@ namespace BindingsGeneration.Tests
         public void ParseOtoolOutput_SelfReference_Filtered()
         {
             var output = """
-                /path/to/Nuke.framework/Nuke:
-                	@rpath/Nuke.framework/Nuke (compatibility version 0.0.0, current version 0.0.0)
+                /path/to/ImagePipeline.framework/ImagePipeline:
+                	@rpath/ImagePipeline.framework/ImagePipeline (compatibility version 0.0.0, current version 0.0.0)
                 	@rpath/OtherLib.framework/OtherLib (compatibility version 0.0.0, current version 0.0.0)
                 """;
 
-            var result = BinaryDependencyAnalyzer.ParseOtoolOutput(output, "Nuke");
+            var result = BinaryDependencyAnalyzer.ParseOtoolOutput(output, "ImagePipeline");
             Assert.Single(result);
             Assert.Equal("OtherLib", result[0].FrameworkName);
         }
@@ -116,13 +116,13 @@ namespace BindingsGeneration.Tests
             // Same framework can appear as both normal and weak linkage
             var output = """
                 /path/to/Test.framework/Test:
-                	@rpath/Nuke.framework/Nuke (compatibility version 0.0.0, current version 0.0.0)
-                	@rpath/Nuke.framework/Nuke (compatibility version 0.0.0, current version 0.0.0, weak)
+                	@rpath/ImagePipeline.framework/ImagePipeline (compatibility version 0.0.0, current version 0.0.0)
+                	@rpath/ImagePipeline.framework/ImagePipeline (compatibility version 0.0.0, current version 0.0.0, weak)
                 """;
 
             var result = BinaryDependencyAnalyzer.ParseOtoolOutput(output, "Test");
             Assert.Single(result);
-            Assert.Equal("Nuke", result[0].FrameworkName);
+            Assert.Equal("ImagePipeline", result[0].FrameworkName);
         }
     }
 
@@ -133,8 +133,8 @@ namespace BindingsGeneration.Tests
     public class FrameworkNameExtractionTests
     {
         [Theory]
-        [InlineData("@rpath/Nuke.framework/Nuke", "Nuke")]
-        [InlineData("@rpath/StripeCore.framework/StripeCore", "StripeCore")]
+        [InlineData("@rpath/ImagePipeline.framework/ImagePipeline", "ImagePipeline")]
+        [InlineData("@rpath/PaymentSdkCore.framework/PaymentSdkCore", "PaymentSdkCore")]
         [InlineData("/usr/lib/libobjc.A.dylib", null)]
         [InlineData("@rpath/libFoo.dylib", null)]
         [InlineData("", null)]
@@ -545,24 +545,24 @@ namespace BindingsGeneration.Tests
         {
             var runner = new MockCommandRunner();
             runner.SetResponse("otool", 0, """
-                /path/to/Nuke.framework/Nuke:
+                /path/to/ImagePipeline.framework/ImagePipeline:
                 	/usr/lib/libobjc.A.dylib (compatibility version 1.0.0)
                 """);
 
             DependencyManifestEmitter.Emit(
-                _outputDir, "Nuke", "/path/to/Nuke.xcframework",
-                "/path/to/Nuke", null, null, null, _logger, runner);
+                _outputDir, "ImagePipeline", "/path/to/ImagePipeline.xcframework",
+                "/path/to/ImagePipeline", null, null, null, _logger, runner);
 
             var manifestPath = Path.Combine(_outputDir, "dependency-manifest.json");
             Assert.True(File.Exists(manifestPath));
 
             var json = JObject.Parse(File.ReadAllText(manifestPath));
-            Assert.Equal("Nuke", json["primary"]!["moduleName"]!.ToString());
+            Assert.Equal("ImagePipeline", json["primary"]!["moduleName"]!.ToString());
             Assert.Empty(json["effectiveDependencies"]!);
             Assert.Empty(json["detectedButUnresolved"]!);
             Assert.Empty(json["detectedButOverridden"]!);
             Assert.NotEmpty(json["buildOrder"]!);
-            Assert.Contains("Nuke", json["buildOrder"]!.Select(t => t.ToString()));
+            Assert.Contains("ImagePipeline", json["buildOrder"]!.Select(t => t.ToString()));
             Assert.Empty(json["graphWarnings"]!);
         }
 
@@ -1108,18 +1108,17 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void BuildDependencyGraph_FrameworkNameDiffersFromModuleName_EdgeResolvesCorrectly()
         {
-            // Framework binary is "StripeCore" but module name is "StripePayments"
-            // otool reports @rpath/StripeCore.framework/StripeCore
-            // Graph should map it to module name "StripePayments"
+            // Framework binary name differs from module name — otool reports the binary name
+            // but the graph must record the module name for correct edge resolution.
             var runner = new MockCommandRunner();
 
             runner.SetResponse("Primary", 0, """
                 /path/to/Primary.framework/Primary:
-                	@rpath/StripeCore.framework/StripeCore (compatibility version 0.0.0)
+                	@rpath/PaymentSdkCore.framework/PaymentSdkCore (compatibility version 0.0.0)
                 """);
 
-            runner.SetResponse("path/to/StripePayments", 0, """
-                /path/to/StripePayments.framework/StripePayments:
+            runner.SetResponse("path/to/PaymentSdkPayments", 0, """
+                /path/to/PaymentSdkPayments.framework/PaymentSdkPayments:
                 	/usr/lib/libobjc.A.dylib (compatibility version 1.0.0)
                 """);
 
@@ -1127,10 +1126,10 @@ namespace BindingsGeneration.Tests
             {
                 new FrameworkDependencyInfo
                 {
-                    // xcframework name is "StripeCore" but module is "StripePayments"
-                    XCFrameworkPath = "/path/to/StripeCore.xcframework",
-                    ModuleName = "StripePayments",
-                    DylibPath = "/path/to/StripePayments"
+                    // xcframework name differs from module name
+                    XCFrameworkPath = "/path/to/PaymentSdkCore.xcframework",
+                    ModuleName = "PaymentSdkPayments",
+                    DylibPath = "/path/to/PaymentSdkPayments"
                 }
             };
 
@@ -1138,8 +1137,8 @@ namespace BindingsGeneration.Tests
                 "Primary", "/path/to/Primary", deps, runner);
 
             // The edge should use module name, not framework name
-            Assert.Contains("StripePayments", graph["Primary"]);
-            Assert.DoesNotContain("StripeCore", graph["Primary"]);
+            Assert.Contains("PaymentSdkPayments", graph["Primary"]);
+            Assert.DoesNotContain("PaymentSdkCore", graph["Primary"]);
             Assert.Empty(warnings);
         }
 
@@ -1198,8 +1197,8 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Emit_OverrideDetected_WhenFrameworkNameDiffersFromModuleName()
         {
-            // Detected framework name "StripeCore" but manual dep module is "StripePayments"
-            // with xcframework path "StripeCore.xcframework"
+            // Detected framework binary name differs from the manually-specified module name;
+            // xcframework path is derived from the binary name.
             var runner = new MockCommandRunner();
             runner.SetResponse("otool", 0, """
                 /path/to/Primary.framework/Primary:
@@ -1207,8 +1206,8 @@ namespace BindingsGeneration.Tests
                 """);
 
             // Mock for dep's otool
-            runner.SetResponse("StripePayments", 0, """
-                /path/to/StripePayments.framework/StripePayments:
+            runner.SetResponse("PaymentSdkPayments", 0, """
+                /path/to/PaymentSdkPayments.framework/PaymentSdkPayments:
                 	/usr/lib/libobjc.A.dylib (compatibility version 1.0.0)
                 """);
 
@@ -1220,8 +1219,8 @@ namespace BindingsGeneration.Tests
                 {
                     new DetectedDependency
                     {
-                        FrameworkName = "StripeCore", // binary name differs from module
-                        InstallName = "@rpath/StripeCore.framework/StripeCore"
+                        FrameworkName = "PaymentSdkCore", // binary name differs from module
+                        InstallName = "@rpath/PaymentSdkCore.framework/PaymentSdkCore"
                     }
                 }
             };
@@ -1230,25 +1229,25 @@ namespace BindingsGeneration.Tests
             {
                 new FrameworkDependencyInfo
                 {
-                    // xcframework name "StripeCore" but module "StripePayments"
-                    XCFrameworkPath = "/explicit/StripeCore.xcframework",
-                    ModuleName = "StripePayments",
+                    // xcframework name differs from module name
+                    XCFrameworkPath = "/explicit/PaymentSdkCore.xcframework",
+                    ModuleName = "PaymentSdkPayments",
                     PackageVersion = "1.0.0",
-                    DylibPath = "/explicit/StripePayments"
+                    DylibPath = "/explicit/PaymentSdkPayments"
                 }
             };
 
             DependencyManifestEmitter.Emit(
                 _outputDir, "Primary", "/path/to/Primary.xcframework",
                 "/path/to/Primary", analysisResult, effectiveDeps,
-                new[] { "/explicit/StripeCore.xcframework" }, _logger, runner);
+                new[] { "/explicit/PaymentSdkCore.xcframework" }, _logger, runner);
 
             var json = JObject.Parse(File.ReadAllText(Path.Combine(_outputDir, "dependency-manifest.json")));
 
             // Override should be detected via xcframework-derived framework name
             var overridden = json["detectedButOverridden"]!;
             Assert.Single(overridden);
-            Assert.Equal("StripeCore", overridden[0]!["frameworkName"]!.ToString());
+            Assert.Equal("PaymentSdkCore", overridden[0]!["frameworkName"]!.ToString());
         }
 
         public void Dispose()

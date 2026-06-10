@@ -44,7 +44,7 @@ namespace BindingsGeneration
         public string? SdkVersion { get; init; }
 
         /// <summary>
-        /// The Swift module name (e.g., "Nuke").
+        /// The Swift module name (e.g., "MyModule").
         /// </summary>
         public required string ModuleName { get; init; }
 
@@ -62,7 +62,7 @@ namespace BindingsGeneration
         private const string MinOSFloor = "15.0";
 
         // Vendor build tooling occasionally emits an "uninitialized" sentinel for
-        // MinimumOSVersion (Firebase ships every framework with "100.0", for example —
+        // MinimumOSVersion (some SDKs ship every framework with a sentinel like "100.0" —
         // a CMake/xcodebuild quirk that hasn't been fixed upstream). Treating the value
         // literally writes <SupportedOSPlatformVersion>100.0</SupportedOSPlatformVersion>
         // into the generated csproj, which the .NET SDK rejects with NETSDK1135 once it
@@ -250,7 +250,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Clamps a raw minimum OS version to at least 15.0 (.NET 10 iOS floor) and
-        /// rejects vendor sentinel values (e.g. Firebase's "100.0") by falling back
+        /// rejects vendor sentinel values (e.g. a CMake-emitted "100.0") by falling back
         /// to the floor. See <see cref="MinOSSentinelCeiling"/> for the rationale.
         /// </summary>
         public static string ClampMinimumOSVersion(string? rawVersion)
@@ -273,7 +273,7 @@ namespace BindingsGeneration
         /// <param name="metadata">Extracted xcframework metadata.</param>
         /// <param name="outputDirectory">Directory to write binding-metadata.props.</param>
         /// <param name="hasWrapperXCFramework">Whether a wrapper xcframework was compiled.</param>
-        /// <param name="wrapperModuleName">The wrapper module name (e.g., "NukeSwiftBindings").</param>
+        /// <param name="wrapperModuleName">The wrapper module name following the "{Module}SwiftBindings" convention.</param>
         /// <param name="wrapperSliceCount">Number of architecture slices in the wrapper xcframework.</param>
         /// <param name="logger">Logger instance.</param>
         /// <param name="dependencies">Auto-detected framework dependencies (from BinaryDependencyAnalyzer).</param>
@@ -405,7 +405,7 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="outputDirectory">Directory containing binding-metadata.props.</param>
         /// <param name="hasWrapper">Whether a wrapper xcframework was successfully compiled.</param>
-        /// <param name="wrapperModuleName">The wrapper module name (e.g., "NukeSwiftBindings").</param>
+        /// <param name="wrapperModuleName">The wrapper module name following the "{Module}SwiftBindings" convention.</param>
         /// <param name="sliceCount">Number of architecture slices in the wrapper xcframework.</param>
         /// <param name="logger">Logger instance.</param>
         public static void UpdateMetadataPropsWrapperStatus(

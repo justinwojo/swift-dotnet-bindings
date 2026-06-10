@@ -530,7 +530,7 @@ public func makeTrackedMarkerArrayOfMaps(outer: Int, inner: Int) -> [[String: an
 /// `IReadOnlyDictionary` value slot (the outer container is a Dictionary, not a covariant `IReadOnlyList`),
 /// so the inner `DictionaryProjection` element conversion must surface its declared
 /// `IReadOnlyDictionary<string, IMarker>` interface — emitting a bare concrete `Dictionary<…>` value there
-/// is a CS0266 (the shape that regressed ObjectMapper's `[String: [String: any P]]` returns).
+/// is a CS0266 (the shape that regressed `[String: [String: any P]]` returns).
 /// Exercises `DictionaryProjection.GetOwnedReturnElementConversion` recursing through the value
 /// `DictionaryProjection` down to `ExistentialProjection` (owns:true adoption at the buried value leaf).
 public func makeTrackedMarkerMapOfMaps(outer: Int, inner: Int) -> [String: [String: any Marker]] {
@@ -546,7 +546,7 @@ public func makeTrackedMarkerMapOfMaps(outer: Int, inner: Int) -> [String: [Stri
 /// NESTED OWNED-RETURN, three-level Dictionary→Array→Dictionary: an owned
 /// `[String: [[String: any Marker]]]` — `outer` keys, each mapping to a `mid`-element array of inner
 /// `[String: any Marker]` dictionaries of `inner` fresh tracked conformers. This is the EXACT shape that
-/// regressed FirebaseFirestore/ObjectMapper's `[String: [[String: any P]]]` returns: the
+/// regressed `[String: [[String: any P]]]` returns: the
 /// outer Dictionary VALUE slot is INVARIANT, and its value is an Array whose elements are concrete inner
 /// dictionaries, so the buried `IReadOnlyList<Dictionary<…>>` the array conversion yields must be cast to
 /// its declared `IReadOnlyList<IReadOnlyDictionary<…>>` public type in the outer dictionary's AsProjected
@@ -616,7 +616,7 @@ public func consumeNestedMarkerProvider(_ p: NestedMarkerProvider) -> Int {
 /// REVERSE-DISPATCH METHOD-PARAM requirement, Array-of-dictionaries: a C# class implements
 /// `consume(grid:)`; Swift builds a `[[String: any Marker]]` and calls the method through the generated
 /// EveryProtocol receiver, which materializes the incoming param (Swift→C# READ) before handing it to the
-/// C# impl. This is the EXACT shape that regressed FirebaseFirestore's `mapMerge([[String: Any]])`
+/// C# impl. This is the EXACT shape that regressed `mapMerge([[String: Any]])`-style
 /// receiver: the receiver reads the array-of-dictionary param via the RETURN-direction
 /// element conversion, so each inner dictionary must stay the CONCRETE universal-donor `Dictionary<…>`
 /// (assignable to the impl's `IEnumerable<IDictionary<…>>` param via array covariance) — a read-only

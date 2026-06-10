@@ -4,9 +4,9 @@
 import SwiftBindingsTestLibDependency
 
 // Reproducer for the cross-module variant of the missing enum-case payload
-// extractor bug. Stripe's StripeFinancialConnections emits an
-// enum whose `.completed(payload:)` case carries a type owned by a *different*
-// module (`FinancialConnections.FinancialConnectionsSession`), and the
+// extractor bug: a module emits an enum whose `.completed(payload:)` case
+// carries a type owned by a *different* module
+// (`FinancialConnections.FinancialConnectionsSession`), and the
 // validation pass found the extractor + factory were missing from the
 // generated C# while the `failed(error:)` case (whose payload is the erased
 // `any Swift.Error` -> `AnyError`) still emitted. The same-module variant in
@@ -15,8 +15,7 @@ import SwiftBindingsTestLibDependency
 // surfaces as a missing entry in BindingTests rather than as a silent drop.
 
 /// Result-shape enum carrying a cross-module **class** payload
-/// (`DependencyService` from `SwiftBindingsTestLibDependency`). Mirrors the
-/// Stripe `FinancialConnections.Result.completed(session:)` shape: labeled
+/// (`DependencyService` from `SwiftBindingsTestLibDependency`): labeled
 /// success payload + no-payload cancel + erased-error failure.
 public enum CrossModuleClassResult {
     case completed(session: DependencyService)

@@ -11,8 +11,7 @@ namespace RuntimeTestsApp.Protocols;
 /// Exercises ExistentialHandler optional existential getter/setter paths
 /// and factory functions returning classes with optional protocol properties.
 ///
-/// Pattern: 11+ validation libraries (Nuke, Kingfisher, etc.) use classes
-/// with `var prop: (any Protocol)?` stored properties.
+/// Pattern: classes with `var prop: (any Protocol)?` stored properties.
 /// </summary>
 public class OptionalExistentialPropertyTests : TestBase
 {

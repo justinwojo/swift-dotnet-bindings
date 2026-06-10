@@ -37,7 +37,7 @@ public static class SwiftSourceStripper
         // conformance and its witness-table getter must survive stripping for the existential
         // construction P/Invoke (Get_EveryProtocol_RangeBoundsProvider_WitnessTable) to resolve.
         "RangeBoundsProvider",
-        // Auto-wrap regression for justinwojo/swift-dotnet-bindings#16 (GDPerformanceView).
+        // Auto-wrap regression for justinwojo/swift-dotnet-bindings#16 (issue #16 — auto-wrap delegate).
         // AutoWrappedDelegateTests drives Swift→C# callbacks through the property setter,
         // constructor arg, and method arg emit sites, so the EveryProtocol conformance and
         // its witness table accessor must survive wrapper stripping.
@@ -86,26 +86,26 @@ public static class SwiftSourceStripper
         "AsyncIntDelegate",
         // Multi-shape composite protocol used as a regression sentinel — every member
         // (Bool / closure property / closure-returning method / async closure / throwing
-        // closure / Int32 property) must dispatch via a real vtable receiver, mirroring
-        // Nuke ImagePipelineDelegate / BlinkIDUX CameraModel richness.
+        // closure / Int32 property) must dispatch via a real vtable receiver, covering
+        // the richness seen in real-world delegate protocols.
         "MultiShapeDelegate",
-        // Multi-arg dispatchable-closure shape (Stripe STPIssuingCard/STPCustomer
-        // EphemeralKeyProvider parity). EphemeralKeyProvider's closure currently has a
-        // String arg that the invoke thunk doesn't yet marshal — the EveryProtocol
-        // extension still emits fatalError — but the proxy-construction test depends on
-        // the witness-table accessor existing. RetryingKeyProvider has a primitive-arg
-        // closure and exercises the full multi-arg vtable dispatch end-to-end.
+        // Multi-arg dispatchable-closure shape (parity with real-world ephemeral-key provider
+        // protocols). EphemeralKeyProvider's closure currently has a String arg that the
+        // invoke thunk doesn't yet marshal — the EveryProtocol extension still emits
+        // fatalError — but the proxy-construction test depends on the witness-table accessor
+        // existing. RetryingKeyProvider has a primitive-arg closure and exercises the full
+        // multi-arg vtable dispatch end-to-end.
         "EphemeralKeyProvider",
         "RetryingKeyProvider",
-        // Inherited-delegate dispatch regression (justinwojo/swift-dotnet-bindings#40,
-        // KidozSDK). Child protocol with no new requirements inherits a callback from
+        // Inherited-delegate dispatch regression (justinwojo/swift-dotnet-bindings#40 —
+        // issue #40). Child protocol with no new requirements inherits a callback from
         // a parent protocol; Swift routes the call through the parent's vtable. Both
         // EveryProtocol conformances and both witness-table getters must survive so
         // InheritedDelegateDispatchTests can exercise the cross-proxy delivery path.
         "InheritedParentDelegate",
         "InheritedChildDelegate",
-        // Class-parameter reverse-callback regression (justinwojo/swift-dotnet-bindings#40,
-        // KidozSDK KidozError). Swift calls back into a C# protocol implementation with a
+        // Class-parameter reverse-callback regression (justinwojo/swift-dotnet-bindings#40 —
+        // issue #40). Swift calls back into a C# protocol implementation with a
         // method whose parameter is a Swift *class* instance; the generated proxy receiver
         // used to reinterpret the heap pointer via Unsafe.Read and crash. ClassParamCallback
         // .swift exercises both the pure-Swift and `@objc … : NSObject` payload variants and
@@ -243,12 +243,11 @@ public static class SwiftSourceStripper
         // SiblingMethodDispatchTests, so their witness-table getters must survive stripping.
         "SiblingNameOwner",
         "SiblingNamePeer",
-        // Async/sync effect-overload sibling divergence (Kingfisher regression): a sync
-        // protocol (SyncRefineModifier) refines an async one (AsyncRefineModifierBase),
-        // both declaring refineModify, which differ only in the `async` effect. The sync
-        // requirement is reverse-dispatched through `any SyncRefineModifier` by
-        // SiblingMethodDispatchTests, so the EveryProtocol witness-table getter for the
-        // SyncRefineModifier conformance must survive stripping.
+        // Async/sync effect-overload sibling divergence: a sync protocol (SyncRefineModifier)
+        // refines an async one (AsyncRefineModifierBase), both declaring refineModify, which
+        // differ only in the `async` effect. The sync requirement is reverse-dispatched
+        // through `any SyncRefineModifier` by SiblingMethodDispatchTests, so the EveryProtocol
+        // witness-table getter for the SyncRefineModifier conformance must survive stripping.
         "AsyncRefineModifierBase",
         "SyncRefineModifier",
         // Unrelated (non-refining) async/sync sibling divergence: two INDEPENDENT protocols
@@ -262,9 +261,9 @@ public static class SwiftSourceStripper
         // above) so the borrowed witness is never stripped out from under the peer.
         "MixedFanAsyncOwner",
         "MixedFanSyncPeer",
-        // Intra-protocol async/sync effect-overload (Kingfisher parity). A
-        // SINGLE protocol declares both `intraEffectTag(_:) -> Int32` and
-        // `intraEffectTag(_:) async -> Int32`, occupying two distinct vtable slots. The C#
+        // Intra-protocol async/sync effect-overload. A SINGLE protocol declares both
+        // `intraEffectTag(_:) -> Int32` and `intraEffectTag(_:) async -> Int32`, occupying
+        // two distinct vtable slots. The C#
         // proxy implements both members; IntraProtocolEffectOverloadTests reverse-dispatches
         // the SYNC requirement through `any IntraEffectTagged` via callIntraEffectTagSync, so
         // the EveryProtocol conformance and Get_EveryProtocol_IntraEffectTagged_WitnessTable
@@ -307,7 +306,7 @@ public static class SwiftSourceStripper
         // Get_EveryProtocol_NestedMarkerMapConsumer_WitnessTable must resolve; Swift then calls the
         // method through the EveryProtocol vtable and the generated receiver materializes the
         // [[String: any Marker]] param (Swift→C# READ) before handing it to the C# impl — the exact
-        // FirebaseFirestore mapMerge([[String: Any]]) reverse-dispatch path. Stripped otherwise
+        // nested class-bound existential collection reverse-dispatch path. Stripped otherwise
         // because nothing referenced it before this test, so the conformance and its witness-table
         // entry must survive stripping.
         "NestedMarkerMapConsumer",

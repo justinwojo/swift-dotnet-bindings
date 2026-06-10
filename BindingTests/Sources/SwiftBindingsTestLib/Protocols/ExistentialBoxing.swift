@@ -6,7 +6,6 @@ import Foundation
 // MARK: - Protocol for Existential Boxing Tests
 
 /// Protocol for testing concrete types passed as protocol existential params.
-/// Real-world pattern: CryptoSwift AES(key, ECB) where ECB is concrete struct passed as `any BlockMode`.
 public protocol ProcessingMode {
     var modeName: String { get }
     func validate(input: Int32) -> Bool
@@ -30,7 +29,7 @@ public struct StrictMode: ProcessingMode {
 
 // MARK: - Class Taking Protocol Existential Parameter
 
-/// Class taking protocol existential param — the CryptoSwift AES(key, ECB) pattern.
+/// Class taking a protocol existential parameter.
 public class ModeProcessor {
     private let mode: any ProcessingMode
 
@@ -47,7 +46,7 @@ public class ModeProcessor {
     }
 }
 
-// MARK: - Multi-param Constructor with Existential (CryptoSwift AES pattern)
+// MARK: - Multi-param Constructor with Existential
 
 /// Constructor combining collection + protocol existential.
 public class Pipeline {
@@ -75,7 +74,7 @@ public func compareResults(_ a: any ProcessingMode, _ b: any ProcessingMode, val
     return a.validate(input: value) == b.validate(input: value)
 }
 
-// MARK: - N2: Protocol Methods Accepting Existential Parameters (Parchment pattern)
+// MARK: - N2: Protocol Methods Accepting Existential Parameters
 
 /// Protocol whose methods take existential parameters.
 public protocol ModeConsumer {

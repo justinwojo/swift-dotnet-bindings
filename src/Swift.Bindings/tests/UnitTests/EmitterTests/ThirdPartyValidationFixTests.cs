@@ -910,13 +910,13 @@ public class ThirdPartyValidationFixTests
 
     #endregion
 
-    #region Fix 7 — RxSwift: Protocol name collision with System.IDisposable
+    #region Fix 7 — ReactiveStreams: Protocol name collision with System.IDisposable
 
     [Fact]
     public void GetInterfaceName_Disposable_ReturnsISwiftDisposable()
     {
         // "Disposable" collides with System.IDisposable — must use ISwift prefix
-        var result = NameProvider.GetInterfaceName("Disposable", moduleName: "RxSwift");
+        var result = NameProvider.GetInterfaceName("Disposable", moduleName: "ReactiveStreams");
         Assert.Equal("ISwiftDisposable", result);
     }
 
@@ -932,7 +932,7 @@ public class ThirdPartyValidationFixTests
     public void GetInterfaceName_NonColliding_ReturnsStandardPrefix()
     {
         // Non-colliding protocols should still use the standard I prefix
-        var result = NameProvider.GetInterfaceName("SomethingElse", moduleName: "RxSwift");
+        var result = NameProvider.GetInterfaceName("SomethingElse", moduleName: "ReactiveStreams");
         Assert.Equal("ISomethingElse", result);
     }
 

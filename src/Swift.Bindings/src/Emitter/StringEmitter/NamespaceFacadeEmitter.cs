@@ -9,9 +9,9 @@ namespace BindingsGeneration
     /// Emits a Swift "namespace facade" type as a real C# nested namespace
     /// instead of the default <c>partial class</c> / <c>static partial class</c>
     /// emission. The outer module namespace is already open at the call site
-    /// (<c>namespace BlinkID { … }</c>), so this emitter writes a
+    /// (<c>namespace Module { … }</c>), so this emitter writes a
     /// <c>namespace {Name} { … }</c> block at the current indent — the
-    /// resulting output compiles identically to <c>namespace BlinkID.{Name}</c>.
+    /// resulting output compiles identically to <c>namespace Module.{Name}</c>.
     ///
     /// The emitter recurses into <see cref="TypeDecl.Types"/> via
     /// <see cref="IHandler.HandleBaseDecl"/> so nested struct/enum/class
@@ -19,12 +19,11 @@ namespace BindingsGeneration
     /// new namespace level (i.e. as top-level types in the lifted
     /// namespace), while still benefiting from the standard
     /// <c>PushTypeNesting</c>/<c>PopTypeNesting</c> bookkeeping the Swift
-    /// wrapper generator uses to build module-qualified Swift names like
-    /// <c>BlinkID.BlinkIDSDK.StringResult</c>.
+    /// wrapper generator uses to build module-qualified Swift names.
     ///
     /// See <see cref="NamespaceFacadeDetector.IsNamespaceFacade(TypeDecl)"/>
-    /// for the predicate gate. The canonical case is BlinkID 7.7.0's
-    /// <c>BlinkIDSDK</c> outer struct containing ~25 nested types.
+    /// for the predicate gate. The canonical case is an outer struct containing
+    /// many nested types.
     /// </summary>
     internal static class NamespaceFacadeEmitter
     {
@@ -66,10 +65,10 @@ namespace BindingsGeneration
             csWriter.Indent++;
 
             // Push the facade name onto the type-nesting stack so nested-type
-            // Swift wrappers see `BlinkID.BlinkIDSDK.NestedType` when building
+            // Swift wrappers see `Module.FacadeName.NestedType` when building
             // module-qualified Swift identifiers — matching the `swiftinterface`
             // declaration and the Swift mangled-symbol path. Without this push,
-            // wrappers for nested types reference `BlinkID.NestedType`, which
+            // wrappers for nested types reference `Module.NestedType`, which
             // doesn't resolve at the Swift @_cdecl wrapper compile step.
             var emissionCtx = context.GetEmissionContext();
             emissionCtx?.PushTypeNesting(typeNameWithGenerics);

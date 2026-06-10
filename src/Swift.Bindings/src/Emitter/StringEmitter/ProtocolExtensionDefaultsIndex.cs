@@ -6,10 +6,11 @@ namespace BindingsGeneration;
 /// <summary>
 /// Index of protocol extension default implementations (constrained and unconstrained).
 /// Used by ProtocolConformanceValidator to allow conformance when concrete types rely
-/// on protocol extension defaults (e.g., Lottie's Interpolatable providing _interpolate default
-/// that satisfies AnyInterpolatable's requirement, or GRDB's `extension DatabaseValueConvertible
-/// where Self: RawRepresentable, Self.RawValue: DatabaseValueConvertible` providing
-/// databaseValue/fromDatabaseValue for inline-conforming RawRepresentable wrappers).
+/// on protocol extension defaults (e.g., a protocol providing a default implementation that
+/// satisfies a refined protocol's requirement, or a constrained extension
+/// `extension DatabaseValueConvertible where Self: RawRepresentable,
+/// Self.RawValue: DatabaseValueConvertible` providing databaseValue/fromDatabaseValue for
+/// inline-conforming RawRepresentable wrappers).
 ///
 /// Constrained extensions are indexed without evaluating the where-clause: the index is
 /// consulted only for types Swift has already deemed conformers (the witness-table
@@ -19,7 +20,7 @@ namespace BindingsGeneration;
 /// </summary>
 public class ProtocolExtensionDefaultsIndex
 {
-    // Key: qualified protocol name (e.g., "Lottie.Interpolatable")
+    // Key: qualified protocol name (e.g., "Module.ProtocolName")
     // Value: set of method keys in PrintedName format (e.g., "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)")
     private readonly Dictionary<string, HashSet<string>> _methodDefaults = new();
 
@@ -49,8 +50,7 @@ public class ProtocolExtensionDefaultsIndex
         // a default. The generated C# emits the requirement as a DIM that throws
         // NotSupportedException at the interface level, with the concrete type relying on
         // the Swift-side default. Skipping constrained extensions here makes the validator
-        // reject otherwise-valid conformances (e.g. GRDB IndexInfo.Origin via
-        // DatabaseValueConvertible's RawRepresentable extension).
+        // reject otherwise-valid conformances that rely on a constrained extension default.
         foreach (var (qualifiedProtoName, methods) in extensionMethods)
         {
             foreach (var method in methods)
@@ -91,7 +91,7 @@ public class ProtocolExtensionDefaultsIndex
     /// Checks if a method requirement has an extension default, either directly on the protocol
     /// or from a sub-protocol that inherits from it.
     /// </summary>
-    /// <param name="qualifiedProtocolName">Module-qualified protocol name (e.g., "Lottie.AnyInterpolatable")</param>
+    /// <param name="qualifiedProtocolName">Module-qualified protocol name (e.g., "Module.AnyInterpolatable")</param>
     /// <param name="methodKey">Method key in PrintedName format (e.g., "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)")</param>
     public bool HasMethodDefault(string qualifiedProtocolName, string methodKey)
     {
@@ -259,7 +259,7 @@ public class ProtocolExtensionDefaultsIndex
     /// (a) No conforming type has the member at all (satisfied by an invisible PAT extension), or
     /// (b) All conforming types have the member but none can emit it (e.g., AnyType fallback).
     ///
-    /// For example, Lottie's AnyValueProvider requires typeErasedStorage, but FloatValueProvider
+    /// For example, a protocol's AnyValueProvider requires typeErasedStorage, but a concrete conformer
     /// doesn't have it in its ABI JSON — it's provided by a constrained extension on the
     /// ValueProvider PAT. Since PAT extensions are filtered during index construction, these
     /// defaults are invisible.

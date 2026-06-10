@@ -866,7 +866,7 @@ public class ClosureHandler
     ///     <c>Swift.String</c> (routed through <c>StringAsyncClosureHelper</c>
     ///     with a <c>(boxPtr, bytesPtr, length)</c> UTF-8 success callback; full
     ///     0–<see cref="MaxAsyncThrowingClosureArity"/> arity supported since it
-    ///     unblocks <c>STPConfirmationToken</c>-shaped handlers).
+    ///     unblocks <c>PaymentSdkConfirmationToken</c>-shaped handlers).
     ///   - arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>,
     ///   - each argument is a baseline-bridgeable type (primitive, Swift.String,
     ///     or a Swift class).

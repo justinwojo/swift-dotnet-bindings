@@ -456,7 +456,7 @@ public static class BindingsGeneratorCommand
             }
             catch (Exception ex) when (ex is SwiftModuleNotFoundException or StaticLibraryException)
             {
-                // Auto-detect ObjC fallback (covers pure ObjC frameworks and static libraries like Firebase)
+                // Auto-detect ObjC fallback (covers pure ObjC frameworks and static libraries)
                 var reason = ex is StaticLibraryException ? "Static library" : "No Swift module found";
                 logger.LogInformation("{Reason} — attempting ObjC framework detection...", reason);
                 var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
@@ -623,8 +623,8 @@ public static class BindingsGeneratorCommand
         // at a system framework like StoreKit, is the system framework itself. The
         // helpers do not exist there, so the validator emits SWIFTBIND093 (CC-003)
         // and any runtime call would EntryPointNotFound. Default to the conventional
-        // "{Module}SwiftBindings" name (matching xcframework mode's behavior — see
-        // NukeSwiftBindings, etc.) so the binding correctly expresses its intent to
+        // "{Module}SwiftBindings" name (matching xcframework mode's behavior — e.g.
+        // "FooSwiftBindings" for a module named "Foo") so the binding correctly expresses its intent to
         // call into a wrapper dylib. Producing that dylib is a separate concern;
         // this default only fixes the binding's contract, not its deployability.
         // Hoisted out of the asyncLibrary fall-through so direct-mode wrapper
@@ -1632,7 +1632,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --bridge-hints       Optional. Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
         Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
         Console.WriteLine("  --sdk-mode           Optional. SDK mode: skips .csproj emission (used when the SDK IS the project system).");
-        Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.{Platform}' (e.g. Nuke.Swift.iOS, Nuke.Swift.macOS).");
+        Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.{Platform}' (e.g. ImagePipeline.Swift.iOS, ImagePipeline.Swift.macOS).");
         Console.WriteLine("  --swift-runtime-version  Optional. SwiftBindings.Runtime version for the emitted .csproj. Default '0.0.0-dev' is local-dev only (IsPackable=false). Pass a published version to enable 'dotnet pack'.");
         Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
         Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");

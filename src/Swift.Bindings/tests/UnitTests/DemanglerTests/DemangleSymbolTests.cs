@@ -228,9 +228,9 @@ public class DemangleSymbolTests
     [Fact]
     public void Demangle_SubscriptGetter_ProducesReductionError()
     {
-        // Nuke.ImageCache.subscript.getter : (Nuke.ImageCacheKey) -> Nuke.ImageContainer?
+        // Subscript getter: Module.Cache[key] -> Optional return type.
         // Subscript getters hit the Getter node gap in the reducer.
-        var result = new Swift5Demangler().Run("$s4Nuke10ImageCacheCyAA0B9ContainerVSgAA0bC3KeyVcig");
+        var result = new Swift5Demangler().Run("$s13ImagePipeline10ImageCacheCyAA0B9ContainerVSgAA0bC3KeyVcig");
         var error = Assert.IsType<ReductionError>(result);
         Assert.Equal(ReductionErrorSeverity.Low, error.Severity);
         Assert.Contains("Getter", error.Message);
@@ -314,10 +314,10 @@ public class DemangleSymbolTests
     [Fact]
     public void Demangle_InoutParameter_ProducesReductionError()
     {
-        // Nuke.ImageRequest.UserInfoKey.hash(into: inout Swift.Hasher) -> ()
+        // Nested type method with an inout Hasher parameter: Module.Type.NestedKey.hash(into: inout Swift.Hasher) -> ()
         // The reducer hits InOut node kind which has no rule — High severity
         // because it's nested inside a Function the reducer otherwise handles.
-        var result = new Swift5Demangler().Run("$s4Nuke12ImageRequestV11UserInfoKeyV4hash4intoys6HasherVz_tF");
+        var result = new Swift5Demangler().Run("$s13ImagePipeline12ImageRequestV11UserInfoKeyV4hash4intoys6HasherVz_tF");
         var error = Assert.IsType<ReductionError>(result);
         Assert.Equal(ReductionErrorSeverity.High, error.Severity);
         Assert.Contains("InOut", error.Message);
@@ -375,10 +375,11 @@ public class DemangleSymbolTests
     [Fact]
     public void Demangle_ExtensionMethod_ProducesReductionError()
     {
-        // (extension in Alamofire):Foundation.URLRequest.asURLRequest() throws -> Foundation.URLRequest
+        // Extension method on Foundation.URLRequest declared in a third-party module:
+        // Foundation.URLRequest.asURLRequest() throws -> Foundation.URLRequest
         // Extension methods wrap Function in an Extension node — the reducer
         // reaches the Function node but the Extension context causes failure.
-        var result = new Swift5Demangler().Run("$s10Foundation10URLRequestV9AlamofireE02asB0ACyKF");
+        var result = new Swift5Demangler().Run("$s10Foundation10URLRequestV9NetClientE02asB0ACyKF");
         var error = Assert.IsType<ReductionError>(result);
         Assert.Equal(ReductionErrorSeverity.Low, error.Severity);
         Assert.Contains("Function", error.Message);
@@ -901,16 +902,16 @@ exports:
     // ================================================================
 
     [Fact]
-    public void VariadicParam_SwiftyBeaver_StartsWith_ReducesWithVariadicDetected()
+    public void VariadicParam_LoggingLib_StartsWith_ReducesWithVariadicDetected()
     {
-        // static SwiftyBeaver.FunctionFilterFactory.startsWith(_: String..., caseSensitive: Bool,
+        // static LoggingLib.FunctionFilterFactory.startsWith(_: String..., caseSensitive: Bool,
         //     required: Bool, minLevel: Level) -> any FilterType
         // The return type is an existential (`any FilterType`). Before the ProtocolList reducer rule
         // existed this symbol failed reduction, which silently disabled demangle-based variadic
         // detection for the `String...` parameter. It must now reduce to a FunctionReduction whose
         // parameter list carries the variadic marker.
         var demangler = new Swift5Demangler();
-        var result = demangler.Run("$s12SwiftyBeaver21FunctionFilterFactoryC10startsWith_13caseSensitive8required8minLevelAA0D4Type_pSSd_S2bA2AC0L0OtFZ");
+        var result = demangler.Run("$s10LoggingLib21FunctionFilterFactoryC10startsWith_13caseSensitive8required8minLevelAA0D4Type_pSSd_S2bA2AC0L0OtFZ");
         var fr = Assert.IsType<FunctionReduction>(result);
         var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
         Assert.True(SwiftABIParser.HasVariadicElement(paramTuple),
@@ -918,14 +919,14 @@ exports:
     }
 
     [Fact]
-    public void VariadicParam_RxSwift_BuildBlock_ReducesWithVariadicDetected()
+    public void VariadicParam_ReactiveStreams_BuildBlock_ReducesWithVariadicDetected()
     {
-        // static RxSwift.DisposeBag.DisposableBuilder.buildBlock(RxSwift.Disposable...) -> [any Disposable]
-        // Variadic-of-existential: the parameter is `(any Disposable)...`. swift-api-digester renders
-        // it as a plain `[any Disposable]` with no "...", so the demangled "d" marker — recoverable
-        // only now that ProtocolList reduces — is the sole reliable per-overload variadic signal.
+        // static result-builder buildBlock with a variadic existential parameter:
+        // buildBlock(Disposable...) -> [any Disposable]. swift-api-digester renders
+        // the variadic as a plain `[any Disposable]` with no "...", so the demangled "d" marker —
+        // recoverable only now that ProtocolList reduces — is the sole reliable per-overload variadic signal.
         var demangler = new Swift5Demangler();
-        var result = demangler.Run("$s7RxSwift10DisposeBagC17DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ");
+        var result = demangler.Run("$s15ReactiveStreams10DisposeBagC17DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ");
         var fr = Assert.IsType<FunctionReduction>(result);
         var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
         Assert.True(SwiftABIParser.HasVariadicElement(paramTuple),

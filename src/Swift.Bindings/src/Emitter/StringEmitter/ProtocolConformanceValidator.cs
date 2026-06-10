@@ -26,7 +26,7 @@ public class ProtocolConformanceValidator
 
     /// <summary>
     /// Looks up a protocol by name in the module.
-    /// Supports both simple names ("ImageDecoding") and module-qualified names ("Nuke.ImageDecoding").
+    /// Supports both simple names ("ImageDecoding") and module-qualified names ("ImagePipeline.ImageDecoding").
     /// Prefers module-qualified matches to avoid ambiguity with same-name protocols.
     /// Returns null for cross-module protocols (e.g., Swift.Equatable).
     /// </summary>
@@ -950,8 +950,8 @@ public class ProtocolConformanceValidator
         if (ni == np) return true;
         // Note: AnyType in the interface (from unresolved Self/generic param) is NOT
         // compatible with the concrete type's name. C# interface methods require exact
-        // type match — Interpolate(LottieColor, double) does NOT implement
-        // Interpolate(AnyType, double). The conformance must be suppressed.
+        // type match — a method signature with AnyType does NOT implement
+        // the interface method with the concrete type. The conformance must be suppressed.
         return false;
     }
 

@@ -3,10 +3,9 @@
 
 import Foundation
 
-// MARK: - Nested Enums in Class (CryptoSwift AES.Variant pattern)
+// MARK: - Nested Enums in Class
 
 /// Class with nested enum types — tests scoping of enums inside class (vs struct).
-/// Real-world pattern: CryptoSwift AES.Variant, SHA2.Variant; Alamofire URLEncoding.Destination.
 public class Codec {
     public enum Format: Int32 {
         case json = 0
@@ -39,7 +38,7 @@ public class Codec {
     public func describe() -> String { "\(format) / \(encoding.rawValue)" }
 }
 
-// MARK: - Enum with Enum-Typed Associated Value (CryptoSwift HMAC pattern)
+// MARK: - Enum with Enum-Typed Associated Value
 
 /// Standalone enum for use as associated value type.
 public enum SHA2Variant: Int32 {
@@ -50,7 +49,6 @@ public enum SHA2Variant: Int32 {
 }
 
 /// Enum with enum-typed associated value.
-/// Real-world pattern: CryptoSwift HMAC.Variant.Sha2(SHA2.Variant.Sha256).
 public enum HashAlgorithm {
     case md5
     case sha1
@@ -73,7 +71,7 @@ public func describeAlgorithm(_ algo: HashAlgorithm) -> String {
     }
 }
 
-// MARK: - L2: Nested Enum-with-AVs inside Enum-with-AVs (Lottie PlaybackMode pattern)
+// MARK: - L2: Nested Enum-with-AVs inside Enum-with-AVs
 
 /// Enum containing a nested enum, both with associated values.
 public enum PlaybackMode {

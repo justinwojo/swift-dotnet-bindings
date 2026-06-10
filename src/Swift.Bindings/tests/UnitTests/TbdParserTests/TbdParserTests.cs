@@ -149,25 +149,25 @@ exports:
             [Fact]
             public static void TestUnknownMultiLineExportProperty_ObjcEhTypes()
             {
-                // Mirrors the real Stripe TBD shape (e.g. StripePayments.tbd) where
+                // Mirrors the multi-line unknown TBD property shape where
                 // `objc-eh-types: [ ... ]` spans multiple lines and is not in the parser's
-                // recognized export-property switch. The parser must consume the
-                // continuation lines so the tail (e.g. "STDSRuntimeException ]") is not
-                // re-fed as a key-value pair, AND so a known property that comes after
-                // (objc-ivars here) still parses correctly.
+                // recognized export-property switch. The parser must consume the continuation
+                // lines so the tail (e.g. "STDSRuntimeException ]") is not re-fed as a
+                // key-value pair, AND so a known property that comes after (objc-ivars here)
+                // still parses correctly.
                 string mockPath = Path.GetTempFileName();
                 File.WriteAllText(mockPath, @"--- !tapi-tbd
 tbd-version:     4
 targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
-install-name:    '/path/to/StripePayments.framework/StripePayments'
+install-name:    '/path/to/PaymentSdkPayments.framework/PaymentSdkPayments'
 swift-abi-version: 7
 exports:
   - targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
-    symbols:         [ '_$s14StripePayments5ClassCMa', '_$s14StripePayments5ClassCMn' ]
-    objc-classes:    [ STPClass1, STPClass2 ]
+    symbols:         [ '_$s18PaymentSdkPayments5ClassCMa', '_$s18PaymentSdkPayments5ClassCMn' ]
+    objc-classes:    [ PaymentSdkClass1, PaymentSdkClass2 ]
     objc-eh-types:   [ STDSAlreadyInitializedException, STDSException, STDSInvalidInputException,
                        STDSNotInitializedException, STDSRuntimeException ]
-    objc-ivars:      [ STPClass1._property ]
+    objc-ivars:      [ PaymentSdkClass1._property ]
 ");
 
                 try
@@ -181,14 +181,14 @@ exports:
                     // Symbols and objc-classes (parsed before objc-eh-types) must be intact.
                     Assert.Equal(2, export.Symbols.Count);
                     Assert.Equal(2, export.ObjcClasses.Count);
-                    Assert.Contains("STPClass1", export.ObjcClasses);
-                    Assert.Contains("STPClass2", export.ObjcClasses);
+                    Assert.Contains("PaymentSdkClass1", export.ObjcClasses);
+                    Assert.Contains("PaymentSdkClass2", export.ObjcClasses);
 
                     // Critical: parsing did NOT bail on the multi-line unknown property.
                     // The objc-ivars line that follows the multi-line `objc-eh-types`
                     // array must still be picked up.
                     Assert.Single(export.ObjcIvars);
-                    Assert.Contains("STPClass1._property", export.ObjcIvars);
+                    Assert.Contains("PaymentSdkClass1._property", export.ObjcIvars);
                 }
                 finally
                 {
@@ -210,7 +210,7 @@ exports:
   - targets:         [ arm64-ios-simulator ]
     symbols:         [ '_$s4Test5HelloCMa' ]
     objc-eh-types:   [ STDSException ]
-    objc-classes:    [ STPClass1 ]
+    objc-classes:    [ PaymentSdkClass1 ]
 ");
 
                 try
@@ -220,7 +220,7 @@ exports:
                     var export = tbdFile.Exports[0];
                     Assert.Single(export.Symbols);
                     Assert.Single(export.ObjcClasses);
-                    Assert.Contains("STPClass1", export.ObjcClasses);
+                    Assert.Contains("PaymentSdkClass1", export.ObjcClasses);
                 }
                 finally
                 {

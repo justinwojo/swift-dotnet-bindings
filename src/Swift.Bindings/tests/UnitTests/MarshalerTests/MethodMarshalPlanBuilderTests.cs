@@ -330,7 +330,7 @@ public class MethodMarshalPlanBuilderTests
     public void IndirectResult_CdeclBufferVariable_DoesNotCollideWithPayloadParam()
     {
         // Regression test: @_cdecl result buffer variable was named "payload" which caused
-        // CS0136 when a method parameter was also named "payload" (e.g., Starscream.WSFramer.createWriteFrame).
+        // CS0136 when a method parameter was also named "payload".
         // The variable is now named "_cdeclBuf" to avoid collision.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Framer", moduleDecl);
@@ -733,7 +733,7 @@ public class MethodMarshalPlanBuilderTests
     [Fact]
     public void DeclarationLines_NonBaselineAsyncThrowingClosureParam_DeclaresGCHandle()
     {
-        // Stripe ConfirmHandler-shape closure: `(Int32, Bool) async throws -> String`.
+        // Async throwing closure with a non-blittable parameter: `(Int32, Bool) async throws -> String`.
         // Bool is outside GetAsyncThrowingArgCategory's blittable-primitive set, so
         // IsBaselineAsyncClosure returns false and WrapperEmitter.Marshalling falls
         // to the legacy GCHandle path that emits `valueHandle = GCHandle.Alloc(value)`.

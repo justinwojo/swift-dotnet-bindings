@@ -97,7 +97,7 @@ namespace BindingsGeneration
         public bool IsCustomActor { get; set; } = false;
 
         /// <summary>
-        /// Whether this type is annotated with a custom global actor (e.g., <c>@ImagePipelineActor</c>),
+        /// Whether this type is annotated with a custom global actor (e.g., <c>@MyServiceActor</c>),
         /// distinct from <see cref="IsCustomActor"/> which tracks the <c>actor X { }</c> keyword form.
         /// All members on such a type implicitly inherit the actor's isolation unless they
         /// individually opt out with <c>nonisolated</c>. Constructors on these types are surfaced
@@ -111,8 +111,8 @@ namespace BindingsGeneration
         public bool IsCustomActorIsolated { get; set; } = false;
 
         /// <summary>
-        /// Short name of the global actor type that isolates this type (e.g., <c>"ImagePipelineActor"</c>
-        /// for a class annotated <c>@ImagePipelineActor</c> or <c>@Nuke.ImagePipelineActor</c>).
+        /// Short name of the global actor type that isolates this type (e.g., <c>"MyServiceActor"</c>
+        /// for a class annotated <c>@MyServiceActor</c> or <c>@Module.MyServiceActor</c>).
         /// Populated by the swiftinterface scanner when <see cref="IsCustomActorIsolated"/> is set.
         /// Used in skip-reason log messages and SWIFTBIND022 diagnostics to identify which actor
         /// drove the constructor skip; the synchronous emission path itself does not act on the

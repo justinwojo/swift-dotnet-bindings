@@ -114,7 +114,7 @@ namespace BindingsGeneration
 
             writer.WriteStartElement("typedeclaration");
             writer.WriteAttributeString("module", record.SwiftTypeName.Module);
-            // Extract the type name without module prefix (e.g., "ImageRequest.UserInfoKey" from "Nuke.ImageRequest.UserInfoKey")
+            // Extract the type name without module prefix (e.g., "ImageRequest.UserInfoKey" from "ImagePipeline.ImageRequest.UserInfoKey")
             var nameWithoutModule = record.SwiftTypeName.ModuleQualifiedName[(record.SwiftTypeName.Module.Length + 1)..];
             writer.WriteAttributeString("name", nameWithoutModule);
             writer.WriteAttributeString("mangledName", record.MetadataAccessor ?? string.Empty);

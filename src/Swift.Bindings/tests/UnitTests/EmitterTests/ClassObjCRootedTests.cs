@@ -103,7 +103,7 @@ public class ClassObjCRootedTests
             superclassNames: new[] { "QuartzCore.CALayer" });
         var parent = CreateClassDecl("AnimLayer", "TestModule",
             superclassNames: new[] { "TestModule.BaseLayer" });
-        var child = CreateClassDecl("LottieLayer", "TestModule",
+        var child = CreateClassDecl("VectorAnimationLayer", "TestModule",
             superclassNames: new[] { "TestModule.AnimLayer" });
 
         RunResolution(grandparent, parent, child);
@@ -139,10 +139,10 @@ public class ClassObjCRootedTests
     [Fact]
     public void Resolution_GenericSuperclassName_DoesNotCrash()
     {
-        // RxSwift regression: superclass name contains '<' (e.g., "RxSwift.Observable<Element>")
-        // which causes SwiftTypeName.FromModuleQualifiedName to throw.
-        var cls = CreateClassDecl("BehaviorSubject", "RxSwift",
-            superclassNames: new[] { "RxSwift.Observable<Element>" });
+        // Regression: a superclass name that contains '<' (e.g., a generic superclass like "Observable<Element>")
+        // causes SwiftTypeName.FromModuleQualifiedName to throw.
+        var cls = CreateClassDecl("BehaviorSubject", "ReactiveStreams",
+            superclassNames: new[] { "ReactiveStreams.Observable<Element>" });
 
         // Should not throw — generic superclass names are skipped in cross-module lookup
         RunResolution(cls);
@@ -744,8 +744,8 @@ public class ClassObjCRootedTests
     {
         var record = new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("StripeCore", "STPAPIClient"),
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("StripeCore.STPAPIClient"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("PaymentSdkCore", "PaymentApiClient"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("PaymentSdkCore.PaymentApiClient"),
             MetadataAccessor = "testAccessor",
             Kind = TypeRecordKind.Class,
             Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement

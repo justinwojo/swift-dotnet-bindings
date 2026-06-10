@@ -50,7 +50,7 @@ public class CodableJsonEmitterTests
     public void Emit_NestedTypesWithSameLeafName_ProduceDistinctSymbols()
     {
         // Two nested structs that share a leaf name (e.g. MPIOptions.Marker and
-        // MPIOptions.FloatingLabelAppearance.Marker in Mappedin) must not both emit
+        // MPIOptions.FloatingLabelAppearance.Marker) must not both emit
         // SBW_<Module>_Marker_EncodeJson — swiftc rejects the wrapper with
         // "multiple definitions of symbol". The @_cdecl symbol must include the full
         // nested path so the two trampolines stay distinct.

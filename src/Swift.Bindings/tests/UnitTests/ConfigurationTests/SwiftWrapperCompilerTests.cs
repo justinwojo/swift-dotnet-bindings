@@ -97,8 +97,8 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                File.WriteAllText(Path.Combine(dir, "Nuke.SwiftUIBridge.swift"), "// bridge1");
-                File.WriteAllText(Path.Combine(dir, "Lottie.SwiftUIBridge.swift"), "// bridge2");
+                File.WriteAllText(Path.Combine(dir, "ImagePipeline.SwiftUIBridge.swift"), "// bridge1");
+                File.WriteAllText(Path.Combine(dir, "VectorAnimation.SwiftUIBridge.swift"), "// bridge2");
                 var files = SwiftWrapperCompiler.CollectBridgeSwiftFiles(dir);
                 Assert.Equal(2, files.Count);
             }
@@ -185,12 +185,12 @@ namespace BindingsGeneration.Tests
                         <key>MinimumOSVersion</key>
                         <string>16.0</string>
                         <key>CFBundleExecutable</key>
-                        <string>BlinkID</string>
+                        <string>DocScan</string>
                     </dict>
                     </plist>
                     """;
                 File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
-                var dylibPath = Path.Combine(dir, "BlinkID");
+                var dylibPath = Path.Combine(dir, "DocScan");
                 File.WriteAllText(dylibPath, "");
 
                 var result = SwiftWrapperCompiler.ResolveDeploymentTarget(dylibPath, NullLogger.Instance);
@@ -242,7 +242,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ResolveDeploymentTarget_VendorSentinel_FallsBackToFloor()
         {
-            // Firebase / GTMAppAuth ship every framework with MinimumOSVersion=100.0
+            // Some SDKs ship every framework with MinimumOSVersion=100.0
             // (a CMake/xcodebuild build-tool quirk). Without sentinel rejection the
             // value flows into `swiftc -target arm64-apple-ios100.0-simulator` and
             // the wrapper compile fails outright. Verify the value gets rejected
@@ -257,12 +257,12 @@ namespace BindingsGeneration.Tests
                         <key>MinimumOSVersion</key>
                         <string>100.0</string>
                         <key>CFBundleExecutable</key>
-                        <string>FirebaseAuth</string>
+                        <string>CloudPlatformSdkAuth</string>
                     </dict>
                     </plist>
                     """;
                 File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
-                var dylibPath = Path.Combine(dir, "FirebaseAuth");
+                var dylibPath = Path.Combine(dir, "CloudPlatformSdkAuth");
                 File.WriteAllText(dylibPath, "");
 
                 var result = SwiftWrapperCompiler.ResolveDeploymentTarget(dylibPath, NullLogger.Instance);
@@ -420,13 +420,13 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var xcfwPath = Path.Combine(dir, "NukeSwiftBindings.xcframework");
-                var fwDir = Path.Combine(xcfwPath, "ios-arm64-simulator", "NukeSwiftBindings.framework");
+                var xcfwPath = Path.Combine(dir, "ImagePipelineSwiftBindings.xcframework");
+                var fwDir = Path.Combine(xcfwPath, "ios-arm64-simulator", "ImagePipelineSwiftBindings.framework");
 
-                SwiftWrapperCompiler.CreateXCFrameworkStructure(xcfwPath, fwDir, "NukeSwiftBindings", "16.0");
+                SwiftWrapperCompiler.CreateXCFrameworkStructure(xcfwPath, fwDir, "ImagePipelineSwiftBindings", "16.0");
 
                 var fwPlist = File.ReadAllText(Path.Combine(fwDir, "Info.plist"));
-                Assert.Contains("NukeSwiftBindings", fwPlist);
+                Assert.Contains("ImagePipelineSwiftBindings", fwPlist);
                 Assert.Contains("16.0", fwPlist);
                 Assert.Contains("FMWK", fwPlist);
             }
@@ -876,25 +876,24 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void InvokeSwiftCompiler_TransitiveDepFrameworks_EmittedAsXlinkerFlags()
         {
-            // Repro of the FirebaseFirestore link failure: the wrapper `import FirebaseFirestore`
-            // auto-links FirebaseFirestore but not its transitive ObjC-only deps (absl,
-            // FirebaseCoreInternal, GoogleUtilities). Each .framework with a Mach-O binary in
-            // additionalFrameworkSearchPaths must be explicitly `-Xlinker -framework -Xlinker`
-            // so the linker resolves OBJC_CLASS_$ / C / C++ symbols.
+            // The wrapper `import` auto-links the bound module but not its transitive ObjC-only deps.
+            // Each .framework with a Mach-O binary in additionalFrameworkSearchPaths must be
+            // explicitly emitted as `-Xlinker -framework -Xlinker` so the linker resolves
+            // OBJC_CLASS_$ / C / C++ symbols.
             var runner = new MockCommandRunner();
             runner.SetResponse("swiftc", 0, "");
 
             var root = Path.Combine(Path.GetTempPath(), $"swc_link_test_{Guid.NewGuid():N}");
             var fwSearchPath = Path.Combine(root, "deps");
             var absl = Path.Combine(fwSearchPath, "absl.framework");
-            var firebaseCoreInternal = Path.Combine(fwSearchPath, "FirebaseCoreInternal.framework");
+            var firebaseCoreInternal = Path.Combine(fwSearchPath, "CloudPlatformSdkCoreInternal.framework");
             var headerOnly = Path.Combine(fwSearchPath, "HeaderOnly.framework");
             Directory.CreateDirectory(absl);
             Directory.CreateDirectory(firebaseCoreInternal);
             Directory.CreateDirectory(headerOnly);
             // Stub Mach-O binaries (file presence is all the linker check verifies)
             File.WriteAllBytes(Path.Combine(absl, "absl"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
-            File.WriteAllBytes(Path.Combine(firebaseCoreInternal, "FirebaseCoreInternal"),
+            File.WriteAllBytes(Path.Combine(firebaseCoreInternal, "CloudPlatformSdkCoreInternal"),
                 new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
             // HeaderOnly.framework has NO binary -> must NOT be linked.
 
@@ -909,7 +908,7 @@ namespace BindingsGeneration.Tests
 
                 var (_, args) = runner.Invocations[0];
                 Assert.Contains("-Xlinker -framework -Xlinker absl", args);
-                Assert.Contains("-Xlinker -framework -Xlinker FirebaseCoreInternal", args);
+                Assert.Contains("-Xlinker -framework -Xlinker CloudPlatformSdkCoreInternal", args);
                 Assert.DoesNotContain("-Xlinker -framework -Xlinker HeaderOnly", args);
             }
             finally { Directory.Delete(root, recursive: true); }
@@ -926,9 +925,9 @@ namespace BindingsGeneration.Tests
 
             var root = Path.Combine(Path.GetTempPath(), $"swc_link_test_{Guid.NewGuid():N}");
             var fwSearchPath = Path.Combine(root, "deps");
-            var firebaseFirestore = Path.Combine(fwSearchPath, "FirebaseFirestore.framework");
-            Directory.CreateDirectory(firebaseFirestore);
-            File.WriteAllBytes(Path.Combine(firebaseFirestore, "FirebaseFirestore"),
+            var cloudPlatformSdkFirestore = Path.Combine(fwSearchPath, "CloudPlatformSdkFirestore.framework");
+            Directory.CreateDirectory(cloudPlatformSdkFirestore);
+            File.WriteAllBytes(Path.Combine(cloudPlatformSdkFirestore, "CloudPlatformSdkFirestore"),
                 new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
 
             try
@@ -942,13 +941,13 @@ namespace BindingsGeneration.Tests
                     runner, NullLogger.Instance,
                     additionalFrameworkSearchPaths: new[] { fwSearchPath },
                     thunkObjectFiles: new[] { thunkObj },
-                    originalModuleName: "FirebaseFirestore");
+                    originalModuleName: "CloudPlatformSdkFirestore");
 
                 var (_, args) = runner.Invocations[0];
-                // FirebaseFirestore must appear exactly once (in thunkLinkerFlags), not twice.
+                // The bound module must appear exactly once (in thunkLinkerFlags), not twice.
                 var occurrences = (args.Length - args.Replace(
-                    "-Xlinker -framework -Xlinker FirebaseFirestore", "").Length)
-                    / "-Xlinker -framework -Xlinker FirebaseFirestore".Length;
+                    "-Xlinker -framework -Xlinker CloudPlatformSdkFirestore", "").Length)
+                    / "-Xlinker -framework -Xlinker CloudPlatformSdkFirestore".Length;
                 Assert.Equal(1, occurrences);
             }
             finally { Directory.Delete(root, recursive: true); }
@@ -1501,13 +1500,13 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void BuildSystemLinkDependencyHint_MediaPipeShapedStderr_NamesAllRequiredDeps()
+        public void BuildSystemLinkDependencyHint_MlVisionLibShapedStderr_NamesAllRequiredDeps()
         {
-            // Regression guard for issue #41 (MediaPipeTasksGenAI): the thin Swift wrapper force-loads
-            // a C/C++ engine archive that carries no autolink hints and references Accelerate,
-            // CoreVideo, Metal, OpenGLES, and libc++. The linker prints these as a single quoted
-            // undefined-symbol wall; the Source-1 stderr path (post-extract/match unification) must
-            // name every one of them. Symbols mirror the shapes the real engine archive exposes.
+            // Regression guard for issue #41: the thin Swift wrapper force-loads a C/C++ engine archive
+            // that carries no autolink hints and references Accelerate, CoreVideo, Metal, OpenGLES,
+            // and libc++. The linker prints these as a single quoted undefined-symbol wall; the
+            // Source-1 stderr path (post-extract/match unification) must name every one of them.
+            // Symbols mirror the shapes the real engine archive exposes.
             var stderr = UndefinedHeader +
                 "  \"_CVPixelBufferGetWidth\", referenced from:\n" +
                 "  \"_CVPixelBufferLockBaseAddress\", referenced from:\n" +
@@ -2470,19 +2469,19 @@ namespace BindingsGeneration.Tests
                 var source = Path.Combine(dir, "source.swiftinterface");
                 var dest = Path.Combine(dir, "patched.swiftinterface");
                 File.WriteAllText(source,
-                    "import SwiftyBeaver\n" +
-                    "public typealias LogLevel = SwiftyBeaver.Level\n" +
-                    "public class SwiftyBeaver {\n" +
-                    "  public func setDestination(_ dest: SwiftyBeaver.ConsoleDestination) {}\n" +
+                    "import LoggingLib\n" +
+                    "public typealias LogLevel = LoggingLib.Level\n" +
+                    "public class LoggingLib {\n" +
+                    "  public func setDestination(_ dest: LoggingLib.ConsoleDestination) {}\n" +
                     "}\n");
 
                 // Combined-form regex: group 1 = module, group 2 = trailing chain.
                 var pattern = new System.Text.RegularExpressions.Regex(
-                    @"\b(SwiftyBeaver)\.(\w+(?:\.\w+)*)",
+                    @"\b(LoggingLib)\.(\w+(?:\.\w+)*)",
                     System.Text.RegularExpressions.RegexOptions.Compiled);
                 var nestedByModule = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
                 {
-                    ["SwiftyBeaver"] = new HashSet<string> { "Level" },
+                    ["LoggingLib"] = new HashSet<string> { "Level" },
                 };
 
                 // Use reflection to call the private static method
@@ -2492,12 +2491,12 @@ namespace BindingsGeneration.Tests
 
                 var result = File.ReadAllText(dest);
                 // Level is nested — should be preserved
-                Assert.Contains("SwiftyBeaver.Level", result);
+                Assert.Contains("LoggingLib.Level", result);
                 // ConsoleDestination is NOT nested — should be stripped
                 Assert.Contains("dest: ConsoleDestination", result);
-                Assert.DoesNotContain("SwiftyBeaver.ConsoleDestination", result);
+                Assert.DoesNotContain("LoggingLib.ConsoleDestination", result);
                 // import line should be untouched
-                Assert.Contains("import SwiftyBeaver", result);
+                Assert.Contains("import LoggingLib", result);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -2511,13 +2510,13 @@ namespace BindingsGeneration.Tests
                 var source = Path.Combine(dir, "source.swiftinterface");
                 var dest = Path.Combine(dir, "patched.swiftinterface");
                 File.WriteAllText(source,
-                    "import Reachability\n" +
-                    "public class Reachability {\n" +
-                    "  public var connection: Reachability.Connection\n" +
+                    "import NetworkMonitor\n" +
+                    "public class NetworkMonitor {\n" +
+                    "  public var connection: NetworkMonitor.Connection\n" +
                     "}\n");
 
                 var pattern = new System.Text.RegularExpressions.Regex(
-                    @"\b(Reachability)\.(\w+(?:\.\w+)*)",
+                    @"\b(NetworkMonitor)\.(\w+(?:\.\w+)*)",
                     System.Text.RegularExpressions.RegexOptions.Compiled);
                 var emptyDict = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
@@ -2526,7 +2525,7 @@ namespace BindingsGeneration.Tests
                 method.Invoke(null, new object?[] { source, dest, pattern, emptyDict });
 
                 var result = File.ReadAllText(dest);
-                Assert.DoesNotContain("Reachability.Connection", result);
+                Assert.DoesNotContain("NetworkMonitor.Connection", result);
                 Assert.Contains("connection: Connection", result);
             }
             finally { Directory.Delete(dir, true); }
@@ -2544,19 +2543,19 @@ namespace BindingsGeneration.Tests
                 var source = Path.Combine(dir, "source.swiftinterface");
                 var dest = Path.Combine(dir, "patched.swiftinterface");
                 File.WriteAllText(source,
-                    "import Reachability\n" +
-                    "import SwiftyBeaver\n" +
-                    "public typealias LogLevel = SwiftyBeaver.Level\n" +
-                    "public var conn: Reachability.Connection\n" +
-                    "public var dest: SwiftyBeaver.ConsoleDestination\n");
+                    "import NetworkMonitor\n" +
+                    "import LoggingLib\n" +
+                    "public typealias LogLevel = LoggingLib.Level\n" +
+                    "public var conn: NetworkMonitor.Connection\n" +
+                    "public var dest: LoggingLib.ConsoleDestination\n");
 
                 var pattern = new System.Text.RegularExpressions.Regex(
-                    @"\b(SwiftyBeaver|Reachability)\.(\w+(?:\.\w+)*)",
+                    @"\b(LoggingLib|NetworkMonitor)\.(\w+(?:\.\w+)*)",
                     System.Text.RegularExpressions.RegexOptions.Compiled);
                 var nestedByModule = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
                 {
-                    ["SwiftyBeaver"] = new HashSet<string> { "Level" },
-                    // Reachability has no carveouts — absence of key == strip all.
+                    ["LoggingLib"] = new HashSet<string> { "Level" },
+                    // No entry for the second module — absence of key means strip all.
                 };
 
                 var method = typeof(SwiftWrapperCompiler).GetMethod("PatchSwiftInterface",
@@ -2564,17 +2563,17 @@ namespace BindingsGeneration.Tests
                 method.Invoke(null, new object?[] { source, dest, pattern, nestedByModule });
 
                 var result = File.ReadAllText(dest);
-                // SwiftyBeaver.Level survives because "Level" is nested.
-                Assert.Contains("SwiftyBeaver.Level", result);
-                // SwiftyBeaver.ConsoleDestination is stripped (not nested).
+                // LoggingLib.Level survives because "Level" is nested.
+                Assert.Contains("LoggingLib.Level", result);
+                // LoggingLib.ConsoleDestination is stripped (not nested).
                 Assert.Contains("dest: ConsoleDestination", result);
-                Assert.DoesNotContain("SwiftyBeaver.ConsoleDestination", result);
-                // Reachability.Connection is stripped (module has no nested-type carveouts).
+                Assert.DoesNotContain("LoggingLib.ConsoleDestination", result);
+                // The second module's qualified reference is stripped (no nested-type carveouts for it).
                 Assert.Contains("conn: Connection", result);
-                Assert.DoesNotContain("Reachability.Connection", result);
+                Assert.DoesNotContain("NetworkMonitor.Connection", result);
                 // import lines untouched.
-                Assert.Contains("import Reachability", result);
-                Assert.Contains("import SwiftyBeaver", result);
+                Assert.Contains("import NetworkMonitor", result);
+                Assert.Contains("import LoggingLib", result);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -2596,20 +2595,20 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ExtractMissingModules_SingleModule_ReturnsSingleName()
         {
-            var stderr = "/tmp/wrapper.swift:1:8: error: no such module 'Stripe3DS2'\nimport Stripe3DS2\n       ^";
+            var stderr = "/tmp/wrapper.swift:1:8: error: no such module 'PaymentSdk3DS2'\nimport PaymentSdk3DS2\n       ^";
             var modules = SwiftWrapperCompiler.ExtractMissingModules(stderr);
             Assert.Single(modules);
-            Assert.Equal("Stripe3DS2", modules[0]);
+            Assert.Equal("PaymentSdk3DS2", modules[0]);
         }
 
         [Fact]
         public void ExtractMissingModules_MultipleModules_ReturnsDistinctNames()
         {
-            var stderr = "error: no such module 'StripeCore'\nerror: no such module 'Stripe3DS2'\nerror: no such module 'StripeCore'";
+            var stderr = "error: no such module 'PaymentSdkCore'\nerror: no such module 'PaymentSdk3DS2'\nerror: no such module 'PaymentSdkCore'";
             var modules = SwiftWrapperCompiler.ExtractMissingModules(stderr);
             Assert.Equal(2, modules.Count);
-            Assert.Contains("StripeCore", modules);
-            Assert.Contains("Stripe3DS2", modules);
+            Assert.Contains("PaymentSdkCore", modules);
+            Assert.Contains("PaymentSdk3DS2", modules);
         }
 
         [Fact]
@@ -2630,14 +2629,14 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ExtractMissingModules_MixedErrors_ExtractsOnlyModuleNames()
         {
-            var stderr = "error: no such module 'FirebaseAuth'\n" +
-                         "error: cannot find type 'FIRAuth'\n" +
-                         "error: no such module 'FirebaseCore'\n" +
+            var stderr = "error: no such module 'CloudPlatformSdkAuth'\n" +
+                         "error: cannot find type 'CloudPlatformSdkAuth'\n" +
+                         "error: no such module 'CloudPlatformSdkCore'\n" +
                          "error: value of type 'Foo' has no member 'bar'";
             var modules = SwiftWrapperCompiler.ExtractMissingModules(stderr);
             Assert.Equal(2, modules.Count);
-            Assert.Equal("FirebaseAuth", modules[0]);
-            Assert.Equal("FirebaseCore", modules[1]);
+            Assert.Equal("CloudPlatformSdkAuth", modules[0]);
+            Assert.Equal("CloudPlatformSdkCore", modules[1]);
         }
     }
 
@@ -2649,7 +2648,7 @@ namespace BindingsGeneration.Tests
             var stderr =
                 "Undefined symbols for architecture arm64:\n" +
                 "  \"___llvm_profile_runtime\", referenced from:\n" +
-                "      ___llvm_profile_runtime_user in Mappedin[arm64][2](Mappedin.o)\n" +
+                "      ___llvm_profile_runtime_user in IndoorMapsSdk[arm64][2](IndoorMapsSdk.o)\n" +
                 "ld: symbol(s) not found for architecture arm64";
             Assert.True(SwiftWrapperCompiler.IsLLVMProfileRuntimeMissing(stderr));
         }
@@ -2659,7 +2658,7 @@ namespace BindingsGeneration.Tests
         {
             var stderr =
                 "Undefined symbols for architecture arm64:\n" +
-                "  \"_OBJC_CLASS_$_FIRApp\", referenced from:\n" +
+                "  \"_OBJC_CLASS_$_CloudPlatformApp\", referenced from:\n" +
                 "ld: symbol(s) not found for architecture arm64";
             Assert.False(SwiftWrapperCompiler.IsLLVMProfileRuntimeMissing(stderr));
         }
@@ -2769,7 +2768,7 @@ namespace BindingsGeneration.Tests
                     stdOut: "",
                     stdErr: "Undefined symbols for architecture arm64:\n" +
                             "  \"___llvm_profile_runtime\", referenced from:\n" +
-                            "      ___llvm_profile_runtime_user in Mappedin[arm64][2](Mappedin.o)\n" +
+                            "      ___llvm_profile_runtime_user in IndoorMapsSdk[arm64][2](IndoorMapsSdk.o)\n" +
                             "ld: symbol(s) not found for architecture arm64");
                 // xcrun clang -print-resource-dir resolution.
                 runner.QueueResponse(
@@ -2981,7 +2980,7 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var path = Path.Combine(dir, "Nuke.swiftinterface");
+                var path = Path.Combine(dir, "ImagePipeline.swiftinterface");
                 File.WriteAllText(path, "import Swift\nimport Foundation\nimport UIKit\n");
 
                 Assert.False(SwiftWrapperCompiler.DetectXCTestDependency(path));
@@ -3266,9 +3265,9 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void PrivateInterface_RealModulemapAndHeadersStaged_WhenSourceHasThem()
         {
-            // Regression for BlinkID/BRLMPrinterKit/CocoaLumberjackSwift: the bound module's
+            // Regression for mixed ObjC+Swift frameworks: the bound module's
             // public swiftinterface references ObjC symbols declared in the framework's umbrella
-            // header (e.g., `BlinkID.MBSampleBufferWrapper`). A Swift-only modulemap drops those
+            // header. A Swift-only modulemap drops those
             // headers and swiftc errors with "no type named '...' in module '...'". The shadow
             // must mirror the real modulemap and public Headers/ so umbrella references resolve.
             var (moduleDir, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: true);
@@ -3332,7 +3331,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void PrivateInterface_PrivateHeadersStaged_WhenModulemapReferencesThem()
         {
-            // Regression for GRDB: the public modulemap declares `header "grdb_config.h"`
+            // Regression for modules with PrivateHeaders: the public modulemap declares a header
             // which lives in PrivateHeaders/, not Headers/ (legal — swiftc searches both
             // directories for non-umbrella `header` lines). Both directories must be staged
             // so the header lookup succeeds. The @_spi surface lives in module.private.modulemap

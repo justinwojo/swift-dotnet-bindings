@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - GenericExtensionOptionalReturn — S3-B fixture (round 2)
 //
-// Round 2 regression lock for ObjectMapper's `Mapper<N>.map(...) -> N?` shape.
+// Round 2 regression lock for a generic-class `map(...) -> N?` shape.
 // Round 1 (R1-S5, commit d3543268) added selector-aware emit of @_cdecl wrappers
 // for distinct-selector siblings on generic-extension methods. The new fixture
 // for that round, `GenericIndexableCollection`, only exercised methods with
@@ -16,8 +16,8 @@ import Foundation
 // `let result: N = obj.method(...)` declaration drops the Optional wrap that
 // the dispatched method actually returns.
 //
-// Real-world signal: ObjectMapper's `Mapper<N: BaseMappable>` has a family of
-// `map(...) -> N?` overloads. The downstream sweep at 0.11.0 produced
+// Real-world signal: a generic class with a family of `map(...) -> N?` overloads.
+// The downstream sweep at 0.11.0 produced
 // `error: value of optional type 'N?' must be unwrapped to a value of type 'N'`
 // on the generated Swift wrapper.
 //
@@ -48,8 +48,8 @@ public final class GenericExtensionOptionalReturnMapper<N> {
         self.storedValue = storedValue
     }
 
-    // Maximum case 1 — the exact ObjectMapper shape: generic-parent class
-    // method whose return type is Optional<N>. The pre-fix wrapper emits
+    // Maximum case 1 — generic-parent class method whose return type is Optional<N>.
+    // The pre-fix wrapper emits
     // `let result: N = obj.map(...)` and the Swift compile fails.
     public func map(returnNil: Bool) -> N? {
         return returnNil ? nil : storedValue

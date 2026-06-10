@@ -98,8 +98,8 @@ namespace BindingsGeneration
 
                 var csOutput = csStringWriter.ToString();
 
-                // CX-1: When the namespace has a type with the same name (e.g., module "Valet"
-                // has class "Valet"), C# resolves Valet.OtherType as a nested type lookup on the
+                // CX-1: When the namespace has a type with the same name (e.g., a module named "Foo"
+                // has a class also named "Foo"), C# resolves Foo.OtherType as a nested type lookup on the
                 // class instead of a namespace member. Fix by adding global:: qualifier.
                 var collisionType = moduleDecl.Types.FirstOrDefault(t => t.Name == @namespace)
                     ?? (BaseDecl?)moduleDecl.Protocols.FirstOrDefault(p => p.Name == @namespace);
@@ -143,7 +143,7 @@ namespace BindingsGeneration
                 // "Module.X" references resolve to the type's nested member, not the module-level
                 // X. Apply the collision-aware rewrite once at the wrapper file boundary, driven
                 // by the structurally-aware ModuleEmissionContext (knows which types are nested in
-                // the colliding class so e.g. SwiftyBeaver.Level stays qualified).
+                // the colliding class so e.g. LoggingLib.Level stays qualified).
                 var swiftOutput = emissionContext.QualifyForWrapperSource(swiftStringWriter.ToString());
                 using (StreamWriter outputFile = new(swiftOutputPath))
                 {
@@ -217,7 +217,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Replaces bare namespace-qualified type references with global:: qualified references.
-        /// Called when the module namespace collides with a type name (e.g., module "Valet" has class "Valet").
+        /// Called when the module namespace collides with a type name (e.g., a module named "Foo" has class "Foo").
         /// </summary>
         /// <param name="csOutput">The generated C# source code.</param>
         /// <param name="namespace">The namespace that collides with a type name.</param>
@@ -227,15 +227,15 @@ namespace BindingsGeneration
         internal static string QualifyNamespaceReferences(string csOutput, string @namespace, HashSet<string> nestedTypeNames)
         {
             // Match Namespace.Identifier where Namespace is NOT preceded by global:: or another identifier char,
-            // and NOT in a namespace declaration (namespace Valet.SwiftInterop).
-            // This handles type references like Valet.SecureEnclaveValet in parameter types, return types,
+            // and NOT in a namespace declaration (e.g., namespace Foo.SwiftInterop).
+            // This handles type references like Foo.SomeType in parameter types, return types,
             // generic arguments, typeof(), casts, etc.
             var escapedNs = Regex.Escape(@namespace);
             var pattern = $@"(?<!global::)(?<!namespace )(?<![.\w]){escapedNs}\.(?=[A-Z])";
             return Regex.Replace(csOutput, pattern, match =>
             {
                 // Check if the following identifier is a nested type of the collision class.
-                // If so, leave it unqualified — Reachability.Connection refers to the nested enum.
+                // If so, leave it unqualified — Foo.NestedType refers to the nested type, not a namespace member.
                 var afterDot = csOutput.Substring(match.Index + match.Length);
                 var identEnd = 0;
                 while (identEnd < afterDot.Length && (char.IsLetterOrDigit(afterDot[identEnd]) || afterDot[identEnd] == '_'))

@@ -504,8 +504,8 @@ internal static class GenericDispatchEmitter
                 continue;
             if (gp is NamedTypeSpec gpNamed && genericParamNames.Contains(gpNamed.Name))
                 continue;
-            // Validated one-level nesting: Array<T> (covers the ObjectMapper
-            // `Mapper<N>.map(...) -> [N]?` shape — the outer here is Optional with
+            // Validated one-level nesting: Array<T> (covers the
+            // `GenericType<N>.method(...) -> [N]?` shape — the outer here is Optional with
             // GP=Array<N>, which is what GenericExtensionOptionalReturn exercises).
             // Array<Optional<T>> (`[N?]`) would route through IsOptionalOfParentGeneric
             // here but has no end-to-end coverage; it stays behind the gate until a

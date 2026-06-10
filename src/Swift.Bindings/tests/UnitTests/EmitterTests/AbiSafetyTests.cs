@@ -543,7 +543,7 @@ public class AbiSafetyTests
         // Non-frozen struct constructor → SwiftIndirectResult + Mono JIT crash → @_cdecl required
         // Non-frozen structs also use SwiftIndirectResult (always passed indirectly),
         // causing the same Mono JIT crash as frozen struct constructors.
-        // E.g., LottieColor(r:g:b:a:denominator:) with only primitive params.
+        // E.g., a frozen-struct constructor with only primitive params.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -887,7 +887,7 @@ public class AbiSafetyTests
     {
         // Frozen struct with float fields as PARENT (self type) for instance method
         // → IsSelfTypeCdeclRequired detects float fields → @_cdecl required
-        // Real-world: Lottie LottieColor (r/g/b/a: Double) crashes Mono JIT
+        // Real-world: a frozen struct with all-float fields crashes Mono JIT
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1565,7 +1565,7 @@ public class AbiSafetyTests
     public void RequiresCdeclForAbiSafety_Property_ClassTypeSetter_ReturnsTrue()
     {
         // Property setter where value type is a Swift class → SafeHandle → @_cdecl required
-        // Reproduces Nuke ImagePipeline.shared setter CC-001 violation
+        // Reproduces a static shared-property setter CC-001 violation
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
             "TestModule.ImagePipeline", TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -2719,7 +2719,7 @@ public class AbiSafetyTests
         // is the same existential array, the async wrapper path produces a uniformly blittable
         // P/Invoke surface (cdecl callback + taskId + IntPtr parts buffer), so
         // HasNonBlittablePInvokeTypes must early-return false and SB0001 must NOT fire.
-        // This is the scenario reported in GitHub Issue #34 against FirebaseAILogic 12.6.
+        // This is the scenario reported in GitHub Issue #34.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -3023,7 +3023,7 @@ public class AbiSafetyTests
         // UsesWrapperLibrary=true on a clone WITHOUT a @_cdecl flag and emit the wrapper as
         // @_silgen_name. The wrapper symbol IS present in the wrapper dylib, called with Swift
         // CC, which is correct. The predicate must NOT flag these as broken — doing so caused
-        // ~30-60% line drift across StripeApplePay/StripeCore/StripePaymentsUI in validate.
+        // ~30-60% line drift across multiple modules in validate.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

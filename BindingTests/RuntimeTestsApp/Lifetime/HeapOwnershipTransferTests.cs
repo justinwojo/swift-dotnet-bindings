@@ -259,7 +259,7 @@ public class HeapOwnershipTransferTests : TestBase
     }
 
     /// <summary>
-    /// Bulk regression: hammer the StripeCardScan-shape closure invocation.
+    /// Bulk regression: hammer the complex-enum closure invocation.
     /// Every iteration's <c>using (outcome)</c> deterministically disposes
     /// the wrapper, which routes through <c>SwiftSafeHandle.ReleaseHandle</c>
     /// (VWT.Destroy + NativeMemory.Free). Final deinit count must equal the

@@ -8,7 +8,7 @@ import Foundation
 /// Single-case enum with String raw value. Swift optimizes single-case enums
 /// to zero size (TypeMetadata.Size == 0), which crashes marshalling if emitted.
 /// The generator should skip this type entirely.
-/// Real-world pattern: CaptureMode from Kingfisher.
+/// Single-case String-backed enum: Swift optimizes to zero size, which crashes marshalling.
 public enum SingleCaseMode: String {
     case photo
 }
@@ -27,7 +27,7 @@ public enum DualCaseMode: String {
     case video
 }
 
-// MARK: - UInt16-Backed Enum (Starscream SecurityErrorCode pattern)
+// MARK: - UInt16-Backed Enum
 
 /// Enum with UInt16 raw value.
 public enum SecurityError: UInt16 {
@@ -37,7 +37,7 @@ public enum SecurityError: UInt16 {
     case invalidChain = 3
 }
 
-// MARK: - Int64-Backed Enum (BonMot Ligatures pattern)
+// MARK: - Int64-Backed Enum
 
 /// Enum with Int64 raw value.
 public enum FeatureFlag: Int64 {

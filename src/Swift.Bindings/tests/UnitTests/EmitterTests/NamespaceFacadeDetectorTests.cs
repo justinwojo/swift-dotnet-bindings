@@ -25,7 +25,7 @@ public class NamespaceFacadeDetectorTests
     public void IsNamespaceFacade_True_StructWithOnlyNestedTypes()
     {
         var nested = CreateNestedStruct("Nested");
-        var facade = CreateStruct("BlinkIDSDK", nestedTypes: new[] { nested });
+        var facade = CreateStruct("DocScanSDK", nestedTypes: new[] { nested });
 
         Assert.True(NamespaceFacadeDetector.IsNamespaceFacade(facade));
     }
@@ -93,7 +93,7 @@ public class NamespaceFacadeDetectorTests
         // (and Swift.Sendable for Sendable-eligible shapes) auto-attached by the
         // parser. These markers carry no runtime witness table, so the predicate
         // filters them out and still recognizes the type as a namespace facade
-        // — without this filter, BlinkID's BlinkIDSDK / our LocalFacade fixture
+        // — without this filter, a facade struct with only marker conformances
         // never triggers the namespace lift.
         var nested = CreateNestedStruct("Nested");
         var facade = CreateStruct("ImplicitMarkers", nestedTypes: new[] { nested },

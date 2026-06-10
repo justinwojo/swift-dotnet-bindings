@@ -99,17 +99,17 @@ public class ObjCTypeRefParserTests
     [Fact]
     public void Parse_CustomGenericContainer_WithContext_ReturnsGenericArgs()
     {
-        // When ClangAstParser discovers RLMResults has ObjCTypeParamDecl children,
+        // When ClangAstParser discovers MOSResults has ObjCTypeParamDecl children,
         // it registers it as an additional generic container. The parser then treats
         // angle-bracket args as GenericArgs instead of ProtocolQualifications.
-        ObjCTypeRefParser.SetAdditionalGenericContainers(new HashSet<string> { "RLMResults", "RLMArray" });
+        ObjCTypeRefParser.SetAdditionalGenericContainers(new HashSet<string> { "MOSResults", "MOSArray" });
         try
         {
-            var result = ObjCTypeRefParser.Parse("RLMResults<RLMObjectType> *");
-            Assert.Equal("RLMResults", result.Name);
+            var result = ObjCTypeRefParser.Parse("MOSResults<MOSObjectType> *");
+            Assert.Equal("MOSResults", result.Name);
             Assert.True(result.IsPointer);
             Assert.Single(result.GenericArgs);
-            Assert.Equal("RLMObjectType", result.GenericArgs[0].Name);
+            Assert.Equal("MOSObjectType", result.GenericArgs[0].Name);
             Assert.Empty(result.ProtocolQualifications);
         }
         finally
@@ -123,11 +123,11 @@ public class ObjCTypeRefParserTests
     {
         // Without AST context, the parser conservatively treats simple-name args
         // as protocol qualifications. ClangAstParser provides context to fix this.
-        var result = ObjCTypeRefParser.Parse("RLMResults<RLMObjectType> *");
-        Assert.Equal("RLMResults", result.Name);
+        var result = ObjCTypeRefParser.Parse("MOSResults<MOSObjectType> *");
+        Assert.Equal("MOSResults", result.Name);
         Assert.True(result.IsPointer);
         Assert.Single(result.ProtocolQualifications);
-        Assert.Equal("RLMObjectType", result.ProtocolQualifications[0]);
+        Assert.Equal("MOSObjectType", result.ProtocolQualifications[0]);
         Assert.Empty(result.GenericArgs);
     }
 
@@ -231,8 +231,8 @@ public class ObjCTypeRefParserTests
     [Fact]
     public void Parse_TypeWithNSRefinedForSwift_StripsMacro()
     {
-        var result = ObjCTypeRefParser.Parse("NS_REFINED_FOR_SWIFT RLMSchema *");
-        Assert.Equal("RLMSchema", result.Name);
+        var result = ObjCTypeRefParser.Parse("NS_REFINED_FOR_SWIFT MOSSchema *");
+        Assert.Equal("MOSSchema", result.Name);
         Assert.True(result.IsPointer);
     }
 
@@ -256,8 +256,8 @@ public class ObjCTypeRefParserTests
     [Fact]
     public void Parse_TypeWithAttribute_StripsAttribute()
     {
-        var result = ObjCTypeRefParser.Parse("RLMObjectMigrationBlock __attribute__((swift_attr(\"@nonSendable\")))");
-        Assert.Equal("RLMObjectMigrationBlock", result.Name);
+        var result = ObjCTypeRefParser.Parse("MOSObjectMigrationBlock __attribute__((swift_attr(\"@nonSendable\")))");
+        Assert.Equal("MOSObjectMigrationBlock", result.Name);
         Assert.False(result.IsPointer);
     }
 
@@ -290,8 +290,8 @@ public class ObjCTypeRefParserTests
     [Fact]
     public void Parse_EnumQualType_StripsEnumKeyword()
     {
-        var result = ObjCTypeRefParser.Parse("enum BRLMPrinterModel");
-        Assert.Equal("BRLMPrinterModel", result.Name);
+        var result = ObjCTypeRefParser.Parse("enum LabelPrinterModel");
+        Assert.Equal("LabelPrinterModel", result.Name);
         Assert.False(result.IsPointer);
     }
 

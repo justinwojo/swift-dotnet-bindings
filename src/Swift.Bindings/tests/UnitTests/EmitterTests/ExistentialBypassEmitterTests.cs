@@ -808,9 +808,9 @@ public class ExistentialBypassEmitterTests
     [Fact]
     public void RenderModuleQualifiedSwiftTypeSpec_SimpleType_KeepsModule()
     {
-        var typeSpec = new NamedTypeSpec("BonMot.StringStyle");
+        var typeSpec = new NamedTypeSpec("AttributedTextKit.StringStyle");
         var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
-        Assert.Equal("BonMot.StringStyle", result);
+        Assert.Equal("AttributedTextKit.StringStyle", result);
     }
 
     [Fact]
@@ -835,7 +835,7 @@ public class ExistentialBypassEmitterTests
     public void RenderSwiftTypeSpec_SimpleType_StripsModule_StillWorks()
     {
         // Verify unqualified rendering still works (backward compat)
-        var typeSpec = new NamedTypeSpec("BonMot.StringStyle");
+        var typeSpec = new NamedTypeSpec("AttributedTextKit.StringStyle");
         var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
         Assert.Equal("StringStyle", result);
     }

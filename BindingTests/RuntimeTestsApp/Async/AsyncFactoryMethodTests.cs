@@ -9,13 +9,13 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Tests the Lottie DotLottieFile / LottieAnimation async loading pattern:
+/// Tests the async animation asset loading pattern (static async factory methods returning optional types):
 /// - Static async factory methods returning optional types
 /// - Loading from file paths, data, and URL strings
 /// - Animation bundle with multiple animations
 /// - Animation cache (store/retrieve/clear)
 ///
-/// Exercises L5 (DotLottie format), L7 (URL-based animation loading) from the library parity roadmap.
+/// Exercises packaged-animation file loading and URL-based animation loading.
 /// </summary>
 public class AsyncFactoryMethodTests : TestBase
 {
@@ -48,9 +48,9 @@ public class AsyncFactoryMethodTests : TestBase
     {
         var data = new byte[] { 0x7B, 0x22, 0x76, 0x22, 0x7D }; // {"v"}
         var result = await WithTimeout(
-            AnimationAsset.LoadFromDataAsync(data, "test.lottie"),
+            AnimationAsset.LoadFromDataAsync(data, "test.anim"),
             DefaultAsyncTimeout);
-        AssertEqual("test.lottie", result.Name, "Filename preserved");
+        AssertEqual("test.anim", result.Name, "Filename preserved");
         AssertEqual(5, result.FrameCount, "Frame count from data length");
         TestLogger.Info($"LoadFromData: {result.GetDescribe()}");
     }
@@ -91,15 +91,15 @@ public class AsyncFactoryMethodTests : TestBase
 
     #endregion
 
-    #region L5: AnimationBundle (DotLottieFile)
+    #region L5: AnimationBundle (VectorAnimationFile)
 
     public async Task TestLoadBundleFromFile()
     {
         var result = await WithTimeout(
-            AnimationBundle.LoadFromFileAsync("/path/to/bundle.lottie"),
+            AnimationBundle.LoadFromFileAsync("/path/to/bundle.anim"),
             DefaultAsyncTimeout);
         AssertNotNull(result, "Loaded bundle should not be null");
-        AssertEqual("bundle.lottie", result!.Filename, "Bundle filename");
+        AssertEqual("bundle.anim", result!.Filename, "Bundle filename");
         TestLogger.Info($"Bundle loaded: {result.Filename}");
     }
 
@@ -115,7 +115,7 @@ public class AsyncFactoryMethodTests : TestBase
     public async Task TestBundleAnimationByIndex()
     {
         var bundle = await WithTimeout(
-            AnimationBundle.LoadFromFileAsync("/test/bundle.lottie"),
+            AnimationBundle.LoadFromFileAsync("/test/bundle.anim"),
             DefaultAsyncTimeout);
         AssertNotNull(bundle, "Bundle loaded");
         AssertEqual(2, bundle!.GetAnimationCount(), "Bundle has 2 animations");
@@ -132,7 +132,7 @@ public class AsyncFactoryMethodTests : TestBase
 
     #endregion
 
-    #region L5: AnimationCacheStore (DotLottieCache)
+    #region L5: AnimationCacheStore (VectorAnimationCache)
 
     public void TestAnimationCacheStoreAndRetrieve()
     {

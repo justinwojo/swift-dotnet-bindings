@@ -333,8 +333,8 @@ namespace TbdParsing.Parsing
                         break;
                     default:
                         _logger.LogWarning($"Unknown export property at line {lineIndex}: {kvp.Key}");
-                        // Real-world TBDs (e.g. Stripe products that import ObjC exception
-                        // types from Stripe3DS2) include export properties such as
+                        // Real-world TBDs (e.g. SDKs that import ObjC exception
+                        // types from a sibling module) include export properties such as
                         // `objc-eh-types: [ ... ]` that span multiple lines. The parser
                         // doesn't need the values, but it MUST consume the continuation
                         // lines — otherwise the next iteration tries to parse the array

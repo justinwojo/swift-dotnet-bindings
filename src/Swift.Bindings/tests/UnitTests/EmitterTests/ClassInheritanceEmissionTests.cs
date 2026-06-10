@@ -226,7 +226,7 @@ public class ClassInheritanceEmissionTests
         // Classes do NOT emit _payloadSize — only structs/enums use it for allocation.
         // Class constructors use Unmanaged.passRetained().toOpaque(), not _payloadSize.
         // Emitting _payloadSize triggers SwiftObjectHelper<T>.GetTypeMetadata().Size at
-        // class load time, which can cause crashes (e.g., CryptoSwift SIGABRT).
+        // class load time, which can cause SIGABRT.
         var output = EmitClassHierarchy(
             baseClass: CreateClassDecl("Animal"),
             derived: CreateClassDecl("Dog"));

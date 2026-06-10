@@ -12,7 +12,7 @@ import Foundation
 // name `Swift.SwiftArray` regardless of element type, collapsing both
 // overloads onto the same key and silently dropping the second. The
 // `startPrefetching(with: [URL]) / startPrefetching(with: [ImageRequest])`
-// pair on `Nuke.ImagePrefetcher` is the consumer-visible repro.
+// pair on a class with two overloads that differ only in Array element type is the consumer-visible repro.
 
 public class FetchItemA {
     public let label: String
@@ -44,8 +44,7 @@ public class ItemEnqueuer {
     }
 }
 
-/// Mirror of the Nuke `startPrefetching([URL]) / startPrefetching([ImageRequest])`
-/// shape — one overload takes an ObjC-bridgeable element (`URL` → `NSUrl`),
+/// One overload takes an ObjC-bridgeable element (`URL` → `NSUrl`),
 /// the other a custom Swift class element. The ObjC-bridge container is the
 /// shape called out in the N-1 evidence cite; both should emit cleanly as
 /// `Prefetch(IEnumerable<NSUrl>)` and `Prefetch(IEnumerable<FetchItemA>)`.

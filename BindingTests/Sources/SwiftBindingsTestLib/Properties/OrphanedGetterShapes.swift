@@ -5,11 +5,10 @@ import Foundation
 
 // MARK: - Orphaned Getter Shapes (Issue #33)
 
-// Reproduces FirebaseAILogic 12.6 `GenerateContentResponse` getter drop:
-// the getter's P/Invoke plumbing is emitted but the public property body
-// is silently missing. Three canonical shapes, all on a non-frozen struct
-// parent (which is what forces the `@_cdecl` property-wrapper path where
-// the preflight/emission asymmetry bites).
+// Reproduces the getter-drop bug where the P/Invoke plumbing is emitted
+// but the public property body is silently missing. Three canonical shapes,
+// all on a non-frozen struct parent (which forces the `@_cdecl`
+// property-wrapper path where the preflight/emission asymmetry bites).
 
 /// Non-frozen nested element, used as the inner type of Optional<T> and Array<T> getters below.
 public struct OrphanedGetterElement {
@@ -22,9 +21,8 @@ public struct OrphanedGetterElement {
     }
 }
 
-/// Non-frozen struct mirroring the shape of `GenerateContentResponse`.
-/// All three getters are read-only stored properties — the parser lowers
-/// them to `@_cdecl` property-wrapper getters.
+/// Non-frozen struct with three read-only stored properties — the parser
+/// lowers them to `@_cdecl` property-wrapper getters.
 public struct OrphanedGetterParent {
     /// Shape 1: Optional<String> getter (mirrors `.text`).
     public let text: String?

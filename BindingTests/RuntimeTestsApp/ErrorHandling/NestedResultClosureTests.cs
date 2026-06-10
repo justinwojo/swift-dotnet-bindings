@@ -10,11 +10,10 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.ErrorHandling;
 
 /// <summary>
-/// Regression coverage for the Stripe FlowController shape: a nested public
-/// class whose public surface includes a static factory taking
-/// <c>(Result&lt;Self, any Error&gt;) -&gt; Void</c>, a sibling factory taking
-/// <c>((any Error)?) -&gt; Void</c>, and an instance method taking
-/// <c>((any Error)?) -&gt; Void</c>.
+/// Regression coverage for a nested public class whose public surface includes
+/// a static factory taking <c>(Result&lt;Self, any Error&gt;) -&gt; Void</c>,
+/// a sibling factory taking <c>((any Error)?) -&gt; Void</c>, and an instance
+/// method taking <c>((any Error)?) -&gt; Void</c>.
 ///
 /// Pre-fix the binding-report listed all four wrapper symbols as
 /// <c>MissingWrapperSymbol</c> and the C# binding silently dropped the
@@ -124,8 +123,8 @@ public class NestedResultClosureTests : TestBase
     /// <summary>
     /// Optional-Error variant, success branch: completion fires with
     /// <c>null</c> when the underlying Swift call passes <c>nil</c> to
-    /// the closure. Mirrors the Stripe overloads of <c>create</c> that
-    /// report failure-only via an Optional Error completion.
+    /// the closure. Covers the overload shape of <c>create</c> that
+    /// reports failure-only via an Optional Error completion.
     /// </summary>
     public void TestSessionController_CreateWithOptionalError_NoFailure_NullCompletion()
     {
@@ -188,8 +187,7 @@ public class NestedResultClosureTests : TestBase
 
         // Construct via the static factory's success branch so we have a live
         // SessionController to call Update on. Without this we'd be relying on
-        // a public constructor; the factory path is what the Stripe consumer
-        // actually uses.
+        // a public constructor; this exercises the static factory path.
         OnboardingFlow.SessionController? session = null;
         OnboardingFlow.SessionController.Create(
             token: "tok_epsilon",

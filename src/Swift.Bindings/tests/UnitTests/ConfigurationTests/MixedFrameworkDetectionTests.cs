@@ -85,10 +85,10 @@ public class MixedFrameworkDetectionTests
         var tmpDir = Path.Combine(Path.GetTempPath(), $"mixed_test_{Guid.NewGuid():N}");
         try
         {
-            // Alamofire pattern: no module.modulemap at all
-            var xcfwPath = BuildSwiftResolution(tmpDir, "Alamofire",
-                new[] { "Alamofire-Swift.h" }, includeModulemap: false);
-            var swiftRes = CreateSwiftResolution(xcfwPath, "Alamofire");
+            // Swift-only pattern: no module.modulemap at all
+            var xcfwPath = BuildSwiftResolution(tmpDir, "NetClient",
+                new[] { "NetClient-Swift.h" }, includeModulemap: false);
+            var swiftRes = CreateSwiftResolution(xcfwPath, "NetClient");
 
             var result = XCFrameworkResolver.DetectMixedFrameworkObjC(
                 swiftRes, XCFrameworkPlatformTarget.Simulator, Logger);
@@ -104,10 +104,10 @@ public class MixedFrameworkDetectionTests
         var tmpDir = Path.Combine(Path.GetTempPath(), $"mixed_test_{Guid.NewGuid():N}");
         try
         {
-            // Kingfisher/RxSwift pattern: modulemap but only {Module}-Swift.h
-            var xcfwPath = BuildSwiftResolution(tmpDir, "Kingfisher",
-                new[] { "Kingfisher-Swift.h" });
-            var swiftRes = CreateSwiftResolution(xcfwPath, "Kingfisher");
+            // Swift-only-header pattern: modulemap but only {Module}-Swift.h
+            var xcfwPath = BuildSwiftResolution(tmpDir, "ImageLoader",
+                new[] { "ImageLoader-Swift.h" });
+            var swiftRes = CreateSwiftResolution(xcfwPath, "ImageLoader");
 
             var result = XCFrameworkResolver.DetectMixedFrameworkObjC(
                 swiftRes, XCFrameworkPlatformTarget.Simulator, Logger);
@@ -123,16 +123,16 @@ public class MixedFrameworkDetectionTests
         var tmpDir = Path.Combine(Path.GetTempPath(), $"mixed_test_{Guid.NewGuid():N}");
         try
         {
-            // BlinkID pattern: real ObjC headers alongside Swift
-            var xcfwPath = BuildSwiftResolution(tmpDir, "BlinkID",
-                new[] { "BlinkID-Swift.h", "BlinkID.h", "MBRecognizer.h" });
-            var swiftRes = CreateSwiftResolution(xcfwPath, "BlinkID");
+            // Mixed ObjC+Swift pattern: real ObjC headers alongside Swift
+            var xcfwPath = BuildSwiftResolution(tmpDir, "DocScan",
+                new[] { "DocScan-Swift.h", "DocScan.h", "MBRecognizer.h" });
+            var swiftRes = CreateSwiftResolution(xcfwPath, "DocScan");
 
             var result = XCFrameworkResolver.DetectMixedFrameworkObjC(
                 swiftRes, XCFrameworkPlatformTarget.Simulator, Logger);
 
             Assert.NotNull(result);
-            Assert.Equal("BlinkID", result!.ModuleName);
+            Assert.Equal("DocScan", result!.ModuleName);
             Assert.True(result.IsSimulatorSlice);
         }
         finally { if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true); }
@@ -144,11 +144,11 @@ public class MixedFrameworkDetectionTests
         var tmpDir = Path.Combine(Path.GetTempPath(), $"mixed_test_{Guid.NewGuid():N}");
         try
         {
-            // CryptoSwift pattern: has a non-Swift header with only version exports
+            // Version-export-only pattern: has a non-Swift header with only version exports
             // Detection still returns a resolution — post-hoc validation handles it
-            var xcfwPath = BuildSwiftResolution(tmpDir, "CryptoSwift",
-                new[] { "CryptoSwift-Swift.h", "CryptoSwift.h" });
-            var swiftRes = CreateSwiftResolution(xcfwPath, "CryptoSwift");
+            var xcfwPath = BuildSwiftResolution(tmpDir, "CryptoLib",
+                new[] { "CryptoLib-Swift.h", "CryptoLib.h" });
+            var swiftRes = CreateSwiftResolution(xcfwPath, "CryptoLib");
 
             var result = XCFrameworkResolver.DetectMixedFrameworkObjC(
                 swiftRes, XCFrameworkPlatformTarget.Simulator, Logger);

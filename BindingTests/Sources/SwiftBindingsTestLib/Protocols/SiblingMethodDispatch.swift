@@ -99,13 +99,11 @@ public func callSiblingNameViaOwner(_ x: any SiblingNameOwner, _ n: Int32) -> St
     return x.collidingTag(n)
 }
 
-// MARK: - Async/sync effect-overload sibling divergence (Kingfisher regression)
+// MARK: - Async/sync effect-overload sibling divergence
 //
 // A sync protocol REFINING an async protocol, both declaring a method that shares
-// name + params + return TYPE but differs in the `async` effect — exactly
-// Kingfisher's `ImageDownloadRequestModifier: AsyncImageDownloadRequestModifier`,
-// where both declare `modified(for:)` (the base `async -> URLRequest?`, the
-// refinement sync `-> URLRequest?`).
+// name + params + return TYPE but differs in the `async` effect — both declaring
+// `modified(for:)` (the base `async`, the refinement sync, same return type).
 //
 // This shape guards TWO opposite failure modes that the EveryProtocol emitter must
 // satisfy at once — the `async` axis pulls them in different directions:

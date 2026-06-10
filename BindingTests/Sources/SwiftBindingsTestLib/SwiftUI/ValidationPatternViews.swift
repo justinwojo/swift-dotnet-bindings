@@ -1,24 +1,23 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// SwiftUI Views replicating patterns from third-party validation libraries.
-// These exercise bridge parameter gates at runtime:
+// SwiftUI Views exercising bridge parameter gates at runtime:
 //
-//   NoParamBlurView       → AlertToast.BlurView (zero-param init)
-//   PlayerStyleView       → YouTubePlayerKit.YouTubePlayerView (class + string)
-//   FormatActionView      → RichTextKit.ActionButton (non-raw-value enum)
-//   FormatMenuView        → RichTextKit.Menu (closure with BoundStruct arg)
-//   RichToolbarView       → RichTextKit toolbar views (dual string params)
+//   NoParamBlurView       — zero-param init
+//   PlayerStyleView       — class + string params
+//   FormatActionView      — non-raw-value enum param
+//   FormatMenuView        — closure with BoundStruct arg
+//   RichToolbarView       — dual string params
 
 // SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
 // compiler environment despite the module importing successfully.
 #if !targetEnvironment(macCatalyst)
 import SwiftUI
 
-// MARK: - Zero-Parameter Init (AlertToast BlurView pattern)
+// MARK: - Zero-Parameter Init
 
-/// Replicates AlertToast.BlurView — simplest possible bridged view.
-/// Zero parameters, zero state. Tests the bridge's no-param path.
+/// Simplest possible bridged view — zero parameters, zero state.
+/// Tests the bridge's no-param path.
 public struct NoParamBlurView: View {
     public init() {}
     public var body: some View {
@@ -26,10 +25,10 @@ public struct NoParamBlurView: View {
     }
 }
 
-// MARK: - Class + String Params (YouTubePlayerKit pattern)
+// MARK: - Class + String Params
 
-/// Replicates YouTubePlayerView(player:) — class param with state control.
-/// Tests BoundType parameter bridging with a stateful object + string title.
+/// View with a class param and a string title — tests BoundType parameter
+/// bridging with a stateful object.
 public struct PlayerStyleView: View {
     let player: SimpleModel
     let title: String
@@ -44,10 +43,10 @@ public struct PlayerStyleView: View {
     }
 }
 
-// MARK: - Non-Raw-Value Enum Param (RichTextKit ActionButton pattern)
+// MARK: - Non-Raw-Value Enum Param
 
-/// Replicates RichTextKit.ActionButton — view taking a non-raw-value enum
-/// with associated values. Tests the BoundStruct bridge for enum types.
+/// View taking a non-raw-value enum with associated values.
+/// Tests the BoundStruct bridge for enum types.
 /// Uses TransformOutcome from Closures/StructClosureBridge.swift (has associated values).
 public struct FormatActionView: View {
     let action: TransformOutcome
@@ -61,9 +60,9 @@ public struct FormatActionView: View {
     }
 }
 
-// MARK: - Closure with BoundStruct Arg (RichTextKit Menu pattern)
+// MARK: - Closure with BoundStruct Arg
 
-/// Replicates RichTextKit.Menu — closure taking non-raw-value enum arg.
+/// View with a closure taking a non-raw-value enum argument.
 /// Tests the BoundStruct closure arg bridge (heap-allocate + initializeMemory).
 public struct FormatMenuView: View {
     let onFormat: (TransformOutcome) -> Void
@@ -77,10 +76,9 @@ public struct FormatMenuView: View {
     }
 }
 
-// MARK: - Dual String Params (RichTextKit toolbar pattern)
+// MARK: - Dual String Params
 
-/// Replicates simple RichTextKit toolbar views — dual string parameters.
-/// Tests multiple String param bridging (both updatable).
+/// View with dual string parameters — tests multiple String param bridging.
 public struct RichToolbarView: View {
     let title: String
     let subtitle: String
@@ -148,7 +146,7 @@ public struct SymbolIconView: View {
     }
 }
 
-// MARK: - Result<T,E> Closure Param (CodeScanner pattern)
+// MARK: - Result<T,E> Closure Param
 
 /// Custom error type for Result closure testing (conforms to Error).
 public class ScanError: Error {
@@ -156,7 +154,7 @@ public class ScanError: Error {
     public init(code: Int32) { self.code = code }
 }
 
-/// Replicates CodeScanner's `(Result<ScanResult, ScanError>) -> Void` callback pattern.
+/// View with a `(Result<T, E>) -> Void` completion closure.
 /// The bridge decomposes the Result into two C callbacks: onSuccess + onError.
 /// Tests that the Swift wrapper switch dispatches correctly.
 public struct ResultCompletionView: View {

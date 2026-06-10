@@ -3,15 +3,14 @@
 
 import Foundation
 
-// MARK: - Control Hierarchy Pattern (Lottie AnimatedButton / AnimatedSwitch)
+// MARK: - Control Hierarchy Pattern
 // Tests the pattern where UIControl subclasses have:
 // - Bool state properties (isOn)
 // - State change methods with parameters (setIsOn(animated:shouldFireHaptics:))
 // - Inherited play/stop behavior from a base class
 // - Optional animation in constructor
-// This models Lottie's AnimatedControl → AnimatedSwitch / AnimatedButton hierarchy.
 
-/// Base animated control — models Lottie's AnimatedControl (UIControl subclass).
+/// Base animated control — base class in a two-level UIControl subclass hierarchy.
 public class AnimatedControlBase {
     public var animationName: String?
     public var speed: Double = 1.0
@@ -42,7 +41,7 @@ public class AnimatedControlBase {
     }
 }
 
-/// Toggle switch control — models Lottie's AnimatedSwitch.
+/// Toggle switch control — subclass with isOn state and animation.
 public final class ToggleSwitch: AnimatedControlBase {
     public var isOn: Bool = false
     private var _onChangeCount: Int32 = 0
@@ -82,7 +81,7 @@ public final class ToggleSwitch: AnimatedControlBase {
     }
 }
 
-/// Tap button control — models Lottie's AnimatedButton.
+/// Tap button control — subclass with tap-count tracking.
 public final class TapButton: AnimatedControlBase {
     public var tapCount: Int32 = 0
 

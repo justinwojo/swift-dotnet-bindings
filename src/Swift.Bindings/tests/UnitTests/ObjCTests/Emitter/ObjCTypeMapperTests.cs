@@ -117,9 +117,9 @@ public class ObjCTypeMapperTests
     [Fact]
     public void MapType_MultiProtocolId_UsesFirstNonNSObject()
     {
-        // id<FIRLocalCacheSettings,NSObject> → IFIRLocalCacheSettings (not IFIRLocalCacheSettings,NSObject)
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["FIRLocalCacheSettings", "NSObject"] };
-        Assert.Equal("IFIRLocalCacheSettings", ObjCTypeMapper.MapType(typeRef));
+        // id<CloudPlatformSdkLocalCacheSettings,NSObject> → ICloudPlatformSdkLocalCacheSettings (not ICloudPlatformSdkLocalCacheSettings,NSObject)
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["CloudPlatformSdkLocalCacheSettings", "NSObject"] };
+        Assert.Equal("ICloudPlatformSdkLocalCacheSettings", ObjCTypeMapper.MapType(typeRef));
     }
 
     [Fact]
@@ -139,17 +139,17 @@ public class ObjCTypeMapperTests
     [Fact]
     public void MapType_MultiProtocolId_NSFastEnumerationFirst_SkipsToBindable()
     {
-        // id<NSFastEnumeration, FIRFoo> — NSFastEnumeration has no binding, should use FIRFoo
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSFastEnumeration", "FIRFoo"] };
-        Assert.Equal("IFIRFoo", ObjCTypeMapper.MapType(typeRef));
+        // id<NSFastEnumeration, CloudPlatformSdkFoo> — NSFastEnumeration has no binding, should use CloudPlatformSdkFoo
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSFastEnumeration", "CloudPlatformSdkFoo"] };
+        Assert.Equal("ICloudPlatformSdkFoo", ObjCTypeMapper.MapType(typeRef));
     }
 
     [Fact]
     public void MapType_MultiProtocolId_NSObjectAndNSFastEnumerationBeforeBindable()
     {
-        // id<NSObject, NSFastEnumeration, FIRFoo> — both filtered, should use FIRFoo
-        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSObject", "NSFastEnumeration", "FIRFoo"] };
-        Assert.Equal("IFIRFoo", ObjCTypeMapper.MapType(typeRef));
+        // id<NSObject, NSFastEnumeration, CloudPlatformSdkFoo> — both filtered, should use CloudPlatformSdkFoo
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSObject", "NSFastEnumeration", "CloudPlatformSdkFoo"] };
+        Assert.Equal("ICloudPlatformSdkFoo", ObjCTypeMapper.MapType(typeRef));
     }
 
     [Fact]
@@ -316,8 +316,8 @@ public class ObjCTypeMapperTests
     [InlineData("KeyType")]
     [InlineData("ValueType")]
     [InlineData("ElementType")]
-    [InlineData("RLMObjectType")]
-    [InlineData("RLMKeyType")]
+    [InlineData("MOSObjectType")]
+    [InlineData("MOSKeyType")]
     public void MapType_GenericTypeParam_WithAstSet_ReturnsNSObject(string typeName)
     {
         var typeRef = new ObjCTypeRef { Name = typeName };
@@ -329,7 +329,7 @@ public class ObjCTypeMapperTests
     [InlineData("ObjectType")]
     [InlineData("T")]
     [InlineData("KeyType")]
-    [InlineData("RLMObjectType")]
+    [InlineData("MOSObjectType")]
     public void MapType_GenericTypeParam_WithoutAstSet_FallsThrough(string typeName)
     {
         // Without the genericTypeParams set, generic param names are NOT auto-recognized.
@@ -423,10 +423,10 @@ public class ObjCTypeMapperTests
     [Fact]
     public void MapType_TypedefAlias_ResolvesToUnderlying()
     {
-        var typeRef = new ObjCTypeRef { Name = "BRLMSerialNumber" };
+        var typeRef = new ObjCTypeRef { Name = "LabelPrinterSerialNumber" };
         var typedefMap = new Dictionary<string, ObjCTypeRef>
         {
-            ["BRLMSerialNumber"] = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+            ["LabelPrinterSerialNumber"] = new ObjCTypeRef { Name = "NSString", IsPointer = true }
         };
         Assert.Equal("string", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
     }
@@ -1009,9 +1009,9 @@ public class ObjCTypeMapperTests
         {
             Name = "NSArray",
             IsPointer = true,
-            GenericArgs = [new ObjCTypeRef { Name = "BRLMLog", IsPointer = true }]
+            GenericArgs = [new ObjCTypeRef { Name = "LabelPrinterLog", IsPointer = true }]
         };
-        Assert.Equal("BRLMLog[]", ObjCTypeMapper.MapType(typeRef));
+        Assert.Equal("LabelPrinterLog[]", ObjCTypeMapper.MapType(typeRef));
     }
 
     [Fact]
@@ -1144,7 +1144,7 @@ public class ObjCTypeMapperTests
             {
                 Name = "NSArray",
                 IsPointer = true,
-                GenericArgs = [new ObjCTypeRef { Name = "RLMGeospatialPoint", IsPointer = true }]
+                GenericArgs = [new ObjCTypeRef { Name = "MOSGeospatialPoint", IsPointer = true }]
             }]
         };
         Assert.Equal("NSArray", ObjCTypeMapper.MapType(typeRef));

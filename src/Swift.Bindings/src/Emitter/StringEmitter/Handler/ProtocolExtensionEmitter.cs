@@ -181,7 +181,7 @@ public static class ProtocolExtensionEmitter
         var (parameters, returnTypeSpec, returnTypeName) = parseResult.Value;
 
         // EC-8: Gate: conforming type must not be a protocol in the TypeDatabase.
-        // Protocol metatypes (e.g., CryptoSwift.Updatable.self) are invalid in Swift wrapper
+        // Protocol metatypes are invalid in Swift wrapper
         // contexts like assumingMemoryBound(to:) and Unmanaged<T>.fromOpaque().
         if (typeDatabase.TryGetTypeRecord(conformingType.SwiftTypeName, out var conformingTypeRecord) &&
             conformingTypeRecord.Kind == TypeRecordKind.Protocol)
@@ -303,7 +303,7 @@ public static class ProtocolExtensionEmitter
         // methods get during the main dedup loop. A hand-rolled key here diverged:
         // OptionalProjection.PublicType keeps the trailing '?' on an Optional<class> param while
         // the canonical key strips it for reference types — so an extension default with an
-        // Optional<class> param (Kingfisher ImageTransformable shape) keyed as `Attach(Other?)`
+        // Optional<class> param keyed as `Attach(Other?)`
         // never matched an existing `Attach(Other)` method, slipped past this gate, and B15
         // disambiguation emitted a spurious second member (Attach2).
         {
@@ -600,7 +600,7 @@ public static class ProtocolExtensionEmitter
 
     /// <summary>
     /// Parses a single parameter from a swiftinterface parameter declaration.
-    /// e.g., "_ cache: Kingfisher.ImageCache" → ("_", NamedTypeSpec("Kingfisher.ImageCache"), "Kingfisher.ImageCache")
+    /// e.g., "_ cache: Module.TypeName" → ("_", NamedTypeSpec("Module.TypeName"), "Module.TypeName")
     /// </summary>
     private static (string label, TypeSpec typeSpec, string swiftType)?
         ParseParameter(string paramDecl)
@@ -1360,9 +1360,9 @@ public static class ProtocolExtensionEmitter
             return label == "_" ? paramName : $"{label}: {paramName}";
 
         // Array: unsafeBitCast from raw pointer to [Element].
-        // Module-qualify the element so an Array<Expression> stays `[FirebaseFirestore.Expression]`
-        // when the wrapper compiles against multiple modules that declare the same protocol leaf
-        // name (Foundation.Expression vs FirebaseFirestore.Expression).
+        // Module-qualify the element so an Array<Expression> stays `[Module.Expression]`
+        // when the wrapper compiles against multiple modules that declare the same type leaf
+        // name (e.g., Foundation.Expression vs a third-party module's Expression).
         if (IsSwiftArrayType(typeSpec))
         {
             var arrayTypeSpec = (NamedTypeSpec)typeSpec;
@@ -1469,7 +1469,7 @@ public static class ProtocolExtensionEmitter
             : "";
 
         // Build where clause from parent type's generic constraints.
-        // Free functions need module-qualified conformance names (e.g., GRDB.Cursor).
+        // Free functions need module-qualified conformance names (e.g., Module.ProtocolName).
         var whereClause = isGenericConforming
             ? WrapperEmitterHelpers.BuildSwiftWhereClause(conformingType.GenericParameters, moduleQualify: true)
             : "";
@@ -1713,7 +1713,7 @@ public static class ProtocolExtensionEmitter
             : "";
 
         // Build where clause from parent type's generic constraints.
-        // Free functions need module-qualified conformance names (e.g., GRDB.Cursor).
+        // Free functions need module-qualified conformance names (e.g., Module.ProtocolName).
         var whereClause = isGenericConforming
             ? WrapperEmitterHelpers.BuildSwiftWhereClause(conformingType.GenericParameters, moduleQualify: true)
             : "";
@@ -2390,7 +2390,7 @@ public static class ProtocolExtensionEmitter
                         out var resolved) &&
                     resolved != null)
                 {
-                    // Concrete resolution (e.g., Self.Element → GRDB.Statement)
+                    // Concrete resolution (e.g., Self.Element → Module.ConcreteType)
                     // or generic forwarding (e.g., Self.Element → τ_0_0).
                     // Chained references (AssociatedTypeReferenceSpec) fall through
                     // to unchanged → AnyType downstream.
@@ -2634,7 +2634,7 @@ public static class ProtocolExtensionEmitter
 
     /// <summary>
     /// Flattens a SwiftTypeName for use in symbol names.
-    /// e.g., "Kingfisher.KF.Builder" → "KF_Builder"
+    /// e.g., "Module.ParentType.NestedType" → "ParentType_NestedType"
     /// </summary>
     private static string FlattenTypeName(SwiftTypeName swiftTypeName)
     {
@@ -2648,7 +2648,7 @@ public static class ProtocolExtensionEmitter
 
     /// <summary>
     /// Extracts a reasonable parameter name from a Swift type string.
-    /// e.g., "Kingfisher.ImageCache" → "cache", "Swift.Bool" → "enabled"
+    /// e.g., "Module.ImageCache" → "cache", "Swift.Bool" → "enabled"
     /// </summary>
     private static string GetParamNameFromType(string swiftType)
     {

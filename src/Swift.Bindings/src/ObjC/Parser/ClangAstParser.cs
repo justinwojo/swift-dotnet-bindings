@@ -42,7 +42,7 @@ public static class ClangAstParser
         }
 
         // Pre-scan: collect ObjC class names that declare lightweight generic type parameters.
-        // These are used by ObjCTypeRefParser to distinguish generic containers (RLMResults<ObjectType>)
+        // These are used by ObjCTypeRefParser to distinguish generic containers (MOSResults<ObjectType>)
         // from protocol-qualified types (NSObject<NSCopying>) when both use simple identifier args.
         var astGenericContainers = ScanGenericContainerNames(inner);
         ObjCTypeRefParser.SetAdditionalGenericContainers(
@@ -258,7 +258,7 @@ public static class ClangAstParser
         // removed — emitting them would reference a non-existent base type. We only filter against
         // the exact alias drop set (not all-classes-not-in-module), because the downstream pipeline
         // pass ObjCPipeline.FilterToForeignCategories preserves legitimately-foreign categories on
-        // Apple SDK types (e.g. NSNull+RLMValue).
+        // Apple SDK types (e.g. NSNull+MOSValue).
         var dedupedCategories = MergeCategories(categories)
             .Where(c => !droppedAliasNames.Contains(c.ClassName))
             .ToList();
@@ -317,7 +317,7 @@ public static class ClangAstParser
             }
         }
 
-        // Extract ObjC lightweight generic type parameters (e.g., RLMObjectType in RLMResults<RLMObjectType>)
+        // Extract ObjC lightweight generic type parameters (e.g., MOSObjectType in MOSResults<MOSObjectType>)
         var genericTypeParamNames = new List<string>();
         if (element.TryGetProperty("inner", out var innerForParams))
         {
@@ -1319,7 +1319,7 @@ public static class ClangAstParser
     /// Quick pre-scan of the AST to find ObjC class names that declare lightweight generic
     /// type parameters (ObjCTypeParamDecl). These names supplement the static
     /// KnownGenericContainers set so the type ref parser can distinguish custom generic
-    /// containers (RLMResults&lt;ObjectType&gt;) from protocol-qualified types (NSObject&lt;NSCopying&gt;).
+    /// containers (MOSResults&lt;ObjectType&gt;) from protocol-qualified types (NSObject&lt;NSCopying&gt;).
     /// </summary>
     private static HashSet<string> ScanGenericContainerNames(JsonElement inner)
     {

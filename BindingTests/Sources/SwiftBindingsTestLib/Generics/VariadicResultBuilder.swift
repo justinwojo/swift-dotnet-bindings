@@ -54,8 +54,8 @@ public struct VariadicSectionBuilder {
 
 // MARK: - Variadic-of-existential result-builder coverage
 //
-// Regression guard for RxSwift `DisposableBuilder`, GRDB, and SwiftyBeaver, whose
-// result-builder `buildBlock` takes an existential variadic — `(any P)...`. Unlike the
+// Regression guard for result-builder `buildBlock` overloads that take an existential variadic —
+// `(any P)...`. Unlike the
 // concrete `VariadicSection...` case above, swift-api-digester renders this parameter as a
 // plain `[any VariadicItem]` with NO trailing "..." in its printedName. The per-overload
 // variadic-ness is therefore recoverable ONLY from the demangled mangled-name "d" marker.

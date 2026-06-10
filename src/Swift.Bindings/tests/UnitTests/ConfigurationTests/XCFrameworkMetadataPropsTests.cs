@@ -23,7 +23,7 @@ namespace BindingsGeneration.Tests
             {
                 var metadata = CreateTestMetadata();
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger);
 
                 Assert.True(File.Exists(Path.Combine(dir, "binding-metadata.props")));
             }
@@ -38,7 +38,7 @@ namespace BindingsGeneration.Tests
             {
                 var metadata = CreateTestMetadata();
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -48,10 +48,10 @@ namespace BindingsGeneration.Tests
 
                 AssertPropertyValue(root, "_SwiftBindingPackageVersion", "12.8.0");
                 AssertPropertyValue(root, "_SwiftBindingMinimumOSVersion", "15.0");
-                AssertPropertyValue(root, "_SwiftBindingModuleName", "Nuke");
+                AssertPropertyValue(root, "_SwiftBindingModuleName", "ImagePipeline");
                 AssertPropertyValue(root, "_SwiftBindingIsVersionPlaceholder", "False");
                 AssertPropertyValue(root, "_SwiftBindingHasWrapperXCFramework", "True");
-                AssertPropertyValue(root, "_SwiftBindingWrapperModuleName", "NukeSwiftBindings");
+                AssertPropertyValue(root, "_SwiftBindingWrapperModuleName", "ImagePipelineSwiftBindings");
                 AssertPropertyValue(root, "_SwiftBindingWrapperSliceCount", "2");
             }
             finally { Directory.Delete(dir, true); }
@@ -66,7 +66,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    CreateTestMetadata(), dir, true, "NukeSwiftBindings", 2, _logger);
+                    CreateTestMetadata(), dir, true, "ImagePipelineSwiftBindings", 2, _logger);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -84,7 +84,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    CreateTestMetadata(), dir, true, "NukeSwiftBindings", 2, _logger,
+                    CreateTestMetadata(), dir, true, "ImagePipelineSwiftBindings", 2, _logger,
                     sourceNativeLinkage: NativeLinkage.Static);
 
                 var doc = new XmlDocument();
@@ -135,7 +135,7 @@ namespace BindingsGeneration.Tests
             {
                 var metadata = CreateTestMetadata();
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 1, _logger);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 1, _logger);
 
                 var content = File.ReadAllText(Path.Combine(dir, "binding-metadata.props"));
                 Assert.StartsWith("<Project>", content.TrimStart());
@@ -158,12 +158,12 @@ namespace BindingsGeneration.Tests
                 var metadata = CreateTestMetadata();
                 var deps = new List<FrameworkDependencyInfo>
                 {
-                    new() { XCFrameworkPath = "/path/to/StripeCore.xcframework", ModuleName = "StripeCore", PackageVersion = "25.6.2" },
-                    new() { XCFrameworkPath = "/path/to/StripeUICore.xcframework", ModuleName = "StripeUICore" }
+                    new() { XCFrameworkPath = "/path/to/PaymentSdkCore.xcframework", ModuleName = "PaymentSdkCore", PackageVersion = "25.6.2" },
+                    new() { XCFrameworkPath = "/path/to/PaymentSdkUICore.xcframework", ModuleName = "PaymentSdkUICore" }
                 };
 
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger, deps);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -172,8 +172,8 @@ namespace BindingsGeneration.Tests
                 var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
                 Assert.NotNull(node);
                 var value = node!.InnerText;
-                Assert.Contains("StripeCore|StripeCore.Swift.iOS|25.6.2|/path/to/StripeCore.xcframework", value);
-                Assert.Contains("StripeUICore|StripeUICore.Swift.iOS|0.0.0|/path/to/StripeUICore.xcframework", value);
+                Assert.Contains("PaymentSdkCore|PaymentSdkCore.Swift.iOS|25.6.2|/path/to/PaymentSdkCore.xcframework", value);
+                Assert.Contains("PaymentSdkUICore|PaymentSdkUICore.Swift.iOS|0.0.0|/path/to/PaymentSdkUICore.xcframework", value);
                 // Entries are semicolon-delimited
                 Assert.Contains(";", value);
             }
@@ -189,7 +189,7 @@ namespace BindingsGeneration.Tests
                 var metadata = CreateTestMetadata();
 
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -210,12 +210,12 @@ namespace BindingsGeneration.Tests
                 var metadata = CreateTestMetadata();
                 var deps = new List<FrameworkDependencyInfo>
                 {
-                    new() { XCFrameworkPath = "/path/to/StripeCore.xcframework", ModuleName = "StripeCore", PackageVersion = "25.6.2" },
+                    new() { XCFrameworkPath = "/path/to/PaymentSdkCore.xcframework", ModuleName = "PaymentSdkCore", PackageVersion = "25.6.2" },
                     new() { XCFrameworkPath = "/path/to/ObjCLib.xcframework", ModuleName = "ObjCLib", IsObjCOnly = true }
                 };
 
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger, deps);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -224,7 +224,7 @@ namespace BindingsGeneration.Tests
                 var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
                 Assert.NotNull(node);
                 var value = node!.InnerText;
-                Assert.Contains("StripeCore", value);
+                Assert.Contains("PaymentSdkCore", value);
                 Assert.DoesNotContain("ObjCLib", value);
             }
             finally { Directory.Delete(dir, true); }
@@ -241,15 +241,15 @@ namespace BindingsGeneration.Tests
                 {
                     new()
                     {
-                        XCFrameworkPath = "/abs/path/StripeCore.xcframework",
-                        ModuleName = "StripeCore",
+                        XCFrameworkPath = "/abs/path/PaymentSdkCore.xcframework",
+                        ModuleName = "PaymentSdkCore",
                         PackageVersion = "25.6.2",
-                        PackageId = "Custom.StripeCore"
+                        PackageId = "Custom.PaymentSdkCore"
                     }
                 };
 
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger, deps);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -258,7 +258,7 @@ namespace BindingsGeneration.Tests
                 var node = root.SelectSingleNode("//PropertyGroup/_SwiftBindingDependencies");
                 Assert.NotNull(node);
                 // Format: ModuleName|PackageId|Version|XCFrameworkPath
-                Assert.Equal("StripeCore|Custom.StripeCore|25.6.2|/abs/path/StripeCore.xcframework", node!.InnerText);
+                Assert.Equal("PaymentSdkCore|Custom.PaymentSdkCore|25.6.2|/abs/path/PaymentSdkCore.xcframework", node!.InnerText);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -281,7 +281,7 @@ namespace BindingsGeneration.Tests
                 };
 
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger, deps);
 
                 // Must parse as valid XML (would throw if & or < are unescaped)
                 var doc = new XmlDocument();
@@ -316,7 +316,7 @@ namespace BindingsGeneration.Tests
                 };
 
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger, deps);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -355,7 +355,7 @@ namespace BindingsGeneration.Tests
                 };
 
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger, deps);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger, deps);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -385,7 +385,7 @@ namespace BindingsGeneration.Tests
             MinimumOSVersion = "13.0",
             EffectiveMinimumOSVersion = "15.0",
             SdkVersion = "18.0",
-            ModuleName = "Nuke",
+            ModuleName = "ImagePipeline",
             Platforms = new List<string> { "ios-simulator", "ios" }
         };
 
@@ -413,15 +413,15 @@ namespace BindingsGeneration.Tests
             {
                 var metadata = CreateTestMetadata();
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger,
-                    hasBridgeSwift: true, bridgeModuleName: "NukeBridge");
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger,
+                    hasBridgeSwift: true, bridgeModuleName: "ImagePipelineBridge");
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
                 var root = doc.DocumentElement!;
 
                 AssertPropertyValue(root, "_SwiftBindingHasBridgeSwift", "True");
-                AssertPropertyValue(root, "_SwiftBindingBridgeModuleName", "NukeBridge");
+                AssertPropertyValue(root, "_SwiftBindingBridgeModuleName", "ImagePipelineBridge");
                 AssertPropertyValue(root, "_SwiftBindingHasBridgeXCFramework", "False");
                 AssertPropertyValue(root, "_SwiftBindingBridgeSliceCount", "0");
             }
@@ -436,7 +436,7 @@ namespace BindingsGeneration.Tests
             {
                 var metadata = CreateTestMetadata();
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger);
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger);
 
                 var content = File.ReadAllText(Path.Combine(dir, "binding-metadata.props"));
                 Assert.DoesNotContain("_SwiftBindingHasBridgeSwift", content);
@@ -453,7 +453,7 @@ namespace BindingsGeneration.Tests
             {
                 var metadata = CreateTestMetadata();
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger,
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger,
                     hasBridgeSwift: true);
 
                 var doc = new XmlDocument();
@@ -461,7 +461,7 @@ namespace BindingsGeneration.Tests
                 var root = doc.DocumentElement!;
 
                 // Default bridge module name: {ModuleName}Bridge
-                AssertPropertyValue(root, "_SwiftBindingBridgeModuleName", "NukeBridge");
+                AssertPropertyValue(root, "_SwiftBindingBridgeModuleName", "ImagePipelineBridge");
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -475,12 +475,12 @@ namespace BindingsGeneration.Tests
                 // First emit props with bridge
                 var metadata = CreateTestMetadata();
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
-                    metadata, dir, true, "NukeSwiftBindings", 2, _logger,
-                    hasBridgeSwift: true, bridgeModuleName: "NukeBridge");
+                    metadata, dir, true, "ImagePipelineSwiftBindings", 2, _logger,
+                    hasBridgeSwift: true, bridgeModuleName: "ImagePipelineBridge");
 
                 // Now update bridge status
                 XCFrameworkMetadataExtractor.UpdateMetadataPropsBridgeStatus(
-                    dir, true, "NukeBridge", 2, _logger);
+                    dir, true, "ImagePipelineBridge", 2, _logger);
 
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(dir, "binding-metadata.props"));
@@ -500,7 +500,7 @@ namespace BindingsGeneration.Tests
             {
                 // Should log warning but not throw
                 XCFrameworkMetadataExtractor.UpdateMetadataPropsBridgeStatus(
-                    dir, true, "NukeBridge", 2, _logger);
+                    dir, true, "ImagePipelineBridge", 2, _logger);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -520,7 +520,7 @@ namespace BindingsGeneration.Tests
             MinimumOSVersion = "13.0",
             EffectiveMinimumOSVersion = "15.0",
             SdkVersion = "18.0",
-            ModuleName = "Nuke",
+            ModuleName = "ImagePipeline",
             Platforms = new List<string> { "ios-simulator", "ios" }
         };
 

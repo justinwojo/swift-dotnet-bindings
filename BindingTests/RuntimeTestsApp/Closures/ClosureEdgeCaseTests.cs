@@ -98,7 +98,7 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"ComputeValueAsync = {result}");
     }
 
-    // Existential-param + completion handler (Stripe shape): a method whose non-closure params include an
+    // Existential-param + completion handler: a method whose non-closure params include an
     // `any Protocol` existential, paired with a trailing `@escaping (T) -> Void`
     // completion. The OLD generator emitted a duplicated …Async body that
     // allocated `existentialContextHeap` and never freed it. The fix in
@@ -194,7 +194,7 @@ public class ClosureEdgeCaseTests : TestBase
     public void TestStaticClosurePropertyReturningClass()
     {
         // Static closure property returning FinalCounter — same pattern as
-        // PhoneNumberKit's PhoneNumberDecodingUtils.defaultUtility.
+        // a phone-number library's utility singleton closure property.
         var factory = ClosureClassReturnHolder.DefaultCounter;
         AssertNotNull(factory, "DefaultCounter static closure property is not null");
         var counter = factory();

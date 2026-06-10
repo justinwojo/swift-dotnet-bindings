@@ -1207,8 +1207,8 @@ public class AppleFrameworkRegistryTests
     [InlineData("SwiftUI", true)]                    // Unsupported but still a known Apple module
     [InlineData("SwiftUICore", true)]                // SwiftUICore is the internal split-out
     [InlineData("RealityFoundation", true)]          // concreteClassFallback — wrapper should still suppress
-    [InlineData("StripePayments", false)]            // Third-party
-    [InlineData("Alamofire", false)]                 // Third-party
+    [InlineData("PaymentSdkPayments", false)]        // Third-party
+    [InlineData("NetClient", false)]                 // Third-party
     [InlineData("MyCustomLib", false)]               // Unknown
     [InlineData("", false)]
     public void ShouldSuppressDeclaredWrapperImport_ReturnsExpected(string module, bool expected)
@@ -1242,8 +1242,8 @@ public class AppleFrameworkRegistryTests
     [InlineData("SwiftUICore", true)]
     [InlineData("RealityFoundation", false)]         // concreteClassFallback ONLY — routes via children-first
     [InlineData("SceneKit", true)]                   // concreteClassFallback BUT also autoBridge/optionalFallback
-    [InlineData("StripePayments", false)]            // Third-party
-    [InlineData("Alamofire", false)]                 // Third-party
+    [InlineData("PaymentSdkPayments", false)]        // Third-party
+    [InlineData("NetClient", false)]                 // Third-party
     [InlineData("MyCustomLib", false)]               // Unknown
     [InlineData("", false)]
     public void IsSystemReexportAllowedModule_ReturnsExpected(string module, bool expected)

@@ -7,7 +7,7 @@
 // binding, packed into a SINGLE NuGet package and consumed via ONE PackageReference,
 // LINKED and RUN on the iOS runtimes where duplicate-ObjC-class registration actually
 // bites — the iOS Simulator (Mono JIT) and a physical device (NativeAOT). This is the
-// exact shape of the Kidoz #40 report: a static mixed framework whose ObjC class, if the
+// exact shape of the issue #40 report: a static mixed framework whose ObjC class, if the
 // source archive is embedded ALONGSIDE the force-loading wrapper, registers twice and the
 // loader prints "Class X is implemented in both …". PackGate proves the nupkg STRUCTURE
 // (source dropped, wrapper sole-carrier, companion embedded in lib/) and runs the consumer
@@ -48,7 +48,7 @@ partial class Build
     const string MixedPackVersion = "0.0.0-mixedpack";
     const string MixedPackAppleVersion = "26.2.0-mixedpack";
 
-    // The mixed fixture: a STATIC source (the Kidoz #40 condition — the wrapper force-loads
+    // The mixed fixture: a STATIC source (the issue #40 condition — the wrapper force-loads
     // the ObjC archive and is the sole carrier, the source is dropped from the consumer).
     const string MixedPackModule = "SbMixedPack";
     const string MixedPackProbeClass = "SbMixedPackProbe";

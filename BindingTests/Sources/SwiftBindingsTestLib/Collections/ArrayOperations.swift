@@ -51,7 +51,7 @@ public func filterPositive(_ array: [Int32]) -> [Int32] {
     return array.filter { $0 > 0 }
 }
 
-// MARK: - O3: Array of Class Instances Property (SVGView SVGGroup.Contents pattern)
+// MARK: - O3: Array of Class Instances Property
 
 /// Class with an array-of-class-instances stored property.
 /// Tests SwiftArray<ClassType> marshalling for property get/set.
@@ -65,7 +65,7 @@ public class TeamRoster {
     public func size() -> Int32 { Int32(members.count) }
 }
 
-// MARK: - O4: Existential Array Property (SVGView XMLElement.Contents pattern)
+// MARK: - O4: Existential Array Property
 
 /// Class with an array-of-existential stored property.
 /// Tests SwiftArray<ExistentialContainer1> with proxy projection.

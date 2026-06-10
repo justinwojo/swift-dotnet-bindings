@@ -770,7 +770,7 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitPropertyWrapper_OptionalMetatypeProperty_ReturnsFalse()
     {
-        // Bug-2 pin: an Optional<AnyClass.Type> property (Parchment shape) used to slip past
+        // Bug-2 pin: an Optional<AnyClass.Type> property used to slip past
         // the bare-metatype gate at PropertyWrapperEmitter.ShouldEmitWrapper line 62 and then
         // hit the protocol-existential branch (line 110) — IsProtocolExistentialType returned
         // true via MetatypeStrategy resolving the inner metatype to the AnyType record
@@ -820,22 +820,22 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void GetAccessorSymbolName_Getter_CorrectFormat()
     {
-        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName("Nuke", "ImagePipeline", "configuration", isGetter: true);
-        Assert.Equal("SBW_Get_Nuke_ImagePipeline_configuration", symbol);
+        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName("ImagePipeline", "ImageService", "configuration", isGetter: true);
+        Assert.Equal("SBW_Get_ImagePipeline_ImageService_configuration", symbol);
     }
 
     [Fact]
     public void GetAccessorSymbolName_Setter_CorrectFormat()
     {
-        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName("Nuke", "ImagePipeline", "configuration", isGetter: false);
-        Assert.Equal("SBW_Set_Nuke_ImagePipeline_configuration", symbol);
+        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName("ImagePipeline", "ImageService", "configuration", isGetter: false);
+        Assert.Equal("SBW_Set_ImagePipeline_ImageService_configuration", symbol);
     }
 
     [Fact]
     public void GetAccessorSymbolName_NestedType_DotReplacedWithUnderscore()
     {
-        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName("Nuke", "ImagePipeline.Configuration", "dataLoader", isGetter: true);
-        Assert.Equal("SBW_Get_Nuke_ImagePipeline_Configuration_dataLoader", symbol);
+        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName("ImagePipeline", "ImageService.Configuration", "dataLoader", isGetter: true);
+        Assert.Equal("SBW_Get_ImagePipeline_ImageService_Configuration_dataLoader", symbol);
     }
 
     [Fact]

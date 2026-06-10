@@ -265,10 +265,10 @@ namespace BindingsGeneration.Tests
         #region PlatformInfo helper methods
 
         [Theory]
-        [InlineData(ApplePlatform.iOS, "Nuke", "Nuke.Swift.iOS")]
-        [InlineData(ApplePlatform.macOS, "Nuke", "Nuke.Swift.macOS")]
-        [InlineData(ApplePlatform.tvOS, "Nuke", "Nuke.Swift.tvOS")]
-        [InlineData(ApplePlatform.MacCatalyst, "Nuke", "Nuke.Swift.MacCatalyst")]
+        [InlineData(ApplePlatform.iOS, "ImagePipeline", "ImagePipeline.Swift.iOS")]
+        [InlineData(ApplePlatform.macOS, "ImagePipeline", "ImagePipeline.Swift.macOS")]
+        [InlineData(ApplePlatform.tvOS, "ImagePipeline", "ImagePipeline.Swift.tvOS")]
+        [InlineData(ApplePlatform.MacCatalyst, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst")]
         public void GetDefaultSwiftPackageId_PerPlatform(ApplePlatform platform, string module, string expected)
         {
             var pi = PlatformInfoFactory.Create(platform);
@@ -276,10 +276,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Theory]
-        [InlineData(ApplePlatform.iOS, "Realm", "Realm.ObjC.iOS")]
-        [InlineData(ApplePlatform.macOS, "Realm", "Realm.ObjC.macOS")]
-        [InlineData(ApplePlatform.tvOS, "Realm", "Realm.ObjC.tvOS")]
-        [InlineData(ApplePlatform.MacCatalyst, "Realm", "Realm.ObjC.MacCatalyst")]
+        [InlineData(ApplePlatform.iOS, "ManagedObjectStore", "ManagedObjectStore.ObjC.iOS")]
+        [InlineData(ApplePlatform.macOS, "ManagedObjectStore", "ManagedObjectStore.ObjC.macOS")]
+        [InlineData(ApplePlatform.tvOS, "ManagedObjectStore", "ManagedObjectStore.ObjC.tvOS")]
+        [InlineData(ApplePlatform.MacCatalyst, "ManagedObjectStore", "ManagedObjectStore.ObjC.MacCatalyst")]
         public void GetDefaultObjCPackageId_PerPlatform(ApplePlatform platform, string module, string expected)
         {
             var pi = PlatformInfoFactory.Create(platform);
@@ -287,10 +287,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Theory]
-        [InlineData(ApplePlatform.iOS, "Nuke.xcframework", "runtimes/ios-arm64/native/Nuke.xcframework/")]
-        [InlineData(ApplePlatform.macOS, "Nuke.xcframework", "runtimes/osx-arm64/native/Nuke.xcframework/")]
-        [InlineData(ApplePlatform.tvOS, "Nuke.xcframework", "runtimes/tvos-arm64/native/Nuke.xcframework/")]
-        [InlineData(ApplePlatform.MacCatalyst, "Nuke.xcframework", "runtimes/maccatalyst-arm64/native/Nuke.xcframework/")]
+        [InlineData(ApplePlatform.iOS, "ImagePipeline.xcframework", "runtimes/ios-arm64/native/ImagePipeline.xcframework/")]
+        [InlineData(ApplePlatform.macOS, "ImagePipeline.xcframework", "runtimes/osx-arm64/native/ImagePipeline.xcframework/")]
+        [InlineData(ApplePlatform.tvOS, "ImagePipeline.xcframework", "runtimes/tvos-arm64/native/ImagePipeline.xcframework/")]
+        [InlineData(ApplePlatform.MacCatalyst, "ImagePipeline.xcframework", "runtimes/maccatalyst-arm64/native/ImagePipeline.xcframework/")]
         public void GetNativePackPath_PerPlatform(ApplePlatform platform, string framework, string expected)
         {
             var pi = PlatformInfoFactory.Create(platform);
@@ -648,16 +648,16 @@ namespace BindingsGeneration.Tests
         private static readonly ILogger Logger = NullLogger.Instance;
 
         [Theory]
-        [InlineData(ApplePlatform.iOS, "Nuke.Swift.iOS")]
-        [InlineData(ApplePlatform.macOS, "Nuke.Swift.macOS")]
-        [InlineData(ApplePlatform.tvOS, "Nuke.Swift.tvOS")]
-        [InlineData(ApplePlatform.MacCatalyst, "Nuke.Swift.MacCatalyst")]
+        [InlineData(ApplePlatform.iOS, "ImagePipeline.Swift.iOS")]
+        [InlineData(ApplePlatform.macOS, "ImagePipeline.Swift.macOS")]
+        [InlineData(ApplePlatform.tvOS, "ImagePipeline.Swift.tvOS")]
+        [InlineData(ApplePlatform.MacCatalyst, "ImagePipeline.Swift.MacCatalyst")]
         public void Emit_CorrectTfmAndPackageId_PerPlatform(ApplePlatform platform, string expectedPackageId)
         {
             var pi = PlatformInfoFactory.Create(platform);
             var tempDir = Path.Combine(Path.GetTempPath(), $"emitter_test_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDir);
-            var xcfwDir = Path.Combine(tempDir, "Nuke.xcframework");
+            var xcfwDir = Path.Combine(tempDir, "ImagePipeline.xcframework");
             Directory.CreateDirectory(xcfwDir);
 
             try
@@ -665,13 +665,13 @@ namespace BindingsGeneration.Tests
                 BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
                 {
                     OutputDirectory = tempDir,
-                    ModuleName = "Nuke",
+                    ModuleName = "ImagePipeline",
                     Metadata = new XCFrameworkMetadata
                     {
                         PackageVersion = "1.0.0",
                         IsVersionPlaceholder = false,
                         EffectiveMinimumOSVersion = "15.0",
-                        ModuleName = "Nuke",
+                        ModuleName = "ImagePipeline",
                         Platforms = new List<string> { "ios" },
                     },
                     SourceXCFrameworkPath = xcfwDir,
@@ -991,17 +991,17 @@ namespace BindingsGeneration.Tests
     public class FrameworkDependencyInfoPlatformTests
     {
         [Theory]
-        [InlineData(ApplePlatform.iOS, "Nuke.Swift.iOS")]
-        [InlineData(ApplePlatform.macOS, "Nuke.Swift.macOS")]
-        [InlineData(ApplePlatform.tvOS, "Nuke.Swift.tvOS")]
-        [InlineData(ApplePlatform.MacCatalyst, "Nuke.Swift.MacCatalyst")]
+        [InlineData(ApplePlatform.iOS, "ImagePipeline.Swift.iOS")]
+        [InlineData(ApplePlatform.macOS, "ImagePipeline.Swift.macOS")]
+        [InlineData(ApplePlatform.tvOS, "ImagePipeline.Swift.tvOS")]
+        [InlineData(ApplePlatform.MacCatalyst, "ImagePipeline.Swift.MacCatalyst")]
         public void GetEffectivePackageId_PlatformAware(ApplePlatform platform, string expected)
         {
             var pi = PlatformInfoFactory.Create(platform);
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/tmp/Nuke.xcframework",
-                ModuleName = "Nuke",
+                XCFrameworkPath = "/tmp/ImagePipeline.xcframework",
+                ModuleName = "ImagePipeline",
             };
 
             Assert.Equal(expected, dep.GetEffectivePackageId(pi));
@@ -1012,11 +1012,11 @@ namespace BindingsGeneration.Tests
         {
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/tmp/Nuke.xcframework",
-                ModuleName = "Nuke",
+                XCFrameworkPath = "/tmp/ImagePipeline.xcframework",
+                ModuleName = "ImagePipeline",
             };
 
-            Assert.Equal("Nuke.Swift.iOS", dep.EffectivePackageId);
+            Assert.Equal("ImagePipeline.Swift.iOS", dep.EffectivePackageId);
         }
 
         [Fact]
@@ -1025,8 +1025,8 @@ namespace BindingsGeneration.Tests
             var pi = PlatformInfoFactory.Create(ApplePlatform.macOS);
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/tmp/Nuke.xcframework",
-                ModuleName = "Nuke",
+                XCFrameworkPath = "/tmp/ImagePipeline.xcframework",
+                ModuleName = "ImagePipeline",
                 PackageId = "MyCustom.PackageId",
             };
 

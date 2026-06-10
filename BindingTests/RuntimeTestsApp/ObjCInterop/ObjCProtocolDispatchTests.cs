@@ -11,9 +11,9 @@ namespace RuntimeTestsApp.ObjCInterop;
 ///
 /// Previously the generator skipped <c>@objc protocol X: NSObjectProtocol</c>
 /// conformances (the plain Swift <c>EveryProtocol</c> class cannot satisfy
-/// NSObjectProtocol's NSObject identity surface), which broke Stripe's
-/// STPAuthenticationContext / STPCustomerEphemeralKeyProvider /
-/// STPIssuingCardEphemeralKeyProvider in the generated bindings. The fix introduces
+/// NSObjectProtocol's NSObject identity surface), which broke a payment SDK's
+/// PaymentAuthContext / CustomerEphemeralKeyProvider /
+/// IssuingCardEphemeralKeyProvider in the generated bindings. The fix introduces
 /// a parallel <c>EveryObjCProtocol: NSObject</c> helper class in the emitted
 /// wrapper module and routes NSObjectProtocol-only conformances through it.
 ///

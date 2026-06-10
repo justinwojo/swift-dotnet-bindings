@@ -26,7 +26,7 @@ public class NameProviderSanitizationTests
     [Fact]
     public void ToPascalCase_BacktickWrappedSubscript_StripsBackticks()
     {
-        // BonMot has `subscript` as an enum case name
+        // `subscript` used as an enum case name — backticks must be stripped
         var result = NameProvider.ToPascalCase("`subscript`");
         Assert.Equal("Subscript", result);
     }
@@ -52,7 +52,7 @@ public class NameProviderSanitizationTests
     [Fact]
     public void ToPascalCase_EmojiCharacter_ReplacedWithUnderscore()
     {
-        // Valet uses 🚫 in enum case names (emoji is 2 UTF-16 chars → 2 underscores)
+        // 🚫 in enum case names (emoji is 2 UTF-16 chars → 2 underscores)
         var result = NameProvider.ToPascalCase("couldNot🚫");
         Assert.Equal("CouldNot__", result);
     }

@@ -530,7 +530,7 @@ public class ExistentialHandlerTests
     [Fact]
     public void ToProtocolListTypeSpec_SingleProtocolExistential_GeneratesExistentialContainer1()
     {
-        var namedType = new NamedTypeSpec("Nuke.DataLoading") { IsAny = true };
+        var namedType = new NamedTypeSpec("ImagePipeline.DataLoading") { IsAny = true };
 
         var protocolList = _handler.ToProtocolListTypeSpec(namedType);
         var csType = _handler.GetCSharpExistentialType(protocolList!);
@@ -550,7 +550,7 @@ public class ExistentialHandlerTests
         // This test validates the handler correctly unwraps the optional existential.
         var optionalExistential = new NamedTypeSpec(
             "Swift.Optional",
-            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Nuke.ImageDecoding") }));
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("ImagePipeline.ImageDecoding") }));
 
         var protocolList = _handler.UnwrapOptionalExistential(optionalExistential);
 
@@ -564,7 +564,7 @@ public class ExistentialHandlerTests
     {
         var optionalExistential = new NamedTypeSpec(
             "Swift.Optional",
-            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Nuke.ImageDecoding") }));
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("ImagePipeline.ImageDecoding") }));
 
         Assert.True(_handler.IsOptionalExistential(optionalExistential));
     }
@@ -578,8 +578,8 @@ public class ExistentialHandlerTests
     {
         // Async method filter must exclude existential parameters.
         // This test validates that IsExistential correctly identifies ProtocolListTypeSpec
-        // (the existential type form used in method signatures like ILottieURLSession).
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Lottie.LottieURLSession") });
+        // (the existential type form used in protocol-typed method signatures).
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("VectorAnimation.VectorAnimationURLSession") });
 
         Assert.True(_handler.IsExistential(protocolList));
     }
@@ -588,7 +588,7 @@ public class ExistentialHandlerTests
     public void IsExistential_NamedTypeSpecWithIsAny_ReturnsTrue()
     {
         // Existential parameter expressed as NamedTypeSpec with IsAny=true
-        var existentialType = new NamedTypeSpec("Lottie.LottieURLSession") { IsAny = true };
+        var existentialType = new NamedTypeSpec("VectorAnimation.VectorAnimationURLSession") { IsAny = true };
 
         Assert.True(_handler.IsExistential(existentialType));
     }
@@ -610,39 +610,39 @@ public class ExistentialHandlerTests
     public void GetPublicExistentialType_SameModule_NoNamespacePrefix()
     {
         // Protocol from same module — should NOT be namespace-qualified
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkCore" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
         var result = handler.GetPublicExistentialType(protocolList);
 
-        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
     public void GetPublicExistentialType_DifferentModule_HasNamespacePrefix()
     {
         // Protocol from different module — SHOULD be namespace-qualified
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeFinancialConnections" };
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkFinancialConnections" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
         var result = handler.GetPublicExistentialType(protocolList);
 
-        Assert.Equal("StripeCore.ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("PaymentSdkCore.IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
     public void GetPublicExistentialType_NoCurrentModule_NoNamespacePrefix()
     {
         // No current module set — should NOT be namespace-qualified (backward compat)
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
         var result = handler.GetPublicExistentialType(protocolList);
 
-        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
@@ -662,77 +662,77 @@ public class ExistentialHandlerTests
     public void TypeProjectionFactory_CrossModuleExistential_QualifiesName()
     {
         // TypeProjectionFactory should thread CurrentModuleName to its ExistentialHandler
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var factory = new TypeProjectionFactory();
-        var typeSpec = new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") { IsAny = true };
+        var typeSpec = new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") { IsAny = true };
 
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = db,
             IsParameter = false,
-            CurrentModuleName = "StripeFinancialConnections"
+            CurrentModuleName = "PaymentSdkFinancialConnections"
         });
 
         Assert.NotNull(projection);
-        Assert.Equal("StripeCore.ISTPAnalyticsClientProtocol", projection!.PublicType);
+        Assert.Equal("PaymentSdkCore.IPaymentAnalyticsClientProtocol", projection!.PublicType);
     }
 
     [Fact]
     public void TypeProjectionFactory_SameModuleExistential_NoQualification()
     {
         // TypeProjectionFactory: same module should NOT qualify
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var factory = new TypeProjectionFactory();
-        var typeSpec = new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") { IsAny = true };
+        var typeSpec = new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") { IsAny = true };
 
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = db,
             IsParameter = false,
-            CurrentModuleName = "StripeCore"
+            CurrentModuleName = "PaymentSdkCore"
         });
 
         Assert.NotNull(projection);
-        Assert.Equal("ISTPAnalyticsClientProtocol", projection!.PublicType);
+        Assert.Equal("IPaymentAnalyticsClientProtocol", projection!.PublicType);
     }
 
     [Fact]
     public void GetQualifiedProxyClassName_SameModule_NoPrefix()
     {
         // Same module — proxy name should NOT be namespace-qualified
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkCore" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
         var result = handler.GetQualifiedProxyClassName(protocolList);
 
-        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
     public void GetQualifiedProxyClassName_DifferentModule_HasSwiftInteropPrefix()
     {
         // Different module — proxy name SHOULD include Module.SwiftInterop prefix
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeFinancialConnections" };
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkFinancialConnections" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
         var result = handler.GetQualifiedProxyClassName(protocolList);
 
-        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentSdkCore.SwiftInterop.PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
     public void GetQualifiedProxyClassName_NoCurrentModule_NoPrefix()
     {
         // No current module set — backward compat, no qualification
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
         var result = handler.GetQualifiedProxyClassName(protocolList);
 
-        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
@@ -751,31 +751,31 @@ public class ExistentialHandlerTests
     public void TypeProjectionFactory_CrossModuleExistential_QualifiesProxyName()
     {
         // The ExistentialProjection created by TypeProjectionFactory should have qualified proxy class name
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "FinancialConnectionsSDKInterface");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "FinancialConnectionsSDKInterface");
         var factory = new TypeProjectionFactory();
-        var typeSpec = new NamedTypeSpec("StripeCore.FinancialConnectionsSDKInterface") { IsAny = true };
+        var typeSpec = new NamedTypeSpec("PaymentSdkCore.FinancialConnectionsSDKInterface") { IsAny = true };
 
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = db,
             IsParameter = false,
-            CurrentModuleName = "StripePayments"
+            CurrentModuleName = "PaymentSdkPayments"
         });
 
         Assert.NotNull(projection);
         // The return element conversion should reference the qualified proxy
         var conversion = projection!.GetReturnElementConversion("container");
         Assert.NotNull(conversion);
-        Assert.Contains("StripeCore.SwiftInterop.FinancialConnectionsSDKInterfaceProxy", conversion);
+        Assert.Contains("PaymentSdkCore.SwiftInterop.FinancialConnectionsSDKInterfaceProxy", conversion);
     }
 
     [Fact]
     public void TypeProjectionFactory_CrossModuleOptionalExistential_QualifiesProxyName()
     {
         // Optional<any Protocol> from another module should qualify the proxy in the return plan
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "FinancialConnectionsSDKInterface");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "FinancialConnectionsSDKInterface");
         var factory = new TypeProjectionFactory();
-        var innerTypeSpec = new NamedTypeSpec("StripeCore.FinancialConnectionsSDKInterface") { IsAny = true };
+        var innerTypeSpec = new NamedTypeSpec("PaymentSdkCore.FinancialConnectionsSDKInterface") { IsAny = true };
         var optionalTypeSpec = new NamedTypeSpec("Swift.Optional");
         optionalTypeSpec.GenericParameters.Add(innerTypeSpec);
 
@@ -783,12 +783,12 @@ public class ExistentialHandlerTests
         {
             TypeDatabase = db,
             IsParameter = false,
-            CurrentModuleName = "StripePayments"
+            CurrentModuleName = "PaymentSdkPayments"
         });
 
         Assert.NotNull(projection);
         // PublicType should be the qualified optional interface
-        Assert.Equal("StripeCore.IFinancialConnectionsSDKInterface?", projection!.PublicType);
+        Assert.Equal("PaymentSdkCore.IFinancialConnectionsSDKInterface?", projection!.PublicType);
     }
 
     [Fact]
@@ -796,106 +796,106 @@ public class ExistentialHandlerTests
     {
         // P1: When ObjC filtering reduces a multi-protocol composition to 1 protocol,
         // the returned interface name should be cross-module qualified.
-        // Example: `any NSObjectProtocol & StripeCore.FooProtocol` in module StripePayments
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
+        // Example: `any NSObjectProtocol & AModule.FooProtocol` referenced from a different module
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkPayments" };
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var result = handler.GetCompositionInterfaceName(protocolList);
 
-        Assert.Equal("StripeCore.ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("PaymentSdkCore.IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
     public void GetCompositionInterfaceName_ObjCFilteredToOne_SameModule_NoQualification()
     {
         // Same module — no qualification even after ObjC filtering
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkCore" };
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var result = handler.GetCompositionInterfaceName(protocolList);
 
-        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
     public void GetCompositionInterfaceName_ObjCFilteredToOne_NoCurrentModule_NoQualification()
     {
         // No CurrentModuleName set — backward compat, no qualification
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var result = handler.GetCompositionInterfaceName(protocolList);
 
-        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
     public void QualifyProxyClassName_DifferentModule_AddsSwiftInteropPrefix()
     {
         // P2: QualifyProxyClassName should add Module.SwiftInterop prefix for cross-module proxy names
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkPayments" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
-        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+        var result = handler.QualifyProxyClassName("PaymentAnalyticsClientProtocolProxy", protocolList);
 
-        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentSdkCore.SwiftInterop.PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
     public void QualifyProxyClassName_SameModule_NoPrefix()
     {
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripeCore" };
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkCore" };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
-        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+        var result = handler.QualifyProxyClassName("PaymentAnalyticsClientProtocolProxy", protocolList);
 
-        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
     public void QualifyProxyClassName_NoCurrentModule_NoPrefix()
     {
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
-        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol") });
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol") });
 
-        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+        var result = handler.QualifyProxyClassName("PaymentAnalyticsClientProtocolProxy", protocolList);
 
-        Assert.Equal("STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
     public void QualifyProxyClassName_ObjCFilteredComposition_QualifiesCorrectModule()
     {
         // QualifyProxyClassName with a mixed ObjC+Swift composition — should use the Swift module
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkPayments" };
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
-        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+        var result = handler.QualifyProxyClassName("PaymentAnalyticsClientProtocolProxy", protocolList);
 
-        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentSdkCore.SwiftInterop.PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
@@ -905,17 +905,17 @@ public class ExistentialHandlerTests
         // must still qualify by OtherModule. Without the marker filter the predicate would
         // pick "Swift" first, hit the early return, and emit an unqualified proxy name —
         // defeating cross-module qualification for cross-module protocol compositions.
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
-        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "PaymentSdkPayments" };
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Swift.Sendable"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
-        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+        var result = handler.QualifyProxyClassName("PaymentAnalyticsClientProtocolProxy", protocolList);
 
-        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+        Assert.Equal("PaymentSdkCore.SwiftInterop.PaymentAnalyticsClientProtocolProxy", result);
     }
 
     [Fact]
@@ -1053,7 +1053,7 @@ public class ExistentialHandlerTests
     [InlineData("SomeModule.Sendable", true)]
     [InlineData("Swift.Equatable", false)]
     [InlineData("Swift.Codable", false)]
-    [InlineData("Nuke.DataLoading", false)]
+    [InlineData("ImagePipeline.DataLoading", false)]
     public void IsMarkerProtocol_IdentifiesMarkers(string protocolName, bool expected)
     {
         var protocol = new NamedTypeSpec(protocolName);
@@ -1095,13 +1095,13 @@ public class ExistentialHandlerTests
         {
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
             new NamedTypeSpec("Swift.Sendable"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var effective = ExistentialHandler.GetEffectiveProtocols(protocolList);
 
         Assert.Single(effective);
-        Assert.Equal("StripeCore.STPAnalyticsClientProtocol", effective[0].Name);
+        Assert.Equal("PaymentSdkCore.PaymentAnalyticsClientProtocol", effective[0].Name);
     }
 
     [Fact]
@@ -1159,18 +1159,18 @@ public class ExistentialHandlerTests
     [Fact]
     public void GetPublicExistentialType_SendableAndKnownProtocol_ReturnsSingleProtocolInterface()
     {
-        // any Sendable & STPAnalyticsClientProtocol → ISTPAnalyticsClientProtocol
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        // any Sendable & PaymentAnalyticsClientProtocol → IPaymentAnalyticsClientProtocol
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Swift.Sendable"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var result = handler.GetPublicExistentialType(protocolList);
 
-        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
@@ -1187,12 +1187,12 @@ public class ExistentialHandlerTests
     [Fact]
     public void AllProtocolsHaveTypeRecords_MarkerAndKnownProtocol_ReturnsTrue()
     {
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Swift.Sendable"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         Assert.True(handler.AllProtocolsHaveTypeRecords(protocolList));
@@ -1204,18 +1204,18 @@ public class ExistentialHandlerTests
         // ObjC-bridged participants are filtered out of the emitted composition
         // (GetCompositionInterfaceName uses GetEffectiveProtocols), so the gate
         // used by GetPublicExistentialType must mirror that. Without this, a
-        // bare `NSCoding & STPAnalyticsClientProtocol` composition would
-        // collapse to `object` instead of emitting as `ISTPAnalyticsClientProtocol`.
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        // bare `NSCoding & PaymentAnalyticsClientProtocol` composition would
+        // collapse to `object` instead of emitting as `IPaymentAnalyticsClientProtocol`.
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Foundation.NSCoding"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         Assert.True(handler.EffectiveProtocolsHaveTypeRecords(protocolList));
-        Assert.Equal("ISTPAnalyticsClientProtocol", handler.GetPublicExistentialType(protocolList));
+        Assert.Equal("IPaymentAnalyticsClientProtocol", handler.GetPublicExistentialType(protocolList));
     }
 
     [Fact]
@@ -1224,29 +1224,29 @@ public class ExistentialHandlerTests
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Swift.Sendable"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var result = _handler.TryGetFilteredProxyClassName(protocolList, out var proxyClassName);
 
         Assert.True(result);
-        Assert.Equal("STPAnalyticsClientProtocolProxy", proxyClassName);
+        Assert.Equal("PaymentAnalyticsClientProtocolProxy", proxyClassName);
     }
 
     [Fact]
     public void GetCompositionInterfaceName_MarkersFiltered_ReturnsSingleInterface()
     {
-        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var db = new MockTypeDatabaseWithProtocol("PaymentSdkCore", "PaymentAnalyticsClientProtocol");
         var handler = new ExistentialHandler(db);
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Swift.Sendable"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var result = handler.GetCompositionInterfaceName(protocolList);
 
-        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+        Assert.Equal("IPaymentAnalyticsClientProtocol", result);
     }
 
     [Fact]
@@ -1257,14 +1257,14 @@ public class ExistentialHandlerTests
         {
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
             new NamedTypeSpec("Swift.Sendable"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var nonMarker = ExistentialHandler.GetNonMarkerProtocols(protocolList);
 
-        Assert.Equal(2, nonMarker.Count); // NSObjectProtocol + STPAnalyticsClientProtocol
+        Assert.Equal(2, nonMarker.Count); // NSObjectProtocol + PaymentAnalyticsClientProtocol
         Assert.Contains(nonMarker, p => p.Name == "Foundation.NSObjectProtocol");
-        Assert.Contains(nonMarker, p => p.Name == "StripeCore.STPAnalyticsClientProtocol");
+        Assert.Contains(nonMarker, p => p.Name == "PaymentSdkCore.PaymentAnalyticsClientProtocol");
     }
 
     [Fact]
@@ -1289,7 +1289,7 @@ public class ExistentialHandlerTests
         var protocolList = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
-            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+            new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
         var result = _handler.GetCSharpExistentialType(protocolList);

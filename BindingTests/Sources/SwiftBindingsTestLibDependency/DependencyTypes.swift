@@ -231,8 +231,8 @@ public struct DependencyTokenB {
 
 // MARK: - Nested-Type / Property Name Collision (cross-module rename propagation)
 
-/// Reproduces BlinkID's `UxEventPinglet` collision shape: a struct with a nested
-/// enum whose name matches a property's PascalCase name. The generator's
+/// Reproduces the nested-type / property name collision shape: a struct with a
+/// nested enum whose name matches a property's PascalCase name. The generator's
 /// `NameProvider.ApplyNestedTypeRenames` renames the nested type with a `Type`
 /// suffix (`AlertType` -> `AlertTypeType`) and the property keeps its original
 /// PascalCase name. The producer module persists the renamed C# name in its
@@ -262,8 +262,7 @@ public struct DependencyContainer {
 //                                          cross-module variant)
 //
 // Lives in the dependency module so the consuming module can declare a child
-// protocol that inherits this one *across module boundaries* — the shape that
-// the original Kidoz crash repro flagged. See
+// protocol that inherits this one *across module boundaries*. See
 // SwiftBindingsTestLib/Protocols/InheritedDelegateDispatch.swift for the child
 // protocol and the source class that dispatches through it.
 

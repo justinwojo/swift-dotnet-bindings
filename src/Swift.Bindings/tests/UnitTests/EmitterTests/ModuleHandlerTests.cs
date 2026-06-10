@@ -389,10 +389,10 @@ public class ModuleHandlerTests
         var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
             moduleDecl =>
             {
-                moduleDecl.DependencyModuleNames = new List<string> { "BlinkID" };
+                moduleDecl.DependencyModuleNames = new List<string> { "DocScan" };
             });
 
-        Assert.Contains("import BlinkID", swiftOutput);
+        Assert.Contains("import DocScan", swiftOutput);
     }
 
     [Fact]
@@ -459,11 +459,10 @@ public class ModuleHandlerTests
     [Fact]
     public void EmitSwiftImports_EmitsDependencyReferencedAsQualifier()
     {
-        // Regression: FirebaseCrashlytics references `FirebaseRemoteConfigInterop.RemoteConfigInterop`
-        // inline in its swiftinterface (cross-module protocol cast) but never has an
-        // explicit `import FirebaseRemoteConfigInterop` line. The filter must keep the
-        // dep when its module name appears as a type qualifier — otherwise the wrapper
-        // compile fails with "cannot find type 'FirebaseRemoteConfigInterop' in scope".
+        // Regression: a module references a sibling's type inline in its swiftinterface
+        // (cross-module protocol cast) but has no explicit `import SiblingModule` line.
+        // The filter must keep the dep when its module name appears as a type qualifier —
+        // otherwise the wrapper compile fails with "cannot find type 'X' in scope".
         var interfaceFile = Path.GetTempFileName();
         try
         {
@@ -471,17 +470,17 @@ public class ModuleHandlerTests
                 "// swift-interface-format-version: 1.0\n" +
                 "import Foundation\n" +
                 "public class Foo {\n" +
-                "  public func bar() -> (any FirebaseRemoteConfigInterop.RemoteConfigInterop)? { nil }\n" +
+                "  public func bar() -> (any CloudPlatformSdkRemoteConfigInterop.RemoteConfigInterop)? { nil }\n" +
                 "}\n");
 
             var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
                 moduleDecl =>
                 {
-                    moduleDecl.DependencyModuleNames = new List<string> { "FirebaseRemoteConfigInterop" };
+                    moduleDecl.DependencyModuleNames = new List<string> { "CloudPlatformSdkRemoteConfigInterop" };
                     moduleDecl.SwiftInterfacePath = interfaceFile;
                 });
 
-            Assert.Contains("import FirebaseRemoteConfigInterop", swiftOutput);
+            Assert.Contains("import CloudPlatformSdkRemoteConfigInterop", swiftOutput);
         }
         finally
         {
@@ -523,20 +522,19 @@ public class ModuleHandlerTests
     [Fact]
     public void EmitSwiftImports_EmitsDeclaredImportEvenWhenDependencyModuleNamesEmpty()
     {
-        // Regression: Firebase libraries ship as static archives, so otool-based
+        // Regression: some SDKs ship as static archives, so otool-based
         // auto-detection finds nothing and DependencyModuleNames stays empty during
         // generation. The bound module's swiftinterface still declares `import X` for
-        // every sibling its public API needs (e.g. FirebaseCrashlytics declares
-        // `import FirebaseRemoteConfigInterop`). The wrapper must emit those declared
+        // every sibling its public API needs. The wrapper must emit those declared
         // imports directly — without them, the wrapper compile fails with
-        // "cannot find type 'FirebaseRemoteConfigInterop' in scope" when the sibling
-        // is broadcast via --framework-dependency at compile time.
+        // "cannot find type 'X' in scope" when the sibling is broadcast via
+        // --framework-dependency at compile time.
         var interfaceFile = Path.GetTempFileName();
         try
         {
             File.WriteAllText(interfaceFile,
                 "// swift-interface-format-version: 1.0\n" +
-                "import FirebaseRemoteConfigInterop\n" +
+                "import CloudPlatformSdkRemoteConfigInterop\n" +
                 "import Foundation\n" +
                 "import Swift\n" +
                 "import _Concurrency\n" +
@@ -550,7 +548,7 @@ public class ModuleHandlerTests
                     moduleDecl.SwiftInterfacePath = interfaceFile;
                 });
 
-            Assert.Contains("import FirebaseRemoteConfigInterop", swiftOutput);
+            Assert.Contains("import CloudPlatformSdkRemoteConfigInterop", swiftOutput);
             // Stdlib internals must be dropped.
             Assert.DoesNotContain("import _Concurrency", swiftOutput);
             Assert.DoesNotContain("import _StringProcessing", swiftOutput);
@@ -564,8 +562,8 @@ public class ModuleHandlerTests
     [Fact]
     public void EmitSwiftImports_SkipsAppleFrameworkDeclaredImports()
     {
-        // Regression: Starscream's swiftinterface declares `import Network`, but
-        // `Starscream.Framer` collides with `Network.Framer` — emitting `import Network`
+        // Regression: when a module's swiftinterface declares `import Network` but the
+        // module has a type that collides with `Network.Framer`, emitting `import Network`
         // unconditionally causes swiftc to fail with "ambiguous type lookup". Apple
         // frameworks are imported on demand by the scanned-imports mechanism only when
         // a wrapper signature actually references one of their types. Declared-but-
@@ -1130,14 +1128,14 @@ public class ModuleHandlerTests
     [Fact]
     public void Emit_ModuleWithStutter_WrapperRenamedToFunctions()
     {
-        // A module named "Nuke" with namespace Nuke → wrapper should be "Functions"
-        var (csOutput, _) = EmitModuleWithDependencies("Nuke", new List<string>(),
+        // A module whose name matches its top-level namespace → wrapper should be renamed to "Functions"
+        var (csOutput, _) = EmitModuleWithDependencies("ImagePipeline", new List<string>(),
             moduleDecl =>
             {
                 moduleDecl.Methods.Add(new MethodDecl
                 {
                     Name = "loadImage",
-                    MangledName = "$s4Nuke9loadImageSiyF",
+                    MangledName = "$s13ImagePipeline9loadImageSiyF",
                     MethodType = MethodType.Static,
                     IsConstructor = false,
                     CSSignature = new List<ArgumentDecl>
@@ -1162,9 +1160,9 @@ public class ModuleHandlerTests
                 });
             });
 
-        Assert.Contains("namespace Nuke", csOutput);
+        Assert.Contains("namespace ImagePipeline", csOutput);
         Assert.Contains("public partial class Functions", csOutput);
-        Assert.DoesNotContain("public partial class Nuke", csOutput);
+        Assert.DoesNotContain("public partial class ImagePipeline", csOutput);
     }
 
     [Fact]
@@ -1172,13 +1170,13 @@ public class ModuleHandlerTests
     {
         // Custom namespace pattern that doesn't stutter → keep module name as wrapper class
         var namespaceResolver = new NamespacePatternResolver("{Module}Bindings");
-        var (csOutput, _) = EmitModuleWithDependencies("Nuke", new List<string>(),
+        var (csOutput, _) = EmitModuleWithDependencies("ImagePipeline", new List<string>(),
             moduleDecl =>
             {
                 moduleDecl.Methods.Add(new MethodDecl
                 {
                     Name = "loadImage",
-                    MangledName = "$s4Nuke9loadImageSiyF",
+                    MangledName = "$s13ImagePipeline9loadImageSiyF",
                     MethodType = MethodType.Static,
                     IsConstructor = false,
                     CSSignature = new List<ArgumentDecl>
@@ -1204,8 +1202,8 @@ public class ModuleHandlerTests
             },
             namespaceResolver: namespaceResolver);
 
-        Assert.Contains("namespace NukeBindings", csOutput);
-        Assert.Contains("public partial class Nuke", csOutput);
+        Assert.Contains("namespace ImagePipelineBindings", csOutput);
+        Assert.Contains("public partial class ImagePipeline", csOutput);
         Assert.DoesNotContain("public partial class Functions", csOutput);
     }
 
@@ -1426,13 +1424,13 @@ public class ModuleHandlerTests
         // Dependency using directives are not emitted — the generator uses fully-qualified
         // names for cross-module type references. Adding bare using directives would cause
         // compilation failures when dependency assemblies aren't referenced.
-        var (csOutput, _) = EmitModuleWithDependencies("NukeUI", new List<string>(),
+        var (csOutput, _) = EmitModuleWithDependencies("ImagePipelineUI", new List<string>(),
             moduleDecl =>
             {
-                moduleDecl.DependencyModuleNames = new List<string> { "Nuke" };
+                moduleDecl.DependencyModuleNames = new List<string> { "ImagePipeline" };
             });
 
-        Assert.DoesNotContain("using Nuke;", csOutput);
+        Assert.DoesNotContain("using ImagePipeline;", csOutput);
     }
 
     #endregion
@@ -1499,13 +1497,13 @@ public class ModuleHandlerTests
     public void Emit_FrameworkResolverClassNameIncludesModuleName()
     {
         // Different module names should produce different class names
-        var (csOutput1, _) = EmitModuleWithDependencies("Nuke", new List<string>());
-        var (csOutput2, _) = EmitModuleWithDependencies("Lottie", new List<string>());
+        var (csOutput1, _) = EmitModuleWithDependencies("ImagePipeline", new List<string>());
+        var (csOutput2, _) = EmitModuleWithDependencies("VectorAnimation", new List<string>());
 
-        Assert.Contains("__SwiftFrameworkResolver_Nuke", csOutput1);
-        Assert.DoesNotContain("__SwiftFrameworkResolver_Lottie", csOutput1);
-        Assert.Contains("__SwiftFrameworkResolver_Lottie", csOutput2);
-        Assert.DoesNotContain("__SwiftFrameworkResolver_Nuke", csOutput2);
+        Assert.Contains("__SwiftFrameworkResolver_ImagePipeline", csOutput1);
+        Assert.DoesNotContain("__SwiftFrameworkResolver_VectorAnimation", csOutput1);
+        Assert.Contains("__SwiftFrameworkResolver_VectorAnimation", csOutput2);
+        Assert.DoesNotContain("__SwiftFrameworkResolver_ImagePipeline", csOutput2);
     }
 
     [Fact]
@@ -1767,15 +1765,15 @@ public class ModuleHandlerTests
     #region IsMangledNameFromModule Tests
 
     [Theory]
-    [InlineData("$s11CryptoSwift3AESCfd", "CryptoSwift", true)]
-    [InlineData("$s11CryptoSwift6SHA256V", "CryptoSwift", true)]
-    [InlineData("$sSl", "CryptoSwift", false)]
-    [InlineData("$ss17FixedWidthIntegerP", "CryptoSwift", false)]
-    [InlineData("$sSB", "CryptoSwift", false)]
-    [InlineData("$s4Nuke11ImageLoaderCN", "Nuke", true)]
-    [InlineData("$s4Nuke11ImageLoaderCN", "CryptoSwift", false)]
-    [InlineData("", "CryptoSwift", false)]
-    [InlineData("$s11CryptoSwift3AESCfd", "", false)]
+    [InlineData("$s9CryptoLib3AESCfd", "CryptoLib", true)]
+    [InlineData("$s9CryptoLib6SHA256V", "CryptoLib", true)]
+    [InlineData("$sSl", "CryptoLib", false)]
+    [InlineData("$ss17FixedWidthIntegerP", "CryptoLib", false)]
+    [InlineData("$sSB", "CryptoLib", false)]
+    [InlineData("$s13ImagePipeline11ImageLoaderCN", "ImagePipeline", true)]
+    [InlineData("$s13ImagePipeline11ImageLoaderCN", "CryptoLib", false)]
+    [InlineData("", "CryptoLib", false)]
+    [InlineData("$s9CryptoLib3AESCfd", "", false)]
     public void IsMangledNameFromModule_CorrectlyIdentifiesModuleOrigin(string mangledName, string moduleName, bool expected)
     {
         Assert.Equal(expected, ModuleHandler.IsMangledNameFromModule(mangledName, moduleName));
@@ -1798,7 +1796,7 @@ public class ModuleHandlerTests
     [InlineData("$s10RealityKit9ComponentP", "RealityKit", true)]
     [InlineData("$s17RealityFoundation12BindableDataP", "RealityKit", false)]
     // Other modules are unaffected by RealityFoundation's umbrella mapping.
-    [InlineData("$s10RealityKit9ComponentP", "CryptoSwift", false)]
+    [InlineData("$s10RealityKit9ComponentP", "CryptoLib", false)]
     public void IsMangledNameFromModule_AcceptsCompileImportUmbrellaPrefix(string mangledName, string moduleName, bool expected)
     {
         Assert.Equal(expected, ModuleHandler.IsMangledNameFromModule(mangledName, moduleName));
@@ -1812,7 +1810,7 @@ public class ModuleHandlerTests
     public void Emit_InternalProtocol_ExcludedFromEveryProtocol()
     {
         // Issue Q: Internal/@_spi protocols should not be included in EveryProtocol conformance.
-        // StripeCore regression: 884 errors from conforming to internal protocols.
+        // Regression: 884 errors from conforming to internal protocols.
         var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
             customizeModule: module =>
             {
@@ -1983,29 +1981,29 @@ public class ModuleHandlerTests
     {
         // Bug: When a nested type is renamed (e.g., Connection → ConnectionType to avoid
         // property collision), QualifyNamespaceReferences must use the C# name (ConnectionType),
-        // not the Swift name (Connection), in the nestedTypeNames set. Otherwise, references
-        // like "Reachability.ConnectionType" get incorrectly global:: qualified.
-        var input = "public static void GetDescription(this Reachability.ConnectionType self)";
+        // not the Swift name (Connection), in the nestedTypeNames set. Otherwise, qualified
+        // references using the renamed type get incorrectly global:: qualified.
+        var input = "public static void GetDescription(this NetworkMonitor.ConnectionType self)";
         var nestedTypeNames = new HashSet<string> { "ConnectionType" }; // C# name after rename
 
-        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", nestedTypeNames);
+        var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", nestedTypeNames);
 
         // Nested type reference should NOT get global:: qualification
-        Assert.Contains("Reachability.ConnectionType", result);
-        Assert.DoesNotContain("global::Reachability.ConnectionType", result);
+        Assert.Contains("NetworkMonitor.ConnectionType", result);
+        Assert.DoesNotContain("global::NetworkMonitor.ConnectionType", result);
     }
 
     [Fact]
     public void QualifyNamespaceReferences_NonNestedType_GetsGlobalQualified()
     {
         // Non-nested types in the same namespace should get global:: qualification
-        var input = "public class ReachabilityConnectionTypeExtensions : Reachability.SomeOtherType";
+        var input = "public class NetworkMonitorConnectionTypeExtensions : NetworkMonitor.SomeOtherType";
         var nestedTypeNames = new HashSet<string> { "ConnectionType" };
 
-        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", nestedTypeNames);
+        var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", nestedTypeNames);
 
         // Non-nested type should get global:: qualification
-        Assert.Contains("global::Reachability.SomeOtherType", result);
+        Assert.Contains("global::NetworkMonitor.SomeOtherType", result);
     }
 
     [Fact]
@@ -2013,13 +2011,13 @@ public class ModuleHandlerTests
     {
         // Demonstrates the bug: if the SET uses Swift name "Connection" instead of C# name
         // "ConnectionType", the renamed type gets incorrectly qualified.
-        var input = "public static void GetDescription(this Reachability.ConnectionType self)";
+        var input = "public static void GetDescription(this NetworkMonitor.ConnectionType self)";
         var swiftNames = new HashSet<string> { "Connection" }; // Wrong: Swift name, not C#
 
-        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", swiftNames);
+        var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", swiftNames);
 
         // With the wrong set, it would get incorrectly qualified
-        Assert.Contains("global::Reachability.ConnectionType", result);
+        Assert.Contains("global::NetworkMonitor.ConnectionType", result);
     }
 
     [Fact]
@@ -2031,22 +2029,22 @@ public class ModuleHandlerTests
 
         // 1. Set up TypeDatabase with a module where a class name matches the module name
         var typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("Reachability", "/tmp/Reachability.dylib");
+        var module = new ModuleTypeDatabase("NetworkMonitor", "/tmp/NetworkMonitor.dylib");
 
-        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("Reachability.Reachability");
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("NetworkMonitor.NetworkMonitor");
         module.RegisterType(parentSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Reachability", "Reachability"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("NetworkMonitor", "NetworkMonitor"),
             SwiftTypeName = parentSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.None,
             Kind = TypeRecordKind.Class
         });
 
-        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("Reachability.Reachability.Connection");
+        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("NetworkMonitor.NetworkMonitor.Connection");
         module.RegisterType(nestedSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Reachability", "Reachability.Connection"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("NetworkMonitor", "NetworkMonitor.Connection"),
             SwiftTypeName = nestedSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,
@@ -2055,11 +2053,11 @@ public class ModuleHandlerTests
 
         typeDatabase.AddModuleDatabase(module);
 
-        // 2. Create ModuleDecl with class "Reachability" containing nested enum "Connection"
-        //    and a property "connection" that collides with the nested type name
+        // 2. Create ModuleDecl with a class sharing the module name, containing a nested enum
+        //    and a property that collides with the nested type name
         var moduleDecl = new ModuleDecl
         {
-            Name = "Reachability",
+            Name = "NetworkMonitor",
             Dependencies = new List<string>(),
             Types = new List<TypeDecl>(),
             Methods = new List<MethodDecl>(),
@@ -2089,7 +2087,7 @@ public class ModuleHandlerTests
 
         var classDecl = new ClassDecl
         {
-            Name = "Reachability",
+            Name = "NetworkMonitor",
             SwiftTypeName = parentSwiftName,
             MangledName = "$sMa",
             Properties = new List<PropertyDecl>
@@ -2097,7 +2095,7 @@ public class ModuleHandlerTests
                 new()
                 {
                     Name = "connection",
-                    SwiftTypeSpec = new NamedTypeSpec("Reachability.Reachability") { InnerType = new NamedTypeSpec("Connection") },
+                    SwiftTypeSpec = new NamedTypeSpec("NetworkMonitor.NetworkMonitor") { InnerType = new NamedTypeSpec("Connection") },
                     IsStatic = false,
                     HasStorage = true,
                     Accessors = new List<AccessorDecl>(),
@@ -2121,7 +2119,7 @@ public class ModuleHandlerTests
         NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
 
         // 4. Build nestedTypeNames the same way ModuleEmitter.cs:92-107 does
-        var collisionType = moduleDecl.Types.FirstOrDefault(t => t.Name == "Reachability");
+        var collisionType = moduleDecl.Types.FirstOrDefault(t => t.Name == "NetworkMonitor");
         Assert.NotNull(collisionType);
 
         var nestedTypeNames = new HashSet<string>();
@@ -2146,12 +2144,12 @@ public class ModuleHandlerTests
         Assert.DoesNotContain("Connection", nestedTypeNames);
 
         // 5. QualifyNamespaceReferences with the TypeDatabase-derived set
-        var input = "public static void GetDescription(this Reachability.ConnectionType self)";
-        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", nestedTypeNames);
+        var input = "public static void GetDescription(this NetworkMonitor.ConnectionType self)";
+        var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", nestedTypeNames);
 
         // Renamed nested type should NOT get global:: qualification
-        Assert.Contains("Reachability.ConnectionType", result);
-        Assert.DoesNotContain("global::Reachability.ConnectionType", result);
+        Assert.Contains("NetworkMonitor.ConnectionType", result);
+        Assert.DoesNotContain("global::NetworkMonitor.ConnectionType", result);
     }
 
     #endregion

@@ -71,7 +71,7 @@ public class VariadicResultBuilderTests : TestBase
         // Unlike the concrete cases above, swift-api-digester renders this parameter as a plain
         // `[any VariadicItem]` with NO trailing "...", so its variadic-ness is recoverable only from
         // the demangled mangled-name "d" marker. The @_cdecl wrapper bridges the runtime array to the
-        // variadic call via unsafeBitCast — exactly the RxSwift/SwiftyBeaver regression shape.
+        // variadic call via unsafeBitCast — the regression shape for variadic existential parameters.
         using var first = new NamedVariadicItem("alpha");
         using var second = new NamedVariadicItem("beta");
         using var third = new NamedVariadicItem("gamma");

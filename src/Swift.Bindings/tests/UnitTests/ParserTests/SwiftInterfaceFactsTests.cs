@@ -31,7 +31,7 @@ public class SwiftInterfaceFactsTests
         // either compilation fails (required init property) or this count check trips.
         // 21 fact maps + 3 best-effort source-position maps + 3 non-fact migrations
         // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) + 1 SDK 0.11.0 R2
-        // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters + 1 GRDB
+        // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters + 1
         // ClosureParameterAttributes = 30.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)

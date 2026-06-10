@@ -982,7 +982,7 @@ public class EnumHandlerOutputTests
     public void Emit_NamespaceEnum_WithStaticProperties_EmitsPropertiesInStaticClass()
     {
         // Caseless enums with static members must emit those members, not just nested types.
-        // Real example: PhoneNumberKit.CountryCodePicker has commonCountryCodes, forceModalPresentation, etc.
+        // Real example: a caseless enum with static properties like commonCountryCodes, forceModalPresentation, etc.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Constants", moduleDecl, isFrozen: true);
@@ -1441,7 +1441,7 @@ public class EnumHandlerOutputTests
     {
         // Frozen String-raw-value enums with only constructors are now emitted as C# enums
         var typeDatabase = CreateTypeDatabaseWithString();
-        typeDatabase.AsyncLibraryName = "BlinkIDSwiftBindings";
+        typeDatabase.AsyncLibraryName = "DocScanSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: true);
         enumDecl.RawValueTypeName = "String";
@@ -1461,7 +1461,7 @@ public class EnumHandlerOutputTests
     public void Emit_NonFrozenStringEnum_DllImportUsesAsyncLibraryName()
     {
         var typeDatabase = CreateTypeDatabaseWithString();
-        typeDatabase.AsyncLibraryName = "BlinkIDSwiftBindings";
+        typeDatabase.AsyncLibraryName = "DocScanSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: false);
         enumDecl.RawValueTypeName = "String";
@@ -1473,7 +1473,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
-        Assert.Contains("[LibraryImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.Contains("[LibraryImport(\"DocScanSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
         Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
     }
 
@@ -2026,25 +2026,25 @@ public class EnumHandlerOutputTests
             });
         typeDatabase.AddModuleDatabase(swiftModule);
 
-        var nukeModule = new ModuleTypeDatabase("Nuke", "/tmp/Nuke.dylib");
-        nukeModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+        var imagePipelineModule = new ModuleTypeDatabase("ImagePipeline", "/tmp/ImagePipeline.dylib");
+        imagePipelineModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageResponse"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
-                MetadataAccessor = "$s4Nuke13ImageResponseVMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageResponse"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageResponse"),
+                MetadataAccessor = "$s13ImagePipeline13ImageResponseVMa",
                 Flags = TypeRecordFlags.None, // NOT frozen — ClassWithOpaquePayload
                 Kind = TypeRecordKind.Struct
             });
-        typeDatabase.AddModuleDatabase(nukeModule);
+        typeDatabase.AddModuleDatabase(imagePipelineModule);
         return typeDatabase;
     }
 
     private static TypeDatabase CreateTypeDatabaseWithCrossModuleClass()
     {
         // Two modules: `Lib` (where the enum is declared) and `Dep` (which owns the class payload).
-        // Mirrors the Stripe shape where an enum in one module carries a payload type owned by another.
+        // An enum in one module carries a payload type owned by another.
         var typeDatabase = CreateTypeDatabase();
         var depModule = new ModuleTypeDatabase("Dep", "/tmp/Dep.dylib");
         depModule.RegisterType(
@@ -2242,10 +2242,10 @@ public class EnumHandlerOutputTests
     {
         // Non-frozen struct as enum case associated value → P/Invoke uses IntPtr + .Payload.DangerousGetHandle()
         var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
-        var moduleDecl = CreateModuleDecl("Nuke");
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
         var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
         var failedCase = CreateCase("failed");
-        failedCase.AssociatedValues.Add(new NamedTypeSpec("Nuke.ImageResponse"));
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("ImagePipeline.ImageResponse"));
         enumDecl.Cases.Add(failedCase);
         enumDecl.Cases.Add(CreateCase("none"));
 
@@ -2257,7 +2257,7 @@ public class EnumHandlerOutputTests
         Assert.Contains(".Payload.DangerousGetHandle()", csOutput);
         // P/Invoke declaration should use IntPtr, not ImageResponse
         Assert.Contains("PInvoke_Failed(SwiftIndirectResult", csOutput);
-        Assert.DoesNotContain("PInvoke_Failed(SwiftIndirectResult result, Nuke.ImageResponse", csOutput);
+        Assert.DoesNotContain("PInvoke_Failed(SwiftIndirectResult result, ImagePipeline.ImageResponse", csOutput);
     }
 
     [Fact]
@@ -2265,10 +2265,10 @@ public class EnumHandlerOutputTests
     {
         // Regression: an enum in module `Lib` with `.completed(payload: Dep.ForeignClass)`
         // must emit BOTH the `Completed` factory AND the `TryGetCompleted` extractor when the
-        // payload type lives in a *different* module. The original Stripe bug had the
-        // factory + extractor silently dropped while the sibling `failed(error: any Swift.Error)`
-        // case still emitted — this test locks the cross-module class-payload code path so the
-        // TypeDatabase lookup, projection, and guard wiring stay symmetric.
+        // payload type lives in a *different* module. The bug had the factory + extractor silently
+        // dropped while the sibling `failed(error: any Swift.Error)` case still emitted — this
+        // test locks the cross-module class-payload code path so the TypeDatabase lookup,
+        // projection, and guard wiring stay symmetric.
         var typeDatabase = CreateTypeDatabaseWithCrossModuleClass();
         var moduleDecl = CreateModuleDecl("Lib");
         var enumDecl = CreateEnumDecl("CrossModResult", moduleDecl, isFrozen: false);
@@ -2365,19 +2365,19 @@ public class EnumHandlerOutputTests
     {
         // Tuple associated value where one element is unknown → resolves to AnyType (Kind=Protocol).
         // GetPInvokeArgument recurses into each tuple element; the unknown element hits the AnyType
-        // branch and emits .Payload.DangerousGetHandle(). This is the exact Lottie (nint, AnyType) scenario.
+        // branch and emits .Payload.DangerousGetHandle(). This is the (nint, AnyType) tuple-element scenario.
         var typeDatabase = CreateTypeDatabase();
-        var lottieModule = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
-        typeDatabase.AddModuleDatabase(lottieModule);
+        var animationModule = new ModuleTypeDatabase("VectorAnimation", "/tmp/VectorAnimation.dylib");
+        typeDatabase.AddModuleDatabase(animationModule);
 
-        var moduleDecl = CreateModuleDecl("Lottie");
+        var moduleDecl = CreateModuleDecl("VectorAnimation");
         var enumDecl = CreateEnumDecl("AnimationResult", moduleDecl, isFrozen: false);
         var dataCase = CreateCase("data");
         // Tuple: (Int, UnknownType) — Int is registered, UnknownType resolves to AnyType
         dataCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
         {
             new NamedTypeSpec("Swift.Int"),
-            new NamedTypeSpec("Lottie.UnknownType")
+            new NamedTypeSpec("VectorAnimation.UnknownType")
         }));
         enumDecl.Cases.Add(dataCase);
         enumDecl.Cases.Add(CreateCase("none"));
@@ -2400,14 +2400,14 @@ public class EnumHandlerOutputTests
         // SwiftSafeHandle<AnyType> would NativeMemory.Free the stackalloc'd enumCopy
         // address on dispose. EnumHandler.CaseInspection.cs:138 must skip TryGet emission.
         var typeDatabase = CreateTypeDatabase();
-        var lottieModule = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
-        typeDatabase.AddModuleDatabase(lottieModule);
+        var animationModule = new ModuleTypeDatabase("VectorAnimation", "/tmp/VectorAnimation.dylib");
+        typeDatabase.AddModuleDatabase(animationModule);
 
-        var moduleDecl = CreateModuleDecl("Lottie");
+        var moduleDecl = CreateModuleDecl("VectorAnimation");
         var enumDecl = CreateEnumDecl("AnimationResult", moduleDecl, isFrozen: false);
         var dataCase = CreateCase("data");
         // Single payload: UnknownType resolves to AnyType (module exists, type unregistered)
-        dataCase.AssociatedValues.Add(new NamedTypeSpec("Lottie.UnknownType"));
+        dataCase.AssociatedValues.Add(new NamedTypeSpec("VectorAnimation.UnknownType"));
         enumDecl.Cases.Add(dataCase);
         enumDecl.Cases.Add(CreateCase("none"));
 
@@ -2430,16 +2430,16 @@ public class EnumHandlerOutputTests
         // NewFromPayload would wrap the source pointer in SwiftSafeHandle<AnyType>, and the
         // dispose path would NativeMemory.Free that pointer (stackalloc'd enumCopy → invalid free).
         var typeDatabase = CreateTypeDatabase();
-        var lottieModule = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
-        typeDatabase.AddModuleDatabase(lottieModule);
+        var animationModule = new ModuleTypeDatabase("VectorAnimation", "/tmp/VectorAnimation.dylib");
+        typeDatabase.AddModuleDatabase(animationModule);
 
-        var moduleDecl = CreateModuleDecl("Lottie");
+        var moduleDecl = CreateModuleDecl("VectorAnimation");
         var enumDecl = CreateEnumDecl("AnimationResult", moduleDecl, isFrozen: false);
         var dataCase = CreateCase("data");
         dataCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
         {
             new NamedTypeSpec("Swift.Int"),
-            new NamedTypeSpec("Lottie.UnknownType")
+            new NamedTypeSpec("VectorAnimation.UnknownType")
         }));
         enumDecl.Cases.Add(dataCase);
         enumDecl.Cases.Add(CreateCase("none"));
@@ -2813,9 +2813,9 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_TupleWithSimpleEnumElement_EmitsGetTypeMetadataOrThrow_NotSwiftObjectHelper()
     {
-        // Reproduces the Alamofire CS0315 bug: NSUrlSessionWebSocketCloseCode (simple enum)
-        // used in a tuple associated value. The emitter must use GetTypeMetadataOrThrow<nint>()
-        // (matching the Swift ABI backing type), not SwiftObjectHelper<T> (requires ISwiftObject).
+        // Reproduces a CS0315 bug: a simple enum used in a tuple associated value. The emitter
+        // must use GetTypeMetadataOrThrow<nint>() (matching the Swift ABI backing type),
+        // not SwiftObjectHelper<T> (requires ISwiftObject).
         var typeDatabase = CreateTypeDatabase();
         var foundationModule = new ModuleTypeDatabase("Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
         foundationModule.RegisterType(
@@ -2896,7 +2896,7 @@ public class EnumHandlerOutputTests
     {
         // CGFloat/Double/Float raw value enums must map to the correct C# type
         // in FromRawValue signatures (not fall through to the Swift name).
-        // Reproduces: Lottie CAKeyframeAnimation.RotationMode has CGFloat raw value.
+        // Reproduces: an enum with CGFloat raw value.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("RotationMode", moduleDecl, isFrozen: false);
@@ -2955,7 +2955,7 @@ public class EnumHandlerOutputTests
     public void Emit_NonFrozenBlittableRawValueEnum_EmitsCdeclWrapper(string swiftRawType, string expectedCSharpType)
     {
         // Non-frozen blittable enum init(rawValue:) must use @_cdecl wrapper to avoid
-        // CallConvSwift + SwiftIndirectResult crash on Mono JIT (e.g., ObjectMapper DateTransform.Unit).
+        // CallConvSwift + SwiftIndirectResult crash on Mono JIT.
         // Integral raw types (Int, UInt, etc.) are not tested here — they emit as C# enum value types
         // via EmitSimpleEnum which doesn't use the class-based RawRepresentable path.
         var typeDatabase = CreateTypeDatabase();
@@ -3101,7 +3101,7 @@ public class EnumHandlerOutputTests
     {
         // Regression: RawRepresentable enum property getters used rawValue: force-unwrap
         // which crashes when C# sequential tags don't match Swift raw values (e.g.,
-        // KeychainAccess.Status has OSStatus raw values like -25293, but C# uses 0,1,2...).
+        // an enum with OSStatus raw values like -25293, but C# uses 0,1,2...).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
@@ -3926,9 +3926,9 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_XcframeworkEnum_MetadataFallback_EmitsTryCatchWithDylibFallback()
     {
-        // Regression test: when wrapper DLL is unavailable (e.g., Stripe sub-modules
-        // where wrapper compilation fails), GetTypeMetadata() must fall back to the
-        // dylib's CallConvSwift metadata accessor instead of throwing TypeInitializationException.
+        // Regression test: when the wrapper DLL is unavailable (e.g., wrapper compilation
+        // failed for a sub-module), GetTypeMetadata() must fall back to the dylib's
+        // CallConvSwift metadata accessor instead of throwing TypeInitializationException.
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");

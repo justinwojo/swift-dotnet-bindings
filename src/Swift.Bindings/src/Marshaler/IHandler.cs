@@ -225,7 +225,7 @@ namespace BindingsGeneration
                     }
 
                     // Suppress @_spi types — they are only visible to SPI consumers
-                    // (e.g., other Stripe modules) and not part of the public API.
+                    // (e.g., other SPI modules) and not part of the public API.
                     // NOTE: We specifically check IsSpiProtected, NOT IsModuleInternal,
                     // because IsModuleInternal is also set for @usableFromInline types
                     // which may still need bindings (they appear in public API signatures
@@ -278,8 +278,8 @@ namespace BindingsGeneration
                     // operators, subscripts, conformances) and at least one
                     // nested type is the canonical Swift "uninhabited type as
                     // namespace" idiom. Emit it as a real C# nested namespace
-                    // so consumers can write `using BlinkID.BlinkIDSDK;` instead
-                    // of `using static BlinkID.BlinkIDSDK;` or fully-qualifying
+                    // so consumers can write `using Module.FacadeType;` instead
+                    // of `using static Module.FacadeType;` or fully-qualifying
                     // every type — a namespace facade must emit as a namespace, not a class.
                     if (NamespaceFacadeDetector.IsNamespaceFacade(structDecl))
                     {
@@ -460,7 +460,7 @@ namespace BindingsGeneration
                             // as if it applied to that working member. Record the skip in
                             // report.json (the audit trail) but suppress the source-level
                             // comment — a collision-suppressed unsupported annotation landing above a
-                            // working member (e.g. Lottie `AnimationKeypath(IEnumerable<string>)`) would
+                            // working member would
                             // mislead readers.
                             _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
                             ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");

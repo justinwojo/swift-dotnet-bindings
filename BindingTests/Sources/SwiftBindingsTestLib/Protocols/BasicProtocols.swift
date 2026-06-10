@@ -28,7 +28,7 @@ public protocol HasValue {
     mutating func setValue(_ newValue: Int32)
 }
 
-// MARK: - N1: Protocol with Default Implementation (Lottie AnimationImageProvider pattern)
+// MARK: - N1: Protocol with Default Implementation
 
 /// Protocol where one method has a default implementation via extension.
 /// Generator should emit `throw new NotSupportedException(...)` for the default.
@@ -43,12 +43,12 @@ extension Configurable {
     }
 }
 
-// MARK: - N4: Marker Protocol (zero members, SVGView IXMLNode pattern)
+// MARK: - N4: Marker Protocol (zero members)
 
 /// Empty protocol used as a type constraint.
 public protocol Taggable {}
 
-// MARK: - AB2: 3-Level Protocol Inheritance Chain (SnapKit ConstraintDSL pattern)
+// MARK: - AB2: 3-Level Protocol Inheritance Chain
 
 /// Base protocol in a 3-level chain.
 public protocol BaseRule {

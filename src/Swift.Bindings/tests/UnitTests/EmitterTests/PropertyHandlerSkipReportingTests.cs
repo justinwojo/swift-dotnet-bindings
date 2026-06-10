@@ -24,9 +24,9 @@ namespace BindingsGeneration.Tests;
 public class PropertyHandlerSkipReportingTests
 {
     [Fact]
-    public void Emit_StripeShape_OptionalAsyncThrowingClosureProperty_RecordsUnsupportedClosureSkip()
+    public void Emit_PaymentSdkShape_OptionalAsyncThrowingClosureProperty_RecordsUnsupportedClosureSkip()
     {
-        // Stripe StripePaymentSheet.ConfirmHandler — `((Int32, Bool) async throws -> String)?`.
+        // Optional async-throwing closure property — `((Int32, Bool) async throws -> String)?`.
         var asyncThrowingClosure = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[]
             {
@@ -60,8 +60,7 @@ public class PropertyHandlerSkipReportingTests
     [Fact]
     public void Emit_NestedClassParent_AsyncThrowingClosureProperty_RecordsUnsupportedClosureSkip()
     {
-        // Stripe's exact PaymentSheet.IntentConfiguration.ConfirmHandler shape:
-        // an async-throwing Optional<closure> property on a *nested* class.
+        // An async-throwing Optional<closure> property on a *nested* class.
         // Round-1 (commit 2ca32c33) added the IsAsync skip but its unit-test
         // fixture used a flat class — this guard pins the predicate's
         // behaviour on the nested-class path.
@@ -83,10 +82,9 @@ public class PropertyHandlerSkipReportingTests
     [Fact]
     public void Emit_NestedStructParent_AsyncNonThrowingClosureProperty_RecordsUnsupportedClosureSkip()
     {
-        // PaymentSheet.IntentConfiguration is actually a *struct* in Stripe's
-        // public API — same nested-name shape as the class case, but with a
-        // struct parent. PropertyHandler runs through the same predicate
-        // regardless of the parent kind; this test pins that.
+        // Same nested-name shape as the class case, but with a struct parent.
+        // PropertyHandler runs through the same predicate regardless of the parent
+        // kind; this test pins that.
         var asyncClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32"))
         {
             IsAsync = true,

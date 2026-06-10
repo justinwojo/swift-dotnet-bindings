@@ -27,7 +27,7 @@ public class ObjCVariadicAndOutParamTests
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "ObjCInterfaceDecl",
-            "name": "RLMResults",
+            "name": "MOSResults",
             {{MakeLoc()}},
             "super": { "name": "NSObject" },
             "inner": [
@@ -117,7 +117,7 @@ public class ObjCVariadicAndOutParamTests
     public void Emit_VariadicMethod_HasInternalAndIsVariadic()
     {
         var module = ObjCModuleBuilder.Create()
-            .WithClass("RLMResults", configure: c => c
+            .WithClass("MOSResults", configure: c => c
                 .Method(new ObjCMethodDecl
                 {
                     Selector = "indexOfObjectWhere:",

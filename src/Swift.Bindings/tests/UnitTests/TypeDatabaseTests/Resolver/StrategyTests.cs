@@ -39,17 +39,17 @@ public class StrategyTests
     [Fact]
     public void ExistentialStrategy_PlainExistentialOverPlainProtocol_SuppressesFallback()
     {
-        // `any DotLottieCacheProvider` over a plain protocol (no associated types,
-        // no Self requirement) projects cleanly to `IDotLottieCacheProvider` through
-        // the standard existential proxy. Emitting `[UnsupportedSwiftType("Existential
-        // type fallback", …)]` on a member whose body uses the working proxy is
-        // build-noise that hides genuine obsoletes.
+        // `any DotVectorAnimationCacheProvider` over a plain protocol (no associated types,
+        // no Self requirement) projects cleanly to `IDotVectorAnimationCacheProvider` through
+        // the standard existential proxy. Emitting `[UnsupportedSwiftType("Existential type
+        // fallback", …)]` on a member whose body uses the working proxy is build-noise that
+        // hides genuine obsoletes.
         var db = new TypeDatabase();
-        var module = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
-        var protoName = SwiftTypeName.FromModuleQualifiedName("Lottie.DotLottieCacheProvider");
+        var module = new ModuleTypeDatabase("VectorAnimation", "/tmp/VectorAnimation.dylib");
+        var protoName = SwiftTypeName.FromModuleQualifiedName("VectorAnimation.DotVectorAnimationCacheProvider");
         module.RegisterType(protoName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lottie", "IDotLottieCacheProvider"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("VectorAnimation", "IDotVectorAnimationCacheProvider"),
             SwiftTypeName = protoName,
             MetadataAccessor = string.Empty,
             Flags = TypeRecordFlags.None,
@@ -59,7 +59,7 @@ public class StrategyTests
         var strategy = new ExistentialStrategy();
 
         var resolved = strategy.TryResolve(
-            new NamedTypeSpec("Lottie.DotLottieCacheProvider") { IsAny = true },
+            new NamedTypeSpec("VectorAnimation.DotVectorAnimationCacheProvider") { IsAny = true },
             new ResolutionContext(db),
             out var result);
 

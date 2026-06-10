@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - Async MCB Callback Tests (R2 regression)
 
-/// Exercises the Kingfisher CalculateDiskStorageSize pattern:
+/// Exercises the disk-storage-size async callback pattern:
 /// method with @escaping closure taking Result<T, Error> — triggers MCB bridge.
 /// The Mono JIT assertion `!ji->async` fires when the MCB callback runs.
 public class ResultCallbackProcessor {
@@ -16,7 +16,7 @@ public class ResultCallbackProcessor {
         completion(.success(42))
     }
 
-    /// Simulates Kingfisher's calculateDiskStorageSize — Result<UInt, Error>.
+    /// Result<UInt, Error> callback — models the disk-storage-size async calculation pattern.
     public func calculateSize(completion: @escaping (Result<UInt, Error>) -> Void) {
         completion(.success(1024))
     }

@@ -200,7 +200,7 @@ public class NestedClassBoundExistentialTests : TestBase
     }
 
     /// <summary>
-    /// REVERSE-DISPATCH METHOD-PARAM, the exact FirebaseFirestore <c>mapMerge([[String: Any]])</c> shape:
+    /// REVERSE-DISPATCH METHOD-PARAM, the array-of-dictionary existential grid shape:
     /// Swift builds an <c>outer</c>×<c>inner</c> grid of <c>MarkerImpl(mid: o*1000 + i)</c>
     /// keyed <c>"k{i}"</c> and passes it into the C# impl's <c>Consume</c> through the generated receiver.
     /// A read-only <c>IReadOnlyDictionary</c> value in the receiver's element conversion would be a

@@ -63,8 +63,8 @@ namespace BindingsGeneration
         public required HashSet<string> CustomActorTypes { get; init; }
 
         /// <summary>Qualified type path → matched custom-global-actor short name
-        /// (e.g., <c>"ImagePipeline" → "ImagePipelineActor"</c> for
-        /// <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
+        /// (e.g., <c>"TypeName" → "CustomActorName"</c> for
+        /// <c>@CustomActorName class TypeName</c>). Distinct from
         /// <see cref="CustomActorTypes"/>, which holds the <c>actor X { }</c> keyword form.
         /// Drives <c>TypeDecl.CustomActorIsolatorName</c> and SWIFTBIND022 diagnostics.
         /// </summary>
@@ -166,7 +166,7 @@ namespace BindingsGeneration
         public required Dictionary<string, SourcePosition> ConventionCProtocolPositions { get; init; }
 
         /// <summary>Names of every <c>public</c> / <c>open</c> protocol declared in this
-        /// module's swiftinterface. Unqualified (e.g., "KFOptionSetter"). Drives same-module
+        /// module's swiftinterface. Unqualified (e.g., "ProtocolName"). Drives same-module
         /// protocol-extension classification in
         /// <see cref="ResolveForeignExtensions"/> and <see cref="ProtocolExtensionMethods"/>.
         /// </summary>

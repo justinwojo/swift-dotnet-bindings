@@ -96,12 +96,11 @@ public class ClassPayloadEnumTests : TestBase
     }
 
     /// Regression test for the enum-case payload-extractor-missing bug.
-    /// Locks in the StripeFinancialConnections.Result emission shape: a Result-style
-    /// enum with a *labeled* class success payload, a no-payload cancel case, and a
-    /// labeled `any Swift.Error` failure case. Pre-fix only the AnyError-payload case
-    /// in the same enum got factory + TryGet; the labeled-class-payload `completed`
-    /// case got just the CaseTag. The compile-time fact that
-    /// `LabeledClassResult.Completed(...)` and `TryGetCompleted` resolve below is
+    /// Locks in the emission shape for a Result-style enum with a *labeled* class success
+    /// payload, a no-payload cancel case, and a labeled `any Swift.Error` failure case.
+    /// Pre-fix only the AnyError-payload case in the same enum got factory + TryGet; the
+    /// labeled-class-payload `completed` case got just the CaseTag. The compile-time fact
+    /// that `LabeledClassResult.Completed(...)` and `TryGetCompleted` resolve below is
     /// itself the structural assertion — pre-fix the fixture would not compile.
     public void TestLabeledClassResult_Completed_ExtractsLabeledSession()
     {

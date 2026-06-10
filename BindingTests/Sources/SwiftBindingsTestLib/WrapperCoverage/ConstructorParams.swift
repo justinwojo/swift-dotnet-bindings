@@ -23,7 +23,7 @@ public class DescriptionPrinter {
 
 /// Class with constructor taking Optional<Class> — exercises
 /// GetCdeclParamMapping:738-769 (IsOptionalWithReferenceInner branch).
-/// Real-world pattern: Swinject Container(parent:).
+/// Class with constructor taking Optional<Class> — tests the optional-class parameter path.
 public class LinkedNode {
     public let value: Int32
     public let previous: Animal?
@@ -106,7 +106,7 @@ public struct CallbackHolder {
 ///   cdecl_func(resultBuf, context) -> Void
 /// Without BUG-4 fix, the C# callback misses the result buffer parameter,
 /// causing the context to be misinterpreted → crash in swift_cvw_initWithCopyImpl.
-/// Same pattern as Kingfisher ImageCache(name:cacheDirectoryURL:).
+/// Class with closure constructor parameter that returns a String.
 public class StringSupplierHolder {
     private let supplier: () -> String
     public let name: String

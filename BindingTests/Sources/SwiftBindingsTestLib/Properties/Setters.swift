@@ -67,7 +67,7 @@ public struct ComputedSetterStruct {
     }
 }
 
-// MARK: - Y1: Nonmutating Set Property (SnapKit ConstraintViewDSL pattern)
+// MARK: - Y1: Nonmutating Set Property
 
 /// Mutable reference storage for nonmutating set pattern.
 public class MutableBox {

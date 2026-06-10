@@ -105,13 +105,13 @@ namespace BindingsGeneration.Tests
             Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(""));
         }
 
-        // Firebase (and a handful of other vendors that build via CMake) ship every
+        // Some SDKs (e.g. those built via CMake) ship every
         // xcframework's inner Info.plist with MinimumOSVersion=100.0. Writing that into
         // <SupportedOSPlatformVersion> blows up the .NET SDK with NETSDK1135 once it
         // exceeds the workload's TargetPlatformVersion. The clamp must reject the
         // sentinel and fall back to the floor regardless of which Apple OS is current.
         [Fact]
-        public void ClampMinimumOSVersion_FirebaseSentinel_FallsBackToFloor()
+        public void ClampMinimumOSVersion_VendorSentinel_FallsBackToFloor()
         {
             Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("100.0"));
         }
@@ -157,14 +157,14 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Extract_RealVersion_ExtractsCorrectly()
         {
-            var fixture = new MetadataFixture("Nuke");
+            var fixture = new MetadataFixture("ImagePipeline");
             try
             {
                 fixture.WriteInnerPlist("12.8.0", "13.0", "18.0");
                 fixture.WriteOuterPlist();
 
                 var metadata = XCFrameworkMetadataExtractor.Extract(
-                    fixture.DylibPath, fixture.XCFrameworkPath, "Nuke", _logger, fixture.Runner);
+                    fixture.DylibPath, fixture.XCFrameworkPath, "ImagePipeline", _logger, fixture.Runner);
 
                 Assert.Equal("12.8.0", metadata.LibraryVersion);
                 Assert.Equal("12.8.0", metadata.PackageVersion);
@@ -172,7 +172,7 @@ namespace BindingsGeneration.Tests
                 Assert.Equal("13.0", metadata.MinimumOSVersion);
                 Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion); // clamped
                 Assert.Equal("18.0", metadata.SdkVersion);
-                Assert.Equal("Nuke", metadata.ModuleName);
+                Assert.Equal("ImagePipeline", metadata.ModuleName);
             }
             finally { fixture.Dispose(); }
         }
@@ -180,14 +180,14 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Extract_PlaceholderVersion_SetsZeroZeroZero()
         {
-            var fixture = new MetadataFixture("BlinkIDUX");
+            var fixture = new MetadataFixture("DocScanUX");
             try
             {
                 fixture.WriteInnerPlist("1.0", "16.0", null);
                 fixture.WriteOuterPlist();
 
                 var metadata = XCFrameworkMetadataExtractor.Extract(
-                    fixture.DylibPath, fixture.XCFrameworkPath, "BlinkIDUX", _logger, fixture.Runner);
+                    fixture.DylibPath, fixture.XCFrameworkPath, "DocScanUX", _logger, fixture.Runner);
 
                 Assert.Equal("1.0", metadata.LibraryVersion);
                 Assert.Equal("0.0.0", metadata.PackageVersion);
@@ -226,14 +226,14 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Extract_HighMinOS_PreservesRawVersion()
         {
-            var fixture = new MetadataFixture("BlinkID");
+            var fixture = new MetadataFixture("DocScan");
             try
             {
                 fixture.WriteInnerPlist("6.11.0", "16.0", "18.0");
                 fixture.WriteOuterPlist();
 
                 var metadata = XCFrameworkMetadataExtractor.Extract(
-                    fixture.DylibPath, fixture.XCFrameworkPath, "BlinkID", _logger, fixture.Runner);
+                    fixture.DylibPath, fixture.XCFrameworkPath, "DocScan", _logger, fixture.Runner);
 
                 Assert.Equal("16.0", metadata.MinimumOSVersion);
                 Assert.Equal("16.0", metadata.EffectiveMinimumOSVersion); // no clamping needed
@@ -241,21 +241,21 @@ namespace BindingsGeneration.Tests
             finally { fixture.Dispose(); }
         }
 
-        // End-to-end repro of the Firebase plist shape (MinimumOSVersion=100.0). The raw
+        // End-to-end repro of the CMake-vendor sentinel plist shape (MinimumOSVersion=100.0). The raw
         // value is preserved on the metadata for diagnostics, but EffectiveMinimumOSVersion
         // — which is what every csproj/props emitter consumes — must be the floor so the
         // generated <SupportedOSPlatformVersion> never exceeds the consumer's TPV.
         [Fact]
         public void Extract_VendorSentinelMinOS_ClampsToFloor()
         {
-            var fixture = new MetadataFixture("FirebaseAuth");
+            var fixture = new MetadataFixture("CloudPlatformSdkAuth");
             try
             {
                 fixture.WriteInnerPlist("12.10.0", "100.0", "18.2");
                 fixture.WriteOuterPlist();
 
                 var metadata = XCFrameworkMetadataExtractor.Extract(
-                    fixture.DylibPath, fixture.XCFrameworkPath, "FirebaseAuth", _logger, fixture.Runner);
+                    fixture.DylibPath, fixture.XCFrameworkPath, "CloudPlatformSdkAuth", _logger, fixture.Runner);
 
                 Assert.Equal("100.0", metadata.MinimumOSVersion);
                 Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion);
@@ -266,14 +266,14 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Extract_PlatformList_ContainsSliceInfo()
         {
-            var fixture = new MetadataFixture("Nuke");
+            var fixture = new MetadataFixture("ImagePipeline");
             try
             {
                 fixture.WriteInnerPlist("12.8.0", "13.0", null);
                 fixture.WriteOuterPlist();
 
                 var metadata = XCFrameworkMetadataExtractor.Extract(
-                    fixture.DylibPath, fixture.XCFrameworkPath, "Nuke", _logger, fixture.Runner);
+                    fixture.DylibPath, fixture.XCFrameworkPath, "ImagePipeline", _logger, fixture.Runner);
 
                 Assert.Contains("ios-simulator", metadata.Platforms);
             }

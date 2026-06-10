@@ -30,7 +30,7 @@ import SwiftParser
 ///    via `parentDecl.Name` (simple name).
 ///
 /// 3. **Extension scope uses LAST-dot-component** (regex `LastIndexOf('.')`).
-///    `extension CryptoSwift.AES` pushes `"AES"`. Members keyed as `"AES.foo()"`.
+///    `extension SomeModule.AES` pushes `"AES"`. Members keyed as `"AES.foo()"`.
 ///
 /// 4. **Module-level (free) members**:
 ///      * `internalMemberKeys`: regex requires `typeStack.Count > 0`, so module-

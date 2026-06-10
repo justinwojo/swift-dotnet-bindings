@@ -4,7 +4,7 @@
 import Foundation
 
 // MARK: - Case-Insensitive Enum Case Collisions
-// Pattern caught in SVGView validation (21 errors).
+// Pattern caught in real-world library validation (21 errors).
 // Swift allows case-sensitive enum cases; C# does not.
 // Generator must disambiguate (e.g., append raw value or numeric suffix).
 

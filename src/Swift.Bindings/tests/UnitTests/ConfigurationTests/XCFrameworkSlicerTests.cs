@@ -33,7 +33,7 @@ namespace BindingsGeneration.Tests
             return dir;
         }
 
-        // Synthetic 7-slice xcframework matching the design doc's Nuke baseline:
+        // Synthetic 7-slice xcframework covering all standard Apple platform/variant combinations:
         // ios-arm64, ios-arm64-simulator, ios-arm64-maccatalyst, tvos-arm64,
         // tvos-arm64-simulator, macos-arm64, watchos-arm64
         private static readonly (string id, string platform, string? variant)[] SevenSlices = new (string, string, string?)[]

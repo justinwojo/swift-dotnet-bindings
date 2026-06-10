@@ -129,7 +129,7 @@ public class ConstructorAdmissibilityTests : TestBase
 
     // ── Facet (e): concrete same-type pin on an UNCONSTRAINED generic parent ───────
     //
-    // GRDB.TableAlias<RowDecoder> regression. `init(pinnedSalt:) where RowDecoder == ()`
+    // Concrete same-type pin on an unconstrained generic parent regression. `init(pinnedSalt:) where RowDecoder == ()`
     // is confined to CtorAdmVoidPin<Void>; the `== ()` pin's target is unrepresentable so
     // GenericSignatureParser drops the constraint. Pre-fix the now-apparently-unconstrained
     // init flowed to the `_SBW_CI_` open path, emitting

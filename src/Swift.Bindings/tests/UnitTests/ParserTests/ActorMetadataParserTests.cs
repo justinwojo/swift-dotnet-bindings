@@ -20,7 +20,7 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// Parser- and typedb-layer coverage for actor metadata reachability.
 ///
-/// Custom global-actor-isolated types in the wild (e.g. Nuke 13.x's <c>ImagePipelineActor</c>)
+/// Custom global-actor-isolated types (i.e. a type whose global actor conformance is declared as a <c>global actor</c>)
 /// list the four compile-time marker protocols — <c>Copyable</c>, <c>Escapable</c>,
 /// <c>Sendable</c>, <c>SendableMetatype</c> — plus <c>_Concurrency.Actor</c> in their
 /// ABI-JSON conformance arrays, and they declare an implicit <c>unownedExecutor</c>

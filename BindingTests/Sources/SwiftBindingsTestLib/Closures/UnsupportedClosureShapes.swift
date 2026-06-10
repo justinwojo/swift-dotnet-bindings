@@ -5,19 +5,17 @@ import Foundation
 
 // MARK: - Unsupported closure shapes (closure-parameter skip renders APIs unreachable)
 //
-// These shapes are the canonical adversarial closure signatures the Nuke / Lottie /
-// StoreKit2 / MusicKit / WeatherKit consumer audits surfaced. Each pattern hits a
+// These shapes are canonical adversarial closure signatures that each hit a
 // distinct rejection branch in `ClosureHandler.IsSupportedClosure` /
 // `IsSupportedClosureReturnType`; together they pin the *current* state of
 // `// Unsupported: ... closure signature not yet supported` markers so any future fix
 // is forced to ratchet `build/baselines/skip-surface-baseline.json` downward in the same commit.
 //
-// Mapping to consumer-library sites:
-//   Shape OptionalExistentialReturn  →  Nuke `DataLoader.init(validate: …(URLResponse) -> (any Error)?)`
-//                                       Lottie `LottieLogger.init(_ logger: (…))` (similar shape family)
-//   Shape AsyncThrowingClosureParam   →  Nuke `ImageRequest.init` (UnsupportedSignature → same family)
-//   Shape ArrayOfExistentialReturn    →  StoreKit2 `Status.all` style (closure returning [any P])
-//   Shape SendableOptionalExistential →  Nuke `DataLoader.init` exact signature, with @Sendable
+// Shape catalog:
+//   OptionalExistentialReturn   — closure return is `(any Error)?`
+//   AsyncThrowingClosureParam   — async+throwing closure parameter
+//   ArrayOfExistentialReturn    — closure returning `[any P]`
+//   SendableOptionalExistential — optional existential with @Sendable
 //
 // All four shapes degrade today. Fixing each is a separate Closure-handler session
 // (per-shape evidence + indirect-return marshalling). Layer B's job here is to keep
@@ -41,10 +39,9 @@ public enum UnsupportedClosureFault: Error {
     case generic
 }
 
-/// Shape (1): closure return is `Optional<any Protocol>`. Mirrors Nuke
-/// `DataLoader.validate: (URLResponse) -> (any Error)?`. Rejected today because
-/// `IsSupportedClosureReturnType` recurses into the bound generic parameter and
-/// `_existentialHandler.IsExistential(genericParam)` returns true → bail.
+/// Shape (1): closure return is `Optional<any Protocol>`.
+/// Rejected because `IsSupportedClosureReturnType` recurses into the bound generic
+/// parameter and `_existentialHandler.IsExistential(genericParam)` returns true → bail.
 public class UnsupportedClosureOptionalExistentialReturn {
     public init() {}
 
@@ -55,10 +52,8 @@ public class UnsupportedClosureOptionalExistentialReturn {
     }
 }
 
-/// Shape (2): closure return is `[any Protocol]`. Mirrors StoreKit2
-/// `currentEntitlements` / `Status.all` style enumerations. Rejected through the
-/// same Optional<existential> branch — Array's element is an existential generic
-/// parameter.
+/// Shape (2): closure return is `[any Protocol]`. Rejected through the same
+/// Optional<existential> branch — Array's element is an existential generic parameter.
 public class UnsupportedClosureArrayOfExistentialReturn {
     public init() {}
 
@@ -69,8 +64,7 @@ public class UnsupportedClosureArrayOfExistentialReturn {
     }
 }
 
-/// Shape (3): @Sendable closure with Optional<any Protocol> return — exact Nuke
-/// `DataLoader.init(validate: @escaping @Sendable (URLResponse) -> (any Error)?)` shape.
+/// Shape (3): @Sendable closure with Optional<any Protocol> return.
 /// `@Sendable` is already a no-op for marshalling (ClosureHandler.IsSendable detects
 /// but doesn't reject); the rejection still fires on the Optional<existential> return.
 /// Pinning this distinct fixture documents that fixing the existential-return path
@@ -85,11 +79,11 @@ public class UnsupportedClosureSendableOptionalExistential {
     }
 }
 
-/// Shape (4): async-throwing closure parameter. Mirrors Nuke `ImageRequest.init`
-/// (UnsupportedSignature, "Async-throwing closure parameter cannot be bridged").
-/// The async wrapper's withCheckedThrowingContinuation harness handles return-side
-/// async-throws but the parameter-side bridge isn't wired — closure-arg async-throws
-/// signatures fall back to the generic skip path.
+/// Shape (4): async-throwing closure parameter (UnsupportedSignature: "Async-throwing
+/// closure parameter cannot be bridged"). The async wrapper's
+/// withCheckedThrowingContinuation harness handles return-side async-throws but the
+/// parameter-side bridge isn't wired — closure-arg async-throws signatures fall back
+/// to the generic skip path.
 public class UnsupportedClosureAsyncThrowingParam {
     public init() {}
 

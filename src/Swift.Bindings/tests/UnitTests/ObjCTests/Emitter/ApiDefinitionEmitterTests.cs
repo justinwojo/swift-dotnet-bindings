@@ -2043,7 +2043,7 @@ public class ApiDefinitionEmitterTests
         // When AppleSdkTypeNames is null (no Clang context, e.g. -fmodules AST),
         // the fallback only accepts names whose head matches a registered Apple
         // ObjC class prefix. The bare "any uppercase" rule was a false-positive
-        // source: it let cross-framework third-party types (e.g. FIROptions in a
+        // source: it let cross-framework third-party types (e.g. CloudPlatformOptions in a
         // sibling xcframework) through and produced CS0246 at compile time.
         var module = new ObjCModule
         {
@@ -2605,7 +2605,7 @@ public class ApiDefinitionEmitterTests
                     {
                         Name = "NSArray",
                         IsPointer = true,
-                        GenericArgs = [new ObjCTypeRef { Name = "BRLMLog", IsPointer = true }]
+                        GenericArgs = [new ObjCTypeRef { Name = "LabelPrinterLog", IsPointer = true }]
                     },
                     IsReadonly = true,
                 }]
@@ -2613,7 +2613,7 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("BRLMLog[] AllLogs { get; }", result);
+        Assert.Contains("LabelPrinterLog[] AllLogs { get; }", result);
     }
 
     [Fact]
@@ -2705,7 +2705,7 @@ public class ApiDefinitionEmitterTests
             ModuleName = "Test",
             Classes = [new ObjCClassDecl
             {
-                Name = "MBMicroblinkApp",
+                Name = "MBDocScanApp",
                 Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0" }]
             }]
         };
@@ -2713,7 +2713,7 @@ public class ApiDefinitionEmitterTests
         var result = EmitAndRead(module);
         Assert.Contains("[Introduced(PlatformName.iOS, 13, 0)]", result);
         Assert.Contains("[BaseType(typeof(NSObject))]", result);
-        Assert.Contains("partial interface MBMicroblinkApp", result);
+        Assert.Contains("partial interface MBDocScanApp", result);
     }
 
     [Fact]
@@ -3309,7 +3309,7 @@ public class ApiDefinitionEmitterTests
         var module = ObjCModuleBuilder.Create()
             .WithProtocol(new ObjCProtocolDecl
             {
-                Name = "FIRMessagingDelegate",
+                Name = "CloudPlatformSdkMessagingDelegate",
                 IsDelegateProtocol = true,
                 Methods =
                 [
@@ -3320,16 +3320,16 @@ public class ApiDefinitionEmitterTests
                         IsInstanceMethod = true,
                         Parameters =
                         [
-                            new ObjCParameterDecl { Name = "messaging", Type = SimpleType("FIRMessaging", isPointer: true) },
+                            new ObjCParameterDecl { Name = "messaging", Type = SimpleType("CloudPlatformSdkMessaging", isPointer: true) },
                             new ObjCParameterDecl { Name = "fcmToken", Type = SimpleType("NSString", isPointer: true) }
                         ]
                     }
                 ]
             })
-            // The third-party FIRMessaging type would normally come from a sibling
-            // framework (FirebaseMessaging) parsed alongside — declare it here so
+            // CloudPlatformSdkMessaging would normally come from a sibling
+            // framework (CloudPlatformSdkMessaging module) parsed alongside — declare it here so
             // the resolvability filter doesn't drop the method we're asserting on.
-            .WithAppleSdkTypeNames("FIRMessaging")
+            .WithAppleSdkTypeNames("CloudPlatformSdkMessaging")
             .Build();
 
         var result = EmitAndRead(module);
@@ -3355,13 +3355,13 @@ public class ApiDefinitionEmitterTests
                         IsInstanceMethod = true,
                         Parameters =
                         [
-                            new ObjCParameterDecl { Name = "messaging", Type = SimpleType("FIRMessaging", isPointer: true) },
+                            new ObjCParameterDecl { Name = "messaging", Type = SimpleType("CloudPlatformSdkMessaging", isPointer: true) },
                             new ObjCParameterDecl { Name = "fcmToken", Type = SimpleType("NSString", isPointer: true) }
                         ]
                     }
                 ]
             })
-            .WithAppleSdkTypeNames("FIRMessaging")
+            .WithAppleSdkTypeNames("CloudPlatformSdkMessaging")
             .Build();
 
         var result = EmitAndRead(module);
@@ -3379,15 +3379,15 @@ public class ApiDefinitionEmitterTests
         var module = ObjCModuleBuilder.Create()
             .WithCategory(new ObjCCategoryDecl
             {
-                CategoryName = "RLMValue",
+                CategoryName = "MOSValue",
                 ClassName = "NSNull",
-                ProtocolNames = ["RLMValue"],
+                ProtocolNames = ["MOSValue"],
             })
             .Build();
 
         var result = EmitAndRead(module);
         Assert.DoesNotContain("[Category]", result);
-        Assert.DoesNotContain("NSNull_RLMValue", result);
+        Assert.DoesNotContain("NSNull_MOSValue", result);
     }
 
     [Fact]
@@ -3400,12 +3400,12 @@ public class ApiDefinitionEmitterTests
             {
                 CategoryName = "Swift",
                 ClassName = "NSNumber",
-                ProtocolNames = ["RLMInt", "RLMBool"],
+                ProtocolNames = ["MOSInt", "MOSBool"],
                 Methods =
                 [
                     new ObjCMethodDecl
                     {
-                        Selector = "rlm_intValue",
+                        Selector = "mos_intValue",
                         ReturnType = SimpleType("int"),
                         IsInstanceMethod = true,
                     }
@@ -3418,10 +3418,10 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("[BaseType(typeof(NSNumber))]", result);
         // Protocol conformance stripped (CS0714: static classes can't implement interfaces)
         Assert.Contains("partial interface NSNumber_Swift", result);
-        Assert.DoesNotContain("IRLMInt", result);
-        Assert.DoesNotContain("IRLMBool", result);
-        Assert.Contains("[Export(\"rlm_intValue\")]", result);
-        Assert.Contains("int Rlm_intValue()", result);
+        Assert.DoesNotContain("IMOSInt", result);
+        Assert.DoesNotContain("IMOSBool", result);
+        Assert.Contains("[Export(\"mos_intValue\")]", result);
+        Assert.Contains("int Mos_intValue()", result);
     }
 
     [Fact]

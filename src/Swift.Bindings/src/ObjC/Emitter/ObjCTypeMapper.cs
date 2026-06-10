@@ -254,7 +254,7 @@ public static class ObjCTypeMapper
             return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap);
         }
 
-        // 10. Block typedef name resolution (e.g., RLMNotificationBlock → Action<string, RLMRealm>)
+        // 10. Block typedef name resolution (e.g., TypeNotificationBlock → Action<string, Type>)
         if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
             return MapBlockType(blockResolved, genericTypeParams, typedefMap);
 
@@ -455,8 +455,7 @@ public static class ObjCTypeMapper
     /// and never expanded into the AST), falls back to the known Apple framework ObjC
     /// class prefix list registered in <see cref="AppleFrameworkRegistry"/>. The bare
     /// "any uppercase letter" rule is too permissive there: under -fmodules a
-    /// cross-framework type referenced from a sibling xcframework (e.g.
-    /// <c>FIROptions</c> in FirebaseCore, used by a method declared in FirebaseCoreExtension)
+    /// a cross-framework type referenced from a sibling xcframework
     /// would otherwise pass the check and produce CS0246 at compile time.
     /// </summary>
     public static bool IsApiDefinitionTypeResolvable(string mappedType, HashSet<string> knownTypes, HashSet<string>? appleSdkTypeNames)
@@ -710,7 +709,7 @@ public static class ObjCTypeMapper
     {
         var name = typeRef.Name;
 
-        // Resolve typedefs — if it's a typedef for NSString (e.g., SDWebImageContextOption),
+        // Resolve typedefs — if it's a typedef for NSString,
         // use NSString instead of the typedef name (which won't exist as a C# type).
         if (typedefMap != null && typedefMap.TryGetValue(name, out var resolved))
         {

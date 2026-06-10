@@ -14,15 +14,15 @@ namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
 /// SDK 0.11.0 R2 — regression coverage for nested types declared INSIDE
-/// extensions of foreign-module types. Stripe shape: StripeFinancialConnections
-/// declares `extension StripeCore.StripeAPI { struct FinancialConnectionsSession {} }`,
+/// extensions of foreign-module types. A cross-module extension declares a nested
+/// struct inside a class-receiver extension (e.g.
+/// `extension SomeModule.ServiceClass { struct NestedSession {} }`),
 /// then references that nested type from enum-case payloads in the same module.
 ///
 /// Before the emitter fix, `CrossModuleExtensionEmitter` only recursed nested
 /// types on the struct-receiver path, so class-receiver extensions silently dropped
 /// the nested-type definitions. Downstream enum cases then lost their factories
-/// (no `Completed(...)`) and extractors (no `TryGetCompleted`), matching the
-/// regression observed against the StripeFinancialConnections binding.
+/// (no `Completed(...)`) and extractors (no `TryGetCompleted`).
 ///
 /// These tests assert both that the nested type IS emitted as a usable C# type
 /// (constructor + property access) and that the downstream enum case factories

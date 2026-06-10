@@ -786,7 +786,7 @@ public class StructsAndEnumsEmitterTests
             [
                 new ObjCTypedefDecl
                 {
-                    Name = "RLMNotificationBlock",
+                    Name = "MOSNotificationBlock",
                     UnderlyingType = new ObjCTypeRef
                     {
                         Name = "Block",
@@ -803,7 +803,7 @@ public class StructsAndEnumsEmitterTests
         };
 
         var output = EmitAndRead(module);
-        Assert.Contains("public delegate void RLMNotificationBlock(nint arg0, NSError arg1);", output);
+        Assert.Contains("public delegate void MOSNotificationBlock(nint arg0, NSError arg1);", output);
     }
 
     [Fact]
@@ -1740,7 +1740,7 @@ public class StructsAndEnumsEmitterTests
     [Fact]
     public void EmitConstant_TypedefNSString_EmitsFieldProperty()
     {
-        // e.g., typedef NSString *RLMNotification; extern RLMNotification const RLMRealmDidChange;
+        // e.g., typedef NSString *MOSNotification; extern MOSNotification const MOSStoreDidChange;
         var module = new ObjCModule
         {
             ModuleName = "TestLib",
@@ -1748,7 +1748,7 @@ public class StructsAndEnumsEmitterTests
             [
                 new ObjCTypedefDecl
                 {
-                    Name = "RLMNotification",
+                    Name = "MOSNotification",
                     UnderlyingType = SimpleType("NSString", isPointer: true)
                 }
             ],
@@ -1756,23 +1756,23 @@ public class StructsAndEnumsEmitterTests
             [
                 new ObjCConstantDecl
                 {
-                    Name = "RLMRealmDidChange",
-                    Type = SimpleType("RLMNotification"),
+                    Name = "MOSStoreDidChange",
+                    Type = SimpleType("MOSNotification"),
                     IsExtern = true
                 }
             ]
         };
 
         var output = EmitAndRead(module);
-        Assert.Contains("[Field(\"RLMRealmDidChange\", \"__Internal\")]", output);
-        Assert.Contains("public static NSString RLMRealmDidChange { get; }", output);
+        Assert.Contains("[Field(\"MOSStoreDidChange\", \"__Internal\")]", output);
+        Assert.Contains("public static NSString MOSStoreDidChange { get; }", output);
         Assert.DoesNotContain("TODO", output);
     }
 
     [Fact]
     public void EmitConstant_TypedefNSStringPointerUsage_EmitsFieldProperty()
     {
-        // typedef NSString RLMNotification; usage: RLMNotification *
+        // typedef NSString MOSNotification; usage: MOSNotification *
         // (typedef drops pointer, usage adds it)
         var module = new ObjCModule
         {

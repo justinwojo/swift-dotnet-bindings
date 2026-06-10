@@ -5,9 +5,9 @@ import Foundation
 
 // MARK: - Wrapper Stripping Test Types
 //
-// Tests for wrapper stripping co-gating. In real-world libraries (ObjectMapper,
-// XMLCoder, PhoneNumberKit), some @_cdecl wrapper functions fail to compile
-// because they reference types from other modules or internal extensions.
+// Tests for wrapper stripping co-gating. In real-world libraries, some @_cdecl
+// wrapper functions fail to compile because they reference types from other
+// modules or internal extensions.
 // The post-processor strips these, but C# P/Invoke declarations are already emitted.
 //
 // Since our test library is self-contained, we can't easily trigger the exact

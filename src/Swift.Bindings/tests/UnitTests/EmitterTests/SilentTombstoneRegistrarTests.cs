@@ -91,10 +91,10 @@ public class SilentTombstoneRegistrarTests
         // extensions through CrossModuleExtensionEmitter (static extension surface),
         // never through the opaque-tombstone branch. A struct registered here would
         // trip AssertSilentTombstoneInvariant because no AddEmittedOpaqueType call
-        // ever happens on that path. Reproduces the Stripe regression where a
-        // Foundation frozen struct surfaced through Stripe's ABI as a cross-module
-        // extension receiver.
-        var moduleDecl = BuildModule("StripeCoreModule");
+        // ever happens on that path. Reproduces a regression where a Foundation frozen
+        // struct surfaced through a third-party module's ABI as a cross-module extension
+        // receiver.
+        var moduleDecl = BuildModule("PaymentSdkCoreModule");
         var structDecl = new StructDecl
         {
             Name = "Decimal",
@@ -125,13 +125,13 @@ public class SilentTombstoneRegistrarTests
     {
         // The parser sets StructDecl.IsFrozen from the extension node's own attributes,
         // which never carry @frozen — so cross-module extension receivers like
-        // `extension Swift.Array where Element == UInt8` in CryptoSwift arrive at the
-        // emitter with IsFrozen = false and dispatch to NonFrozenStructHandler. That
-        // handler's cross-module guard must mirror FrozenStructHandler's: route to
+        // `extension Swift.Array where Element == UInt8` arrive at the emitter with
+        // IsFrozen = false and dispatch to NonFrozenStructHandler. That handler's
+        // cross-module guard must mirror FrozenStructHandler's: route to
         // CrossModuleExtensionEmitter and never register here. Without this guard, the
-        // wrapper class is emitted into the host module's namespace (CryptoSwift.SwiftArray
-        // colliding with Swift.SwiftArray; partial class double colliding with primitive).
-        var moduleDecl = BuildModule("CryptoSwiftModule");
+        // wrapper class is emitted into the host module's namespace (colliding with
+        // Swift.SwiftArray; partial class double colliding with primitive).
+        var moduleDecl = BuildModule("CryptoLibModule");
         var structDecl = new StructDecl
         {
             Name = "Array",

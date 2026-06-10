@@ -13,7 +13,7 @@ namespace RuntimeTestsApp.Protocols;
 /// that return `any Protocol`. Covers the R3 regression where the emitter generates
 /// SwiftMarshal.MarshalFromSwift&lt;IProtocol&gt;() instead of wrapping in a proxy class.
 ///
-/// Real-world patterns: Swinject (Assembler.Resolver), SwiftyBeaver (FilterFactory.Custom).
+/// Real-world patterns: dependency-container (Assembler.Resolver), logging-library (FilterFactory.Custom).
 ///
 /// Tier structure:
 /// - Tier 1: Factory construction
@@ -111,7 +111,7 @@ public class ExistentialReturnTests : TestBase
 
     #endregion
 
-    #region Existential Round-Trip via Constructor (Tier 3 — RxSwift pattern)
+    #region Existential Round-Trip via Constructor (Tier 3 — reactive-streams pattern)
 
     public void TestERTestHolderConstruction()
     {
@@ -134,7 +134,7 @@ public class ExistentialReturnTests : TestBase
 
     #endregion
 
-    #region Closure + Existential Return (Tier 3 — SwiftyBeaver FilterFactory pattern)
+    #region Closure + Existential Return (Tier 3 — logging-library FilterFactory pattern)
 
     public void TestERTestFilterFactoryCustomReturnsExistential()
     {

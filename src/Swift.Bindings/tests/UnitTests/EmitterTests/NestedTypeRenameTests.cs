@@ -37,7 +37,7 @@ public class NestedTypeRenameTests
     [Fact]
     public void PrecomputeNestedTypeRenames_AppliedToDepModule_RenamesDepTypeRecordForCrossModuleLookup()
     {
-        // Reproduces the BlinkIDUX → BlinkID shape exactly.
+        // Reproduces the cross-module nested-type rename shape exactly.
         //
         // Dep module "DepLib" declares:
         //   struct Container {
@@ -234,7 +234,7 @@ public class NestedTypeRenameTests
     [Fact]
     public void PrecomputeNestedTypeRenames_TargetHasOwnChildWithSameName_AppendsExtraTypeSuffix()
     {
-        // Reproduces StripeApplePay's Card.Wallet shape:
+        // Reproduces a struct where a stored property name collides with a sibling nested type:
         //   struct Card {
         //     var wallet: Wallet      // collides with sibling type Wallet
         //     struct Wallet {

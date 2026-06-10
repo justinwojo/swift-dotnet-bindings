@@ -141,7 +141,7 @@ public class BoundGenericsHandlerTests
     // supports nested existential CONTAINERS. The recursion must admit genuine nested
     // Array/Dictionary leaves but MUST NOT descend into an Optional-wrapped existential element,
     // which lowers to the same Array<Optional<existential>> ABI shape as a variadic
-    // ExpressibleByArrayLiteral init (GRDB.StatementArguments) that the @_cdecl wrapper cannot
+    // ExpressibleByArrayLiteral init whose variadic-lowered shape the @_cdecl wrapper cannot
     // forward. Bare Any keeps these focused on the gate's container/Optional shape decisions
     // (IsValidExistentialForContainer short-circuits on bare Any, so no TypeRecord setup is needed).
 
@@ -172,7 +172,7 @@ public class BoundGenericsHandlerTests
     [Fact]
     public void IsContainerWithSupportedDirectExistential_DictionaryValueDictionaryOfAny_Admitted()
     {
-        // Dictionary<String, Dictionary<String, Any>> — ObjectMapper's [String:[String:any P]] shape.
+        // Dictionary<String, Dictionary<String, Any>> — nested dictionary container shape.
         var inner = BuildDictOf(new NamedTypeSpec("Swift.String"), new ProtocolListTypeSpec());
         var spec = BuildDictOf(new NamedTypeSpec("Swift.String"), inner);
         Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
@@ -182,8 +182,8 @@ public class BoundGenericsHandlerTests
     public void IsContainerWithSupportedDirectExistential_ArrayOfOptionalOfAny_NotAdmitted()
     {
         // Array<Optional<Any>> — element is an Optional-wrapped existential, NOT a genuine nested
-        // Array/Dictionary leaf. Admitting it would route GRDB.StatementArguments'
-        // init(arrayLiteral:) variadic-lowered [any P?] through a normal constructor wrapper and
+        // Array/Dictionary leaf. Admitting it would route a variadic-lowered
+        // ExpressibleByArrayLiteral init's [any P?] through a normal constructor wrapper and
         // emit an uncompilable @_cdecl call. Regression guard for the gate narrowing.
         var spec = BuildArrayOf(BuildOptionalOf(new ProtocolListTypeSpec()));
         Assert.False(_handler.IsContainerWithSupportedDirectExistential(spec));
@@ -380,9 +380,9 @@ public class BoundGenericsHandlerTests
     {
         var moduleDecl = CreateModuleDecl("TestModule");
         CreateGenericStructDecl("ValueProviderStorage", moduleDecl, "T", "TestModule.AnyInterpolatable");
-        CreateStructDecl("LottieVector3D", moduleDecl);
+        CreateStructDecl("VectorAnimationVector3D", moduleDecl);
 
-        var boundGeneric = new NamedTypeSpec("TestModule.ValueProviderStorage", new NamedTypeSpec("TestModule.LottieVector3D"));
+        var boundGeneric = new NamedTypeSpec("TestModule.ValueProviderStorage", new NamedTypeSpec("TestModule.VectorAnimationVector3D"));
         var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
 
         var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
@@ -1526,7 +1526,6 @@ public class BoundGenericsHandlerTests
     {
         // Optional<Foundation.URL> — SwiftOptional<T> has no ISwiftObject constraint,
         // so native-remapped types (URL → NSUrl) are valid inside Optional.
-        // This is the BlinkID BlinkIDSdkSettings(bundleURL: URL? = nil) case.
         var optional = new NamedTypeSpec("Swift.Optional");
         optional.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
 
@@ -2291,22 +2290,23 @@ public class BoundGenericsHandlerTests
     public void TryGetFirstUnsatisfiedConstraint_ProtocolWithMethodSelfTypeParams_SkipsConstraint()
     {
         // Protocol with HasMethodSelfTypeParams flag (methods use τ_0_0 in signatures,
-        // e.g., Lottie.AnyInterpolatable._interpolate). The constraint on the bound generic
-        // should be skipped because ShouldSkipConstraint returns true for HasMethodSelfTypeParams.
+        // e.g., VectorAnimation.AnyInterpolatable._interpolate). The constraint on the bound
+        // generic should be skipped because ShouldSkipConstraint returns true for
+        // HasMethodSelfTypeParams.
         var types = new Dictionary<string, TypeRecord>
         {
-            ["Lottie.AnyInterpolatable"] = new TypeRecord
+            ["VectorAnimation.AnyInterpolatable"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lottie", "IAnyInterpolatable"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.AnyInterpolatable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("VectorAnimation", "IAnyInterpolatable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("VectorAnimation.AnyInterpolatable"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasMethodSelfTypeParams,
                 Kind = TypeRecordKind.Protocol
             },
-            ["Lottie.ValueProviderStorage"] = new TypeRecord
+            ["VectorAnimation.ValueProviderStorage"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lottie", "ValueProviderStorage"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.ValueProviderStorage"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("VectorAnimation", "ValueProviderStorage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("VectorAnimation.ValueProviderStorage"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
@@ -2321,7 +2321,7 @@ public class BoundGenericsHandlerTests
             Name = "ValueProviderStorage",
             ParentDecl = null,
             ModuleDecl = null,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.ValueProviderStorage"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("VectorAnimation.ValueProviderStorage"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -2335,13 +2335,13 @@ public class BoundGenericsHandlerTests
             "τ_0_0", "T",
             new List<GenericParameterConformance>
             {
-                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Lottie.AnyInterpolatable"), ConformanceKind.Protocol)
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("VectorAnimation.AnyInterpolatable"), ConformanceKind.Protocol)
             },
             new List<GenericParameterConformance>()));
 
         var moduleDecl = new ModuleDecl
         {
-            Name = "Lottie",
+            Name = "VectorAnimation",
             ParentDecl = null,
             ModuleDecl = null,
             Properties = new(),
@@ -2358,7 +2358,7 @@ public class BoundGenericsHandlerTests
             Name = "SomeContainer",
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lottie.SomeContainer"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("VectorAnimation.SomeContainer"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -2369,7 +2369,7 @@ public class BoundGenericsHandlerTests
             MetadataAccessor = ""
         };
 
-        var boundGeneric = new NamedTypeSpec("Lottie.ValueProviderStorage", new NamedTypeSpec("τ_0_0"));
+        var boundGeneric = new NamedTypeSpec("VectorAnimation.ValueProviderStorage", new NamedTypeSpec("τ_0_0"));
 
         var method = new MethodDecl
         {
@@ -2533,25 +2533,25 @@ public class BoundGenericsHandlerTests
     [Fact]
     public void TryGetFirstUnsatisfiedConstraint_ExtensionOnForeignType_RejectsUnreachableConformance()
     {
-        // Kingfisher regression: `extension Foundation.Data: DataTransformable`
-        // adds Swift-level conformance via a local TypeDecl, but C# cannot
-        // retrofit an interface onto a type from another assembly. Binding
-        // Backend<Foundation.Data> with `where T: IDataTransformable` produces
-        // CS0315 at consumer build time. Detect and skip the member instead.
+        // Regression: `extension Foundation.Data: DataTransformable` adds Swift-level
+        // conformance via a local TypeDecl, but C# cannot retrofit an interface onto a type
+        // from another assembly. Binding Backend<Foundation.Data> with
+        // `where T: IDataTransformable` produces CS0315 at consumer build time. Detect and
+        // skip the member instead.
         var types = new Dictionary<string, TypeRecord>
         {
-            ["Kingfisher.DataTransformable"] = new TypeRecord
+            ["ImageLoader.DataTransformable"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "IDataTransformable"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "IDataTransformable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.DataTransformable"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol
             },
-            ["Kingfisher.Backend"] = new TypeRecord
+            ["ImageLoader.Backend"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "Backend"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "Backend"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.Backend"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
@@ -2573,7 +2573,7 @@ public class BoundGenericsHandlerTests
             Name = "Backend",
             ParentDecl = null,
             ModuleDecl = null,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.Backend"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -2587,11 +2587,11 @@ public class BoundGenericsHandlerTests
             "τ_0_0", "T",
             new List<GenericParameterConformance>
             {
-                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"), ConformanceKind.Protocol)
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("ImageLoader.DataTransformable"), ConformanceKind.Protocol)
             },
             new List<GenericParameterConformance>()));
 
-        // The Swift extension shows up as a local StructDecl in the Kingfisher module
+        // The Swift extension shows up as a local StructDecl in the ImageLoader module
         // whose SwiftTypeName points at the foreign type Foundation.Data and carries
         // the DataTransformable conformance — exactly what the parser produces for
         // `extension Foundation.Data: DataTransformable`.
@@ -2611,7 +2611,7 @@ public class BoundGenericsHandlerTests
             {
                 new TypeConformance(
                     ConformingType: SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
-                    Protocol: SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("ImageLoader.DataTransformable"),
                     ProtocolConformanceDescriptor: "")
             },
             MetadataAccessor = ""
@@ -2619,7 +2619,7 @@ public class BoundGenericsHandlerTests
 
         var moduleDecl = new ModuleDecl
         {
-            Name = "Kingfisher",
+            Name = "ImageLoader",
             ParentDecl = null,
             ModuleDecl = null,
             Properties = new(),
@@ -2638,7 +2638,7 @@ public class BoundGenericsHandlerTests
             Name = "DiskStorage",
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DiskStorage"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.DiskStorage"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -2649,7 +2649,7 @@ public class BoundGenericsHandlerTests
             MetadataAccessor = ""
         };
 
-        var boundGeneric = new NamedTypeSpec("Kingfisher.Backend", new NamedTypeSpec("Foundation.Data"));
+        var boundGeneric = new NamedTypeSpec("ImageLoader.Backend", new NamedTypeSpec("Foundation.Data"));
 
         var method = new MethodDecl
         {
@@ -2679,30 +2679,30 @@ public class BoundGenericsHandlerTests
     {
         // Counter-test: the unreachable-conformance filter MUST NOT fire when the
         // type argument lives in the same module as the constraint's evidence.
-        // `extension Kingfisher.PNGImage: DataTransformable` is reachable in C# —
-        // the C# `Kingfisher.PNGImage` class actually implements `IDataTransformable`.
+        // `extension ImageLoader.PNGImage: DataTransformable` is reachable in C# —
+        // the C# `ImageLoader.PNGImage` class actually implements `IDataTransformable`.
         var types = new Dictionary<string, TypeRecord>
         {
-            ["Kingfisher.DataTransformable"] = new TypeRecord
+            ["ImageLoader.DataTransformable"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "IDataTransformable"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "IDataTransformable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.DataTransformable"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol
             },
-            ["Kingfisher.Backend"] = new TypeRecord
+            ["ImageLoader.Backend"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "Backend"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "Backend"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.Backend"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
             },
-            ["Kingfisher.PNGImage"] = new TypeRecord
+            ["ImageLoader.PNGImage"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "PNGImage"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.PNGImage"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "PNGImage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.PNGImage"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
@@ -2716,7 +2716,7 @@ public class BoundGenericsHandlerTests
             Name = "Backend",
             ParentDecl = null,
             ModuleDecl = null,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.Backend"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -2730,7 +2730,7 @@ public class BoundGenericsHandlerTests
             "τ_0_0", "T",
             new List<GenericParameterConformance>
             {
-                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"), ConformanceKind.Protocol)
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("ImageLoader.DataTransformable"), ConformanceKind.Protocol)
             },
             new List<GenericParameterConformance>()));
 
@@ -2739,7 +2739,7 @@ public class BoundGenericsHandlerTests
             Name = "PNGImage",
             ParentDecl = null,
             ModuleDecl = null,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.PNGImage"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.PNGImage"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -2749,8 +2749,8 @@ public class BoundGenericsHandlerTests
             Conformances = new()
             {
                 new TypeConformance(
-                    ConformingType: SwiftTypeName.FromModuleQualifiedName("Kingfisher.PNGImage"),
-                    Protocol: SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                    ConformingType: SwiftTypeName.FromModuleQualifiedName("ImageLoader.PNGImage"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("ImageLoader.DataTransformable"),
                     ProtocolConformanceDescriptor: "")
             },
             MetadataAccessor = ""
@@ -2758,7 +2758,7 @@ public class BoundGenericsHandlerTests
 
         var moduleDecl = new ModuleDecl
         {
-            Name = "Kingfisher",
+            Name = "ImageLoader",
             ParentDecl = null,
             ModuleDecl = null,
             Properties = new(),
@@ -2775,7 +2775,7 @@ public class BoundGenericsHandlerTests
             Name = "DiskStorage",
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DiskStorage"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.DiskStorage"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -2786,7 +2786,7 @@ public class BoundGenericsHandlerTests
             MetadataAccessor = ""
         };
 
-        var boundGeneric = new NamedTypeSpec("Kingfisher.Backend", new NamedTypeSpec("Kingfisher.PNGImage"));
+        var boundGeneric = new NamedTypeSpec("ImageLoader.Backend", new NamedTypeSpec("ImageLoader.PNGImage"));
 
         var method = new MethodDecl
         {
@@ -2944,10 +2944,10 @@ public class BoundGenericsHandlerTests
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol
             },
-            ["Kingfisher.Backend"] = new TypeRecord
+            ["ImageLoader.Backend"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "Backend"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "Backend"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.Backend"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
@@ -2969,7 +2969,7 @@ public class BoundGenericsHandlerTests
             Name = "Backend",
             ParentDecl = null,
             ModuleDecl = null,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.Backend"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -3013,7 +3013,7 @@ public class BoundGenericsHandlerTests
 
         var moduleDecl = new ModuleDecl
         {
-            Name = "Kingfisher",
+            Name = "ImageLoader",
             ParentDecl = null,
             ModuleDecl = null,
             Properties = new(),
@@ -3030,7 +3030,7 @@ public class BoundGenericsHandlerTests
             Name = "DiskStorage",
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DiskStorage"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.DiskStorage"),
             MangledName = "",
             Properties = new(),
             Methods = new(),
@@ -3041,7 +3041,7 @@ public class BoundGenericsHandlerTests
             MetadataAccessor = ""
         };
 
-        var boundGeneric = new NamedTypeSpec("Kingfisher.Backend", new NamedTypeSpec("Foundation.Data"));
+        var boundGeneric = new NamedTypeSpec("ImageLoader.Backend", new NamedTypeSpec("Foundation.Data"));
 
         var method = new MethodDecl
         {

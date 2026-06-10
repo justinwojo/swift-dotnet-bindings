@@ -800,39 +800,39 @@ namespace BindingsGeneration.Tests
         public void FilterThunkAssembly_Fallback_SwiftSubstitutionCompression()
         {
             // Swift mangling compresses shared prefixes between module and type names.
-            // Module "StripeIdentity" + type "IdentityVerificationSheet" mangles as
-            // "14StripeIdentity0B17VerificationSheet" — "Identity" shared prefix replaced by "0B".
-            // The suffix "17VerificationSheet" still appears, so suffix matching must find it.
+            // When a module and type share a leading word (e.g. "Identity"), that word is replaced
+            // by a back-reference token (e.g. "0B") in the mangled name. The suffix of the type
+            // name still appears, so suffix matching must find it.
             var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             Directory.CreateDirectory(dir);
             try
             {
                 var asm = string.Join("\n", new[]
                 {
-                    ".globl _thunk_StripeIdentity_af0eb15e",
+                    ".globl _thunk_PaymentSdkIdentity_af0eb15e",
                     ".p2align 2",
-                    "_thunk_StripeIdentity_af0eb15e:",
+                    "_thunk_PaymentSdkIdentity_af0eb15e:",
                     "    stp     x20, x19, [sp, #-32]!",
                     "    stp     x29, x30, [sp, #16]",
                     "    add     x29, sp, #16",
                     "    mov     x0, #0",
-                    "    bl      _$s14StripeIdentity0B17VerificationSheetCMa",
+                    "    bl      _$s18PaymentSdkIdentity0B17VerificationSheetCMa",
                     "    mov     x20, x0",
-                    "    bl      _$s14StripeIdentity0B17VerificationSheetC29simulatorDocumentCameraImagesSaySo7UIImageCGvgZ",
+                    "    bl      _$s18PaymentSdkIdentity0B17VerificationSheetC29simulatorDocumentCameraImagesSaySo7UIImageCGvgZ",
                     "    ldp     x29, x30, [sp, #16]",
                     "    ldp     x20, x19, [sp], #32",
                     "    ret",
                     "",
-                    ".globl _thunk_StripeIdentity_other",
+                    ".globl _thunk_PaymentSdkIdentity_other",
                     ".p2align 2",
-                    "_thunk_StripeIdentity_other:",
+                    "_thunk_PaymentSdkIdentity_other:",
                     "    stp     x29, x30, [sp, #-16]!",
-                    "    bl      _$s14StripeIdentity0B17VerificationSheetC30verificationSessionClientSecretSSvg",
+                    "    bl      _$s18PaymentSdkIdentity0B17VerificationSheetC30verificationSessionClientSecretSSvg",
                     "    ldp     x29, x30, [sp], #16",
                     "    ret",
                     ""
                 });
-                var asmFile = Path.Combine(dir, "StripeIdentity.arm64.s");
+                var asmFile = Path.Combine(dir, "PaymentSdkIdentity.arm64.s");
                 File.WriteAllText(asmFile, asm);
 
                 var outDir = Path.Combine(dir, "out");

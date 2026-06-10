@@ -3,10 +3,10 @@
 
 import Foundation
 
-// MARK: - Constructor with Dictionary (Alamofire HTTPHeaders pattern)
+// MARK: - Constructor with Dictionary (HTTP-headers / dictionary-text-provider pattern)
 
 /// Class taking Dictionary in constructor.
-/// Real-world pattern: Alamofire HTTPHeaders(IDictionary), Lottie DictionaryTextProvider(dict).
+/// Real-world pattern: HTTPHeaders(IDictionary), DictionaryTextProvider(dict).
 public class HeaderMap {
     private var headers: [String: String]
 
@@ -19,7 +19,7 @@ public class HeaderMap {
     public func set(_ key: String, _ value: String) { headers[key] = value }
 }
 
-// MARK: - O1: Dictionary Property (get/set) (SVGView XMLElement.Attributes pattern)
+// MARK: - O1: Dictionary Property (get/set)
 
 /// Class with a dictionary stored property (read-write).
 /// Tests SwiftDictionary marshalling in both getter and setter directions.

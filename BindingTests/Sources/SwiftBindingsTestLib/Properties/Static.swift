@@ -46,7 +46,7 @@ public struct StaticMethods {
     }
 }
 
-// MARK: - U1: Static Constants Struct (KeychainSwiftConstants pattern)
+// MARK: - U1: Static Constants Struct
 
 /// Struct with only static computed properties, no instance members.
 /// Acts as a pure namespace for string/numeric constants.
@@ -59,7 +59,7 @@ public struct Constants {
     private init() {}
 }
 
-// MARK: - U2: Multiple Typed Static Mutable Properties (NVActivityIndicatorView pattern)
+// MARK: - U2: Multiple Typed Static Mutable Properties (LoadingIndicator pattern)
 
 /// Class with multiple static mutable properties of different types.
 public class AppConfig {

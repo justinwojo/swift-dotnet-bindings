@@ -15,7 +15,7 @@ namespace RuntimeTestsApp.Marshalling;
 /// uncompilable code (CS1503 at the call site, raw class tuple passed where
 /// ValueTuple of IntPtrs is expected).
 ///
-/// Originally surfaced by RichTextKit's RichTextImageConfiguration ctor.
+/// Originally surfaced by a rich-text-editor library's RichTextImageConfiguration ctor.
 /// </summary>
 public class TupleOfClassParamGateTests : TestBase
 {

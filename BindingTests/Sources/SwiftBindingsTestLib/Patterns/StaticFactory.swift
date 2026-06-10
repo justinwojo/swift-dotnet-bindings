@@ -3,10 +3,9 @@
 
 import Foundation
 
-// MARK: - Static Factory Returning Optional (Lottie LottieAnimation.Filepath pattern)
+// MARK: - Static Factory Returning Optional
 
 /// Class with static factory methods returning optional Self.
-/// Real-world pattern: Lottie LottieAnimation.Filepath() -> LottieAnimation?.
 public class ConfigLoader {
     public let name: String
     public let version: Int32

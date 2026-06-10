@@ -8,9 +8,9 @@ namespace BindingsGeneration
     /// declarations whose only purpose is to scope a family of nested types.
     /// In Swift these look like:
     /// <code>
-    /// public struct BlinkIDSDK {           // outer namespace facade
-    ///   public struct StringResult { … }
-    ///   public enum ScanningStatus { … }
+    /// public struct OuterFacade {           // outer namespace facade
+    ///   public struct InnerResult { … }
+    ///   public enum InnerStatus { … }
     ///   // …no inits, no stored properties, no instance/static members.
     /// }
     /// </code>
@@ -20,10 +20,9 @@ namespace BindingsGeneration
     /// nested type or reach for <c>using static</c>, which conventionally signals
     /// member access not nested-type access. A faithful translation lifts the
     /// nested types into a real C# namespace under the parent module's namespace
-    /// — e.g. <c>namespace BlinkID.BlinkIDSDK</c>.
+    /// — e.g. <c>namespace Module.OuterFacade</c>.
     ///
-    /// The canonical case is BlinkID 7.7.0's <c>BlinkIDSDK</c> outer struct
-    /// containing ~25 nested types.
+    /// The canonical case is an outer struct containing many nested types.
     /// </summary>
     public static class NamespaceFacadeDetector
     {
@@ -78,7 +77,7 @@ namespace BindingsGeneration
             // type-named scope (`Foo.Helper()`), which a namespace cannot
             // provide. The bug doc allows a "pragmatic" sibling-static-class
             // workaround, but this stricter predicate keeps the change purely
-            // additive and zero-risk for the BlinkID-shape case (which has
+            // additive and zero-risk for the namespace-facade case (which has
             // exactly zero static members on its swiftinterface).
             if (typeDecl.Properties.Count > 0)
                 return false;

@@ -65,7 +65,7 @@ public static class ObjCOverridePropertyWrapperEmitter
     /// <summary>
     /// Gets the @_silgen_name symbol for a property accessor wrapper.
     /// </summary>
-    /// <param name="moduleName">The Swift module name (e.g., "Lottie").</param>
+    /// <param name="moduleName">The Swift module name (e.g., "MyModule").</param>
     /// <param name="typeName">The Swift type name (e.g., "AnimationViewBase").</param>
     /// <param name="propertyName">The Swift property name (e.g., "contentMode").</param>
     /// <param name="isGetter">True for getter, false for setter.</param>

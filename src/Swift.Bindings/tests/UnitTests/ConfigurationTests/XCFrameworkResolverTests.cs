@@ -112,7 +112,7 @@ namespace BindingsGeneration.Tests
     {
         private static readonly ILogger Logger = NullLogger.Instance;
 
-        private const string NukeStylePlist = """
+        private const string ImagePipelineStylePlist = """
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             <plist version="1.0">
@@ -120,17 +120,17 @@ namespace BindingsGeneration.Tests
                 <key>AvailableLibraries</key>
                 <array>
                     <dict>
-                        <key>BinaryPath</key><string>Nuke.framework/Nuke</string>
+                        <key>BinaryPath</key><string>ImagePipeline.framework/ImagePipeline</string>
                         <key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string>
-                        <key>LibraryPath</key><string>Nuke.framework</string>
+                        <key>LibraryPath</key><string>ImagePipeline.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
                         <key>SupportedPlatform</key><string>ios</string>
                         <key>SupportedPlatformVariant</key><string>simulator</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Nuke.framework/Nuke</string>
+                        <key>BinaryPath</key><string>ImagePipeline.framework/ImagePipeline</string>
                         <key>LibraryIdentifier</key><string>ios-arm64</string>
-                        <key>LibraryPath</key><string>Nuke.framework</string>
+                        <key>LibraryPath</key><string>ImagePipeline.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string></array>
                         <key>SupportedPlatform</key><string>ios</string>
                     </dict>
@@ -162,7 +162,7 @@ namespace BindingsGeneration.Tests
             </plist>
             """;
 
-        private const string LottieStylePlist = """
+        private const string VectorAnimationStylePlist = """
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             <plist version="1.0">
@@ -170,61 +170,61 @@ namespace BindingsGeneration.Tests
                 <key>AvailableLibraries</key>
                 <array>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>ios-arm64</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string></array>
                         <key>SupportedPlatform</key><string>ios</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>tvos-arm64_x86_64-simulator</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
                         <key>SupportedPlatform</key><string>tvos</string>
                         <key>SupportedPlatformVariant</key><string>simulator</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Versions/A/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/Versions/A/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>ios-arm64_x86_64-maccatalyst</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
                         <key>SupportedPlatform</key><string>ios</string>
                         <key>SupportedPlatformVariant</key><string>maccatalyst</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Versions/A/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/Versions/A/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>macos-arm64_x86_64</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
                         <key>SupportedPlatform</key><string>macos</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>xros-arm64</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string></array>
                         <key>SupportedPlatform</key><string>xros</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>xros-arm64_x86_64-simulator</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
                         <key>SupportedPlatform</key><string>xros</string>
                         <key>SupportedPlatformVariant</key><string>simulator</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>tvos-arm64</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string></array>
                         <key>SupportedPlatform</key><string>tvos</string>
                     </dict>
                     <dict>
-                        <key>BinaryPath</key><string>Lottie.framework/Lottie</string>
+                        <key>BinaryPath</key><string>VectorAnimation.framework/VectorAnimation</string>
                         <key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string>
-                        <key>LibraryPath</key><string>Lottie.framework</string>
+                        <key>LibraryPath</key><string>VectorAnimation.framework</string>
                         <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
                         <key>SupportedPlatform</key><string>ios</string>
                         <key>SupportedPlatformVariant</key><string>simulator</string>
@@ -250,15 +250,15 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ParsePlist_NukeStyle_TwoSlices()
+        public void ParsePlist_ImagePipelineStyle_TwoSlices()
         {
-            var slices = ParsePlistString(NukeStylePlist);
+            var slices = ParsePlistString(ImagePipelineStylePlist);
             Assert.Equal(2, slices.Count);
 
             var sim = slices.First(s => s.SupportedPlatformVariant == "simulator");
-            Assert.Equal("Nuke.framework/Nuke", sim.BinaryPath);
+            Assert.Equal("ImagePipeline.framework/ImagePipeline", sim.BinaryPath);
             Assert.Equal("ios-arm64_x86_64-simulator", sim.LibraryIdentifier);
-            Assert.Equal("Nuke.framework", sim.LibraryPath);
+            Assert.Equal("ImagePipeline.framework", sim.LibraryPath);
             Assert.Equal(new[] { "arm64", "x86_64" }, sim.SupportedArchitectures);
             Assert.Equal("ios", sim.SupportedPlatform);
 
@@ -277,16 +277,16 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ParsePlist_LottieStyle_AllEightSlicesParsed()
+        public void ParsePlist_VectorAnimationStyle_AllEightSlicesParsed()
         {
-            var slices = ParsePlistString(LottieStylePlist);
+            var slices = ParsePlistString(VectorAnimationStylePlist);
             Assert.Equal(8, slices.Count);
         }
 
         [Fact]
         public void ParsePlist_DeviceSlice_NullVariant()
         {
-            var slices = ParsePlistString(NukeStylePlist);
+            var slices = ParsePlistString(ImagePipelineStylePlist);
             var device = slices.First(s => s.LibraryIdentifier == "ios-arm64");
             Assert.Null(device.SupportedPlatformVariant);
         }
@@ -294,7 +294,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ParsePlist_SimulatorSlice_HasSimulatorVariant()
         {
-            var slices = ParsePlistString(NukeStylePlist);
+            var slices = ParsePlistString(ImagePipelineStylePlist);
             var sim = slices.First(s => s.LibraryIdentifier == "ios-arm64_x86_64-simulator");
             Assert.Equal("simulator", sim.SupportedPlatformVariant);
         }
@@ -302,7 +302,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ParsePlist_MaccatalystSlice_HasMaccatalystVariant()
         {
-            var slices = ParsePlistString(LottieStylePlist);
+            var slices = ParsePlistString(VectorAnimationStylePlist);
             var catalyst = slices.First(s => s.LibraryIdentifier == "ios-arm64_x86_64-maccatalyst");
             Assert.Equal("maccatalyst", catalyst.SupportedPlatformVariant);
         }
@@ -869,12 +869,12 @@ namespace BindingsGeneration.Tests
         }
 
         [Theory]
-        [InlineData("current ar archive random library")]                                                               // .a archive (Mappedin shape)
+        [InlineData("current ar archive random library")]                                                               // .a archive (static-archive shape)
         [InlineData("Mach-O 64-bit object arm64")]                                                                      // Static Mach-O object
         [InlineData("Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit object x86_64] [arm64]")]      // Universal static
         public void Resolve_StaticFrameworkBinary_WithSwiftInterface_TakesSwiftPath(string fileOutput)
         {
-            // Mappedin 6.2.0 shape: a `.framework` whose binary is a static `ar`
+            // Static-archive-with-swiftmodule shape: a `.framework` whose binary is a static `ar`
             // archive paired with a complete `Modules/<Mod>.swiftmodule/...`.
             // The detection-order rule routes this to the Swift binding path
             // because Swift evidence is present, regardless of binary kind.
@@ -882,9 +882,9 @@ namespace BindingsGeneration.Tests
             // path so the test catches downstream regressions, not just step 7
             // routing.
             using var fixture = new XCFrameworkFixture();
-            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Mappedin"));
-            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Mappedin.framework", "Mappedin.framework/Mappedin");
-            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Mappedin.framework", "Mappedin");
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("IndoorMapsSdk"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "IndoorMapsSdk.framework", "IndoorMapsSdk.framework/IndoorMapsSdk");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "IndoorMapsSdk.framework", "IndoorMapsSdk");
             fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
             fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
 
@@ -895,15 +895,15 @@ namespace BindingsGeneration.Tests
             // below.
             runner.SetResponse("file", 0, fileOutput);
             runner.SetResponse("nm", 0,
-                "Mappedin-1.o:\n0000000000000000 T _$s8Mappedin1FunctionV6methodyyF\n");
+                "IndoorMapsSdk-1.o:\n0000000000000000 T _$s12IndoorMapsSdk1FunctionV6methodyyF\n");
 
             var result = XCFrameworkResolver.Resolve(
                 fixture.RootPath, fixture.OutputPath,
                 XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
 
-            Assert.Equal("Mappedin", result.ModuleName);
+            Assert.Equal("IndoorMapsSdk", result.ModuleName);
             Assert.NotNull(result.SwiftInterfacePath);
-            Assert.Contains("Mappedin.framework/Mappedin", result.DylibPath);
+            Assert.Contains("IndoorMapsSdk.framework/IndoorMapsSdk", result.DylibPath);
             // Detection-order proof: tapi stubify was never reached.
             Assert.DoesNotContain(runner.Invocations, i => i.Arguments.Contains("tapi stubify"));
             // Synthesis proof: nm fed the TBD generator.
@@ -912,7 +912,7 @@ namespace BindingsGeneration.Tests
             Assert.True(File.Exists(result.TbdPath));
             var tbdJson = File.ReadAllText(result.TbdPath);
             Assert.Contains("\"tapi_tbd_version\"", tbdJson);
-            Assert.Contains("$s8Mappedin1FunctionV6methodyyF", tbdJson);
+            Assert.Contains("$s12IndoorMapsSdk1FunctionV6methodyyF", tbdJson);
         }
 
         [Fact]
@@ -1343,9 +1343,9 @@ namespace BindingsGeneration.Tests
             var tmpFile = Path.GetTempFileName();
             try
             {
-                File.WriteAllText(tmpFile, "framework module Stripe3DS2 {\n  umbrella header \"Stripe3DS2.h\"\n}\n");
+                File.WriteAllText(tmpFile, "framework module PaymentSdk3DS2 {\n  umbrella header \"PaymentSdk3DS2.h\"\n}\n");
                 var result = XCFrameworkResolver.ParseModuleNameFromModulemap(tmpFile);
-                Assert.Equal("Stripe3DS2", result);
+                Assert.Equal("PaymentSdk3DS2", result);
             }
             finally { File.Delete(tmpFile); }
         }
@@ -1680,7 +1680,6 @@ namespace BindingsGeneration.Tests
 
     /// <summary>
     /// Issue #41: a thin Swift wrapper whose <c>.swiftinterface</c> imports a companion module
-    /// (e.g. <c>MediaPipeTasksGenAI</c> importing the C/C++ engine <c>MediaPipeTasksGenAIC</c>)
     /// could not have its ABI extracted because <c>swift-frontend</c> was invoked with no
     /// <c>-F</c> framework search paths, so it could not resolve the companion and aborted before
     /// writing any report. These tests pin the fix: the framework's own slice plus explicit and
@@ -1734,9 +1733,9 @@ namespace BindingsGeneration.Tests
         public void BuildMissingCompanionModuleHint_NamesModulesAndRemediation()
         {
             var hint = XCFrameworkResolver.BuildMissingCompanionModuleHint(
-                "MediaPipeTasksGenAI", new List<string> { "MediaPipeTasksGenAIC" });
+                "MlVisionLibTasksGenAI", new List<string> { "MlVisionLibTasksGenAIC" });
 
-            Assert.Contains("MediaPipeTasksGenAIC", hint);
+            Assert.Contains("MlVisionLibTasksGenAIC", hint);
             Assert.Contains("--framework-dependency", hint);
             Assert.Contains("SwiftFrameworkDependency", hint);
             Assert.Contains("misleading", hint);   // the SDK-version cascade caveat
@@ -1853,7 +1852,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Resolve_GeneratesAbi_AutoDetectsCoLocatedCompanionSibling()
         {
-            // The reported MediaPipe scenario: companion sits NEXT TO the wrapper, no explicit flag.
+            // The reported co-located companion scenario: companion sits NEXT TO the wrapper, no explicit flag.
             var parent = Path.Combine(Path.GetTempPath(), $"colocated_{Guid.NewGuid():N}");
             var wrapperRoot = Path.Combine(parent, "Wrapper.xcframework");
             var outputPath = Path.Combine(parent, "output");

@@ -359,11 +359,10 @@ public static class NameProvider
             return $"ISwift{protocolName}";
 
         // Apply the I prefix to the LEAF component only. For a nested protocol like
-        // `Parent.Nested` (e.g., Nuke.ImagePipeline.Delegate where the parent path lands
-        // here as `ImagePipeline.Delegate`), the C# nested layout is `Parent.INested` —
+        // `Parent.Nested` (the parent path lands here as `Parent.Nested`), the C# nested
+        // layout is `Parent.INested` —
         // the parent type names stay un-prefixed and the I attaches to the protocol's
-        // leaf name. Without this, `I + ImagePipeline.Delegate` produced the nonexistent
-        // Without this, `I + ImagePipeline.Delegate` produces the nonexistent type `IImagePipeline.Delegate`.
+        // leaf name. Without this, `I + Parent.Nested` produces the nonexistent type `IParent.Nested`.
         var lastDot = protocolName.LastIndexOf('.');
         var interfaceName = lastDot >= 0
             ? protocolName.Substring(0, lastDot + 1) + "I" + protocolName.Substring(lastDot + 1)
@@ -621,7 +620,7 @@ public static class NameProvider
             return name;
 
         // CX-2: Strip characters illegal in C# identifiers (e.g., '<', '>' from existential annotations).
-        // Kingfisher produces params like "retryStrategy>" from "any RetryStrategy" type annotations.
+        // Some libraries produce params like "retryStrategy>" from "any RetryStrategy" type annotations.
         name = StripIllegalIdentifierChars(name);
 
         if (string.IsNullOrEmpty(name))
@@ -814,7 +813,7 @@ public static class NameProvider
     /// </summary>
     private static readonly HashSet<string> _systemCollisionNames = new()
     {
-        "Disposable",     // IDisposable → ISwiftDisposable (RxSwift)
+        "Disposable",     // IDisposable → ISwiftDisposable (avoids collision with System.IDisposable)
     };
 
     /// <summary>
@@ -827,8 +826,8 @@ public static class NameProvider
     /// </summary>
     private static readonly HashSet<string> _inheritedMethodCollisions = new()
     {
-        "Dispose",        // IDisposable.Dispose() from SafeHandle (RxSwift dispose())
-        "Finalize",       // Object.Finalize() (C# destructor) — GRDB DatabaseAggregate.finalize()
+        "Dispose",        // IDisposable.Dispose() from SafeHandle
+        "Finalize",       // Object.Finalize() (C# destructor) — Swift type has a finalize() member
         "GetType",        // Object.GetType() — Firestore Expression.type() shadows it and breaks GetType().Name
         "ToString",       // Object.ToString()
         "Equals",         // Object.Equals(object)
@@ -873,7 +872,7 @@ public static class NameProvider
         var pascalName = ToPascalCase(sanitizedName);
 
         // Check for collision with containing type name (CS0542: member names cannot be same as enclosing type)
-        // Example: class DotLottieFile { var Animation: Animation? } -> property Animation collides with class name
+        // Example: class Foo { var Foo: Foo? } -> property Foo collides with class name (CS0542)
         if (!string.IsNullOrEmpty(containingTypeName) && pascalName == containingTypeName)
             return $"{pascalName}Value";
 
@@ -1195,8 +1194,8 @@ public static class NameProvider
 
     /// <summary>
     /// Cascades a CSharpTypeName rename to all descendant types in the TypeDatabase.
-    /// When a parent type is renamed (e.g., "ImagePipeline.Cache" → "ImagePipeline.CacheType"),
-    /// all nested types must also be updated (e.g., "ImagePipeline.Cache.Caches" → "ImagePipeline.CacheType.Caches").
+    /// When a parent type is renamed (e.g., "Module.Cache" → "Module.CacheType"),
+    /// all nested types must also be updated (e.g., "Module.Cache.Caches" → "Module.CacheType.Caches").
     /// </summary>
     private static void CascadeTypeRename(TypeDecl parentType, string oldPrefix, string newPrefix,
         string @namespace, ITypeDatabase typeDatabase)

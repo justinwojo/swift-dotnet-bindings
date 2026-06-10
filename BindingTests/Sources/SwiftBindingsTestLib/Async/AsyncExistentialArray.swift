@@ -5,8 +5,8 @@ import Foundation
 
 // MARK: - Async existential-array parameters (Issue #34)
 //
-// Repro for the FirebaseAILogic 12.6 GenerateContentAsync shape: an async method
-// whose parameter is `[any Proto]`. These shapes round-trip successfully through
+// Repro for an async method whose parameter is `[any Proto]`. These shapes round-trip
+// successfully through
 // the async wrapper path today — the C# P/Invoke surface is uniformly blittable
 // (callback + taskId + IntPtr parts array) because async methods early-return
 // `HasNonBlittablePInvokeTypes = false`. SB0001 should NOT fire on the generated
@@ -17,7 +17,7 @@ import Foundation
 // still fires there — this is the distinguishing case the reporter's single
 // diagnostic can't separate from the working async shape.
 
-/// Marker protocol standing in for FirebaseAILogic's `PartsRepresentable`.
+/// Marker protocol for elements of existential-array parameters.
 public protocol PartsRepresentable {
     var label: String { get }
 }
@@ -28,9 +28,8 @@ public struct TextPart: PartsRepresentable {
     public init(label: String) { self.label = label }
 }
 
-/// Class holding the generator APIs. Mirrors the structure of FirebaseAILogic's
-/// `GenerativeModel` — an instance method that takes a heterogeneous array of
-/// existentials and returns a value by awaiting a fake remote call.
+/// Class with an async instance method taking a heterogeneous array of existentials
+/// and returning a value by awaiting a fake remote call.
 public final class GenerateContentClient {
     public init() {}
 

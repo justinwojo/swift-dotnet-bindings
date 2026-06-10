@@ -439,9 +439,9 @@ public static class ConstrainedExistentialBridge
 
     /// <summary>
     /// Renders the full Swift type string for a constrained existential, e.g.,
-    /// "any BlinkIDUX.CameraFrameAnalyzer&lt;BlinkID.CameraFrame, BlinkIDUX.UIEvent&gt;"
-    /// Module qualifications are preserved to avoid ambiguity with UIKit types
-    /// (e.g., BlinkIDUX.UIEvent vs UIKit.UIEvent). The import statements ensure
+    /// "any Module.Protocol&lt;Module.TypeArg1, Module.TypeArg2&gt;"
+    /// Module qualifications are preserved to avoid ambiguity with same-named types in
+    /// other imported modules. The import statements ensure
     /// module-qualified names resolve correctly.
     /// </summary>
     internal static string RenderConstrainedExistentialSwiftType(TypeSpec typeSpec)

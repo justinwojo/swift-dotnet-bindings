@@ -22,7 +22,7 @@ internal enum TypeOwnerKind
     /// <summary>Owned by the Apple supplement package (<c>SwiftBindings.Apple</c>).</summary>
     AppleSupplement,
 
-    /// <summary>Owned by a generated third-party binding package (e.g. <c>Stripe.Swift.iOS</c>).</summary>
+    /// <summary>Owned by a generated third-party binding package (e.g. <c>Module.Swift.iOS</c>).</summary>
     ThirdPartyPackage,
 
     /// <summary>Swift standard-library type; lives inside <c>SwiftBindings.Runtime</c> today.</summary>

@@ -13,9 +13,9 @@ namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
 /// Regression coverage for the cross-module variant of the enum-case
-/// payload-extractor-missing bug. The Stripe shape is an enum declared in one
-/// module whose `.completed(payload:)` case carries a type owned by a
-/// *different* module. <see cref="ClassPayloadEnumTests"/> already locks the
+/// payload-extractor-missing bug: an enum declared in one module whose
+/// `.completed(payload:)` case carries a type owned by a *different* module.
+/// <see cref="ClassPayloadEnumTests"/> already locks the
 /// same-module variant; these tests lock the cross-module path so any
 /// TypeDatabase / projection regression that silently drops the factory or
 /// extractor surfaces here rather than in downstream binding output.

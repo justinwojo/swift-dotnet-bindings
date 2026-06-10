@@ -94,7 +94,7 @@ public class CancellationTokenEmitterTests
     [Fact]
     public void GetCancelSymbolName_ReturnsModuleSpecificName()
     {
-        Assert.Equal("SBW_CancelTask_Nuke", CancellationTaskEmitter.GetCancelSymbolName("Nuke"));
+        Assert.Equal("SBW_CancelTask_ImagePipeline", CancellationTaskEmitter.GetCancelSymbolName("ImagePipeline"));
         Assert.Equal("SBW_CancelTask_TestModule", CancellationTaskEmitter.GetCancelSymbolName("TestModule"));
     }
 

@@ -280,13 +280,13 @@ public class GenericSignatureParserTests
     // --- Same-type concrete pins (`where T == ()`) are dropped but flagged ---
     // B3 drops the unrepresentable `== ()` target; the dropped constraint would otherwise erase
     // the single-specialization confinement, letting a constrained init flow to the open
-    // `_SBW_CI_`/GSF constructor wrapper and emit non-compiling Swift (the GRDB.TableAlias
-    // `init(name:) where RowDecoder == ()` regression). The flag preserves that confinement.
+    // `_SBW_CI_`/GSF constructor wrapper and emit non-compiling Swift (the `init(name:) where
+    // RowDecoder == ()` regression). The flag preserves that confinement.
 
     [Fact]
     public void ParseGenericSignature_DropsConcreteSameTypePin_FlagsParameter()
     {
-        // Mirrors GRDB.TableAlias.init(name:) where RowDecoder == (): the constraint is dropped
+        // Mirrors init(name:) where RowDecoder == (): the constraint is dropped
         // (target `()` is not a nominal type) but the parameter is flagged as concretely pinned.
         var genericSig = "<τ_0_0 where τ_0_0 == ()>";
         var sugaredSig = "<RowDecoder where RowDecoder == ()>";

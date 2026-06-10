@@ -116,7 +116,7 @@ public class NameProviderParameterTests
     [Fact]
     public void GetCSharpParameterName_Event_UsesVerbatimPrefix()
     {
-        // Mixpanel: Track(string? @event) — not _event
+        // C# keyword parameter name: Track(string? @event) — not _event
         var arg = MakeArg("_event");
         Assert.Equal("@event", NameProvider.GetCSharpParameterName(arg));
     }
@@ -250,7 +250,7 @@ public class NameProviderParameterTests
     [Fact]
     public void Arg0_ImageRequest_BecomesImageRequest()
     {
-        var arg = MakeArgWithType("arg0", "Nuke.ImageRequest");
+        var arg = MakeArgWithType("arg0", "ImagePipeline.ImageRequest");
         Assert.Equal("imageRequest", NameProvider.GetCSharpParameterName(arg));
     }
 
@@ -283,7 +283,7 @@ public class NameProviderParameterTests
     // Apple numeric typealiases (CGFloat, TimeInterval, NSInteger, NSUInteger,
     // NSTimeInterval) are semantically primitive doubles/ints. Pre-fix, the
     // emitter's DeriveParameterNameFromType camelcased the typedef name into
-    // nonsense parameter names like `cGFloat` / `nSInteger` (Lottie:6249,
+    // nonsense parameter names like `cGFloat` / `nSInteger` (issue #6249,
     // SDK-0.10.0-BLOCKERS Round 4 / M-8). Post-fix, all five collapse to the
     // generic "value" — matching the existing `Swift.Double` / `Swift.Int` shape.
     [InlineData("CGFloat")]
@@ -319,7 +319,7 @@ public class NameProviderParameterTests
     public void RegularName_Unchanged()
     {
         // Non-generated names pass through unchanged
-        var arg = MakeArgWithType("request", "Nuke.ImageRequest");
+        var arg = MakeArgWithType("request", "ImagePipeline.ImageRequest");
         Assert.Equal("request", NameProvider.GetCSharpParameterName(arg));
     }
 
@@ -342,10 +342,10 @@ public class NameProviderParameterTests
     [Fact]
     public void GetCSharpParameterName_NestedType_UsesLeafName()
     {
-        // Nested types like "Nuke.ImageRequest.ThumbnailOptions" must produce
-        // "thumbnailOptions" (leaf name only), not "imageRequest.ThumbnailOptions"
-        // (which contains a dot and is an invalid C# identifier).
-        var arg = MakeArgWithType("arg0", "Nuke.ImageRequest.ThumbnailOptions");
+        // Nested types like "Module.Outer.Leaf" must produce
+        // "leaf" (leaf name only), not "outer.Leaf" (which contains a dot and is an
+        // invalid C# identifier).
+        var arg = MakeArgWithType("arg0", "ImagePipeline.ImageRequest.ThumbnailOptions");
         var result = NameProvider.GetCSharpParameterName(arg);
         Assert.Equal("thumbnailOptions", result);
         Assert.DoesNotContain(".", result);

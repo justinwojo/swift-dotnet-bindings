@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Class-parameter reverse-callback regression (issue #40, Kidoz)
+// MARK: - Class-parameter reverse-callback regression (issue #40)
 //
 // When Swift calls back into a C# protocol implementation with a method whose
 // parameter is a Swift *class* instance, the generated proxy receiver used to
@@ -13,8 +13,8 @@ import Foundation
 // classes had no branch and fell through to the broken fallback.
 //
 // This fixture reproduces both the pure-Swift and the `@objc … : NSObject`
-// payload variants. The `@objc` variant is the literal Kidoz `KidozError` shape
-// and is the one that exercises the ObjC-aware retain (`swift_unknownObjectRetain`)
+// payload variants. The `@objc` variant is the @objc:NSObject reverse-dispatch
+// repro shape (issue #40) and exercises the ObjC-aware retain (`swift_unknownObjectRetain`)
 // half of the fix — native-only `swift_retain` is a no-op / over-release on an
 // NSObject subclass.
 //
@@ -75,7 +75,7 @@ public class ClassParamDriver {
     }
 }
 
-// MARK: - @objc : NSObject class payload (the Kidoz `KidozError` shape)
+// MARK: - @objc : NSObject class payload (the @objc:NSObject reverse-dispatch shape)
 
 /// ObjC-rooted class payload — `@objc … : NSObject`. This is the variant that
 /// exercises the ObjC-aware retain fix: the copy-out path must `swift_unknownObjectRetain`

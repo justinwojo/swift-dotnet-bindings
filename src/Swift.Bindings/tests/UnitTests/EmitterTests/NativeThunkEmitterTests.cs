@@ -686,7 +686,7 @@ namespace BindingsGeneration.Tests
             // Non-frozen struct property getters use opaque accessor calling conventions:
             // the getter writes its result to an indirect buffer via x8, even for small
             // return types (e.g., 1-byte enum). Our thunk doesn't set x8 → SIGSEGV.
-            // Verified by disassembling Nuke's ImageRequest.priority getter (arm64):
+            // Verified by disassembling a non-frozen struct property getter (arm64):
             //   ldr x9, [x20]; ...; strb w9, [x8]; ret
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyEnum", new TypeRecord
@@ -1834,7 +1834,7 @@ namespace BindingsGeneration.Tests
             // Non-frozen simple enums are passed indirectly in Swift ABI (resilient layout):
             // the Swift function dereferences x0 as a pointer to the enum value, but the
             // thunk passes the raw int value in x0 → SIGSEGV (null deref for case 0).
-            // KeychainAccess.Accessibility crash: 14 tests pass, test 15 (WithAccessibility)
+            // Non-frozen simple enum param crash: 14 tests pass, test 15
             // crashes on both simulator (Mono) and device (NativeAOT).
             var classDecl = CreateClassDecl();
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);

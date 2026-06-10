@@ -105,8 +105,8 @@ public actor ActorVault {
 }
 
 // MARK: - Actor with Isolated AsyncStream Property
-// BlinkIDUX.BlinkIDEventStream pattern — non-async stored property on an `actor` that
-// returns AsyncStream<T>. The @_cdecl wrapper must hop to the actor's serial executor
+// Non-async stored property on an `actor` that returns AsyncStream<T>.
+// The @_cdecl wrapper must hop to the actor's serial executor
 // via `await __self.events` from inside a Task.
 
 public actor ActorEventStream {
@@ -164,9 +164,8 @@ public func createActorVault() -> ActorVault {
 }
 
 // MARK: - Actor with Already-Async Throwing Methods
-// BlinkIDUX.CaptureService shape: actor methods declared `async throws` at the Swift source
-// level (not sync-normalized by the parser). Exercises the async-throwing wrapper path on
-// an actor receiver.
+// Actor methods declared `async throws` at the Swift source level (not sync-normalized
+// by the parser). Exercises the async-throwing wrapper path on an actor receiver.
 //
 // Scope note: this fixture is a shell-stub to surface the API shape. Executor semantics
 // (unownedExecutor / actor-isolation hop on entry) are deferred to a post-release follow-up

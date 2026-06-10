@@ -70,14 +70,14 @@ namespace BindingsGeneration
             if (isStringRawType)
             {
                 // Use full module-qualified name to avoid collisions for same-named nested enums
-                // e.g., BlinkID.Foo.ErrorType and BlinkID.Bar.ErrorType get unique symbols
+                // (e.g., Module.Foo.ErrorType and Module.Bar.ErrorType get unique symbols)
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
                 EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
             }
             else if (!enumDecl.IsFrozen && !string.IsNullOrEmpty(typeDatabase.AsyncLibraryName))
             {
                 // Non-frozen blittable enum: emit @_cdecl wrapper for init(rawValue:) to avoid
-                // CallConvSwift + SwiftIndirectResult crash on Mono JIT (e.g., ObjectMapper DateTransform.Unit).
+                // CallConvSwift + SwiftIndirectResult crash on Mono JIT.
                 // The wrapper writes Optional<Self> to a caller-provided buffer using Cdecl ABI.
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
                 EmitBlittableRawValueSwiftWrapper(swiftWriter, enumDecl, rawTypeName, wrapperSymbol, ctx);
@@ -535,7 +535,7 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Use the full module-qualified name for nested enums (e.g., BlinkID.SomeClass.ErrorType)
+            // Use the full module-qualified name for nested enums (e.g., Module.ParentClass.NestedEnum)
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
 
             // Emit SBW_Utf8Slice struct if not already done for this module
@@ -607,7 +607,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a @_cdecl Swift wrapper for non-frozen blittable enum init(rawValue:).
         /// Writes Optional&lt;Self&gt; to a caller-provided buffer, avoiding CallConvSwift + SwiftIndirectResult
-        /// which crashes on Mono JIT (e.g., ObjectMapper DateTransform.Unit).
+        /// which crashes on Mono JIT.
         /// </summary>
         private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {

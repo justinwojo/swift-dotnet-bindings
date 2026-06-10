@@ -53,7 +53,7 @@ public sealed record PartialSwiftInterfaceFacts
 
     /// <summary>SPI-only conformances harvested from <c>*.private.swiftinterface</c>.
     /// Each entry is <c>"QualifiedType::ProtocolName"</c> (e.g.,
-    /// <c>"StripeCore.StripeAPI.BankAccountToken::Equatable"</c>). Drives the
+    /// <c>"Module.TypeName::ProtocolName"</c>). Drives the
     /// <see cref="SwiftABIParser"/> conformance filter so the wrapper does not call
     /// operators or methods that vanish under a plain <c>import</c>.</summary>
     public HashSet<string>? SpiOnlyConformances { get; init; }

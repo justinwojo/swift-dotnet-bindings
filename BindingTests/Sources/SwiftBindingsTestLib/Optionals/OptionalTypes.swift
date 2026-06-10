@@ -44,8 +44,8 @@ public func describeOptionalString(_ value: String?) -> String {
 
 /// Returns an optional string that exceeds SSO (>15 UTF-8 bytes) to exercise
 /// the optbuf return wrapper path with ARC-managed heap strings.
-/// This reproduces the DeviceKit Device.name / PhoneNumberKit MainCountry crash
-/// where copyMemory (raw memcpy) caused use-after-free on the returned string.
+/// Reproduces the crash where copyMemory (raw memcpy) caused use-after-free
+/// on the returned string.
 public func getLongOptionalString(_ returnNil: Bool) -> String? {
     if returnNil { return nil }
     return "This is a long string that exceeds small string optimization"

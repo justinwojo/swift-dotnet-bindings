@@ -28,8 +28,8 @@ namespace RuntimeTestsApp.Internal;
 /// the <c>SwiftWrapperPostProcessor</c> Pattern 2 (B) body-reference scrub
 /// strips the broken wrapper, and <c>CSharpWrapperCoGater</c> removes the
 /// matching C# member (preserving interface-implementation members so types
-/// conforming to public protocols still compile — see CryptoSwift
-/// <c>BlockEncryptor : Cryptor</c>). End-to-end coverage of that path lives in
+/// conforming to public protocols still compile — see a crypto library's
+/// <c>BlockEncryptor : Cryptor</c> pattern). End-to-end coverage of that path lives in
 /// <c>nuke validate</c> against the four real libraries, not in BindingTests:
 /// the wrapper-compile + post-processor pipeline does not run cleanly here,
 /// so the fixture verifies what is reachable — the construction barrier (no
@@ -158,7 +158,7 @@ public class InternalTypeReachTests : TestBase
         //     pair — Pattern 2 (B) body-reference scrub strips the broken
         //     @_cdecl wrapper, and CSharpWrapperCoGater removes the matching
         //     C# member when no public protocol requires it. (Where a protocol
-        //     does require it — CryptoSwift BlockEncryptor : Cryptor — the
+        //     does require it — a crypto library's BlockEncryptor : Cryptor pattern — the
         //     co-gater's BuildTypeProtectedMembers exemption keeps the C#
         //     member to satisfy CS0535, which is why an emission-time receiver
         //     gate isn't safe.) That end-to-end path is validated by

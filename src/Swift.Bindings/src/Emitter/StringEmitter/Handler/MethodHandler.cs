@@ -122,8 +122,8 @@ namespace BindingsGeneration
             SwiftErrorMintEmitter.EmitForMethodIfNeeded(swiftWriter, methodEnv, context.GetEmissionContext());
 
             // SWIFTBIND022: The synchronous `new T(...)` projection is unreachable for
-            // constructors on @<CustomActor>-isolated parent types (e.g., @ImagePipelineActor
-            // class ImagePrefetcher). Swift 6 has no synchronous entry into a custom global
+            // constructors on @<CustomActor>-isolated parent types. Swift 6 has no synchronous
+            // entry into a custom global
             // actor's isolation domain — `<Actor>.shared.assumeIsolated { ... }` enters
             // *instance*-actor isolation, a different domain, so swiftc rejects an @_cdecl
             // wrapper that calls the init. A direct CallConvSwift call to the Swift-native

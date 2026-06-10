@@ -14,10 +14,10 @@ namespace BindingsGeneration.Tests
         {
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/path/to/SmartCardIO.xcframework",
-                ModuleName = "SmartCardIO"
+                XCFrameworkPath = "/path/to/SmartCardLib.xcframework",
+                ModuleName = "SmartCardLib"
             };
-            Assert.Equal("SmartCardIO.Swift.iOS", dep.EffectivePackageId);
+            Assert.Equal("SmartCardLib.Swift.iOS", dep.EffectivePackageId);
         }
 
         [Fact]
@@ -25,11 +25,11 @@ namespace BindingsGeneration.Tests
         {
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/path/to/SmartCardIO.xcframework",
-                ModuleName = "SmartCardIO",
-                PackageId = "Custom.SmartCardIO"
+                XCFrameworkPath = "/path/to/SmartCardLib.xcframework",
+                ModuleName = "SmartCardLib",
+                PackageId = "Custom.SmartCardLib"
             };
-            Assert.Equal("Custom.SmartCardIO", dep.EffectivePackageId);
+            Assert.Equal("Custom.SmartCardLib", dep.EffectivePackageId);
         }
 
         [Fact]
@@ -37,8 +37,8 @@ namespace BindingsGeneration.Tests
         {
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/path/to/SmartCardIO.xcframework",
-                ModuleName = "SmartCardIO",
+                XCFrameworkPath = "/path/to/SmartCardLib.xcframework",
+                ModuleName = "SmartCardLib",
                 PackageVersion = "2.3.1"
             };
             Assert.Equal("2.3.1", dep.EffectiveVersion);
@@ -49,8 +49,8 @@ namespace BindingsGeneration.Tests
         {
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/path/to/SmartCardIO.xcframework",
-                ModuleName = "SmartCardIO"
+                XCFrameworkPath = "/path/to/SmartCardLib.xcframework",
+                ModuleName = "SmartCardLib"
             };
             Assert.Equal("0.0.0", dep.EffectiveVersion);
         }
@@ -60,8 +60,8 @@ namespace BindingsGeneration.Tests
         {
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/path/to/SmartCardIO.xcframework",
-                ModuleName = "SmartCardIO",
+                XCFrameworkPath = "/path/to/SmartCardLib.xcframework",
+                ModuleName = "SmartCardLib",
                 PackageVersion = null
             };
             Assert.Equal("0.0.0", dep.EffectiveVersion);
@@ -103,8 +103,8 @@ namespace BindingsGeneration.Tests
         {
             var dep = new FrameworkDependencyInfo
             {
-                XCFrameworkPath = "/path/to/Stripe3DS2.xcframework",
-                ModuleName = "Stripe3DS2",
+                XCFrameworkPath = "/path/to/PaymentSdk3DS2.xcframework",
+                ModuleName = "PaymentSdk3DS2",
                 IsObjCOnly = true
             };
             Assert.True(dep.IsObjCOnly);

@@ -311,9 +311,9 @@ public class ProtocolExtensionExistentialParamTests
     [Fact]
     public void ExistentialParam_DuplicateLeafType_GetsNumericSuffix()
     {
-        // Repro of the FirebaseFirestore swift_compile failure: two unlabeled params
-        // of the same existential type both derive the same base internal name (`otherProtocol`),
-        // producing `invalid redeclaration of 'otherProtocol'` at the swiftc layer.
+        // Repro of a swift_compile failure: two unlabeled params of the same existential type
+        // both derive the same base internal name (`otherProtocol`), producing
+        // `invalid redeclaration of 'otherProtocol'` at the swiftc layer.
         // ComputeUniqueParamNames must suffix the duplicate with a numeric index.
         var (moduleDecl, conformingType, typeDatabase) = CreateSetupWithAdditionalProtocol(
             "TestModule", "MyClass", "TestProtocol", "OtherProtocol");

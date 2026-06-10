@@ -849,7 +849,7 @@ public class ClosureEmitterDirectTests
 
     #endregion
 
-    #region Enum rawValue Int/Int64 cast (StripePayments regression fix)
+    #region Enum rawValue Int/Int64 cast (PaymentSdkPayments regression fix)
 
     [Fact]
     public void SwiftClosureAdapter_SimpleEnumArg_RawValueWrappedInScalarCast()
@@ -1106,7 +1106,7 @@ public class ClosureEmitterDirectTests
 
         ClosureEmitter.EmitEscapingClosureCallback(
             csWriter, "init", "block", closureTypeSpec, closureHandler,
-            "$s6Lottie17SizeValueProviderCyAA_XCTF", useCdecl: true);
+            "$s15VectorAnimation17SizeValueProviderCyAA_XCTF", useCdecl: true);
 
         var result = output.ToString();
         // Indirect return: callback accepts resultBuffer as first param, returns void, writes to buffer

@@ -103,9 +103,9 @@ public class SelfReconstructionEmitterTests
         var output = new StringWriter();
         var swiftWriter = new SwiftWriter(output);
 
-        SelfReconstructionEmitter.Emit(swiftWriter, isClass: true, isMutating: false, "Nuke.ImageRequest.Priority");
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass: true, isMutating: false, "ImagePipeline.ImageRequest.Priority");
 
         var result = output.ToString();
-        Assert.Contains("Unmanaged<Nuke.ImageRequest.Priority>", result);
+        Assert.Contains("Unmanaged<ImagePipeline.ImageRequest.Priority>", result);
     }
 }

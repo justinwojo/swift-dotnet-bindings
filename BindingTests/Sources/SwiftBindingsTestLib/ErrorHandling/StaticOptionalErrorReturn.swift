@@ -6,8 +6,8 @@ import Foundation
 // MARK: - Static method returning `(any Error)?`
 //
 // Regression for the PInvoke-vs-body sret-shape drift bug
-// (uninitialized sret buffer for optional-error return). Mirrors
-// Nuke 13.0.5's `static func validate(response:) -> (any Error)?` shape:
+// (uninitialized sret buffer for optional-error return).
+// Shape: a static method with the following properties:
 //
 //   - direct CallConvSwift (no @_cdecl wrapper, no native thunk, no
 //     wrapper-library indirection)

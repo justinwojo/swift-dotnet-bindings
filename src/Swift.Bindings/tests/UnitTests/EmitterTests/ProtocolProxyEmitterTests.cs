@@ -944,11 +944,11 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_DllImportUsesAsyncLibraryName()
     {
-        _typeDatabase.AsyncLibraryName = "BlinkIDSwiftBindings";
+        _typeDatabase.AsyncLibraryName = "DocScanSwiftBindings";
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[LibraryImport(\"BlinkIDSwiftBindings\"", output);
+        Assert.Contains("[LibraryImport(\"DocScanSwiftBindings\"", output);
         Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", output);
     }
 
@@ -1010,8 +1010,8 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_EmptyProtocol_GeneratesProxyClass()
     {
-        // Fix 8 (SnapKit): Protocols with no implementable instance members still need
-        // proxy classes — return types like ILayoutConstraintItem require a proxy constructor.
+        // Protocols with no implementable instance members still need proxy classes —
+        // return types like ILayoutConstraintItem require a proxy constructor.
         // The emission code gracefully handles zero members (loops iterate zero times).
         var protocolDecl = CreateSimpleProtocol("EmptyProtocol");
 
@@ -3915,16 +3915,16 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_MethodReceiver_ObjCRootedClassParam_UsesCopyOut()
     {
-        // The literal Kidoz shape: an @objc:NSObject class param. Same copy-out routing; the
-        // runtime helper's swift_unknownObjectRetain handles the ObjC-vs-native retain dispatch
+        // An @objc:NSObject class param. Same copy-out routing; the runtime helper's
+        // swift_unknownObjectRetain handles the ObjC-vs-native retain dispatch
         // (native swift_retain is a no-op / over-release on an NSObject subclass).
-        RegisterObjCRootedClass("KidozError");
+        RegisterObjCRootedClass("AdNetworkError");
         var protocol = CreateSimpleProtocol("ObjCClassParamProto");
         var method = CreateMethodDecl("onError");
         method.CSSignature.Add(new ArgumentDecl
         {
-            Name = "kidozError", PrivateName = "kidozError",
-            SwiftTypeSpec = new NamedTypeSpec("TestModule.KidozError"),
+            Name = "error", PrivateName = "error",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.AdNetworkError"),
             IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
         });
         protocol.Methods.Add(method);
@@ -3932,8 +3932,8 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
         var body = ExtractMethodBody(output, "private static void Receive_onError_0(");
 
-        Assert.DoesNotContain("MarshalFromSwift<TestModule.KidozError>(rawArg0)", body);
-        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.KidozError>(rawArg0)", body);
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.AdNetworkError>(rawArg0)", body);
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.AdNetworkError>(rawArg0)", body);
     }
 
     [Fact]
@@ -3970,15 +3970,15 @@ public class ProtocolProxyEmitterTests
         // borrowed slot holding the heap pointer; the setter receiver must copy it out (deref +
         // ObjC-aware retain) rather than Unsafe.Read-ing the slot word as a managed reference.
         // ObjC-rooted variant: swift_unknownObjectRetain dispatches the @objc:NSObject retain.
-        RegisterObjCRootedClass("KidozError");
+        RegisterObjCRootedClass("AdNetworkError");
         var protocol = CreateProtocolWithProperty("ErrorSinkProto", "lastError",
-            hasGetter: false, hasSetter: true, new NamedTypeSpec("TestModule.KidozError"));
+            hasGetter: false, hasSetter: true, new NamedTypeSpec("TestModule.AdNetworkError"));
 
         var output = EmitProxyClass(protocol);
         var body = ExtractMethodBody(output, "private static void Receive_lastError_set(");
 
-        Assert.DoesNotContain("MarshalFromSwift<TestModule.KidozError>(", body);
-        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.KidozError>(valuePtr)", body);
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.AdNetworkError>(", body);
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.AdNetworkError>(valuePtr)", body);
     }
 
     [Fact]
@@ -3987,7 +3987,7 @@ public class ProtocolProxyEmitterTests
         // Issue #40, subscript getter index site (Receivers.cs:669). A Swift-class index
         // arrives as the address of a borrowed slot; the getter receiver must copy it out, not
         // Unsafe.Read it. ObjC-rooted variant exercises the swift_unknownObjectRetain dispatch.
-        RegisterObjCRootedClass("KidozError");
+        RegisterObjCRootedClass("AdNetworkError");
         var protocol = CreateSimpleProtocol("ClassKeyedReadProto");
         protocol.Subscripts.Add(new SubscriptDecl
         {
@@ -3999,7 +3999,7 @@ public class ProtocolProxyEmitterTests
                 new()
                 {
                     Name = "key", PrivateName = "key",
-                    SwiftTypeSpec = new NamedTypeSpec("TestModule.KidozError"),
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.AdNetworkError"),
                     IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
                 }
             },
@@ -4016,8 +4016,8 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
         var body = ExtractMethodBody(output, "private static IntPtr Receive_subscript_0_get(");
 
-        Assert.DoesNotContain("MarshalFromSwift<TestModule.KidozError>(", body);
-        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.KidozError>(arg0)", body);
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.AdNetworkError>(", body);
+        Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.AdNetworkError>(arg0)", body);
     }
 
     [Fact]
@@ -4732,7 +4732,7 @@ public class ProtocolProxyEmitterTests
     public void EmitProxyClass_ClosureSkippedMethod_StillEmitsNonClosureMethod()
     {
         // Protocol with two methods: one skipped (closure param), one kept.
-        // Pattern from Starscream, RxSwift, StripeUICore.
+        // Pattern: protocol with one skipped (closure) method and one kept method.
         RegisterSwiftString();
 
         var protocol = CreateSimpleProtocol("EventDelegate");

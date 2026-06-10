@@ -446,12 +446,12 @@ public class ProtocolExtensionStructConformerTests
     {
         var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
         SwiftInterfaceAccessParser.ProcessProtocolExtensionMemberForTesting(
-            "  public mutating func upsert(_ db: GRDB.Database) throws",
-            "GRDB.MutablePersistableRecord",
+            "  public mutating func upsert(_ db: RecordStore.Database) throws",
+            "RecordStore.MutablePersistableRecord",
             new List<string>(), false, result);
 
         Assert.Single(result);
-        Assert.True(result["GRDB.MutablePersistableRecord"][0].IsMutating);
+        Assert.True(result["RecordStore.MutablePersistableRecord"][0].IsMutating);
     }
 
     [Fact]

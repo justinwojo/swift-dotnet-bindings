@@ -462,15 +462,15 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithProtocol();
         var handler = new ExistentialHandler(typeDatabase);
 
-        // Composition: NSObject & STPFormEncodable → should filter NSObject, return ISTPFormEncodable
+        // Composition: NSObject & PaymentSdkFormEncodable → should filter NSObject, return IPaymentSdkFormEncodable
         var nsObject = new NamedTypeSpec("ObjectiveC.NSObject");
-        var formEncodable = new NamedTypeSpec("TestModule.STPFormEncodable");
+        var formEncodable = new NamedTypeSpec("TestModule.PaymentSdkFormEncodable");
         var protocolList = new ProtocolListTypeSpec(new[] { nsObject, formEncodable });
 
         var result = handler.GetCompositionInterfaceName(protocolList);
 
         Assert.DoesNotContain("NSObject", result);
-        Assert.Contains("STPFormEncodable", result);
+        Assert.Contains("PaymentSdkFormEncodable", result);
     }
 
     [Fact]
@@ -497,9 +497,9 @@ public class ThirdPartyValidationFixTestsV3
     [Fact]
     public void CanEmitMethod_DictionaryWithKnownExistentialArg_Allowed()
     {
-        // Dictionary<String, any MixpanelType> with known protocol → now allowed
+        // Dictionary<String, any KnownProtocol> with a registered TypeRecord → now allowed
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(existentialParam);
@@ -518,7 +518,7 @@ public class ThirdPartyValidationFixTestsV3
     {
         // Dictionary<String, any UnknownProtocol> with no TypeRecord → still skipped
         var typeDatabase = CreateTypeDatabaseWithDictionary();
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(existentialParam);
@@ -561,7 +561,7 @@ public class ThirdPartyValidationFixTestsV3
         // Dictionary<any P, String> — existential as dict KEY → still skipped
         // Swift requires Hashable, ExistentialContainer is not Hashable.
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(existentialParam);
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
@@ -582,8 +582,8 @@ public class ThirdPartyValidationFixTestsV3
         // Dictionary<any P, any P> — both key AND value existential → still skipped
         // Key position requires Hashable; ExistentialContainer is not Hashable.
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
-        var existentialKey = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
-        var existentialValue = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialKey = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
+        var existentialValue = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(existentialKey);
         dictTypeSpec.GenericParameters.Add(existentialValue);
@@ -601,9 +601,9 @@ public class ThirdPartyValidationFixTestsV3
     [Fact]
     public void CanEmitMethod_OptionalDictWithExistentialValue_Allowed()
     {
-        // Optional<Dictionary<String, any MixpanelType>> → allowed
+        // Optional<Dictionary<String, any KnownProtocol>> → allowed
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(existentialParam);
@@ -622,9 +622,9 @@ public class ThirdPartyValidationFixTestsV3
     [Fact]
     public void CanEmitProperty_DictionaryWithKnownExistentialValue_Allowed()
     {
-        // Property with Dict<String, any MixpanelType> type → now allowed
+        // Property with Dict<String, any KnownProtocol> type → now allowed
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(existentialParam);
@@ -654,9 +654,9 @@ public class ThirdPartyValidationFixTestsV3
     [Fact]
     public void CanEmitConstructor_DictionaryWithKnownExistentialValue_Allowed()
     {
-        // Constructor with Dict<String, any MixpanelType> parameter → now allowed
+        // Constructor with Dict<String, any KnownProtocol> parameter → now allowed
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(existentialParam);
@@ -724,15 +724,15 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithDictionary();
         var handler = new BoundGenericsHandler(typeDatabase);
 
-        // Dictionary<String, any MixpanelType> — supported existential, caught by TryGetFirstExistentialTypeArgument
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        // Dictionary<String, any KnownProtocol> — supported existential, caught by TryGetFirstExistentialTypeArgument
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(existentialParam);
 
         // TryGetFirstExistentialTypeArgument catches ALL existentials
         Assert.True(handler.TryGetFirstExistentialTypeArgument(dictTypeSpec, out var existentialType));
-        Assert.Contains("MixpanelType", existentialType);
+        Assert.Contains("AnalyticsSdkType", existentialType);
 
         // TryGetFirstUnsupportedExistentialTypeArgument misses supported existentials
         Assert.False(handler.TryGetFirstUnsupportedExistentialTypeArgument(dictTypeSpec, out _));
@@ -757,7 +757,7 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
         var handler = new BoundGenericsHandler(typeDatabase);
 
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var innerDict = new NamedTypeSpec("Swift.Dictionary");
         innerDict.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         innerDict.GenericParameters.Add(existentialParam);
@@ -766,7 +766,7 @@ public class ThirdPartyValidationFixTestsV3
 
         // Detection still finds the nested existential...
         Assert.True(handler.TryGetFirstExistentialTypeArgument(arrayOfDict, out var existentialFound));
-        Assert.Contains("MixpanelType", existentialFound);
+        Assert.Contains("AnalyticsSdkType", existentialFound);
 
         // ...and the gate now ADMITS it by recursing Array element -> Dictionary value -> existential.
         Assert.True(handler.IsContainerWithSupportedDirectExistential(arrayOfDict));
@@ -781,7 +781,7 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
         var handler = new BoundGenericsHandler(typeDatabase);
 
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var innerArray = new NamedTypeSpec("Swift.Array");
         innerArray.GenericParameters.Add(existentialParam);
         var dictOfArray = new NamedTypeSpec("Swift.Dictionary");
@@ -789,7 +789,7 @@ public class ThirdPartyValidationFixTestsV3
         dictOfArray.GenericParameters.Add(innerArray);
 
         Assert.True(handler.TryGetFirstExistentialTypeArgument(dictOfArray, out var existentialFound));
-        Assert.Contains("MixpanelType", existentialFound);
+        Assert.Contains("AnalyticsSdkType", existentialFound);
         Assert.True(handler.IsContainerWithSupportedDirectExistential(dictOfArray));
     }
 
@@ -800,7 +800,7 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
         var handler = new BoundGenericsHandler(typeDatabase);
 
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var arrayTypeSpec = new NamedTypeSpec("Swift.Array");
         arrayTypeSpec.GenericParameters.Add(existentialParam);
 
@@ -817,7 +817,7 @@ public class ThirdPartyValidationFixTestsV3
         var typeDatabase = CreateTypeDatabaseWithDictionaryAndProtocol();
         var handler = new BoundGenericsHandler(typeDatabase);
 
-        var existentialParam = new NamedTypeSpec("TestModule.MixpanelType") { IsAny = true };
+        var existentialParam = new NamedTypeSpec("TestModule.AnalyticsSdkType") { IsAny = true };
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(existentialParam);
@@ -1371,11 +1371,11 @@ public class ThirdPartyValidationFixTestsV3
 
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         testModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestModule.STPFormEncodable"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentSdkFormEncodable"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "STPFormEncodable"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.STPFormEncodable"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PaymentSdkFormEncodable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentSdkFormEncodable"),
                 MetadataAccessor = "$sMa",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol
@@ -1483,11 +1483,11 @@ public class ThirdPartyValidationFixTestsV3
 
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         testModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestModule.MixpanelType"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.AnalyticsSdkType"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MixpanelType"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MixpanelType"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "AnalyticsSdkType"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AnalyticsSdkType"),
                 MetadataAccessor = "$sMa",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol

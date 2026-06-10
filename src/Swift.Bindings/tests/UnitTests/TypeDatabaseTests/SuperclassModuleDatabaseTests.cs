@@ -14,19 +14,19 @@ public class SuperclassModuleDatabaseTests
     [Fact]
     public void TypeRecord_WithSuperclassTypeName_StoresValue()
     {
-        var superclassTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.Request");
+        var superclassTypeName = SwiftTypeName.FromModuleQualifiedName("NetClient.Request");
         var record = new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "DataRequest"),
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.DataRequest"),
-            MetadataAccessor = "$s9Alamofire11DataRequestCMa",
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("NetClient", "DataRequest"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("NetClient.DataRequest"),
+            MetadataAccessor = "$s9NetClient11DataRequestCMa",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
             Kind = TypeRecordKind.Class,
             SuperclassTypeName = superclassTypeName,
         };
 
         Assert.NotNull(record.SuperclassTypeName);
-        Assert.Equal("Alamofire.Request", record.SuperclassTypeName!.ModuleQualifiedName);
+        Assert.Equal("NetClient.Request", record.SuperclassTypeName!.ModuleQualifiedName);
     }
 
     [Fact]
@@ -35,16 +35,16 @@ public class SuperclassModuleDatabaseTests
         var dir = CreateTempDir();
         try
         {
-            var module = new ModuleTypeDatabase("Alamofire", "/fake/Alamofire.dylib");
-            var swiftName = SwiftTypeName.FromModuleQualifiedName("Alamofire.DataRequest");
+            var module = new ModuleTypeDatabase("NetClient", "/fake/NetClient.dylib");
+            var swiftName = SwiftTypeName.FromModuleQualifiedName("NetClient.DataRequest");
             var record = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "DataRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("NetClient", "DataRequest"),
                 SwiftTypeName = swiftName,
-                MetadataAccessor = "$s9Alamofire11DataRequestCMa",
+                MetadataAccessor = "$s9NetClient11DataRequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class,
-                SuperclassTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.Request"),
+                SuperclassTypeName = SwiftTypeName.FromModuleQualifiedName("NetClient.Request"),
             };
             module.RegisterType(swiftName, record);
 
@@ -52,7 +52,7 @@ public class SuperclassModuleDatabaseTests
             Assert.NotNull(path);
 
             var xml = File.ReadAllText(path!);
-            Assert.Contains("superclass=\"Alamofire.Request\"", xml);
+            Assert.Contains("superclass=\"NetClient.Request\"", xml);
         }
         finally { Directory.Delete(dir, true); }
     }
@@ -63,13 +63,13 @@ public class SuperclassModuleDatabaseTests
         var dir = CreateTempDir();
         try
         {
-            var module = new ModuleTypeDatabase("Alamofire", "/fake/Alamofire.dylib");
-            var swiftName = SwiftTypeName.FromModuleQualifiedName("Alamofire.Request");
+            var module = new ModuleTypeDatabase("NetClient", "/fake/NetClient.dylib");
+            var swiftName = SwiftTypeName.FromModuleQualifiedName("NetClient.Request");
             var record = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "Request"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("NetClient", "Request"),
                 SwiftTypeName = swiftName,
-                MetadataAccessor = "$s9Alamofire7RequestCMa",
+                MetadataAccessor = "$s9NetClient7RequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class,
                 // No SuperclassTypeName
@@ -91,14 +91,14 @@ public class SuperclassModuleDatabaseTests
         var dir = CreateTempDir();
         try
         {
-            var module = new ModuleTypeDatabase("Alamofire", "/fake/Alamofire.dylib");
-            var swiftName = SwiftTypeName.FromModuleQualifiedName("Alamofire.DataRequest");
-            var superclassTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.Request");
+            var module = new ModuleTypeDatabase("NetClient", "/fake/NetClient.dylib");
+            var swiftName = SwiftTypeName.FromModuleQualifiedName("NetClient.DataRequest");
+            var superclassTypeName = SwiftTypeName.FromModuleQualifiedName("NetClient.Request");
             var record = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "DataRequest"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("NetClient", "DataRequest"),
                 SwiftTypeName = swiftName,
-                MetadataAccessor = "$s9Alamofire11DataRequestCMa",
+                MetadataAccessor = "$s9NetClient11DataRequestCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class,
                 SuperclassTypeName = superclassTypeName,
@@ -113,8 +113,8 @@ public class SuperclassModuleDatabaseTests
 
             Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
             Assert.NotNull(loaded!.SuperclassTypeName);
-            Assert.Equal("Alamofire.Request", loaded.SuperclassTypeName!.ModuleQualifiedName);
-            Assert.Equal("Alamofire", loaded.SuperclassTypeName.Module);
+            Assert.Equal("NetClient.Request", loaded.SuperclassTypeName!.ModuleQualifiedName);
+            Assert.Equal("NetClient", loaded.SuperclassTypeName.Module);
         }
         finally { Directory.Delete(dir, true); }
     }

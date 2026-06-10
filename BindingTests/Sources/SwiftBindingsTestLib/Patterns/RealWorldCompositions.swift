@@ -6,7 +6,7 @@ import Foundation
 // MARK: - Type 1: Frozen Struct with Optional Array Property
 
 /// Frozen struct combining optional array, blittable properties, and methods.
-/// Real-world pattern: BlinkID config objects with optional collection fields.
+/// Frozen struct combining optional array, blittable properties, and methods.
 @frozen public struct BatchConfig {
     public var name: String
     public var maxRetries: Int32
@@ -32,7 +32,7 @@ import Foundation
 // MARK: - Type 2: Class with Inheritance + Protocol Conformance
 
 /// Class combining inheritance (Animal) with protocol conformance (HasValue).
-/// Real-world pattern: Lottie animation hierarchy implementing protocol interfaces.
+/// Class combining inheritance with protocol conformance.
 public class ValueAnimal: Animal, HasValue {
     public var value: Int32
 
@@ -58,7 +58,7 @@ public class ValueAnimal: Animal, HasValue {
 // MARK: - Type 3: Singleton with Optional Class Return
 
 /// Singleton class with optional class return and class parameter.
-/// Real-world pattern: Nuke ImagePipeline.shared with lookup returning nil.
+/// Singleton class with optional class return and class parameter.
 public final class Registry {
     public static let shared = Registry()
 
@@ -95,7 +95,7 @@ public final class Registry {
 // MARK: - Type 4: Class with Optional Closure Property (known unsupported)
 
 /// Class combining optional closure property with static factory.
-/// Real-world pattern: Lottie animation callback handlers.
+/// Class combining optional closure property with static factory.
 public final class EventHandler {
     public var onComplete: ((Int32) -> Bool)?
     public var label: String

@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - String-Keyed Subscript (KeychainAccess pattern)
+// MARK: - String-Keyed Subscript
 
 /// Class with string-keyed subscript returning optional string.
 public class KeyValueStore {
@@ -40,7 +40,7 @@ public class IndexedStore {
     public func count() -> Int32 { Int32(items.count) }
 }
 
-// MARK: - Optional-Existential Subscript on a Value Type (GRDB PersistenceContainer regression)
+// MARK: - Optional-Existential Subscript on a Value Type
 //
 // A *value-type* struct whose subscript element is an optional protocol existential
 // `(any P)?` routes its accessors through OptionalPointerWrapperEmitter: the optional
@@ -53,8 +53,7 @@ public class IndexedStore {
 // stripped it — leaving a missing entry point that crashes when the setter is called. This
 // path is distinct from `KeyValueStore` above (a *class* with a `String?` subscript, which
 // goes through the subscript wrapper rather than the optional-pointer wrapper), which is why
-// that fixture never caught the regression. Mirrors GRDB's
-// `PersistenceContainer.subscript(_:) -> (any DatabaseValueConvertible)?`.
+// that fixture never caught the regression.
 
 // `describe()` deliberately collides with the shared method signature that the
 // existential-proxy emitter materializes on its `EveryProtocol` catch-all (many other

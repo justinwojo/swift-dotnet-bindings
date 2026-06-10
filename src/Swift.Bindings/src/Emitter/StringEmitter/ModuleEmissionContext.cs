@@ -48,10 +48,10 @@ public sealed class ModuleEmissionContext
 
     /// <summary>
     /// When the current module has a public type with the same name as the module itself
-    /// (e.g. module "Reachability" containing class "Reachability"), Swift name lookup inside
+    /// (e.g. a module named "Foo" containing a class also named "Foo"), Swift name lookup inside
     /// the wrapper file resolves the bare module name as the type, not the module. Any
-    /// "<c>Reachability.X</c>" reference emitted into Swift wrapper source therefore means
-    /// "the nested type X of class Reachability" and fails to compile when X is actually a
+    /// "<c>Foo.X</c>" reference emitted into Swift wrapper source therefore means
+    /// "the nested type X of class Foo" and fails to compile when X is actually a
     /// module-level type. Set to the module name in that case; null otherwise.
     /// </summary>
     public string? ModuleNameForCollision { get; private set; }
@@ -61,7 +61,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>
     /// Names of types nested inside the colliding class (e.g. <c>{"Level"}</c> for class
-    /// <c>SwiftyBeaver</c>'s nested <c>Level</c> enum). When stripping the module prefix
+    /// <c>LoggingLib</c>'s nested <c>Level</c> enum). When stripping the module prefix
     /// from "Module.X..." references, the prefix is preserved if X is in this set: the
     /// qualification is now legitimately required to reach the class-nested type.
     /// </summary>
@@ -100,7 +100,7 @@ public sealed class ModuleEmissionContext
         {
             // First captured group is the type path after the module prefix.
             // Preserve qualification when the head segment names a type nested
-            // inside the colliding class (e.g. SwiftyBeaver.Level).
+            // inside the colliding class (e.g. LoggingLib.Level).
             var firstComponent = match.Groups[1].Value;
             var dotIdx = firstComponent.IndexOf('.');
             var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;

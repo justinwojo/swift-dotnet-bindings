@@ -895,10 +895,10 @@ public class SwiftABIParserRuntimeTests
         var classNode = CreateNode(
             kind: "TypeDecl",
             declKind: "Class",
-            name: "STPAPIClient",
-            mangledName: "$s10TestModule12STPAPIClientCN");
+            name: "PaymentApiClient",
+            mangledName: "$s10TestModule16PaymentApiClientCN");
         classNode.DeclAttributes = new[] { "AccessControl" }; // NO SPIAccessControl
-        classNode.spi_group_names = new[] { "STP" };
+        classNode.spi_group_names = new[] { "PaymentSdk" };
 
         using var fixture = CreateParserWithNodes(classNode);
         var result = fixture.Parser.ParseModule();
@@ -982,7 +982,7 @@ public class SwiftABIParserRuntimeTests
             funcSelfKind: null,
             children: new[] { returnTypeNode });
         funcNode.DeclAttributes = new[] { "AccessControl" };
-        funcNode.spi_group_names = new[] { "STP" };
+        funcNode.spi_group_names = new[] { "PaymentSdk" };
 
         using var fixture = CreateParserWithNodes(funcNode);
         var result = fixture.Parser.ParseModule();
@@ -1165,15 +1165,15 @@ public class SwiftABIParserRuntimeTests
     public void ParseModule_ThirdPartyReExport_SkipsType()
     {
         // When a type's ModuleName differs from the module being parsed and the
-        // source is a third-party module, it should be skipped (e.g., StripeCryptoOnramp
-        // re-exporting StripeCore.STPAPIClient).
+        // source is a third-party module, it should be skipped (a third-party module
+        // re-exporting a type from another module).
         var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
         var reExportedNode = CreateNode(
             kind: "TypeDecl",
             declKind: "Class",
-            name: "STPAPIClient",
-            moduleName: "StripePayments",
-            mangledName: "$s15StripePayments12STPAPIClientCN");
+            name: "PaymentApiClient",
+            moduleName: "PaymentSdkPayments",
+            mangledName: "$s18PaymentSdkPayments16PaymentApiClientCN");
 
         using var fixture = CreateParserWithNodes(importNode, reExportedNode);
         var result = fixture.Parser.ParseModule();
@@ -1234,16 +1234,16 @@ public class SwiftABIParserRuntimeTests
         var reExported1 = CreateNode(
             kind: "TypeDecl",
             declKind: "Class",
-            name: "STPAPIClient",
-            moduleName: "StripePayments",
-            mangledName: "$s15StripePayments12STPAPIClientCN");
+            name: "PaymentApiClient",
+            moduleName: "PaymentSdkPayments",
+            mangledName: "$s18PaymentSdkPayments16PaymentApiClientCN");
 
         var reExported2 = CreateNode(
             kind: "TypeDecl",
             declKind: "Class",
             name: "PaymentIntent",
-            moduleName: "StripeCore",
-            mangledName: "$s10StripeCore13PaymentIntentCN");
+            moduleName: "PaymentSdkCore",
+            mangledName: "$s14PaymentSdkCore13PaymentIntentCN");
 
         using var fixture = CreateParserWithNodes(importNode, ownType, reExported1, reExported2);
         var result = fixture.Parser.ParseModule();
@@ -1257,8 +1257,8 @@ public class SwiftABIParserRuntimeTests
     {
         // When a Swift stdlib type (e.g., KeyPath) appears in another module's ABI,
         // its SwiftTypeName should use the type's actual module (Swift), not the
-        // containing module (e.g., RichTextKit). This prevents emitting
-        // "extension RichTextKit.KeyPath" which doesn't exist.
+        // containing module. This prevents emitting "extension ContainingModule.KeyPath"
+        // which doesn't exist.
         var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
         var swiftKeyPathNode = CreateNode(
             kind: "TypeDecl",
@@ -1277,7 +1277,7 @@ public class SwiftABIParserRuntimeTests
     [Fact]
     public void ParseModule_ForeignClass_WithExtensionMembersFromCurrentModule_IsRouted()
     {
-        // Stripe STPAPIClient pattern: module B (TestModule) declares
+        // Cross-module extension pattern: module B (TestModule) declares
         // `extension ForeignLib.ForeignAPIClient { ... }` — the foreign class
         // re-export now carries extension members. The parser must keep the
         // type (instead of skipping it as a third-party re-export) so the

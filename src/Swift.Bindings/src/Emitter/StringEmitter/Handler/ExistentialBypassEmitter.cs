@@ -1345,7 +1345,7 @@ public static class ExistentialBypassEmitter
         => RenderSwiftTypeSpec(typeSpec).Replace("@escaping ", "");
 
     /// <summary>
-    /// Renders a TypeSpec with module-qualified names (e.g. "BonMot.StringStyle" instead of "StringStyle").
+    /// Renders a TypeSpec with module-qualified names (e.g. "Module.TypeName" instead of "TypeName").
     /// Use this for .load(as:), .initializeMemory(as:), and .assumingMemoryBound(to:) expressions
     /// where unqualified names can be ambiguous (the wrapper imports the module, and the type name
     /// may collide with types from other imported modules).

@@ -8,9 +8,9 @@ namespace RuntimeTestsApp.Properties;
 
 /// <summary>
 /// Regression coverage for Issue #33 — orphaned getter wrappers.
-/// Reporter evidence: <c>GenerateContentResponse</c> in FirebaseAILogic 12.6 emitted the
-/// private getter P/Invoke but dropped the public property body for Optional&lt;String&gt;,
-/// Optional&lt;NonFrozenStruct&gt; and Array&lt;NonFrozenStruct&gt; getters on a non-frozen struct.
+/// Reporter evidence: a class with Optional&lt;String&gt;,
+/// Optional&lt;NonFrozenStruct&gt; and Array&lt;NonFrozenStruct&gt; getters on a non-frozen struct
+/// emitted the private getter P/Invoke but dropped the public property body.
 ///
 /// These three shapes — all on <c>OrphanedGetterParent</c> — exercise the same
 /// <c>@_cdecl</c> property-wrapper code path that silently dropped in the reporter's build.

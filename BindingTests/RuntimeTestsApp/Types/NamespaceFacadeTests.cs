@@ -21,10 +21,9 @@ using SwiftBindingsTestLib;
 //
 // `using static` only resolves type members; once the facade is a real
 // namespace those lines fail CS7007 ("a 'using static' directive can only
-// be applied to types"). Downstream consumers (CryptoKit, Nuke, BlinkID)
-// historically wrote `using static Module.Facade;` against the old
-// `partial class` shape and broke at the 0.11.0 cutover. The replacement
-// is the plain `using SwiftBindingsTestLib.LocalFacade;` directives below.
+// be applied to types"). Consumers that wrote `using static Module.Facade;`
+// against the old `partial class` shape broke at the 0.11.0 cutover. The
+// replacement is the plain `using SwiftBindingsTestLib.LocalFacade;` directives below.
 using SwiftBindingsTestLib.LocalFacade;
 using SwiftBindingsTestLib.LocalFacadeEnum;
 

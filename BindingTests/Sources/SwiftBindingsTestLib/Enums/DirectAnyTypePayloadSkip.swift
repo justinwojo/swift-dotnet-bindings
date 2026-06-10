@@ -5,14 +5,13 @@
 //
 // The skip-gates in EnumHandler.CaseInspection.cs (lines 138 and 312) suppress
 // TryGet emission when an enum case's resolved C# payload type contains
-// "Swift.AnyType". In real-world libraries (e.g. Lottie's
-// `(nint, AnyType)` pattern), this happens because the ABI parser cannot fully
-// resolve a referenced Swift type — the TypeDatabase falls through to AnyType.
+// "Swift.AnyType". This happens when the ABI parser cannot fully resolve a
+// referenced Swift type — the TypeDatabase falls through to AnyType.
 //
 // The unit tests `Emit_EnumCaseWithDirectAnyTypePayload_SkipsTryGetMethod` and
 // `Emit_EnumCaseWithTupleContainingAnyType_SkipsTryGetMethod` reproduce both
 // gates by registering a stub module with no types and pointing a NamedTypeSpec
-// at it (`Lottie.UnknownType`).
+// at an unregistered type in a registered module.
 //
 // In BindingTests, every type in `SwiftBindingsTestLib` and
 // `SwiftBindingsTestLibDependency` IS registered (the generator consumes both
@@ -42,4 +41,4 @@
 // gate. A runtime repro would only add value if it triggered a real Swift
 // codegen path that the unit tests can't simulate — and the unit fixture
 // (an unregistered type in a registered module) is already an exact
-// reproduction of the Lottie scenario at the TypeDatabase level.
+// reproduction of the real-world AnyType scenario at the TypeDatabase level.

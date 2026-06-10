@@ -1,21 +1,19 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - Nested-Protocol Type Reference (Nuke 13.x ImagePipeline.Delegate pattern)
+// MARK: - Nested-Protocol Type Reference
 //
 // Regression coverage for nested-protocol `I`-prefix misplacement:
 //
-// When a Swift protocol is declared as a nested type (e.g. ImagePipeline.Delegate),
-// the generator must emit references to it as `ImagePipeline.IDelegate`, NOT as
-// `IImagePipeline.Delegate`. The `I` prefix attaches to the leaf identifier (the
+// When a Swift protocol is declared as a nested type (e.g. `Outer.Delegate`),
+// the generator must emit references to it as `Outer.IDelegate`, NOT as
+// `IOuter.Delegate`. The `I` prefix attaches to the leaf identifier (the
 // protocol's own name), not to a path component. The pre-fix generator built
-// references via `"I" + qualifiedPath` and produced the nonexistent C# type
-// `IImagePipeline.Delegate`, blocking Nuke 13.0+ from compiling.
+// references via `"I" + qualifiedPath` and produced the nonexistent C# type.
 
 import Foundation
 
-/// Container struct that hosts a nested protocol — same shape as
-/// `Nuke.ImagePipeline` hosting `Nuke.ImagePipeline.Delegate`.
+/// Container struct that hosts a nested protocol.
 public class NestedProtoOuter {
     public var label: String
 

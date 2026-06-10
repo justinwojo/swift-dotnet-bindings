@@ -329,7 +329,7 @@ public class CrossModuleTests : TestBase
 
     #endregion
 
-    #region Cross-Module Class Extension (Stripe STPAPIClient shape)
+    #region Cross-Module Class Extension (payment-SDK PaymentApiClient shape)
 
     public void TestDependencyServiceTaggedActivation()
     {

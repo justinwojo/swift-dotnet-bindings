@@ -95,8 +95,8 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="sourceContent">Swift source code to process.</param>
         /// <param name="internalTypeNames">
-        /// Set of internal type names to strip. Contains both short names ("SkeletonLayer")
-        /// and qualified names ("SkeletonView.SkeletonLayer"). Null to skip internal type stripping.
+        /// Set of internal type names to strip. Contains both short names ("InternalType")
+        /// and qualified names ("Module.InternalType"). Null to skip internal type stripping.
         /// </param>
         /// <param name="onSafetyNetWarning">
         /// Optional callback invoked when a safety-net pattern fires. These patterns should no longer
@@ -222,7 +222,7 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     // Check both the extension header and body for internal type references.
-                    // The header (e.g., "extension XMLCoder.SharedBox: _SBW_...") names the type
+                    // The header (e.g., "extension Module.TypeName: _SBW_...") names the type
                     // being extended, which may be internal even when the body uses Self.
                     bool brokenPat = IsExtensionBroken(lines, i, end, body, onSafetyNetWarning);
                     bool refsInternal = !brokenPat && (

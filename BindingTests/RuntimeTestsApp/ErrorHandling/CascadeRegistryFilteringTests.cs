@@ -14,11 +14,11 @@ namespace RuntimeTestsApp.ErrorHandling;
 /// emitted, or types the wrapper module's plain <c>import</c> cannot name. Three
 /// shapes exercised here:
 /// <list type="bullet">
-///   <item><c>@_spi</c> declarations (StripeCore-style — StripeError, TimeoutError) — C# emitter skips them, registry must too.</item>
-///   <item>Error types nested inside open-generic parents (Alamofire / RealityFoundation —
+///   <item><c>@_spi</c> declarations (e.g. <c>SpiOnlyCascadeError</c>) — C# emitter skips them, registry must too.</item>
+///   <item>Error types nested inside open-generic parents (RealityFoundation —
 ///   <c>DecodableWebSocketMessageDecoder&lt;TValue&gt;.Error</c>,
 ///   <c>FromToByAction&lt;TValue&gt;.DecodingErrors</c>) — registry must skip to avoid CS0305.</item>
-///   <item><c>@usableFromInline internal</c> types (CryptoSwift <c>StreamDecryptor</c>-style)
+///   <item><c>@usableFromInline internal</c> types (crypto-library <c>StreamDecryptor</c>-style)
 ///   — C# emitter DOES bind them (they appear in <c>@inlinable</c> signatures), but the
 ///   wrapper module's plain <c>import</c> only sees <c>public</c>, so a cascade arm
 ///   <c>as? Module.InternalType</c> fails to compile in the wrapper. Registry must skip.</item>
@@ -74,7 +74,7 @@ public class CascadeRegistryFilteringTests : TestBase
         // wrapper-module `import {Module}` resolves only `public` declarations.
         // Without the IsModuleInternal arm of the registry filter, the cascade
         // would emit `as? SwiftBindingsTestLib.InlinableInternalCascadeError` and
-        // the wrapper swift compile would fail (the CryptoSwift StreamDecryptor
+        // the wrapper swift compile would fail (the crypto-library StreamDecryptor
         // shape). With the filter, the throw lands on id-0 fallthrough and C#
         // observes a bare `SwiftException`.
         try

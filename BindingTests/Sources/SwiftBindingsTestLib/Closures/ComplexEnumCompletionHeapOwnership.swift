@@ -5,13 +5,13 @@ import Foundation
 
 // MARK: - Complex-enum completion heap-ownership pin
 //
-// Mirrors the closure-adapter shape adjacent to StripeCardScan's completion
+// Mirrors the closure-adapter shape adjacent to payment-card-scan SDK's completion
 // wrappers: a class instance method with non-closure prelude params plus a
 // trailing `@escaping (ComplexEnum) -> Void` completion closure whose enum has
 // ARC-bearing payloads. Because the closure has a complex-enum arg, MCB's
 // IsEligible gate accepts the method and the closure adapter routes through
 // `MethodClosureBridge` (the generated wrapper symbol is `_sbw_mcb_*_present`,
-// not the `_sbw_method_*` form used by StripeCardScan's direct ClosureEmitter
+// not the `_sbw_method_*` form used by payment-card-scan SDK's direct ClosureEmitter
 // path). MCB's Swift wrapper still emits `UnsafeMutableRawPointer.allocate`
 // + `initializeMemory` WITHOUT a Swift-side `defer { __heap_N.deallocate() }`
 // — the C# callback takes ownership via `MarshalFromSwift<T>` ->

@@ -12,12 +12,12 @@ namespace BindingsGeneration
     public sealed record DetectedDependency
     {
         /// <summary>
-        /// The framework name extracted from the install name (e.g., "Nuke").
+        /// The framework name extracted from the install name (e.g., "MyFramework").
         /// </summary>
         public required string FrameworkName { get; init; }
 
         /// <summary>
-        /// The full install name from otool output (e.g., "@rpath/Nuke.framework/Nuke").
+        /// The full install name from otool output (e.g., "@rpath/MyFramework.framework/MyFramework").
         /// </summary>
         public required string InstallName { get; init; }
 
@@ -68,8 +68,8 @@ namespace BindingsGeneration
         /// <summary>
         /// Extracts the framework name from an install name path.
         /// </summary>
-        /// <param name="installName">Install name from otool output (e.g., "@rpath/Nuke.framework/Nuke").</param>
-        /// <returns>The framework name (e.g., "Nuke"), or null if not a framework path.</returns>
+        /// <param name="installName">Install name from otool output (e.g., "@rpath/MyFramework.framework/MyFramework").</param>
+        /// <returns>The framework name (e.g., "MyFramework"), or null if not a framework path.</returns>
         public static string? ExtractFrameworkName(string installName)
         {
             if (string.IsNullOrEmpty(installName))
@@ -165,7 +165,7 @@ namespace BindingsGeneration
                 if (Directory.Exists(parentDirPath))
                     return Path.GetFullPath(parentDirPath);
 
-                // Peer subdirectory (e.g., ../StripeCore/StripeCore.xcframework)
+                // Peer subdirectory (e.g., ../FrameworkName/FrameworkName.xcframework)
                 // Common in multi-product monorepos where each product has its own directory
                 var peerSubdirPath = Path.Combine(grandparentDir, frameworkName, $"{frameworkName}.xcframework");
                 if (Directory.Exists(peerSubdirPath))
@@ -532,7 +532,7 @@ namespace BindingsGeneration
 
             // Build framework-name → module-name mapping.
             // Framework binary name (from otool install name) may differ from Swift module name
-            // (e.g., framework binary "StripeCore" but module "StripePayments").
+            // (e.g., a framework binary name that differs from its Swift module name).
             // Register both module name and xcframework-derived framework name for each.
             var frameworkToModule = new Dictionary<string, string>(StringComparer.Ordinal);
             frameworkToModule[primaryModuleName] = primaryModuleName;

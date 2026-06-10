@@ -331,8 +331,8 @@ public static class StructsAndEnumsEmitter
 
         // Skip delegates that reference module-local types (defined in ApiDefinition.cs)
         // to avoid CS0059 accessibility errors — these are internal partial interfaces.
-        // Also check array element types (e.g., RLMPropertyChange[] → RLMPropertyChange)
-        // and generic args (e.g., NSDictionary<NSString, IRLMBSON> → IRLMBSON).
+        // Also check array element types (e.g., MOSPropertyChange[] → MOSPropertyChange)
+        // and generic args (e.g., NSDictionary<NSString, IMOSBSON> → IMOSBSON).
         if (allMappedTypes.Any(t => IsModuleLocalType(t, moduleLocalTypes)))
             return;
 
@@ -343,7 +343,7 @@ public static class StructsAndEnumsEmitter
 
     /// <summary>
     /// Checks if a mapped C# type references a module-local type, including through arrays and generics.
-    /// E.g., "RLMPropertyChange[]" → checks "RLMPropertyChange", "NSDictionary&lt;NSString, IRLMBSON&gt;" → checks "IRLMBSON".
+    /// E.g., "MOSPropertyChange[]" → checks "MOSPropertyChange", "NSDictionary&lt;NSString, IMOSBSON&gt;" → checks "IMOSBSON".
     /// </summary>
     static bool IsModuleLocalType(string mappedType, HashSet<string> moduleLocalTypes)
     {
@@ -521,7 +521,7 @@ public static class StructsAndEnumsEmitter
 
         // NSString* constants use NSString as the [Field] property type (MAUI convention),
         // not the mapped "string" type that ObjCTypeMapper returns.
-        // Also resolve typedef'd NSString types (e.g., RLMNotification → NSString*).
+        // Also resolve typedef'd NSString types (e.g., MOSNotification → NSString*).
         var isNSString = IsNSStringType(constant.Type, typedefMap);
         var fieldType = isNSString ? "NSString" : ObjCTypeMapper.MapType(constant.Type, typedefMap: typedefMap);
 
@@ -540,7 +540,7 @@ public static class StructsAndEnumsEmitter
 
     /// <summary>
     /// Checks if a type is NSString* directly or through typedef chain resolution.
-    /// e.g., RLMNotification (typedef for NSString*) → true.
+    /// e.g., MOSNotification (typedef for NSString*) → true.
     /// </summary>
     static bool IsNSStringType(ObjCTypeRef type, Dictionary<string, ObjCTypeRef> typedefMap)
     {
@@ -549,7 +549,7 @@ public static class StructsAndEnumsEmitter
             return true;
 
         // Resolve through typedef chain: the constant's type name may be a typedef
-        // for NSString* (e.g., typedef NSString *RLMNotification).
+        // for NSString* (e.g., typedef NSString *MOSNotification).
         // The typedefMap resolves chains, so we just need a single lookup.
         if (typedefMap.TryGetValue(type.Name, out var resolved))
         {

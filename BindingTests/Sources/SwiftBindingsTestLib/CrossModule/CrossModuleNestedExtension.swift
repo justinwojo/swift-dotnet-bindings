@@ -6,19 +6,15 @@ import SwiftBindingsTestLibDependency
 // SDK 0.11.0 R2 — nested type DECLARED INSIDE an extension of a
 // FOREIGN-MODULE type, then used as an enum-case payload in this module.
 //
-// Stripe shape reproduction:
-//   StripeFinancialConnections.swiftinterface declares:
-//     extension StripeCore.StripeAPI {
-//       public struct FinancialConnectionsSession { ... }
-//       public struct BankAccountToken { ... }
-//     }
-//   ...and an enum whose case payloads reference those nested types.
+// The shape: module B declares nested types inside an extension of a class
+// owned by module A, then defines an enum whose case payloads reference those
+// nested types.
 //
 // Before the emitter fix, CrossModuleExtensionEmitter only recursed nested
 // types for the struct-receiver path, so class-receiver extensions silently
 // dropped the nested-type definitions. The downstream enum cases then lost
 // their factories (no Completed(...)) and extractors (no TryGetCompleted),
-// matching the StripeFinancialConnections regression seen in 0.11.0 R2.
+// matching the regression seen in 0.11.0 R2.
 
 // MARK: - Nested types declared inside extensions of foreign types
 
@@ -42,8 +38,8 @@ extension DependencyService {
     }
 
     /// Second nested struct on the same foreign class — locks the multi-nested
-    /// recursion path (Stripe declares both `FinancialConnectionsSession` and
-    /// `BankAccountToken` inside the same `extension StripeAPI`).
+    /// recursion path (both `FinancialConnectionsSession` and
+    /// `BankAccountToken` declared inside the same extension of the foreign class).
     public struct HostedToken {
         public let identifier: Int32
 
@@ -69,9 +65,8 @@ extension DependencyPoint {
 // MARK: - Enum cases referencing the cross-module nested types
 
 /// Enum whose `.completed(payload:)` case carries a nested struct declared
-/// inside an extension of a foreign class. Mirrors the Stripe `Result.completed`
-/// shape exactly: labeled single-payload + payload type lives in *this* module
-/// even though its containing type lives in another module.
+/// inside an extension of a foreign class: labeled single-payload whose containing
+/// type lives in another module.
 public enum CrossModuleNestedHostedResult {
     case completed(payload: DependencyService.HostedPayload)
     case canceled

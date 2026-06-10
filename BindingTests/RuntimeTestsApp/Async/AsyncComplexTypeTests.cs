@@ -124,8 +124,8 @@ public class AsyncComplexTypeTests : TestBase
     public async Task TestAsyncGetUsageMetadata_NestedNonFrozen()
     {
         // CountTokens-style nested shape: the outer non-frozen struct wraps
-        // another non-frozen struct whose property is then read. The original
-        // FirebaseAILogic crash surfaced exactly on this access pattern.
+        // another non-frozen struct whose property is then read. This access
+        // pattern is where the nested non-frozen struct crash originally surfaced.
         var worker = new AsyncComplexWorker("usage-worker");
         var usage = await WithTimeout(worker.GetUsageMetadataAsync(), DefaultAsyncTimeout);
         AssertNotNull(usage, "AsyncGetUsageMetadata not null");

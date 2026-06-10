@@ -47,8 +47,7 @@ public class CoreGraphicsCFTypeTests : TestBase
 
     public void TestCGImageReturnsCanonicalWrapper()
     {
-        // The Lottie BundleImageProvider.imageForAsset shape — must return
-        // CoreGraphics.CGImage, not System.IntPtr.
+        // A Swift function returning CGImage — must project to CoreGraphics.CGImage, not System.IntPtr.
         CGImage? image = TestLibFunctions.MakeOnePixelImage();
         AssertNotNull(image, "MakeOnePixelImage should return a non-null CGImage wrapper");
         AssertEqual(1, (int)image!.Width, "1x1 CGImage width should be 1");

@@ -253,8 +253,7 @@ public static class MethodWrapperEmitter
         // (1) GSM path — the constrained method becomes invisible at the wrapper call
         //     site and Swift's overload resolution bridges via implicit conversions
         //     (Any → Any?, etc.), producing wrappers that fail to compile
-        //     (ObjectMapper's `map(JSONObject:Any) throws -> N` mis-resolves to
-        //     `map(JSONObject:Any?) -> N?`).
+        //     (e.g., `map(JSONObject:Any) throws -> N` mis-resolves to `map(JSONObject:Any?) -> N?`).
         // (2) Instance-class-dispatch path (EmitGenericClassProtocolAndConformance)
         //     — swiftc rejects `extension Box: _SBW_P_<hash> {}` outright because the
         //     protocol requirement is only available under the extension's where-clause.

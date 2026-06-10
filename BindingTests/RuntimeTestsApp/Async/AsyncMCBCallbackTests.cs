@@ -13,7 +13,7 @@ namespace RuntimeTestsApp.Async;
 /// @escaping (Result&lt;T, Error&gt;) -> Void completion handlers.
 ///
 /// Covers the R2 regression: Mono JIT assertion `!ji->async` when MCB closure
-/// callback fires. Pattern seen in Kingfisher's CalculateDiskStorageSize.
+/// callback fires. Pattern seen in image-loading libraries with disk-storage-size callbacks.
 ///
 /// Tier structure:
 /// - Tier 1: ResultCallbackProcessor construction

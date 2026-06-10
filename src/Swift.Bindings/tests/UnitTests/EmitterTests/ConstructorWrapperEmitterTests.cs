@@ -904,7 +904,7 @@ public class ConstructorWrapperEmitterTests
         var method = new MethodDecl
         {
             Name = "init",
-            MangledName = "$s7RxSwift10DisposeBagCyACypd_tcfC",
+            MangledName = "$s15ReactiveStreams10DisposeBagCyACypd_tcfC",
             MethodType = MethodType.Instance,
             IsConstructor = true,
             CSSignature = new List<ArgumentDecl>
@@ -914,7 +914,7 @@ public class ConstructorWrapperEmitterTests
                 {
                     Name = "disposables",
                     PrivateName = "disposables",
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("RxSwift.Disposable")),
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("ReactiveStreams.Disposable")),
                     IsInOut = false,
                     IsGeneric = false,
                     ParentDecl = null,
@@ -1085,16 +1085,16 @@ public class ConstructorWrapperEmitterTests
     public void GetConstructorSymbolName_SimpleType()
     {
         var symbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
-            "Nuke", "ImageRequest", "$s4Nuke12ImageRequestVACycfC");
-        Assert.StartsWith("SBW_Nuke_ImageRequest_init_", symbol);
+            "ImagePipeline", "ImageRequest", "$s13ImagePipeline12ImageRequestVACycfC");
+        Assert.StartsWith("SBW_ImagePipeline_ImageRequest_init_", symbol);
     }
 
     [Fact]
     public void GetConstructorSymbolName_NestedType_DotReplacedWithUnderscore()
     {
         var symbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
-            "Nuke", "ImageRequest.Priority", "$s4Nuke12ImageRequest8PriorityVACycfC");
-        Assert.Contains("SBW_Nuke_ImageRequest_Priority_init_", symbol);
+            "ImagePipeline", "ImageRequest.Priority", "$s13ImagePipeline12ImageRequest8PriorityVACycfC");
+        Assert.Contains("SBW_ImagePipeline_ImageRequest_Priority_init_", symbol);
         Assert.DoesNotContain(".", symbol);
     }
 
@@ -2080,7 +2080,7 @@ public class ConstructorWrapperEmitterTests
         var method = new MethodDecl
         {
             Name = "init",
-            MangledName = "$s4Nuke10ImageCacheCACSi9costLimit_tcfC",
+            MangledName = "$s13ImagePipeline10ImageCacheCACSi9costLimit_tcfC",
             MethodType = MethodType.Instance,
             IsConstructor = true,
             CSSignature = new List<ArgumentDecl>
@@ -2138,7 +2138,7 @@ public class ConstructorWrapperEmitterTests
         var method = new MethodDecl
         {
             Name = "init",
-            MangledName = "$s4Nuke10ImageCacheCACSi9costLimit_tcfC",
+            MangledName = "$s13ImagePipeline10ImageCacheCACSi9costLimit_tcfC",
             MethodType = MethodType.Instance,
             IsConstructor = true,
             CSSignature = new List<ArgumentDecl>
@@ -3707,7 +3707,7 @@ public class ConstructorWrapperEmitterTests
     /// produces UnsafeRawPointer param with .load(as:) reconstruction on the Swift side.
     /// The C# side must pass Payload.DangerousGetHandle() (pointer TO the value),
     /// NOT PayloadBuffer.Buffer (which dereferences to the value itself).
-    /// Regression test for CryptoSwift HMAC(byte[]) 6.5GB allocation crash.
+    /// Regression test for a 6.5GB allocation crash when passing a byte array to a constructor.
     /// </summary>
     [Fact]
     public void GetCdeclParamMapping_ArrayContainer_UsesLoadReconstruction()
@@ -3779,7 +3779,7 @@ public class ConstructorWrapperEmitterTests
     /// causes ABI mismatch (NSData* pointer in GP register vs raw Data buffer bytes).
     /// The two-Int-word pattern avoids ObjC bridging: C# passes Swift.Foundation.Data (16-byte struct)
     /// in two GP registers, matching two Int parameters on the Swift side.
-    /// Regression test for Nuke DataCache.storeData and Lottie LottieAnimation.from SIGSEGV.
+    /// Regression test for SIGSEGV when passing Foundation.Data to constructors in xcframework mode.
     /// </summary>
     [Fact]
     public void GetCdeclParamMapping_FoundationData_UsesTwoIntWords()

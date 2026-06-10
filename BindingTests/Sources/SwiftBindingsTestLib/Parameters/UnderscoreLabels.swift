@@ -13,9 +13,8 @@
 
 import Foundation
 
-// Typealias for the `cGFloat` shape — Lottie's AnimationProgressTime is a
-// typealias for CGFloat; the emitter projecting the typealias name
-// lowercased was one of the three failure modes.
+// Typealias for the `cGFloat` shape — a typealias for CGFloat; the emitter
+// projecting the typealias name lowercased was one of the three failure modes.
 public typealias UnderscoreLabelAnimationProgress = Double
 
 @frozen

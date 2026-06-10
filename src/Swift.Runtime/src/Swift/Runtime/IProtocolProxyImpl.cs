@@ -9,10 +9,10 @@ namespace Swift.Runtime;
 /// <c>IProtocolProxyImpl&lt;IXxx&gt;</c>.
 ///
 /// Covariance (<c>out TInterface</c>) lets a child proxy satisfy lookups for an
-/// ancestor protocol: a <c>KidozInitDelegateProxy</c> implementing
-/// <c>IProtocolProxyImpl&lt;IKidozInitDelegate&gt;</c> is castable to
-/// <c>IProtocolProxyImpl&lt;ISDKInitDelegate&gt;</c> because
-/// <c>IKidozInitDelegate : ISDKInitDelegate</c>. This is how inherited-protocol
+/// ancestor protocol: a <c>SdkInitDelegateProxy</c> implementing
+/// <c>IProtocolProxyImpl&lt;ISdkInitDelegate&gt;</c> is castable to
+/// <c>IProtocolProxyImpl&lt;IBaseInitDelegate&gt;</c> because
+/// <c>ISdkInitDelegate : IBaseInitDelegate</c>. This is how inherited-protocol
 /// callbacks reach the user's implementation when only a child proxy was registered.
 /// </summary>
 public interface IProtocolProxyImpl<out TInterface> where TInterface : class

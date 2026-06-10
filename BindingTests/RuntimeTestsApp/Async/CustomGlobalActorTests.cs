@@ -329,9 +329,8 @@ public class CustomGlobalActorTests : TestBase
     /// as a synchronous public constructor — NOT as a `static Task&lt;T&gt; CreateAsync(...)`.
     /// The `nonisolated` modifier opts the init out of the actor's isolation domain,
     /// so the binding generator must emit a sync `@_cdecl` wrapper for it (gate 6b in
-    /// WrapperValidation honors `IsNonisolated`). This is the gate-logic guard for the
-    /// Nuke 13 `ImagePipeline`/`ImagePrefetcher`/`TaskQueue` shape — without it, every
-    /// `new ImagePipeline(...)` call site is unreachable from C#.
+    /// WrapperValidation honors `IsNonisolated`). Without this gate, every
+    /// synchronous constructor on a custom-actor-isolated type is unreachable from C#.
     /// </summary>
     public void TestNonisolatedInitOnCustomActor_SyncConstructorEmitted()
     {
@@ -366,11 +365,10 @@ public class CustomGlobalActorTests : TestBase
     }
 
     /// <summary>
-    /// Mirror of `Nuke.ImagePipeline.init(configuration:delegate:)`: a `nonisolated`
-    /// init on a custom-global-actor class taking a non-trivial config struct (with a
-    /// non-C#-mappable Swift-side default) AND an optional existential delegate (with
-    /// default `nil`). The synchronous public ctor must emit; consumers can then call
-    /// it like Nuke 13's `ImagePipeline(configuration:)` from C#.
+    /// A `nonisolated` init on a custom-global-actor class taking a non-trivial config
+    /// struct (with a non-C#-mappable Swift-side default) AND an optional existential
+    /// delegate (with default `nil`). The synchronous public ctor must emit so consumers
+    /// can call it directly from C#.
     /// </summary>
     public void TestPipelineLikeNonisolatedInit_SyncConstructorEmitted()
     {
@@ -380,13 +378,13 @@ public class CustomGlobalActorTests : TestBase
             .ToArray();
 
         AssertTrue(declaredCtors.Length >= 1,
-            "PipelineLikeNonisolatedInit (Nuke ImagePipeline shape) must emit at least one " +
+            "PipelineLikeNonisolatedInit (nonisolated init on a custom-global-actor class) must emit at least one " +
             $"synchronous public constructor; found {declaredCtors.Length}. Without this, the " +
             "gate-6b nonisolated bypass regressed against the exact pattern that drove it.");
     }
 
     /// <summary>
-    /// Round-trip through the Nuke-shaped ctor with the `delegate: nil` default: the
+    /// Round-trip through the nonisolated ctor with the `delegate: nil` default: the
     /// stored `delegateDescription` should resolve to "none" (Swift-side `?? "none"`),
     /// and `depth` should reflect either the explicitly-passed `NonisolatedInitConfig`
     /// or the Swift-side default (depth=11) when the trimmed overload is used. We use
@@ -398,7 +396,7 @@ public class CustomGlobalActorTests : TestBase
     {
         using var config = new NonisolatedInitConfig(13);
         using var instance = new PipelineLikeNonisolatedInit(config, null);
-        AssertNotNull(instance, "Nuke-shaped nonisolated ctor must return a non-null instance");
+        AssertNotNull(instance, "Nonisolated ctor on custom-global-actor class must return a non-null instance");
         AssertEqual(13, instance.Depth, "config.depth was not preserved across the ctor wrapper");
         AssertEqual("none", instance.DelegateDescription.ToString(),
             "delegate=nil path should resolve `delegate?.describe() ?? \"none\"` to \"none\"; " +

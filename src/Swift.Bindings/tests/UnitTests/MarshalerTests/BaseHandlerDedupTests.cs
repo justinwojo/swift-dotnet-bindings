@@ -671,8 +671,8 @@ public class BaseHandlerDedupTests
         // Optional<Class> and bare Class should produce the same projected key
         // because nullable reference annotations are erased at C# runtime
         var typeDatabase = new DedupTypeDatabase();
-        var method1 = CreateMethod("request", new NamedTypeSpec("Alamofire.AFError"));
-        var method2 = CreateMethod("request", new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Alamofire.AFError")));
+        var method1 = CreateMethod("request", new NamedTypeSpec("NetClient.AFError"));
+        var method2 = CreateMethod("request", new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("NetClient.AFError")));
 
         var key1 = InvokeGetProjectedCSharpMethodKey(method1, typeDatabase);
         var key2 = InvokeGetProjectedCSharpMethodKey(method2, typeDatabase);
@@ -856,10 +856,10 @@ public class BaseHandlerDedupTests
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             },
-            ["Alamofire.AFError"] = new TypeRecord
+            ["NetClient.AFError"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Alamofire", "AFError"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.AFError"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("NetClient", "AFError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("NetClient.AFError"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class

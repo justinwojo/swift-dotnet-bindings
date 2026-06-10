@@ -120,9 +120,9 @@ public class TypeHandlersOutputTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = new ClassDecl
         {
-            Name = "LottieView",
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieView"),
-            MangledName = "$s10TestModule10LottieViewCN",
+            Name = "VectorAnimationView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationView"),
+            MangledName = "$s10TestModule10VectorAnimationViewCN",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -389,7 +389,7 @@ public class TypeHandlersOutputTests
         // Since the property type IS the nested type, rename the nested TYPE (→ "ConfigurationType")
         // instead of the property. This keeps the property name clean for better consumer ergonomics.
         var typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("Nuke", "/tmp/Nuke.dylib");
+        var module = new ModuleTypeDatabase("ImagePipeline", "/tmp/ImagePipeline.dylib");
 
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
         swiftModule.RegisterType(
@@ -404,35 +404,35 @@ public class TypeHandlersOutputTests
             });
         typeDatabase.AddModuleDatabase(swiftModule);
 
-        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline");
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageService");
         module.RegisterType(parentSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipeline"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageService"),
             SwiftTypeName = parentSwiftName,
-            MetadataAccessor = "$s4Nuke13ImagePipelineVMa",
+            MetadataAccessor = "$s13ImagePipeline12ImageServiceVMa",
             Flags = TypeRecordFlags.Frozen,
             Kind = TypeRecordKind.Struct
         });
 
-        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Configuration");
+        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageService.Configuration");
         module.RegisterType(nestedSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipeline.Configuration"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImagePipeline.Configuration"),
             SwiftTypeName = nestedSwiftName,
-            MetadataAccessor = "$s4Nuke13ImagePipelineV13ConfigurationVMa",
+            MetadataAccessor = "$s13ImagePipeline12ImageServiceV13ConfigurationVMa",
             Flags = TypeRecordFlags.Frozen,
             Kind = TypeRecordKind.Struct
         });
 
         typeDatabase.AddModuleDatabase(module);
 
-        var moduleDecl = CreateModuleDecl("Nuke");
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
 
         var nestedStructDecl = new StructDecl
         {
             Name = "Configuration",
             SwiftTypeName = nestedSwiftName,
-            MangledName = "$s4Nuke13ImagePipelineV13ConfigurationVN",
+            MangledName = "$s13ImagePipeline12ImageServiceV13ConfigurationVN",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -443,21 +443,21 @@ public class TypeHandlersOutputTests
             ParentDecl = null,
             ModuleDecl = moduleDecl,
             IsFrozen = true,
-            MetadataAccessor = "$s4Nuke13ImagePipelineV13ConfigurationVMa"
+            MetadataAccessor = "$s13ImagePipeline12ImageServiceV13ConfigurationVMa"
         };
 
-        // Property "configuration" with type "Nuke.ImagePipeline.Configuration" (nested type)
-        // The InnerType chain: NamedTypeSpec("Nuke.ImagePipeline") -> InnerType -> NamedTypeSpec("Configuration")
-        var configTypeSpec = new NamedTypeSpec("Nuke.ImagePipeline")
+        // Property "configuration" with type "ImagePipeline.ImageService.Configuration" (nested type)
+        // The InnerType chain: NamedTypeSpec("ImagePipeline.ImageService") -> InnerType -> NamedTypeSpec("Configuration")
+        var configTypeSpec = new NamedTypeSpec("ImagePipeline.ImageService")
         {
             InnerType = new NamedTypeSpec("Configuration")
         };
 
         var parentStructDecl = new StructDecl
         {
-            Name = "ImagePipeline",
+            Name = "ImageService",
             SwiftTypeName = parentSwiftName,
-            MangledName = "$s4Nuke13ImagePipelineVN",
+            MangledName = "$s13ImagePipeline12ImageServiceVN",
             Properties = new List<PropertyDecl>
             {
                 new()
@@ -480,7 +480,7 @@ public class TypeHandlersOutputTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
             IsFrozen = true,
-            MetadataAccessor = "$s4Nuke13ImagePipelineVMa"
+            MetadataAccessor = "$s13ImagePipeline12ImageServiceVMa"
         };
         nestedStructDecl.ParentDecl = parentStructDecl;
         moduleDecl.Types.Add(parentStructDecl);
@@ -542,22 +542,22 @@ public class TypeHandlersOutputTests
         // SwiftClassHandle<T> in the private constructor must use the renamed name.
         // This test exercises the full ClassHandler emission path, not just the helper method.
         var typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("Kingfisher", "/tmp/Kingfisher.dylib");
+        var module = new ModuleTypeDatabase("ImageLoader", "/tmp/ImageLoader.dylib");
 
-        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.ImageTransition");
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.ImageTransition");
         module.RegisterType(parentSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "ImageTransition"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "ImageTransition"),
             SwiftTypeName = parentSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
             Kind = TypeRecordKind.Class
         });
 
-        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.ImageTransition.Animator");
+        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.ImageTransition.Animator");
         module.RegisterType(nestedSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "ImageTransition.Animator"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "ImageTransition.Animator"),
             SwiftTypeName = nestedSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.RequiresMemoryManagement,
@@ -566,13 +566,13 @@ public class TypeHandlersOutputTests
 
         typeDatabase.AddModuleDatabase(module);
 
-        var moduleDecl = CreateModuleDecl("Kingfisher");
+        var moduleDecl = CreateModuleDecl("ImageLoader");
 
         var nestedClassDecl = new ClassDecl
         {
             Name = "Animator",
             SwiftTypeName = nestedSwiftName,
-            MangledName = "$s10Kingfisher15ImageTransitionC8AnimatorCN",
+            MangledName = "$s11ImageLoader15ImageTransitionC8AnimatorCN",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -584,8 +584,8 @@ public class TypeHandlersOutputTests
             ModuleDecl = moduleDecl,
         };
 
-        // Property "animator" with type "Kingfisher.ImageTransition.Animator" (nested class)
-        var animatorTypeSpec = new NamedTypeSpec("Kingfisher.ImageTransition")
+        // Property "animator" with type "ImageLoader.ImageTransition.Animator" (nested class)
+        var animatorTypeSpec = new NamedTypeSpec("ImageLoader.ImageTransition")
         {
             InnerType = new NamedTypeSpec("Animator")
         };
@@ -594,7 +594,7 @@ public class TypeHandlersOutputTests
         {
             Name = "ImageTransition",
             SwiftTypeName = parentSwiftName,
-            MangledName = "$s10Kingfisher15ImageTransitionCN",
+            MangledName = "$s11ImageLoader15ImageTransitionCN",
             Properties = new List<PropertyDecl>
             {
                 new()

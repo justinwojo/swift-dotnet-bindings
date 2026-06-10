@@ -790,7 +790,7 @@ namespace BindingsGeneration.Tests
             // Issue #2: Wrapper library name is "{ModuleName}SwiftBindings" in SDK mode.
             var input =
                 "public partial class Foo {\n" +
-                "    [LibraryImport(\"NukeSwiftBindings\", EntryPoint = \"SBW_broken_func\")]\n" +
+                "    [LibraryImport(\"ImagePipelineSwiftBindings\", EntryPoint = \"SBW_broken_func\")]\n" +
                 "    private static partial void PInvoke_broken_AAA(IntPtr ptr);\n" +
                 "\n" +
                 "    public void BrokenMethod()\n" +
@@ -875,8 +875,8 @@ namespace BindingsGeneration.Tests
         [Theory]
         [InlineData("[LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_test\")]", true)]
         [InlineData("[global::System.Runtime.InteropServices.LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_test\")]", true)]
-        [InlineData("[LibraryImport(\"NukeSwiftBindings\", EntryPoint = \"SBW_test\")]", true)]
-        [InlineData("[LibraryImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_test\")]", true)]
+        [InlineData("[LibraryImport(\"ImagePipelineSwiftBindings\", EntryPoint = \"SBW_test\")]", true)]
+        [InlineData("[LibraryImport(\"DocScanSwiftBindings\", EntryPoint = \"SBW_test\")]", true)]
         [InlineData("[LibraryImport(\"SwiftBindingsTestLib\", EntryPoint = \"$s_mangled\")]", false)]
         [InlineData("[LibraryImport(\"OtherLib\", EntryPoint = \"func\")]", false)]
         [InlineData("[LibraryImport(\"SwiftBindings\")]", false)] // no EntryPoint
@@ -1263,9 +1263,9 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ProcessProxyReferences_PropertyShapedInterfaceMemberWithoutAccessors_EmitsGetterThrow()
         {
-            // Regression test for FirebaseAILogic PartsRepresentableProxy: when a generated proxy
-            // interface property body references a suppressed proxy but has no observable get/set
-            // accessor tokens, the co-gater must still emit property syntax instead of a bare throw.
+            // Regression test: when a generated proxy interface property body references a suppressed proxy
+            // but has no observable get/set accessor tokens, the co-gater must still emit property syntax
+            // instead of a bare throw.
             var input =
                 "public interface IPartsRepresentable {\n" +
                 "    IReadOnlyList<IPart> PartsValue { get; }\n" +
@@ -1581,28 +1581,28 @@ namespace BindingsGeneration.Tests
             // which also prevents Level 2 cascade to the Value property.
             var input =
                 "public interface IDatabaseValueConvertible {\n" +
-                "    GRDB.DatabaseValue DatabaseValue { get; }\n" +
+                "    RecordStore.DatabaseValue DatabaseValue { get; }\n" +
                 "}\n" +
                 "public partial class SomeType {\n" +
-                "    private GRDB.DatabaseValue Value_Get()\n" +
+                "    private RecordStore.DatabaseValue Value_Get()\n" +
                 "    {\n" +
                 "        var x = new DatabaseValueConvertibleProxy(result);\n" +
                 "        return x;\n" +
                 "    }\n" +
                 "\n" +
-                "    public GRDB.DatabaseValue Value\n" +
+                "    public RecordStore.DatabaseValue Value\n" +
                 "    {\n" +
                 "        get => Value_Get();\n" +
                 "    }\n" +
                 "}\n" +
                 "public partial class FTS3Pattern : IDatabaseValueConvertible {\n" +
-                "    private GRDB.DatabaseValue DatabaseValue_Get()\n" +
+                "    private RecordStore.DatabaseValue DatabaseValue_Get()\n" +
                 "    {\n" +
                 "        PInvoke_databaseValue_Get(resultPtr, selfPtr);\n" +
-                "        return SwiftMarshal.MarshalFromSwift<GRDB.DatabaseValue>(resultPtr);\n" +
+                "        return SwiftMarshal.MarshalFromSwift<RecordStore.DatabaseValue>(resultPtr);\n" +
                 "    }\n" +
                 "\n" +
-                "    public GRDB.DatabaseValue DatabaseValue\n" +
+                "    public RecordStore.DatabaseValue DatabaseValue\n" +
                 "    {\n" +
                 "        get => DatabaseValue_Get();\n" +
                 "    }\n" +
@@ -1758,7 +1758,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_StrippedDescriptionProperty_AlsoStripsToString()
         {
-            // Simulates XMLCoder pattern: Description property gets stripped because its
+            // Simulates a real-world pattern: Description property gets stripped because its
             // P/Invoke wrapper was stripped, but ToString() => Description; is left dangling.
             var input =
                 "namespace Test {\n" +
@@ -1860,7 +1860,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_StrippedLazyField_AlsoStripsExpressionBodiedProperty()
         {
-            // Simulates the SkeletonView _lazy_debugMode pattern:
+            // Simulates the lazy-field cascade pattern:
             // PInvoke_CaseByIndex is stripped → _lazy_debugMode field is stripped →
             // DebugMode property referencing _lazy_debugMode.Value must also be stripped.
             var input =
@@ -2276,7 +2276,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ProcessProxyReferences_GenericMethodWithWhereClause_ReplaceBody()
         {
-            // Reproduces XMLCoder regression: Box<T>(T value) where T : ISwiftObject
+            // Reproduces a real-world regression: Box<T>(T value) where T : ISwiftObject
             // has opening brace past the where clause. Co-gater must handle the where
             // clause between declaration and opening brace.
             var input =
@@ -3045,7 +3045,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_OrphanedCallbackField_PublicMethodReader_Stripped()
         {
-            // Alamofire shape: the orphaned field is read directly by a public method (no
+            // Orphaned-field shape: the orphaned field is read directly by a public method (no
             // property forwarder). The method's body can't compile against a missing field,
             // so the binding is dropped rather than emitted as non-compiling code.
             var input =

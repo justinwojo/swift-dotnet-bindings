@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Throwing Closure Patterns (GRDB, Stripe)
+// MARK: - Throwing Closure Patterns
 
 /// Error type for throwing closure tests.
 public enum ClosureError: Error {

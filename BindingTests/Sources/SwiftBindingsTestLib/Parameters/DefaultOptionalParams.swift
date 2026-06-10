@@ -53,7 +53,7 @@ public struct OptParamFlags {
     }
 }
 
-/// Factory with optional struct params — mirrors the FirebaseAILogic GenerativeModel shape.
+/// Factory with optional struct parameters and constructor-call defaults.
 public struct OptParamModel {
     public let name: String
     public let smallCode: Int32

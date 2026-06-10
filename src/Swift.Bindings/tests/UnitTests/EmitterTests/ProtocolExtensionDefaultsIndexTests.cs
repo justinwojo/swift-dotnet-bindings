@@ -15,17 +15,17 @@ public class ProtocolExtensionDefaultsIndexTests
     [Fact]
     public void HasMethodDefault_DirectProtocol_ReturnsTrue()
     {
-        // Extension on Lottie.AnyInterpolatable provides _interpolate default
+        // Extension on VectorAnimation.AnyInterpolatable provides _interpolate default (direct protocol lookup)
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
-            ["Lottie.AnyInterpolatable"] = new()
+            ["VectorAnimation.AnyInterpolatable"] = new()
             {
                 CreateExtensionMethod("_interpolate", "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)")
             }
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
 
-        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        Assert.True(index.HasMethodDefault("VectorAnimation.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)"));
     }
 
@@ -34,14 +34,14 @@ public class ProtocolExtensionDefaultsIndexTests
     {
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
-            ["Lottie.AnyInterpolatable"] = new()
+            ["VectorAnimation.AnyInterpolatable"] = new()
             {
                 CreateExtensionMethod("_interpolate", "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)")
             }
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
 
-        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable", "nonExistent()"));
+        Assert.False(index.HasMethodDefault("VectorAnimation.AnyInterpolatable", "nonExistent()"));
     }
 
     [Fact]
@@ -50,20 +50,20 @@ public class ProtocolExtensionDefaultsIndexTests
         // Constrained extensions (where T: SomeProtocol) ARE indexed — the Swift runtime
         // supplies the witness for any concrete type that satisfies the where-clause,
         // and the generator emits the corresponding C# requirement as a DIM that throws
-        // NotSupportedException so the conformance compiles. Reproduces the GRDB
-        // IndexInfo.Origin shape (DatabaseValueConvertible via the constrained
-        // RawRepresentable extension). The validator's per-conformance-set overload
-        // narrows further when the conformance set actually applies.
+        // NotSupportedException so the conformance compiles. Reproduces a constrained-
+        // extension default on a protocol requirement (a DatabaseValueConvertible property
+        // provided via the constrained RawRepresentable extension). The validator's
+        // per-conformance-set overload narrows further when the conformance set actually applies.
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
-            ["Lottie.AnyInterpolatable"] = new()
+            ["VectorAnimation.AnyInterpolatable"] = new()
             {
                 CreateExtensionMethod("_interpolate", "_interpolate(to:amount:)", whereConstraints: new() { "Self.Value : Comparable" })
             }
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
 
-        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable", "_interpolate(to:amount:)"));
+        Assert.True(index.HasMethodDefault("VectorAnimation.AnyInterpolatable", "_interpolate(to:amount:)"));
     }
 
     [Fact]
@@ -72,15 +72,14 @@ public class ProtocolExtensionDefaultsIndexTests
         // The per-conformance-set narrow overload (HasPropertyDefault with concreteConformances)
         // returns true for a constrained default declared DIRECTLY on the queried protocol —
         // the conformance-set filter narrows sub-protocol providers, not direct-protocol entries.
-        // This is what makes the GRDB IndexInfo.Origin path work: the concrete conformer
-        // (Origin) only directly conforms to DatabaseValueConvertible — not to any sub-protocol
-        // that provides the default — so the narrow overload must accept the direct-protocol
-        // constrained default by name match alone. The Swift typechecker has already enforced
-        // the where-clause when accepting Origin: DatabaseValueConvertible; the validator's
-        // job here is to confirm a witness exists, not to re-derive Swift's where-clause logic.
+        // The concrete conformer only directly conforms to DatabaseValueConvertible — not to any
+        // sub-protocol that provides the default — so the narrow overload must accept the
+        // direct-protocol constrained default by name match alone. The Swift typechecker has
+        // already enforced the where-clause; the validator's job here is to confirm a witness
+        // exists, not to re-derive Swift's where-clause logic.
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
-            ["GRDB.DatabaseValueConvertible"] = new()
+            ["RecordStore.DatabaseValueConvertible"] = new()
             {
                 CreateExtensionProperty("databaseValue",
                     whereConstraints: new() { "Self : RawRepresentable", "Self.RawValue : DatabaseValueConvertible" })
@@ -89,8 +88,8 @@ public class ProtocolExtensionDefaultsIndexTests
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
 
         // Conformance set contains ONLY the queried protocol — no sub-protocol detour.
-        var conformances = new HashSet<string> { "GRDB.DatabaseValueConvertible" };
-        Assert.True(index.HasPropertyDefault("GRDB.DatabaseValueConvertible", "databaseValue", conformances));
+        var conformances = new HashSet<string> { "RecordStore.DatabaseValueConvertible" };
+        Assert.True(index.HasPropertyDefault("RecordStore.DatabaseValueConvertible", "databaseValue", conformances));
     }
 
     [Fact]
@@ -102,12 +101,12 @@ public class ProtocolExtensionDefaultsIndexTests
         // only counts when the concrete type actually conforms to that sub-protocol.
         var protocols = new List<ProtocolDecl>
         {
-            CreateProtocolDecl("AnyInterpolatable", "Lottie"),
-            CreateProtocolDecl("Interpolatable", "Lottie", inheritedFrom: "Lottie.AnyInterpolatable")
+            CreateProtocolDecl("AnyInterpolatable", "VectorAnimation"),
+            CreateProtocolDecl("Interpolatable", "VectorAnimation", inheritedFrom: "VectorAnimation.AnyInterpolatable")
         };
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
-            ["Lottie.Interpolatable"] = new()
+            ["VectorAnimation.Interpolatable"] = new()
             {
                 CreateExtensionMethod("_interpolate", "_interpolate(to:amount:)",
                     whereConstraints: new() { "Self.Value : Comparable" })
@@ -116,12 +115,12 @@ public class ProtocolExtensionDefaultsIndexTests
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
         // Conforming to the sub-protocol → default is reachable.
-        var withSub = new HashSet<string> { "Lottie.AnyInterpolatable", "Lottie.Interpolatable" };
-        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable", "_interpolate(to:amount:)", withSub));
+        var withSub = new HashSet<string> { "VectorAnimation.AnyInterpolatable", "VectorAnimation.Interpolatable" };
+        Assert.True(index.HasMethodDefault("VectorAnimation.AnyInterpolatable", "_interpolate(to:amount:)", withSub));
 
         // Conforming only to the parent → constrained sub-protocol default does NOT apply.
-        var onlyParent = new HashSet<string> { "Lottie.AnyInterpolatable" };
-        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable", "_interpolate(to:amount:)", onlyParent));
+        var onlyParent = new HashSet<string> { "VectorAnimation.AnyInterpolatable" };
+        Assert.False(index.HasMethodDefault("VectorAnimation.AnyInterpolatable", "_interpolate(to:amount:)", onlyParent));
     }
 
     [Fact]
@@ -132,13 +131,13 @@ public class ProtocolExtensionDefaultsIndexTests
         // protocol requirements (Interpolatable inherits from AnyInterpolatable).
         var protocols = new List<ProtocolDecl>
         {
-            CreateProtocolDecl("AnyInterpolatable", "Lottie"),
-            CreateProtocolDecl("Interpolatable", "Lottie", inheritedFrom: "Lottie.AnyInterpolatable")
+            CreateProtocolDecl("AnyInterpolatable", "VectorAnimation"),
+            CreateProtocolDecl("Interpolatable", "VectorAnimation", inheritedFrom: "VectorAnimation.AnyInterpolatable")
         };
 
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
-            ["Lottie.Interpolatable"] = new()
+            ["VectorAnimation.Interpolatable"] = new()
             {
                 CreateExtensionMethod("_interpolate", "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)")
             }
@@ -146,7 +145,7 @@ public class ProtocolExtensionDefaultsIndexTests
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
         // Sub-protocol default is found for parent via inheritance graph
-        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        Assert.True(index.HasMethodDefault("VectorAnimation.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)"));
     }
 
@@ -158,13 +157,13 @@ public class ProtocolExtensionDefaultsIndexTests
         // for parent protocol queries when the concrete type conforms to both.
         var protocols = new List<ProtocolDecl>
         {
-            CreateProtocolDecl("AnyInterpolatable", "Lottie"),
-            CreateProtocolDecl("Interpolatable", "Lottie", inheritedFrom: "Lottie.AnyInterpolatable")
+            CreateProtocolDecl("AnyInterpolatable", "VectorAnimation"),
+            CreateProtocolDecl("Interpolatable", "VectorAnimation", inheritedFrom: "VectorAnimation.AnyInterpolatable")
         };
 
         var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
-            ["Lottie.Interpolatable"] = new()
+            ["VectorAnimation.Interpolatable"] = new()
             {
                 CreateExtensionMethod("_interpolate", "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)")
             }
@@ -172,13 +171,13 @@ public class ProtocolExtensionDefaultsIndexTests
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
         // Sub-protocol default IS found for parent via inheritance graph
-        var conformances = new HashSet<string> { "Lottie.AnyInterpolatable", "Lottie.Interpolatable" };
-        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        var conformances = new HashSet<string> { "VectorAnimation.AnyInterpolatable", "VectorAnimation.Interpolatable" };
+        Assert.True(index.HasMethodDefault("VectorAnimation.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)", conformances));
 
         // Without conformance to the sub-protocol, its default doesn't apply
-        var onlyParent = new HashSet<string> { "Lottie.AnyInterpolatable" };
-        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        var onlyParent = new HashSet<string> { "VectorAnimation.AnyInterpolatable" };
+        Assert.False(index.HasMethodDefault("VectorAnimation.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)", onlyParent));
     }
 
@@ -333,9 +332,9 @@ public class ProtocolExtensionDefaultsIndexTests
     public void DetectPhantomDefaults_PropertyMissingFromAllConformers_BecomesDefault()
     {
         // Protocol AnyValueProvider requires typeErasedStorage, but no conforming type has it.
-        // This models the Lottie pattern where the PAT extension is invisible.
-        var moduleDecl = CreateModuleDeclWithTypes("Lottie");
-        var protocol = CreateProtocolDeclWithProperties("AnyValueProvider", "Lottie",
+        // Models the pattern where the PAT extension is invisible in the ABI JSON.
+        var moduleDecl = CreateModuleDeclWithTypes("VectorAnimation");
+        var protocol = CreateProtocolDeclWithProperties("AnyValueProvider", "VectorAnimation",
             new[] { ("typeErasedStorage", false), ("valueType", false) });
         protocol.Methods.Add(CreateVoidMethodForProtocol("hasUpdate", moduleDecl));
         moduleDecl.Protocols.Add(protocol);
@@ -350,9 +349,9 @@ public class ProtocolExtensionDefaultsIndexTests
         index.DetectPhantomDefaults(moduleDecl);
 
         // typeErasedStorage should be detected as a phantom default
-        Assert.True(index.HasDirectPropertyDefault("Lottie.AnyValueProvider", "typeErasedStorage"));
+        Assert.True(index.HasDirectPropertyDefault("VectorAnimation.AnyValueProvider", "typeErasedStorage"));
         // valueType should NOT be a phantom default (present on FloatValueProvider)
-        Assert.False(index.HasDirectPropertyDefault("Lottie.AnyValueProvider", "valueType"));
+        Assert.False(index.HasDirectPropertyDefault("VectorAnimation.AnyValueProvider", "valueType"));
     }
 
     [Fact]

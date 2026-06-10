@@ -107,7 +107,7 @@ public enum DatabaseReadError: Error {
     case afterRead
 }
 
-// MARK: - Swift.String as MCB non-closure param (Stripe pattern)
+// MARK: - Swift.String as MCB non-closure param
 
 /// Fixture exercising a `Swift.String` non-closure parameter on an MCB-eligible
 /// method. MCB activates via the `Result<T, any Error>` closure arg; the String
@@ -118,18 +118,16 @@ public final class StringParamMCBFixture {
     public init() {}
 
     /// Returns the length of the input string as a Result wrapped in the
-    /// completion callback. The name mirrors Stripe's `possibleBrands(forNumber:)`
-    /// signature — single String non-closure param + Result closure.
+    /// completion callback. Single String non-closure param + Result closure.
     public func measure(input: String, completion: @escaping (Result<Int32, any Error>) -> Void) {
         completion(.success(Int32(input.utf8.count)))
     }
 }
 
-// MARK: - Optional MCB closure (Nuke / GRDB / Kingfisher pattern)
+// MARK: - Optional MCB closure
 
 /// Non-generic class exposing an Optional closure whose argument is `any Error` —
-/// MCB-eligible because of the existential. Models the Kingfisher / Nuke / GRDB
-/// completion-handler pattern where the closure may be nil. MCB must:
+/// MCB-eligible because of the existential. The closure may be nil; MCB must:
 ///   * NOT force-unwrap the funcPtr (passing nil must round-trip as nil),
 ///   * generate a nullable C# delegate parameter,
 ///   * skip the GCHandle.Alloc when the delegate is null.

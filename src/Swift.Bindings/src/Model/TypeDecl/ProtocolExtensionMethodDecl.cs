@@ -11,7 +11,7 @@ namespace BindingsGeneration;
 public class ProtocolExtensionMethodDecl
 {
     /// <summary>
-    /// The fully-qualified protocol name (e.g., "Kingfisher.KFOptionSetter").
+    /// The fully-qualified protocol name (e.g., "Module.ProtocolName").
     /// </summary>
     public required string ProtocolQualifiedName { get; set; }
 

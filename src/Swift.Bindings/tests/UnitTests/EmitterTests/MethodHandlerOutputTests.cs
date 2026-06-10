@@ -572,7 +572,7 @@ public class MethodHandlerOutputTests
 
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
-            new NamedTypeSpec("TestModule.LottieColor"));
+            new NamedTypeSpec("TestModule.VectorAnimationColor"));
         closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
 
         var method = CreateMethodDecl(
@@ -630,7 +630,7 @@ public class MethodHandlerOutputTests
             moduleDecl,
             "T",
             "TestModule.AnyInterpolatable");
-        CreateStructDecl("LottieVector3D", moduleDecl);
+        CreateStructDecl("VectorAnimationVector3D", moduleDecl);
 
         var method = CreateMethodDecl(
             name: "storage",
@@ -638,7 +638,7 @@ public class MethodHandlerOutputTests
             moduleDecl: moduleDecl,
             returnType: new NamedTypeSpec(
                 constrainedStorageDecl.SwiftTypeName.ModuleQualifiedName,
-                new NamedTypeSpec("TestModule.LottieVector3D")),
+                new NamedTypeSpec("TestModule.VectorAnimationVector3D")),
             isAsync: false,
             throws: false,
             methodType: MethodType.Instance);
@@ -1201,7 +1201,7 @@ public class MethodHandlerOutputTests
 
         // Build an unsupported Optional<Closure> with default
         var closureType = new ClosureTypeSpec(
-            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Mappedin.MPIError") }),
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("IndoorMapsSdk.MPIError") }),
             TupleTypeSpec.Empty);
         var optionalClosure = new NamedTypeSpec("Swift.Optional");
         optionalClosure.GenericParameters.Add(closureType);
@@ -1258,7 +1258,7 @@ public class MethodHandlerOutputTests
 
         // Build an unsupported Optional<Closure> with default
         var closureType = new ClosureTypeSpec(
-            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Mappedin.MPIError") }),
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("IndoorMapsSdk.MPIError") }),
             TupleTypeSpec.Empty);
         var optionalClosure = new NamedTypeSpec("Swift.Optional");
         optionalClosure.GenericParameters.Add(closureType);
@@ -1442,12 +1442,12 @@ public class MethodHandlerOutputTests
                 Kind = TypeRecordKind.Struct
             });
         module.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationColor"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LottieColor"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
-                MetadataAccessor = "$s10TestModule11LottieColorVMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "VectorAnimationColor"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationColor"),
+                MetadataAccessor = "$s10TestModule20VectorAnimationColorVMa",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
             });

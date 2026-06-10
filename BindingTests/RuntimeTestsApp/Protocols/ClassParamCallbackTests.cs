@@ -8,7 +8,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Regression tests for justinwojo/swift-dotnet-bindings#40 (Kidoz interstitial crash).
+/// Regression tests for justinwojo/swift-dotnet-bindings#40 (@objc:NSObject reverse-dispatch repro (issue #40)).
 ///
 /// <para>
 /// When Swift calls back into a C# protocol implementation with a method whose parameter
@@ -22,7 +22,7 @@ namespace RuntimeTestsApp.Protocols;
 /// <para>
 /// These tests implement the generated receiver interface, let a Swift driver call back into
 /// it, and <b>read a property off the received instance</b> — the exact operation that crashed
-/// in the field. The <c>@objc … : NSObject</c> variant is the literal Kidoz <c>KidozError</c>
+/// in the field. The <c>@objc … : NSObject</c> variant is the literal issue #40 <c>AdNetworkError</c>
 /// shape and is the one that exercises the ObjC-aware retain (<c>swift_unknownObjectRetain</c>)
 /// half of the fix; native-only <c>swift_retain</c> is a no-op / over-release on an NSObject
 /// subclass. Leak assertions verify the ARC fix, not merely the absence of a crash.
@@ -108,10 +108,10 @@ public class ClassParamCallbackTests : TestBase
         GC.KeepAlive(impl);
     }
 
-    // ---- @objc : NSObject class parameter (ObjCRootedClassProjection — the Kidoz shape) ----
+    // ---- @objc : NSObject class parameter (ObjCRootedClassProjection — the issue #40 shape) ----
 
     /// <summary>
-    /// The literal Kidoz repro: an <c>@objc … : NSObject</c> class flows through the reverse
+    /// The literal issue #40 repro: an <c>@objc … : NSObject</c> class flows through the reverse
     /// callback. This is the variant that requires <c>swift_unknownObjectRetain</c> — a native
     /// <c>swift_retain</c> is wrong on an NSObject subclass.
     /// </summary>
@@ -123,7 +123,7 @@ public class ClassParamCallbackTests : TestBase
         driver.Drive(impl, code: 99, label: "objc");
 
         AssertTrue(impl.DidReceiveCalled, "didReceiveObjC(_:) fired into the C# impl");
-        AssertEqual(99, impl.LastCode, "read .Code off the received @objc:NSObject instance (Kidoz repro)");
+        AssertEqual(99, impl.LastCode, "read .Code off the received @objc:NSObject instance (issue #40 repro)");
         AssertEqual("objc", impl.LastLabel, "read .Label off the received @objc:NSObject instance");
         GC.KeepAlive(impl);
     }
@@ -455,7 +455,7 @@ internal sealed class ClassParamReceiverImpl : IClassParamReceiver
 }
 
 /// <summary>
-/// C# implementation of the generated <c>IObjCClassParamReceiver</c> (the Kidoz
+/// C# implementation of the generated <c>IObjCClassParamReceiver</c> (the issue #40
 /// <c>@objc:NSObject</c> shape).
 /// </summary>
 internal sealed class ObjCClassParamReceiverImpl : IObjCClassParamReceiver

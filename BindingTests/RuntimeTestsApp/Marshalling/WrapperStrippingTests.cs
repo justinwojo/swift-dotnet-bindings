@@ -13,7 +13,7 @@ namespace RuntimeTestsApp.Marshalling;
 ///
 /// This tests the boundary between working @_cdecl methods and fallback
 /// CallConvSwift methods — the same boundary that causes real-world DllNotFoundException
-/// in ObjectMapper/XMLCoder/PhoneNumberKit when wrapper compilation fails.
+/// when wrapper compilation fails for methods that need @_cdecl wrappers.
 ///
 /// Coverage:
 /// - Method-level generics emission (ShouldEmitWrapper:69-70 — CallConvSwift fallback)

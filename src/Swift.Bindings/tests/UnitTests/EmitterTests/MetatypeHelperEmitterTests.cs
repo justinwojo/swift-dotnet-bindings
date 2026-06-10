@@ -264,9 +264,8 @@ public class MetatypeHelperEmitterTests
     {
         // Mirrors the legacy GetResolvablePwtParameterCount filter: an unknown
         // protocol (not in the type database) is silently dropped, NOT treated
-        // as unresolvable. Failing on unknown would regress every Alamofire/
-        // GRDB/RxSwift constrained generic that uses Swift stdlib protocols
-        // the type database doesn't track.
+        // as unresolvable. Failing on unknown would regress every constrained generic
+        // that uses Swift stdlib protocols the type database doesn't track.
         var typeDecl = CreateGenericTypeDeclWithConformances(
             "Cache",
             "TestModule",
@@ -372,8 +371,7 @@ public class MetatypeHelperEmitterTests
         // 1 metadata + 4 unknown PWT = 1 (we silently drop unknown protocols
         // the same way GetResolvablePwtParameterCount does). Mirrors the
         // HasUnresolvableTypeConformances_UnknownProtocol_SilentlyAllowed gate
-        // — counting unknown stdlib protocols would regress every Alamofire/
-        // GRDB/RxSwift constrained generic.
+        // — counting unknown stdlib protocols would regress every constrained generic.
         var typeDecl = CreateGenericTypeDeclWithConformances(
             "Cache",
             "TestModule",

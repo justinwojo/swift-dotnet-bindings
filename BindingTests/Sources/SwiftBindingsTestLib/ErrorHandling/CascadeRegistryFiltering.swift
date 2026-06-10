@@ -21,15 +21,14 @@ import Foundation
 //    No runtime arm needed beyond compile-time validation; the fixture just
 //    needs to exist so generation reaches the registry filter.
 //
-// 3. `@usableFromInline internal` Error type — must be skipped from the registry
-//    (the CryptoSwift `StreamDecryptor` shape). The C# emitter DOES bind these
-//    because they appear in `@inlinable` signatures, but the cascade dispatcher
-//    sits in a separate Swift wrapper module whose plain `import {Module}` only
-//    resolves `public` declarations. Emitting `as? Module.InternalType` in the
-//    cascade therefore produces "module X has no member named Y" at the swift
-//    compile step (the failure mode CryptoSwift hit before the IsModuleInternal
-//    filter landed). Runtime arm asserts the throw lands on the bare-SwiftException
-//    fallthrough — same shape as the SPI test.
+// 3. `@usableFromInline internal` Error type — must be skipped from the registry.
+//    The C# emitter DOES bind these because they appear in `@inlinable` signatures,
+//    but the cascade dispatcher sits in a separate Swift wrapper module whose plain
+//    `import {Module}` only resolves `public` declarations. Emitting
+//    `as? Module.InternalType` in the cascade therefore produces "module X has no
+//    member named Y" at the swift compile step (the failure mode that surfaced
+//    before the IsModuleInternal filter landed). Runtime arm asserts the throw lands
+//    on the bare-SwiftException fallthrough — same shape as the SPI test.
 
 // 1. @_spi SPI-only Error enum — invisible to public consumers. The whole
 //    declaration is annotated `@_spi(_)` so it is stripped from the
@@ -83,8 +82,8 @@ public struct GenericCascadeError<TPayload>: Error {
 
 // 3. `@usableFromInline internal` Error enum. The C# emitter binds it (so it can
 //    be referenced from inlined signatures), but the cascade dispatcher's plain
-//    `import` cannot name it — same wrapper-visibility asymmetry CryptoSwift's
-//    StreamDecryptor exposed.
+//    `import` cannot name it — the same wrapper-visibility asymmetry that triggers
+//    the IsModuleInternal filter.
 @usableFromInline
 internal enum InlinableInternalCascadeError: Error {
     case unauthorized
@@ -97,7 +96,7 @@ internal enum InlinableInternalCascadeError: Error {
 // filter, the cascade dispatcher would emit
 // `as? SwiftBindingsTestLib.InlinableInternalCascadeError` and the swift
 // wrapper compile would fail with "no type named InlinableInternalCascadeError
-// in module SwiftBindingsTestLib" (the CryptoSwift failure mode).
+// in module SwiftBindingsTestLib".
 public func plainThrowsAsyncInlinableInternalCascadeFallthrough() async throws -> Int32 {
     try? await Task.sleep(nanoseconds: 1_000_000)
     throw InlinableInternalCascadeError.unauthorized

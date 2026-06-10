@@ -272,9 +272,9 @@ public static class GenericTypeEmitter
                     }
 
                     // Skip same-module protocols emitted as an EMPTY marker interface because
-                    // all their requirements were filtered (e.g. GRDB.StatementColumnConvertible:
-                    // only a static Self-returning factory and a failable init taking an opaque
-                    // SQLiteStatement pointer, neither projectable to a C# interface member).
+                    // all their requirements were filtered (e.g., a protocol whose only members
+                    // are a static Self-returning factory and a failable init taking an opaque
+                    // pointer, neither projectable to a C# interface member).
                     // ProtocolConformanceHelper.GetImplementedInterfaces drops such conformances
                     // from every concrete type (the same HasEmittableInterfaceMembers predicate),
                     // so NO type ever implements the marker — emitting `where T : IMarker` would

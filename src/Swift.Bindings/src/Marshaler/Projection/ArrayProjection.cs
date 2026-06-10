@@ -78,7 +78,7 @@ public class ArrayProjection : ITypeProjection
     /// <summary>
     /// For MarshalFromSwift in return direction, use MarshalFromSwiftType of inner elements
     /// (same as ContainerTypeName). This ensures OptionalProjection wrapping an ArrayProjection
-    /// gets the public type names (e.g., SwiftArray&lt;STPPaymentMethod&gt;) not P/Invoke types.
+    /// gets the public type names (e.g., SwiftArray&lt;PaymentSdkPaymentMethod&gt;) not P/Invoke types.
     /// </summary>
     public string MarshalFromSwiftType => ContainerTypeName;
 

@@ -193,14 +193,14 @@ public class SwiftUIViewDetectorTests
         report.BridgedViews.Add(new BridgedViewItem
         {
             ViewName = "NoInternetView",
-            ModuleName = "BlinkIDUX",
+            ModuleName = "DocScanUX",
             InitClassification = "Simple",
             BridgeStatus = "TemplatePending",
         });
 
         Assert.Single(report.BridgedViews);
         Assert.Equal("NoInternetView", report.BridgedViews[0].ViewName);
-        Assert.Equal("BlinkIDUX", report.BridgedViews[0].ModuleName);
+        Assert.Equal("DocScanUX", report.BridgedViews[0].ModuleName);
         Assert.Equal("Simple", report.BridgedViews[0].InitClassification);
         Assert.Equal("TemplatePending", report.BridgedViews[0].BridgeStatus);
     }

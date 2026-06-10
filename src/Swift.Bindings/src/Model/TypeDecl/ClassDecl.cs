@@ -30,12 +30,12 @@ namespace BindingsGeneration
         /// <summary>
         /// The USR (Unified Symbol Resolution) identifier of the direct superclass.
         /// Null for root classes. ObjC superclasses use "c:" prefix (e.g., "c:objc(cs)NSObject").
-        /// Swift superclasses use "s:" prefix (e.g., "s:9Alamofire11DataRequestC").
+        /// Swift superclasses use "s:" prefix (e.g., "s:{len}{Module}{len}{ClassName}C").
         /// </summary>
         public string? SuperclassUsr { get; set; }
 
         /// <summary>
-        /// Full superclass chain from direct parent to root (e.g., ["Alamofire.DataRequest", "Alamofire.Request"]).
+        /// Full superclass chain from direct parent to root (e.g., ["Module.DerivedClass", "Module.BaseClass"]).
         /// Each entry is a module-qualified Swift type name. Empty for root classes.
         /// </summary>
         public List<string> SuperclassNames { get; set; } = new();

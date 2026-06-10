@@ -6,7 +6,7 @@ namespace BindingsGeneration;
 /// <summary>
 /// Stores TypeWitness mappings from ABI JSON conformance entries.
 /// Maps (conformingType, protocol, associatedTypeName) → resolved TypeSpec.
-/// Used to resolve associated type references (e.g., Self.Element → GRDB.Statement)
+/// Used to resolve associated type references (e.g., Self.Element → Module.ConcreteType)
 /// during protocol extension emission and bound generic translation.
 /// </summary>
 public class ConformanceGraph
@@ -17,8 +17,8 @@ public class ConformanceGraph
     /// Records a TypeWitness mapping: conformingType conforming to protocol has
     /// associatedTypeName resolved to resolvedType.
     /// </summary>
-    /// <param name="conformingType">Module-qualified conforming type name (e.g., "GRDB.SQLStatementCursor").</param>
-    /// <param name="protocol">Module-qualified protocol name (e.g., "GRDB.Cursor").</param>
+    /// <param name="conformingType">Module-qualified conforming type name (e.g., "Module.ConcreteType").</param>
+    /// <param name="protocol">Module-qualified protocol name (e.g., "Module.Protocol").</param>
     /// <param name="associatedTypeName">The associated type name (e.g., "Element").</param>
     /// <param name="resolvedType">The resolved TypeSpec for this associated type.</param>
     public void AddWitness(string conformingType, string protocol,

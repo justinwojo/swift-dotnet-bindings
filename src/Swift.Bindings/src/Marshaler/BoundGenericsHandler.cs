@@ -274,7 +274,7 @@ public class BoundGenericsHandler
         // getter/setter (which fall back to the projection's recursive conversions when the
         // single-level existential fast paths in ProtocolProxyEmitter.Receivers return null) —
         // threads the existential adoption down to the buried leaf. Real-world libs DO exercise this
-        // (ObjectMapper's [String: [String: any P]] returns; GRDB nested dictionaries), so it is
+        // (nested collections like [String: [String: any P]] and nested dictionary returns), so it is
         // covered by validate as well as the BindingTests owned-return LifetimeTracker probe +
         // reverse-dispatch/param round-trip fixtures.
         if (MarshallingHelpers.IsSwiftArray(outerNamedType) &&
@@ -354,7 +354,7 @@ public class BoundGenericsHandler
     /// (<c>ExpressibleByArrayLiteral</c>'s <c>init(arrayLiteral: Element...)</c> → <c>Array&lt;Element&gt;</c>),
     /// which the @_cdecl wrapper cannot forward — it would pass <c>[T]</c> where <c>T...</c> is required, and
     /// the variadic guards in ConstructorWrapperEmitter/MethodHandler key off <c>HasVariadicParameter</c>,
-    /// which such an init does not carry, so an uncompilable wrapper would be emitted (GRDB.StatementArguments).
+    /// which such an init does not carry, so an uncompilable wrapper would be emitted.
     /// The top-level Optional branch in <see cref="IsContainerWithSupportedDirectExistential"/> still admits an
     /// Optional OUTER container; only the element/value RECURSION is restricted here. (Optional-of-existential
     /// element support needs variadic-init handling that is out of scope; until then it stays unadmitted as at
@@ -1274,7 +1274,7 @@ public class BoundGenericsHandler
     /// <summary>
     /// Detects the Swift-extension-on-foreign-type pattern that <see cref="SatisfiesConstraint"/>
     /// cannot reject by itself: the current module owns an <c>extension</c> on a type from a
-    /// different module that adds protocol conformance (e.g. Kingfisher's
+    /// different module that adds protocol conformance (e.g.
     /// <c>extension Foundation.Data: DataTransformable</c>). Swift permits this freely; C#
     /// does not — you cannot post-hoc add an interface implementation to a type declared in
     /// another assembly. The bound type <c>Backend&lt;Foundation.Data&gt;</c> is emitted with

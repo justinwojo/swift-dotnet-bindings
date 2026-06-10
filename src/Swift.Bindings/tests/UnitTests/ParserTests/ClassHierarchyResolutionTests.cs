@@ -19,7 +19,7 @@ public class ClassHierarchyResolutionTests
     [Fact]
     public void ResolveClassHierarchy_ThreeLevelChain_ResolvesAllLinks()
     {
-        // Alamofire pattern: UploadRequest → DataRequest → Request
+        // Three-level class chain pattern: UploadRequest → DataRequest → Request
         var request = CreateClassDecl("Request", "TestModule");
         var dataRequest = CreateClassDecl("DataRequest", "TestModule",
             superclassNames: new[] { "TestModule.Request" });
@@ -131,14 +131,14 @@ public class ClassHierarchyResolutionTests
     [Fact]
     public void ResolveClassHierarchy_GenericInstantiatedParent_DoesNotResolveViaUsr()
     {
-        // RxSwift pattern: class HistoricalScheduler : VirtualTimeScheduler<HistoricalSchedulerTimeConverter>
+        // Generic-arg fidelity pattern: class HistoricalScheduler : VirtualTimeScheduler<HistoricalSchedulerTimeConverter>
         // Same-module parent, but the inheritance includes a concrete generic argument the USR
         // does NOT carry. Resolving via USR would silently drop the type argument and emit
         // VirtualTimeScheduler<TConverter> instead of the concrete instantiation, causing CS0246.
-        var parent = CreateClassDecl("VirtualTimeScheduler", "RxSwift");
-        var child = CreateClassDecl("HistoricalScheduler", "RxSwift",
-            superclassUsr: "s:7RxSwift22VirtualTimeSchedulerC",
-            superclassNames: new[] { "RxSwift.VirtualTimeScheduler<RxSwift.HistoricalSchedulerTimeConverter>" });
+        var parent = CreateClassDecl("VirtualTimeScheduler", "ReactiveStreams");
+        var child = CreateClassDecl("HistoricalScheduler", "ReactiveStreams",
+            superclassUsr: "s:14ReactiveStreams22VirtualTimeSchedulerC",
+            superclassNames: new[] { "ReactiveStreams.VirtualTimeScheduler<ReactiveStreams.HistoricalSchedulerTimeConverter>" });
 
         RunResolution(parent, child);
 
@@ -149,7 +149,7 @@ public class ClassHierarchyResolutionTests
 
     [Theory]
     [InlineData("s:17RealityFoundation6EntityC", "RealityFoundation.Entity")]
-    [InlineData("s:9Alamofire11DataRequestC", "Alamofire.DataRequest")]
+    [InlineData("s:9NetClient11DataRequestC", "NetClient.DataRequest")]
     [InlineData("s:5MyMod5OuterC5InnerC", "MyMod.Outer.Inner")]
     public void TryParseSwiftClassUsr_ValidClassUsr_ParsesToCanonicalName(string usr, string expected)
     {

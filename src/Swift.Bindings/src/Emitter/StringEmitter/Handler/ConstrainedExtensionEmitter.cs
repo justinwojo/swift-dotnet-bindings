@@ -1715,7 +1715,7 @@ public static class ConstrainedExtensionEmitter
         // Strip every Swift type-syntax character that would produce an invalid C#
         // identifier. Array `[T]`, generic `T<U>`, tuple `(A, B)` and qualified
         // `Module.T` all need to map to bare-word identifiers; otherwise the emitted
-        // class name (e.g. `AlamofireExtensionSecCertificate]Extensions`) is a
+        // class name (e.g. `ModuleExtensionType]Extensions`) is a
         // syntax error. Order matters: drop the closer (`>`, `]`, `)`) so the prefix
         // collapses cleanly, replace the opener / separator with underscores so a
         // composed name (`Dictionary_String_Int`) stays readable.

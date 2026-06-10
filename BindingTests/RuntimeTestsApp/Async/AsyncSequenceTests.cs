@@ -10,8 +10,8 @@ namespace RuntimeTestsApp.Async;
 /// Tests for Swift AsyncSequence → .NET IAsyncEnumerable&lt;T&gt; projection.
 /// Without this projection, <c>await foreach (var x in seq)</c> fails to
 /// compile for every Swift type that conforms to AsyncSequence (StoreKit
-/// Transactions, MusicKit MusicSubscription.Updates, Stripe progress
-/// observers). The generator must emit a <c>GetAsyncEnumerator</c> adapter
+/// Transactions, MusicKit MusicSubscription.Updates, async event streams).
+/// The generator must emit a <c>GetAsyncEnumerator</c> adapter
 /// that bridges the Swift iterator's <c>NextAsync(ct) -&gt; Task&lt;T?&gt;</c>
 /// shape to <c>IAsyncEnumerator&lt;T&gt;</c>.
 /// </summary>

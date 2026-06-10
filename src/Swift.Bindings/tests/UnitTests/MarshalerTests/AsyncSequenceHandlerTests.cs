@@ -13,10 +13,10 @@ public class AsyncSequenceHandlerTests
     [Fact]
     public void TryResolveElementCSharpType_NestedOptionalElement_ReportsElementOptional()
     {
-        // FirebaseAuth Auth.IDTokenChanges has Element=User? — its iterator's
-        // next() therefore returns Optional<Optional<User>>. The emitter needs
-        // to distinguish the outer "iteration done" None from the inner "element
-        // is null" None, so the handler must surface isElementOptional=true.
+        // An async sequence with Element=User? — its iterator's next() therefore returns
+        // Optional<Optional<User>>. The emitter needs to distinguish the outer "iteration
+        // done" None from the inner "element is null" None, so the handler must surface
+        // isElementOptional=true.
         var asyncSeq = BuildAsyncSequence(
             elementSpec: new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int")));
         var handler = new AsyncSequenceHandler(new StubDb());

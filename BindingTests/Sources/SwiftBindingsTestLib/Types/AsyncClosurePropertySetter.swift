@@ -3,8 +3,7 @@
 
 import Foundation
 
-// Regression: Stripe's StripePaymentSheet.ConfirmHandler shape. A setter-only
-// property whose Swift type is Optional<closure-returning-Task>. Before the
+// Regression: setter-only property whose Swift type is Optional<closure-returning-Task>. Before the
 // PropertyHandler skip, the generator emitted an async-throwing P/Invoke that
 // referenced an undeclared `valueHandle` and typed the parameter as
 // Swift.AnyType (asyncBridgeEligible is false on accessor frames). The async
@@ -47,32 +46,27 @@ public class AsyncClosurePropertySetterHolder {
     }
 }
 
-// Stripe's StripePaymentSheet.ConfirmHandler shape: an async-closure stored
-// property living on a *nested* type. Round-1 (commit 2ca32c33) added an
+// Async-closure stored property living on a *nested* type. Round-1 (commit 2ca32c33) added an
 // `if (closureTypeSpec.IsAsync) skip` predicate to PropertyHandler but only
-// exercised it via flat-class unit tests; Stripe's `ConfirmHandler` lives on
-// `PaymentSheet.IntentConfiguration` and continued to emit `Swift.AnyType` on
-// the P/Invoke setter. This fixture pins the maximum case for round 2: the
-// nested-type setter-only / nested-type sibling-non-async / nested-type async
-// throwing combinations must all skip cleanly while the non-async sibling on
+// exercised it via flat-class unit tests; the nested-type case continued to emit
+// `Swift.AnyType` on the P/Invoke setter. This fixture pins the maximum case for
+// round 2: the nested-type setter-only / nested-type sibling-non-async / nested-type
+// async throwing combinations must all skip cleanly while the non-async sibling on
 // the same nested type keeps binding.
 
-// Helper concrete class used as a closure parameter (mirrors Stripe's
-// STPPaymentMethod argument — a non-blittable reference type).
+// Helper concrete class used as a closure parameter — a non-blittable reference type.
 public class AsyncClosureNestedArg {
     public let label: String
     public init(_ label: String) { self.label = label }
 }
 
 public class AsyncClosurePropertySetterOuter {
-    // Struct-nested-in-class — Stripe's `PaymentSheet.IntentConfiguration`
-    // is a struct nested inside a class. The struct path runs through
+    // Struct-nested-in-class — a struct nested inside a class. The struct path runs through
     // FrozenStructHandler / NonFrozenStructHandler (not ClassHandler), and
     // the round-1 fix at PropertyHandler must fire on that emit path too.
     public struct IntentConfigurationNested {
-        // Maximum case: stored property whose closure type matches Stripe's
-        // ConfirmHandler exactly — a class arg + Bool arg + async throwing
-        // String return.
+        // Maximum case: stored property whose closure type is a class arg + Bool arg +
+        // async throwing String return.
         public var confirmHandler: ((AsyncClosureNestedArg, Bool) async throws -> String)?
 
         // Setter-only stored property: explicit `set` accessor with no
@@ -108,8 +102,7 @@ public class AsyncClosurePropertySetterOuter {
     // Outer class must still bind so consumers can reach the nested type.
     public init() {}
 
-    // Factory exposing the nested struct — Stripe's IntentConfiguration is
-    // surfaced through a containing class's API.
+    // Factory exposing the nested struct through the containing class's API.
     public func makeIntentConfiguration() -> IntentConfigurationNested {
         return IntentConfigurationNested()
     }

@@ -699,8 +699,8 @@ namespace BindingsGeneration.Tests
         {
             // Simulate the enriched exception that InvokeSwiftCompiler would throw
             var ex = new InvalidOperationException(
-                "Swift wrapper compilation failed (exit code 1): error: no such module 'Stripe3DS2'\n\n" +
-                "Missing module(s): 'Stripe3DS2'. Provide the xcframework(s) for these modules:\n" +
+                "Swift wrapper compilation failed (exit code 1): error: no such module 'PaymentSdk3DS2'\n\n" +
+                "Missing module(s): 'PaymentSdk3DS2'. Provide the xcframework(s) for these modules:\n" +
                 "  CLI:  --framework-dependency /path/to/<Module>.xcframework (repeat for each)\n" +
                 "  SDK:  Declare both items — SwiftFrameworkDependency for build-time " +
                 "framework resolution, PackageReference for NuGet restore:\n" +
@@ -711,7 +711,7 @@ namespace BindingsGeneration.Tests
             var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
                 WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
 
-            Assert.Contains("Missing module(s): 'Stripe3DS2'", message);
+            Assert.Contains("Missing module(s): 'PaymentSdk3DS2'", message);
             Assert.Contains("--framework-dependency", message);
             Assert.Contains("SwiftFrameworkDependency", message);
             Assert.Contains("PackageReference", message);
@@ -826,7 +826,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void FormatDependencyWarning_MissingSlice_ContainsMSBuildSdkGuidance()
         {
-            var message = BindingsGenerator.FormatDependencyWarning("StripePayments", "missing-slice");
+            var message = BindingsGenerator.FormatDependencyWarning("PaymentSdkPayments", "missing-slice");
             Assert.Contains("SwiftFrameworkDependency", message);
             Assert.Contains("PackageId", message);
             Assert.Contains("PackageVersion", message);
@@ -835,7 +835,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void FormatDependencyWarning_MissingXcframework_ContainsMSBuildSdkGuidance()
         {
-            var message = BindingsGenerator.FormatDependencyWarning("StripePayments", "missing-xcframework");
+            var message = BindingsGenerator.FormatDependencyWarning("PaymentSdkPayments", "missing-xcframework");
             Assert.Contains("SwiftFrameworkDependency", message);
             Assert.Contains("PackageId", message);
             Assert.Contains("PackageVersion", message);
@@ -1148,15 +1148,15 @@ namespace BindingsGeneration.Tests
                 },
                 new()
                 {
-                    XCFrameworkPath = "/path/to/FirebaseCore.xcframework",
-                    ModuleName = "FirebaseCore",
+                    XCFrameworkPath = "/path/to/CloudPlatformSdkCore.xcframework",
+                    ModuleName = "CloudPlatformSdkCore",
                     IsObjCOnly = true,
                 },
             };
 
             var result = BindingsGeneratorCommand.GetDependencyModuleNamesForSwiftImports(dependencies);
 
-            Assert.Equal(new[] { "SwiftDep", "FirebaseCore" }, result);
+            Assert.Equal(new[] { "SwiftDep", "CloudPlatformSdkCore" }, result);
         }
 
         [Fact]
@@ -1331,7 +1331,7 @@ namespace BindingsGeneration.Tests
 
         /// <summary>
         /// Creates a temp xcframework with module.modulemap but no .swiftmodule
-        /// (simulates an ObjC-only framework like Stripe3DS2).
+        /// (simulates an ObjC-only framework).
         /// </summary>
         private static XCFrameworkFixture CreateObjCDepFixture(string name,
             bool hasBothSlices, bool addModulemap = true)

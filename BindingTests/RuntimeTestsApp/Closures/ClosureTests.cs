@@ -431,8 +431,8 @@ public class ClosureTests : TestBase
 
     #endregion
 
-    #region Closure + Existential Array Constructor (Swinject NativeAOT pattern)
-    // Regression test for Swinject Container.init(behaviors: [any Behavior], registerClosure: ...).
+    #region Closure + Existential Array Constructor (dependency-injection-SDK NativeAOT pattern)
+    // Regression test for a DI container init(behaviors: [any Behavior], registerClosure: ...) shape.
     // The ClosureWithExistentialArray class takes both an [any ProcessingMode] array and an
     // @escaping (Int32) -> Int32 closure. This triggers SwiftArray<ExistentialContainer1> type
     // init during closure construction — the pattern that caused TypeInitializationException
@@ -458,7 +458,7 @@ public class ClosureTests : TestBase
 
     #endregion
 
-    #region Setter-Only Closure Properties (Alamofire ClosureEventMonitor pattern)
+    #region Setter-Only Closure Properties (network-client ClosureEventMonitor pattern)
     // Tests for closure properties where the parameter type (existential) prevents C# invocation
     // via getter, but the setter path works. The generator emits these as set-only properties.
     // The binding compilation test is the main validation (C# compiles with setter-only property).
@@ -492,7 +492,7 @@ public class ClosureTests : TestBase
     // (any ProcessingMode) -> Void closure params route through the Cdecl wrapper path.
     // The Swift adapter heap-allocates an ExistentialContainer for the existential arg and
     // the C# callback dereferences the void* back into a ProcessingModeProxy wrapper.
-    // Unblocks ~25 closure items across Mappedin, Kingfisher, and Lottie.
+    // Unblocks ~25 closure items blocked by existential closure parameter support.
 
     public void TestExistentialClosureParam_InvokesWithSimpleMode()
     {

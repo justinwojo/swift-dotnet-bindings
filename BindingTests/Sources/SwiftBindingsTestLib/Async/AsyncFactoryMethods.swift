@@ -3,14 +3,14 @@
 
 import Foundation
 
-// MARK: - Async Factory Methods (Lottie DotLottieFile / LottieAnimation.loadedFrom)
+// MARK: - Async Factory Methods (animated bundle / animation asset loading)
 // Tests the pattern where a type provides async static factory methods for
 // loading from file paths, data, and URL strings.
 // This models:
-// - DotLottieFile.loadedFrom(filepath:) / DotLottieFile.loadedFrom(data:filename:)
-// - LottieAnimation.loadedFrom(url:)
+// - AnimationBundle.loadedFrom(filepath:) / AnimationBundle.loadedFrom(data:filename:)
+// - AnimationAsset.loadedFrom(url:)
 
-/// Represents loaded animation data — models Lottie's LottieAnimation.
+/// Represents loaded animation data — models an async-loaded animation asset.
 public final class AnimationAsset {
     public var name: String
     public var frameCount: Int32
@@ -23,7 +23,7 @@ public final class AnimationAsset {
     }
 
     /// Load from a file path (async).
-    /// Models: LottieAnimation.loadedFrom(filepath:)
+    /// Models: AnimationAsset.loadedFrom(filepath:)
     public static func loadFromFile(path: String) async -> AnimationAsset? {
         // Simulate file I/O delay
         try? await Task.sleep(nanoseconds: 1_000_000)
@@ -33,7 +33,7 @@ public final class AnimationAsset {
     }
 
     /// Load from raw data bytes (async).
-    /// Models: DotLottieFile.loadedFrom(data:filename:)
+    /// Models: AnimationBundle.loadedFrom(data:filename:)
     public static func loadFromData(_ data: [UInt8], filename: String) async -> AnimationAsset {
         try? await Task.sleep(nanoseconds: 1_000_000)
         return AnimationAsset(
@@ -44,7 +44,7 @@ public final class AnimationAsset {
     }
 
     /// Load from a URL string (async).
-    /// Models: LottieAnimation.loadedFrom(url:)
+    /// Models: AnimationAsset.loadedFrom(url:)
     public static func loadFromUrl(urlString: String) async -> AnimationAsset? {
         try? await Task.sleep(nanoseconds: 1_000_000)
         guard !urlString.isEmpty, urlString.hasPrefix("http") else { return nil }
@@ -57,7 +57,7 @@ public final class AnimationAsset {
     }
 }
 
-/// Bundle file containing multiple animations — models Lottie's DotLottieFile.
+/// Bundle file containing multiple animations — models an async-loaded animation bundle.
 public final class AnimationBundle {
     public var filename: String
     public var animations: [AnimationAsset]
@@ -68,7 +68,7 @@ public final class AnimationBundle {
     }
 
     /// Load a bundle from file path (async).
-    /// Models: DotLottieFile.loadedFrom(filepath:)
+    /// Models: AnimationBundle.loadedFrom(filepath:)
     public static func loadFromFile(path: String) async -> AnimationBundle? {
         try? await Task.sleep(nanoseconds: 1_000_000)
         guard !path.isEmpty else { return nil }
@@ -92,7 +92,7 @@ public final class AnimationBundle {
     }
 }
 
-/// Simple animation cache — models Lottie's DotLottieCache / LottieAnimationCache.
+/// Simple actor-isolated cache: shared instance, string-keyed store/lookup, and clear.
 public final class AnimationCacheStore {
     public static let shared = AnimationCacheStore()
 

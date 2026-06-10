@@ -59,7 +59,7 @@ public record SwiftTypeName
 
     /// <summary>
     /// Creates a new SwiftTypeName from a NamedTypeSpec.
-    /// Traverses the InnerType chain for nested types (e.g., Nuke.ImageRequest.UserInfoKey).
+    /// Traverses the InnerType chain for nested types (e.g., ImagePipeline.ImageRequest.UserInfoKey).
     /// </summary>
     /// <param name="namedTypeSpec">The NamedTypeSpec.</param>
     /// <returns>The SwiftTypeName.</returns>

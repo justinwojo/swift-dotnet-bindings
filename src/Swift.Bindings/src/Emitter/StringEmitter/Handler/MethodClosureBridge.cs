@@ -1675,8 +1675,7 @@ public static class MethodClosureBridge
 
     /// <summary>
     /// Checks whether a TypeSpec is <c>Optional&lt;any Swift.Error&gt;</c> — Pattern A.
-    /// Stripe completion handlers (<c>PaymentSheet.FlowController.update</c>, etc.) deliver
-    /// errors via this shape: nil on success, existential container on failure.
+    /// Async completion handlers deliver errors via this shape: nil on success, existential container on failure.
     /// ABI: <c>UnsafeMutableRawPointer?</c> — nil maps to C# <c>Swift.Foundation.AnyError?</c> = null.
     /// </summary>
     internal static bool IsOptionalAnyErrorExistential(TypeSpec typeSpec)
@@ -1689,8 +1688,8 @@ public static class MethodClosureBridge
 
     /// <summary>
     /// Checks whether a TypeSpec is <c>Swift.Result&lt;T, any Swift.Error&gt;</c> — Pattern B.
-    /// Stripe's <c>(Result&lt;PaymentSheet.FlowController, any Error&gt;) -&gt; Void</c> completion
-    /// handlers pass this shape. Routed through <c>withUnsafePointer</c> on the Swift side so
+    /// A <c>(Result&lt;CheckoutFlow.Controller, any Error&gt;) -&gt; Void</c> completion
+    /// handler passes this shape. Routed through <c>withUnsafePointer</c> on the Swift side so
     /// the C# callback receives a pointer to the Result enum payload; the C# wrapper then
     /// heap-copies via <c>SwiftResult&lt;T, ExistentialContainer1&gt;.NewFromPayload</c>.
     /// </summary>

@@ -3,10 +3,9 @@
 
 import Foundation
 
-// MARK: - Struct-Backed Enum (Alamofire HTTPMethod pattern)
+// MARK: - Struct-Backed Enum
 
 /// Struct with static let properties simulating an enum, plus rawValue.
-/// Real-world pattern: Alamofire HTTPMethod.Get/.Post/.Put, BonMot Emphasis.Italic/.Bold.
 public struct HttpVerb: Equatable {
     public var rawValue: String
 

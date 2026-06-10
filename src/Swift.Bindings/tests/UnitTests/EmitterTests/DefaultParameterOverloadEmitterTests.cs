@@ -324,8 +324,8 @@ public class DefaultParameterOverloadEmitterTests
     [Fact]
     public void TryEmitOverloads_ProjectedKeyCollision_SkipsOverload()
     {
-        // Pattern from ObjectMapper/Parchment: an explicit 1-param overload collides
-        // with the trimmed default-param overload after C# projection.
+        // An explicit 1-param overload collides with the trimmed default-param overload
+        // after C# projection.
         // find(query: Int, limit: Int = 10) → trimmed to find(query: Int)
         // find(query: Int) → explicit 1-param overload
         // Both produce the same projected C# key → skip the trimmed overload.
@@ -548,7 +548,7 @@ public class DefaultParameterOverloadEmitterTests
         var method = new MethodDecl
         {
             Name = "getFormattedExampleNumber",
-            MangledName = "$s14PhoneNumberKit0bC9FormatterV24getFormattedExampleNumberySSSg_tF",
+            MangledName = "$s14PhoneNumberLib0bC9FormatterV24getFormattedExampleNumberySSSg_tF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
@@ -1054,12 +1054,12 @@ public class DefaultParameterOverloadEmitterTests
         // Issue N: @autoclosure params in _dbg_* wrappers must be invoked with ()
         // when forwarded to the original method. Without this, Swift complains about
         // "add () to forward '@autoclosure' parameter".
-        var (moduleDecl, typeDb) = CreateTestEnvironment("LottieLogger");
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimationLogger");
         var parentDecl = new StructDecl
         {
-            Name = "LottieLogger",
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieLogger"),
-            MangledName = "$s10TestModule12LottieLoggerVN",
+            Name = "VectorAnimationLogger",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationLogger"),
+            MangledName = "$s10TestModule21VectorAnimationLoggerVN",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -1070,7 +1070,7 @@ public class DefaultParameterOverloadEmitterTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
             IsFrozen = true,
-            MetadataAccessor = "$s10TestModule12LottieLoggerVMa"
+            MetadataAccessor = "$s10TestModule21VectorAnimationLoggerVMa"
         };
 
         // Create @autoclosure () -> Bool parameter
@@ -1094,7 +1094,7 @@ public class DefaultParameterOverloadEmitterTests
         var method = new MethodDecl
         {
             Name = "assert",
-            MangledName = "$s10TestModule12LottieLoggerV6assertyyXK_SSXKSSzcFtF",
+            MangledName = "$s10TestModule21VectorAnimationLoggerV6assertyyXK_SSXKSSzcFtF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>

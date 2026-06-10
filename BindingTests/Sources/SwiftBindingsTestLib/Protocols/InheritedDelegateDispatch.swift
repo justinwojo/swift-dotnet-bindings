@@ -6,7 +6,7 @@ import SwiftBindingsTestLibDependency
 
 // MARK: - Inherited-protocol delegate dispatch
 //
-// Covers justinwojo/swift-dotnet-bindings#40 (KidozSDK repro): a child protocol that
+// Covers justinwojo/swift-dotnet-bindings#40: a child protocol that
 // only inherits requirements from a parent protocol — `protocol ChildDelegate:
 // ParentDelegate {}` with no new requirements of its own. The Swift API exposes a
 // property typed as the child protocol; Swift's witness dispatch routes inherited
@@ -68,7 +68,7 @@ public class InheritedDelegate3LevelSource {
 
 // MARK: - Non-empty child (child has its own member + inherits parent's)
 //
-// The Kidoz reduction used an empty child, but real-world inherited delegates
+// The reduction above used an empty child, but real-world inherited delegates
 // typically carry their own requirements too. Verifies inherited dispatch still
 // works when both the parent's and the child's witness tables have to be
 // populated and routed.
@@ -120,8 +120,8 @@ public class InheritedDelegateSource {
 
     /// Dispatches through the **child**-typed `weak var`. The Swift compiler emits
     /// the call against `InheritedChildDelegate`'s witness table, which forwards
-    /// `parentDidNotify` to the parent's vtable entry. This is the Kidoz crash
-    /// shape: pre-fix the parent vtable is nil → SIGTRAP on force-unwrap.
+    /// `parentDidNotify` to the parent's vtable entry. Pre-fix the parent vtable is
+    /// nil → SIGTRAP on force-unwrap.
     public func fireViaChild(value: Int32) {
         if let d = childDelegate {
             lastSlotFired = 1
@@ -176,8 +176,8 @@ public class InheritedDelegateSource {
 
 public protocol CrossModuleInheritedChildDelegate: CrossModuleParentDelegate {
     // Intentionally empty — every callback flows through the parent's
-    // cross-module witness table, exactly as Kidoz's `KidozInitDelegate:
-    // SDKInitDelegate` shape in the third-party SDK.
+    // cross-module witness table, exactly as an ad-network SDK's `SDKInitDelegate:
+    // BaseSDKInitDelegate` inherited-delegate shape.
 }
 
 public class CrossModuleInheritedDelegateSource {

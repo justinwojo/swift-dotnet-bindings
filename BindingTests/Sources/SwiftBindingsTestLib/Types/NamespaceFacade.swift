@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - Namespace-facade fixture
 //
-// Mirrors the BlinkID 7.7.0 `BlinkIDSDK` shape locally so the
+// Mirrors the namespace-facade shape locally so the
 // namespace-facade emission can be observed end-to-end inside
 // SwiftBindingsTestLib without depending on a third-party framework.
 //

@@ -5,10 +5,8 @@ import Foundation
 
 // MARK: - Internal-Type-Reach Fixture (Pattern 2 emission-time gate)
 //
-// Models the dominant Pattern 2 shape from CryptoSwift / SkeletonView /
-// NVActivityIndicatorView / XMLCoder: `@usableFromInline internal` types
-// that show up in the swiftinterface and become reachable from emitted
-// wrappers. Swift's source rules forbid a plain `public` member from naming
+// Models the dominant Pattern 2 shape where `@usableFromInline internal` types
+// show up in the swiftinterface and become reachable from emitted wrappers. Swift's source rules forbid a plain `public` member from naming
 // an internal type in its signature, so the compile-time positive cases here
 // are limited to what the language actually accepts. The fixture exercises
 // several distinct skip points; the runtime absence assertions are what
@@ -53,8 +51,7 @@ import Foundation
 //     as post-processing scope**: the receiver-aware emission-time gate is
 //     not viable because at emission time we don't know whether the
 //     containing type satisfies a public protocol that the C# co-gater would
-//     need to protect (CryptoSwift `BlockEncryptor : Cryptor` was the
-//     concrete regression that rejected option (a)). The
+//     need to protect (a concrete regression that rejected option (a)). The
 //     `SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub strips
 //     the broken wrapper, and `CSharpWrapperCoGater` (with its
 //     `BuildTypeProtectedMembers` interface-member protection) removes the
@@ -72,9 +69,8 @@ import Foundation
 // MARK: Internal carriers — visible in the swiftinterface, NOT to consumers.
 
 /// `@usableFromInline internal` struct exposed to the ABI for the dominant
-/// Pattern 2 shape. Plays the role of CryptoSwift's `BlockEncryptor` /
-/// XMLCoder's `_XMLPlistEncodingContainer` — referenced from emitted wrappers
-/// but off-limits to the binding's external surface.
+/// Pattern 2 shape. Plays the role of an internal type referenced from emitted
+/// wrappers but off-limits to the binding's external surface.
 ///
 /// The C# binding emits this as a shell type (no type-level filter exists for
 /// `@usableFromInline internal`; the metadata anchor is needed for cross-module

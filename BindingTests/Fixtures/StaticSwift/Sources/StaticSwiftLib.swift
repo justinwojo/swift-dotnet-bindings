@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Static-Swift framework regression fixture reproducing Mappedin's distribution shape.
+// Static-Swift framework regression fixture: an xcframework whose binary is a static archive.
 //
 // The xcframework built from this source has:
 //   - A static `ar` archive binary (NOT a dylib) — `lipo -info` reports an

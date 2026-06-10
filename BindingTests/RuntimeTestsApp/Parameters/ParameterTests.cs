@@ -356,8 +356,8 @@ public class ParameterTests : TestBase
             $"{context}: parameter name `{name}` looks like the positional-placeholder " +
             "failure mode (`value0`, `value1`, …). Expected a meaningful synthesized identifier.");
 
-        // Mode 1: lowercased typedef-name leakage. The Lottie reference
-        // shape was `cGFloat` from `AnimationProgressTime = CGFloat`. The
+        // Mode 1: lowercased typedef-name leakage. The original regression shape was
+        // `cGFloat` from `AnimationProgressTime = CGFloat`. The
         // analog here is the typealias `UnderscoreLabelAnimationProgress`
         // — the lowercased-leak shape would project as
         // `underscoreLabelAnimationProgress`.

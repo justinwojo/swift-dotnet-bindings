@@ -77,7 +77,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB8Database4readyyF",
+            MangledName = "$s11RecordStore8Database4readyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = false,
@@ -116,7 +116,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB8Database4readyyF",
+            MangledName = "$s11RecordStore8Database4readyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = false,
@@ -170,7 +170,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB8Database4readyyF",
+            MangledName = "$s11RecordStore8Database4readyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,
@@ -254,7 +254,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB8Database4readyyF",
+            MangledName = "$s11RecordStore8Database4readyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,
@@ -341,7 +341,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB8Database4readyyF",
+            MangledName = "$s11RecordStore8Database4readyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,
@@ -397,7 +397,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB8Database4readyyF_v2",
+            MangledName = "$s11RecordStore8Database4readyyF_v2",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,
@@ -455,7 +455,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB9ViewModel4readyyF",
+            MangledName = "$s11RecordStore9ViewModel4readyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,
@@ -507,7 +507,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "read",
-            MangledName = "$s4GRDB8Database4readyyF_v3",
+            MangledName = "$s11RecordStore8Database4readyyF_v3",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,
@@ -568,7 +568,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "readWithCdecl",
-            MangledName = "$s4GRDB8Database13readWithCdeclyyF",
+            MangledName = "$s11RecordStore8Database13readWithCdeclyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,
@@ -621,7 +621,7 @@ public class GenericClosureBridgeEmitterTests
         var method = new MethodDecl
         {
             Name = "readWithSelf",
-            MangledName = "$s4GRDB8Database12readWithSelfyyF",
+            MangledName = "$s11RecordStore8Database12readWithSelfyyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = true,

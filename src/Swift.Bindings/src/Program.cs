@@ -318,8 +318,8 @@ namespace BindingsGeneration
                     logger.LogInformation("Detected module/type name collision: module '{Module}' has a public type with the same name. Will strip module prefixes in Swift wrapper.", moduleName);
 
                     // EC-18: Collect types nested inside the colliding class to prevent
-                    // over-stripping. E.g., SwiftyBeaver.Level should stay qualified
-                    // because Level is nested in class SwiftyBeaver, not a module-level type.
+                    // over-stripping. E.g., LoggingLib.Level should stay qualified
+                    // because Level is nested in class LoggingLib, not a module-level type.
                     var nestedNames = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var innerType in collidingType.Types)
                     {

@@ -200,13 +200,13 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                var module = new ModuleTypeDatabase("Nuke", "/fake/Nuke.dylib");
-                var swiftName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest.UserInfoKey");
+                var module = new ModuleTypeDatabase("ImagePipeline", "/fake/ImagePipeline.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageRequest.UserInfoKey");
                 var record = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageRequest_UserInfoKey"),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageRequest_UserInfoKey"),
                     SwiftTypeName = swiftName,
-                    MetadataAccessor = "$s4Nuke12ImageRequestV11UserInfoKeyV",
+                    MetadataAccessor = "$s13ImagePipeline12ImageRequestV11UserInfoKeyV",
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Struct
                 };

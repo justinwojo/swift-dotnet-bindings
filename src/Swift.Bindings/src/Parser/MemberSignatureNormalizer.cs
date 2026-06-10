@@ -15,7 +15,7 @@ namespace BindingsGeneration;
 /// <c>printedName</c> only carries call-site labels — not parameter types — so two
 /// overloads like <c>data(for url: URL)</c> and <c>data(for request: ImageRequest)</c>
 /// collide on the bare key. The collision causes spurious-broadcast bugs (Family-F-1
-/// Nuke) and AddRange version-set merging (Family-F-4 StoreKit2). Appending a
+/// multi-overload image pipeline) and AddRange version-set merging (Family-F-4 StoreKit2). Appending a
 /// normalized parameter-type tail to the key lets producer + consumer agree on which
 /// overload owns which annotations.
 /// <para/>

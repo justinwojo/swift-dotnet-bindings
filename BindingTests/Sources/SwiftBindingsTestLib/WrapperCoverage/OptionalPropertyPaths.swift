@@ -8,7 +8,7 @@ import Foundation
 /// Class with Optional<Double> property — exercises the GetCdeclParamMapping branch
 /// in PropertyWrapperEmitter.EmitSetterWrapper (line 471-496) instead of the
 /// IsDecomposedOptionalType branch (line 461-469).
-/// Real-world pattern: Nuke ImageCache.ttl
+/// Exercises the Optional<Double> setter path (GetCdeclParamMapping branch).
 public class CacheConfig {
     public var ttl: Double?
     public var maxSize: Int32

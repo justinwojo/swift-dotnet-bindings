@@ -224,7 +224,7 @@ public record TypeRecord
 
     /// <summary>
     /// For Protocol kind: the mangled symbol of the protocol descriptor (e.g.
-    /// <c>$s6Lottie16AnyInterpolatableMp</c>). Null for non-protocol kinds.
+    /// <c>$s{len}{Module}{len}{Protocol}Mp</c>). Null for non-protocol kinds.
     /// Used by the type-metadata-accessor emitter to construct dynamic
     /// witness-table lookups for Self-requirement / associated-type protocols
     /// that cannot be expressed as a static C# interface — when the constraint

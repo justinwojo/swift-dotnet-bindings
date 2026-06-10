@@ -1187,7 +1187,7 @@ public class OptionalPointerWrapperTests
 
     [Theory]
     [InlineData("Optional<String>")]
-    [InlineData("Optional<DeviceKit.Device>")]
+    [InlineData("Optional<DeviceInfoKit.Device>")]
     [InlineData("Optional<Swift.Foundation.Data>")]
     public void GetReturnBufferCode_IncludesCorrectType(string returnType)
     {

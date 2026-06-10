@@ -190,7 +190,7 @@ public static class SwiftDefaultValueMapper
 
         // Fallback: unqualified type name (e.g., "SVGColor.black") — resolve via paramTypeSpec.
         // Only for simple identifiers (no dots in typePart). Property chains like
-        // "LottieConfiguration.shared.decodingStrategy" have dots in typePart and are not enum cases.
+        // "TypeName.propertyName.nestedProperty" have dots in typePart and are not enum cases.
         if (typePart.Contains('.'))
             return null;
 

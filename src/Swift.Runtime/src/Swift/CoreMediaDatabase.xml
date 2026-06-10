@@ -10,7 +10,7 @@
             CMSampleBuffer — Swift reference-type wrapper for the CoreMedia CMSampleBufferRef
             CFTypeRef. Projected as the existing .NET MAUI CoreMedia.CMSampleBuffer INativeObject,
             analogous to CoreText.CTFont's entry. Without this, properties typed CMSampleBuffer
-            (e.g. BlinkIDUX.SampleBuffer.buffer) fall into the MemberEmissionValidator unresolved
+            (e.g. DocScanUX.SampleBuffer.buffer) fall into the MemberEmissionValidator unresolved
             branch and the enclosing type silently tombstones.
         -->
         <entity managedNameSpace="CoreMedia" managedTypeName="CMSampleBuffer" objcBridged="true">

@@ -11,9 +11,7 @@ namespace RuntimeTestsApp.ErrorHandling;
 /// Regression for the PInvoke-vs-body sret-shape drift bug
 /// (uninitialized sret buffer for Optional&lt;any Error&gt; return).
 ///
-/// Mirrors Nuke 13.0.5's
-/// <c>static func validate(response:) -> (any Error)?</c> shape: a direct-
-/// CallConvSwift sync method whose return is <c>Optional&lt;any Error&gt;</c>
+/// Shape: a direct-CallConvSwift static method returning <c>Optional&lt;any Error&gt;</c>
 /// — address-only on every Apple ABI Swift currently supports, so Swift's
 /// caller hands an <c>@out</c> sret buffer in the hidden <c>x8</c> register
 /// and the function writes the optional's tag + payload there.

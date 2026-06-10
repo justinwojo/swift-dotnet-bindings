@@ -318,7 +318,7 @@ public class GenericTypeEmitterTests
     [Fact]
     public void GetWhereClause_StdlibDecodableConstraint_IsStrippedButISwiftObjectRemains()
     {
-        var typeDecl = CreateGenericStructWithConstraintsAndModule("RequestInterceptor", "Alamofire",
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("RequestInterceptor", "NetClient",
             new List<string> { "Swift.Decodable" });
         var typeDatabase = new TypeDatabase();
 
@@ -336,7 +336,7 @@ public class GenericTypeEmitterTests
     [Fact]
     public void GetWhereClause_StdlibErrorConstraint_IsStrippedButISwiftObjectRemains()
     {
-        var typeDecl = CreateGenericStructWithConstraintsAndModule("ErrorWrapper", "Alamofire",
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("ErrorWrapper", "NetClient",
             new List<string> { "Swift.Error" });
         var typeDatabase = new TypeDatabase();
 
@@ -352,8 +352,8 @@ public class GenericTypeEmitterTests
     [Fact]
     public void GetWhereClause_SameModuleProtocol_IsKept()
     {
-        var typeDecl = CreateGenericStructWithConstraintsAndModule("Container", "Alamofire",
-            new List<string> { "Alamofire.RequestInterceptor" });
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Container", "NetClient",
+            new List<string> { "NetClient.RequestInterceptor" });
         var typeDatabase = new TypeDatabase();
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
@@ -365,7 +365,7 @@ public class GenericTypeEmitterTests
     [Fact]
     public void GetWhereClause_CrossModuleRegisteredProtocol_IsKept()
     {
-        var typeDecl = CreateGenericStructWithConstraintsAndModule("Wrapper", "Alamofire",
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Wrapper", "NetClient",
             new List<string> { "Foundation.NSCoding" });
         var typeDatabase = new TypeDatabase();
         typeDatabase.AddOutOfModuleTypes(new[]
@@ -397,7 +397,7 @@ public class GenericTypeEmitterTests
                 ConformanceKind.Protocol),
             new GenericParameterConformance(
                 new[] { "τ_0_0" },
-                SwiftTypeName.FromModuleQualifiedName("Alamofire.RequestInterceptor"),
+                SwiftTypeName.FromModuleQualifiedName("NetClient.RequestInterceptor"),
                 ConformanceKind.Protocol)
         };
 
@@ -406,12 +406,12 @@ public class GenericTypeEmitterTests
             new GenericArgumentDecl("τ_0_0", "T", conformances, new List<GenericParameterConformance>())
         };
 
-        var moduleDecl = CreateModuleDecl("Alamofire");
+        var moduleDecl = CreateModuleDecl("NetClient");
         var typeDecl = new StructDecl
         {
             Name = "MixedBox",
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.MixedBox"),
-            MangledName = "$s9Alamofire8MixedBoxV",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("NetClient.MixedBox"),
+            MangledName = "$s9NetClient8MixedBoxV",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -420,7 +420,7 @@ public class GenericTypeEmitterTests
             ParentDecl = null,
             ModuleDecl = moduleDecl,
             IsFrozen = true,
-            MetadataAccessor = "$s9Alamofire8MixedBoxVMa",
+            MetadataAccessor = "$s9NetClient8MixedBoxVMa",
             GenericParameters = genericParams
         };
 
@@ -436,7 +436,7 @@ public class GenericTypeEmitterTests
     [Fact]
     public void GetWhereClause_NoTypeDatabase_EmitsAll()
     {
-        var typeDecl = CreateGenericStructWithConstraintsAndModule("Box", "Alamofire",
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Box", "NetClient",
             new List<string> { "Swift.Decodable" });
 
         // null typeDatabase → preserves existing behavior (no filtering)
@@ -569,7 +569,7 @@ public class GenericTypeEmitterTests
         // path that emits an "I"-prefixed interface name regardless of declared
         // Kind. This prevents an accidental class-constraint regression from
         // spilling out to hand-registered Swift class records.
-        var typeDecl = CreateGenericStructWithConstraintsAndModule("Container", "Alamofire",
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Container", "NetClient",
             new List<string> { "OtherModule.PlainClass" });
         var typeDatabase = new TypeDatabase();
         typeDatabase.AddOutOfModuleTypes(new[]

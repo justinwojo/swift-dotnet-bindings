@@ -378,16 +378,16 @@ public class ClangAstParserTests
         // When clang omits loc.file from a protocol (because it's defined in an included header
         // and the file context is inherited from a previous declaration), the parser must fall back
         // to the currentFile tracked in the main parsing loop. This simulates the umbrella header
-        // scenario: umbrella.h includes DDLog.h, and protocol DDLogger in DDLog.h has no loc.file.
+        // scenario: umbrella.h includes a header that defines a protocol with no loc.file.
         var tempDir = Path.Combine(Path.GetTempPath(), $"objc_parser_fallback_{Guid.NewGuid():N}");
         try
         {
             Directory.CreateDirectory(tempDir);
             // The included header that contains the protocol
-            var includedHeader = Path.Combine(tempDir, "DDLog.h");
+            var includedHeader = Path.Combine(tempDir, "LogFramework.h");
             File.WriteAllText(includedHeader, """
                 #import <Foundation/Foundation.h>
-                @protocol DDLogger <NSObject>
+                @protocol LogFrameworkLogger <NSObject>
                 @required
                 - (void)logMessage:(id)logMessage;
                 @optional
@@ -397,7 +397,7 @@ public class ClangAstParserTests
                 """);
 
             // Build AST JSON simulating umbrella-include behavior:
-            // - First node has loc.file pointing to DDLog.h (sets currentFile)
+            // - First node has loc.file pointing to LogFramework.h (sets currentFile)
             // - Protocol node has loc WITHOUT file (only line) — simulates inherited file context
             var json = $$"""
             {
@@ -405,14 +405,14 @@ public class ClangAstParserTests
                 "inner": [
                     {
                         "kind": "ObjCInterfaceDecl",
-                        "name": "DDAbstractLogger",
+                        "name": "LogFrameworkAbstractLogger",
                         "loc": { "file": "{{includedHeader.Replace("\\", "\\\\")}}", "line": 1 },
                         "super": { "name": "NSObject" },
                         "inner": []
                     },
                     {
                         "kind": "ObjCProtocolDecl",
-                        "name": "DDLogger",
+                        "name": "LogFrameworkLogger",
                         "loc": { "line": 2 },
                         "range": { "begin": { "line": 2 }, "end": { "line": 8 } },
                         "protocols": [{ "name": "NSObject" }],
@@ -1465,23 +1465,23 @@ public class ClangAstParserTests
     public void Parse_ObjCTypeParamDecl_ExtractsGenericTypeParamNames()
     {
         // Clang AST emits ObjCTypeParamDecl nodes for lightweight generics like
-        // @interface RLMResults<RLMObjectType>
+        // @interface MOSResults<MOSObjectType>
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "ObjCInterfaceDecl",
-            "name": "RLMResults",
+            "name": "MOSResults",
             {{MakeLoc()}},
             "super": { "name": "NSObject" },
             "inner": [
                 {
                     "kind": "ObjCTypeParamDecl",
-                    "name": "RLMObjectType"
+                    "name": "MOSObjectType"
                 },
                 {
                     "kind": "ObjCMethodDecl",
                     "name": "objectAtIndex:",
                     "instance": true,
-                    "returnType": { "qualType": "RLMObjectType" },
+                    "returnType": { "qualType": "MOSObjectType" },
                     "inner": [
                         {
                             "kind": "ParmVarDecl",
@@ -1498,7 +1498,7 @@ public class ClangAstParserTests
         Assert.Single(module.Classes);
         var cls = module.Classes[0];
         Assert.Single(cls.GenericTypeParamNames);
-        Assert.Equal("RLMObjectType", cls.GenericTypeParamNames[0]);
+        Assert.Equal("MOSObjectType", cls.GenericTypeParamNames[0]);
     }
 
     [Fact]
@@ -1507,12 +1507,12 @@ public class ClangAstParserTests
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "ObjCInterfaceDecl",
-            "name": "RLMDictionary",
+            "name": "MOSDictionary",
             {{MakeLoc()}},
             "super": { "name": "NSObject" },
             "inner": [
-                { "kind": "ObjCTypeParamDecl", "name": "RLMKeyType" },
-                { "kind": "ObjCTypeParamDecl", "name": "RLMObjectType" },
+                { "kind": "ObjCTypeParamDecl", "name": "MOSKeyType" },
+                { "kind": "ObjCTypeParamDecl", "name": "MOSObjectType" },
                 {
                     "kind": "ObjCMethodDecl",
                     "name": "init",
@@ -1527,8 +1527,8 @@ public class ClangAstParserTests
         var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
         var cls = module.Classes[0];
         Assert.Equal(2, cls.GenericTypeParamNames.Count);
-        Assert.Contains("RLMKeyType", cls.GenericTypeParamNames);
-        Assert.Contains("RLMObjectType", cls.GenericTypeParamNames);
+        Assert.Contains("MOSKeyType", cls.GenericTypeParamNames);
+        Assert.Contains("MOSObjectType", cls.GenericTypeParamNames);
     }
 
     [Fact]
@@ -1804,13 +1804,13 @@ public class ClangAstParserTests
     [Fact]
     public void Parse_TypedefDecl_AnonymousStruct_PromotesToStructs()
     {
-        // typedef struct { CGFloat top; CGFloat left; } BRLMMargins;
+        // typedef struct { CGFloat top; CGFloat left; } LabelPrinterMargins;
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "TypedefDecl",
-            "name": "BRLMMargins",
+            "name": "LabelPrinterMargins",
             {{MakeLoc()}},
-            "type": { "qualType": "struct BRLMMargins" },
+            "type": { "qualType": "struct LabelPrinterMargins" },
             "inner": [
                 {
                     "kind": "RecordDecl",
@@ -1829,7 +1829,7 @@ public class ClangAstParserTests
                 },
                 {
                     "kind": "ElaboratedType",
-                    "qualType": "struct BRLMMargins"
+                    "qualType": "struct LabelPrinterMargins"
                 }
             ]
         }
@@ -1838,7 +1838,7 @@ public class ClangAstParserTests
         var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
         Assert.Single(module.Structs);
         var s = module.Structs[0];
-        Assert.Equal("BRLMMargins", s.Name);
+        Assert.Equal("LabelPrinterMargins", s.Name);
         Assert.Equal(2, s.Fields.Count);
         Assert.Equal("top", s.Fields[0].Name);
         Assert.Equal("left", s.Fields[1].Name);
@@ -1847,11 +1847,11 @@ public class ClangAstParserTests
     [Fact]
     public void Parse_TypedefDecl_NoRecordDecl_NoPromotion()
     {
-        // typedef NSString * BRLMSerialNumber;
+        // typedef NSString * LabelPrinterSerialNumber;
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "TypedefDecl",
-            "name": "BRLMSerialNumber",
+            "name": "LabelPrinterSerialNumber",
             {{MakeLoc()}},
             "type": { "qualType": "NSString *" },
             "inner": [
@@ -1866,7 +1866,7 @@ public class ClangAstParserTests
         var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
         Assert.Empty(module.Structs);
         Assert.Single(module.Typedefs);
-        Assert.Equal("BRLMSerialNumber", module.Typedefs[0].Name);
+        Assert.Equal("LabelPrinterSerialNumber", module.Typedefs[0].Name);
     }
 
     // ──────────────────────────────────────────────

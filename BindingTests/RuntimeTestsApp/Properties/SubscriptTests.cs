@@ -199,7 +199,7 @@ public class SubscriptTests : TestBase
 
     #endregion
 
-    #region ItemBag — Optional-Existential Subscript on a Value Type (GRDB regression)
+    #region ItemBag — Optional-Existential Subscript on a Value Type (record-store regression)
 
     // A value-type struct with a `subscript(key:) -> (any StoredItem)?` routes through
     // OptionalPointerWrapperEmitter, whose setter assignment references the synthesized

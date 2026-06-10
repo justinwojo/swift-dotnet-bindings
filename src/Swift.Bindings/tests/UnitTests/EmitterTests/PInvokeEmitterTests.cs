@@ -721,8 +721,7 @@ public class PInvokeEmitterTests
     public void EmitPInvoke_ExtensionMethodOnNonFinalClass_NoTjSuffix()
     {
         // Extension methods use static dispatch — no vtable entry, no Tj thunk symbol.
-        // This is critical for cross-module extensions (e.g., StripePayments extending
-        // StripeCore.STPAPIClient) where Tj thunks don't exist in any binary.
+        // This is critical for cross-module extensions where Tj thunks don't exist in any binary.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         classDecl.IsFinal = false;

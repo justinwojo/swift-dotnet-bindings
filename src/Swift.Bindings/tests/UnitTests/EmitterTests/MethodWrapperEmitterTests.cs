@@ -1438,14 +1438,14 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void GetMethodSymbolName_Format()
     {
-        var symbol = MethodWrapperEmitter.GetMethodSymbolName("Nuke", "ImagePipeline", "loadImage", "$s4Nuke13ImagePipelineC9loadImageyyF");
-        Assert.StartsWith("SBW_Nuke_ImagePipeline_loadImage_", symbol);
+        var symbol = MethodWrapperEmitter.GetMethodSymbolName("ImagePipeline", "ImageService", "loadImage", "$s13ImagePipeline12ImageServiceC9loadImageyyF");
+        Assert.StartsWith("SBW_ImagePipeline_ImageService_loadImage_", symbol);
     }
 
     [Fact]
     public void GetMethodSymbolName_NestedTypeDotReplaced()
     {
-        var symbol = MethodWrapperEmitter.GetMethodSymbolName("Nuke", "Outer.Inner", "doWork", "$s_mangled");
+        var symbol = MethodWrapperEmitter.GetMethodSymbolName("ImagePipeline", "Outer.Inner", "doWork", "$s_mangled");
         Assert.Contains("Outer_Inner", symbol);
         Assert.DoesNotContain("Outer.Inner", symbol);
     }
@@ -2938,7 +2938,7 @@ public class MethodWrapperEmitterTests
     {
         // Optional<Self> return on class parents — Self resolves to concrete class,
         // return emitted as nullable class pointer (UnsafeMutableRawPointer?).
-        // Used for STPAPIResponseDecodable.decodedObject(fromAPIResponse:) -> Self?.
+        // Pattern for a static factory method returning Optional<Self> on a class (e.g. decodedObject(fromAPIResponse:) -> Self?).
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -3341,7 +3341,7 @@ public class MethodWrapperEmitterTests
     /// <summary>
     /// Verifies that @_cdecl method wrappers emit two-Int-word parameters for Foundation.Data,
     /// not bare Foundation.Data which gets ObjC-bridged to NSData* at the ABI level.
-    /// Regression test for Nuke DataCache.storeData SIGSEGV on NativeAOT device.
+    /// Regression test for a SIGSEGV on NativeAOT device when a @_cdecl wrapper passes Foundation.Data by value.
     /// </summary>
     [Fact]
     public void EmitSwiftMethodWrapper_FoundationDataParam_UsesTwoIntWords()
@@ -3414,8 +3414,8 @@ public class MethodWrapperEmitterTests
 
     /// <summary>
     /// Verifies that @_cdecl method wrappers emit two-Int-word parameters for Foundation.Data
-    /// on static methods (like LottieAnimation.from(data:)).
-    /// Regression test for Lottie LottieAnimation.from(byte[]) SIGSEGV.
+    /// on static methods.
+    /// Regression test for SIGSEGV when passing Foundation.Data to a static method in xcframework mode.
     /// </summary>
     [Fact]
     public void EmitSwiftMethodWrapper_StaticFoundationDataParam_UsesTwoIntWords()
@@ -3597,7 +3597,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void GenericStaticDispatch_ConstrainedExtensionMethod_SkipsWrapper()
     {
-        // ObjectMapper regression: `extension Mapper where N : ImmutableMappable` adds
+        // Regression: `extension Mapper where N : ImmutableMappable` adds
         // `func map(JSONObject: Any) throws -> N`. The class body has an unconstrained
         // `func map(JSONObject: Any?) -> N?`. The GSM wrapper was being emitted as an
         // UNCONSTRAINED extension `extension Mapper: _SBW_GSM_<hash>`, where the constrained
@@ -3692,7 +3692,7 @@ public class MethodWrapperEmitterTests
         // Sanity check: an unconstrained extension method returning Optional<N> on a generic
         // parent should still produce a wrapper, and the wrapper must preserve the Optional
         // (else Swift can't unwrap N? to N inside the body). Guards against over-firing of the
-        // constrained-extension skip introduced for ObjectMapper.
+        // constrained-extension skip introduced for the above test.
         var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -4363,9 +4363,9 @@ public class MethodWrapperEmitterTests
 
     #endregion
 
-    #region Generic Class Optional<T> Return — ObjectMapper Static Dispatch
+    #region Generic Class Optional<T> Return — Generic Static Dispatch
 
-    // ObjectMapper's `Mapper<N>.map(...) -> N?` shape. Pre-fix: the
+    // `GenericClass<N>.map(...) -> N?` shape. Pre-fix: the
     // `IsOptionalSupportedForCdecl` gate classified `Optional<τ_0_0>` as
     // `Optional<protocol existential>` (the τ-name lookup returns a Protocol-kind
     // TypeRecord), so the @_cdecl wrapper was never emitted and the C# P/Invoke

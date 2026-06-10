@@ -279,8 +279,8 @@ namespace BindingsGeneration
         /// Whether this method is defined in a Swift extension (isFromExtension in ABI JSON).
         /// Extension methods use static dispatch — they have no vtable entry and no Tj
         /// dispatch thunk symbol. ComputeEntryPoint must NOT append "Tj" for these methods.
-        /// This is critical for cross-module extensions (e.g., StripePayments extending
-        /// StripeCore.STPAPIClient) where Tj thunks don't exist in any binary.
+        /// This is critical for cross-module extensions (one module extending a class defined
+        /// in another module) where Tj thunks don't exist in any binary.
         /// </summary>
         public bool IsExtensionMethod { get; set; } = false;
 

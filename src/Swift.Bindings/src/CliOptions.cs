@@ -48,7 +48,7 @@ public class CliOptions
     public Option<string> LibraryName { get; } = new(
         aliases: new[] { "-l", "--library-name" },
         description: "Runtime library name for DllImport. If not specified, uses the dylib path. " +
-                     "Note: If the name starts with '@' (e.g., @rpath/...), escape it with backslash: '\\@rpath/Nuke.framework/Nuke'");
+                     "Note: If the name starts with '@' (e.g., @rpath/...), escape it with backslash: '\\@rpath/MyFramework.framework/MyFramework'");
 
     public Option<string> AsyncLibrary { get; } = new(
         aliases: new[] { "--async-library" },

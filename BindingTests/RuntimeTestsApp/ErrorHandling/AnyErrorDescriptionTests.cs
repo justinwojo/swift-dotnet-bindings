@@ -16,8 +16,8 @@ namespace RuntimeTestsApp.ErrorHandling;
 /// valid error containers, bypassing the closure callback path (which crashes
 /// due to missing @_cdecl wrappers for existential closure parameters).
 ///
-/// These tests validate the runtime-level property that Stripe delegate
-/// callback handlers need: when a payment failure arrives as AnyError,
+/// These tests validate the runtime-level property that Swift error callback
+/// handlers need: when a failure arrives as AnyError,
 /// the developer can read the error description string.
 /// </summary>
 public class AnyErrorDescriptionTests : TestBase
@@ -86,8 +86,8 @@ public class AnyErrorDescriptionTests : TestBase
     // Closure callback path (Fix 3): exercise the MCB wrapper that bridges
     // `(any Error) -> Void` closures — the Swift side hands an existential
     // container pointer to the @_cdecl callback, which constructs a Swift.Foundation.AnyError
-    // the C# lambda can read. This is the pattern Stripe completion handlers
-    // (Result<T, any Error>) rely on.
+    // the C# lambda can read. This is the pattern for `(any Error) -> Void`
+    // completion handlers backed by MCB.
     // ────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -136,7 +136,7 @@ public class AnyErrorDescriptionTests : TestBase
 
     // ────────────────────────────────────────────────────────────────────
     // Pattern A: Optional<any Error> closure parameter.
-    // Matches Stripe PaymentSheet.FlowController.update completion shape.
+    // A completion that receives an optional error: nil on success, non-nil on failure.
     // ────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -224,8 +224,8 @@ public class AnyErrorDescriptionTests : TestBase
 
     // ────────────────────────────────────────────────────────────────────
     // Pattern B: Result<T, any Error> closure parameter.
-    // Matches Stripe completion handlers like
-    //   (Result<PaymentSheet.FlowController, any Error>) -> Void
+    // A completion that delivers a typed success value or an error:
+    //   (Result<T, any Error>) -> Void
     // Swift wraps the Result enum via withUnsafePointer; C# heap-copies
     // the payload into a SafeHandle-owned SwiftResult<T, ExistentialContainer1>.
     // ────────────────────────────────────────────────────────────────────

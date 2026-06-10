@@ -1003,7 +1003,8 @@ public class NestedClosureBridgeTests
     // ─── Helper Methods ───────────────────────────────────────────────
 
     /// <summary>
-    /// Creates a method shaped like Alamofire's onHTTPResponse(on:perform:).
+    /// Creates a method with a nested closure shape: outer closure takes an HTTPURLResponse
+    /// and an inner completion closure; the inner closure takes a simple enum disposition.
     /// Outer closure: (HTTPURLResponse, (ResponseDisposition) -> Void) -> Void
     /// Inner closure: (ResponseDisposition) -> Void where ResponseDisposition is a simple enum.
     /// </summary>

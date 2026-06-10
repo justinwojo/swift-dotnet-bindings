@@ -686,7 +686,7 @@ namespace BindingsGeneration.Tests
             // Non-frozen simple enums are passed indirectly in Swift ABI (resilient layout).
             // TypeLowering must NOT lower them as direct register values — the thunk would
             // pass the value directly in x0 but the Swift function dereferences x0 as a
-            // pointer → SIGSEGV. (KeychainAccess.Accessibility crash.)
+            // pointer → SIGSEGV. (Non-frozen simple-enum indirect-ABI crash.)
             var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Accessibility");
             var record = new TypeRecord
             {

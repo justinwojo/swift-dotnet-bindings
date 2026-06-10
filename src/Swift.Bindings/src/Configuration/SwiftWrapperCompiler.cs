@@ -111,7 +111,7 @@ namespace BindingsGeneration
         /// Returns null if no Swift files exist in the output directory.
         /// </summary>
         /// <param name="outputDirectory">Directory containing generated Swift wrapper files.</param>
-        /// <param name="moduleName">The Swift module name (e.g., "Nuke").</param>
+        /// <param name="moduleName">The Swift module name (e.g., "MyModule").</param>
         /// <param name="frameworkSearchPath">The -F flag target (e.g., xcframework slice directory).</param>
         /// <param name="dylibPath">Path to the source framework's dylib (used to locate Info.plist for min OS).</param>
         /// <param name="logger">Logger instance.</param>
@@ -621,7 +621,7 @@ namespace BindingsGeneration
         /// Compiles generated Swift wrapper files into a single-slice xcframework.
         /// </summary>
         /// <param name="outputDirectory">Directory containing generated Swift wrapper files.</param>
-        /// <param name="moduleName">The Swift module name (e.g., "Nuke").</param>
+        /// <param name="moduleName">The Swift module name (e.g., "MyModule").</param>
         /// <param name="frameworkSearchPath">The -F flag target (e.g., xcframework slice directory).</param>
         /// <param name="dylibPath">Path to the source framework's dylib (used to locate Info.plist for min OS).</param>
         /// <param name="slice">The slice variant describing platform, SDK, target triple, etc.</param>
@@ -1192,7 +1192,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Reads MinimumOSVersion from the source framework's Info.plist.
         /// Falls back to "15.0" if not found, missing, or set to a vendor sentinel
-        /// (e.g. Firebase ships every framework with "100.0"). Without that filter,
+        /// (e.g. some SDKs ship every framework with a sentinel version like "100.0"). Without that filter,
         /// the value flows into <c>swiftc -target arm64-apple-ios{minOS}-simulator</c>
         /// and the wrapper compile fails outright.
         /// </summary>
@@ -1512,7 +1512,7 @@ namespace BindingsGeneration
             var additionalFFlags = "";
             // Collect transitive framework names so we can explicitly link them. The wrapper
             // `import <bound module>` auto-links the bound framework, but transitive ObjC-only
-            // deps (FirebaseCoreInternal, GoogleUtilities, absl, etc.) and other non-imported
+            // deps and other non-imported
             // frameworks must be explicitly `-framework`-linked or the linker leaves their
             // OBJC_CLASS_$ / C++ / C symbols unresolved.
             //
@@ -2257,7 +2257,7 @@ namespace BindingsGeneration
         /// <summary>
         /// One module-type collision to resolve in a single shadow .swiftmodule. The bound
         /// module's own self-collision (EC-1) usually pairs with a non-empty <see cref="NestedTypes"/>
-        /// set so nested references like <c>Reachability.Connection</c> survive prefix stripping
+        /// set so nested references like <c>Module.NestedType</c> survive prefix stripping
         /// (EC-18); dep-module and XCTest collisions have no nested-type carveouts and pass
         /// <see cref="NestedTypes"/> as null.
         /// </summary>
@@ -2343,9 +2343,8 @@ namespace BindingsGeneration
 
                 // Mirror the source modulemap + public Headers/ into the shadow so umbrella
                 // header references in the bound .swiftinterface resolve. A Swift-only
-                // modulemap would strip them, and same-module ObjC names (e.g.,
-                // BlinkID.MBSampleBufferWrapper, CocoaLumberjackSwift's DDDefaultLogLevel
-                // const) would fail to resolve. Falls back to a minimal modulemap only when
+                // modulemap would strip them, and same-module ObjC names (class wrappers,
+                // constants) would fail to resolve. Falls back to a minimal modulemap only when
                 // the source framework has no public modulemap (pure-Swift interface-only).
                 StageShadowFrameworkLayout(moduleName, shadowModulesDir, frameworkDir, realFrameworkDir, logger);
 
@@ -2490,8 +2489,8 @@ namespace BindingsGeneration
 
             // Stage public Headers/ and PrivateHeaders/ so every header referenced by the
             // copied modulemap resolves. Frameworks routinely declare `header "x.h"` in the
-            // public modulemap pointing at a file under PrivateHeaders/ (e.g., GRDB's
-            // `header "grdb_config.h"`) — swiftc searches both directories for module.modulemap
+            // public modulemap pointing at a file under PrivateHeaders/ (e.g., a library's
+            // private config header) — swiftc searches both directories for module.modulemap
             // references. The @_spi surface lives in module.private.modulemap (never staged),
             // not in PrivateHeaders/.
             if (string.IsNullOrEmpty(realFrameworkDir))

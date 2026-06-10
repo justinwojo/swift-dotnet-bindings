@@ -34,9 +34,8 @@ public struct AsyncReport {
     }
 }
 
-/// A non-frozen struct whose sole property is itself a non-frozen struct.
-/// Mirrors the FirebaseAILogic `CountTokensResponse.usageMetadata` shape
-/// that exposed the original #32 crash.
+/// A non-frozen struct whose sole property is itself a non-frozen struct —
+/// the nested non-frozen shape that exposed the original #32 crash.
 public struct AsyncUsageMetadata {
     public let report: AsyncReport
 

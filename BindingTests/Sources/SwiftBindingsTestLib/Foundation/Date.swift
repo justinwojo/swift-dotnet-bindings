@@ -50,7 +50,7 @@ public struct TimestampedEvent {
     }
 }
 
-// MARK: - Optional Date (KeychainAccess pattern)
+// MARK: - Optional Date
 
 /// Returns an optional Date from an optional epoch seconds value.
 public func optionalDate(epochSeconds: Double?) -> Date? {
@@ -60,7 +60,7 @@ public func optionalDate(epochSeconds: Double?) -> Date? {
 
 // MARK: - Struct with Optional Date Properties
 
-/// A config struct with optional Date properties (KeychainAccess/RxSwift pattern).
+/// A config struct with optional Date properties.
 public struct EventConfig {
     public var label: String
     public var startDate: Date?
@@ -73,7 +73,7 @@ public struct EventConfig {
     }
 }
 
-// MARK: - Date as Enum Associated Value (RxSwift pattern)
+// MARK: - Date as Enum Associated Value
 
 /// Enum with Date-typed associated value.
 public enum SchedulerEvent {

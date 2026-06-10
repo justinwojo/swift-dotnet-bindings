@@ -10,8 +10,8 @@ namespace RuntimeTestsApp.Properties;
 
 /// <summary>
 /// Tests for memory safety during repeated non-frozen struct property access.
-/// Covers the R1 regression: Nuke crash on cache-hit (second load) where
-/// accessing struct-typed properties on cached objects crashes silently.
+/// Covers the R1 regression where accessing struct-typed properties on
+/// cached objects (lazy-populate-on-first-read pattern) crashes silently.
 ///
 /// Tier structure:
 /// - Tier 1: DataContainer construction, single property access
@@ -72,7 +72,7 @@ public class StructPropertyLeakTests : TestBase
         var container = new DataContainer(10, "cached");
         // First access populates cache
         var first = container.CachedData;
-        // Second access should use cached value — this is the Nuke crash pattern
+        // Second access should use cached value — exercises the lazy-cache-hit path
         var second = container.CachedData;
         AssertEqual(first.Value, second.Value, "CachedData consistent Value");
         AssertEqual(first.Name, second.Name, "CachedData consistent Name");

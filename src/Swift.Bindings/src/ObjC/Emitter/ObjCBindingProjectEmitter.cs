@@ -23,7 +23,7 @@ public sealed record ObjCBindingProjectOptions
     /// wrapper carries the binding (see <see cref="HasWrapperXCFramework"/>), the wrapper
     /// force-loaded the static archive and is the sole native carrier, so the companion drops
     /// its own source <c>NativeReference</c> — re-linking the same archive would duplicate-register
-    /// every ObjC class (the Kidoz #40 "implemented in both …" condition). Defaults to
+    /// every ObjC class (the issue #40 "implemented in both …" condition). Defaults to
     /// <see cref="NativeLinkage.Dynamic"/> so a pure-ObjC companion (the sole carrier, no Swift
     /// wrapper) keeps its reference unchanged.
     /// </summary>
@@ -57,7 +57,7 @@ public static class ObjCBindingProjectEmitter
 
         // Gap 2: a static-archive source is force-loaded into (and carried by) the Swift wrapper,
         // so when one exists the companion must NOT also link the source archive — doing so links
-        // the same Mach-O twice and duplicate-registers every ObjC class (the Kidoz #40 condition).
+        // the same Mach-O twice and duplicate-registers every ObjC class (the issue #40 condition).
         // The companion is emitted alongside the Swift binding on OUR machine where the linkage is
         // known, so the drop is BAKED here via the boolean ShouldIncludeSourceXcframework — the same
         // authority and shape the standalone Swift csproj (BindingProjectEmitter) uses, not the
@@ -95,7 +95,7 @@ public static class ObjCBindingProjectEmitter
             : """
               <!-- Source NativeReference dropped (Gap 2): a static source archive is force-loaded
                    into the Swift wrapper, which is the sole native carrier. Linking it here too
-                   would duplicate-register every ObjC class (Kidoz #40). The companion is
+                   would duplicate-register every ObjC class (issue #40). The companion is
                    managed-only; its ObjC symbols resolve from the wrapper the Swift side
                    references at consume time. -->
             """;
@@ -123,8 +123,8 @@ public static class ObjCBindingProjectEmitter
               <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
               <PropertyGroup>
-                <!-- Explicit, version-qualified TFM. Mixed frameworks (BlinkID, BRLMPrinterKit,
-                     etc.) emit a Swift binding csproj that ProjectReferences this ObjC binding
+                <!-- Explicit, version-qualified TFM. Mixed frameworks (ObjC+Swift)
+                     emit a Swift binding csproj that ProjectReferences this ObjC binding
                      csproj. The Swift side now uses pi.PackTfm so the ObjC side MUST match,
                      or the ProjectReference resolution fails restore with NETSDK1005 ("Assets
                      file ... doesn't have a target for 'net10.0-ios'"). Both fragments source

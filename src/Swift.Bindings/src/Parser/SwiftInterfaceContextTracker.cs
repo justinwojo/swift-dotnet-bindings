@@ -49,7 +49,7 @@ internal sealed class SwiftInterfaceContextTracker
     // Bare regexes for protocol-requirement shapes — protocol members in a
     // swiftinterface have no access modifier (`func foo()`, `var bar: Int { get }`,
     // `init?(...)`). Used only when the enclosing scope is a protocol; without these
-    // F-2 (StripeApplePay-style `@available` on a protocol method requirement) is
+    // F-2 (`@available` on a protocol method requirement) is
     // silently elided. UNANCHORED so leading attribute prefixes
     // (e.g. `@objc optional func foo()`) and the `optional` modifier match.
     private static readonly Regex ProtocolFuncRegex = new(

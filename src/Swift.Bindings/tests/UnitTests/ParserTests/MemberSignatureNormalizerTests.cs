@@ -20,7 +20,7 @@ public class MemberSignatureNormalizerTests
     [Theory]
     [InlineData("Foundation.URL", "URL")]
     [InlineData("URL", "URL")]
-    [InlineData("Nuke.ImageRequest", "ImageRequest")]
+    [InlineData("ImagePipeline.ImageRequest", "ImageRequest")]
     // Generic args are preserved and recursively normalized so distinct
     // specializations don't collide. Pre-fix, every `Array<T>` reduced to `Array`,
     // collapsing `func f(_ x: Array<Int>)` and `func f(_ x: Array<String>)` to the

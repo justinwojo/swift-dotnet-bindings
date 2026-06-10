@@ -255,33 +255,33 @@ public class SwiftDefaultValueMapperTests
     public void QualifiedEnum_UnqualifiedTypeName_ResolvesViaParamType()
     {
         var db = new SimpleTypeDatabase(
-            ("SVGView.SVGColor", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "SVGView", "SVGColor"));
-        var typeSpec = MakeNamedType("SVGView.SVGColor");
+            ("VectorImageView.VectorImageColor", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "VectorImageView", "VectorImageColor"));
+        var typeSpec = MakeNamedType("VectorImageView.VectorImageColor");
         var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("SVGColor.black", typeSpec, db);
-        // "SVGColor" alone is unqualified, but the fallback resolves via paramTypeSpec
-        Assert.Equal("SVGView.SVGColor.Black", result);
+        // "VectorImageColor" alone is unqualified, but the fallback resolves via paramTypeSpec
+        Assert.Equal("VectorImageView.VectorImageColor.Black", result);
     }
 
     [Fact]
     public void QualifiedEnum_FullyQualified_ReturnsMapped()
     {
         var db = new SimpleTypeDatabase(
-            ("SVGView.SVGColor", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "SVGView", "SVGColor"));
-        var typeSpec = MakeNamedType("SVGView.SVGColor");
-        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("SVGView.SVGColor.black", typeSpec, db);
-        // "SVGView.SVGColor" is "SVGView.SVGColor" → splits as type="SVGView.SVGColor", case="black"
-        // Wait — expr has two dots: "SVGView.SVGColor.black". LastIndexOf('.') gives "SVGView.SVGColor" + "black"
-        Assert.Equal("SVGView.SVGColor.Black", result);
+            ("VectorImageView.VectorImageColor", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "VectorImageView", "VectorImageColor"));
+        var typeSpec = MakeNamedType("VectorImageView.VectorImageColor");
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("VectorImageView.VectorImageColor.black", typeSpec, db);
+        // "VectorImageView.VectorImageColor" is "VectorImageView.VectorImageColor" → splits as type="VectorImageView.VectorImageColor", case="black"
+        // Wait — expr has two dots: "VectorImageView.VectorImageColor.black". LastIndexOf('.') gives "VectorImageView.VectorImageColor" + "black"
+        Assert.Equal("VectorImageView.VectorImageColor.Black", result);
     }
 
     [Fact]
     public void QualifiedEnum_UnqualifiedOptionalParam_ResolvesViaParamType()
     {
         var db = new SimpleTypeDatabase(
-            ("SVGView.SVGColor", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "SVGView", "SVGColor"));
-        var typeSpec = MakeOptionalType("SVGView.SVGColor");
+            ("VectorImageView.VectorImageColor", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "VectorImageView", "VectorImageColor"));
+        var typeSpec = MakeOptionalType("VectorImageView.VectorImageColor");
         var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("SVGColor.black", typeSpec, db);
-        Assert.Equal("SVGView.SVGColor.Black", result);
+        Assert.Equal("VectorImageView.VectorImageColor.Black", result);
     }
 
     [Fact]
@@ -298,12 +298,12 @@ public class SwiftDefaultValueMapperTests
     [Fact]
     public void QualifiedEnum_PropertyChain_ReturnsNull()
     {
-        // "LottieConfiguration.shared.decodingStrategy" is a property chain, not an enum case.
+        // "VectorAnimationConfiguration.shared.decodingStrategy" is a property chain, not an enum case.
         // The fallback must not misinterpret it as an enum case via paramTypeSpec.
         var db = new SimpleTypeDatabase(
-            ("Lottie.DecodingStrategy", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "Lottie", "DecodingStrategy"));
-        var typeSpec = MakeNamedType("Lottie.DecodingStrategy");
-        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("LottieConfiguration.shared.decodingStrategy", typeSpec, db);
+            ("VectorAnimation.DecodingStrategy", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "VectorAnimation", "DecodingStrategy"));
+        var typeSpec = MakeNamedType("VectorAnimation.DecodingStrategy");
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("VectorAnimationConfiguration.shared.decodingStrategy", typeSpec, db);
         Assert.Null(result);
     }
 

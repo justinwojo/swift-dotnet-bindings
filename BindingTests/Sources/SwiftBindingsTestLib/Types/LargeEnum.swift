@@ -3,10 +3,9 @@
 
 import Foundation
 
-// MARK: - Large Enum (DeviceKit Device pattern)
+// MARK: - Large Enum
 
 /// Large enum (50+ cases) testing DestructiveInjectEnumTag scalability.
-/// Real-world pattern: DeviceKit Device with 100+ cases.
 public enum DeviceModel {
     case phone1, phone2, phone3, phone4, phone5
     case phone6, phone7, phone8, phone9, phone10

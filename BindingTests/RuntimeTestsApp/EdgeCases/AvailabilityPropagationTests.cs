@@ -167,7 +167,7 @@ public class AvailabilityPropagationTests : TestBase
     // ---------------------------------------------------------------------
 
     /// <summary>
-    /// F-1 (Nuke). <c>OverloadDeprecationCarrier</c> has two
+    /// F-1. <c>OverloadDeprecationCarrier</c> has two
     /// <c>lookup(_:)</c> overloads; only the <c>String</c> variant is
     /// <c>@available(*, deprecated, ...)</c>. The lowered C# binding must
     /// place <c>[Obsolete]</c> on the deprecated overload only — the
@@ -211,14 +211,14 @@ public class AvailabilityPropagationTests : TestBase
             "If this fires, the per-overload disambiguation lost the deprecation entirely.");
     }
 
-    // F-2 (StripeApplePay) is covered by the unit test
+    // F-2 is covered by the unit test
     // `GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier`
     // in SwiftInterfaceAccessParserTests.cs. A BindingTests fixture for F-2
     // is intentionally omitted — see the matching note in
     // BindingTests/Sources/SwiftBindingsTestLib/EdgeCases/AvailabilityFamilyF.swift.
 
     /// <summary>
-    /// F-3 (Lottie). <c>PlaybackTransport.progressAt(_:)</c> is the only
+    /// F-3. <c>PlaybackTransport.progressAt(_:)</c> is the only
     /// enum case marked <c>@available(*, deprecated, ...)</c>. The lowered
     /// C# factory method (<c>PlaybackTransport.ProgressAt(double)</c> or
     /// whatever the emitter PascalCases it to) must carry

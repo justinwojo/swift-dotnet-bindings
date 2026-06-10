@@ -4,12 +4,12 @@
 import Foundation
 
 // MARK: - Non-ASCII Identifiers
-// Pattern caught in Valet and BonMot validation.
+// Pattern caught in real-world library validation (accented identifiers and attributed-text libraries).
 // Swift allows emoji and Unicode identifiers; C# has stricter rules.
 // Generator must sanitize these to valid C# identifiers.
 
 /// Struct with non-ASCII property names (accented characters).
-/// Pattern: Valet uses accented identifiers in French-derived API.
+/// Pattern: accented identifiers from French-derived APIs.
 public struct AccentedConfig {
     public var name: String      // ASCII baseline
     public var resume: String    // Close to 'résumé' pattern

@@ -38,7 +38,7 @@ internal sealed class ExistentialStrategy : IResolutionStrategy
             // `IP` through the standard existential proxy. Suppress the fallback
             // there too — emitting `[UnsupportedSwiftType("Existential type fallback", …)]`
             // on a member whose body uses the working proxy is build-noise that
-            // hides genuine obsoletes (e.g. Lottie `DotLottieFile.NamedAsync(…, IDotLottieCacheProvider?, …)`).
+            // hides genuine obsoletes (e.g. a method like `DotAnimationFile.NamedAsync(…, ICacheProvider?, …)`).
             TypeDatabaseExtensions.AnyTypeFallbackInfo? fallback =
                 HasResolvableConcreteGenericArgs(named, context.Database) ||
                 IsProjectablePlainExistential(named, context.Database)

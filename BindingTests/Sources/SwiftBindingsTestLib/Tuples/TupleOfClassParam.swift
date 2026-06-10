@@ -5,8 +5,7 @@ import Foundation
 
 // MARK: - Tuple-of-class-element parameter (negative fixture)
 //
-// Mirrors the RichTextKit `RichTextImageConfiguration(maxImageSize:)` pattern: a
-// non-frozen public struct projected as a C# class (with `.Payload`) used as an
+// A non-frozen public struct projected as a C# class (with `.Payload`) used as an
 // element of a tuple parameter. The standard PInvokeEmitter tuple path emits the
 // parameter as `ValueTuple<IntPtr, IntPtr>`, but the call site has the raw class
 // tuple and no per-element handle extraction — CS1503 at compile time.

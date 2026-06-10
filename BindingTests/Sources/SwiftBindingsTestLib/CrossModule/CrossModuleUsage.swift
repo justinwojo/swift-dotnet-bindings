@@ -200,20 +200,19 @@ public func scaleDependencyPoint(_ point: DependencyPoint, factor: Double) -> De
 }
 
 /// Lightweight pure-Swift class used as the success-path payload of the
-/// Stripe-shape `produceToken` completion below. Reproduces the
-/// `(STPToken?, (any Error)?) -> Void` Optional<class> closure-arg shape.
+/// `produceToken` completion below. Reproduces the
+/// `(Token?, (any Error)?) -> Void` Optional<class> closure-arg shape.
 public class DependencyToken {
     public let value: Int32
     public init(value: Int32) { self.value = value }
 }
 
-// MARK: - Cross-Module Class Extension (Stripe STPAPIClient shape)
+// MARK: - Cross-Module Class Extension
 
 /// Extension on `DependencyService` (a class declared in the dependency
-/// module). Reproduces the Stripe pattern where module B layers extra API
-/// onto a class owned by module A — `extension StripeCore.STPAPIClient`
-/// declared in StripePayments. Class receivers route through
-/// `CrossModuleExtensionEmitter` so the extension members surface as
+/// module). Reproduces the pattern where module B layers extra API onto a class
+/// owned by module A. Class receivers route through `CrossModuleExtensionEmitter`
+/// so the extension members surface as
 /// `static partial class DependencyServiceSwiftBindingsTestLibExtensions`.
 extension DependencyService {
     /// Returns the receiver's tag-shifted activation flag. Pure-Swift class
@@ -247,10 +246,9 @@ extension DependencyService {
         return self.isActive ? self_ * 2 : -self_
     }
 
-    /// Closure-bearing cross-module class extension — reproduces the Stripe
-    /// `STPAPIClient.createToken(withCard:completion:)` shape on a pure Swift
-    /// class receiver. The completion block fires synchronously inside the
-    /// trampoline so a per-call GCHandle lifetime is sufficient.
+    /// Closure-bearing cross-module class extension on a pure-Swift class receiver.
+    /// The completion block fires synchronously inside the trampoline so a per-call
+    /// GCHandle lifetime is sufficient.
     public func computeWithCompletion(value: Int32, completion: @escaping (Int32) -> Void) {
         completion(self.isActive ? value * 2 : -value)
     }
@@ -265,7 +263,7 @@ extension DependencyService {
         completion(self.isActive ? self_ : -self_)
     }
 
-    /// Stripe-shape completion block exercising Optional<class> + Optional<any Error>
+    /// Completion block exercising Optional&lt;class&gt; + Optional&lt;any Error&gt;
     /// closure args end-to-end. When `activate` is true the receiver hands back
     /// a `DependencyToken` and a nil error; otherwise it hands back a nil token
     /// and an `NSError` so both nil legs of the optional bridge are covered.
@@ -278,7 +276,7 @@ extension DependencyService {
     }
 
     /// Async-throws cross-module class extension — reproduces the
-    /// `STPAPIClient.createToken(withCard:) async throws -> STPToken` shape.
+    /// `APIClient.createToken(withCard:) async throws -> Token` shape.
     /// Throws when the receiver is inactive so the failure path is exercised
     /// alongside the happy path.
     public func computeAsync(value: Int32) async throws -> Int32 {
@@ -288,35 +286,29 @@ extension DependencyService {
         return value * 3
     }
 
-    /// Static class func on a class receiver — reproduces the
-    /// `StripeAPI.paymentRequest(withMerchantIdentifier:)` shape but with
-    /// primitive arg + primitive return.
+    /// Static class func on a class receiver with a primitive arg and primitive return.
     public class func makeWithSeed(_ seed: Int32) -> DependencyService {
         return DependencyService(name: "seed-\(seed)", isActive: seed > 0)
     }
 
-    /// Static class func taking a Swift.String — locks the full Stripe
-    /// `StripeAPI.paymentRequest(withMerchantIdentifier:)` shape (static,
-    /// String param, class return). Routes through the wrapper-library
-    /// trampoline because the simple direct-CallConvSwift path cannot
-    /// synthesize the Swift.String two-word value layout.
+    /// Static class func taking a Swift.String — locks the static, String-param, class-return
+    /// shape. Routes through the wrapper-library trampoline because the simple
+    /// direct-CallConvSwift path cannot synthesize the Swift.String two-word value layout.
     public class func makeWithLabel(_ label: String) -> DependencyService {
         return DependencyService(name: label, isActive: true)
     }
 
-    /// Closure-bearing instance method with a Swift.String parameter —
-    /// reproduces the Stripe `confirmPaymentIntent(clientSecret:completion:)`
-    /// shape where the receiver, a String arg, and an escaping completion
-    /// closure all co-occur. Routes through the trampoline because of the
-    /// String + closure pair.
+    /// Closure-bearing instance method with a Swift.String parameter: receiver,
+    /// String arg, and escaping completion closure co-occur. Routes through the
+    /// trampoline because of the String + closure pair.
     public func notifyLabel(_ label: String, completion: @escaping (Int32) -> Void) {
         completion(Int32(label.count) + (self.isActive ? 1 : 0))
     }
 }
 
-// NOTE: Module name = type name collision (Reachability pattern) is tested
-// through validation libraries. Swift issue #56573 prevents including this
-// pattern in a library-evolution-enabled module used as a build dependency.
+// NOTE: Module name = type name collision is tested through validation libraries.
+// Swift issue #56573 prevents including this pattern in a library-evolution-enabled
+// module used as a build dependency.
 
 // MARK: - Cross-Module Nested-Type Rename Propagation
 

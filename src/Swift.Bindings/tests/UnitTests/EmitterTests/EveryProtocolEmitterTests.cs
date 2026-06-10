@@ -163,9 +163,8 @@ public class EveryProtocolEmitterTests
         // satisfy async requirements with sync witnesses: in Swift, sync trivially
         // satisfies async ("never suspends"). Emitting `async` on the witness is not
         // just unnecessary — it breaks any sibling/child protocol whose SYNC requirement
-        // was being member-inherited from this conformance, e.g. Kingfisher's
-        // ImageDownloadRequestModifier (sync `modified(for:)`) inheriting from
-        // AsyncImageDownloadRequestModifier.
+        // was being member-inherited from this conformance, e.g. a sync `modified(for:)` requirement
+        // inheriting from an async protocol sibling.
         var protocolDecl = CreateSimpleProtocol("AsyncProvider");
         var method = CreateMethodDecl("fetchValue", throws: true);
         method.IsAsync = true;
@@ -972,8 +971,8 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitConformance_AllMethodsHaveMethodLevelGenerics_EmitsConformance()
     {
-        // Like Swinject.Resolver: all methods have method-level generics only (τ_1_0),
-        // no properties — should emit EveryProtocol conformance with stubs
+        // All methods have method-level generics only (τ_1_0), no properties —
+        // should emit EveryProtocol conformance with stubs
         var protocol = CreateSimpleProtocol("Resolver");
         protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("resolve"));
         protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("resolveWithArg"));
@@ -986,9 +985,9 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitConformance_MethodLevelGenericsWithNonGenericProperty_EmitsConformance()
     {
-        // Like RxSwift.SchedulerType: has method-level generics AND a non-generic property.
-        // Mixed-generic protocol: ALL members get fatalError() stubs because the type
-        // projection pipeline generates incorrect types for non-generic members.
+        // Mixed-generic protocol: method-level generics AND a non-generic property.
+        // ALL members get fatalError() stubs because the type projection pipeline
+        // generates incorrect types for non-generic members.
         var protocol = CreateSimpleProtocol("SchedulerType");
         protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("scheduleRelative"));
         protocol.Properties.Add(new PropertyDecl
@@ -1137,7 +1136,7 @@ public class EveryProtocolEmitterTests
     {
         // Protocol with a Self-typed (τ_0_0) return method and a normal method.
         // Self-typed method gets fatalError() stub; normal method gets vtable dispatch.
-        var protocol = CreateSimpleProtocol("KFOptionSetter");
+        var protocol = CreateSimpleProtocol("ImageLoaderOptionSetter");
         // Self-returning method: func setOption() -> Self (τ_0_0)
         var selfMethod = CreateMethodDecl("setOption");
         selfMethod.CSSignature[0] = new ArgumentDecl
@@ -1156,7 +1155,7 @@ public class EveryProtocolEmitterTests
 
         var output = EmitConformance(protocol);
 
-        Assert.Contains("extension EveryProtocol: TestModule.KFOptionSetter", output);
+        Assert.Contains("extension EveryProtocol: TestModule.ImageLoaderOptionSetter", output);
         // Self-typed method gets stub with EveryProtocol substitution
         Assert.Contains("-> EveryProtocol", output);
         Assert.Contains("Self-typed method 'setOption'", output);
@@ -1549,7 +1548,7 @@ public class EveryProtocolEmitterTests
         // skipping. The emitted extension hangs off EveryObjCProtocol so Swift's
         // type-checker accepts the conformance, and the witness-table getter / vtable
         // setter use the same class.
-        var protocol = CreateProtocolWithMethod("STPFormEncodable", "encode");
+        var protocol = CreateProtocolWithMethod("PaymentSdkFormEncodable", "encode");
         protocol.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
 
         var stringWriter = new StringWriter();
@@ -1560,8 +1559,8 @@ public class EveryProtocolEmitterTests
         // The extension hangs off EveryObjCProtocol (NSObject-rooted) so the
         // synthesized conformance type-checks against an @objc protocol that
         // inherits NSObjectProtocol. The protocol name is emitted module-qualified.
-        Assert.Contains("extension EveryObjCProtocol: TestModule.STPFormEncodable", output);
-        Assert.DoesNotContain("extension EveryProtocol: TestModule.STPFormEncodable", output);
+        Assert.Contains("extension EveryObjCProtocol: TestModule.PaymentSdkFormEncodable", output);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.PaymentSdkFormEncodable", output);
     }
 
     [Fact]
@@ -1922,7 +1921,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitProtocolConformance_CaseIterable_SkipsEmission()
     {
-        var protocol = CreateProtocolWithMethod("NVActivityIndicatorType", "allCases");
+        var protocol = CreateProtocolWithMethod("LoadingIndicatorType", "allCases");
         protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.CaseIterable"));
 
         var stringWriter = new StringWriter();
@@ -2494,8 +2493,7 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitProtocolConformance_UnderscorePrefixedExternalConstraint_SkipsConformance()
     {
-        // Protocol with constraint to underscore-prefixed protocol from external module
-        // (e.g., StripeApplePay._stpinternal_STPApplePayContextDelegateBase)
+        // Protocol with constraint to an underscore-prefixed protocol from an external module
         var protocol = CreateProtocolWithMethod("MyDelegate", "didComplete");
         protocol.GenericSignature = "<τ_0_0 : ExternalModule._internalBase>";
 
@@ -3733,8 +3731,8 @@ public class EveryProtocolEmitterTests
         // Narrowing: IsModuleInternal must NOT trigger the gate. The parser's
         // negative-space heuristic (IsInternalFromPublicMemberNames) flags protocol
         // requirement vars as internal because the swiftinterface body lists them
-        // without a leading `public` keyword (e.g. SnapKit.ConstraintPriorityTarget).
-        // Those conformances already emit working witnesses on baseline; treating
+        // without a leading `public` keyword. Those conformances already emit working
+        // witnesses on baseline; treating
         // IsModuleInternal as a suppression signal regresses them. Only IsSpiProtected
         // is consulted by the gate.
         var protocol = CreateProtocolWithProperty("InternalShape", "value",

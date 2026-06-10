@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// Result<(), E> fixture — mirrors Kingfisher's CacheStoreResult shape where a
+// Result<(), E> fixture — mirrors the CacheStoreResult shape where a
 // side-effect completion reports success as Void and failure as a concrete Error.
 //
 // Before the fix, HasNonSwiftObjectGenericArg returned true for the empty-tuple
@@ -18,8 +18,8 @@ public enum StoreWriteError: Error {
     case permissionDenied(path: String)
 }
 
-/// Struct carrying a `Swift.Result<(), StoreWriteError>` property. Mirrors
-/// Kingfisher.CacheStoreResult.diskCacheResult: a cache-write outcome whose
+/// Struct carrying a `Swift.Result<(), StoreWriteError>` property. Mirrors the
+/// CacheStoreResult.diskCacheResult shape: a cache-write outcome whose
 /// success path is value-less and whose failure path carries a concrete error.
 public struct CacheWriteOutcome {
     public let result: Result<(), StoreWriteError>

@@ -7,10 +7,10 @@ import Foundation
 
 /// Frozen struct with 4 Double fields — exercises IsSelfTypeCdeclRequired
 /// float field detection (WrapperValidation.cs line 877).
-/// Real-world pattern: Lottie LottieColor (r/g/b/a: Double).
+/// Frozen struct with four Double fields — triggers the float-field ABI-safety gate.
 /// Methods on this struct MUST go through @_cdecl to avoid Mono JIT crash.
 @frozen
-public struct LottieColorLike {
+public struct VectorAnimationColorLike {
     public var r: Double
     public var g: Double
     public var b: Double
@@ -29,8 +29,8 @@ public struct LottieColorLike {
     }
 
     /// Another instance method to verify all methods route through @_cdecl.
-    public func withAlpha(_ newAlpha: Double) -> LottieColorLike {
-        return LottieColorLike(r: r, g: g, b: b, a: newAlpha)
+    public func withAlpha(_ newAlpha: Double) -> VectorAnimationColorLike {
+        return VectorAnimationColorLike(r: r, g: g, b: b, a: newAlpha)
     }
 
     /// Returns a descriptive string.
@@ -112,7 +112,7 @@ public struct LargeConfig {
 /// Class with both a simple constructor and one with Array<String> parameter.
 /// Array<T> is a generic container that requires @_cdecl wrapper because it's
 /// non-blittable in CallConvSwift. Without the wrapper, Mono JIT crashes.
-/// Real-world pattern: Kingfisher ImagePrefetcher(urls:options:completionHandler:).
+/// Class constructor taking a `[String]` array parameter — non-blittable in CallConvSwift.
 ///
 /// BUG-3 fix: When no wrapper strategy is available (e.g., third-party xcframework),
 /// the generator now suppresses the constructor instead of emitting a raw

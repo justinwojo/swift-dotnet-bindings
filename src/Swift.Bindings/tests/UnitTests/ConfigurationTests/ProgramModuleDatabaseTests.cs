@@ -64,17 +64,17 @@ namespace BindingsGeneration.Tests
             try
             {
                 File.WriteAllText(filePath, """
-                    <swifttypedatabase version="1.0" moduleName="StripeCore" modulePath="/fake/StripeCore.dylib">
+                    <swifttypedatabase version="1.0" moduleName="PaymentSdkCore" modulePath="/fake/PaymentSdkCore.dylib">
                       <entities>
-                        <entity managedTypeName="Widget" managedNameSpace="StripeCore">
-                          <typedeclaration module="StripeCore" name="Widget" mangledName="" frozen="true" requiresMemoryManagement="false" />
+                        <entity managedTypeName="Widget" managedNameSpace="PaymentSdkCore">
+                          <typedeclaration module="PaymentSdkCore" name="Widget" mangledName="" frozen="true" requiresMemoryManagement="false" />
                         </entity>
                       </entities>
                     </swifttypedatabase>
                     """);
 
                 var moduleName = BindingsGenerator.PeekModuleNameFromXml(filePath);
-                Assert.Equal("StripeCore", moduleName);
+                Assert.Equal("PaymentSdkCore", moduleName);
             }
             finally { File.Delete(filePath); }
         }

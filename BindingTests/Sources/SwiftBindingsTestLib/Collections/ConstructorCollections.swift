@@ -3,10 +3,10 @@
 
 import Foundation
 
-// MARK: - Constructor with Int32 Array (CryptoSwift HMAC pattern)
+// MARK: - Constructor with Int32 Array (crypto-HMAC / animation-keypath pattern)
 
 /// Class taking array in constructor.
-/// Real-world pattern: CryptoSwift HMAC(byte[]), Lottie AnimationKeypath(List<string>).
+/// Real-world pattern: HMAC(byte[]), AnimationKeypath(List<string>).
 public class DataBuffer {
     private let data: [Int32]
 
@@ -19,7 +19,7 @@ public class DataBuffer {
     public func first() -> Int32? { data.first }
 }
 
-// MARK: - Constructor with String Array (Lottie AnimationKeypath pattern)
+// MARK: - Constructor with String Array (animation-keypath pattern)
 
 /// Class taking string array in constructor.
 public class PathResolver {

@@ -81,7 +81,7 @@ public func callWithStringArrayReturn(_ handler: @escaping (Int32) -> [String]) 
     return handler(3)
 }
 
-// MARK: - P1: Nullable Closure Property (Lottie AnimationLoaded pattern)
+// MARK: - P1: Nullable Closure Property (optional animation-loaded callback pattern)
 
 /// Class with an optional closure stored property.
 /// Tests nullable closure marshalling: setter handles both non-null and null.
@@ -97,7 +97,7 @@ public class ClosureHolder {
     }
 }
 
-// MARK: - P2: Static Closure Property (NVActivityIndicatorView pattern)
+// MARK: - P2: Static Closure Property (static optional closure log-handler pattern)
 
 /// Class with a static optional closure property.
 /// Combines static property access with closure marshalling.
@@ -109,7 +109,7 @@ public class LogRouter {
     }
 }
 
-// MARK: - P3: Optional Closure Parameter (Mixpanel Flush pattern)
+// MARK: - P3: Optional Closure Parameter (optional flush-callback pattern)
 
 /// Free function taking an optional closure parameter.
 /// Tests Optional<Closure> parameter marshalling.
@@ -121,7 +121,7 @@ public func executeIfPresent(action: (() -> Void)?, fallbackValue: Int32) -> Int
     return fallbackValue
 }
 
-// MARK: - X2: Method with Multiple Closure Parameters (StripePayments pattern)
+// MARK: - X2: Method with Multiple Closure Parameters
 
 /// Free function with two closure parameters (one void, one with arg).
 public func executeWithCallbacks(
@@ -180,12 +180,12 @@ public func callWithNilFrozenStruct(_ callback: @escaping (FrozenPoint?) -> Doub
     return callback(nil)
 }
 
-// MARK: - Closure with Existential Array Parameter (Swinject Container pattern)
+// MARK: - Closure with Existential Array Parameter (DI-container init pattern)
 // Regression test: SwiftArray<ExistentialContainer1> type init must not throw
 // TypeInitializationException when NativeAotInitialize() fails for existential types.
 
 /// Class with init taking a closure alongside an existential array parameter.
-/// Mirrors Swinject Container(behaviors: [any Behavior], registerClosure: ...) pattern.
+/// Mirrors a DI-container init(behaviors: [any Behavior], registerClosure: ...) pattern.
 public class ClosureWithExistentialArray {
     private let modes: [any ProcessingMode]
     private let transformResult: Int32
@@ -203,7 +203,7 @@ public class ClosureWithExistentialArray {
 
 /// Class with closure properties whose parameter types can't be marshalled for C# invocation.
 /// The generator emits these as setter-only: C# can set callback handlers but can't get/invoke.
-/// Mirrors Alamofire.ClosureEventMonitor pattern (closures with ObjC-bridgeable/complex params).
+/// Mirrors the ClosureEventMonitor pattern (closures with ObjC-bridgeable/complex params).
 public class SetterOnlyCallbackHolder {
     /// Closure with a protocol existential parameter (non-invocable from C#).
     /// The generator emits this as set-only because CanInvokeFromCSharp rejects existential params

@@ -13,12 +13,12 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class ThirdPartyValidationFixTestsV4
 {
-    #region C1 — Optional tuple with unsupported element (Alamofire)
+    #region C1 — Optional tuple with unsupported element
 
     [Fact]
     public void CanEmitProperty_OptionalTupleWithClosureElement_IsSkipped()
     {
-        // Alamofire: UploadProgressHandler is Optional<(AnyType, DispatchQueue)>
+        // UploadProgressHandler is Optional<(AnyType, DispatchQueue)>
         // where the closure fell back to AnyType inside the tuple.
         var typeDatabase = CreateTypeDatabaseWithString();
 
@@ -83,12 +83,12 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C2 — CanEmitProperty wired into type handlers (MicroblinkPlatform)
+    #region C2 — CanEmitProperty wired into type handlers
 
     [Fact]
     public void CanEmitProperty_SwiftUIProperty_IsSkipped()
     {
-        // MicroblinkPlatform: SwiftUI.Color/SwiftUI.Font properties should be skipped.
+        // SwiftUI.Color/SwiftUI.Font properties should be skipped.
         // This test verifies the validator itself catches SwiftUI types.
         var typeDatabase = CreateTypeDatabase();
         var property = CreatePropertyDecl("tintColor", new NamedTypeSpec("SwiftUI.Color"));
@@ -127,7 +127,7 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C3 — DateTimeOffset bound generic detection (StripeConnect)
+    #region C3 — DateTimeOffset bound generic detection
 
     [Fact]
     public void HasNonSwiftObjectGenericArg_FoundationDateNoNativeType_ReturnsTrue()
@@ -173,12 +173,12 @@ public class ThirdPartyValidationFixTestsV4
     [Fact]
     public void HasNonSwiftObjectGenericArg_SwiftResultOfVoid_ReturnsFalse()
     {
-        // Issue D.1 (Kingfisher CacheStoreResult): Swift.Result<(), MyError>.
+        // Issue D.1: Swift.Result<(), MyError>.
         // SwiftResult<TSuccess, TFailure> has no ISwiftObject constraint on its type
         // parameters, so a ValueTuple (empty or otherwise) success arg is safe; the
         // projection handles marshalling. Without the bypass, the tuple blocker
         // at BoundGenericsHandler.HasNonSwiftObjectGenericArg returned true and
-        // CacheStoreResult properties were silently tombstoned.
+        // the affected properties were silently tombstoned.
         var typeDatabase = CreateTypeDatabase();
         var handler = new BoundGenericsHandler(typeDatabase);
 
@@ -209,7 +209,7 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C4 — ObjC-bridged type excluded from async copy buffer (StripeCryptoOnramp)
+    #region C4 — ObjC-bridged type excluded from async copy buffer
 
     [Fact]
     public void MarshallingHelpers_IsObjCBridged_WithFlag_ReturnsTrue()
@@ -245,7 +245,7 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C5 — Duplicate enum case param name (StripeFinancialConnections)
+    #region C5 — Duplicate enum case param name
 
     [Fact]
     public void EnumCaseConstruction_ResultParamCollision_DetectsConflict()
@@ -286,13 +286,13 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C6 — Async tuple with non-simple enum element (StripePayments)
+    #region C6 — Async tuple with non-simple enum element
 
     [Fact]
     public void ShouldSkipMethodEmission_AsyncTupleWithNonSimpleEnum_IsSkipped()
     {
-        // StripePayments: async method returning (STPPaymentHandlerActionStatus, NSError?)
-        // The enum flattens into [UnmanagedCallersOnly] callback → CS8894.
+        // Async method returning a tuple of (non-simple enum, NSError?) where the enum
+        // flattens into an [UnmanagedCallersOnly] callback → CS8894.
         var typeDatabase = CreateTypeDatabaseWithEnum(isSimple: false, requiresMemMgmt: true);
 
         var tupleReturn = new TupleTypeSpec();
@@ -347,7 +347,7 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C7 — Default parameter overload projected signature dedup (StripePaymentSheet)
+    #region C7 — Default parameter overload projected signature dedup
 
     [Fact]
     public void GetProjectedOverloadKey_MatchesMainPassKey()
@@ -505,12 +505,12 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region Nuke — loadImage Result<T,E> closure + non-frozen struct param
+    #region loadImage — Result&lt;T,E&gt; closure + non-frozen struct param
 
     [Fact]
-    public void Nuke_LoadImage_IsEligibleForMethodClosureBridge()
+    public void ImagePipeline_LoadImage_IsEligibleForMethodClosureBridge()
     {
-        // Nuke's loadImage(with:completion:) takes:
+        // loadImage(with:completion:) takes:
         //   with: ImageRequest (non-frozen struct)
         //   completion: @escaping (Result<ImageResponse, ImagePipeline.Error>) -> Void
         // This must be eligible for MethodClosureBridge now that non-frozen structs are passable.
@@ -529,53 +529,53 @@ public class ThirdPartyValidationFixTestsV4
             });
         typeDatabase.AddModuleDatabase(swiftModule);
 
-        var nukeModule = new ModuleTypeDatabase("Nuke", "/tmp/Nuke.dylib");
-        nukeModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
+        var imageModule = new ModuleTypeDatabase("ImagePipeline", "/tmp/ImagePipeline.dylib");
+        imageModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageService"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipeline"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
-                MetadataAccessor = "$s4Nuke13ImagePipelineCMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageService"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageService"),
+                MetadataAccessor = "$s13ImagePipeline12ImageServiceCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class
             });
-        nukeModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest"),
+        imageModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageRequest"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageRequest"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageRequest"),
-                MetadataAccessor = "$s4Nuke12ImageRequestVMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageRequest"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageRequest"),
+                MetadataAccessor = "$s13ImagePipeline12ImageRequestVMa",
                 Flags = TypeRecordFlags.None, // Non-frozen struct
                 Kind = TypeRecordKind.Struct
             });
-        nukeModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+        imageModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageResponse"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImageResponse"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
-                MetadataAccessor = "$s4Nuke13ImageResponseVMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageResponse"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageResponse"),
+                MetadataAccessor = "$s13ImagePipeline13ImageResponseVMa",
                 Flags = TypeRecordFlags.None, // Non-frozen struct
                 Kind = TypeRecordKind.Struct
             });
-        nukeModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Error"),
+        imageModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageService.Error"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipelineError"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Error"),
-                MetadataAccessor = "$s4Nuke13ImagePipelineC5ErrorOMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImagePipeline", "ImageServiceError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageService.Error"),
+                MetadataAccessor = "$s13ImagePipeline12ImageServiceC5ErrorOMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement, // Non-simple enum
                 Kind = TypeRecordKind.Enum
             });
-        typeDatabase.AddModuleDatabase(nukeModule);
+        typeDatabase.AddModuleDatabase(imageModule);
 
         // Build: loadImage(with: ImageRequest, completion: @escaping (Result<ImageResponse, ImagePipeline.Error>) -> Void)
-        var nukeModuleDecl = new ModuleDecl
+        var imageModuleDecl = new ModuleDecl
         {
-            Name = "Nuke",
+            Name = "ImagePipeline",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -587,9 +587,9 @@ public class ThirdPartyValidationFixTestsV4
 
         var pipelineDecl = new ClassDecl
         {
-            Name = "ImagePipeline",
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline"),
-            MangledName = "$s4Nuke13ImagePipelineCN",
+            Name = "ImageService",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImagePipeline.ImageService"),
+            MangledName = "$s13ImagePipeline12ImageServiceCN",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -597,13 +597,13 @@ public class ThirdPartyValidationFixTestsV4
             Subscripts = new List<SubscriptDecl>(),
             GenericParameters = new List<GenericArgumentDecl>(),
             Conformances = new List<TypeConformance>(),
-            ParentDecl = nukeModuleDecl,
-            ModuleDecl = nukeModuleDecl
+            ParentDecl = imageModuleDecl,
+            ModuleDecl = imageModuleDecl
         };
 
         var resultType = new NamedTypeSpec("Swift.Result",
-            new NamedTypeSpec("Nuke.ImageResponse"),
-            new NamedTypeSpec("Nuke.ImagePipeline.Error"));
+            new NamedTypeSpec("ImagePipeline.ImageResponse"),
+            new NamedTypeSpec("ImagePipeline.ImageService.Error"));
 
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { (TypeSpec)resultType }),
@@ -613,7 +613,7 @@ public class ThirdPartyValidationFixTestsV4
         var method = new MethodDecl
         {
             Name = "loadImage",
-            MangledName = "$s4Nuke13ImagePipelineC9loadImage4with10completionyAA0dF0V_yAF_AC5ErrorOtctF",
+            MangledName = "$s13ImagePipeline12ImageServiceC9loadImage4with10completionyAA0dF0V_yAF_AC5ErrorOtctF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
@@ -622,24 +622,24 @@ public class ThirdPartyValidationFixTestsV4
                 {
                     Name = "", SwiftTypeSpec = TupleTypeSpec.Empty,
                     PrivateName = "", IsInOut = false, IsGeneric = false,
-                    ParentDecl = null, ModuleDecl = nukeModuleDecl
+                    ParentDecl = null, ModuleDecl = imageModuleDecl
                 },
                 new ArgumentDecl
                 {
-                    Name = "_with", SwiftTypeSpec = new NamedTypeSpec("Nuke.ImageRequest"),
+                    Name = "_with", SwiftTypeSpec = new NamedTypeSpec("ImagePipeline.ImageRequest"),
                     PrivateName = "request", IsInOut = false, IsGeneric = false,
-                    ParentDecl = null, ModuleDecl = nukeModuleDecl
+                    ParentDecl = null, ModuleDecl = imageModuleDecl
                 },
                 new ArgumentDecl
                 {
                     Name = "_completion", SwiftTypeSpec = closureType,
                     PrivateName = "completion", IsInOut = false, IsGeneric = false,
-                    ParentDecl = null, ModuleDecl = nukeModuleDecl
+                    ParentDecl = null, ModuleDecl = imageModuleDecl
                 }
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = pipelineDecl,
-            ModuleDecl = nukeModuleDecl,
+            ModuleDecl = imageModuleDecl,
             Throws = false,
             IsAsync = false,
             Visibility = Visibility.Public
@@ -1093,12 +1093,12 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C10 — Enum case variable shadowing (StripeFinancialConnections)
+    #region C10 — Enum case variable shadowing
 
     [Fact]
     public void EnumCaseWithResultParam_UsesUniqueLocalVarName()
     {
-        // StripeFinancialConnections: Enum case factory method has parameter named 'result'
+        // Enum case factory method has parameter named 'result'
         // which shadows local 'var result = new EnumType()'. Fix: rename local to '__enumResult'.
         // Verify the CaseConstruction code path by checking that the parameters collection
         // triggers the unique name selection.
@@ -1122,12 +1122,12 @@ public class ThirdPartyValidationFixTestsV4
 
     #endregion
 
-    #region C11 — Optional<Closure> vs Closure dedup (StripePayments)
+    #region C11 — Optional&lt;Closure&gt; vs Closure dedup
 
     [Fact]
     public void ProjectedKey_OptionalClosureAndBareClosure_Collide()
     {
-        // StripePayments: CreateToken(string, Action<...>?) and CreateToken(string, Action<...>)
+        // CreateToken(string, Action<...>?) and CreateToken(string, Action<...>)
         // produce the same C# overload (nullable reference types don't affect overload resolution).
         // Fix: unwrap Optional<Closure> to bare Closure in projected key computation.
         var typeDatabase = CreateTypeDatabaseWithArrayAndOptional();
@@ -1200,12 +1200,12 @@ public class ThirdPartyValidationFixTestsV4
     [Fact]
     public void CanEmitProperty_ClosureReturningNonPrimitiveType_IsSkipped()
     {
-        // StripePaymentSheet: Closure property () -> Optional<AddressDetails> produces
-        // void* return in function pointer, but the invoker can't marshal it back.
+        // Closure property () -> Optional<AddressDetails> produces void* return in function
+        // pointer, but the invoker can't marshal it back.
         var typeDatabase = CreateTypeDatabaseWithArrayAndOptional();
 
         // Non-frozen struct type
-        var structType = new NamedTypeSpec("StripePaymentSheet.AddressDetails");
+        var structType = new NamedTypeSpec("PaymentSdkPaymentSheet.AddressDetails");
 
         // Optional wrapping the struct
         var optionalStruct = new NamedTypeSpec("Swift.Optional");

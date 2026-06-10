@@ -5,7 +5,6 @@ import Foundation
 
 // MARK: - Failable Initializers (S1)
 // Tests: init? projected as TryCreate with out param
-// Real-world: Valet SharedGroupIdentifier.TryCreate, NVActivityIndicatorView TryCreate(coder:)
 
 /// Struct with a failable initializer (division by zero guard).
 @frozen

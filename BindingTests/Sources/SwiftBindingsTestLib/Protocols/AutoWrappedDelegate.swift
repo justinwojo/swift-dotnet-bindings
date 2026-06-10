@@ -5,16 +5,16 @@ import Foundation
 
 // MARK: - Auto-wrapped delegate regression
 //
-// Covers justinwojo/swift-dotnet-bindings#16 (GDPerformanceView repro): users assign
-// a plain C# class implementing the generated protocol interface to a `delegate`
-// property. Before the fix the setter's GetOrCreate call threw InvalidCastException
-// because the C# value implemented neither ISwiftExistentialConvertible nor
-// IExistentialBoxable. The generator now emits an auto-wrap fallback that constructs
-// the hidden {Protocol}Proxy transparently, so these patterns must all round-trip
-// without the test ever mentioning AutoWrappedMonitorDelegateProxy.
+// Covers justinwojo/swift-dotnet-bindings#16: users assign a plain C# class
+// implementing the generated protocol interface to a `delegate` property. Before the
+// fix the setter's GetOrCreate call threw InvalidCastException because the C# value
+// implemented neither ISwiftExistentialConvertible nor IExistentialBoxable. The
+// generator now emits an auto-wrap fallback that constructs the hidden {Protocol}Proxy
+// transparently, so these patterns must all round-trip without the test ever
+// mentioning AutoWrappedMonitorDelegateProxy.
 
 /// Class-bound delegate protocol — the same shape Swift APIs use for observers
-/// (Cocoa delegate pattern, GDPerformanceView's PerformanceMonitorDelegate, etc.).
+/// (Cocoa delegate pattern, etc.).
 public protocol AutoWrappedMonitorDelegate: AnyObject {
     /// Called by the monitor with a scalar report value.
     func monitorDidUpdate(value: Int32)

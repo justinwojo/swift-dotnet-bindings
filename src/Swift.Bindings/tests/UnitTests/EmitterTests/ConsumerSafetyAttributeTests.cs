@@ -45,7 +45,7 @@ public class ConsumerSafetyAttributeTests
         // Swift.String projects to FrozenBuffer (SwiftString.Buffer is a two-word blittable
         // struct of nint+nint). The direct CallConvSwift P/Invoke is correct without a wrapper —
         // SB0001 must NOT fire — the direct CallConvSwift P/Invoke is correct without a wrapper.
-        // Concrete site: Lottie AnimatedControl.SetLayer(string, UIControlState).
+        // Concrete site: a method with string and UIControlState parameters.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);

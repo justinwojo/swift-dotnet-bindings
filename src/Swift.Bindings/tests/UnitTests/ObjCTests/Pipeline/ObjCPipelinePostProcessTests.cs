@@ -567,16 +567,16 @@ public class ObjCPipelinePostProcessTests
         // Categories on module's own classes should be removed (already merged by parser)
         var module = new ObjCModule
         {
-            ModuleName = "Realm",
+            ModuleName = "ManagedObjectStore",
             Classes =
             [
-                new ObjCClassDecl { Name = "RLMArray" },
-                new ObjCClassDecl { Name = "RLMResults" }
+                new ObjCClassDecl { Name = "MOSArray" },
+                new ObjCClassDecl { Name = "MOSResults" }
             ],
             Categories =
             [
-                new ObjCCategoryDecl { CategoryName = "Swift", ClassName = "RLMArray" },
-                new ObjCCategoryDecl { CategoryName = "Sorting", ClassName = "RLMResults" }
+                new ObjCCategoryDecl { CategoryName = "Swift", ClassName = "MOSArray" },
+                new ObjCCategoryDecl { CategoryName = "Sorting", ClassName = "MOSResults" }
             ]
         };
 
@@ -591,16 +591,16 @@ public class ObjCPipelinePostProcessTests
         // Categories on platform types (not in module.Classes) should be preserved
         var module = new ObjCModule
         {
-            ModuleName = "Realm",
+            ModuleName = "ManagedObjectStore",
             Classes =
             [
-                new ObjCClassDecl { Name = "RLMArray" }
+                new ObjCClassDecl { Name = "MOSArray" }
             ],
             Categories =
             [
-                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSNull", ProtocolNames = ["RLMValue"] },
-                new ObjCCategoryDecl { CategoryName = "", ClassName = "NSNumber", ProtocolNames = ["RLMInt", "RLMBool"] },
-                new ObjCCategoryDecl { CategoryName = "Swift", ClassName = "RLMArray" } // own-type — removed
+                new ObjCCategoryDecl { CategoryName = "MOSValue", ClassName = "NSNull", ProtocolNames = ["MOSValue"] },
+                new ObjCCategoryDecl { CategoryName = "", ClassName = "NSNumber", ProtocolNames = ["MOSInt", "MOSBool"] },
+                new ObjCCategoryDecl { CategoryName = "Swift", ClassName = "MOSArray" } // own-type — removed
             ]
         };
 
@@ -636,9 +636,9 @@ public class ObjCPipelinePostProcessTests
             Classes = [new ObjCClassDecl { Name = "MyClass" }],
             Categories =
             [
-                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSNull" },
-                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSString" },
-                new ObjCCategoryDecl { CategoryName = "RLMValue", ClassName = "NSData" }
+                new ObjCCategoryDecl { CategoryName = "MOSValue", ClassName = "NSNull" },
+                new ObjCCategoryDecl { CategoryName = "MOSValue", ClassName = "NSString" },
+                new ObjCCategoryDecl { CategoryName = "MOSValue", ClassName = "NSData" }
             ]
         };
 
@@ -655,13 +655,13 @@ public class ObjCPipelinePostProcessTests
         // classes, those stubs are removed first, so categories on UIButton become foreign.
         var module = new ObjCModule
         {
-            ModuleName = "SDWebImage",
+            ModuleName = "WebImageCache",
             AppleSdkTypeNames = new HashSet<string> { "UIButton", "UIImage" },
             Classes =
             [
                 new ObjCClassDecl { Name = "UIButton" },  // SDK stub — will be removed
                 new ObjCClassDecl { Name = "UIImage" },   // SDK stub — will be removed
-                new ObjCClassDecl { Name = "SDWebImageManager" } // Real class — kept
+                new ObjCClassDecl { Name = "WebImageCacheManager" } // Real class — kept
             ],
             Categories =
             [
@@ -680,15 +680,15 @@ public class ObjCPipelinePostProcessTests
                 new ObjCCategoryDecl
                 {
                     CategoryName = "Extras",
-                    ClassName = "SDWebImageManager", // own-type — will be removed
+                    ClassName = "WebImageCacheManager", // own-type — will be removed
                 }
             ]
         };
 
         // Step 1: FilterPlatformTypeStubs removes UIButton and UIImage
         var afterStubFilter = ObjCPipeline.FilterPlatformTypeStubs(module, Logger);
-        Assert.Single(afterStubFilter.Classes); // Only SDWebImageManager remains
-        Assert.Equal("SDWebImageManager", afterStubFilter.Classes[0].Name);
+        Assert.Single(afterStubFilter.Classes); // Only WebImageCacheManager remains
+        Assert.Equal("WebImageCacheManager", afterStubFilter.Classes[0].Name);
 
         // Step 2: FilterToForeignCategories now sees UIButton as foreign (not in Classes)
         var afterCatFilter = ObjCPipeline.FilterToForeignCategories(afterStubFilter, Logger);

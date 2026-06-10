@@ -809,7 +809,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_OrphanedCdeclBug_Regression()
         {
-            // Reproduces the exact Stripe scenario: broken @_cdecl block followed by clean @_cdecl block.
+            // Reproduces the orphaned @_cdecl scenario: broken @_cdecl block followed by clean @_cdecl block.
             // Before the fix, Pattern 4 stripped the function but left the @_cdecl attribute orphaned,
             // which attached to the next function → "duplicate attribute" Swift compilation error.
             var input = """
@@ -882,8 +882,8 @@ namespace BindingsGeneration.Tests
         {
             var input = """
                 @_silgen_name("wrapper_create")
-                public func SBW_create(_self: UnsafeMutableRawPointer) -> SkeletonView {
-                    return SkeletonView()
+                public func SBW_create(_self: UnsafeMutableRawPointer) -> SkeletonLoader {
+                    return SkeletonLoader()
                 }
 
                 """;
@@ -891,7 +891,7 @@ namespace BindingsGeneration.Tests
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
             Assert.Equal(0, result.StrippedBlockCount);
-            Assert.Contains("SkeletonView", result.CleanedContent);
+            Assert.Contains("SkeletonLoader", result.CleanedContent);
         }
 
         [Fact]

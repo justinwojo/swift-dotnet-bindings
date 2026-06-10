@@ -312,7 +312,7 @@ public static class WrapperEmitterHelpers
     /// Returns an empty string if no constraints exist, or " where T : Proto, U : Proto2" etc.
     /// </summary>
     /// <param name="genericParams">The generic parameters with conformance information.</param>
-    /// <param name="moduleQualify">When true, uses module-qualified conformance names (e.g., GRDB.Cursor).
+    /// <param name="moduleQualify">When true, uses module-qualified conformance names (e.g., Module.ProtocolName).
     /// Use true for free functions, false for code inside an extension of the module's type.</param>
     public static string BuildSwiftWhereClause(IEnumerable<GenericArgumentDecl> genericParams, bool moduleQualify = false)
     {

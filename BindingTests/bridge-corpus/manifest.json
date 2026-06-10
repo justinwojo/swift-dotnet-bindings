@@ -8,19 +8,19 @@
       "runtime_validated": true
     },
     {
-      "name": "Lottie",
+      "name": "VectorAnimation",
       "source": "validation",
       "views": 3,
       "runtime_validated": true
     },
     {
-      "name": "BlinkIDUX",
+      "name": "DocScanUX",
       "source": "validation",
       "views": 4,
       "runtime_validated": true
     },
     {
-      "name": "AlertToast",
+      "name": "ToastBanner",
       "source": "validation",
       "views": 2,
       "runtime_validated": false
@@ -32,13 +32,13 @@
       "runtime_validated": false
     },
     {
-      "name": "Kingfisher",
+      "name": "ImageLoader",
       "source": "validation",
       "views": 3,
       "runtime_validated": false
     },
     {
-      "name": "SDWebImageSwiftUI",
+      "name": "WebImageCacheSwiftUI",
       "source": "validation",
       "views": 3,
       "runtime_validated": false

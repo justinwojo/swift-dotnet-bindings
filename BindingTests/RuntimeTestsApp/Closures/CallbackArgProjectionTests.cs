@@ -50,7 +50,7 @@ public class CallbackArgProjectionTests : TestBase
     }
 
     /// <summary>
-    /// (Foundation.Data, Foundation.URLResponse?) tuple-arg closure — the Nuke shape.
+    /// (Foundation.Data, Foundation.URLResponse?) tuple-arg closure — mixed-projection tuple shape.
     /// Element #1 must project to byte[]; element #2 must project to
     /// Foundation.NSUrlResponse? (NSObject lookup + Optional → T?).
     /// </summary>

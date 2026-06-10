@@ -72,7 +72,7 @@ namespace BindingsGeneration
             var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));
 
             // Module-internal enums: suppress Swift wrapper emission but still emit C# type stubs,
-            // because other types may reference the enum in method signatures (e.g., GRDB.RowKey).
+            // because other types may reference the enum in method signatures.
             // Redirecting swiftWriter to a discard writer prevents Swift wrapper emission while
             // allowing all C# code paths to proceed normally.
             if (enumDecl.IsModuleInternal)

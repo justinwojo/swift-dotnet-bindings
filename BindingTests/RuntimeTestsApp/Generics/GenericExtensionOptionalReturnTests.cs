@@ -8,7 +8,7 @@ namespace RuntimeTestsApp.Generics;
 
 /// <summary>
 /// Generic-extension static dispatch with <c>Optional&lt;N&gt;</c>-shape returns
-/// (ObjectMapper's <c>Mapper&lt;N&gt;.map(...) -&gt; N?</c> family).
+/// (<c>Mapper&lt;N&gt;.map(...) -&gt; N?</c> family).
 ///
 /// Two distinct bugs covered here:
 /// 1. <c>WrapperValidation.IsOptionalSupportedForCdecl</c> previously classified

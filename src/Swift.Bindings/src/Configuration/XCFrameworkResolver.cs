@@ -185,7 +185,7 @@ namespace BindingsGeneration
             //    If a complete .swiftmodule (with abi.json or swiftinterface)
             //    sits in the slice, take the Swift binding path regardless of
             //    whether the binary is a Mach-O dylib or a static `ar archive`.
-            //    Static Swift frameworks (e.g. Mappedin's 6.2.0 distribution)
+            //    Static Swift frameworks (e.g. a static xcframework distribution)
             //    ship an ar-archive binary alongside a complete .swiftmodule —
             //    binding generation only consumes the swiftmodule + abi.json,
             //    so the static-vs-dynamic distinction does not matter for us.
@@ -538,7 +538,7 @@ namespace BindingsGeneration
                 var modulesDir = Path.Combine(sliceDir, slice.LibraryPath, "Modules");
                 var modulemapPath = Path.Combine(modulesDir, "module.modulemap");
 
-                // No modulemap → Swift-only (e.g., Alamofire, Nuke)
+                // No modulemap → Swift-only framework (no ObjC bridging header)
                 if (!File.Exists(modulemapPath))
                     return null;
 
@@ -563,7 +563,7 @@ namespace BindingsGeneration
                     .Where(h => !swiftHeaders.Contains(h!))
                     .ToList();
 
-                // If the ONLY headers are Swift-generated → not mixed (Kingfisher/RxSwift pattern)
+                // If the ONLY headers are Swift-generated → not mixed (Swift-only framework pattern)
                 if (headers.Count == 0)
                 {
                     logger.LogDebug("Framework '{Module}' has modulemap but only Swift header(s) — not mixed.",
@@ -620,7 +620,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Resolves framework search paths for sibling xcframeworks in the same directory.
-        /// This handles the Firebase/Google SDK distribution pattern where all dependency
+        /// This handles the multi-xcframework distribution pattern where all dependency
         /// xcframeworks are co-located in the same parent directory.
         /// </summary>
         public static IReadOnlyList<string> ResolveSiblingFrameworkSearchPaths(
@@ -1221,7 +1221,7 @@ namespace BindingsGeneration
             logger.LogInformation("No ABI JSON found. Generating from Swift interface...");
 
             // The Swift interface may `import` companion modules (e.g. a thin Swift wrapper over a
-            // separate C/C++ engine, as MediaPipeTasksGenAI imports MediaPipeTasksGenAIC). swift-frontend
+            // separate C/C++ engine). swift-frontend
             // must be able to resolve those modules or it aborts before writing any ABI. Build the `-F`
             // search-path list: the framework's own slice, then explicit --framework-dependency companions,
             // then auto-detected co-located siblings.
@@ -1334,7 +1334,7 @@ namespace BindingsGeneration
             var tbdOutputPath = Path.Combine(outputDirectory, $"{moduleName}.tbd");
 
             // tapi stubify only accepts Mach-O dynamic libraries. Static Swift
-            // frameworks (e.g. Mappedin 6.2.0) ship an `ar archive` binary
+            // frameworks ship an `ar archive` binary
             // alongside a complete .swiftmodule; rarer distributions ship
             // bare Mach-O object files or universal-of-static binaries. The
             // binding generator only consumes mangled symbols from the TBD,
@@ -1379,7 +1379,7 @@ namespace BindingsGeneration
             // tapi stubify accepts only Mach-O dylibs. After we've confirmed
             // Swift evidence upstream, anything that isn't a dylib is a
             // non-dylib static distribution we need to synthesize a TBD for —
-            // `current ar archive` (Mappedin), `Mach-O 64-bit object`,
+            // `current ar archive`, `Mach-O 64-bit object`,
             // universal binaries wrapping either, etc. Universal Mach-O dylibs
             // still report "dynamically linked shared library" inside the
             // slice listing, so the negative match is safe.

@@ -9,7 +9,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Patterns;
 
 /// <summary>
-/// Tests the Lottie AnimatedButton/AnimatedSwitch UIKit control pattern:
+/// Tests the AnimatedButton/AnimatedSwitch UIKit control hierarchy pattern:
 /// - Class hierarchy with inherited play/stop behavior
 /// - Bool state properties (isOn) with getter/setter
 /// - State change methods with parameters

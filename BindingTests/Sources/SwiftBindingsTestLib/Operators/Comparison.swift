@@ -44,11 +44,10 @@ public struct ApproximatelyEqual: Equatable {
     }
 }
 
-// MARK: - Non-Frozen Struct Equality (Alamofire HTTPHeader pattern)
+// MARK: - Non-Frozen Struct Equality
 
 /// Non-frozen struct with Equatable — takes the @_cdecl wrapper path for equality
 /// (different from frozen structs which use CallConvSwift).
-/// Real-world pattern: Alamofire HTTPHeader ==, KeychainAccess AuthenticationPolicy ==.
 public struct Tag: Equatable {
     public var key: String
     public var value: String

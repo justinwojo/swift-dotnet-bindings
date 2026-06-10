@@ -73,8 +73,8 @@ public final class AnyErrorCallbackFixture {
 
     // MARK: - Pattern A: `(any Error)?` closure parameter
     //
-    // Mirrors `PaymentSheet.FlowController.update(intentConfiguration:completion:)`
-    // where Stripe delivers either a nil error (success) or an existential
+    // Mirrors `CheckoutFlow.Controller.update(intentConfiguration:completion:)`
+    // where the payment SDK delivers either a nil error (success) or an existential
     // error (failure) through a single closure parameter.
 
     /// Invokes `callback` with `nil` (success) or a `MathError` (failure),
@@ -91,8 +91,7 @@ public final class AnyErrorCallbackFixture {
     // MARK: - Pattern A (3-arg): `(T, U, (any Error)?)` closure parameter
     //
     // Exercises Optional<any Error> in the trailing slot of a multi-arg closure,
-    // mirroring the Stripe pattern `(STPIssuingCardPin?, STPPinStatus, (any Error)?)`
-    // with blittable stand-ins for the first two slots (Optional<class> and Optional<Int>
+    // using blittable stand-ins for the first two slots (Optional<class> and Optional<Int>
     // in closure args are a separate pattern tracked for future work).
 
     /// Invokes `callback` with three arguments: a pin code (Int32), a status (Int32),
@@ -108,9 +107,8 @@ public final class AnyErrorCallbackFixture {
 
     // MARK: - Pattern B: `Result<T, any Error>` closure parameter
     //
-    // Mirrors Stripe's completion handler shape:
-    //   `(Result<PaymentSheet.FlowController, any Error>) -> Void`
-    // Success carries a concrete value (Int32 here); failure carries an existential error.
+    // `Result<T, any Error>` closure parameter shape:
+    // success carries a concrete value (Int32 here); failure carries an existential error.
     // The Swift adapter wraps the Result enum via `withUnsafePointer(to:)` so the C#
     // callback receives a stack-lifetime pointer; the C# side heap-copies into a
     // `SwiftResult<Int32, ExistentialContainer1>` owned via SafeHandle.

@@ -3,10 +3,9 @@
 
 import Foundation
 
-// MARK: - OptionSet (BonMot Emphasis pattern)
+// MARK: - OptionSet
 
 /// OptionSet struct for testing bitflag-style type emission.
-/// Real-world pattern: BonMot Emphasis, XMLParsingOptions.
 public struct TextStyle: OptionSet {
     public let rawValue: Int32
 
@@ -20,7 +19,7 @@ public struct TextStyle: OptionSet {
     public static let strikethrough = TextStyle(rawValue: 1 << 3)
 }
 
-// MARK: - Nested OptionSet in Class (Nuke ImageRequest.Options pattern)
+// MARK: - Nested OptionSet in Class
 
 /// Class with nested OptionSet struct.
 public class ImageRequest {

@@ -6,7 +6,7 @@
 # detection-order regression test. Run from anywhere; outputs go alongside
 # this script.
 #
-# Output shape mirrors Mappedin's distribution:
+# Output shape mirrors an indoor-maps SDK's distribution:
 #   StaticSwiftLib.xcframework/
 #     Info.plist
 #     ios-arm64-simulator/

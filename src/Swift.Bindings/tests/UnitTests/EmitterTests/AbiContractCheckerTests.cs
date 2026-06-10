@@ -490,8 +490,8 @@ public class AbiContractCheckerTests
     public void ExtractModuleFromMangledSymbol_ValidSymbols()
     {
         Assert.Equal("TestModule", AbiContractChecker.ExtractModuleFromMangledSymbol("$s10TestModule5doItyyF"));
-        Assert.Equal("Nuke", AbiContractChecker.ExtractModuleFromMangledSymbol("$s4Nuke11ImageLoaderC7loadFooyyF"));
-        Assert.Equal("StripePayments", AbiContractChecker.ExtractModuleFromMangledSymbol("$s14StripePayments3FooCfdTj"));
+        Assert.Equal("ImagePipeline", AbiContractChecker.ExtractModuleFromMangledSymbol("$s13ImagePipeline11ImageLoaderC7loadFooyyF"));
+        Assert.Equal("PaymentSdkPayments", AbiContractChecker.ExtractModuleFromMangledSymbol("$s18PaymentSdkPayments3FooCfdTj"));
     }
 
     [Fact]

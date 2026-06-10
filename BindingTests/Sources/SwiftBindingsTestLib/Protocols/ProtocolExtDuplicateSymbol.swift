@@ -3,14 +3,13 @@
 
 import Foundation
 
-// Reproduces the Kingfisher `ImageDownloader.isValidStatusCode(_:)` shape: a
-// protocol with an extension default method, where the conforming type lets the
-// extension default stand. ProtocolExtensionEmitter injects a synthetic
-// MethodDecl onto the conforming class; the standard
-// MethodHandler -> MethodWrapperEmitter pipeline then runs over that synthetic
-// decl AND ProtocolExtensionEmitter still flushes its buffered @_cdecl wrapper.
-// Both target the same C symbol; without cross-kind dedup in
-// ModuleEmissionContext, swiftc rejects the wrapper file with
+// Reproduces the duplicate-symbol shape: a protocol with an extension default
+// method, where the conforming type lets the extension default stand.
+// ProtocolExtensionEmitter injects a synthetic MethodDecl onto the conforming
+// class; the standard MethodHandler -> MethodWrapperEmitter pipeline then runs
+// over that synthetic decl AND ProtocolExtensionEmitter still flushes its
+// buffered @_cdecl wrapper. Both target the same C symbol; without cross-kind
+// dedup in ModuleEmissionContext, swiftc rejects the wrapper file with
 // "multiple definitions of symbol".
 
 public protocol PExtDupSymProtocol {

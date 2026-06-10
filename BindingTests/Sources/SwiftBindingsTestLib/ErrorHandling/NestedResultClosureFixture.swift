@@ -5,23 +5,21 @@ import Foundation
 
 // MARK: - Nested-class + Result<Self, any Error> / ((any Error)?) closure shape
 //
-// Mirrors Stripe's `PaymentSheet.FlowController` shape, which exhibited a
-// missing-wrapper-symbol failure after wrapper emit:
+// Reproduces a missing-wrapper-symbol failure for nested class methods where the
+// closure-arg cdecl-compat predicate did not recognise `Result<Self, any Error>` /
+// `Optional<any Error>` as bridgeable:
 //
-//   public class PaymentSheet {
-//       public class FlowController {
+//   public class OuterFlow {
+//       public class NestedController {
 //           public static func create(... completion: @escaping
-//                                     (Result<FlowController, Error>) -> Void)
+//                                     (Result<NestedController, Error>) -> Void)
 //           public func update(... completion: @escaping (Error?) -> Void)
 //       }
 //   }
 //
-// The wrapper-emit pipeline silently dropped @_cdecl wrappers for these methods
-// because the closure-arg cdecl-compat predicate did not recognise
-// `Result<Self, any Error>` / `Optional<any Error>` as bridgeable. C# still
-// emitted `[LibraryImport]` entries pointing at symbols that do not exist in
-// the wrapper dylib, surfacing as `MissingWrapperSymbol` in the binding report
-// and `EntryPointNotFoundException` at first call.
+// C# still emitted `[LibraryImport]` entries pointing at symbols that do not
+// exist in the wrapper dylib, surfacing as `MissingWrapperSymbol` in the binding
+// report and `EntryPointNotFoundException` at first call.
 
 /// Outer non-nested public class — mirrors `PaymentSheet`.
 public class OnboardingFlow {
@@ -52,9 +50,7 @@ public class OnboardingFlow {
         /// Static factory whose completion handler delivers a freshly-created
         /// `SessionController` (the nested class itself) wrapped in a Result.
         ///
-        /// Stripe shape:
-        ///   `static func create(intentConfiguration:configuration:completion:)`
-        ///   where `completion: @escaping (Result<FlowController, Error>) -> Void`.
+        /// Shape: `static func create(...completion: @escaping (Result<Self, Error>) -> Void)`.
         public static func create(
             token: String,
             configuration: Configuration,
@@ -69,8 +65,7 @@ public class OnboardingFlow {
         }
 
         /// Static factory variant whose completion uses `((any Error)?) -> Void`
-        /// instead of Result. Mirrors Stripe overloads of `create` that report
-        /// failure-only via an Optional Error completion.
+        /// instead of Result — failure-only via an Optional Error completion.
         public static func createWithOptionalError(
             token: String,
             configuration: Configuration,

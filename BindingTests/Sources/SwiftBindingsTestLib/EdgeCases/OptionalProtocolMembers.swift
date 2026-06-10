@@ -5,11 +5,10 @@ import Foundation
 
 // MARK: - `@objc optional` protocol members
 //
-// Synthetic mirror of the StripePaymentsUI / StripePayments shape where
-// `@objc optional` protocol members were emitted as mandatory requirements. The protocol
-// declares one mandatory method, two `@objc optional` methods (one void, one
-// returning Int), and one `@objc optional` getter property. The lowered C#
-// interface must:
+// Reproduces the shape where `@objc optional` protocol members were emitted
+// as mandatory requirements. The protocol declares one mandatory method, two
+// `@objc optional` methods (one void, one returning Int), and one `@objc
+// optional` getter property. The lowered C# interface must:
 //
 //   1. Keep the mandatory member as a real interface requirement (no body).
 //   2. Emit each optional member as a Default Interface Method (DIM) with a

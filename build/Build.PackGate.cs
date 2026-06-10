@@ -267,13 +267,13 @@ partial class Build
             VerifyBridgeMacOSExclusion(extractDir, $"{PackGateFixtureFramework}Bridge");
 
             // 6-8. Source xcframework slicing assertions. Packs a second fixture
-            //    that references a real multi-platform source xcframework (Nuke)
+            //    that references a real multi-platform source xcframework
             //    and asserts the per-RID slice subset is exact — no extras
             //    (regression where slicing silently stops working would otherwise
             //    ship full content under every RID), no missing required slice.
-            //    Skipped when Nuke isn't available on disk; CI is expected to run
+            //    Skipped when the source xcframework isn't available on disk; CI is expected to run
             //    `nuke fetch` beforehand if it wires PackGate in. The consumer-run
-            //    end-to-end gate (step 9 below) is independent of Nuke and runs
+            //    end-to-end gate (step 9 below) is independent of the source xcframework and runs
             //    either way — don't `return` from this branch.
             var nukeSource = LibrariesDir / "Nuke" / "Nuke.xcframework";
             if (!Directory.Exists(nukeSource))
@@ -282,7 +282,7 @@ partial class Build
             }
             else
             {
-                Log.Information("=== PackGate (source-xcfw): packing Nuke fixture ===");
+                Log.Information("=== PackGate (source-xcfw): packing source xcframework fixture ===");
                 var sourceFixtureDir = scratch / "source-fixture";
                 var sourceFixtureOut = scratch / "source-fixture-output";
                 sourceFixtureDir.CreateDirectory();
@@ -338,7 +338,7 @@ partial class Build
                     verifiedSourceSlices, ExpectedSourceXcframeworkLayout.Length, Path.GetFileName(sourceNupkgPath));
 
                 // 7. Filtered-slice NU5123 sanity. The slice-set assertion above already
-                //    guarantees no filtered slice (watchos, maccatalyst on Nuke) is in the
+                //    guarantees no filtered slice (watchos, maccatalyst) is in the
                 //    nupkg's runtimes/ tree. Defense-in-depth: walk the extract dir and
                 //    fail if any path mentions a filtered slice id, in case a future
                 //    layout change accidentally smuggles them in via a different path.
@@ -353,7 +353,7 @@ partial class Build
                     Assert.Fail($"PackGate: {stalePaths.Count} filtered-slice path(s) leaked into nupkg: {string.Join("; ", stalePaths.Take(5))}");
 
                 // 8. Consumer restore + package-shape smoke. A tiny iOS-targeting library
-                //    project PackageReferences PackGateSourceFixture.Nuke, restores it,
+                //    project PackageReferences PackGateSourceFixture.ImagePipeline, restores it,
                 //    and builds without -r. This proves the sliced nupkg's manifest is
                 //    well-formed and restorable, but does NOT exercise per-RID native
                 //    asset selection — _ExpandNativeReferences (which picks the actual
@@ -370,7 +370,7 @@ partial class Build
 
                 // Clear NuGet cache for the fixture nupkg so a stale entry from a
                 // prior run doesn't shadow the freshly-packed copy.
-                var consumerCacheDir = nugetCacheDir / "packgatesourcefixture.nuke";
+                var consumerCacheDir = nugetCacheDir / "packgatesourcefixture.imagepipeline";
                 if (Directory.Exists(consumerCacheDir)) consumerCacheDir.DeleteDirectory();
 
                 DotNetRestore(s => s
@@ -396,12 +396,12 @@ partial class Build
                 //    referenced @(SwiftFramework) which was empty before discovery
                 //    could fire there. Result: managed-only nupkg, no
                 //    runtimes/<rid>/native/ content, DllNotFoundException at
-                //    consumer runtime. This fixture copies Nuke.xcframework
+                //    consumer runtime. This fixture copies the source xcframework
                 //    physically into the project dir, declares NO <SwiftFramework>
                 //    item, and asserts the per-RID native content is still
                 //    produced — the exact shape consumers get from
                 //    `dotnet new swift-binding` + a present xcframework.
-                Log.Information("=== PackGate (auto-discover): packing Nuke fixture without explicit <SwiftFramework> ===");
+                Log.Information("=== PackGate (auto-discover): packing source xcframework fixture without explicit <SwiftFramework> ===");
                 var autoFixtureDir = scratch / "autodiscover-fixture";
                 var autoFixtureOut = scratch / "autodiscover-fixture-output";
                 autoFixtureDir.CreateDirectory();
@@ -578,13 +578,13 @@ partial class Build
         new("maccatalyst-arm64",  new[] { "ios-arm64-maccatalyst" }),
     ];
 
-    // Expected per-RID source-xcframework slice layout for the Nuke source-xcfw
+    // Expected per-RID source-xcframework slice layout for the source-xcfw
     // fixture. Asserted as an EXACT set (no extras, no missing) — a regression
     // where slicing silently stops working would otherwise quietly ship every
     // slice under every RID and the gate would still pass. Slice ids are the
-    // upstream Nuke.xcframework's actual on-disk identifiers (e.g. fat
+    // upstream source xcframework's actual on-disk identifiers (e.g. fat
     // `arm64_x86_64-simulator` form, not the workload's normalized names).
-    // Nuke ships no maccatalyst slice, so the Catalyst RID is absent from the
+    // The source xcframework ships no maccatalyst slice, so the Catalyst RID is absent from the
     // fixture's TFM list — TipKit fixture above already covers maccatalyst.
     static readonly KeyValuePair<string, string[]>[] ExpectedSourceXcframeworkLayout =
     [
@@ -735,7 +735,7 @@ partial class Build
                 <NoWarn>$(NoWarn);CA1416</NoWarn>
               </PropertyGroup>
               <ItemGroup>
-                <PackageReference Include="PackGateSourceFixture.Nuke" Version="{PackGateVersion}" />
+                <PackageReference Include="PackGateSourceFixture.ImagePipeline" Version="{PackGateVersion}" />
               </ItemGroup>
             </Project>
             """;
@@ -769,7 +769,7 @@ partial class Build
 
     static void WritePackGateSourceFixture(AbsolutePath fixtureDir, AbsolutePath nupkgDir, AbsolutePath sourceXcfwPath)
     {
-        // 3 TFMs — Nuke ships ios + tvos + macos slices (no maccatalyst). The
+        // 3 TFMs — the source xcframework ships ios + tvos + macos slices (no maccatalyst). The
         // TipKit fixture above already exercises the maccatalyst RID; this fixture
         // is single-purpose for source-xcfw slicing assertions across the RIDs the
         // source actually supports. Explicit <SwiftFramework Include> pins the
@@ -780,7 +780,7 @@ partial class Build
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
                 <TargetFrameworks>net10.0-ios26.2;net10.0-tvos26.2;net10.0-macos26.2</TargetFrameworks>
-                <PackageId>PackGateSourceFixture.Nuke</PackageId>
+                <PackageId>PackGateSourceFixture.ImagePipeline</PackageId>
                 <PackageVersion>{PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
                 <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
@@ -842,7 +842,7 @@ partial class Build
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
                 <TargetFrameworks>net10.0-ios26.2;net10.0-tvos26.2;net10.0-macos26.2</TargetFrameworks>
-                <PackageId>PackGateAutoDiscoverFixture.Nuke</PackageId>
+                <PackageId>PackGateAutoDiscoverFixture.ImagePipeline</PackageId>
                 <PackageVersion>{PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
                 <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
@@ -850,7 +850,7 @@ partial class Build
               </PropertyGroup>
               <!-- Deliberately NO <SwiftFramework> item: this fixture exercises
                    the auto-discovery code path. The SDK's _DiscoverSwiftFrameworks
-                   target must find the physically-copied Nuke.xcframework in the
+                   target must find the physically-copied source xcframework in the
                    project directory and propagate it into the pack pipeline. -->
             </Project>
             """;

@@ -73,7 +73,7 @@ public struct Person: Nameable, Ageable {
     }
 }
 
-// MARK: - N3: Class Conforming to Multiple Custom Protocols (Parchment PagingViewController pattern)
+// MARK: - N3: Class Conforming to Multiple Custom Protocols
 
 /// Class conforming to three separate protocols simultaneously.
 /// Tests multiple witness table registrations and IExistentialBoxable boxing paths.

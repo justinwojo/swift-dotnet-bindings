@@ -11,7 +11,7 @@ namespace RuntimeTestsApp.Closures;
 /// The struct self-reconstruction fix is proven by:
 /// 1. Unit tests (struct parent emits assumingMemoryBound, not Unmanaged)
 /// 2. Bridge compilation (the generated Swift wrapper compiles for struct parents)
-/// 3. Kingfisher validation (9 struct types with MCB methods now compile)
+/// 3. Image-loader library validation (9 struct types with MCB methods now compile)
 ///
 /// These runtime tests exercise the MCB complex enum callback round-trip,
 /// which is a separate concern from the self-reconstruction fix.

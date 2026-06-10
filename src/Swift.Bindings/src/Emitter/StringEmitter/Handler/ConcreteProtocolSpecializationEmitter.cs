@@ -104,8 +104,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (method.IsAccessor) continue;
 
             // Throwing constructors: a CSM init for a generic-parameter conformer can
-            // reach an `internal` initializer on the concrete type (e.g. GRDB's
-            // `PersistenceContainer(Database, Record)`), which fails the Swift wrapper
+            // reach an `internal` initializer on the concrete type, which fails the Swift wrapper
             // compile with an accessibility error. Throwing methods remain supported.
             if (method.IsConstructor && method.Throws) continue;
 
@@ -593,7 +592,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
     /// <summary>
     /// Builds the closed parent type as a <see cref="NamedTypeSpec"/> — the concrete receiver
-    /// the specialization is emitted on (e.g. <c>RecordCursor&lt;GRDB.ColumnInfo&gt;</c>, or the
+    /// the specialization is emitted on (e.g. <c>GenericCursor&lt;Module.ColumnType&gt;</c>, or the
     /// bare parent for a non-generic receiver). Used to resolve Swift <c>Self</c> and to validate
     /// the receiver against the parent's C# generic constraints. Returns null when a parent-generic
     /// conformer can't be rendered as a TypeSpec, so callers fall back to their prior behavior.
@@ -1024,7 +1023,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             // Explicit type annotation on _result — needed when the callee is a generic
             // method whose return type can only be inferred from the binding site (e.g.
-            // `Row.decode<T>(atIndex:)` in GRDB). Without this, Swift emits
+            // a generic `Row.decode<T>(atIndex:)` method). Without this, Swift emits
             // "type of expression is ambiguous" and strips the wrapper.
             swiftWriter.WriteLine($"{bodyIndent}let _result: ({returnTypeStr}) = {callExprWithTry}");
             if (!string.IsNullOrEmpty(selfWriteBack))
@@ -2064,7 +2063,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // over its conformers (e.g. `FastDatabaseValueCursor<System.Guid>`). The C# declaration
         // of `FastDatabaseValueCursor<TValue>` carries `where TValue : IDatabaseValueConvertible,
         // IStatementColumnConvertible, ISwiftObject`, seeded from the Swift generic signature.
-        // A conformer like Foundation.UUID satisfies those protocols in Swift (via GRDB
+        // A conformer like Foundation.UUID satisfies those protocols in Swift (via third-party
         // extensions) but its C# projection System.Guid cannot implement those interfaces, so the
         // closed receiver type is uninstantiable (CS0315/CS0311). Reuse the bound-generic
         // constraint validator — the same logic that produces the "does not satisfy constraint"

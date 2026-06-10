@@ -214,13 +214,13 @@ public class WrapperSymbolContractTests
     [Fact]
     public void HandleViolation_Records_MissingWrapperSymbol_Skip_And_Emits_Marker()
     {
-        var moduleDecl = TestModelFactory.CreateModuleDecl("StripeReproModule");
+        var moduleDecl = TestModelFactory.CreateModuleDecl("PaymentSdkReproModule");
         var classDecl = (ClassDecl)moduleDecl.Types[0];
         var method = TestModelFactory.CreateMethod(
             "create",
             parent: classDecl,
             args: new[] { ("intentConfiguration", "Swift.String") },
-            mangledName: "SBW_StripeReproModule_FlowController_create_xyz");
+            mangledName: "SBW_PaymentSdkReproModule_FlowController_create_xyz");
         var typeDb = new SimpleTypeDatabase();
         var env = new MethodEnvironment(method, typeDb);
         var sw = new System.IO.StringWriter();
@@ -231,7 +231,7 @@ public class WrapperSymbolContractTests
         try
         {
             var ex = new WrapperSymbolContractException(
-                "SBW_StripeReproModule_FlowController_create_xyz",
+                "SBW_PaymentSdkReproModule_FlowController_create_xyz",
                 "PInvoke_create");
             WrapperSymbolContractGate.HandleViolation(env, ex, csWriter, NullLogger.Instance);
 
@@ -240,11 +240,11 @@ public class WrapperSymbolContractTests
             var skipped = Assert.Single(report!.SkippedItems);
             Assert.Equal(SkipReason.MissingWrapperSymbol, skipped.Reason);
             Assert.Equal("create", skipped.Name);
-            Assert.Contains("SBW_StripeReproModule_FlowController_create_xyz", skipped.Details ?? "");
+            Assert.Contains("SBW_PaymentSdkReproModule_FlowController_create_xyz", skipped.Details ?? "");
 
             var output = sw.ToString();
             Assert.Contains("// Unsupported: method 'create'", output);
-            Assert.Contains("SBW_StripeReproModule_FlowController_create_xyz", output);
+            Assert.Contains("SBW_PaymentSdkReproModule_FlowController_create_xyz", output);
             Assert.DoesNotContain("LibraryImport", output);
             Assert.DoesNotContain("EntryPoint", output);
         }
@@ -257,10 +257,10 @@ public class WrapperSymbolContractTests
     [Fact]
     public void HandleViolation_OverloadDistinct_RecordsBothSkips()
     {
-        // The Stripe FlowController shape: three create overloads all skipped
-        // for MissingWrapperSymbol must each appear in SkippedItems — overload
-        // collapse here would silently mask 2/3 missing public APIs.
-        var moduleDecl = TestModelFactory.CreateModuleDecl("StripeReproModule");
+        // Three `create` overloads all skipped for MissingWrapperSymbol must each
+        // appear in SkippedItems — overload collapse here would silently mask
+        // 2/3 missing public APIs.
+        var moduleDecl = TestModelFactory.CreateModuleDecl("PaymentSdkReproModule");
         var classDecl = (ClassDecl)moduleDecl.Types[0];
         var createIntent = TestModelFactory.CreateMethod(
             "create",

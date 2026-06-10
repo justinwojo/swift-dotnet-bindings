@@ -150,7 +150,7 @@ public class OptionalMarshallingTests : TestBase
         // Regression: optbuf wrapper used copyMemory (raw memcpy) instead of initializeMemory.
         // For heap-allocated strings (>15 UTF-8 bytes), the returned string was freed when
         // the Swift wrapper returned, leaving dangling bytes in the result buffer.
-        // This reproduces the DeviceKit Device.name crash (SIGSEGV in InitializeWithCopy).
+        // This reproduces the heap-string optbuf crash (SIGSEGV in InitializeWithCopy).
         var result = TestLibFunctions.GetLongOptionalString(false);
         AssertNotNull(result, "Long optional string should be Some");
         AssertEqual("This is a long string that exceeds small string optimization", result,

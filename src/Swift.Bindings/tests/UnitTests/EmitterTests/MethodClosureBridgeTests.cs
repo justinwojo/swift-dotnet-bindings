@@ -117,7 +117,7 @@ public class MethodClosureBridgeTests
         // The TypeSpecParser path for bare `any Swift.Error` — e.g., ABI JSON
         // TypeNominal child with printedName "any Swift.Error" — produces a
         // NamedTypeSpec with IsAny=true, NOT a ProtocolListTypeSpec. Both shapes
-        // must be recognized so MCB activates for real Stripe/Alamofire APIs.
+        // must be recognized so MCB activates for real-world APIs.
         var errorNamed = new NamedTypeSpec("Swift.Error") { IsAny = true };
         Assert.True(MethodClosureBridge.IsAnyErrorExistential(errorNamed));
     }
@@ -162,8 +162,8 @@ public class MethodClosureBridgeTests
     public void IsEligible_ClosureWithAnyErrorArg_ReturnsTrue()
     {
         // `(any Error) -> Void` — MCB must activate so the error existential can be bridged
-        // through ExistentialContainer1 to C# Swift.Foundation.AnyError. Covers Stripe/Alamofire-style
-        // `Result<T, any Error>` completion handlers.
+        // through ExistentialContainer1 to C# Swift.Foundation.AnyError. Covers
+        // `Result<T, any Error>` completion handler patterns.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -421,8 +421,7 @@ public class MethodClosureBridgeTests
     public void TryEmit_AppliesCollisionIndexToPublicMethodName(int collisionIndex, string expectedSignaturePrefix)
     {
         // Two Swift overloads that project to the same C# parameter list (e.g.
-        // signIn(withEmail:password:) vs signIn(withEmail:link:) on FirebaseAuth.Auth)
-        // collide on the projected key. IHandler.HandleBaseDecl assigns CollisionIndex
+        // signIn(withEmail:password:) vs signIn(withEmail:link:)) collide on the projected key. IHandler.HandleBaseDecl assigns CollisionIndex
         // to the second overload — the closure-bridge path must read env.CSharpMethodName
         // (which applies the suffix) instead of recomputing the bare name, otherwise
         // both overloads emit as `public void DoWork(...)` and produce CS0111.
@@ -1783,11 +1782,11 @@ public class MethodClosureBridgeTests
         var typeDatabase = new TypeDatabase();
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         testModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentApiClient"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "STPAPIClient"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.STPAPIClient"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PaymentApiClient"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PaymentApiClient"),
                 MetadataAccessor = "testAccessor",
                 Kind = TypeRecordKind.Class,
                 Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement
@@ -1802,7 +1801,7 @@ public class MethodClosureBridgeTests
             IsGeneric = false,
             ParentDecl = null,
             ModuleDecl = null,
-            SwiftTypeSpec = new NamedTypeSpec("TestModule.STPAPIClient"),
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.PaymentApiClient"),
         };
 
         var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
@@ -2478,7 +2477,7 @@ public class MethodClosureBridgeTests
             });
         typeDatabase.AddModuleDatabase(foundationModule);
 
-        // TestModule — all types including Nuke-like Result types
+        // TestModule — all types including cross-module Result types
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         testModule.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),

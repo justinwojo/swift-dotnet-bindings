@@ -5,23 +5,20 @@ import Foundation
 
 // MARK: - @objc protocol routed through EveryObjCProtocol
 //
-// Stripe's STPAuthenticationContext / STPCustomerEphemeralKeyProvider /
-// STPIssuingCardEphemeralKeyProvider all declare `@objc protocol X: NSObjectProtocol`.
-// Previously the generator skipped these conformances entirely because the plain
+// Minimum repro for @objc protocols that inherit only NSObjectProtocol. The plain
 // Swift `EveryProtocol` class cannot satisfy NSObjectProtocol's NSObject identity
 // surface (isEqual:, hash, description). The fix adds a parallel `EveryObjCProtocol:
 // NSObject` helper class and routes NSObjectProtocol-only conformances through
 // it so the synthesized `extension EveryObjCProtocol: NumberProvider` type-checks.
 //
-// This fixture is the minimum Stripe-shape repro: an @objc protocol that inherits
-// only NSObjectProtocol (no NSCoding/NSSecureCoding/NSCopying), plus a free
-// function that takes the existential and invokes the witness method. The C# side
-// implements the generated `INumberProvider` interface as a plain managed class —
-// auto-wrap must construct an `EveryObjCProtocol`-backed proxy (NOT EveryProtocol)
-// so the Swift call site round-trips into the managed implementation.
+// This fixture is the minimum repro: an @objc protocol that inherits only
+// NSObjectProtocol (no NSCoding/NSSecureCoding/NSCopying), plus a free function
+// that takes the existential and invokes the witness method. The C# side implements
+// the generated `INumberProvider` interface as a plain managed class — auto-wrap
+// must construct an `EveryObjCProtocol`-backed proxy (NOT EveryProtocol) so the
+// Swift call site round-trips into the managed implementation.
 
-/// @objc protocol that inherits ONLY NSObjectProtocol. Mirrors the shape of
-/// STPAuthenticationContext (no encoding / copying requirements).
+/// @objc protocol that inherits ONLY NSObjectProtocol (no encoding / copying requirements).
 @objc public protocol NumberProvider: NSObjectProtocol {
     func provideNumber() -> Int32
 }

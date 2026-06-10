@@ -4,13 +4,12 @@
 import Foundation
 import CoreGraphics
 
-// MARK: - Hierarchy Inspection Pattern (Lottie animation hierarchy)
+// MARK: - Hierarchy Inspection Pattern
 // Tests the pattern where a container type provides:
 // - allKeypaths() returning [String]
 // - point/rect coordinate conversion with optional returns
 // - setNodeEnabled(isEnabled:keypath:) for toggling nodes
 // - getValue(for:atFrame:) for frame-based queries
-// This models Lottie's LottieAnimationView hierarchy inspection API.
 
 /// Represents a node in an animation layer tree.
 public struct LayerNode {
@@ -31,7 +30,7 @@ public struct LayerNode {
     }
 }
 
-/// Container with hierarchy inspection methods — models LottieAnimationView.
+/// Container with hierarchy inspection methods — keypath-based node query/control API.
 public final class LayerContainer {
     private var nodes: [String: LayerNode] = [:]
     private var keypathOrder: [String] = []
@@ -45,7 +44,6 @@ public final class LayerContainer {
     }
 
     /// Return all keypaths in the hierarchy.
-    /// Models: LottieAnimationView.allHierarchyKeypaths
     public func allKeypaths() -> [String] {
         return keypathOrder
     }
@@ -57,7 +55,6 @@ public final class LayerContainer {
 
     /// Convert a point from container coordinates to a layer's local coordinates.
     /// Returns nil if the keypath doesn't exist. Assumes origin-offset only (no scale/rotation).
-    /// Models: LottieAnimationView.convert(point:toLayerAt:)
     public func convertPoint(x: CGFloat, y: CGFloat, toLayerAt keypath: String) -> CGPoint? {
         guard let node = nodes[keypath] else { return nil }
         return CGPoint(x: x - node.x, y: y - node.y)
@@ -65,14 +62,12 @@ public final class LayerContainer {
 
     /// Convert a rect from container coordinates to a layer's local coordinates.
     /// Returns nil if the keypath doesn't exist.
-    /// Models: LottieAnimationView.convert(rect:toLayerAt:)
     public func convertRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, toLayerAt keypath: String) -> CGRect? {
         guard let node = nodes[keypath] else { return nil }
         return CGRect(x: x - node.x, y: y - node.y, width: width, height: height)
     }
 
     /// Enable or disable a node at the given keypath.
-    /// Models: LottieAnimationView.setNodeIsEnabled(isEnabled:keypath:)
     public func setNodeEnabled(isEnabled: Bool, keypath: String) {
         nodes[keypath]?.isEnabled = isEnabled
     }
@@ -83,7 +78,6 @@ public final class LayerContainer {
     }
 
     /// Get a node's value (width * height) at a simulated frame.
-    /// Models: LottieAnimationView.getValue(for:atFrame:)
     public func getValueAtFrame(keypath: String, frame: Double) -> Double? {
         guard let node = nodes[keypath] else { return nil }
         // Simulate frame-based interpolation: scale by frame/60
@@ -92,7 +86,6 @@ public final class LayerContainer {
     }
 
     /// Log all keypaths — returns a concatenated string for testing.
-    /// Models: LottieAnimationView.logHierarchyKeypaths()
     public func logKeypaths() -> String {
         return keypathOrder.joined(separator: "\n")
     }

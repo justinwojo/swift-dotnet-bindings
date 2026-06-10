@@ -325,7 +325,7 @@ namespace BindingsGeneration
                     // Class constructors use Unmanaged.passRetained().toOpaque() — no _payloadSize needed.
                     // Only structs/enums allocate via _payloadSize (SwiftSafeHandle path).
                     // Emitting _payloadSize for classes triggers SwiftObjectHelper<T>.GetTypeMetadata().Size
-                    // at class load time, which can return garbage or cause crashes (e.g., CryptoSwift SIGABRT).
+                    // at class load time, which can return garbage or cause crashes (e.g., SIGABRT on class load).
 
                     // Only root classes emit _handle, Payload property, Dispose().
                     // SwiftClassHandle calls Arc.Release directly (no VWT Destroy wrapper needed).

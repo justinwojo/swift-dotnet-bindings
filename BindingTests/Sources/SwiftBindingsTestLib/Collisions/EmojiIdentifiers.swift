@@ -4,7 +4,7 @@
 import Foundation
 
 // MARK: - Emoji in Enum Case Names
-// Pattern caught in Valet validation (24 errors).
+// Pattern caught in real-world library validation (24 errors).
 // Swift allows emoji in identifiers; C# does not.
 // Generator's SanitizeIdentifierChars replaces emoji with underscores.
 // Note: ⚠️ (U+26A0 + U+FE0F) and ⏳ (U+23F3) fail to compile as Swift identifiers.

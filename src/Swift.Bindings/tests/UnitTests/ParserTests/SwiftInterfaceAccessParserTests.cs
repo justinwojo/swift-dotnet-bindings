@@ -213,12 +213,12 @@ public class SwiftInterfaceAccessParserTests
             @_hasMissingDesignatedInitializers public class AES {
               public var blockSize: Swift.Int { get }
             }
-            extension CryptoSwift.AES {
+            extension CryptoLib.AES {
               @inlinable final internal func encrypt(block: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8>? {
                 return nil
               }
             }
-            extension CryptoSwift.AES : CryptoSwift.Cipher {
+            extension CryptoLib.AES : CryptoLib.Cipher {
               @inlinable final public func encrypt(_ bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
                 return []
               }
@@ -241,7 +241,7 @@ public class SwiftInterfaceAccessParserTests
     {
         var swiftInterface = """
             public protocol Cipher {}
-            extension CryptoSwift.SHA2 : CryptoSwift.Cipher {
+            extension CryptoLib.SHA2 : CryptoLib.Cipher {
               @usableFromInline
               internal func process64(_ data: Swift.Array<Swift.UInt8>) -> Swift.Array<Swift.UInt8>
             }
@@ -1370,7 +1370,7 @@ public class SwiftInterfaceAccessParserTests
     {
         var swiftInterface = """
             public class Painter {
-              public func setColor(color: SVGView.SVGColor = SVGColor.black)
+              public func setColor(color: VectorImageView.SVGColor = SVGColor.black)
             }
             """;
 
@@ -1853,7 +1853,7 @@ public class SwiftInterfaceAccessParserTests
     public void GetAutoclosureParameters_ParsesFromSwiftInterface()
     {
         var swiftInterface = """
-            final public class LottieLogger {
+            final public class VectorAnimationLogger {
               final public func assert(_ condition: @autoclosure () -> Swift.Bool, _ message: @autoclosure () -> Swift.String = String(), fileID: Swift.StaticString = #fileID, line: Swift.UInt = #line)
               final public func warn(_ message: @autoclosure () -> Swift.String = String(), fileID: Swift.StaticString = #fileID, line: Swift.UInt = #line)
               final public func info(_ message: @autoclosure () -> Swift.String = String())
@@ -1866,8 +1866,8 @@ public class SwiftInterfaceAccessParserTests
             Assert.Equal(3, result.Count);
 
             // assert has 2 @autoclosure params out of 4
-            Assert.True(result.ContainsKey("LottieLogger.assert(_:_:fileID:line:)"));
-            var assertFlags = result["LottieLogger.assert(_:_:fileID:line:)"];
+            Assert.True(result.ContainsKey("VectorAnimationLogger.assert(_:_:fileID:line:)"));
+            var assertFlags = result["VectorAnimationLogger.assert(_:_:fileID:line:)"];
             Assert.Equal(4, assertFlags.Count);
             Assert.True(assertFlags[0]);
             Assert.True(assertFlags[1]);
@@ -1875,14 +1875,14 @@ public class SwiftInterfaceAccessParserTests
             Assert.False(assertFlags[3]);
 
             // warn has 1 @autoclosure param out of 3
-            Assert.True(result.ContainsKey("LottieLogger.warn(_:fileID:line:)"));
-            var warnFlags = result["LottieLogger.warn(_:fileID:line:)"];
+            Assert.True(result.ContainsKey("VectorAnimationLogger.warn(_:fileID:line:)"));
+            var warnFlags = result["VectorAnimationLogger.warn(_:fileID:line:)"];
             Assert.True(warnFlags[0]);
             Assert.False(warnFlags[1]);
 
             // info has 1 @autoclosure param out of 1
-            Assert.True(result.ContainsKey("LottieLogger.info(_:)"));
-            var infoFlags = result["LottieLogger.info(_:)"];
+            Assert.True(result.ContainsKey("VectorAnimationLogger.info(_:)"));
+            var infoFlags = result["VectorAnimationLogger.info(_:)"];
             Assert.Single(infoFlags);
             Assert.True(infoFlags[0]);
         }
@@ -1973,7 +1973,7 @@ public class SwiftInterfaceAccessParserTests
     [Fact]
     public void ExtractClosureParameterAttributes_MainActorAndSendable()
     {
-        // GRDB's ValueObservationMainActorScheduler requirement — the ABI JSON strips these.
+        // @MainActor @Sendable closure-parameter attributes — the ABI JSON strips these.
         var line = "func scheduleOnMainActor(_ action: @escaping @_Concurrency.MainActor @Sendable () -> Swift.Void)";
         var perParam = SwiftInterfaceAccessParser.ExtractClosureParameterAttributes(line);
 
@@ -2044,13 +2044,13 @@ public class SwiftInterfaceAccessParserTests
     {
         var swiftInterface = """
             @_hasMissingDesignatedInitializers @globalActor public actor ProcessingActor {
-              public static let shared: BlinkID.ProcessingActor
+              public static let shared: DocScan.ProcessingActor
             }
-            @_hasMissingDesignatedInitializers final public class BlinkIDSession {
+            @_hasMissingDesignatedInitializers final public class DocScanSession {
               final public func resumeActiveProcessing()
-              @BlinkID.ProcessingActor final public func process(inputImage: BlinkID.InputImage) -> BlinkID.FrameProcessResult
-              @BlinkID.ProcessingActor final public func reset() throws
-              @BlinkID.ProcessingActor final public func getResult() -> BlinkID.BlinkIDScanningResult
+              @DocScan.ProcessingActor final public func process(inputImage: DocScan.InputImage) -> DocScan.FrameProcessResult
+              @DocScan.ProcessingActor final public func reset() throws
+              @DocScan.ProcessingActor final public func getResult() -> DocScan.DocScanScanningResult
             }
             """;
         var path = WriteTempFile(swiftInterface);
@@ -2060,17 +2060,17 @@ public class SwiftInterfaceAccessParserTests
             var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors, out var mainActorMembers);
 
             // Should detect 3 custom-actor-isolated methods
-            Assert.Contains("BlinkIDSession.process(inputImage:)", result);
-            Assert.Contains("BlinkIDSession.reset()", result);
-            Assert.Contains("BlinkIDSession.getResult()", result);
+            Assert.Contains("DocScanSession.process(inputImage:)", result);
+            Assert.Contains("DocScanSession.reset()", result);
+            Assert.Contains("DocScanSession.getResult()", result);
 
             // Non-isolated method should NOT be included
-            Assert.DoesNotContain("BlinkIDSession.resumeActiveProcessing()", result);
+            Assert.DoesNotContain("DocScanSession.resumeActiveProcessing()", result);
 
             // Custom actor members should NOT be in mainActorMembers
-            Assert.DoesNotContain("BlinkIDSession.process(inputImage:)", mainActorMembers);
-            Assert.DoesNotContain("BlinkIDSession.reset()", mainActorMembers);
-            Assert.DoesNotContain("BlinkIDSession.getResult()", mainActorMembers);
+            Assert.DoesNotContain("DocScanSession.process(inputImage:)", mainActorMembers);
+            Assert.DoesNotContain("DocScanSession.reset()", mainActorMembers);
+            Assert.DoesNotContain("DocScanSession.getResult()", mainActorMembers);
         }
         finally { File.Delete(path); }
     }
@@ -2080,7 +2080,7 @@ public class SwiftInterfaceAccessParserTests
     {
         var swiftInterface = """
             final public class SomeClass {
-              @BlinkID.ProcessingActor final public func actorMethod() -> Swift.Int
+              @DocScan.ProcessingActor final public func actorMethod() -> Swift.Int
               @MainActor final public func mainActorMethod() -> Swift.String
             }
             """;
@@ -2109,8 +2109,8 @@ public class SwiftInterfaceAccessParserTests
     public void GetActorIsolatedMembers_CustomActorStaticMethods()
     {
         var swiftInterface = """
-            @_hasMissingDesignatedInitializers final public class BlinkIDSdk : Swift.Sendable {
-              @BlinkID.ProcessingActor public static func terminateBlinkIDSdk()
+            @_hasMissingDesignatedInitializers final public class DocScanSdk : Swift.Sendable {
+              @DocScan.ProcessingActor public static func terminateDocScanSdk()
               public static func refreshLicenseLease() async throws
             }
             """;
@@ -2119,10 +2119,10 @@ public class SwiftInterfaceAccessParserTests
         {
             var customActors = new HashSet<string> { "ProcessingActor" };
             var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors, out var mainActorMembers);
-            Assert.Contains("BlinkIDSdk.terminateBlinkIDSdk()", result);
-            Assert.DoesNotContain("BlinkIDSdk.refreshLicenseLease()", result);
+            Assert.Contains("DocScanSdk.terminateDocScanSdk()", result);
+            Assert.DoesNotContain("DocScanSdk.refreshLicenseLease()", result);
             // Custom actor should NOT be in mainActorMembers
-            Assert.DoesNotContain("BlinkIDSdk.terminateBlinkIDSdk()", mainActorMembers);
+            Assert.DoesNotContain("DocScanSdk.terminateDocScanSdk()", mainActorMembers);
         }
         finally { File.Delete(path); }
     }
@@ -2440,7 +2440,7 @@ public class SwiftInterfaceAccessParserTests
     [Fact]
     public void GetSubscriptLabels_LabeledSubscript_BitAt()
     {
-        // CryptoSwift pattern: subscript(bitAt index: Int) -> Bool
+        // Labeled subscript with one label: subscript(bitAt index: Int) -> Bool
         var swiftInterface = """
             public class AES {
               public subscript(bitAt index: Swift.Int) -> Swift.Bool { get set }
@@ -2459,9 +2459,9 @@ public class SwiftInterfaceAccessParserTests
     }
 
     [Fact]
-    public void GetSubscriptLabels_MultipleLabels_ObjectMapper()
+    public void GetSubscriptLabels_MultipleLabels_ModelMapper()
     {
-        // ObjectMapper pattern: subscript(key:nested:delimiter:)
+        // Mixed single-name/two-name subscript params: subscript(key:nested:delimiter:)
         // In Swift subscripts, single-name params have NO label (key: String → _),
         // while two-name params have explicit labels (nested nested: String → nested)
         var swiftInterface = """
@@ -2484,7 +2484,7 @@ public class SwiftInterfaceAccessParserTests
     [Fact]
     public void GetSubscriptLabels_MultipleLabels_IgnoreNil()
     {
-        // ObjectMapper pattern: subscript(key:delimiter:ignoreNil:)
+        // Mixed single-name/two-name subscript params: subscript(key:delimiter:ignoreNil:)
         // First param (key: String) is single-name → no label (_)
         var swiftInterface = """
             public class Map {
@@ -2559,7 +2559,7 @@ public class SwiftInterfaceAccessParserTests
             public class AES {
               public var blockSize: Swift.Int { get }
             }
-            extension CryptoSwift.AES {
+            extension CryptoLib.AES {
               public subscript(bitAt index: Swift.Int) -> Swift.Bool { get set }
             }
             """;
@@ -2662,9 +2662,9 @@ public class SwiftInterfaceAccessParserTests
     #region HasVariadicParameterInSignature Tests
 
     [Theory]
-    [InlineData("  public static func startsWith(_ prefixes: Swift.String..., caseSensitive: Swift.Bool = false) -> any SwiftyBeaver.FilterType", true)]
-    [InlineData("  public static func buildBlock(_ disposables: any RxSwift.Disposable...) -> [any RxSwift.Disposable]", true)]
-    [InlineData("  public func insert(_ disposables: any RxSwift.Disposable...)", true)]
+    [InlineData("  public static func startsWith(_ prefixes: Swift.String..., caseSensitive: Swift.Bool = false) -> any LoggingLib.FilterType", true)]
+    [InlineData("  public static func buildBlock(_ disposables: any ReactiveStreams.Disposable...) -> [any ReactiveStreams.Disposable]", true)]
+    [InlineData("  public func insert(_ disposables: any ReactiveStreams.Disposable...)", true)]
     [InlineData("  public func process(_ items: [Swift.String])", false)]
     [InlineData("  public func log(_ message: Swift.String, level: Swift.Int)", false)]
     [InlineData("  public init(items: [Swift.Int])", false)]
@@ -2771,7 +2771,7 @@ public class DisposeBag {
         // The parser must detect @MainActor on bare func/var/init declarations.
         var swiftInterface = """
             public protocol PagingMenuDelegate : AnyObject {
-              @_Concurrency.MainActor func selectContent(pagingItem: any Parchment.PagingItem, direction: Parchment.PagingDirection, animated: Swift.Bool)
+              @_Concurrency.MainActor func selectContent(pagingItem: any PagingTabs.PagingItem, direction: PagingTabs.PagingDirection, animated: Swift.Bool)
               @_Concurrency.MainActor func removeContent()
             }
             """;
@@ -3065,7 +3065,7 @@ public class DisposeBag {
         var path = WriteTempFile("""
             public typealias FTS5TokenCallback = @convention(c) (_ context: Swift.UnsafeMutableRawPointer?, _ flags: Swift.CInt) -> Swift.CInt
             public protocol FTS5Tokenizer : AnyObject {
-              func tokenize(context: Swift.UnsafeMutableRawPointer?, tokenCallback: GRDB.FTS5TokenCallback) -> Swift.CInt
+              func tokenize(context: Swift.UnsafeMutableRawPointer?, tokenCallback: RecordStore.FTS5TokenCallback) -> Swift.CInt
             }
             """);
         try
@@ -3172,7 +3172,7 @@ public class DisposeBag {
               func tokenize(
                 _ text: Swift.String,
                 context: Swift.UnsafeMutableRawPointer?,
-                tokenCallback: GRDB.FTS5TokenCallback
+                tokenCallback: RecordStore.FTS5TokenCallback
               ) -> Swift.CInt
             }
             """);
@@ -3560,13 +3560,13 @@ public class DisposeBag {
     [Fact]
     public void GetCustomActorIsolatedTypes_DetectsAnnotationOnSameLine()
     {
-        // Reproduces the Nuke 13.0.2 pattern: @<Lib>Actor on the same line as the type decl.
+        // Reproduces the pattern: @<CustomActor> on the same line as the type decl.
         var swiftInterface = """
             @globalActor public actor ImagePipelineActor {
-              public static let shared: Nuke.ImagePipelineActor
+              public static let shared: ImagePipeline.ImagePipelineActor
             }
-            @Nuke.ImagePipelineActor public class ImagePrefetcher {
-              public init(pipeline: Nuke.ImagePipeline = Nuke.ImagePipeline.shared)
+            @ImagePipeline.ImagePipelineActor public class ImagePrefetcher {
+              public init(pipeline: ImagePipeline.ImageService = ImagePipeline.ImageService.shared)
             }
             """;
         var path = WriteTempFile(swiftInterface);
@@ -3586,9 +3586,9 @@ public class DisposeBag {
     {
         var swiftInterface = """
             @globalActor public actor ImagePipelineActor {
-              public static let shared: Nuke.ImagePipelineActor
+              public static let shared: ImagePipeline.ImagePipelineActor
             }
-            @Nuke.ImagePipelineActor
+            @ImagePipeline.ImagePipelineActor
             public class ImageCache {
               public init()
             }
@@ -3608,7 +3608,7 @@ public class DisposeBag {
     {
         var swiftInterface = """
             @globalActor public actor ImagePipelineActor {
-              public static let shared: Nuke.ImagePipelineActor
+              public static let shared: ImagePipeline.ImagePipelineActor
             }
             public class PlainClass {
               public init()
@@ -3683,7 +3683,7 @@ public class DisposeBag {
     public void GetCustomActorIsolatedTypes_DetectsImportedQualifiedActorAnnotation()
     {
         // Imported global actors slip past the local-actor list (nothing declares
-        // `ImagePipelineActor` in this swiftinterface) but the consumer still applies
+        // `ImagePipelineActor` in this swiftinterface) but a consumer still applies
         // `@Dependency.ImagePipelineActor`. The qualified name + Actor suffix is the
         // signal we lean on to fire SWIFTBIND022 in this case.
         var swiftInterface = """
@@ -3798,9 +3798,9 @@ public class DisposeBag {
         // emitter can build `<Actor>.shared.assumeIsolated { … }` without re-scanning.
         var swiftInterface = """
             @globalActor public actor ImagePipelineActor {
-              public static let shared: Nuke.ImagePipelineActor
+              public static let shared: ImagePipeline.ImagePipelineActor
             }
-            @Nuke.ImagePipelineActor public class ImagePrefetcher {
+            @ImagePipeline.ImagePipelineActor public class ImagePrefetcher {
               public init()
             }
             """;
@@ -3844,9 +3844,9 @@ public class DisposeBag {
         // and the emitter would silently fall back to SWIFTBIND022.
         var swiftInterface = """
             @globalActor public actor ImagePipelineActor {
-              public static let shared: Nuke.ImagePipelineActor
+              public static let shared: ImagePipeline.ImagePipelineActor
             }
-            @Nuke.ImagePipelineActor
+            @ImagePipeline.ImagePipelineActor
             public class ImageCache {
               public init()
             }
@@ -3867,11 +3867,11 @@ public class DisposeBag {
     #region Family-F overload disambiguation + protocol requirement availability
 
     /// <summary>
-    /// Family-F-1 (Nuke <c>data(for:)</c>): one overload deprecated, the recommended
-    /// overload has no <c>@available</c>. The parser must scope the deprecation to
-    /// the deprecated overload only — the bare <c>"X.data(for:)"</c> key must NOT
-    /// resolve to the deprecation, otherwise <c>SwiftABIParser.ApplyMemberAvailability</c>
-    /// broadcasts <c>[Obsolete]</c> across both C# overloads.
+    /// Family-F-1: one overload deprecated, the recommended overload has no
+    /// <c>@available</c>. The parser must scope the deprecation to the deprecated overload
+    /// only — the bare <c>"X.data(for:)"</c> key must NOT resolve to the deprecation,
+    /// otherwise <c>SwiftABIParser.ApplyMemberAvailability</c> broadcasts <c>[Obsolete]</c>
+    /// across both C# overloads.
     /// </summary>
     [Fact]
     public void GetAvailabilityAnnotations_F1_DeprecatedOverloadDoesNotBroadcast()
@@ -3962,10 +3962,9 @@ public class DisposeBag {
     }
 
     /// <summary>
-    /// Family-F-2 (StripeApplePay <c>@objc optional func</c>): protocol requirements
-    /// have NO access modifier in the swiftinterface. Without the bare-regex
-    /// fallback inside protocol scope, the <c>@available</c> floor is silently
-    /// dropped and the C# binding crashes on iOS &lt; floor.
+    /// Family-F-2: <c>@objc optional func</c> protocol requirements have NO access modifier
+    /// in the swiftinterface. Without the bare-regex fallback inside protocol scope, the
+    /// <c>@available</c> floor is silently dropped and the C# binding crashes on iOS &lt; floor.
     /// </summary>
     [Fact]
     public void GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier()
@@ -4089,15 +4088,15 @@ public class DisposeBag {
     public void GetSpiOnlyConformances_PlainConformance_CapturesQualifiedTypeAndProtocol()
     {
         var privateInterface = """
-            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : Swift.Equatable {
-              public static func == (lhs: StripeCore.StripeAPI.BankAccountToken, rhs: StripeCore.StripeAPI.BankAccountToken) -> Swift.Bool
+            @_spi(Internal) extension PaymentSdkCore.PaymentApi.BankAccountToken : Swift.Equatable {
+              public static func == (lhs: PaymentSdkCore.PaymentApi.BankAccountToken, rhs: PaymentSdkCore.PaymentApi.BankAccountToken) -> Swift.Bool
             }
             """;
         var path = WriteTempFile(privateInterface);
         try
         {
             var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
-            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Equatable", result);
+            Assert.Contains("PaymentSdkCore.PaymentApi.BankAccountToken::Equatable", result);
         }
         finally { File.Delete(path); }
     }
@@ -4109,16 +4108,16 @@ public class DisposeBag {
         // different module than the protocol. Without the regex/loop tolerance the
         // whole extension is silently dropped from the filter set.
         var privateInterface = """
-            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : @retroactive Swift.Equatable, @retroactive Swift.Hashable {
-              public static func == (lhs: StripeCore.StripeAPI.BankAccountToken, rhs: StripeCore.StripeAPI.BankAccountToken) -> Swift.Bool
+            @_spi(Internal) extension PaymentSdkCore.PaymentApi.BankAccountToken : @retroactive Swift.Equatable, @retroactive Swift.Hashable {
+              public static func == (lhs: PaymentSdkCore.PaymentApi.BankAccountToken, rhs: PaymentSdkCore.PaymentApi.BankAccountToken) -> Swift.Bool
             }
             """;
         var path = WriteTempFile(privateInterface);
         try
         {
             var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
-            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Equatable", result);
-            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Hashable", result);
+            Assert.Contains("PaymentSdkCore.PaymentApi.BankAccountToken::Equatable", result);
+            Assert.Contains("PaymentSdkCore.PaymentApi.BankAccountToken::Hashable", result);
         }
         finally { File.Delete(path); }
     }
@@ -4129,7 +4128,7 @@ public class DisposeBag {
         // `Codable` is a typealias for `Encodable & Decodable`; ABI JSON records the
         // expanded pair, so the filter must emit both keys to match.
         var privateInterface = """
-            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : Swift.Codable {
+            @_spi(Internal) extension PaymentSdkCore.PaymentApi.BankAccountToken : Swift.Codable {
               public func encode(to encoder: any Swift.Encoder) throws
             }
             """;
@@ -4137,9 +4136,9 @@ public class DisposeBag {
         try
         {
             var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
-            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Encodable", result);
-            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Decodable", result);
-            Assert.DoesNotContain("StripeCore.StripeAPI.BankAccountToken::Codable", result);
+            Assert.Contains("PaymentSdkCore.PaymentApi.BankAccountToken::Encodable", result);
+            Assert.Contains("PaymentSdkCore.PaymentApi.BankAccountToken::Decodable", result);
+            Assert.DoesNotContain("PaymentSdkCore.PaymentApi.BankAccountToken::Codable", result);
         }
         finally { File.Delete(path); }
     }
@@ -4158,16 +4157,16 @@ public class DisposeBag {
         // entire extension. The previous regex stopped at the first '(', silently losing
         // the conformance and emitting unbuildable wrapper references.
         var privateInterface = """
-            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : @available(*, deprecated) Swift.Equatable, @objc(SBKHashable) Swift.Hashable {
-              public static func == (lhs: StripeCore.StripeAPI.BankAccountToken, rhs: StripeCore.StripeAPI.BankAccountToken) -> Swift.Bool
+            @_spi(Internal) extension PaymentSdkCore.PaymentApi.BankAccountToken : @available(*, deprecated) Swift.Equatable, @objc(SBKHashable) Swift.Hashable {
+              public static func == (lhs: PaymentSdkCore.PaymentApi.BankAccountToken, rhs: PaymentSdkCore.PaymentApi.BankAccountToken) -> Swift.Bool
             }
             """;
         var path = WriteTempFile(privateInterface);
         try
         {
             var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
-            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Equatable", result);
-            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Hashable", result);
+            Assert.Contains("PaymentSdkCore.PaymentApi.BankAccountToken::Equatable", result);
+            Assert.Contains("PaymentSdkCore.PaymentApi.BankAccountToken::Hashable", result);
         }
         finally { File.Delete(path); }
     }
@@ -4179,7 +4178,7 @@ public class DisposeBag {
         // must trim a trailing 'where ...' generic-requirements clause off the conformance
         // list. Otherwise the second protocol gets lost in the split.
         var privateInterface = """
-            @_spi(Internal) extension StripeCore.Container : Swift.Collection, Foundation.NSCopying where Element : Swift.Hashable {
+            @_spi(Internal) extension PaymentSdkCore.Container : Swift.Collection, Foundation.NSCopying where Element : Swift.Hashable {
               public func copy(with zone: Foundation.NSZone? = nil) -> Any
             }
             """;
@@ -4187,8 +4186,8 @@ public class DisposeBag {
         try
         {
             var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
-            Assert.Contains("StripeCore.Container::Collection", result);
-            Assert.Contains("StripeCore.Container::NSCopying", result);
+            Assert.Contains("PaymentSdkCore.Container::Collection", result);
+            Assert.Contains("PaymentSdkCore.Container::NSCopying", result);
         }
         finally { File.Delete(path); }
     }

@@ -5,9 +5,8 @@ import Foundation
 
 // MARK: - Protocol for Existential Return Tests
 
-/// Protocol with a property and method — returned as `any ERTestProtocol` from factory APIs.
-/// Tests the pattern seen in RxSwift (ISwiftDisposable), Swinject (IResolver),
-/// SwiftyBeaver (IFilterType) where methods/properties return protocol existentials.
+/// Protocol with a property and method — returned as `any ERTestProtocol` from
+/// factory APIs. Tests the pattern where methods/properties return protocol existentials.
 public protocol ERTestProtocol {
     var label: String { get }
     func describe() -> String
@@ -22,30 +21,30 @@ public class ERTestConcreteItem: ERTestProtocol {
     public func describe() -> String { "Item: \(label)" }
 }
 
-// MARK: - Factory Returning Existentials (Swinject/SwiftyBeaver pattern)
+// MARK: - Factory Returning Existentials
 
 /// Factory class with property/method/static returning `any ERTestProtocol`.
 /// This is the pattern that triggers the R3 regression.
 public class ERTestFactory {
     public init() {}
 
-    /// Property returning existential — Swinject `Assembler.resolver` pattern
+    /// Property returning existential.
     public var defaultItem: any ERTestProtocol {
         ERTestConcreteItem(label: "default")
     }
 
-    /// Method returning existential — Swinject `Container.getSynchronize()` pattern
+    /// Method returning existential.
     public func createItem(label: String) -> any ERTestProtocol {
         ERTestConcreteItem(label: label)
     }
 
-    /// Static method returning existential
+    /// Static method returning existential.
     public static func shared() -> any ERTestProtocol {
         ERTestConcreteItem(label: "shared")
     }
 }
 
-// MARK: - Constructor Taking Existential (RxSwift RefCountDisposable pattern)
+// MARK: - Constructor Taking Existential
 
 /// Class whose constructor takes `any ERTestProtocol` — tests existential parameter round-trip.
 public class ERTestHolder {
@@ -54,7 +53,7 @@ public class ERTestHolder {
     public var heldLabel: String { item.label }
 }
 
-// MARK: - Factory with Closure + Existential Return (SwiftyBeaver FilterFactory pattern)
+// MARK: - Factory with Closure + Existential Return
 
 /// Static factory method taking a closure and returning `any ERTestProtocol`.
 public class ERTestFilterFactory {

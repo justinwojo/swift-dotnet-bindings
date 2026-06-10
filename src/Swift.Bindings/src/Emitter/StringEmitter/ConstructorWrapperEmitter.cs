@@ -323,8 +323,8 @@ public static class ConstructorWrapperEmitter
     /// Gets the @_cdecl symbol name for a constructor wrapper.
     /// Pure function — no side effects, safe to call before emission.
     /// </summary>
-    /// <param name="moduleName">The Swift module name (e.g., "Lottie").</param>
-    /// <param name="typeName">The Swift type name (e.g., "LottieAnimationView").</param>
+    /// <param name="moduleName">The Swift module name (e.g., "MyModule").</param>
+    /// <param name="typeName">The Swift type name (e.g., "AnimationView").</param>
     /// <param name="originalMangledName">The original mangled name to hash for uniqueness.</param>
     public static string GetConstructorSymbolName(string moduleName, string typeName, string originalMangledName)
     {
@@ -1008,12 +1008,11 @@ public static class ConstructorWrapperEmitter
                 // For the protocol/extension, render the Swift type module-qualified and
                 // existential-aware. This protocol+extension is emitted at file scope where
                 // the wrapper imports several modules, so an unqualified nested generic
-                // argument can collide across them (e.g. BlinkIDUX's
-                // `any CameraFrameAnalyzer<BlinkID.CameraFrame, BlinkIDUX.UIEvent>` rendered
-                // bare as `CameraFrameAnalyzer<CameraFrame, UIEvent>` makes `UIEvent` ambiguous
-                // with `UIKit.UIEvent`). Qualified names are always valid Swift, and the helper
-                // restores the `any` keyword for protocol existentials (a bare
-                // protocol-with-primary-associated-types name is a Swift 6 error).
+                // argument can collide across them (e.g., `any SomeProtocol<ModuleA.TypeA, ModuleB.TypeB>`
+                // rendered bare as `SomeProtocol<TypeA, TypeB>` makes `TypeB` ambiguous when
+                // the same name exists in another imported module). Qualified names are always
+                // valid Swift, and the helper restores the `any` keyword for protocol existentials
+                // (a bare protocol-with-primary-associated-types name is a Swift 6 error).
                 var swiftType = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(
                     arg.SwiftTypeSpec, env.TypeDatabase);
                 protocolParams.Add($"{paramPrefix}: {swiftType}");

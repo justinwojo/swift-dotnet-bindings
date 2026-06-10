@@ -360,8 +360,8 @@ public class SwiftTypeNameHelperTests
     [Fact]
     public void GetSwiftTypeName_OptionalMainActorClosure_PreservesMainActor()
     {
-        // Swift.Optional<@MainActor (STPPaymentCardTextField) -> ()> should render as
-        // (@MainActor (STPPaymentCardTextField) -> Void)?
+        // Swift.Optional<@MainActor (T) -> ()> where T is a class parameter should render as
+        // (@MainActor (T) -> Void)?
         var closureType = new ClosureTypeSpec(
             arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("TestModule.SomeClass") }),
             returnType: TupleTypeSpec.Empty);

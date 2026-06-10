@@ -210,9 +210,9 @@ public class SwiftABIParserTests
     [Fact]
     public void CreateClassDecl_SetsCorrectSwiftTypeName()
     {
-        var classDecl = CreateClassDecl("ImageLoader", moduleName: "Nuke");
+        var classDecl = CreateClassDecl("ImageLoader", moduleName: "ImagePipeline");
 
-        Assert.Equal("Nuke.ImageLoader", classDecl.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("ImagePipeline.ImageLoader", classDecl.SwiftTypeName.ModuleQualifiedName);
     }
 
     [Fact]
@@ -1102,7 +1102,7 @@ public class SwiftABIParserTests
     public void HasVariadicElement_VariadicProtocolParam_ReturnsTrue()
     {
         // func buildBlock(_ disposables: Disposable...) — demangled as Array<Disposable{IsVariadic}>
-        var innerType = new NamedTypeSpec("RxSwift.Disposable") { IsVariadic = true };
+        var innerType = new NamedTypeSpec("ReactiveStreams.Disposable") { IsVariadic = true };
         var arrayType = new NamedTypeSpec("Swift.Array");
         arrayType.GenericParameters.Add(innerType);
 

@@ -8,7 +8,6 @@ import Foundation
 /// Protocol with a mix of closure and non-closure methods.
 /// Generator should skip `onComplete(handler:)` (closure in protocol method)
 /// but still emit `didReceiveEvent(name:)` and `delegateName` property.
-/// Pattern from Starscream, RxSwift, StripeUICore.
 public protocol EventDelegate {
     func didReceiveEvent(name: String) -> Bool
     func onComplete(handler: @escaping () -> Void)
@@ -54,7 +53,6 @@ public class EventRouter {
 /// Protocol with a multi-argument closure method.
 /// Tests that EveryProtocol closure stubs render multi-arg closures as
 /// `(String, Int32, Bool) -> Void` instead of `((String, Int32, Bool)) -> Void`.
-/// Pattern from Lottie (LottieURLSession), Nuke (DataLoading), GRDB (FTS5Tokenizer).
 public protocol DataLoadingDelegate {
     /// Multi-arg closure: tests tuple unwrapping in EveryProtocol stub
     func onDataLoaded(handler: @escaping (String, Int32, Bool) -> Void)
@@ -111,7 +109,6 @@ public class NumericDataLoader {
 /// Protocol with an optional closure parameter.
 /// Tests that EveryProtocol closure stubs do NOT emit `@escaping` on
 /// `Optional<Closure>` — optional closures are always escaping in Swift.
-/// Pattern from Starscream (write(data:completion:)), Kingfisher.
 public protocol CompletionDelegate {
     /// Optional closure param: tests @escaping suppression on Optional<Closure>
     func execute(completion: (() -> Void)?)
@@ -268,7 +265,7 @@ public class CallbackRouter {
 /// through the EveryProtocol vtable, the C# proxy returns a (fnPtr, ctx) pair
 /// describing a managed Action, and Swift wraps the pair into a real
 /// `() -> Void` it can hold and call later. Pattern from delegate types that
-/// vend per-event handlers on demand (Nuke `ImagePipeline.IDelegate`-style).
+/// vend per-event handlers on demand.
 public protocol HandlerFactoryDelegate {
     func makeHandler() -> () -> Void
 }
@@ -343,7 +340,7 @@ public class AsyncIntRouter {
 
 /// Multi-method protocol composing every supported closure/property/method
 /// shape into a single delegate, mirroring the richness of real consumer
-/// protocols (Nuke `ImagePipelineDelegate`, BlinkIDUX `CameraModel`). Every
+/// protocol shapes composed into a single delegate type. Every
 /// member must dispatch via a real vtable receiver — no `EveryProtocol:
 /// closure method` fatalError, no SB0003-obsolete throw stubs.
 public protocol MultiShapeDelegate {
@@ -425,18 +422,15 @@ public class MultiShapeRouter {
     }
 }
 
-// MARK: - Multi-arg method with value param + closure (Stripe shape)
+// MARK: - Multi-arg method with value param + closure
 //
-// `STPIssuingCardEphemeralKeyProvider.createIssuingCardKey(withAPIVersion: String,
-// completion: @escaping STPJSONResponseCompletionBlock)` is a pure-Swift protocol
-// whose only method takes a non-closure (String) param followed by a dispatchable
-// closure. Pre-fix, `IsDispatchableClosureMethod` rejected multi-arg signatures,
-// so the proxy emitted the field but never assigned it — and the EveryProtocol
-// extension generated a `fatalError` stub instead of a real witness. Both halves
-// silently broke C#→Swift dispatch.
+// A pure-Swift protocol whose only method takes a non-closure (String) param
+// followed by a dispatchable closure. Pre-fix, `IsDispatchableClosureMethod`
+// rejected multi-arg signatures, so the proxy emitted the field but never assigned
+// it — and the EveryProtocol extension generated a `fatalError` stub instead of
+// a real witness. Both halves silently broke C#→Swift dispatch.
 
-/// Provides keys via a completion handler. Mirrors the Stripe ephemeral-key
-/// provider shape: leading non-closure param + trailing escaping closure.
+/// Protocol with a leading non-closure param followed by a trailing escaping closure.
 public protocol EphemeralKeyProvider {
     func createKey(withAPIVersion version: String,
                    completion: @escaping (String) -> Void)
@@ -465,7 +459,7 @@ public class EphemeralKeyConsumer {
 }
 
 /// Three-arg variant — two non-closure params + closure — to lock the gate
-/// behaviour beyond the two-arg Stripe shape.
+/// behaviour for three-argument protocol methods.
 public protocol RetryingKeyProvider {
     func fetchKey(version: String,
                   attempt: Int32,

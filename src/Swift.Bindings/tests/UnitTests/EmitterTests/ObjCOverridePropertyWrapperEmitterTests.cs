@@ -17,8 +17,8 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_ObjCRootedOverride_ReturnsTrue()
     {
-        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
-        typeDb.AsyncLibraryName = "LottieSwiftBindings";
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimation");
+        typeDb.AsyncLibraryName = "VectorAnimationSwiftBindings";
 
         var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
@@ -47,8 +47,8 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_NotOverride_ReturnsFalse()
     {
-        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
-        typeDb.AsyncLibraryName = "LottieSwiftBindings";
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimation");
+        typeDb.AsyncLibraryName = "VectorAnimationSwiftBindings";
 
         var classDecl = CreateClassDecl("AnimationView", moduleDecl, isObjCRooted: true);
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "loopMode", "Swift.Int",
@@ -62,7 +62,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_NoWrapperLibrary_ReturnsFalse()
     {
-        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimation");
         // AsyncLibraryName not set — no wrapper library
 
         var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
@@ -77,8 +77,8 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_StaticProperty_ReturnsFalse()
     {
-        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
-        typeDb.AsyncLibraryName = "LottieSwiftBindings";
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimation");
+        typeDb.AsyncLibraryName = "VectorAnimationSwiftBindings";
 
         var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
@@ -93,8 +93,8 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericClass_ReturnsFalse()
     {
-        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
-        typeDb.AsyncLibraryName = "LottieSwiftBindings";
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimation");
+        typeDb.AsyncLibraryName = "VectorAnimationSwiftBindings";
 
         var classDecl = CreateClassDecl("GenericView", moduleDecl, isObjCRooted: true);
         classDecl.GenericParameters = new List<GenericArgumentDecl>
@@ -116,8 +116,8 @@ public class ObjCOverridePropertyWrapperEmitterTests
         // An ObjC-rooted override with Optional<AnyClass.Type> must be rejected here
         // too — otherwise ExistentialBypassEmitter renders the property type as a bare
         // "Type" token in the @_silgen_name accessor wrapper.
-        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
-        typeDb.AsyncLibraryName = "LottieSwiftBindings";
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimation");
+        typeDb.AsyncLibraryName = "VectorAnimationSwiftBindings";
 
         var classDecl = CreateClassDecl("AnimationView", moduleDecl, isObjCRooted: true);
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "registeredClass", "Swift.Int",
@@ -136,8 +136,8 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_PropertyInResolvedAncestor_ReturnsFalse()
     {
-        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
-        typeDb.AsyncLibraryName = "LottieSwiftBindings";
+        var (moduleDecl, typeDb) = CreateTestEnvironment("VectorAnimation");
+        typeDb.AsyncLibraryName = "VectorAnimationSwiftBindings";
 
         // Create parent class with the property (resolved ancestor)
         var parentClass = CreateClassDecl("BaseView", moduleDecl, isObjCRooted: true);
@@ -163,16 +163,16 @@ public class ObjCOverridePropertyWrapperEmitterTests
     public void GetAccessorSymbolName_Getter_HasCorrectFormat()
     {
         var symbol = ObjCOverridePropertyWrapperEmitter.GetAccessorSymbolName(
-            "Lottie", "AnimationViewBase", "contentMode", isGetter: true);
-        Assert.Equal("SBSW_Get_Lottie_AnimationViewBase_contentMode", symbol);
+            "VectorAnimation", "AnimationViewBase", "contentMode", isGetter: true);
+        Assert.Equal("SBSW_Get_VectorAnimation_AnimationViewBase_contentMode", symbol);
     }
 
     [Fact]
     public void GetAccessorSymbolName_Setter_HasCorrectFormat()
     {
         var symbol = ObjCOverridePropertyWrapperEmitter.GetAccessorSymbolName(
-            "Lottie", "AnimationViewBase", "contentMode", isGetter: false);
-        Assert.Equal("SBSW_Set_Lottie_AnimationViewBase_contentMode", symbol);
+            "VectorAnimation", "AnimationViewBase", "contentMode", isGetter: false);
+        Assert.Equal("SBSW_Set_VectorAnimation_AnimationViewBase_contentMode", symbol);
     }
 
     [Fact]
@@ -188,7 +188,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void EmitSwiftGetterWrapper_EmitsCorrectSwiftCode()
     {
-        var (moduleDecl, _) = CreateTestEnvironment("Lottie");
+        var (moduleDecl, _) = CreateTestEnvironment("VectorAnimation");
         var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
             hasGetter: true, hasSetter: false);
@@ -198,11 +198,11 @@ public class ObjCOverridePropertyWrapperEmitterTests
         var writer = new SwiftWriter(sw);
 
         ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(
-            writer, property, "SBW_Get_Lottie_AnimationViewBase_contentMode", ctx);
+            writer, property, "SBW_Get_VectorAnimation_AnimationViewBase_contentMode", ctx);
 
         var output = sw.ToString();
-        Assert.Contains("@_silgen_name(\"SBW_Get_Lottie_AnimationViewBase_contentMode\")", output);
-        Assert.Contains("_ self_: Lottie.AnimationViewBase", output);
+        Assert.Contains("@_silgen_name(\"SBW_Get_VectorAnimation_AnimationViewBase_contentMode\")", output);
+        Assert.Contains("_ self_: VectorAnimation.AnimationViewBase", output);
         // RenderSwiftTypeSpec strips module prefix: "Swift.Int" → "Int"
         Assert.Contains("-> Int", output);
         Assert.Contains("return self_.contentMode", output);
@@ -211,7 +211,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void EmitSwiftSetterWrapper_EmitsCorrectSwiftCode()
     {
-        var (moduleDecl, _) = CreateTestEnvironment("Lottie");
+        var (moduleDecl, _) = CreateTestEnvironment("VectorAnimation");
         var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
             hasGetter: false, hasSetter: true);
@@ -221,19 +221,19 @@ public class ObjCOverridePropertyWrapperEmitterTests
         var writer = new SwiftWriter(sw);
 
         ObjCOverridePropertyWrapperEmitter.EmitSwiftSetterWrapper(
-            writer, property, "SBW_Set_Lottie_AnimationViewBase_contentMode", ctx);
+            writer, property, "SBW_Set_VectorAnimation_AnimationViewBase_contentMode", ctx);
 
         var output = sw.ToString();
-        Assert.Contains("@_silgen_name(\"SBW_Set_Lottie_AnimationViewBase_contentMode\")", output);
+        Assert.Contains("@_silgen_name(\"SBW_Set_VectorAnimation_AnimationViewBase_contentMode\")", output);
         Assert.Contains("_ newValue: Int", output);
-        Assert.Contains("_ self_: Lottie.AnimationViewBase", output);
+        Assert.Contains("_ self_: VectorAnimation.AnimationViewBase", output);
         Assert.Contains("self_.contentMode = newValue", output);
     }
 
     [Fact]
     public void EmitSwiftGetterWrapper_MainActorIsolated_EmitsAnnotation()
     {
-        var (moduleDecl, _) = CreateTestEnvironment("Lottie");
+        var (moduleDecl, _) = CreateTestEnvironment("VectorAnimation");
         var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
         classDecl.IsMainActorIsolated = true;
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
@@ -244,7 +244,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
         var writer = new SwiftWriter(sw);
 
         ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(
-            writer, property, "SBW_Get_Lottie_AnimationViewBase_contentMode", ctx);
+            writer, property, "SBW_Get_VectorAnimation_AnimationViewBase_contentMode", ctx);
 
         var output = sw.ToString();
         Assert.Contains("@MainActor", output);
@@ -253,7 +253,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
     [Fact]
     public void EmitSwiftGetterWrapper_DuplicateSymbol_SkipsSecondEmission()
     {
-        var (moduleDecl, _) = CreateTestEnvironment("Lottie");
+        var (moduleDecl, _) = CreateTestEnvironment("VectorAnimation");
         var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
         var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
             hasGetter: true, hasSetter: false);
@@ -264,13 +264,13 @@ public class ObjCOverridePropertyWrapperEmitterTests
 
         // Emit first time
         ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(
-            writer, property, "SBW_Get_Lottie_AnimationViewBase_contentMode", ctx);
+            writer, property, "SBW_Get_VectorAnimation_AnimationViewBase_contentMode", ctx);
 
         var firstOutput = sw.ToString();
 
         // Emit second time with same symbol
         ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(
-            writer, property, "SBW_Get_Lottie_AnimationViewBase_contentMode", ctx);
+            writer, property, "SBW_Get_VectorAnimation_AnimationViewBase_contentMode", ctx);
 
         var secondOutput = sw.ToString();
         // The second emission should not add anything

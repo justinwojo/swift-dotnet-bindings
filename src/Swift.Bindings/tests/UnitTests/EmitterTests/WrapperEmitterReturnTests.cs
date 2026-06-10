@@ -921,14 +921,14 @@ public class WrapperEmitterReturnTests
         // Bug: When a nested type is renamed (e.g., Animator → AnimatorType to avoid property
         // collision), GetRootBaseTypeNameWithGenerics was not passing typeDatabase through to
         // GetTypeNameWithGenerics, so SwiftClassHandle<T> in the constructor used the old name.
-        var moduleDecl = CreateModuleDecl("Kingfisher");
+        var moduleDecl = CreateModuleDecl("ImageLoader");
 
         // Create a class that would be a renamed nested type
         var classDecl = new ClassDecl
         {
             Name = "Animator", // Swift name
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.ImageTransition.Animator"),
-            MangledName = "$s10Kingfisher15ImageTransitionC8AnimatorCN",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ImageLoader.ImageTransition.Animator"),
+            MangledName = "$s11ImageLoader15ImageTransitionC8AnimatorCN",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -942,10 +942,10 @@ public class WrapperEmitterReturnTests
 
         // Register with renamed C# name in TypeDatabase
         var typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("Kingfisher", "/tmp/Kingfisher.dylib");
+        var module = new ModuleTypeDatabase("ImageLoader", "/tmp/ImageLoader.dylib");
         module.RegisterType(classDecl.SwiftTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "ImageTransition.AnimatorType"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "ImageTransition.AnimatorType"),
             SwiftTypeName = classDecl.SwiftTypeName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.None,
@@ -973,7 +973,7 @@ public class WrapperEmitterReturnTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        // async method returning (Data, NSURLResponse?) — mirrors Nuke.DataAsync
+        // async method returning (Data, NSURLResponse?) — Optional ObjC-bridged element in async tuple
         var returnType = new TupleTypeSpec(new List<TypeSpec>
         {
             new NamedTypeSpec("Foundation.Data"),

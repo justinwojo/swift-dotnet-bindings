@@ -6,7 +6,7 @@ import Foundation
 // MARK: - [String: Any] Dictionary Pattern
 
 /// Test type for [String: Any] dictionary projection.
-/// Real-world pattern: Alamofire HTTP parameters, Mixpanel event properties.
+/// Real-world pattern: HTTP client parameters, analytics event properties.
 public class ConfigStore {
     private var config: [String: Any]
 

@@ -123,7 +123,7 @@ public struct OptionalWrapper<T> {
     public var hasValue: Bool { value != nil }
 }
 
-// MARK: - Q2: Generic Class Inheriting Non-Generic Class (GRDB TableAlias pattern)
+// MARK: - Q2: Generic Class Inheriting Non-Generic Class
 
 /// Non-generic base class for entity hierarchy.
 public class BaseEntity {

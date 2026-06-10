@@ -7,13 +7,12 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Types;
 
 /// <summary>
-/// Regression lock for Stripe's StripePaymentSheet.ConfirmHandler shape — a
-/// setter-only property whose Swift type is Optional&lt;closure-returning-Task&gt;.
-/// PropertyHandler now skips properties whose closure type is async; the
-/// generator must not emit a P/Invoke body that references an undeclared
-/// `valueHandle` or types the parameter as `Swift.AnyType` (asyncBridgeEligible
-/// is false on accessor frames). The surrounding type must still bind so that
-/// the non-async sibling property keeps working.
+/// Regression lock for a setter-only property whose Swift type is
+/// Optional&lt;closure-returning-Task&gt;. PropertyHandler now skips properties whose
+/// closure type is async; the generator must not emit a P/Invoke body that
+/// references an undeclared `valueHandle` or types the parameter as `Swift.AnyType`
+/// (asyncBridgeEligible is false on accessor frames). The surrounding type must
+/// still bind so that the non-async sibling property keeps working.
 ///
 /// The async closure properties (<c>confirmHandler</c>,
 /// <c>primitiveHandler</c>, <c>factory</c>) must NOT exist on the C# side.
@@ -51,14 +50,12 @@ public class AsyncClosurePropertySetterTests : TestBase
     }
 
     /// <summary>
-    /// Maximum-case nested-type regression: Stripe's
-    /// <c>PaymentSheet.IntentConfiguration.ConfirmHandler</c> shape — async
-    /// closure stored properties on a nested class must skip cleanly. Round 1
-    /// added the skip at PropertyHandler but only proved it on a flat class;
-    /// Stripe's downstream regen kept emitting <c>Swift.AnyType</c> setters on
-    /// the nested type. If any of the async closure properties below ever
-    /// re-appear in the generated binding, compile of this file fails.
-    /// The non-async sibling on the same nested type MUST keep binding —
+    /// Maximum-case nested-type regression: async closure stored properties on a
+    /// nested class must skip cleanly. Round 1 added the skip at PropertyHandler
+    /// but only proved it on a flat class; downstream regen kept emitting
+    /// <c>Swift.AnyType</c> setters on the nested type. If any of the async closure
+    /// properties below ever re-appear in the generated binding, compile of this
+    /// file fails. The non-async sibling on the same nested type MUST keep binding —
     /// proves the skip doesn't over-fire.
     /// </summary>
     public void TestNestedTypeAsyncClosurePropertiesAreSkippedAndSiblingsKeepBinding()
@@ -69,9 +66,8 @@ public class AsyncClosurePropertySetterTests : TestBase
         var outer = new AsyncClosurePropertySetterOuter();
         var inner = new AsyncClosurePropertySetterOuter.IntentConfigurationNested();
         AssertNotNull(outer, "Outer class containing async-closure-property nested struct still binds");
-        // Nested struct surfaces as a C# class with SwiftSafeHandle (same
-        // shape Stripe's IntentConfiguration takes) — its existence proves
-        // the skip didn't drop the surrounding type.
+        // Nested struct surfaces as a C# class with SwiftSafeHandle — its
+        // existence proves the skip didn't drop the surrounding type.
         AssertNotNull(inner, "Nested struct with async-closure-property siblings still binds");
 
         // Sibling non-async closure property on the SAME nested struct must
@@ -86,8 +82,8 @@ public class AsyncClosurePropertySetterTests : TestBase
 #if false
     // Documentation-only: these references MUST fail to compile against the
     // post-fix generated binding. Each nested-type async closure property
-    // below was the exact Stripe ConfirmHandler shape (or a near-sibling) and
-    // must be skipped at the PropertyHandler layer for the nested-type case.
+    // below is the nested-type async closure property shape
+    // that must be skipped at the PropertyHandler layer.
     // If any property re-appears in the generated nested type, uncommenting
     // this block turns the regression into a compile failure.
     public void NegativeProbe_NestedStructAsyncClosurePropertiesAreSkipped()

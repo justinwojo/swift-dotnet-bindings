@@ -7,7 +7,7 @@ namespace BindingsGeneration;
 /// Detects and projects Swift types that conform to <c>_Concurrency.AsyncSequence</c>
 /// into the .NET <c>IAsyncEnumerable&lt;T&gt;</c> contract. Without this projection
 /// consumers of any AsyncSequence-shaped binding (StoreKit Transaction.Updates,
-/// MusicKit MusicSubscription.Updates, Stripe progress observers) cannot use
+/// MusicKit MusicSubscription.Updates, async event streams) cannot use
 /// the canonical <c>await foreach</c> pattern and have to hand-roll a
 /// <c>MakeAsyncIterator()</c>/<c>NextAsync()</c> loop instead.
 /// </summary>
@@ -114,8 +114,8 @@ public sealed class AsyncSequenceHandler
             return false;
 
         // Step 3: locate the iterator decl. The dominant real-world shape (StoreKit
-        // Transactions, MusicKit MusicSubscription.Updates, Stripe progress
-        // observers) nests the iterator directly under the AsyncSequence type.
+        // Transactions, MusicKit MusicSubscription.Updates, etc.) nests the iterator
+        // directly under the AsyncSequence type.
         var iteratorDecl = FindIteratorDecl(typeDecl, iteratorNamed);
         if (iteratorDecl == null)
             return false;

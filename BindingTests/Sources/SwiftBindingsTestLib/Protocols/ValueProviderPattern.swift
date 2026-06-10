@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Value Provider Pattern (Lottie AnyValueProvider / SetValueProvider)
+// MARK: - Value Provider Pattern
 // Tests the pattern where:
 // 1. A protocol has a required method/property
 // 2. Concrete types conform to the protocol
@@ -11,7 +11,6 @@ import Foundation
 // 4. C# concrete types implement the interface for compile-time type safety
 
 /// Protocol requiring a value kind tag and a hasUpdate check.
-/// Models the Lottie AnyValueProvider pattern.
 public protocol ValueProviding {
     /// Tag identifying the kind of value (e.g., "color", "float", "gradient").
     var valueKind: String { get }
@@ -30,7 +29,6 @@ extension ValueProviding {
 // MARK: - Concrete Value Providers
 
 /// Float value provider — provides a single Double value.
-/// Models Lottie's FloatValueProvider.
 public final class FloatProvider: ValueProviding {
     public var floatValue: Double
 
@@ -47,7 +45,6 @@ public final class FloatProvider: ValueProviding {
 }
 
 /// Color value provider — provides RGBA color components.
-/// Models Lottie's ColorValueProvider.
 public final class ColorProvider: ValueProviding {
     public var r: Double
     public var g: Double
@@ -65,7 +62,6 @@ public final class ColorProvider: ValueProviding {
 }
 
 /// Gradient value provider — provides an array of color stops with locations.
-/// Models Lottie's GradientValueProvider.
 public final class GradientProvider: ValueProviding {
     public var colors: [Double]
     public var locations: [Double]
@@ -85,7 +81,7 @@ public final class GradientProvider: ValueProviding {
 
 // MARK: - SetValueProvider Pattern
 
-/// Animation keypath — simplified model of Lottie's AnimationKeypath.
+/// Animation keypath for identifying animation targets.
 public struct AnimKeypath {
     public var keypath: String
 
@@ -95,7 +91,6 @@ public struct AnimKeypath {
 }
 
 /// Container that accepts value providers via protocol type.
-/// Models Lottie's LottieAnimationView.setValueProvider pattern.
 public final class AnimationContainer {
     private var providers: [String: any ValueProviding] = [:]
     private var keypaths: [String] = []
@@ -103,7 +98,6 @@ public final class AnimationContainer {
     public init() {}
 
     /// Set a value provider for a given keypath.
-    /// This is the pattern from Lottie's setValueProvider(_:keypath:).
     public func setProvider(_ provider: any ValueProviding, keypath: AnimKeypath) {
         providers[keypath.keypath] = provider
         keypaths.append(keypath.keypath)

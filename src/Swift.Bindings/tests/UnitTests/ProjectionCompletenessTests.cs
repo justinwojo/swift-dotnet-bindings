@@ -179,8 +179,8 @@ public class OptionalAppleFallbackTests
     [Fact]
     public void IsKnownAppleModule_UnknownModules_ReturnsFalse()
     {
-        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("Nuke"));
-        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("Alamofire"));
+        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("ImagePipeline"));
+        Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("NetClient"));
         Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("ThirdParty"));
         Assert.False(AppleFrameworkRegistry.IsOptionalFallbackModule("Swift"));
         // UIKit and Foundation are now in the set — the IsNestedType guard
@@ -349,8 +349,8 @@ public class OptionalAppleFallbackTests
     [Fact]
     public void Project_ArrayOfThirdPartyType_ReturnsNull()
     {
-        // Array<Nuke.ImagePipeline> — Nuke is not an Apple module
-        var element = new NamedTypeSpec("Nuke.ImagePipeline");
+        // Array<ThirdPartyModule.ThirdPartyType> — the module is not an Apple framework, so projection must be null
+        var element = new NamedTypeSpec("ImagePipeline.ImageService");
         var array = new NamedTypeSpec("Swift.Array", element);
         var ctx = CreateContext();
 

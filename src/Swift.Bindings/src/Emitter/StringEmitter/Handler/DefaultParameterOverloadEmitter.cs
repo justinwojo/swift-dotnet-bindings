@@ -41,7 +41,7 @@ public static class DefaultParameterOverloadEmitter
             return;
 
         // Skip methods on internal parent types.
-        // Note: nested types (e.g. ImagePipeline.Cache) are not registered in TypeDatabase,
+        // Note: nested types (e.g. OuterType.NestedType) are not registered in TypeDatabase,
         // so only check IsModuleInternal — TryGetTypeRecord would incorrectly reject them.
         if (methodDecl.ParentDecl is TypeDecl parentTypeDecl && parentTypeDecl.IsModuleInternal)
             return;

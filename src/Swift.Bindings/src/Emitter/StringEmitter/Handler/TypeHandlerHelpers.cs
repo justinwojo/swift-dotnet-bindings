@@ -1193,7 +1193,7 @@ internal static class ProtocolConformanceHelper
         // AsyncSequence → IAsyncEnumerable<TElement> adoption. Without this,
         // `await foreach (var x in seq)` fails to compile for every Swift type
         // that conforms to AsyncSequence (StoreKit Transactions, MusicKit
-        // MusicSubscription.Updates, Stripe progress observers, ...). The
+        // MusicSubscription.Updates, async event streams, ...). The
         // GetAsyncEnumerator method body is emitted by the corresponding type
         // handler — adding the interface here keeps interface declaration and
         // member emission in sync.

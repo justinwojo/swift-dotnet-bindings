@@ -233,14 +233,13 @@ public class InterfaceFactsProducerParityTests
                 "  public func added()\n" +
                 "}\n" },
             new object[] { "ProtocolRequirementWithoutAccessModifier",
-                // Family-F-2 (StripeApplePay): a bare protocol requirement carries no
-                // explicit `public` modifier, but the @available annotation MUST still
-                // be captured. Pre-fix, the regex parser's modifier gate swallowed the
-                // requirement and silently dropped the annotation. The .NET-side fix
-                // is covered by `GetAvailabilityAnnotations_F2_…` in
-                // SwiftInterfaceAccessParserTests; this corpus case asserts that the
-                // SwiftSyntax-side AvailabilityWalker produces byte-equal output for
-                // the same shape so the dual-parser contract holds.
+                // Family-F-2: a bare protocol requirement carries no explicit `public` modifier,
+                // but the @available annotation MUST still be captured. Pre-fix, the regex
+                // parser's modifier gate swallowed the requirement and silently dropped the
+                // annotation. The .NET-side fix is covered by `GetAvailabilityAnnotations_F2_…`
+                // in SwiftInterfaceAccessParserTests; this corpus case asserts that the
+                // SwiftSyntax-side AvailabilityWalker produces byte-equal output for the same
+                // shape so the dual-parser contract holds.
                 "public protocol HasOptional {\n" +
                 "  @available(iOS 17.0, *)\n" +
                 "  func ping()\n" +
@@ -333,7 +332,7 @@ public class InterfaceFactsProducerParityTests
         new[]
         {
             new object[] { "EmptyConformance",
-                "extension Swift.Int : SnapKit.ConstraintOffsetTarget { }\n" },
+                "extension Swift.Int : ConstraintKit.ConstraintOffsetTarget { }\n" },
             new object[] { "MultiProtocol",
                 "extension Foo.Bar : Some.Proto1, Other.Proto2 { }\n" },
             new object[] { "BodyExtensionExcluded",
@@ -497,7 +496,7 @@ public class InterfaceFactsProducerParityTests
                 "  public func ping() -> Swift.Int\n" +
                 "}\n" },
             new object[] { "ExtensionLastDot",
-                "extension CryptoSwift.AES {\n" +
+                "extension CryptoLib.AES {\n" +
                 "  public func encrypt() -> Swift.Int\n" +
                 "}\n" },
             new object[] { "BackticksStrippedFromVar",

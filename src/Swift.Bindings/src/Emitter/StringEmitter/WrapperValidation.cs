@@ -326,7 +326,7 @@ public static class WrapperValidation
     /// - `nonisolated` members on actor types — these opt out of the actor's isolation and are
     ///   safe to call from any context (Swift 6 guarantees via the compiler).
     ///
-    /// Note: Type-level custom global actor isolation (e.g., <c>@ImagePipelineActor class X</c>)
+    /// Note: Type-level custom global actor isolation (e.g., <c>@CustomActor class X</c>)
     /// is NOT handled here. Constructor-specific blocking is in <see cref="CanEmitMember"/>'s
     /// SWIFTBIND022 gate; default-parameter overload extensions are skipped in
     /// <c>DefaultParameterOverloadEmitter</c>. Plain nonisolated instance methods/properties
@@ -738,7 +738,7 @@ public static class WrapperValidation
                 if (optSpec.GenericParameters[0].IsDynamicSelf)
                     return true;
                 // Exception: Optional<generic-param> on generic-extension static dispatch
-                // (ObjectMapper's `Mapper<N>.map(...) -> N?` shape). The ABI looks up τ_0_X
+                // (e.g., `GenericType<N>.method(...) -> N?` shape). The ABI looks up τ_0_X
                 // and returns a Protocol-kind TypeRecord placeholder, which makes
                 // IsProtocolExistentialType report true. The protocol-based static dispatch
                 // path handles the wrapping correctly via RenderSwiftTypeSpecWithSugaredNames
@@ -1495,8 +1495,8 @@ public static class WrapperValidation
         //    Even smaller frozen struct constructors with MarshalAs parameters (bool, enum)
         //    crash on Mono with CallConvSwift.
         // 2. Non-frozen structs: Also use SwiftIndirectResult (always passed indirectly),
-        //    causing the same Mono JIT crash. E.g., LottieColor(r:g:b:a:denominator:) uses
-        //    CallConvSwift + SwiftIndirectResult with only primitive params, but still crashes.
+        //    causing the same Mono JIT crash. A non-frozen struct constructor with only
+        //    primitive params (CallConvSwift + SwiftIndirectResult) still crashes.
         // The @_cdecl wrapper uses a resultPtr buffer pattern that avoids both issues.
         // Note: failable non-frozen struct constructors are blocked by ShouldEmitWrapper
         // (VWT-based initialization incompatible with @_cdecl's Optional<T>.initialize(to:)).
@@ -1567,8 +1567,7 @@ public static class WrapperValidation
         // All class instance property accessors need @_cdecl wrappers:
         // - Non-final: Tj dispatch thunks (vtable indirection) crash on both runtimes.
         // - Final: Direct symbols with SwiftSelf — NativeAOT handles this correctly but
-        //   Mono JIT can't handle CallConvSwift + SwiftSelf → jit-info.c:918 assertion
-        //   (e.g., ImagePrefetcher.Priority, ImageTask.Priority on Nuke).
+        //   Mono JIT can't handle CallConvSwift + SwiftSelf → jit-info.c:918 assertion.
         // Static properties are excluded — they don't use SwiftSelf.
         if (env.ParentDecl is ClassDecl && !propertyDecl.IsStatic)
             return true;

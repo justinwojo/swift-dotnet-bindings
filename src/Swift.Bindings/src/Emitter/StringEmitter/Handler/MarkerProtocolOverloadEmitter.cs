@@ -7,7 +7,7 @@ namespace BindingsGeneration
     /// Emits typed convenience overloads for methods whose parameters use marker protocols
     /// (empty protocols with only primitive-type conformers).
     ///
-    /// For example, SnapKit's ConstraintOffsetTarget is an empty protocol with conformances
+    /// For example, a marker protocol like ConstraintOffsetTarget is an empty protocol with conformances
     /// from Swift.Int, Swift.Double, Swift.Float, etc. Methods like offset(amount: any ConstraintOffsetTarget)
     /// become uncallable from C# because primitives don't implement the interface.
     ///

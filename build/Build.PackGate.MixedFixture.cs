@@ -84,7 +84,7 @@ partial class Build
         RunPackGateMixedDynamicLeg(mixedRoot, nupkgDir);
 
         // Multi-TFM leg — a mixed binding that multi-targets (one csproj,
-        // <TargetFrameworks>net10.0-ios;net10.0-macos>, the SwiftBindings.Nuke shape).
+        // <TargetFrameworks>net10.0-ios;net10.0-macos>, a multi-TFM mixed binding package shape).
         // Proves the single-package companion embed is per-TFM correct: each lib/<tfm>/
         // slice carries ITS OWN platform's ObjC companion (lib/net*-ios*/ → .ObjC.iOS,
         // lib/net*-macos*/ → .ObjC.macOS), never the wrong-platform assembly under another

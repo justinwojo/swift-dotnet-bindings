@@ -507,7 +507,7 @@ namespace BindingsGeneration
             // up in the bound module's public surface, which means its defining module is
             // either declared as `import X` in the swiftinterface OR appears as a type
             // qualifier (`X.SomeType`) inline. We emit declared imports directly (so static-
-            // archive Firebase libs whose otool-based auto-detection finds nothing still get
+            // archive static-cloud-sdk libs whose otool-based auto-detection finds nothing still get
             // their sibling imports). DependencyModuleNames adds qualifier-only references
             // and is filtered against declared/scanned references so we drop C++-only
             // siblings (absl/grpc/leveldb/openssl_grpc/grpcpp) whose Clang umbrella headers
@@ -538,11 +538,11 @@ namespace BindingsGeneration
             // system modules are deliberately skipped here — `scannedImports` already
             // imports them only when their types appear in the wrapper's public surface,
             // and indiscriminately re-importing them can cause "ambiguous type lookup"
-            // errors when the bound module exposes a type name that also exists in the
-            // Apple framework (e.g. Starscream.Framer vs Network.Framer).
+            // errors when the bound module exposes a type name that also exists in an
+            // Apple framework (e.g., a type that collides with an Apple framework type of the same name).
             //
             // This catches sibling deps for libraries whose binary is a static archive
-            // (Firebase) so otool-based auto-detection produces nothing — the swiftinterface
+            // (static-archive cloud SDKs) so otool-based auto-detection produces nothing — the swiftinterface
             // still tells us exactly which siblings the public surface needs.
             if (declaredImports != null)
             {
@@ -575,8 +575,7 @@ namespace BindingsGeneration
                     || declaredImports.Contains(depModule)
                     || declaredImports.Contains(mapped)
                     || scannedImports.Contains(depModule)
-                    // Cross-module sibling deps (e.g. Firebase libs referencing
-                    // `FirebaseRemoteConfigInterop.RemoteConfigInterop`) can appear in the
+                    // Cross-module sibling deps can appear in the
                     // bound module's swiftinterface ONLY as a type qualifier without an
                     // explicit `import` line. The Apple-framework-only `scannedImports`
                     // doesn't see these. Qualified-reference match against the swiftinterface
@@ -616,8 +615,7 @@ namespace BindingsGeneration
         }
 
         // Detects a qualified `<Module>.<Identifier>` reference in a swiftinterface body.
-        // Used to discover dependency references like `FirebaseRemoteConfigInterop.RemoteConfigInterop`
-        // where the cross-module type is qualified inline but never appears as an explicit
+        // Used to discover dependency module references that are qualified inline but never appear as an explicit
         // `import` line. Requires the trailing `.` so a bare whole-word occurrence (parameter
         // name, type leaf, identifier substring, comment, or string literal) doesn't trigger a
         // spurious `import` for short C++-only sibling names like `grpc` / `absl`. Also requires
@@ -829,9 +827,8 @@ namespace BindingsGeneration
 
             // Opt-in per module via apple-frameworks.json's `wrapperImportable` field.
             // Unconditional add broke the validation corpus in two ways: (1) Swift generic
-            // placeholders like `τ_0_0` leaked in as bogus modules, (2) ambient modules like
-            // `Network` got auto-imported and collided with same-named types in the bound
-            // module (e.g. Starscream.Framer vs Network.Framer). The data-driven predicate
+            // placeholders like `τ_0_0` leaked in as bogus modules, (2) ambient modules got
+            // auto-imported and collided with same-named types in the bound module. The data-driven predicate
             // keeps both exclusions explicit and centralised.
             if (AppleFrameworkRegistry.IsWrapperImportableModule(moduleName))
                 neededImports.Add(moduleName);
@@ -858,17 +855,17 @@ namespace BindingsGeneration
                 // constructor requirements, static method requirements, empty marker protocols, etc.
                 // All protocols pass through here; the emitter records proper skip reasons.
                 // Bug #14: Filter out protocols not actually defined in this module.
-                // When a module extends stdlib protocols (e.g., CryptoSwift extends Collection),
-                // the parser creates ProtocolDecl entries with the module's name (CryptoSwift.Collection),
-                // but these are stdlib protocols re-exported by the module — not defined in it.
+                // When a module extends stdlib protocols, the parser creates ProtocolDecl entries
+                // with the module's name (e.g., Module.Collection), but these are stdlib protocols
+                // re-exported by the module — not defined in it.
                 // Check the mangled name: module-defined protocols encode the module name as
-                // $s{length}{moduleName}... (e.g., $s11CryptoSwift...), while stdlib protocols
+                // $s{length}{moduleName}..., while stdlib protocols
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
                 //
                 // @objc protocols have an empty mangled name in the ABI JSON (Swift omits
                 // the mangling for protocols visible through the Objective-C runtime). Fall
                 // back to the SwiftTypeName.Module check so NSObjectProtocol-only @objc protocols
-                // (Stripe's STPAuthenticationContext, our NumberProvider fixture) aren't
+                // (e.g., our NumberProvider fixture) aren't
                 // categorically dropped by the mangled-name check before the routing gate
                 // downstream can promote them to EveryObjCProtocol.
                 .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name)
@@ -1620,7 +1617,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Checks if a Swift mangled name belongs to the given module.
         /// Swift encodes module names in mangled symbols as $s{length}{moduleName}...
-        /// (e.g., $s11CryptoSwift...). Stdlib protocols use abbreviated forms ($sSl, $sSB, $ss...).
+        /// Stdlib protocols use abbreviated forms ($sSl, $sSB, $ss...).
         /// Also accepts the umbrella prefix when the source module is exposed through Apple's
         /// `@_implementationOnly` re-export (e.g., RealityFoundation protocols carry
         /// $s10RealityKit... mangling because RealityKit is the umbrella declared in

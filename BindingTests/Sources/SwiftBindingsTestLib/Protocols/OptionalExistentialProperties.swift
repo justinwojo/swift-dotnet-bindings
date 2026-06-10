@@ -6,8 +6,7 @@ import Foundation
 // MARK: - Protocol for Optional Existential Property Tests
 
 /// Protocol for testing optional existential property accessors.
-/// Pattern from 11+ validation libraries (Nuke, Kingfisher, etc.):
-/// classes with optional protocol-typed stored properties.
+/// Tests classes with optional protocol-typed stored properties.
 public protocol Renderable {
     func render() -> String
 }

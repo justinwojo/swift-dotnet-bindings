@@ -4,9 +4,9 @@
 import Foundation
 
 // MARK: - Default Parameter Overload Collisions
-// Pattern from ObjectMapper/Parchment: explicit overload collides with
-// default-param-trimmed overload. The generator must detect the collision
-// and skip emitting the trimmed overload to avoid CS0111.
+// An explicit overload collides with the default-param-trimmed overload.
+// The generator must detect the collision and skip emitting the trimmed
+// overload to avoid CS0111.
 
 /// Class with overloads that collide after default parameter trimming.
 public class SearchService {

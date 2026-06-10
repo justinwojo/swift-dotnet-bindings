@@ -1068,7 +1068,7 @@ namespace BindingsGeneration
 
                 // Skip USR fallback for generic-instantiated parents: the USR strips type
                 // arguments, so resolving via USR would silently drop them and the emitter
-                // would produce <T> instead of the concrete instantiation (e.g. RxSwift's
+                // would produce <T> instead of the concrete instantiation (e.g.
                 // HistoricalScheduler : VirtualTimeScheduler<HistoricalSchedulerTimeConverter>).
                 // Same-module generic-instantiated parents stay external for now.
                 if (superName.Contains('<'))

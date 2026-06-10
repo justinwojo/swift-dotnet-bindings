@@ -336,12 +336,12 @@ public class ComplexProjectionTests
     [Fact]
     public void NestedReturn_DictionaryWithExistentialValue_ElementConversion_IsUniversalDonorConcreteDictionary()
     {
-        // FirebaseFirestore [[String: any P]] reverse-dispatch regression. The dictionary element
-        // conversion MUST stay a CONCRETE Dictionary<,> (no leading IReadOnlyDictionary cast): the
-        // concrete type is the universal donor, assignable to BOTH IReadOnlyDictionary (covariant /
+        // [[String: any P]] reverse-dispatch regression. The dictionary element conversion MUST
+        // stay a CONCRETE Dictionary<,> (no leading IReadOnlyDictionary cast): the concrete type
+        // is the universal donor, assignable to BOTH IReadOnlyDictionary (covariant /
         // forward-return consumers) AND IDictionary (a receiver param whose impl takes
-        // IEnumerable<IDictionary>). A leading (IReadOnlyDictionary) cast breaks the receiver path
-        // with CS1503. Per-leaf public-type casts remain (existential value → IDescribable).
+        // IEnumerable<IDictionary>). A leading (IReadOnlyDictionary) cast breaks the receiver
+        // path with CS1503. Per-leaf public-type casts remain (existential value → IDescribable).
         var innerDict = new DictionaryProjection(new StringProjection(), DescribableExistential(), isParameter: false);
         var conv = innerDict.GetReturnElementConversion("e");
 
@@ -371,11 +371,12 @@ public class ComplexProjectionTests
     [Fact]
     public void TopLevelReturn_DictionaryOfDictionary_AsProjectedValueSelector_CastsToReadOnlyInterface()
     {
-        // ObjectMapper [String: [String: any P]] return: the invariant-slot cast that used to live on
-        // the inner element conversion is now applied by the OUTER dictionary's AsProjected value
-        // selector. The outer value slot (IReadOnlyDictionary<string, IReadOnlyDictionary<...>>) is
-        // INVARIANT, so the concrete inner Dictionary produced by ToDictionary must be cast to its
-        // IReadOnlyDictionary PublicType in the selector or AsProjected infers the wrong TResult (CS0266).
+        // [String: [String: any P]] return: the invariant-slot cast that used to live on the
+        // inner element conversion is now applied by the OUTER dictionary's AsProjected value
+        // selector. The outer value slot (IReadOnlyDictionary<string, IReadOnlyDictionary<...>>)
+        // is INVARIANT, so the concrete inner Dictionary produced by ToDictionary must be cast
+        // to its IReadOnlyDictionary PublicType in the selector or AsProjected infers the wrong
+        // TResult (CS0266).
         var outerDict = new DictionaryProjection(
             new StringProjection(),
             new DictionaryProjection(new StringProjection(), DescribableExistential(), isParameter: false),
@@ -390,12 +391,13 @@ public class ComplexProjectionTests
     [Fact]
     public void TopLevelReturn_DictionaryOfArrayOfDictionary_AsProjectedValueSelector_CastsToReadOnlyListInterface()
     {
-        // The exact ObjectMapper [String: [[String: any P]]] return regression. The outer dictionary value
-        // is an ARRAY of dictionaries. The array element conversion yields IReadOnlyList<concrete Dictionary>
-        // (covariance absorbs the concrete inner dict for the array itself), but the OUTER dictionary value
-        // slot is INVARIANT, so the array value must be cast to its EXACT IReadOnlyList<IReadOnlyDictionary<…>>
-        // public type in the selector or AsProjected infers IReadOnlyList<Dictionary<…>> and the invariant
-        // outer dictionary rejects it with CS0266. The cast is legal via the covariant IReadOnlyList<out T>.
+        // [String: [[String: any P]]] return regression. The outer dictionary value is an ARRAY
+        // of dictionaries. The array element conversion yields IReadOnlyList<concrete Dictionary>
+        // (covariance absorbs the concrete inner dict for the array itself), but the OUTER
+        // dictionary value slot is INVARIANT, so the array value must be cast to its EXACT
+        // IReadOnlyList<IReadOnlyDictionary<…>> public type in the selector or AsProjected
+        // infers IReadOnlyList<Dictionary<…>> and the invariant outer dictionary rejects it
+        // with CS0266. The cast is legal via the covariant IReadOnlyList<out T>.
         var outerDict = new DictionaryProjection(
             new StringProjection(),
             new ArrayProjection(

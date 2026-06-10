@@ -238,8 +238,7 @@ public class EveryProtocolEmitter
 
             // EveryObjCProtocol is the NSObject-rooted twin of EveryProtocol. Swift
             // forbids conforming a non-NSObject class to any @objc protocol that
-            // inherits NSObjectProtocol (Stripe's STPAuthenticationContext is the
-            // motivating shape). Conformances synthesised on this class satisfy the
+            // inherits NSObjectProtocol. Conformances synthesised on this class satisfy the
             // NSObjectProtocol requirement via NSObject's built-in implementations
             // of isEqual:/hash/description, leaving the protocol's own requirements
             // to the same vtable-callback pattern used for EveryProtocol.
@@ -1091,9 +1090,9 @@ public class EveryProtocolEmitter
             // gated on _useObjCBase) — a sync witness satisfies an async requirement — so the
             // witness's @convention(c) vtable call is sync-ABI. An async sibling's per-protocol
             // global vtable slot, however, holds an async C# receiver thunk that marshals a Task as
-            // the result; reached through the sync pointer it returns garbage (the Kingfisher
-            // async/sync refinement shape: a sync protocol refining an async one, both declaring the
-            // same selector). Ordering sync (non-async) siblings first makes a mixed async/sync group
+            // the result; reached through the sync pointer it returns garbage (a sync protocol
+            // refining an async one and declaring the same selector). Ordering sync (non-async) siblings
+            // first makes a mixed async/sync group
             // dispatch through the ABI-compatible vtable; the async branch stays a trailing fallback
             // so an all-async group still emits a branch (its runtime dispatch is compile-gated only).
             // The owner still emits the body (gated on plan.Owner, not Siblings[0]); Siblings carries
@@ -1271,8 +1270,7 @@ public class EveryProtocolEmitter
         // Detect protocols with mixed method-level generics and non-generic members.
         // These protocols need ALL members emitted as stubs because the type projection
         // pipeline generates incorrect types for non-generic members when method-level
-        // generic parameters are in scope (e.g., RxSwift.SchedulerType.now resolves
-        // RxTime→Double instead of Date). Stubs use raw TypeSpec rendering which is correct.
+        // generic parameters are in scope. Stubs use raw TypeSpec rendering which is correct.
         bool isMixedGenericProtocol = IsMixedGenericProtocol(protocolDecl);
 
         // Emit property implementations (skip static and @objc optional properties)
@@ -1578,8 +1576,8 @@ public class EveryProtocolEmitter
         // async method it refines therefore emit the IDENTICAL Swift signature and MUST stay in one
         // owner/peer group: one owner emits the shared sync witness, the other an empty extension.
         // Distinguishing them in this key splits them into two owners that BOTH emit
-        // `func foo(...) -> T` on EveryProtocol -> "invalid redeclaration" (the Kingfisher
-        // ImageDownloadRequestModifier : AsyncImageDownloadRequestModifier shape).
+        // `func foo(...) -> T` on EveryProtocol -> "invalid redeclaration" (a sync protocol
+        // conforming to an async protocol and declaring the same selector).
         //
         // The async DISTINCTION the C# side needs — a sync `Foo` and an async `FooAsync` are
         // separate C# members, so the sync receiver must NOT treat the async-base interface as a
@@ -1794,7 +1792,7 @@ public class EveryProtocolEmitter
 
         if (IsClassBoundProtocol(protocolDecl, _allProtocols))
         {
-            // NSObjectProtocol-only protocols (e.g. STPAuthenticationContext) re-route
+            // NSObjectProtocol-only protocols (e.g. PaymentSdkAuthenticationContext) re-route
             // through the NSObject-rooted EveryObjCProtocol helper class instead of skipping.
             // Protocols that ALSO require NSCoding / NSSecureCoding / NSCopying / NSMutableCopying
             // still skip — those need encoding / copying surfaces a synthesised proxy can't supply.
@@ -1887,7 +1885,7 @@ public class EveryProtocolEmitter
     /// <c>public</c> keyword, which causes the parser's negative-space heuristic
     /// (<c>IsInternalFromPublicMemberNames</c>) to flag legitimate public requirements
     /// as internal. Treating those as "suppressed" would skip conformances that already
-    /// emit working witnesses on baseline (e.g. SnapKit.ConstraintPriorityTarget).
+    /// emit working witnesses on baseline.
     /// </summary>
     private static bool HasSuppressedRequiredMember(ProtocolDecl protocolDecl)
     {
@@ -3576,11 +3574,9 @@ public class EveryProtocolEmitter
         // a sync candidate trivially satisfies an async requirement (sync = "never
         // suspends"). Emitting `async` here is not just unnecessary — it actively
         // breaks any sibling/child protocol whose SYNC requirement was being
-        // satisfied by member-inheritance from this same conformance (e.g.
-        // Kingfisher.ImageDownloadRequestModifier has a sync `modified(for:)`
-        // satisfied by the inherited sync witness from
-        // AsyncImageDownloadRequestModifier; marking the parent witness `async`
-        // breaks the child's empty-body conformance).
+        // satisfied by member-inheritance from this same conformance (e.g., a sync
+        // sub-protocol refining an async base; marking the base witness `async`
+        // breaks the sub-protocol's empty-body conformance).
         var asyncDecl = (method.IsAsync && _useObjCBase) ? " async" : "";
         var throwsDecl = (effectiveThrows ?? method.Throws) ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
@@ -4002,9 +3998,8 @@ public class EveryProtocolEmitter
                 // pointer to the element buffer / UTF-8 bytes instead of the value. Route through
                 // an explicitly-typed pointer so the receiver reads the value — same treatment as
                 // the non-closure method fan-out (see EmitMethodImplementation) and
-                // RequiresExplicitValuePointer. Reachable here for the Stripe-shaped
-                // `f(withAPIVersion: String, completion: @escaping ...)` case the closure-method
-                // gate (IsDispatchableClosureMethod) explicitly admits: one dispatchable closure
+                // RequiresExplicitValuePointer. Reachable here for the closure-method shape
+                // the gate (IsDispatchableClosureMethod) explicitly admits: one dispatchable closure
                 // param plus zero or more non-closure value params. (A top-level Array value param
                 // crashes without this; pinned by TestTagBatchProcessorProxy_ArrayParamRoundTrips.)
                 var ptrName = $"{paramName}CopyPtr";
@@ -4372,11 +4367,9 @@ public class EveryProtocolEmitter
 
         // Accept exactly one dispatchable closure-bearing param (bare closure or
         // `Optional<Closure>`) plus zero or more non-closure value-shape params.
-        // Multi-arg shapes (e.g. Stripe's
-        // `createIssuingCardKey(withAPIVersion: String, completion: @escaping ...)`)
-        // marshal each non-closure param through the standard receiver path and the
-        // dispatchable closure param through the (fnPtr, ctx) pair — same machinery as
-        // the single-arg case, just iterated. Reject other closure shapes (async,
+        // Multi-arg shapes marshal each non-closure param through the standard receiver
+        // path and the dispatchable closure param through the (fnPtr, ctx) pair — same
+        // machinery as the single-arg case, just iterated. Reject other closure shapes (async,
         // non-dispatchable, multi-closure) and inout — those need richer plumbing.
         var nonSelfParams = method.CSSignature.Skip(1).ToList();
         if (nonSelfParams.Count == 0)
@@ -5963,7 +5956,7 @@ public class EveryProtocolEmitter
                 return true;
 
             // Case 3: Underscore-prefixed internal protocol from external module.
-            // These are often ObjC protocol backing types (e.g., StripeApplePay._stpinternal_STPApplePayContextDelegateBase)
+            // These are often ObjC protocol backing types (e.g., ExternalModule._internal_SomeDelegate)
             // that we can't inspect. Conservative: skip rather than emit broken conformance.
             if (moduleName != _moduleName && typeName.StartsWith("_"))
                 return true;

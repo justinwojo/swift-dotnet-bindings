@@ -74,7 +74,7 @@ public func createAsyncDataSource(identifier: String) -> AsyncDataSource {
     return AsyncDataSource(identifier: identifier)
 }
 
-// MARK: - X1: AsyncStream Property (Nuke ImageTask pattern)
+// MARK: - X1: AsyncStream Property (AsyncStream with object and primitive element types)
 // Generator has AsyncStreamEmitter.cs, runtime has SwiftAsyncStream.cs — both untested.
 
 /// Class with AsyncStream computed properties.
@@ -108,8 +108,7 @@ public class AsyncValueSource {
     /// helper type at the public API boundary. Post-fix the property surfaces as
     /// `IAsyncEnumerable<IReadOnlyList<Int32>>` while the channel still stores
     /// `SwiftArray<Int32>` internally — covariance (`IAsyncEnumerable<out T>` plus
-    /// `SwiftArray<T> : IReadOnlyList<T>`) closes the loop. Mirrors BlinkIDUX's
-    /// `BlinkIDEventStream.stream: AsyncStream<[UIEvent]>` discovery case.
+    /// `SwiftArray<T> : IReadOnlyList<T>`) closes the loop.
     public var batches: AsyncStream<[Int32]> {
         AsyncStream { continuation in
             continuation.yield([1, 2, 3])

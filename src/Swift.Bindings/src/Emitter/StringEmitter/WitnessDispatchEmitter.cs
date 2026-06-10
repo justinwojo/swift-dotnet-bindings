@@ -1740,8 +1740,8 @@ public class WitnessDispatchEmitter
 
     /// <summary>
     /// Gets the Swift module-qualified existential type string for a return type.
-    /// E.g., for a ProtocolListTypeSpec with "SmartCardIO.Card", returns "SmartCardIO.Card".
-    /// Used in typed pointer declarations: <c>UnsafeMutablePointer&lt;any SmartCardIO.Card&gt;</c>.
+    /// E.g., for a ProtocolListTypeSpec with "Module.Protocol", returns "Module.Protocol".
+    /// Used in typed pointer declarations: <c>UnsafeMutablePointer&lt;any Module.Protocol&gt;</c>.
     /// </summary>
     private string? GetSwiftExistentialTypeName(TypeSpec returnType)
     {
@@ -1767,7 +1767,7 @@ public class WitnessDispatchEmitter
             return null;
 
         if (protocols.Count == 1)
-            return protocols[0].Name; // e.g., "SmartCardIO.Card"
+            return protocols[0].Name; // e.g., "Module.Protocol"
 
         // Multi-protocol composition: "ProtocolA & ProtocolB"
         return string.Join(" & ", protocols.Select(p => p.Name));
@@ -1780,7 +1780,7 @@ public class WitnessDispatchEmitter
     /// Handles throwing (do/catch + errorOut) and optional return (if let unwrap).
     /// Also emits a typed free function for deinitialize + deallocate.
     /// </summary>
-    /// <param name="swiftTypeName">The Swift type for allocation, e.g., "any SmartCardIO.Card" or "[String]".</param>
+    /// <param name="swiftTypeName">The Swift type for allocation, e.g., "any Module.Protocol" or "[String]".</param>
     /// <param name="isOptionalReturn">True for Optional&lt;any Protocol&gt; return types (existential only).</param>
     private void EmitHeapAllocatedSwiftAccessor(
         SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl,

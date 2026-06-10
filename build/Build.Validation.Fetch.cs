@@ -291,8 +291,8 @@ partial class Build
             // alongside the iOS one. The host-run consumer in `nuke validate`'s
             // behavior tier loads this slice on macOS to invoke real Swift through
             // P/Invoke. macOS scheme name comes from the manifest; we cannot reuse
-            // the iOS scheme (Alamofire's xcodeproj exposes "Alamofire macOS" as a
-            // distinct scheme from "Alamofire iOS"). The result lives under
+            // the iOS scheme (some libraries expose a separate macOS scheme distinct
+            // from the iOS scheme). The result lives under
             // `<libDir>/.behavior-tier/` (see CreateProductMacOSXcframework) so
             // Validate's sibling-xcframework auto-discovery cannot pick it up and
             // try to resolve a macOS slice as an iOS framework dependency.

@@ -6,25 +6,21 @@ import Foundation
 // MARK: - Family-F (`@available` emission) — Layer A coverage
 //
 // Synthetic mirrors of the five sub-shapes of the spurious-obsolete-on-recommended-overload
-// `@available` emission bug. Each shape is listed against a real-world library; this file recreates the
-// minimum Swift surface area for each so a regression shows up in
-// `nuke binding-tests` long before a `nuke validate` sweep would catch it.
+// `@available` emission bug. This file recreates the minimum Swift surface area
+// for each so a regression shows up in `nuke binding-tests` long before a
+// `nuke validate` sweep would catch it.
 //
-//   F-1 (Nuke):           Deprecation on one overload must NOT broadcast
-//                         to its sibling overloads.
-//   F-2 (StripeApplePay): @available on a protocol member without an
-//                         explicit `public` modifier must survive — the
-//                         pre-fix regex parser dropped it because the
-//                         modifier gate skipped bare protocol requirements.
-//   F-3 (Lottie):         @available(*, deprecated) on an enum case must
-//                         flow through to the lowered C# factory method.
-//   F-4 (StoreKit2):      Two overloads with distinct `@available(iOS X.Y, *)`
-//                         versions must keep their distinct versions —
-//                         pre-fix `AddRange` accumulation merged them.
-//   F-5 (MusicKit):       `visionOS` in the `@available` clause must lower
-//                         to `[SupportedOSPlatform("visionos1.0")]`. The
-//                         pre-fix PlatformMapping table omitted visionOS
-//                         and the emitter silently dropped the clause.
+//   F-1: Deprecation on one overload must NOT broadcast to its sibling overloads.
+//   F-2: @available on a protocol member without an explicit `public` modifier
+//        must survive — the pre-fix regex parser dropped it because the modifier
+//        gate skipped bare protocol requirements.
+//   F-3: @available(*, deprecated) on an enum case must flow through to the
+//        lowered C# factory method.
+//   F-4: Two overloads with distinct `@available(iOS X.Y, *)` versions must keep
+//        their distinct versions — pre-fix `AddRange` accumulation merged them.
+//   F-5: `visionOS` in the `@available` clause must lower to
+//        `[SupportedOSPlatform("visionos1.0")]`. The pre-fix PlatformMapping
+//        table omitted visionOS and the emitter silently dropped the clause.
 
 // MARK: F-1 — Deprecation NOT broadcast across overload set
 
@@ -53,7 +49,7 @@ public struct OverloadDeprecationCarrier {
 //
 // 1. Parser side: `@available` survival on protocol members declared
 //    without an explicit access modifier (the @objc optional func / bare
-//    protocol requirement shape from StripeApplePay). Covered by
+//    protocol requirement shape). Covered by
 //    `GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier`
 //    in `SwiftInterfaceAccessParserTests.cs`.
 //

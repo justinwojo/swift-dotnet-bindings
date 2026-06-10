@@ -6,9 +6,7 @@ import Foundation
 // MARK: - Callback-arg projection asymmetry
 //
 // Regression for the callback-arg projection asymmetry bug.
-// Mirrors Nuke 13.0.5's
-// `loadData(... completion: @escaping ((Foundation.Data, Foundation.URLResponse?)) -> Void)`
-// shape: a callback closure whose argument is a tuple containing types that have
+// Shape: a callback closure whose argument is a tuple containing types that have
 // non-trivial projections in the rest of the SDK
 // (`Foundation.Data` → `byte[]`, `Foundation.URLResponse` → `Foundation.NSUrlResponse`,
 // `Optional<T>` → `T?`, `Swift.String` → `string`).
@@ -33,7 +31,7 @@ public class CallbackArgProjectionLab {
         completion(Foundation.Data(bytes))
     }
 
-    /// Tuple of (Foundation.Data, Foundation.URLResponse?) — the Nuke shape.
+    /// Tuple of (Foundation.Data, Foundation.URLResponse?) — mixed-projection closure-arg tuple shape.
     /// Pre-fix: `Action<(Swift.Foundation.Data, Swift.SwiftOptional<IntPtr>)>`.
     /// Post-fix: `Action<(byte[], Foundation.NSUrlResponse?)>`.
     public func loadResponse(completion: @escaping (Foundation.Data, Foundation.URLResponse?) -> Void) {

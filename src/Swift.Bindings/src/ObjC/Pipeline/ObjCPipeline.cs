@@ -190,7 +190,7 @@ public static class ObjCPipeline
     /// <summary>
     /// Filters categories to keep only foreign-type categories (base class not defined in this module).
     /// Own-type categories were already merged into their parent classes by the parser.
-    /// Foreign-type categories (e.g., NSNull+RLMValue declaring NSNull conforms to RLMValue)
+    /// Foreign-type categories (e.g., NSNull+MOSValue declaring NSNull conforms to MOSValue)
     /// must be preserved and emitted as [Category] binding interfaces.
     /// </summary>
     internal static ObjCModule FilterToForeignCategories(ObjCModule module, ILogger logger)

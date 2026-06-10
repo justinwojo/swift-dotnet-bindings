@@ -10,8 +10,8 @@ namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
 /// End-to-end coverage for the cross-kind @_cdecl symbol dedup in
-/// ModuleEmissionContext (Kingfisher ImageDownloader.isValidStatusCode shape).
-/// If the dedup regressed, the generated wrapper file would contain two
+/// ModuleEmissionContext: a protocol extension method and a concrete class method
+/// that project to the same @_cdecl symbol name. If the dedup regressed, the generated wrapper file would contain two
 /// `@_cdecl` annotations for the same C symbol and swiftc would reject it
 /// with "multiple definitions of symbol" — the BindingTests Swift compile
 /// step would fail before this test even runs. Reaching the runtime check

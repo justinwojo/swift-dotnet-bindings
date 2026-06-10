@@ -3,18 +3,18 @@
 
 import Foundation
 
-// MARK: - GenericConstrainedExtensionOverload — ObjectMapper regression
+// MARK: - GenericConstrainedExtensionOverload — constrained-extension sibling regression
 //
-// Reproduces ObjectMapper's `Mapper<N>` shape that broke at 0.11.0: a generic
-// class declares a sibling method in a `where N : Narrower` extension. The GSM
-// emitter previously produced a wrapper extension for that method WITHOUT the
-// `where N : Narrower` clause, so at the wrapper's call site the constrained
-// extension method was either invisible (forcing overload misresolution onto
-// an unconstrained body sibling) or its body's `obj.method(...)` failed to
-// typecheck because `N` lacks the narrower conformance.
+// Reproduces a generic-class shape that broke at 0.11.0: a generic class declares
+// a sibling method in a `where N : Narrower` extension. The GSM emitter previously
+// produced a wrapper extension for that method WITHOUT the `where N : Narrower`
+// clause, so at the wrapper's call site the constrained extension method was either
+// invisible (forcing overload misresolution onto an unconstrained body sibling) or
+// its body's `obj.method(...)` failed to typecheck because `N` lacks the narrower
+// conformance.
 //
-// Real-world signal: ObjectMapper's `extension Mapper where N : ImmutableMappable`
-// added a `map(JSONObject: Any) throws -> N` sibling to the body's
+// The pattern: a `where N : ImmutableMappable` extension adds a
+// `map(JSONObject: Any) throws -> N` sibling to the body's
 // `func map(JSONObject: Any?) -> N?`. swiftc emitted:
 //   error: value of optional type 'N?' must be unwrapped to a value of type 'N'
 // on the generated wrapper for the constrained method.
@@ -25,9 +25,9 @@ import Foundation
 // symbol contract records the omission. The unconstrained body sibling
 // continues to be emitted and round-trips from C#.
 //
-// The body method takes `JSONObject: Any?` matching ObjectMapper exactly, so
-// the constrained sibling's overload-resolution shadow path (the original
-// swiftc rejection) reproduces if the wrapper-skip regresses. This also
+// The body method takes `JSONObject: Any?` to reproduce the original
+// overload-resolution shadow path (the original swiftc rejection) if the
+// wrapper-skip regresses. This also
 // exercises the Optional<Any> @_cdecl boundary: C# passes a buffer pointer
 // to a `SwiftOptional<ExistentialContainer0>` (4-word EC: 3 payload words +
 // 1 metadata pointer; nil via null-metadata extra-inhabitant) and the Swift
@@ -52,8 +52,8 @@ public final class GenericConstrainedExtensionMapper<N: GenericConstrainedBaseLa
     public init(stored: N?) { self.stored = stored }
 
     // Class-body method: parent's conformance only. Predicate does NOT fire
-    // — wrapper emitted, callable from C#. Matches ObjectMapper's body
-    // signature exactly so overload resolution against the constrained
+    // — wrapper emitted, callable from C#. Matches the body signature
+    // exactly so overload resolution against the constrained
     // sibling reproduces the original wrapper-compile failure if the skip
     // regresses.
     public func map(JSONObject: Any?) -> N? {
@@ -63,8 +63,7 @@ public final class GenericConstrainedExtensionMapper<N: GenericConstrainedBaseLa
 
 // Constrained extension: narrows N to GenericConstrainedImmutableLabel.
 // Predicate FIRES on this method — wrapper SKIPPED. Param/return mirror the
-// ObjectMapper shape so the structural source pattern is preserved even though
-// no @_cdecl wrapper is emitted.
+// The structural source pattern is preserved even though no @_cdecl wrapper is emitted.
 extension GenericConstrainedExtensionMapper where N: GenericConstrainedImmutableLabel {
     public func map(JSONObject: Any) throws -> N {
         guard let stored else {

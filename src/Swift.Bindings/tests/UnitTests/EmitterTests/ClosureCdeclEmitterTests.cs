@@ -953,8 +953,8 @@ public class ClosureCdeclEmitterTests
         // instead of `_payload.DangerousGetHandle()`.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
-        // LottieColor is registered as frozen struct with no memory management (value type)
-        var parentDecl = CreateStructDecl("LottieColor", moduleDecl, isFrozen: true);
+        // The parent type is registered as a frozen struct with no memory management (value type)
+        var parentDecl = CreateStructDecl("VectorAnimationColor", moduleDecl, isFrozen: true);
 
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
@@ -981,7 +981,7 @@ public class ClosureCdeclEmitterTests
         // Static methods don't have self — no fixed block needed even on frozen struct value types
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
-        var parentDecl = CreateStructDecl("LottieColor", moduleDecl, isFrozen: true);
+        var parentDecl = CreateStructDecl("VectorAnimationColor", moduleDecl, isFrozen: true);
 
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
@@ -1158,7 +1158,7 @@ public class ClosureCdeclEmitterTests
         // activates via its own IsEligible check. Letting the normal ClosureEmitter
         // path accept `any Error` causes it to emit broken adapters that try to pass
         // the existential directly into an UnsafeMutableRawPointer parameter (seen
-        // in GRDB.DatabaseRegionObservation.start(onError:)).
+        // in a method like `start(onError: (any Error) -> Void)`).
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -1270,11 +1270,10 @@ public class ClosureCdeclEmitterTests
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        // Closure: (Optional<LottieColor>) -> Void — Optional<FrozenStruct> uses nil-for-none
+        // Closure: (Optional<FrozenStruct>) -> Void — Optional<FrozenStruct> uses nil-for-none
         // pointer ABI: Swift unwraps the optional, passes inner value pointer (nil for .none).
-        // Unblocks Mappedin callbacks like (MPICoordinate?) -> Void.
         var optionalStruct = new NamedTypeSpec("Swift.Optional",
-            new NamedTypeSpec("TestModule.LottieColor"));
+            new NamedTypeSpec("TestModule.VectorAnimationColor"));
         var closureType = new ClosureTypeSpec(optionalStruct, TupleTypeSpec.Empty);
 
         Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
@@ -1288,9 +1287,9 @@ public class ClosureCdeclEmitterTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MapView", moduleDecl);
 
-        // Method: func getCoordinate(callback: @escaping (LottieColor?) -> Void)
+        // Method: func getCoordinate(callback: @escaping (FrozenStruct?) -> Void)
         var optionalStruct = new NamedTypeSpec("Swift.Optional",
-            new NamedTypeSpec("TestModule.LottieColor"));
+            new NamedTypeSpec("TestModule.VectorAnimationColor"));
         var closureType = new ClosureTypeSpec(optionalStruct, TupleTypeSpec.Empty);
         closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
 
@@ -1417,9 +1416,9 @@ public class ClosureCdeclEmitterTests
     {
         // `inout T` in a closure arg cannot be plumbed through @convention(c). The Swift
         // adapter would need `inout p0: T` with a writeback, which has no representation
-        // on the C# callback side. Regression guard for XMLCoder/Nuke/Swinject:
-        // `(inout Configuration) -> Void` was producing a broken Swift wrapper that got
-        // stripped by the post-processor, leaving half-stripped C# that failed to compile.
+        // on the C# callback side. Regression guard: `(inout Configuration) -> Void` was producing
+        // a broken Swift wrapper that got stripped by the post-processor, leaving half-stripped
+        // C# that failed to compile.
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -1775,12 +1774,12 @@ public class ClosureCdeclEmitterTests
                 Kind = TypeRecordKind.Class
             });
         module.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationColor"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LottieColor"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
-                MetadataAccessor = "$s10TestModule11LottieColorVMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "VectorAnimationColor"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationColor"),
+                MetadataAccessor = "$s10TestModule20VectorAnimationColorVMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });

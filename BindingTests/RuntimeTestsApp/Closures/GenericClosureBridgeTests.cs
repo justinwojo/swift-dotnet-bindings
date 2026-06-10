@@ -43,7 +43,7 @@ public class GenericClosureBridgeTests : TestBase
         TestLogger.Info("GenericProcessor.RunWithFilter MCB generic parent test passed");
     }
 
-    // ─── Swift.String as MCB non-closure param (Stripe pattern) ──────
+    // ─── Swift.String as MCB non-closure param ──────
 
     /// <summary>
     /// MCB passes a Swift.String non-closure parameter as a UTF-8 (pointer, length)
@@ -74,7 +74,7 @@ public class GenericClosureBridgeTests : TestBase
         TestLogger.Info("Swift.String non-closure MCB param round-trip passed");
     }
 
-    // ─── Optional MCB closure (Nuke/GRDB/Kingfisher pattern) ───────────
+    // ─── Optional MCB closure ───────────
 
     /// <summary>
     /// MCB bridges an `Optional<(any Error) -> Void>` with a non-nil callback:
@@ -95,7 +95,7 @@ public class GenericClosureBridgeTests : TestBase
 
     /// <summary>
     /// MCB Optional closure with null: must round-trip as nil, skip GCHandle.Alloc,
-    /// return 0 from Swift, no crash. This is the Nuke/GRDB/Kingfisher shape.
+    /// return 0 from Swift, no crash. Optional MCB closure with a nil callback.
     /// </summary>
     public void TestOptionalErrorCallback_Null()
     {

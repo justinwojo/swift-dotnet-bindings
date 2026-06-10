@@ -7,7 +7,7 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Regression lock for the ObjectMapper 0.11.0 wrapper-compile failure and
+/// Regression lock for a 0.11.0 wrapper-compile failure and
 /// the orthogonal Optional&lt;Any&gt; @_cdecl ABI fix:
 ///
 /// (1) Constrained-extension overload: the GSM wrapper for a method declared

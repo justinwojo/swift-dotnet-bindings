@@ -104,7 +104,7 @@ public static partial class CrossModuleExtensionEmitter
                 continue;
             if (method.IsConstructor)
                 continue;
-            // SPI / @usableFromInline-internal Stripe-style methods are visible at C# level
+            // SPI / @usableFromInline-internal methods are visible at C# level
             // but the wrapper trampoline (compiled outside the SPI group) cannot resolve them.
             if (method.IsModuleInternal || method.IsSpiProtected)
                 continue;

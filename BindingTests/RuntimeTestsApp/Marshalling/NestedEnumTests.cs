@@ -329,7 +329,7 @@ public class NestedEnumTests : TestBase
 
     #endregion
 
-    #region Nested Class Rename — Generic Parameter (Kingfisher Animator pattern)
+    #region Nested Class Rename — Generic Parameter (image-loader Animator pattern)
 
     public void TestNestedClassRename_TypeExists()
     {

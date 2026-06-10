@@ -52,12 +52,10 @@ public func makePendingDelivery() -> TaggedDelivery {
 }
 
 // Reproducer for the missing enum-case payload extractor bug.
-// Mirrors the Stripe FinancialConnections.Result shape: a Result-style enum
-// with a *labeled* class associated value on success, a no-payload cancelation
-// case, and a labeled `any Swift.Error` failure case. In the Stripe binding,
-// only the `failed(error:)` case received a factory + TryGet — `completed(session:)`
-// got just the CaseTag. The bug claim is that the labeled-class-payload case is
-// silently skipped while the AnyError-payload case in the same enum still emits.
+// A Result-style enum with a *labeled* class associated value on success, a
+// no-payload cancelation case, and a labeled `any Swift.Error` failure case.
+// The bug was that the labeled-class-payload case received only a CaseTag —
+// no factory + TryGet — while the AnyError-payload case in the same enum still emitted.
 //
 // Exists alongside `ClassOutcome.delivered(BoxedCounter)` (unlabeled, single class
 // payload) which already emits factory + TryGet — so any divergence between this

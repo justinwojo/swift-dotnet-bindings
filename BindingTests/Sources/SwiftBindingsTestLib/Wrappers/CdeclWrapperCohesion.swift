@@ -4,8 +4,8 @@
 import Foundation
 
 // Maximum-case fixture for the `@_cdecl` wrapper cohesion gates that broke
-// downstream in 0.11.0 across RealityFoundation, RealityKit, Kingfisher,
-// Alamofire, RxSwift, Starscream, and Swinject. Two intertwined symptoms:
+// downstream in 0.11.0 across RealityFoundation, RealityKit, and several other
+// frameworks. Two intertwined symptoms:
 //
 //  1. Inherited instance method takes / returns an Optional<Class> and the
 //     `@_cdecl` wrapper must render it as `UnsafeMutableRawPointer?` rather
@@ -62,9 +62,8 @@ public final class WrapperCohesionRight: WrapperCohesionBase {
     public var rightMark: Int32 = 0
 }
 
-// Class-only protocol so the conforming type is a class (mirrors Kingfisher's
-// Builder shape) and the protocol-extension methods can mutate the receiver
-// without a `mutating` keyword.
+// Class-only protocol so the conforming type is a class and the protocol-extension
+// methods can mutate the receiver without a `mutating` keyword.
 public protocol WrapperCohesionBuildable: AnyObject {
     var stepCounter: Int32 { get set }
     var strideCounter: Int32 { get set }
@@ -101,9 +100,8 @@ public final class WrapperCohesionBuilder: WrapperCohesionBuildable {
     public init() {}
 }
 
-// Protocol-extension default method with `Optional<value-type>` parameters —
-// the BlinkIDUX `ReticleStateMachineProtocol.calculateRemainingTime(stateDuration:)`
-// shape. Round-1 emitted the @_cdecl wrapper with bare `Optional<Double>` /
+// Protocol-extension default method with `Optional<value-type>` parameters.
+// Round-1 emitted the @_cdecl wrapper with bare `Optional<Double>` /
 // `Optional<Int32>` / `Optional<Bool>` parameter types, which `@_cdecl` rejects
 // because those generic types aren't C-representable. The wrapper must accept an
 // `UnsafeRawPointer` to a Swift.Optional<T> payload and decode inside the body —
@@ -115,7 +113,7 @@ public protocol WrapperCohesionRemaining: AnyObject {
 }
 
 extension WrapperCohesionRemaining {
-    // Optional<Double> param — the literal BlinkIDUX trigger.
+    // Optional<Double> param — the optional-value-type trigger shape.
     public func remainingTime(stateDuration: Double? = nil) -> Double {
         if let stateDuration = stateDuration {
             observedDouble = stateDuration

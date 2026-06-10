@@ -398,7 +398,7 @@ public class ConstructorHandlerOutputTests
     public void Emit_PrimaryConstructor_FrozenStruct_UsesCdeclWrapper()
     {
         // Frozen struct constructor → @_cdecl wrapper required
-        // (SwiftIndirectResult + Mono JIT crash, e.g. URLEncoding from Alamofire)
+        // (SwiftIndirectResult + Mono JIT crash)
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -444,7 +444,7 @@ public class ConstructorHandlerOutputTests
         // signature collides …)` comment to the C# source — that comment would land
         // directly above whatever the emitter writes next and read as if it applied to
         // the working overload that *did* emit
-        // (e.g. Lottie `AnimationKeypath(IEnumerable<string>)`).
+        // (e.g. a constructor like `AnimationKeypath(IEnumerable<string>)`).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Widget", moduleDecl, typeDatabase);

@@ -76,7 +76,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
     private(set) var customActorTypes: [String] = []
     private(set) var customActorIsolatorMap: [String: String] = [:]
 
-    /// Set of "leaf" custom-actor names (e.g., "ImagePipelineActor"). Built lazily
+    /// Set of "leaf" custom-actor names (e.g., "MyServiceActor"). Built lazily
     /// after the first walk pass collects `customActorTypes`. Empty during the
     /// initial pass — the cluster does both passes inline so `actorIsolatedMembers`
     /// can match against custom-actor names declared anywhere in the same file.
