@@ -11,5 +11,11 @@
     <string>UIStatusBarStyleDefault</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <true/>
+    <!-- Enables ActivityKit Live Activities so LiveActivityTests can exercise the
+         full .NET to @_cdecl to ActivityKit request/update/end chain. This is an
+         Info.plist capability, NOT a signing entitlement; a wildcard provisioning
+         profile covers it for the physical-device leg. -->
+    <key>NSSupportsLiveActivities</key>
+    <true/>
 </dict>
 </plist>

@@ -3,6 +3,7 @@
 
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Swift.ActivityKit;
 using Swift.Runtime;
 using Foundation;
 using RuntimeTestsApp.Infrastructure;
@@ -32,6 +33,15 @@ public class Application
     internal static string? ClassFilter { get; private set; }
 
     /// <summary>
+    /// When true, skip the test suite and instead start one Live Activity from the
+    /// .NET ActivityKit facade and leave it on screen (no End). Used by the visual
+    /// lock-screen pixel proof: launch with --persist-activity, then look at the
+    /// device's lock screen to confirm the .NET-driven activity renders via the
+    /// embedded SwiftUI widget. Enabled via the --persist-activity CLI arg.
+    /// </summary>
+    internal static bool PersistActivity { get; private set; }
+
+    /// <summary>
     /// When set, these test classes are excluded from the run (used by resume-on-crash orchestration).
     /// </summary>
     internal static HashSet<string> ExcludeClasses { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -56,6 +66,10 @@ public class Application
             else if (effectiveArgs[i] == "--flake-detect")
             {
                 FlakeDetect = true;
+            }
+            else if (effectiveArgs[i] == "--persist-activity")
+            {
+                PersistActivity = true;
             }
             else if (effectiveArgs[i] == "--lifetime")
             {
@@ -201,8 +215,59 @@ public class MainViewController : UIViewController
         _resultTextView.ClipsToBounds = true;
         View.AddSubview(_resultTextView);
 
-        // Auto-run tests on startup
-        _ = RunTestsAsync();
+        // Visual pixel proof: when launched with --persist-activity, skip the test
+        // suite and instead start one Live Activity from the .NET facade and leave
+        // it running so it renders on the lock screen via the embedded widget.
+        if (Application.PersistActivity)
+            _ = StartPersistentActivityAsync();
+        else
+            _ = RunTestsAsync();
+    }
+
+    /// <summary>
+    /// Waits for the app to reach the foreground-active state, then starts a single
+    /// Live Activity through the .NET ActivityKit facade and leaves it on screen.
+    /// ActivityKit's request() throws unless the host app is foreground-active, so we
+    /// poll for that first (launch transitions through Inactive). The activity is
+    /// intentionally never ended — the system keeps rendering it on the lock screen.
+    /// </summary>
+    private async Task StartPersistentActivityAsync()
+    {
+        if (!await AppleSupplement.ActivityKitReadiness.WaitForForegroundActiveAsync(TimeSpan.FromSeconds(10)))
+        {
+            UpdateResultLabel("App never reached foreground-active; cannot start a Live Activity.");
+            return;
+        }
+
+        try
+        {
+            if (!LiveActivity.AreActivitiesEnabled)
+            {
+                UpdateResultLabel("Live Activities are disabled for this app (Settings).");
+                return;
+            }
+
+            var activity = LiveActivity.Request(
+                name: "delivery",
+                attributesJson: """{"title":"Order #42"}""",
+                contentStateJson: """{"status":"Out for delivery","eta":"12 min"}""");
+
+            UpdateResultLabel(
+                $"Live Activity started from .NET (active={activity.IsActive}).\n" +
+                "Lock the device and look at the lock screen.");
+
+            // Visibly update the card a few seconds later so the on-screen state
+            // change is observable, then leave it running (never End).
+            await Task.Delay(6000);
+            activity.Update("""{"status":"Arriving now","eta":"1 min"}""");
+            UpdateResultLabel(
+                "Live Activity updated to 'Arriving now'.\n" +
+                "It remains on the lock screen until ended.");
+        }
+        catch (Exception ex)
+        {
+            UpdateResultLabel($"Failed to start Live Activity: {ex.Message}");
+        }
     }
 
     private void UpdateResultLabel(string text)
