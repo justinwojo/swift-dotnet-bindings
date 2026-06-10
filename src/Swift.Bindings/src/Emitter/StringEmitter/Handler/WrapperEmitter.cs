@@ -564,6 +564,7 @@ namespace BindingsGeneration
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            EmitConsumedNonCopyableSelfGuard(csWriter);
             // Existential heap variables (`void* xHeap = null;`) must precede EmitAsync.
             // For async methods, EmitAsync opens an outer `try {` whose closing brace is
             // written later by EmitReturnMethod, and the matching `finally { Free(xHeap); }`
@@ -598,6 +599,7 @@ namespace BindingsGeneration
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
             EmitConsumedNonCopyableParamCleanup(csWriter);
+            EmitConsumedNonCopyableSelfCleanup(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
@@ -878,6 +880,73 @@ namespace BindingsGeneration
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
                 csWriter.WriteLine($"{csName}.Payload.MarkConsumed();");
             }
+        }
+
+        /// <summary>
+        /// After the P/Invoke returns, emits <c>_payload.MarkConsumed();</c> for a <c>consuming</c>
+        /// instance method on a <c>~Copyable</c> struct parent. On that path the @_cdecl wrapper
+        /// <c>move()</c>d <c>self</c> out of the caller-owned buffer (see
+        /// <see cref="MethodWrapperEmitter"/>'s <c>consumesSelf</c> selfRef) and Swift ran the value's
+        /// deinit exactly once; MarkConsumed tells the owning <c>SwiftSafeHandle</c> to free the
+        /// now-empty buffer WITHOUT a second value-witness Destroy. Without it the value is destroyed
+        /// twice (SIGABRT). This is the self-method analogue of
+        /// <see cref="EmitConsumedNonCopyableParamCleanup"/> (the consuming-parameter path).
+        ///
+        /// Placed before <c>EmitSwiftError</c> so the handle is marked consumed even on the throwing
+        /// path — the wrapper's <c>move()</c> deinitializes the buffer before the Swift method runs,
+        /// so the buffer is already empty regardless of whether the call returns normally or throws.
+        /// Gated on <c>UsesCdeclWrapper</c> so the call is emitted iff the paired <c>move()</c> was.
+        /// </summary>
+        private void EmitConsumedNonCopyableSelfCleanup(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return;
+            if (!_env.MethodDecl.IsConsuming)
+                return;
+            if (_env.MethodDecl.MethodType == MethodType.Static || _env.MethodDecl.IsConstructor)
+                return;
+            if (!WrapperValidation.IsNonCopyableStructParent(_env.ParentDecl))
+                return;
+
+            csWriter.WriteLine("_payload.MarkConsumed();");
+        }
+
+        /// <summary>
+        /// Emits a fail-fast guard at the top of an instance method on a <c>~Copyable</c> struct
+        /// parent: if the receiver's value was already moved out by an earlier <c>consuming</c> self
+        /// method (see <see cref="EmitConsumedNonCopyableSelfCleanup"/>), throw
+        /// <see cref="System.ObjectDisposedException"/> instead of passing the moved-out buffer back
+        /// into Swift. Without the guard a post-consume call (e.g. <c>r.ConsumeSelf(); r.Peek();</c>)
+        /// would borrow or move from a deinitialized buffer — a silent use-after-move. Swift rejects
+        /// post-consume use at compile time; the C# class projection has no move checker, so this is
+        /// the runtime equivalent. Applies to EVERY instance method (consuming, borrowing, mutating,
+        /// plain) because any self-use after a consume is invalid; <c>_payload.IsConsumed</c> is false
+        /// until a <c>consuming</c> self method runs, so the guard is a no-op on the normal path.
+        ///
+        /// TRANSITIVE COVERAGE: this is the SOLE emission site of the guard, yet it also protects
+        /// property and subscript accessors. Property/subscript public members are expression-bodied
+        /// (<c>get =&gt; CurrentId_Get();</c>) and delegate to a backing accessor method that
+        /// <see cref="PropertyHandler"/>/<see cref="SubscriptHandler"/> route back through
+        /// <see cref="EmitMethod"/> with <c>IsAccessor = true</c> — so the backing method carries this
+        /// guard and the public accessor inherits it. Do NOT add a second guard in the property/subscript
+        /// emitters; that would double-guard. The <c>GuardedResource</c> BindingTests fixture pins this
+        /// transitive coverage (property + subscript read after <c>finish()</c> throw).
+        ///
+        /// NOT a concurrency barrier: the check (<c>IsConsumed</c>) and the consume mark are not atomic,
+        /// so two threads racing a consuming call on the SAME projected instance can both pass the guard
+        /// — a double-move. That mirrors Swift, whose move checking is single-threaded; a shared
+        /// <c>~Copyable</c> projection is no more thread-safe than the Swift value it wraps. The guard
+        /// is a single-threaded fail-fast for sequential use-after-consume, not a lock.
+        /// </summary>
+        private void EmitConsumedNonCopyableSelfGuard(CSharpWriter csWriter)
+        {
+            if (_env.MethodDecl.MethodType == MethodType.Static || _env.MethodDecl.IsConstructor)
+                return;
+            if (!WrapperValidation.IsNonCopyableStructParent(_env.ParentDecl))
+                return;
+
+            csWriter.WriteLine("if (_payload.IsConsumed)");
+            csWriter.WriteLine("    throw new global::System.ObjectDisposedException(GetType().Name, \"This ~Copyable value was already consumed by a `consuming` method; further use is invalid.\");");
         }
 
         /// <summary>

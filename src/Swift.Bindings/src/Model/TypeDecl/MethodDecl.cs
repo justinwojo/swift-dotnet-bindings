@@ -80,6 +80,22 @@ namespace BindingsGeneration
         public bool IsMutating { get; set; } = false;
 
         /// <summary>
+        /// Indicates if the method takes ownership of self (Swift's <c>consuming func</c>).
+        /// Parsed from <c>funcSelfKind == "Consuming"</c> in the ABI JSON.
+        /// On a <c>~Copyable</c> parent, self must be <c>move()</c>d out of the buffer rather than
+        /// borrowed through <c>.pointee</c> (a borrow cannot be consumed), and the owning C# handle
+        /// must be marked consumed so its value-witness Destroy does not run a second time.
+        /// </summary>
+        public bool IsConsuming { get; set; } = false;
+
+        /// <summary>
+        /// Indicates if the method borrows self read-only (Swift's <c>borrowing func</c>).
+        /// Parsed from <c>funcSelfKind == "Borrowing"</c> in the ABI JSON.
+        /// Borrowing self is reconstructed via a non-owning <c>.pointee</c> borrow through the pointer.
+        /// </summary>
+        public bool IsBorrowing { get; set; } = false;
+
+        /// <summary>
         /// Whether this method or accessor is declared as 'final'.
         /// Final members use direct dispatch even inside non-final classes
         /// (bare symbols exported, no Tj dispatch thunk needed).

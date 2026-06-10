@@ -1997,6 +1997,8 @@ namespace BindingsGeneration
                     ?? DetectAsyncFromMangledName(mangledName),
                 Visibility = Visibility.Public,
                 IsMutating = node.funcSelfKind == "Mutating",
+                IsConsuming = node.funcSelfKind == "Consuming",
+                IsBorrowing = node.funcSelfKind == "Borrowing",
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
                 IsImplicit = node.@implicit == true,
@@ -2468,6 +2470,8 @@ namespace BindingsGeneration
                 // Plain methods use funcSelfKind, but accessor nodes don't carry that — use either signal.
                 IsMutating = accessor.DeclAttributes?.Contains("Mutating") == true
                     || accessor.funcSelfKind == "Mutating",
+                IsConsuming = accessor.funcSelfKind == "Consuming",
+                IsBorrowing = accessor.funcSelfKind == "Borrowing",
                 Visibility = Visibility.Private,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };

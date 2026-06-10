@@ -2089,6 +2089,79 @@ public class MethodWrapperEmitterTests
 
     #endregion
 
+    #region Noncopyable consuming/borrowing self-reconstruction
+
+    // A ~Copyable parent is detected via an Escapable conformance WITHOUT a Copyable conformance —
+    // exactly what IsNonCopyableStructParent checks. Mirrors the ABI JSON shape Swift 6 emits.
+    private static StructDecl CreateNonCopyableStructDecl(string name, ModuleDecl moduleDecl)
+    {
+        var decl = CreateStructDecl(name, moduleDecl);
+        decl.IsFrozen = false;
+        decl.Conformances.Add(new TypeConformance(
+            ConformingType: decl.SwiftTypeName!,
+            Protocol: SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"),
+            ProtocolConformanceDescriptor: $"$s10TestModule{name.Length}{name}Vs9EscapableAAMc"));
+        return decl;
+    }
+
+    [Fact]
+    public void EmitWrapper_ConsumingSelf_NonCopyable_MovesSelfThroughMutablePointer()
+    {
+        // `consuming func` on a ~Copyable struct takes ownership of self. The wrapper must move()
+        // the value out of the caller-owned buffer — a `.pointee` borrow cannot be consumed
+        // (swiftc: "is borrowed and cannot be consumed"). move() needs a MUTABLE raw pointer.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("UniqueResource");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateNonCopyableStructDecl("UniqueResource", moduleDecl);
+        var method = CreateMethodWithReturn("consumeSelf", new NamedTypeSpec("Swift.Int32"), parentDecl, moduleDecl);
+        method.IsConsuming = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        Assert.Contains("_ self_: UnsafeMutableRawPointer", output);
+        Assert.Contains(".move().consumeSelf()", output);
+        // The consuming path must NOT borrow self through .pointee (that would fail to compile).
+        Assert.DoesNotContain(".pointee.consumeSelf()", output);
+        Assert.DoesNotContain("_ self_: UnsafeRawPointer", output);
+    }
+
+    [Fact]
+    public void EmitWrapper_BorrowingSelf_NonCopyable_BorrowsSelfThroughPointee()
+    {
+        // `borrowing func` on a ~Copyable struct is read-only: a non-owning `.pointee` borrow
+        // through an immutable raw pointer. It must NOT move() (that would consume the caller's
+        // value and require the handle to be marked consumed).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("UniqueResource");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateNonCopyableStructDecl("UniqueResource", moduleDecl);
+        var method = CreateMethodWithReturn("inspect", new NamedTypeSpec("Swift.Int32"), parentDecl, moduleDecl);
+        method.IsBorrowing = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        Assert.Contains("_ self_: UnsafeRawPointer", output);
+        Assert.Contains(".pointee.inspect()", output);
+        // Borrowing self must NOT move() the value out of the buffer.
+        Assert.DoesNotContain(".move()", output);
+        Assert.DoesNotContain("_ self_: UnsafeMutableRawPointer", output);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static (SwiftWriter swiftWriter, StringWriter sw, MethodDecl method, MethodEnvironment env, ModuleEmissionContext ctx) CreateMethodTestSetup(

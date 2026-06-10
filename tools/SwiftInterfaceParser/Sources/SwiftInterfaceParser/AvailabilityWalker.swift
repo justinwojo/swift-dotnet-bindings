@@ -351,7 +351,7 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
     }
 
-    /// PublicFuncRegex shape: `(public|open) final? (static|class)? mutating? func`.
+    /// PublicFuncRegex shape: `(public|open) final? (static|class)? (mutating|consuming|borrowing)? func`.
     /// CRITICAL PARITY DETAIL: the regex is UNANCHORED — `Match` scans the line for
     /// the access keyword and checks the ALLOWED-AFTER sequence up to `func`. Any
     /// modifiers BEFORE the access keyword (`@MainActor`, `nonisolated`, `final`,
@@ -371,7 +371,9 @@ final class AvailabilityWalker: SyntaxVisitor {
         if let mod = current, (mod.name.text == "static" || mod.name.text == "class"), mod.detail == nil {
             current = iter.next()
         }
-        if let mod = current, mod.name.text == "mutating", mod.detail == nil {
+        // PublicFuncRegex allows one of {mutating, consuming, borrowing} in this slot — the
+        // `consuming`/`borrowing` ownership modifiers appear on `~Copyable` instance methods.
+        if let mod = current, ["mutating", "consuming", "borrowing"].contains(mod.name.text), mod.detail == nil {
             current = iter.next()
         }
         return current == nil

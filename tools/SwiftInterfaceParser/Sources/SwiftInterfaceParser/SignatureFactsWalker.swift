@@ -408,7 +408,7 @@ final class SignatureFactsWalker: SyntaxVisitor {
     }
 
     /// `PublicFuncRegex` shape (strict, used by tracker.IsMemberLine):
-    /// `(public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func`.
+    /// `(public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func`.
     /// Disallows `nonisolated`, `nonmutating`, `override`, etc., between access
     /// and `func` — those lines do NOT contribute to defaults/autoclosure/variadic.
     private func matchesPublicFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
@@ -421,7 +421,9 @@ final class SignatureFactsWalker: SyntaxVisitor {
         if let mod = current, (mod.name.text == "static" || mod.name.text == "class"), mod.detail == nil {
             current = iter.next()
         }
-        if let mod = current, mod.name.text == "mutating", mod.detail == nil {
+        // PublicFuncRegex allows one of {mutating, consuming, borrowing} in this slot — the
+        // `consuming`/`borrowing` ownership modifiers appear on `~Copyable` instance methods.
+        if let mod = current, ["mutating", "consuming", "borrowing"].contains(mod.name.text), mod.detail == nil {
             current = iter.next()
         }
         return current == nil

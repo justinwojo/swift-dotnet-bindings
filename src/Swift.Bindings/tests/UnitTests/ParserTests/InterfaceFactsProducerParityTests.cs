@@ -213,6 +213,14 @@ public class InterfaceFactsProducerParityTests
                 "public struct Holder {\n" +
                 "  @available(*, unavailable) public var blocked: Swift.Int\n" +
                 "}\n" },
+            // Availability on a `consuming` instance method of a noncopyable struct. The
+            // AvailabilityWalker's `matchesPublicFuncShape` must accept the ownership modifier
+            // (parity with the regex `PublicFuncRegex`) or it drops the annotation for the member.
+            new object[] { "AvailabilityOnConsumingFunc",
+                "public struct Handle : ~Copyable {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public consuming func finish() -> Swift.Int\n" +
+                "}\n" },
             new object[] { "FreeFunctionAvailability",
                 "@available(iOS 17.0, *)\n" +
                 "public func recent()\n" },
@@ -460,6 +468,13 @@ public class InterfaceFactsProducerParityTests
                 "internal class Hidden {\n" +
                 "  internal func helper(label internalName: Swift.Int)\n" +
                 "}\n" },
+            // Parameter-name capture on a `consuming` instance method. The SignatureFactsWalker's
+            // `matchesPublicFuncShape` must accept the ownership modifier so the parameter facts
+            // (labels + internal names) are emitted in parity with the regex producer.
+            new object[] { "ConsumingFuncParamNames",
+                "public struct Handle : ~Copyable {\n" +
+                "  public consuming func write(_ data: Swift.Int, count n: Swift.Int) -> Swift.Int\n" +
+                "}\n" },
             new object[] { "InitWithDefault",
                 "public struct Reader {\n" +
                 "  public init(buffer: Swift.String = \"\") \n" +
@@ -494,6 +509,29 @@ public class InterfaceFactsProducerParityTests
             new object[] { "PublicMethod_TypePrefix",
                 "public struct S {\n" +
                 "  public func ping() -> Swift.Int\n" +
+                "}\n" },
+            // `consuming`/`borrowing` ownership modifiers on a noncopyable struct's instance
+            // methods. The regex `BroadPublicFuncRegex` accepts both modifiers, so the method
+            // name lands in publicMemberNames; the SwiftSyntax `matchesBroadPublicFuncShape`
+            // allowed-set MUST include them too, or the SwiftSyntax producer drops the member,
+            // negative-space detection flags it `IsModuleInternal`, and its `@_cdecl` wrapper is
+            // silently degraded to a raw CallConvSwift P/Invoke. This corpus entry is the parity
+            // gate for that drift.
+            new object[] { "PublicConsumingFunc_TypePrefix",
+                "public struct Handle : ~Copyable {\n" +
+                "  public consuming func consume() -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "PublicBorrowingFunc_TypePrefix",
+                "public struct Handle : ~Copyable {\n" +
+                "  public borrowing func inspect() -> Swift.Int\n" +
+                "}\n" },
+            // Internal-shape counterpart: `InternalFuncRegex` accepts an ownership modifier after
+            // the optional `static`, so an `@inlinable internal consuming func` contributes to
+            // internalMemberKeys. The SwiftSyntax `matchesInternalFuncShape` must mirror, or the
+            // two producers' InternalMemberKeys diverge.
+            new object[] { "InternalConsumingFunc_EmittedKey",
+                "public struct Handle : ~Copyable {\n" +
+                "  @inlinable internal consuming func drain() {}\n" +
                 "}\n" },
             new object[] { "ExtensionLastDot",
                 "extension CryptoLib.AES {\n" +
@@ -684,6 +722,17 @@ public class InterfaceFactsProducerParityTests
             new object[] { "MutatingFunc",
                 "extension Mod.Type {\n" +
                 "  public mutating func clear()\n" +
+                "}\n" },
+            // Ownership modifiers on an extension member: the ExtensionsWalker func-shape matcher
+            // must admit `consuming`/`borrowing` in the same slot as `mutating`, mirroring the C#
+            // regex, so a `~Copyable` type's extension methods are not dropped from the member set.
+            new object[] { "ConsumingFunc",
+                "extension Mod.Type {\n" +
+                "  public consuming func finish() -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "BorrowingFunc",
+                "extension Mod.Type {\n" +
+                "  public borrowing func inspect() -> Swift.Int\n" +
                 "}\n" },
             // `@available(*, deprecated, ...)` flips IsDeprecated (regex matches the same-line attr).
             new object[] { "DeprecatedFunc",

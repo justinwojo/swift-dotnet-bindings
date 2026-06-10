@@ -293,6 +293,12 @@ public static class MethodWrapperEmitter
         bool isMutating = methodDecl.IsMutating;
         bool throws = methodDecl.Throws;
         bool isNonCopyableParent = !isClass && !isStatic && WrapperValidation.IsNonCopyableStructParent(env.ParentDecl);
+        // Consuming self on a ~Copyable parent: the method takes ownership of self, so the wrapper
+        // must move() the value out of the caller-owned buffer (a borrow via .pointee cannot be
+        // consumed) — see selfRef below. That requires a MUTABLE raw pointer for self_. The paired
+        // C# handle is marked consumed after the P/Invoke (WrapperEmitter) so the value-witness
+        // Destroy doesn't run a second time. Copyable parents keep the borrow path (implicit copy).
+        bool consumesSelf = isNonCopyableParent && methodDecl.IsConsuming;
 
         // Determine return mapping
         var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
@@ -362,9 +368,9 @@ public static class MethodWrapperEmitter
                     break;
 
                 case CdeclPhase.Self:
-                    if (isClass)
-                        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
-                    else if (isMutating)
+                    // consuming self needs a mutable pointer so the wrapper can move() the value
+                    // out of the buffer; mutating self needs it to write mutations back.
+                    if (isClass || isMutating || consumesSelf)
                         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
                     else
                         swiftParams.Add("_ self_: UnsafeRawPointer");
@@ -496,6 +502,12 @@ public static class MethodWrapperEmitter
             selfRef = moduleQualifiedSwiftName;
         else if (isStatic)
             selfRef = "";  // Free function: no type prefix
+        else if (consumesSelf)
+            // Consuming self on ~Copyable: move() takes ownership out of the buffer (deinitializing
+            // it) and yields an owned value the consuming method can take. A .pointee borrow here is
+            // rejected by swiftc ("is borrowed and cannot be consumed"). The C# handle is marked
+            // consumed after the call so the now-empty buffer is freed without a second Destroy.
+            selfRef = $"self_.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).move()";
         else if ((isMutating || isNonCopyableParent) && !isClass)
             selfRef = $"self_.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).pointee";
         else

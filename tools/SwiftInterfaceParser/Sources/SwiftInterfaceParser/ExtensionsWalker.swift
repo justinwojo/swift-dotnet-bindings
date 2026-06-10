@@ -165,7 +165,7 @@ final class ExtensionsWalker: SyntaxVisitor {
     private func handleFunc(_ node: FunctionDeclSyntax,
                              extendedType: String,
                              whereConstraints: [String]) {
-        // `ExtensionFuncRegex` strict shape: (public|open) + optional static + optional mutating + func.
+        // `ExtensionFuncRegex` strict shape: (public|open) + optional static + optional (mutating|consuming|borrowing) + func.
         guard matchesExtensionFuncShape(node.modifiers) else { return }
         // Operator funcs — `\w+` capture rejects them.
         guard RegexShape.isWordIdentifier(node.name.text) else { return }
@@ -243,8 +243,9 @@ final class ExtensionsWalker: SyntaxVisitor {
 
     // MARK: - Modifier-shape gates
 
-    /// `ExtensionFuncRegex` shape: `(?:public|open)\s+(?:static\s+)?(?:mutating\s+)?func`.
-    /// STRICT order — only `static` then `mutating` allowed between access and `func`.
+    /// `ExtensionFuncRegex` shape: `(?:public|open)\s+(?:static\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func`.
+    /// STRICT order — only `static` then one of {mutating, consuming, borrowing} allowed between
+    /// access and `func`. The ownership modifiers appear on `~Copyable` extension methods.
     private func matchesExtensionFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard RegexShape.advanceToAccess(&iter, ["public", "open"]) else { return false }
@@ -252,7 +253,7 @@ final class ExtensionsWalker: SyntaxVisitor {
         if let mod = current, mod.name.text == "static", mod.detail == nil {
             current = iter.next()
         }
-        if let mod = current, mod.name.text == "mutating", mod.detail == nil {
+        if let mod = current, ["mutating", "consuming", "borrowing"].contains(mod.name.text), mod.detail == nil {
             current = iter.next()
         }
         return current == nil

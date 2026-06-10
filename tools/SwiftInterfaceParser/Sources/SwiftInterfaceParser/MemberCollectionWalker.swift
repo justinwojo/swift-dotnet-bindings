@@ -39,11 +39,12 @@ import SwiftParser
 ///        prefix). E.g. `public func tlMain()` → `"tlMain()"`.
 ///
 /// 5. **Internal-set modifier-shape gates** mirror the regex patterns:
-///      * Func: `InternalFuncRegex = internal\s+(?:final\s+)?(?:static\s+)?func`
-///        — STRICT order. `internal mutating func` does NOT match (no `mutating`
-///        between `internal` and `func` is allowed). Note: `@usableFromInline
-///        internal` and `@inlinable internal` BOTH carry the `internal` modifier;
-///        the attribute prefix is invisible to the modifier-list scan.
+///      * Func: `InternalFuncRegex = internal\s+(?:final\s+)?(?:static\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func`
+///        — STRICT order. One ownership modifier (`mutating`/`consuming`/`borrowing`)
+///        IS allowed in its slot after `static`, so `internal consuming func` (on a
+///        `~Copyable` type) matches; other keywords between `internal` and `func` do
+///        not. Note: `@usableFromInline internal` and `@inlinable internal` BOTH carry
+///        the `internal` modifier; the attribute prefix is invisible to the modifier-list scan.
 ///      * Var/let: `InternalVarRegex = internal\s+(?:final\s+)?(?:var|let)` —
 ///        STRICT. `internal static var` does NOT match (no `static` allowed).
 ///        `internal(set)` (setter-only visibility) is NOT internal access.
@@ -52,8 +53,8 @@ import SwiftParser
 ///
 /// 6. **Public-set modifier-shape gates** mirror the BROAD regex patterns:
 ///      * Func: `BroadPublicFuncRegex` allows
-///        `{final, static, class, mutating, nonmutating, override}` between
-///        `public/open` and `func`, in any order/quantity.
+///        `{final, static, class, mutating, nonmutating, consuming, borrowing, override}`
+///        between `public/open` and `func`, in any order/quantity.
 ///      * Var/let: `BroadPublicVarRegex` allows
 ///        `{final, static, class, lazy, weak, unowned}` plus setter visibility
 ///        (`internal(set)`/`private(set)`/`public(set)`) between access and
@@ -227,7 +228,8 @@ final class MemberCollectionWalker: SyntaxVisitor {
     // The regex producer only emits when the line matches a SHAPE-specific regex,
     // not a plain "has internal" / "has public" check. Mirror those shapes here so
     // SwiftSyntax does NOT emit broader keys than the regex on lines like
-    //   `internal mutating func ...`     (regex InternalFuncRegex disallows mutating)
+    //   `internal nonisolated func ...`  (regex InternalFuncRegex disallows nonisolated;
+    //                                      one ownership modifier mutating/consuming/borrowing IS allowed)
     //   `internal static var ...`        (regex InternalVarRegex disallows static)
     //   `public required init(...)`      (BroadPublicInitRegex allows required — OK)
     //   `public nonisolated func ...`    (BroadPublicFuncRegex disallows nonisolated)
@@ -361,8 +363,10 @@ final class MemberCollectionWalker: SyntaxVisitor {
         return false
     }
 
-    /// `InternalFuncRegex` shape: `internal\s+(?:final\s+)?(?:static\s+)?func`.
-    /// STRICT order, no `mutating`/`class`/etc. allowed.
+    /// `InternalFuncRegex` shape: `internal\s+(?:final\s+)?(?:static\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func`.
+    /// STRICT order: `final` then `static` then one of {mutating, consuming, borrowing}. `class`/etc.
+    /// are not allowed. The ownership modifiers appear on `~Copyable` instance methods exposed as
+    /// false-public via `@usableFromInline internal` / `@inlinable internal`.
     private func matchesInternalFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["internal"]) else { return false }
@@ -371,6 +375,9 @@ final class MemberCollectionWalker: SyntaxVisitor {
             current = iter.next()
         }
         if let mod = current, mod.name.text == "static", mod.detail == nil {
+            current = iter.next()
+        }
+        if let mod = current, ["mutating", "consuming", "borrowing"].contains(mod.name.text), mod.detail == nil {
             current = iter.next()
         }
         return current == nil
@@ -400,13 +407,16 @@ final class MemberCollectionWalker: SyntaxVisitor {
         return current == nil
     }
 
-    /// `BroadPublicFuncRegex` shape: `(public|open)\s+(?:(final|static|class|mutating|nonmutating|override)\s+)*func`.
-    /// SET-based: any of {final, static, class, mutating, nonmutating, override} in any order/quantity.
+    /// `BroadPublicFuncRegex` shape: `(public|open)\s+(?:(final|static|class|mutating|nonmutating|consuming|borrowing|override)\s+)*func`.
+    /// SET-based: any of {final, static, class, mutating, nonmutating, consuming, borrowing, override} in any order/quantity.
     /// Disallows `nonisolated`, `dynamic`, `weak`, `lazy`, `convenience`, etc.
+    /// `consuming`/`borrowing` are the ownership modifiers on `~Copyable` instance methods
+    /// (`public consuming func consume()`); omitting them mis-flags those public methods as
+    /// internal via negative-space detection, dropping their `@_cdecl` wrapper.
     private func matchesBroadPublicFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        let allowed: Set<String> = ["final", "static", "class", "mutating", "nonmutating", "override"]
+        let allowed: Set<String> = ["final", "static", "class", "mutating", "nonmutating", "consuming", "borrowing", "override"]
         while let mod = iter.next() {
             guard mod.detail == nil else { return false }
             if !allowed.contains(mod.name.text) { return false }

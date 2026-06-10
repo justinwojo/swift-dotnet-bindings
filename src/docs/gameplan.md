@@ -61,7 +61,7 @@ EC2/EC3 composition existential return, drop it without `Dispose()`, force GC + 
 
 ---
 
-### Session 2 — Noncopyable `consuming`/`borrowing` self gets a real `@_cdecl` wrapper
+### Session 2 — Noncopyable `consuming`/`borrowing` self gets a real `@_cdecl` wrapper — ✅ DONE
 
 *Source: `audits/REMAINING-WORK.md` §1 #2b. The only reachable "worth fixing" audit item.*
 
@@ -95,6 +95,25 @@ fixed naively (`~Copyable` types with `deinit`).
 **Gates.** `nuke test` + `nuke binding-tests` + **`--device`** (NativeAOT — CC change).
 Durable gate: the existing `OwnershipTests`/`NegativePathTests` cases + the CC assertion +
 deinit probe.
+
+**Resolution.** Root cause was deeper than the parse-time drop: the swift-syntax walker
+func-shape matchers (`AvailabilityWalker`, `ExtensionsWalker`, `MemberCollectionWalker`,
+`SignatureFactsWalker`) omitted `consuming`/`borrowing` from their allowed-modifier sets, so
+the 6 public methods fell into negative-space (`IsModuleInternal=true`) and never got a
+wrapper. Fixed all five matchers (+ their mirrored C# regexes), added `IsConsuming`/
+`IsBorrowing` to `MethodDecl` parsed from `funcSelfKind`, and taught `MethodWrapperEmitter`
+to reconstruct self correctly: **consuming** → `.assumingMemoryBound(to:).move()` + a C#
+`SwiftSafeHandle.MarkConsumed()` so `ReleaseHandle` frees the buffer without a second VWT
+destroy (no double-free); **borrowing** → a true borrow through `UnsafeRawPointer.pointee`,
+no copy. A use-after-consume guard (`if (_payload.IsConsumed) throw ObjectDisposedException`)
+fails fast where Swift's move checker would; property/subscript accessors inherit it
+transitively (their backing methods route through the same `WrapperEmitter` path), pinned by
+the `GuardedResource` fixture. Gates: `nuke test` 0 failed (12724/21/592), `nuke binding-tests`
+sim ALL PASSED, device validated on NativeAOT (consuming deinit-runs-once). Codex+Grok r1/r2:
+fixed the use-after-move High, extension-parity corpus, and comment drift; Grok's
+property/subscript-guard-gap High was proven a false alarm via the transitive-coverage fixture,
+and Codex's concurrency-TOCTOU note documented as a known limitation (mirrors Swift's
+single-threaded move checking, out of scope).
 
 ---
 

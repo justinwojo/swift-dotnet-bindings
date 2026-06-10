@@ -75,6 +75,53 @@ public struct FileHandle: ~Copyable {
     }
 }
 
+// MARK: - Noncopyable Type with Computed Property + Subscript
+
+/// A noncopyable type that exposes a computed property and a subscript alongside a `consuming`
+/// self method. After `finish()` consumes the value, the binding's projected C# class has had its
+/// backing buffer moved out; reading `currentId` (property) or `self[i]` (subscript) afterwards
+/// would borrow from a deinitialized buffer. The generated accessors must therefore carry the same
+/// "already consumed" fail-fast guard the plain methods do — this type is the fixture that proves
+/// the guard reaches the property and subscript accessor paths, not just method calls.
+public struct GuardedResource: ~Copyable {
+    public let id: Int32
+    private let values: [Int32]
+
+    public init(id: Int32) {
+        self.id = id
+        self.values = [id, id &+ 1, id &+ 2]
+    }
+
+    /// Computed property — its getter borrows `self` (the default for a `~Copyable` type).
+    public var currentId: Int32 {
+        return id
+    }
+
+    /// Subscript — its getter borrows `self`.
+    public subscript(index: Int32) -> Int32 {
+        return values[Int(index)]
+    }
+
+    /// Borrowing read, for parity with the property/subscript on the same receiver.
+    public borrowing func peek() -> Int32 {
+        return id
+    }
+
+    /// Consuming self — takes ownership and invalidates the caller's value.
+    public consuming func finish() -> Int32 {
+        return id
+    }
+
+    deinit {
+        // Deterministic cleanup when the value goes out of scope.
+    }
+}
+
+/// Creates a GuardedResource with the given id.
+public func createGuardedResource(id: Int32) -> GuardedResource {
+    return GuardedResource(id: id)
+}
+
 // MARK: - Free Functions with Ownership Modifiers
 
 /// Takes ownership of a UniqueResource and returns its id.
@@ -120,6 +167,29 @@ public struct TrackedResource: ~Copyable {
 
     /// Borrowing read — does not consume.
     public borrowing func peek() -> Int32 {
+        return id
+    }
+
+    /// Consuming SELF — Swift takes ownership of `self`, runs `deinit` EXACTLY once inside this call,
+    /// and the caller's handle is left invalid. This is the instance-method analogue of
+    /// `consumeTrackedResource`'s consuming-PARAMETER path: the `@_cdecl` wrapper must `move()` the
+    /// value out of the caller-owned buffer (a `.pointee` borrow cannot be consumed) and the C#
+    /// SafeHandle must then be marked consumed so a later `Dispose()` is a no-op rather than a second
+    /// value-witness destroy (a double-free, or a `deinit` count of two).
+    public consuming func consumeSelf() -> Int32 {
+        return id
+    }
+
+    /// Consuming SELF on a THROWING method: Swift owns `self` regardless of control flow, so its
+    /// `deinit` runs exactly once inside the call whether this returns normally or throws (negative
+    /// `id`). The generated C# wrapper must mark the self handle consumed BEFORE it rethrows the
+    /// Swift error — otherwise the SafeHandle would run a second value-witness destroy on the
+    /// already-moved-from buffer on the throw path (the receiver analogue of
+    /// `consumeTrackedResourceOrThrow`, the half the non-throwing consuming-self test cannot reach).
+    public consuming func consumeSelfOrThrow() throws -> Int32 {
+        if id < 0 {
+            throw TrackedResourceError.rejected
+        }
         return id
     }
 

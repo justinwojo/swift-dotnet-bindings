@@ -162,6 +162,16 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
+    /// True once <see cref="MarkConsumed"/> has run — i.e. the underlying value was moved out by a
+    /// Swift <c>consuming</c> self/parameter and no longer exists in the buffer. Generated bindings
+    /// read this to fail fast (<see cref="System.ObjectDisposedException"/>) when a caller reuses a
+    /// receiver whose value was already consumed, instead of passing the moved-out buffer back into
+    /// Swift (use-after-move). Swift forbids post-consume use at compile time; the .NET class
+    /// projection has no move checker, so the guard is the equivalent runtime contract.
+    /// </summary>
+    public bool IsConsumed => _consumed;
+
+    /// <summary>
     /// Releases the handle to the Swift object.
     /// This method must not throw exceptions per the SafeHandle contract.
     /// </summary>
