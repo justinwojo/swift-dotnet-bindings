@@ -114,7 +114,9 @@ public class EveryProtocolEmitter
             foreach (var p in suitableProtocols)
             {
                 if (IsEntityRootedProtocol(p, _typeDatabase, suitableProtocols))
-                    _emissionContext.MarkEntityBase(p.Name);
+                    // Key on the module-qualified name (matching the witness-getter marker) so a
+                    // dependency protocol sharing a simple name with a local one cannot collide.
+                    _emissionContext.MarkEntityBase(p.SwiftTypeName?.ModuleQualifiedName ?? p.Name);
             }
         }
         bool emitEntityBase = _emissionContext?.AnyEntityBaseUsed == true;
@@ -1970,7 +1972,9 @@ public class EveryProtocolEmitter
             _skippedProtocols.Add(protocolDecl.Name);
             if (protocolDecl.SwiftTypeName != null)
                 _skippedProtocols.Add(protocolDecl.SwiftTypeName.ModuleQualifiedName);
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, reason);
+            // Key on the module-qualified name so a dependency protocol sharing a simple
+            // name with a local one records its own decision without collision.
+            _emissionContext?.RecordConformanceDecision(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name, false, reason);
         }
 
         // Skip protocols with Self requirements - these require special handling
@@ -2065,7 +2069,9 @@ public class EveryProtocolEmitter
             if (IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
             {
                 _useObjCBase = true;
-                _emissionContext?.MarkObjCBase(protocolDecl.Name);
+                // Module-qualified key (see witness-getter marker) — avoids a same-simple-name
+                // cross-module collision flipping the wrong proxy's carrier class.
+                _emissionContext?.MarkObjCBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
             }
             else
             {
@@ -2093,7 +2099,8 @@ public class EveryProtocolEmitter
             if (IsEntityRootedProtocol(protocolDecl, _typeDatabase, _allProtocols))
             {
                 _useEntityBase = true;
-                _emissionContext?.MarkEntityBase(protocolDecl.Name);
+                // Module-qualified key, in lockstep with the pre-scan MarkEntityBase above.
+                _emissionContext?.MarkEntityBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
             }
             else
             {
@@ -2264,7 +2271,10 @@ public class EveryProtocolEmitter
             // Without this signal the proxy emitter would assume every protocol got a vtable
             // setter and produce EntryPointNotFoundException-throwing static constructors
             // for protocols that only have a Swift→C# wrap path (e.g. marker conformances).
-            _emissionContext?.MarkSetVtableEmitted(protocolDecl.Name);
+            // Module-qualified key (matching the witness-getter marker and ProtocolProxyEmitter's
+            // read) so a dependency protocol sharing a simple name cannot mis-gate the local
+            // proxy into emitting a dangling Set{Name}_vtable P/Invoke.
+            _emissionContext?.MarkSetVtableEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
         }
         else
         {
@@ -2292,7 +2302,7 @@ public class EveryProtocolEmitter
 
             // Composition / empty marker protocol: emit a trivial empty conformance so
             // C# can construct existential containers via the witness-table getter below.
-            var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+            var protocolName = protocolDecl.SwiftTypeName!.ModuleQualifiedName;
             writer.WriteLine($"// {BaseClassName} conformance to {protocolDecl.Name} (composition/marker protocol)");
             var staticAvailAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                 protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
@@ -2322,9 +2332,9 @@ public class EveryProtocolEmitter
             // CALLBACK direction clean instead of declaring a dangling EntryPoint. Key on the
             // module-qualified name: a dependency protocol that shares a simple name with a local
             // one must not flip the local getter's mark onto the cross-module proxy.
-            _emissionContext?.MarkWitnessTableGetterEmitted(protocolDecl.SwiftTypeName.ModuleQualifiedName);
+            _emissionContext?.MarkWitnessTableGetterEmitted(protocolDecl.SwiftTypeName!.ModuleQualifiedName);
         }
-        _emissionContext?.RecordConformanceDecision(protocolDecl.Name, true, null);
+        _emissionContext?.RecordConformanceDecision(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name, true, null);
     }
 
     #region Private Helper Methods

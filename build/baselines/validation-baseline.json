@@ -951,13 +951,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2785,
+      "pass": 2786,
       "fail": 0,
       "skip": 32,
       "crash": 0
     },
     "device": {
-      "pass": 2797,
+      "pass": 2798,
       "fail": 0,
       "skip": 20,
       "crash": 0

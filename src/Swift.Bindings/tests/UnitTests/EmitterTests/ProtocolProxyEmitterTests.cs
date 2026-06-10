@@ -242,7 +242,9 @@ public class ProtocolProxyEmitterTests
         // (the implementable-conformance path), the proxy's InitializeVtable must call
         // NativeMethods.SetXxx_vtable normally.
         var ctx = new ModuleEmissionContext();
-        ctx.MarkSetVtableEmitted("TestProtocol");
+        // The SetVtable marker keys on the module-qualified name (T2.6), matching the proxy's
+        // read site; CreateProtocolWithProperty gives this decl SwiftTypeName "TestModule.TestProtocol".
+        ctx.MarkSetVtableEmitted("TestModule.TestProtocol");
         var emitter = new ProtocolProxyEmitter(_typeDatabase, NullLogger.Instance, "TestModule", ctx);
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
 

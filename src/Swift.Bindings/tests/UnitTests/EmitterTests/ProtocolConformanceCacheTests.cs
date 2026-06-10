@@ -61,8 +61,10 @@ public class ProtocolConformanceCacheTests
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
-        Assert.False(ctx.WasConformanceEmitted("SelfProto"));
-        Assert.Equal("HasSelfRequirement", ctx.ConformanceDecisions["SelfProto"].SkipReason);
+        // Markers key on the module-qualified name (T2.6), so the decision lands under
+        // "TestModule.SelfProto", never the bare simple name.
+        Assert.False(ctx.WasConformanceEmitted("TestModule.SelfProto"));
+        Assert.Equal("HasSelfRequirement", ctx.ConformanceDecisions["TestModule.SelfProto"].SkipReason);
     }
 
     [Fact]
@@ -76,7 +78,7 @@ public class ProtocolConformanceCacheTests
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
-        Assert.True(ctx.WasConformanceEmitted("GenericProto"));
+        Assert.True(ctx.WasConformanceEmitted("TestModule.GenericProto"));
     }
 
     [Fact]
@@ -90,8 +92,8 @@ public class ProtocolConformanceCacheTests
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
-        Assert.False(ctx.WasConformanceEmitted("StaticOnlyProto"));
-        Assert.Equal("StaticMethodRequirements", ctx.ConformanceDecisions["StaticOnlyProto"].SkipReason);
+        Assert.False(ctx.WasConformanceEmitted("TestModule.StaticOnlyProto"));
+        Assert.Equal("StaticMethodRequirements", ctx.ConformanceDecisions["TestModule.StaticOnlyProto"].SkipReason);
     }
 
     [Fact]
@@ -107,8 +109,8 @@ public class ProtocolConformanceCacheTests
         var output = new System.IO.StringWriter();
         emitter.EmitProtocolConformance(new SwiftWriter(output), protocolDecl);
 
-        Assert.False(ctx.WasConformanceEmitted("StaticPropProto"));
-        Assert.Equal("StaticPropertyRequirements", ctx.ConformanceDecisions["StaticPropProto"].SkipReason);
+        Assert.False(ctx.WasConformanceEmitted("TestModule.StaticPropProto"));
+        Assert.Equal("StaticPropertyRequirements", ctx.ConformanceDecisions["TestModule.StaticPropProto"].SkipReason);
         Assert.DoesNotContain("extension EveryProtocol", output.ToString());
         Assert.DoesNotContain("fatalError", output.ToString());
     }
@@ -157,7 +159,7 @@ public class ProtocolConformanceCacheTests
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
-        Assert.True(ctx.WasConformanceEmitted("MarkerProto"));
+        Assert.True(ctx.WasConformanceEmitted("TestModule.MarkerProto"));
     }
 
     [Fact]
@@ -169,8 +171,36 @@ public class ProtocolConformanceCacheTests
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
-        Assert.True(ctx.WasConformanceEmitted("GoodProto"));
-        Assert.Null(ctx.ConformanceDecisions["GoodProto"].SkipReason);
+        Assert.True(ctx.WasConformanceEmitted("TestModule.GoodProto"));
+        Assert.Null(ctx.ConformanceDecisions["TestModule.GoodProto"].SkipReason);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_SameSimpleNameDifferentModules_KeysMarkersByModuleQualifiedName()
+    {
+        // T2.6 categorical hardening. A local protocol and a dependency protocol can
+        // share a simple name ("Service") while living in different modules. The shared
+        // emission-marker caches must key on the module-qualified identity, NOT the bare
+        // simple name, so the two protocols' decisions never collide — otherwise a
+        // cross-module parent could flip a local proxy's gate (dangling Set{Name}_vtable
+        // P/Invoke / wrong carrier) or vice versa. This mirrors the witness-getter marker,
+        // which was already module-qualified.
+        var (emitter, ctx) = CreateEmitterWithContext();
+
+        var local = CreateValidProtocol("Service");                 // TestModule.Service
+        var dependency = CreateValidProtocol("Service");
+        dependency.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("DepModule.Service");
+
+        emitter.EmitProtocolConformance(CreateSwiftWriter(), local);
+        emitter.EmitProtocolConformance(CreateSwiftWriter(), dependency);
+
+        // Each conformance decision is recorded under its own module-qualified identity.
+        Assert.True(ctx.WasConformanceEmitted("TestModule.Service"));
+        Assert.True(ctx.WasConformanceEmitted("DepModule.Service"));
+
+        // The bare simple name must never be a marker key — that bare key is exactly the
+        // cross-module collision the module-qualified keying exists to prevent.
+        Assert.False(ctx.WasConformanceEmitted("Service"));
     }
 
     #region Test Helpers

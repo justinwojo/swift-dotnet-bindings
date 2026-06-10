@@ -1394,22 +1394,28 @@ public sealed class ModuleEmissionContext
     private readonly Dictionary<string, ProtocolConformanceDecision> _conformanceDecisions = new();
     private readonly HashSet<string> _setVtableEmitted = new();
 
-    /// <summary>Records whether a protocol conformance was emitted or skipped.</summary>
-    public void RecordConformanceDecision(string protocolName, bool emitted, string? skipReason)
+    /// <summary>
+    /// Records whether a protocol conformance was emitted or skipped. <paramref name="protocolKey"/>
+    /// is the <see cref="SwiftTypeName.ModuleQualifiedName"/> (not the simple name), so a dependency
+    /// protocol sharing a simple name with a local one records its own decision without colliding.
+    /// All readers (<see cref="WasConformanceEmitted"/>, <see cref="GetConformanceSkipReason"/>,
+    /// and the ProtocolProxyEmitter / WitnessDispatchEmitter / ProtocolHandler gates) must key identically.
+    /// </summary>
+    public void RecordConformanceDecision(string protocolKey, bool emitted, string? skipReason)
     {
-        _conformanceDecisions[protocolName] = new ProtocolConformanceDecision(emitted, skipReason);
+        _conformanceDecisions[protocolKey] = new ProtocolConformanceDecision(emitted, skipReason);
     }
 
-    /// <summary>Returns true if the given protocol's conformance was emitted (not skipped).</summary>
-    public bool WasConformanceEmitted(string protocolName)
+    /// <summary>Returns true if the given protocol's conformance was emitted (not skipped). <paramref name="protocolKey"/> must be the module-qualified name used by <see cref="RecordConformanceDecision"/>.</summary>
+    public bool WasConformanceEmitted(string protocolKey)
     {
-        return _conformanceDecisions.TryGetValue(protocolName, out var decision) && decision.Emitted;
+        return _conformanceDecisions.TryGetValue(protocolKey, out var decision) && decision.Emitted;
     }
 
-    /// <summary>Returns the skip reason for a protocol whose conformance was not emitted, or null if emitted/unknown.</summary>
-    public string? GetConformanceSkipReason(string protocolName)
+    /// <summary>Returns the skip reason for a protocol whose conformance was not emitted, or null if emitted/unknown. <paramref name="protocolKey"/> must be the module-qualified name used by <see cref="RecordConformanceDecision"/>.</summary>
+    public string? GetConformanceSkipReason(string protocolKey)
     {
-        return _conformanceDecisions.TryGetValue(protocolName, out var decision) && !decision.Emitted
+        return _conformanceDecisions.TryGetValue(protocolKey, out var decision) && !decision.Emitted
             ? decision.SkipReason : null;
     }
 
@@ -1428,10 +1434,13 @@ public sealed class ModuleEmissionContext
     /// produces <see cref="EntryPointNotFoundException"/>-throwing static constructors.
     /// Must be called from the
     /// <see cref="EveryProtocolEmitter"/> at the same point that emits the Swift function.
+    /// <paramref name="protocolKey"/> is the <see cref="SwiftTypeName.ModuleQualifiedName"/> (not the
+    /// simple name) so a same-simple-name cross-module protocol cannot mis-gate this proxy; the read
+    /// side (<see cref="WasSetVtableEmitted"/>) keys identically.
     /// </summary>
-    public void MarkSetVtableEmitted(string protocolName)
+    public void MarkSetVtableEmitted(string protocolKey)
     {
-        _setVtableEmitted.Add(protocolName);
+        _setVtableEmitted.Add(protocolKey);
     }
 
     /// <summary>
@@ -1453,9 +1462,9 @@ public sealed class ModuleEmissionContext
     /// callback path is what fails when the trampoline is absent; the Swift→C# read-only
     /// wrap path goes through the existential's witness table and works either way.
     /// </summary>
-    public bool WasSetVtableEmitted(string protocolName)
+    public bool WasSetVtableEmitted(string protocolKey)
     {
-        return _setVtableEmitted.Contains(protocolName);
+        return _setVtableEmitted.Contains(protocolKey);
     }
 
     private readonly HashSet<string> _witnessTableGetterEmitted = new();
@@ -1500,15 +1509,17 @@ public sealed class ModuleEmissionContext
     /// <see cref="ProtocolProxyEmitter"/> so the C# proxy's static ctor calls the
     /// matching <c>SBW_CreateEveryObjCProtocol</c> / <c>SBW_GetMetadata_EveryObjCProtocol</c>
     /// / <c>SBW_SetEveryObjCProtocolDeinitCallback</c> factories instead of the
-    /// EveryProtocol equivalents.
+    /// EveryProtocol equivalents. <paramref name="protocolKey"/> is the module-qualified name
+    /// (matching the witness-getter marker); <see cref="UsesObjCBase"/> keys identically.
     /// </summary>
-    public void MarkObjCBase(string protocolName) => _objCBaseProtocols.Add(protocolName);
+    public void MarkObjCBase(string protocolKey) => _objCBaseProtocols.Add(protocolKey);
 
     /// <summary>
     /// Returns true when the given protocol's EveryProtocol conformance was emitted
-    /// on the NSObject-rooted <c>EveryObjCProtocol</c> helper class.
+    /// on the NSObject-rooted <c>EveryObjCProtocol</c> helper class. <paramref name="protocolKey"/>
+    /// must be the module-qualified name used by <see cref="MarkObjCBase"/>.
     /// </summary>
-    public bool UsesObjCBase(string protocolName) => _objCBaseProtocols.Contains(protocolName);
+    public bool UsesObjCBase(string protocolKey) => _objCBaseProtocols.Contains(protocolKey);
 
     private readonly HashSet<string> _entityBaseProtocols = new();
 
@@ -1522,15 +1533,18 @@ public sealed class ModuleEmissionContext
     /// static ctor and existential factory call the matching <c>SBW_*EveryEntityProtocol*</c>
     /// P/Invokes instead of the EveryProtocol equivalents — otherwise the existential
     /// container's payload would be a plain Swift class and the Entity subclass identity
-    /// would not satisfy the class-superclass requirement.
+    /// would not satisfy the class-superclass requirement. <paramref name="protocolKey"/> is the
+    /// module-qualified name (matching the witness-getter marker and the pre-scan Mark site);
+    /// <see cref="UsesEntityBase"/> keys identically.
     /// </summary>
-    public void MarkEntityBase(string protocolName) => _entityBaseProtocols.Add(protocolName);
+    public void MarkEntityBase(string protocolKey) => _entityBaseProtocols.Add(protocolKey);
 
     /// <summary>
     /// Returns true when the given protocol's EveryProtocol conformance was emitted
-    /// on the Entity-rooted <c>EveryEntityProtocol</c> helper class.
+    /// on the Entity-rooted <c>EveryEntityProtocol</c> helper class. <paramref name="protocolKey"/>
+    /// must be the module-qualified name used by <see cref="MarkEntityBase"/>.
     /// </summary>
-    public bool UsesEntityBase(string protocolName) => _entityBaseProtocols.Contains(protocolName);
+    public bool UsesEntityBase(string protocolKey) => _entityBaseProtocols.Contains(protocolKey);
 
     /// <summary>
     /// True when at least one protocol in the current wrapper module was routed

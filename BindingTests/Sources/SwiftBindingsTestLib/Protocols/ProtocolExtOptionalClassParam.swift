@@ -16,6 +16,19 @@ import Foundation
 public final class PExtOptParent {
     public var lastAttachedChildId: Int32 = -1
     public init() { }
+
+    // Drives the C#-implements-protocol CALLBACK direction. Accepting an
+    // existential `any PExtOptChildProtocol` forces a C# conformer to
+    // synthesize the existential from its managed implementation via the
+    // protocol witness table (Get_EveryProtocol_PExtOptChildProtocol_WitnessTable).
+    // Invoking the protocol-extension default attachTo then dispatches
+    // self.nodeId back through that witness table into the C# getter, so the
+    // round-tripped id observably lands in lastAttachedChildId. This is the
+    // reverse of the Swift-vended path that TestNonNilParentReceivesChildId
+    // exercises.
+    public func acceptChild(_ child: any PExtOptChildProtocol) -> Bool {
+        return child.attachTo(self)
+    }
 }
 
 public protocol PExtOptChildProtocol {

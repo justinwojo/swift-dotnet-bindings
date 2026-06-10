@@ -149,15 +149,17 @@ public class WitnessDispatchEmitter
         // class), yet its witness-dispatch accessors ARE emitted — they reconstruct `any P` via
         // the static type (`containerPtr.load(as: (any P).self)`) and dispatch through the
         // existential's OWN witness table, which needs no EveryProtocol conformance.
+        // Conformance marker is keyed on the module-qualified name (matching the recorder);
+        // protocolName stays the simple name for IsReadOnlyProxy / logging below.
         if (_emissionContext.ConformanceDecisions.Count > 0
-            && !_emissionContext.WasConformanceEmitted(protocolName)
+            && !_emissionContext.WasConformanceEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolName)
             && !_emissionContext.IsReadOnlyProxy(protocolName))
         {
             _logger.LogDebug("Skipping witness dispatch for {Protocol}: conformance was not emitted", protocolName);
             return;
         }
 
-        var moduleQualifiedName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+        var moduleQualifiedName = protocolDecl.SwiftTypeName!.ModuleQualifiedName;
 
         _currentAvailabilityAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
             protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);

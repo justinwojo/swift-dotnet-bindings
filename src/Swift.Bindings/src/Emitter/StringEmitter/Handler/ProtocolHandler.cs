@@ -529,16 +529,18 @@ namespace BindingsGeneration
             // (they are runtime-resolved [LibraryImport]s, never called on the read path), and the
             // proxy is NOT recorded as suppressed — its return/property projection lambdas stay
             // intact rather than being rewritten to throw.
+            // Conformance marker is keyed on the module-qualified name (matching the recorder);
+            // IsReadOnlyProxy stays simple-name-keyed (its own family, out of this change).
             else if (context.EmissionContext != null &&
                      context.EmissionContext.ConformanceDecisions.Count > 0 &&
-                     !context.EmissionContext.WasConformanceEmitted(protocolDecl.Name) &&
+                     !context.EmissionContext.WasConformanceEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name) &&
                      !context.EmissionContext.IsReadOnlyProxy(protocolDecl.Name))
             {
                 var proxyClassName = $"{protocolDecl.Name}Proxy";
                 context.EmissionContext.RecordSuppressedProxy(proxyClassName);
                 ReportCollector.RecordMemberSkipped(BindingItemKind.Type, proxyClassName,
                     protocolDecl, SkipReason.EveryProtocolConformanceSkipped,
-                    $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({context.EmissionContext.GetConformanceSkipReason(protocolDecl.Name) ?? "no decision recorded"}).");
+                    $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({context.EmissionContext.GetConformanceSkipReason(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name) ?? "no decision recorded"}).");
             }
             else
             {

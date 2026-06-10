@@ -420,8 +420,11 @@ public partial class ProtocolProxyEmitter
                 // order-independent even when the ancestor's proxy is processed AFTER ours.
                 // Walk transitively so grandparents whose proxies WERE emitted still get a
                 // cctor call.
+                // Keyed on the module-qualified name (matching RecordConformanceDecision). The
+                // ancestor is always resolved from the LOCAL module here (cross-module ancestors
+                // are skipped above), so its qualified key matches what the recorder used.
                 if (_emissionContext.ConformanceDecisions.Count > 0 &&
-                    !_emissionContext.WasConformanceEmitted(ancestorDecl.Name))
+                    !_emissionContext.WasConformanceEmitted(ancestorDecl.SwiftTypeName?.ModuleQualifiedName ?? ancestorDecl.Name))
                 {
                     queue.Enqueue(ancestorDecl);
                     continue;

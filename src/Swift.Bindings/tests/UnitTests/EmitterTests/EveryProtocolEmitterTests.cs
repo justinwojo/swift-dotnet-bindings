@@ -1762,7 +1762,10 @@ public class EveryProtocolEmitterTests
         Assert.Contains("SBW_GetMetadata_EveryEntityProtocol", output);
         Assert.Contains("SBW_SetEveryEntityProtocolDeinitCallback", output);
         Assert.True(emissionContext.AnyEntityBaseUsed);
-        Assert.True(emissionContext.UsesEntityBase("HasAnchoring"));
+        // EntityBase marker is keyed on the module-qualified name (T2.6), so a same-simple-name
+        // cross-module protocol cannot mis-select the carrier class. The bare simple name is never a key.
+        Assert.True(emissionContext.UsesEntityBase("TestModule.HasAnchoring"));
+        Assert.False(emissionContext.UsesEntityBase("HasAnchoring"));
     }
 
     [Fact]

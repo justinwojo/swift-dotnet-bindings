@@ -111,53 +111,73 @@ become reachable in practice.
 
 <a id="t25--witness-getter-entrypointnotfound-to-notsupported-wrap-second-shape"></a>
 
-## T2.5 — witness-getter `EntryPointNotFound` → `NotSupported` wrap (second shape) — OPEN
+## T2.5 — witness-getter `EntryPointNotFound` → `NotSupported` wrap (second shape) — RESOLVED (premise was flawed; landed Option A)
 
-Error-quality polish for a fixture-only repro (`ProtocolExtOptionalClassParam.swift`);
-no shipping Apple framework hits the second shape today. The first shape
-(class-superclass, generator decides upfront not to emit the getter) already shipped
-during 0.12.0 — confirm you're not redoing that work.
+**Resolution:** the documented premise turned out to be empirically false for the only
+cited repro, so the defensive wrap was *not* the right fix. Instead the protocol's
+genuine C#-implementation CALLBACK path was wired up and proven to work. See below.
 
-**What's still open — the second shape.** The §5/§5b fail-clean change covers the case
-where the generator decides upfront NOT to emit `Get_EveryProtocol_{P}_WitnessTable`. It
-does **not** cover a different, pre-existing failure mode: the generator emits the
-witness-getter optimistically, the Swift wrapper then fails to compile it (`value of
-type 'EveryProtocol' does not conform to specified type 'P'`), and the wrapper
-give-up pass drops that one `@_cdecl` from the dylib — but because the getter *was*
-emitted by the generator, its emission marker is set, so the C# proxy still emits the
-`[LibraryImport(... "Get_EveryProtocol_P_WitnessTable")]` and P/Invokes it at runtime,
-yielding **`EntryPointNotFoundException`** at the CALLBACK boundary instead of the
-clean `NotSupportedException`.
+**Original (flawed) premise.** This item claimed a second failure shape distinct from
+the §5/§5b fail-clean change: the generator emits `Get_EveryProtocol_{P}_WitnessTable`
+optimistically, the Swift wrapper then *fails to compile* the conformance (`value of
+type 'EveryProtocol' does not conform to specified type 'P'`), the wrapper give-up pass
+drops that `@_cdecl` from the dylib, but the emission marker is still set so the C#
+proxy P/Invokes the now-absent symbol → `EntryPointNotFoundException` at the CALLBACK
+boundary. The proposed fix was to wrap the getter P/Invoke in
+`GetWitnessTableFromSwift()` so the exception rethrows as a generic
+`NotSupportedException`.
 
-**Reproduces today** with `ProtocolExtOptionalClassParam.swift` (`PExtOptChildProtocol`);
-every gate stays green because nothing exercises that protocol's C#-implementation
-CALLBACK path.
+**Why the premise was false (investigated; confirmed by Codex + Grok, high confidence).**
+For `ProtocolExtOptionalClassParam.swift`'s `PExtOptChildProtocol`, the conformance the
+generator emits is *trivially valid and compiles cleanly* — the protocol's only
+requirement is `var nodeId: Int32 { get }`; `attachTo(_:)` is a defaulted extension
+method, not a requirement. The raw `.Wrapper.swift` contains the full
+`extension EveryProtocol: PExtOptChildProtocol` plus the paired `@_cdecl` getter, and no
+`does not conform` error appears in any give-up log. The witness symbol is absent from
+the *test* dylib for one reason only: the **test-harness** `SwiftSourceStripper`
+(`build/Helpers/SwiftSourceStripper.cs`) drops every non-allowlisted
+`extension EveryProtocol: P` block *and* its getter in lock-step, and
+`PExtOptChildProtocol` was not in `PreservedProtocols`. The production SDK path
+(`SwiftWrapperPostProcessor`) explicitly preserves `Get_EveryProtocol_*` getters and
+would export the symbol fine. So there was no generator give-up to defend against — the
+"second shape" did not actually reproduce here.
 
-**Fix to land (needs a red fixture first).** Wrap the getter P/Invoke in
-`GetWitnessTableFromSwift()` so `EntryPointNotFoundException` rethrows as
-`NotSupportedException` with a *generic* message ("the Swift wrapper exports no
-witness-table accessor for protocol P …"). **Trade-off:** this also catches a getter
-gone missing from an unrelated generator regression, turning a loud "symbol missing"
-into a designed-limitation message. The build-time `does not conform` error stays
-loud, so the masking risk is bounded but real — decide deliberately, with the
-`PExtOptChildProtocol` CALLBACK red fixture in place first.
+**Why Option A over the wrap.** Landing the defensive `NotSupportedException` wrap would
+have turned a real, fixable absence (a protocol the harness simply hadn't preserved)
+into a permanent designed-limitation message — masking exactly the class of regression
+the project's "ALL runtime crashes are OUR BUGS" culture exists to keep loud. The
+correct long-term move was to make the CALLBACK path genuinely work and lock it under a
+runtime test, not to paper over a self-inflicted harness gap.
 
-**Done when.** A red `PExtOptChildProtocol` CALLBACK fixture flips to asserting the
-clean `NotSupportedException`, and unit + `binding-tests` (sim) + `--device` stay green.
+**What landed (Option A).**
+1. Added `PExtOptParent.acceptChild(_ child: any PExtOptChildProtocol) -> Bool` to the
+   fixture — accepting the existential forces a C# conformer to synthesize it via
+   `Get_EveryProtocol_PExtOptChildProtocol_WitnessTable`, and the defaulted `attachTo`
+   then reads `child.nodeId` back through that witness table.
+2. Added `PExtOptChildProtocol` to `PreservedProtocols` so the harness stripper keeps the
+   conformance + getter (per the new-reverse-dispatch-test rule).
+3. Added `TestCSharpChildDispatchesNodeIdToSwift`: a managed `IPExtOptChildProtocol`
+   (`nodeId = 77`) handed to Swift via `AcceptChild`; asserts the Swift parent observed
+   the C#-supplied id through the witness table.
+
+**Verified:** `nuke binding-tests --class-filter ProtocolExtOptionalClassParamTests`
+(simulator) — `TestCSharpChildDispatchesNodeIdToSwift` PASS, all 3 in-class tests pass.
+(The class-filtered run's tail "regression" is just the baseline comparator seeing 3
+tests vs. the 2785 full baseline — expected for `--class-filter`, not a real regression.)
 
 ---
 
 <a id="t26--sibling-emission-marker-name-keying-hardening"></a>
 
-## T2.6 — sibling emission-marker name-keying hardening — OPEN
+## T2.6 — sibling emission-marker name-keying hardening — RESOLVED
 
 The witness-table-getter marker was re-keyed to `ModuleQualifiedName`, but its sibling
-markers — **SetVtable**, **ObjCBase**, **EntityBase**, **Conformance** — still key on
+markers — **SetVtable**, **ObjCBase**, **EntityBase**, **Conformance** — still keyed on
 the simple `.Name`. A local protocol and a cross-module parent protocol with the same
-simple name can collide in the shared marker set/dictionary and mis-gate a cross-module
+simple name could collide in the shared marker set/dictionary and mis-gate a cross-module
 proxy. **Not a reproducing bug today** (no known same-simple-name collision across the
 current validation/fixture set; cross-module-parent vtable wiring uses a separate
-module-prefixed path), so it is latent. Pure categorical-hardening pass.
+module-prefixed path), so it was latent. Pure categorical-hardening pass — now landed.
 
 ### Background
 
@@ -213,32 +233,50 @@ Mark, so a cross-module parent `Dep.Foo` and a local `Foo` collide on the simple
   (`SBW_*EveryObjCProtocol*` / `SBW_*EveryEntityProtocol*`), so a collision mis-selects
   the carrier class rather than pointing at a non-existent per-protocol symbol.
 
-### Safe-hardening plan
+### What landed
 
-1. **Write the RED fixture first.** Add a dependency-module protocol whose simple name
-   collides with a local protocol (BindingTests already has a dependency module with
-   cross-module parent delegates), arranged so the two have **differing** setter /
-   conformance emission. Confirm it reproduces a dangling P/Invoke or wrong carrier
-   before changing code.
-2. **SetVtable, ObjCBase, EntityBase** are the low-risk re-keys: each is read at a
-   single site with the **same decl** that was marked, so swapping both Mark and read
-   to `SwiftTypeName.ModuleQualifiedName` mirrors the proven witness-getter change.
-   The `EntityBase` pre-scan Mark must be re-keyed in lockstep with its second Mark
-   site.
-3. **Conformance is the delicate one.** `WasConformanceEmitted` is read at **three**
-   sites, including a **cross-decl** ancestor lookup (`ancestorDecl.Name`). Re-keying
-   requires verifying that every reader resolves to the **same** qualified name the
-   recorder used for that ancestor, and that the dictionary's last-write-wins
-   behaviour is preserved for the intended key. Do this only with the RED fixture in
-   place — a naive swap here can break cross-module-parent proxy emission /
-   suppression and reintroduce the MusicKit-class crash the witness-getter work fixed.
-4. Re-run unit + `binding-tests --compile-only` + `binding-tests --skip-regen`, plus
-   `--device` (NativeAOT) since this touches vtable / conformance P/Invoke gating.
+All four sibling marker families now key on `SwiftTypeName.ModuleQualifiedName ??
+.Name` — the same canonical identity the witness-getter marker adopted — so a
+cross-module parent `Dep.Foo` and a local `Foo` no longer share a marker slot.
 
-**Done when.** A RED fixture (a dependency-module protocol whose simple name collides
-with a local protocol, with differing setter/conformance emission) reproduces a
-dangling P/Invoke or wrong carrier *before* the change, then goes green; unit +
-`binding-tests --compile-only` + `--skip-regen` + `--device` all green.
+1. **SetVtable, ObjCBase, EntityBase** re-keyed at both Mark and read sites
+   (`EveryProtocolEmitter.cs`, `ProtocolProxyEmitter.cs`). The `EntityBase` pre-scan
+   Mark and its second Mark site were re-keyed in lockstep.
+2. **Conformance** re-keyed at the recorder (`EveryProtocolEmitter.cs`
+   `RecordConformanceDecision`) and at all three readers: `ProtocolProxyEmitter.StaticInit`
+   (the cross-decl ancestor lookup), `WitnessDispatchEmitter`, and `ProtocolHandler`.
+   The cross-decl ancestor read is always a **local-module** decl (cross-module ancestors
+   are skipped upstream), so recorder and reader resolve to the same qualified key; the
+   dictionary's last-write-wins behaviour is unchanged.
+3. The `?? .Name` fallback preserves the legacy simple-name key when `SwiftTypeName` is
+   null (it is genuinely nullable — null-guarded at `EveryProtocolEmitter.cs:1971`).
+   `ModuleEmissionContext` parameters were renamed `protocolName` → `protocolKey` with
+   module-qualified-key docs; the value-iterating `ConformanceDecisions` readers in
+   `EmissionReportEmitter.cs` are key-agnostic and unaffected.
+
+### Why the durable gate is a unit-level collision test (not a BindingTests fixture)
+
+The original plan called for an end-to-end RED fixture reproducing a dangling P/Invoke.
+On implementation that proved **not constructible** for the reasons the "Why it is NOT a
+reproducing bug today" analysis above predicts: the cross-module-parent vtable wiring
+routes through a **module-prefixed** entry point that bypasses these markers entirely,
+and `ObjCBase`/`EntityBase` gate **hardcoded, protocol-independent** carrier symbols — so
+a simple-name collision mis-*selects* a carrier rather than emitting a non-existent
+per-protocol symbol that would fail to link. The defensible RED-first gate for a latent
+categorical re-key is therefore at the unit layer, asserting the markers are keyed by
+module-qualified identity:
+
+- `ProtocolConformanceCacheTests.EmitProtocolConformance_SameSimpleNameDifferentModules_KeysMarkersByModuleQualifiedName`
+  drives the emitter with a local `TestModule.Service` and a dependency `DepModule.Service`
+  and asserts both qualified keys are recorded while the bare `"Service"` key is **not** —
+  verified RED before the re-key (both collided on `"Service"`), green after.
+
+**Verified.** Unit `Swift.Bindings.Unit.Tests` 12741/0; `binding-tests --compile-only`
+Succeeded; `--skip-regen` (simulator) 2786/0/0; `--device` (NativeAOT) 2798/0/0. (A
+first `--device` run showed a one-off `BridgeStateUpdateTests` SwiftUI-bridge crash — a
+device/NativeAOT UIView main-thread-dispatch timing fluke in a subsystem this change does
+not touch; the same generated code passes that class on the simulator, and a clean device
+re-run passed with no crash.)
 
 ---
 

@@ -193,12 +193,14 @@ public partial class ProtocolProxyEmitter
         //
         // The unit-test path (no ModuleEmissionContext supplied) keeps the legacy behaviour
         // — _setVtableEmitted is treated as true so existing tests stay green.
+        // Keyed on the module-qualified name (matching EveryProtocolEmitter's Mark site) so a
+        // dependency protocol sharing a simple name with a local one cannot mis-gate this proxy.
         _setVtableEmitted = _emissionContext == ModuleEmissionContext.Default
-            || _emissionContext.WasSetVtableEmitted(protocolDecl.Name);
+            || _emissionContext.WasSetVtableEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
         // Keyed on the module-qualified name (matching EveryProtocolEmitter's Mark site) so a
         // dependency protocol sharing a simple name with a local one cannot mis-gate this proxy.
         _witnessGetterEmitted = _emissionContext == ModuleEmissionContext.Default
-            || _emissionContext.WasWitnessTableGetterEmitted(protocolDecl.SwiftTypeName.ModuleQualifiedName);
+            || _emissionContext.WasWitnessTableGetterEmitted(protocolDecl.SwiftTypeName!.ModuleQualifiedName);
 
         if (!_setVtableEmitted)
         {
@@ -212,10 +214,11 @@ public partial class ProtocolProxyEmitter
         // routed this protocol through EveryEntityProtocol (mutually exclusive with
         // the ObjC base — the gates in EveryProtocolEmitter classify each protocol
         // into exactly one base).
+        // Both keyed on the module-qualified name, matching EveryProtocolEmitter's Mark sites.
         _useObjCBase = _emissionContext != ModuleEmissionContext.Default
-            && _emissionContext.UsesObjCBase(protocolDecl.Name);
+            && _emissionContext.UsesObjCBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
         _useEntityBase = _emissionContext != ModuleEmissionContext.Default
-            && _emissionContext.UsesEntityBase(protocolDecl.Name);
+            && _emissionContext.UsesEntityBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
 
         // Inherited protocol requirements are now handled: the proxy emits implementations
         // for inherited interface members (see EmitInheritedInterfaceImplementations).

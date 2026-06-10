@@ -36,4 +36,26 @@ public class ProtocolExtOptionalClassParamTests : TestBase
         var attached = child.AttachTo(null);
         AssertTrue(!attached, "AttachTo returns false for nil parent");
     }
+
+    // A C# class implementing the Swift protocol, vended back to Swift.
+    private sealed class ManagedChild : IPExtOptChildProtocol
+    {
+        public ManagedChild(int nodeId) => NodeId = nodeId;
+        public int NodeId { get; }
+    }
+
+    // Reverse direction of TestNonNilParentReceivesChildId: a C# conformer is
+    // passed to Swift as `any PExtOptChildProtocol`. Constructing that existential
+    // resolves the protocol witness table via
+    // Get_EveryProtocol_PExtOptChildProtocol_WitnessTable; the protocol-extension
+    // attachTo then reads child.nodeId back through the witness table into the
+    // managed getter, landing the C# id in the Swift parent.
+    public void TestCSharpChildDispatchesNodeIdToSwift()
+    {
+        using var parent = new PExtOptParent();
+        var child = new ManagedChild(nodeId: 77);
+        var attached = parent.AcceptChild(child);
+        AssertTrue(attached, "AcceptChild returns true (Swift saw a non-nil parent)");
+        AssertEqual(77, parent.LastAttachedChildId, "Swift read the C# child's nodeId via the witness table");
+    }
 }

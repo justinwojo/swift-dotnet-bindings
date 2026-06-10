@@ -345,6 +345,16 @@ public static class SwiftSourceStripper
         // conformer to KeywordMemberRouter, so the witness-table getter must survive
         // stripping; stripped otherwise because nothing referenced it before this test.
         "KeywordMemberDelegate",
+        // Protocol-extension-method existential CALLBACK: PExtOptChildProtocol declares
+        // `var nodeId` and a protocol-extension default `attachTo(_:)`. A C# conformer is
+        // vended to Swift through PExtOptParent.acceptChild(_ child: any PExtOptChildProtocol),
+        // which constructs the existential from the managed implementation via
+        // Get_EveryProtocol_PExtOptChildProtocol_WitnessTable and then dispatches self.nodeId
+        // back into the C# getter. The conformance is trivially valid (the lone requirement is
+        // satisfied via the vtable) and exports the getter in the production SDK, so preserving
+        // it here matches production; stripped otherwise because nothing referenced it before
+        // this test.
+        "PExtOptChildProtocol",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(
