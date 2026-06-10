@@ -19,7 +19,7 @@ namespace BindingsGeneration.Tests;
 /// re-enters from native Swift. A throw escaping it unwinds into native and aborts the process
 /// (SIGABRT). The realistic trigger is a user <see cref="IDisposable.Dispose"/> in a deferred list;
 /// it must be swallowed and must not skip sibling frees. (The native release branches —
-/// Arc.Release / NativeMemory.Free / DangerousRelease — cannot be safely driven from a unit test
+/// Arc.UnknownObjectRelease / NativeMemory.Free / DangerousRelease — cannot be safely driven from a unit test
 /// because they require live Swift pointers; their per-slot guard is exercised here via the
 /// zero-pointer skip path and covered end-to-end by BindingTests.)</item>
 /// <item><b>Idempotent.</b> Each processed slot is nulled, so a second pass — the fault catch

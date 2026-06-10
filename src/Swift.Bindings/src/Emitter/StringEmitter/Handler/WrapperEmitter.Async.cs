@@ -241,8 +241,8 @@ namespace BindingsGeneration
                 // For Swift classes, retain the self pointer before the async call via the
                 // isa-dispatching UnknownObjectRetain: 'self' may be an @objc:NSObject-rooted class
                 // (objc_retain) or a pure-Swift class (swift_retain), and the kind-agnostic
-                // RetainedSelfPtr cleanup releases it via UnknownObjectRelease — native-only
-                // swift_retain over-releases an @objc self (issue #40). SwiftSelf passes a
+                // RetainedSelfPtr cleanup releases it via UnknownObjectRelease — a native-only
+                // swift_release over-releases an @objc self (issue #40). SwiftSelf passes a
                 // raw pointer with no ARC semantics; by the time Swift's Task{} closure runs 'self'
                 // may be deallocated, so the retain ensures Swift ARC tracks it.
                 string selfInHolder;

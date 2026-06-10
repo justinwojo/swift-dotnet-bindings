@@ -312,7 +312,8 @@ public class AsyncSwiftWrapperTests
         // Should free the 8-byte carrier buffer
         Assert.Contains("SBW_Free(resultPtr)", csOutput);
         // Should NOT call Arc.Release(_retainedObjPtr) in the finally block
-        // (Arc.Release for RetainedSelfPtr in holder cleanup is a different pattern)
+        // (RetainedSelfPtr holder cleanup uses the isa-dispatching Arc.UnknownObjectRelease — a
+        // different pattern, centralized in SwiftAsyncCallHolder.Cleanup)
         Assert.DoesNotContain("Arc.Release(_retainedObjPtr)", csOutput);
     }
 

@@ -9,8 +9,10 @@ namespace BindingsGeneration
 {
     /// <summary>
     /// Wraps a retained Swift class pointer for async operations.
-    /// Used to track self pointers that were explicitly retained via Arc.Retain()
-    /// before calling async Swift methods. Must be released via Arc.Release() after callback.
+    /// Used to track self pointers that were explicitly retained via the isa-dispatching
+    /// Arc.UnknownObjectRetain before calling async Swift methods. Must be balanced by
+    /// Arc.UnknownObjectRelease in the runtime's SwiftAsyncCallHolder.Cleanup after the callback —
+    /// a native-only Arc.Release over-releases an @objc:NSObject-rooted self (issue #40).
     /// </summary>
     internal readonly struct RetainedSelfPtr
     {

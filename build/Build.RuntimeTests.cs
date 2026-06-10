@@ -2214,9 +2214,29 @@ partial class Build
     /// <summary>
     /// Compares JSONL results against the runtime tests baseline.
     /// Fails if pass count drops, warns + auto-updates if pass count increases.
+    /// Skipped entirely for smoke-enabled runs (see the early return) — their pass count
+    /// includes opt-in Apple-framework classes and is not comparable to the no-smoke baseline.
     /// </summary>
     void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)
     {
+        // The committed baseline reflects the DEFAULT no-smoke test set. A smoke run
+        // (`--enable-*-smoke`) compiles in extra Apple-framework test classes under
+        // `#if FOO_SMOKE`, so its pass count is not comparable to the baseline in either
+        // direction: the surplus passes always read as an "improvement" (and would inflate
+        // the canonical baseline the default gate enforces — which, since auto-update only
+        // ever raises, never self-heals), and they simultaneously mask any real core-test
+        // regression. Core failures/crashes are already caught upstream by the effectiveResult
+        // switch (Failure/Crash/Timeout throw regardless of this comparison), so skipping the
+        // pass-count comparison for smoke runs loses no regression protection.
+        var activeSmokeFlags = GetActiveSmokeFlags();
+        if (activeSmokeFlags.Count > 0)
+        {
+            Log.Information(
+                "Skipping runtime baseline comparison for {Platform}: smoke flags active ({Flags}).",
+                platform, string.Join(", ", activeSmokeFlags.Select(f => f.FlagName)));
+            return;
+        }
+
         var baseline = ValidationBaseline.Load(BaselinePath);
         var runtimeBaseline = baseline.RuntimeTests;
 
@@ -2282,6 +2302,8 @@ partial class Build
             // Auto-update baseline only on unfiltered, fully-green runs. Otherwise a
             // partially-failing run with a net pass-count increase would persist
             // `fail > 0` into the committed baseline, silently masking a regression.
+            // (Smoke-enabled runs are excluded earlier — see the early return at the top
+            // of this method.)
             if (string.IsNullOrEmpty(ClassFilter) && jsonlResults.CrashCount == 0 && jsonlResults.FailCount == 0)
             {
                 var newCounts = new ValidationBaseline.RuntimeTestsPlatformCounts

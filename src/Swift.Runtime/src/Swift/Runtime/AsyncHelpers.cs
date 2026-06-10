@@ -9,8 +9,11 @@ namespace Swift.Runtime
 {
     /// <summary>
     /// Wraps a retained Swift class pointer for async operations.
-    /// Used to track self pointers that were explicitly retained via Arc.Retain()
-    /// before calling async Swift methods. Must be released via Arc.Release() after callback.
+    /// Used to track self pointers that were explicitly retained via the isa-dispatching
+    /// Arc.UnknownObjectRetain before calling async Swift methods (self may be an
+    /// @objc:NSObject-rooted class or a pure-Swift class). Must be balanced by
+    /// Arc.UnknownObjectRelease in <see cref="SwiftAsyncCallHolder.Cleanup"/> after the callback —
+    /// a native-only Arc.Release over-releases an @objc self (issue #40).
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public readonly struct RetainedSelfPtr
@@ -212,7 +215,7 @@ namespace Swift.Runtime
     /// skip the remaining slots.</item>
     /// <item><b>Idempotent.</b> Each processed slot is cleared to <c>null</c>, so a second pass —
     /// the fault <c>catch</c> re-running after the success path freed some slots and then threw —
-    /// cannot double <see cref="Arc.Release"/>, <c>DangerousRelease</c>,
+    /// cannot double <see cref="Arc.UnknownObjectRelease"/>, <c>DangerousRelease</c>,
     /// <c>NativeMemory.Free</c>, or dispose.</item>
     /// </list>
     /// </summary>
@@ -233,7 +236,15 @@ namespace Swift.Runtime
                 try
                 {
                     if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        Arc.Release(retained.Ptr);
+                        // Self was retained via the isa-dispatching Arc.UnknownObjectRetain at every
+                        // emission site (self may be an @objc:NSObject-rooted class or a pure-Swift
+                        // class), so the balancing release MUST also isa-dispatch. Native-only
+                        // Arc.Release (swift_release) over-releases an @objc self — its
+                        // swift_isDeallocating precheck misreads the ObjC refcount word and the
+                        // decrement drives the object to premature deinit (issue #40 self-retain
+                        // SIGSEGV). This runs on the Swift continuation thread, never the GC
+                        // finalizer, so the direct UnknownObjectRelease is the correct entry point.
+                        Arc.UnknownObjectRelease(retained.Ptr);
                     else if (holder[i] is DeferredSafeHandleRelease deferred)
                         deferred.Handle.DangerousRelease();
                     else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
