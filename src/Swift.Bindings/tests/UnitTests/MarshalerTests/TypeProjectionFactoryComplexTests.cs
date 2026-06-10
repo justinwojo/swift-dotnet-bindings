@@ -137,6 +137,120 @@ public class TypeProjectionFactoryComplexTests
 
     #endregion
 
+    #region Concrete-class-fallback element parity (F6)
+
+    // An unresolved concrete-class-fallback Apple type (RealityFoundation.Entity — a
+    // Swift-native class with no ObjC class prefix, in a concreteClassFallback-only module)
+    // projects via ClassProjection through the Optional fallback path, but element projection
+    // for Array/Set/Dictionary used to consult only the IsOptionalFallbackModule +
+    // HasObjCClassPrefix heuristics. That asymmetry silently dropped any member typed
+    // [Entity] / Set<Entity> / [K: Entity] (e.g. RealityFoundation's entitiesTargetedByATapTrigger
+    // property and the append(contentsOf: [Entity]) overload) while Optional<Entity> projected
+    // fine. These tests pin element parity: the same concrete-class fallback applies inside
+    // collections, yielding a ClassProjection element — the already-runtime-proven shape used
+    // for any local Swift-class element ([Animal], [TrackedRef]).
+    //
+    // An empty TypeDatabase leaves Entity unresolved, forcing the registry-keyed fallback
+    // (IsConcreteClassFallbackModule), which is the exact reach in apple-framework generation.
+
+    [Fact]
+    public void Project_OptionalOfConcreteClassFallback_ProjectsViaClassProjection()
+    {
+        // Baseline: the Optional path already handles the concrete-class fallback. This is the
+        // working half of the asymmetry the element tests below close.
+        var typeSpec = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("RealityFoundation.Entity"));
+        var ctx = CreateContext(isParameter: false);
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        var optProj = Assert.IsType<OptionalProjection>(projection);
+        Assert.IsType<ClassProjection>(optProj.InnerProjection);
+    }
+
+    [Fact]
+    public void Project_ArrayOfConcreteClassFallback_ProjectsElementViaClassProjection()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("RealityFoundation.Entity"));
+        var ctx = CreateContext(isParameter: true);
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        var arrayProj = Assert.IsType<ArrayProjection>(projection);
+        Assert.IsType<ClassProjection>(arrayProj.ElementProjection);
+        Assert.Equal("RealityFoundation.Entity", arrayProj.ElementProjection.PublicType);
+    }
+
+    [Fact]
+    public void Project_SetOfConcreteClassFallback_ProjectsElementViaClassProjection()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Set",
+            new NamedTypeSpec("RealityFoundation.Entity"));
+        var ctx = CreateContext(isParameter: false);
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        var setProj = Assert.IsType<SetProjection>(projection);
+        Assert.IsType<ClassProjection>(setProj.ElementProjection);
+    }
+
+    [Fact]
+    public void Project_DictionaryWithConcreteClassFallbackValue_ProjectsValueViaClassProjection()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("RealityFoundation.Entity"));
+        var ctx = CreateContext(isParameter: false);
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        var dictProj = Assert.IsType<DictionaryProjection>(projection);
+        Assert.IsType<ClassProjection>(dictProj.ValueProjection);
+    }
+
+    [Fact]
+    public void Project_DictionaryWithConcreteClassFallbackKey_ProjectsKeyViaClassProjection()
+    {
+        // The Dictionary KEY leg routes through TryProjectObjCElement via its own `??`
+        // call site, distinct from the value leg above — pin it too so the symmetric
+        // fix can't regress on one position while the other stays green.
+        var typeSpec = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("RealityFoundation.Entity"),
+            new NamedTypeSpec("Swift.String"));
+        var ctx = CreateContext(isParameter: false);
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        var dictProj = Assert.IsType<DictionaryProjection>(projection);
+        Assert.IsType<ClassProjection>(dictProj.KeyProjection);
+    }
+
+    [Fact]
+    public void Project_ArrayOfDualModuleNonObjCPrefixedClass_ProjectsViaClassProjection()
+    {
+        // The real-world reach: RealityKit.Entity, not RealityFoundation.Entity. RealityKit is
+        // a DUAL-flagged module (optionalFallback AND concreteClassFallback) with an "RE" ObjC
+        // prefix, whereas RealityFoundation is concrete-only. The ObjC element branch runs first
+        // and is gated on IsOptionalFallbackModule + HasObjCClassPrefix — RealityKit satisfies
+        // the former, so the ONLY reason "Entity" falls through to the concrete-class branch is
+        // that "Entity" doesn't start with "RE". This pins that precedence: a regression in the
+        // ObjC-prefix check or branch ordering would silently re-route Entity (or drop it), and
+        // the concrete-only RealityFoundation.Entity test above would not catch it. The validate
+        // sweep confirms this exact element type reaches real members
+        // (Entity.ChildCollection.Append/ReplaceAll take [RealityKit.Entity]).
+        var typeSpec = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("RealityKit.Entity"));
+        var ctx = CreateContext(isParameter: true);
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        var arrayProj = Assert.IsType<ArrayProjection>(projection);
+        Assert.IsType<ClassProjection>(arrayProj.ElementProjection);
+    }
+
+    #endregion
+
     #region Existential Routing
 
     [Fact]

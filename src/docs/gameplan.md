@@ -230,19 +230,32 @@ first.
 
 ## Needs a probe before it's a session
 
-### F6 — Concrete-class fallback asymmetry: `Optional<Entity>` projects, `[Entity]` drops the member
+### F6 — Concrete-class fallback asymmetry: `Optional<Entity>` projects, `[Entity]` drops the member — RESOLVED
 
-*Source: triage **F6**. The one finding the BindingTests corpus couldn't settle — needs
-validation-library output.*
+*Source: triage **F6**. The one finding the BindingTests corpus couldn't settle — needed
+validation-library output. Probe ran, reach confirmed, fixed.*
 
-`TypeProjectionFactory.cs:239` (Optional path) consults `IsConcreteClassFallbackModule`, but
-`TryProjectObjCElement` (`:590-611`) does not — element fallback only honors
-`IsOptionalFallbackModule` + `HasObjCClassPrefix`. So `RealityFoundation.Entity` /
-`RealityKit.AnchorEntity` as an Array/Dictionary/Set **element** → projection null → member
-silently dropped, while the same type as `Optional<T>` emits fine. RealityKit/RealityFoundation
-are **tier-1 validation libraries**, so a validate sweep can hit this. Severity: silent member
-drop (coverage), not a crash. **First step:** a targeted-generation or `nuke validate` probe over
-RealityKit element shapes to confirm reach; promote to a session if confirmed.
+**Reach (confirmed).** `nuke validate --filter RealityFoundation` showed the asymmetry was real:
+`Entity.ChildCollection.append(contentsOf: [Entity], preservingWorldTransforms:)` and the matching
+`replaceAll` overload — both taking `[RealityKit.Entity]` — were silently dropped, while
+`Optional<Entity>` emitted fine. (`Entity`'s canonical module is **RealityKit** — a dual-flagged
+module, optionalFallback + concreteClassFallback + "RE" prefix — re-exported through the
+RealityFoundation umbrella; "Entity" lacks the "RE" prefix so it misses the ObjC branch.)
+
+**What landed.** `TryProjectObjCElement` gained a second branch mirroring the Optional path's Path 3
+concrete-class branch: when `IsConcreteClassFallbackModule(module)` holds (and the same
+`!ContainsGenericParameters` / `!IsStdlibContainer` / `!IsPointerType` / `!IsNestedType` /
+`!IsKnownAppleValueType` guards as the sibling Optional branch pass), the element projects as
+`ClassProjection` — the standard `ISwiftObject`/`.Payload` SafeHandle shape, already runtime-proven
+for local Swift-class elements (`[Animal]`, `[TrackedRef]`). No wrapper-side change: collection
+wrapper eligibility keys on the container name, and `[Entity]` rides the same IndirectResult
+transport as `[Animal]`. After the fix the two dropped members emit as
+`IEnumerable<RealityFoundation.Entity>` and the binding compiles (`[swift:ok]`).
+
+**Verified.** Red-first unit tests in `TypeProjectionFactoryComplexTests.cs` (Optional baseline +
+Array/Set/Dictionary-value/Dictionary-key + a dual-module `RealityKit.Entity` precedence test);
+unit 12747/0; `nuke validate --filter RealityFoundation` all-Succeeded with `cs_compile`/`swift_compile`
+baseline unchanged; BindingTests sim 2786 = baseline.
 
 ---
 

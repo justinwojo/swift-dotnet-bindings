@@ -576,8 +576,11 @@ public class TypeProjectionFactory
         KeyPathFamilyArities.TryGetValue(moduleQualifiedName, out var arity) ? arity : -1;
 
     /// <summary>
-    /// Fallback projection for collection element types that are unresolved Apple ObjC classes.
-    /// Uses the SAME module set + guards as the Optional ObjC fallback above
+    /// Fallback projection for collection element types that are unresolved Apple framework
+    /// reference classes — both ObjC-bridged classes and non-ObjC concrete-class-fallback Swift
+    /// classes. Mirrors the two-branch Optional fallback above so a collection element projects
+    /// exactly when the same type would as an <c>Optional&lt;T&gt;</c> inner.
+    /// Branch 1 (ObjC): same module set + guards as the Optional ObjC fallback
     /// (<see cref="AppleFrameworkRegistry.IsOptionalFallbackModule"/> + <c>!IsKnownAppleValueType</c>
     /// + <c>!IsNestedType</c> + <c>!IsPointerType</c> + <c>HasObjCClassPrefix</c>) so an unresolved
     /// ObjC class in any auto-bridged Apple module — not just Foundation/UIKit — round-trips inside
@@ -585,7 +588,10 @@ public class TypeProjectionFactory
     /// member (e.g. <c>[AVFoundation.AVAsset]</c>). The value-type guard is load-bearing: an ObjC
     /// prefix alone does not prove a class (e.g. <c>PassKit.PKPaymentNetwork</c> is a value type
     /// with a PK prefix), and bridging a value type here would emit the wrong ARC shape.
-    /// Returns ObjCBridgedProjection if the element is an ObjC class, null otherwise.
+    /// Branch 2 (concrete-class): mirrors Optional Path 3 for non-ObjC Swift classes from
+    /// concrete-class-fallback modules (see the branch's own comment).
+    /// Returns ObjCBridgedProjection if the element is an ObjC class, or ClassProjection if the
+    /// element is a non-ObjC concrete-class-fallback Swift class; null otherwise.
     /// </summary>
     private static ITypeProjection? TryProjectObjCElement(TypeSpec elementTypeSpec)
     {
@@ -606,6 +612,30 @@ public class TypeProjectionFactory
                 ? remappedName
                 : elemNamed.Name;
             return new ObjCBridgedProjection(bridgedName);
+        }
+
+        // Concrete-class fallback element parity: mirror the Optional concrete-class branch
+        // (Project()'s Path 3) inside collection element projection. A concrete-class-fallback
+        // module ships Swift-native classes whose names don't carry an ObjC class prefix
+        // (RealityFoundation.Entity, RealityKit.AnchorEntity), so the ObjC branch above misses
+        // them. Without this, Optional<Entity> projected fine but [Entity] / Set<Entity> /
+        // [K: Entity] returned null and the whole member was silently dropped. These are
+        // non-ObjC Swift classes whose C# binding follows the standard ISwiftObject/.Payload
+        // SafeHandle shape, so ClassProjection is the matching element projection — the same
+        // shape already used (and runtime-proven) for any local Swift-class element ([Animal]).
+        if (elementTypeSpec is NamedTypeSpec elemConcrete &&
+            elemConcrete.HasModule() &&
+            !elemConcrete.ContainsGenericParameters &&
+            !IsStdlibContainer(elemConcrete.Name) &&
+            !AppleFrameworkRegistry.IsPointerType(elemConcrete.Name) &&
+            !AppleFrameworkRegistry.IsNestedType(elemConcrete.Name) &&
+            !TypeDatabaseExtensions.IsKnownAppleValueType(elemConcrete) &&
+            AppleFrameworkRegistry.IsConcreteClassFallbackModule(elemConcrete.Module))
+        {
+            var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(elemConcrete.Name, out var remappedConcreteName)
+                ? remappedConcreteName
+                : elemConcrete.Name;
+            return new ClassProjection(bridgedName);
         }
         return null;
     }
