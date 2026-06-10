@@ -30,6 +30,17 @@
 //           x86_64. StoreKit's iOS SDK ships both x86_64-apple-ios-simulator
 //           and arm64-apple-ios-simulator swiftinterface slices (checked at
 //           gate execution time; we fail fast if the user's Xcode dropped one).
+//   Leg C — same StoreKit binding, but device-first (SwiftPlatformTarget=device)
+//           so the wrapper SIMULATOR slice is produced by the SDK's
+//           _CompileAppleFrameworkSecondWrapperSlice second-slice compile.
+//   Leg D — SwiftUI-bridge-producing Apple framework (TipKit), device-first.
+//           TipKit's binding emits a TipKitBridge.xcframework alongside the
+//           wrapper, so this is the only leg that exercises the BRIDGE
+//           second-slice compile (_CompileAppleFrameworkSecondBridgeSlice) and
+//           the atomic park-aside bridge swap. The consumer asserts the embedded
+//           TipKitBridge.framework's sim slice carries x86_64. TipKit ships both
+//           x86_64 and arm64 simulator swiftinterface slices for iOS and tvOS
+//           (checked at gate time; fail fast if Xcode dropped one).
 //
 // Not part of `nuke test`/`nuke binding-tests`: needs the macOS SDK, the Apple
 // .NET workload's iossimulator-x64 + tvossimulator-x64 runtime packs, and the
@@ -62,6 +73,14 @@ partial class Build
     // (SwiftPlatformTarget=device). Distinct package id so it does not collide
     // with Leg B's binding in the same nupkg dir / NuGet cache.
     const string X64SimAppleBindingsDeviceFirstPackageId = "X64SimStoreKitDeviceFirst.Bindings";
+    // Leg D: a SwiftUI-bridge-producing Apple framework (TipKit), packed
+    // device-first so the SECOND-slice compile is the simulator slice. This is
+    // the only X64SimGate leg whose binding emits a <Module>Bridge.xcframework,
+    // so it is the only one that exercises _CompileAppleFrameworkSecondBridgeSlice
+    // producing a fat arm64+x86_64 simulator bridge binary and committing it via
+    // the atomic park-aside swap. The iossimulator-x64 / tvossimulator-x64
+    // consumer then asserts the embedded TipKitBridge.framework carries x86_64.
+    const string X64SimTipKitDeviceFirstPackageId = "X64SimTipKitDeviceFirst.Bindings";
 
     // Consumer TFMs (suffixed — required by the multi-TFM SwiftBindings pipeline
     // so each inner build pre-sets TargetFramework before _SwiftBindingPlatform
@@ -89,6 +108,8 @@ partial class Build
             var storeKitBindingsOut = scratch / "storekit-bindings-output";
             var storeKitDeviceFirstBindingsDir = scratch / "storekit-devicefirst-bindings";
             var storeKitDeviceFirstBindingsOut = scratch / "storekit-devicefirst-bindings-output";
+            var tipKitDeviceFirstBindingsDir = scratch / "tipkit-devicefirst-bindings";
+            var tipKitDeviceFirstBindingsOut = scratch / "tipkit-devicefirst-bindings-output";
             nupkgDir.CreateDirectory();
             bindingsDir.CreateDirectory();
             bindingsOut.CreateDirectory();
@@ -96,6 +117,8 @@ partial class Build
             storeKitBindingsOut.CreateDirectory();
             storeKitDeviceFirstBindingsDir.CreateDirectory();
             storeKitDeviceFirstBindingsOut.CreateDirectory();
+            tipKitDeviceFirstBindingsDir.CreateDirectory();
+            tipKitDeviceFirstBindingsOut.CreateDirectory();
 
             Log.Information("=== X64SimGate: iOS/tvOS x86_64 simulator packaging gate ===");
 
@@ -115,6 +138,9 @@ partial class Build
             // if Apple has dropped the x86_64 simulator slice — otherwise the
             // gate would mis-attribute the failure to our SDK.
             AssertStoreKitX64SliceAvailable();
+            // TipKit slice precheck (Leg D): same fail-fast rationale, for both
+            // the iOS and tvOS simulator SDKs the bridge leg consumes.
+            AssertTipKitX64SliceAvailable();
 
             using var scope = new VersionScope(X64SimGateVersion, RootDirectory, X64SimGateAppleVersion);
 
@@ -160,6 +186,7 @@ partial class Build
                 (X64SimBindingsPackageId.ToLowerInvariant(), X64SimGateVersion),
                 (X64SimAppleBindingsPackageId.ToLowerInvariant(), X64SimGateVersion),
                 (X64SimAppleBindingsDeviceFirstPackageId.ToLowerInvariant(), X64SimGateVersion),
+                (X64SimTipKitDeviceFirstPackageId.ToLowerInvariant(), X64SimGateVersion),
             })
             {
                 var pkgDir = nugetCacheDir / pkg / ver;
@@ -207,7 +234,7 @@ partial class Build
             //    arm64+x86_64 binary even when the first slice is device-arm64-only —
             //    otherwise iossimulator-x64 / tvossimulator-x64 consumers fail
             //    NativeReference resolution against an arm64-only sim slice.
-            Log.Information("  [6/8] Packing StoreKit Apple-framework binding (device-first, Leg C)");
+            Log.Information("  [6/9] Packing StoreKit Apple-framework binding (device-first, Leg C)");
             WriteX64SimStoreKitDeviceFirstBindingsProject(storeKitDeviceFirstBindingsDir, nupkgDir);
             DotNetPack(s => s
                 .SetProject(storeKitDeviceFirstBindingsDir / "X64SimStoreKitDeviceFirstBindings.csproj")
@@ -216,9 +243,34 @@ partial class Build
                 .EnableNoLogo()
                 .SetVerbosity(DotNetVerbosity.quiet));
 
+            // 6b. Pack the TipKit SwiftUI-bridge binding, device-first (Leg D).
+            //     TipKit emits a TipKitBridge.xcframework, so the device-first
+            //     pack drives _CompileAppleFrameworkSecondBridgeSlice to build the
+            //     SIMULATOR bridge slice as the "second" slice — which must come
+            //     out fat arm64+x86_64 and commit through the atomic park-aside
+            //     swap, or the iossimulator-x64 / tvossimulator-x64 consumer
+            //     resolves an arm64-only bridge slice and the lipo check on
+            //     TipKitBridge.framework fails "missing x86_64". Packed TWICE for
+            //     the same incremental-resync reason as the StoreKit leg: the
+            //     second pack is up-to-date, so the bridge second-slice / swap
+            //     must survive a no-regen build (the recovery + resync targets run
+            //     every build, not just first generation).
+            Log.Information("  [7/9] Packing TipKit SwiftUI-bridge binding (device-first, x2 for incremental, Leg D)");
+            WriteX64SimTipKitDeviceFirstBindingsProject(tipKitDeviceFirstBindingsDir, nupkgDir);
+            for (int packAttempt = 1; packAttempt <= 2; packAttempt++)
+            {
+                Log.Information("    pack attempt {Attempt}/2", packAttempt);
+                DotNetPack(s => s
+                    .SetProject(tipKitDeviceFirstBindingsDir / "X64SimTipKitDeviceFirstBindings.csproj")
+                    .SetConfiguration("Release")
+                    .SetOutputDirectory(tipKitDeviceFirstBindingsOut)
+                    .EnableNoLogo()
+                    .SetVerbosity(DotNetVerbosity.quiet));
+            }
+
             // 7. Leg A — third-party iOS-sim + tvOS-sim consumer apps. Build only
             //    (no run — Apple Silicon cannot host x86_64 iOS/tvOS simulators).
-            Log.Information("  [7/8] Consuming packed third-party binding under iossimulator-x64 + tvossimulator-x64 (Leg A)");
+            Log.Information("  [8/9] Consuming packed third-party binding under iossimulator-x64 + tvossimulator-x64 (Leg A)");
             VerifyConsumerX64SimSlice(scratch, nupkgDir, bindingsOut,
                 consumerTag: "ios-sim-x64", tfm: X64SimIosTfm, rid: "iossimulator-x64",
                 bindingsPackageId: X64SimBindingsPackageId,
@@ -235,7 +287,7 @@ partial class Build
             //    sim slice embeds x86_64. The StoreKit module surface is referenced
             //    only for compile (`typeof(...)`) — no real StoreKit calls — so the
             //    gate does not need a configured StoreKit account.
-            Log.Information("  [8/8] Consuming StoreKit Apple-framework bindings (Leg B sim-first + Leg C device-first)");
+            Log.Information("  [9/9] Consuming StoreKit (Leg B/C) + TipKit bridge (Leg D) Apple-framework bindings");
             VerifyConsumerX64SimSlice(scratch, nupkgDir, storeKitBindingsOut,
                 consumerTag: "ios-sim-x64-storekit", tfm: X64SimIosTfm, rid: "iossimulator-x64",
                 bindingsPackageId: X64SimAppleBindingsPackageId,
@@ -261,7 +313,29 @@ partial class Build
                 programNamespace: "StoreKit",
                 useGreeter: false);
 
-            Log.Information("=== X64SimGate: PASS — iossimulator-x64 + tvossimulator-x64 packaging round-trip green for third-party + Apple-framework bindings (sim-first and device-first) ===");
+            // Leg D — TipKit SwiftUI-bridge binding, device-first. The embedded
+            // Frameworks/ now also carries TipKitBridge.framework; VerifyConsumer
+            // walks every embedded framework binary and requires x86_64 in ALL of
+            // them, so it certifies the bridge sim slice the second-bridge-slice
+            // compile + atomic swap produced. `TipKit.Tips` is the force-load
+            // anchor (TipKit's configuration namespace, emits in every supported
+            // SDK); no real TipKit call, so no app context is needed.
+            VerifyConsumerX64SimSlice(scratch, nupkgDir, tipKitDeviceFirstBindingsOut,
+                consumerTag: "ios-sim-x64-tipkit-devicefirst", tfm: X64SimIosTfm, rid: "iossimulator-x64",
+                bindingsPackageId: X64SimTipKitDeviceFirstPackageId,
+                programNamespace: "TipKit",
+                useGreeter: false,
+                appleAnchorType: "Tips",
+                requiredFramework: "TipKitBridge");
+            VerifyConsumerX64SimSlice(scratch, nupkgDir, tipKitDeviceFirstBindingsOut,
+                consumerTag: "tvos-sim-x64-tipkit-devicefirst", tfm: X64SimTvosTfm, rid: "tvossimulator-x64",
+                bindingsPackageId: X64SimTipKitDeviceFirstPackageId,
+                programNamespace: "TipKit",
+                useGreeter: false,
+                appleAnchorType: "Tips",
+                requiredFramework: "TipKitBridge");
+
+            Log.Information("=== X64SimGate: PASS — iossimulator-x64 + tvossimulator-x64 packaging round-trip green for third-party + Apple-framework bindings (sim-first, device-first, and SwiftUI-bridge) ===");
         });
 
     // Fail fast if Apple has dropped the x86_64-apple-ios-simulator swiftinterface
@@ -281,6 +355,35 @@ partial class Build
                 $"X64SimGate: required slice not found at '{iface}'. Apple's iOS simulator SDK no longer ships an " +
                 "x86_64 StoreKit swiftinterface — Leg B cannot certify the StoreKit2 reporter path. " +
                 "Update this gate (drop StoreKit, pick a still-x86_64 framework, or remove Leg B).");
+    }
+
+    // Fail fast if Apple has dropped the x86_64 simulator swiftinterface slice for
+    // TipKit on either the iOS or tvOS simulator SDK. Leg D consumes the TipKit
+    // binding on iossimulator-x64 AND tvossimulator-x64, and the binding's wrapper
+    // sim slice can only be fat where the source framework ships x86_64. Without
+    // this precheck, a vanished upstream slice would be mis-attributed to the
+    // SDK's bridge second-slice path.
+    static void AssertTipKitX64SliceAvailable()
+    {
+        foreach (var (sdk, triple) in new[]
+        {
+            ("iphonesimulator", "x86_64-apple-ios-simulator"),
+            ("appletvsimulator", "x86_64-apple-tvos-simulator"),
+        })
+        {
+            var sdkPathProc = ProcessTasks.StartProcess("xcrun", $"--sdk {sdk} --show-sdk-path",
+                    logOutput: false)
+                .AssertWaitForExit()
+                .AssertZeroExitCode();
+            var sdkPath = sdkPathProc.Output.StdToText().Trim();
+            var iface = Path.Combine(sdkPath, "System", "Library", "Frameworks", "TipKit.framework",
+                "Modules", "TipKit.swiftmodule", $"{triple}.swiftinterface");
+            if (!File.Exists(iface))
+                throw new InvalidOperationException(
+                    $"X64SimGate: required slice not found at '{iface}'. Apple's {sdk} SDK no longer ships an " +
+                    "x86_64 TipKit swiftinterface — Leg D cannot certify the SwiftUI-bridge second-slice path. " +
+                    "Update this gate (pick a still-x86_64 bridge-producing framework, or remove Leg D).");
+        }
     }
 
     // Write the third-party SwiftFramework binding library project. 2-TFM (iOS
@@ -361,6 +464,38 @@ partial class Build
         File.WriteAllText(bindingsDir / "NuGet.config", X64SimNuGetConfig(nupkgDir));
     }
 
+    // Leg D: a TipKit Apple-framework binding, device-first. TipKit exposes
+    // SwiftUI views, so the binding emits a TipKitBridge.xcframework alongside the
+    // wrapper. Device-first (SwiftPlatformTarget=device) makes the wrapper AND the
+    // bridge first-slice the arm64-only device slice, so the SDK's
+    // _CompileAppleFrameworkSecondBridgeSlice produces the SIMULATOR bridge slice
+    // as the "second" slice — which must emit a fat arm64+x86_64 binary and commit
+    // through the atomic park-aside swap, or the iossimulator-x64 / tvossimulator-x64
+    // consumer resolves an arm64-only bridge slice and the lipo check fails. The
+    // explicit arm64,x86_64 arch list mirrors the StoreKit device-first leg.
+    static void WriteX64SimTipKitDeviceFirstBindingsProject(AbsolutePath bindingsDir, AbsolutePath nupkgDir)
+    {
+        var csproj = $"""
+            <Project Sdk="SwiftBindings.Sdk/{X64SimGateVersion}">
+              <PropertyGroup>
+                <TargetFrameworks>{X64SimIosTfm};{X64SimTvosTfm}</TargetFrameworks>
+                <PackageId>{X64SimTipKitDeviceFirstPackageId}</PackageId>
+                <PackageVersion>{X64SimGateVersion}</PackageVersion>
+                <IsPackable>true</IsPackable>
+                <SwiftPlatformTarget>device</SwiftPlatformTarget>
+                <SwiftTargetArchitectures>arm64,x86_64</SwiftTargetArchitectures>
+                <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+                <NoWarn>$(NoWarn);CS0649;CS0114;CA1416</NoWarn>
+              </PropertyGroup>
+              <ItemGroup>
+                <SwiftAppleFrameworkTarget Include="TipKit" Module="TipKit" />
+              </ItemGroup>
+            </Project>
+            """;
+        File.WriteAllText(bindingsDir / "X64SimTipKitDeviceFirstBindings.csproj", csproj);
+        File.WriteAllText(bindingsDir / "NuGet.config", X64SimNuGetConfig(nupkgDir));
+    }
+
     // Build a consumer iOS/tvOS app that PackageReferences the packed bindings at
     // the given x86_64 simulator RID. Asserts the .app bundle's embedded
     // framework binary is fat (arm64+x86_64) or x86_64-containing — i.e. .NET-for-
@@ -368,12 +503,13 @@ partial class Build
     void VerifyConsumerX64SimSlice(
         AbsolutePath scratch, AbsolutePath nupkgDir, AbsolutePath bindingsOut,
         string consumerTag, string tfm, string rid,
-        string bindingsPackageId, string programNamespace, bool useGreeter)
+        string bindingsPackageId, string programNamespace, bool useGreeter,
+        string appleAnchorType = "AppTransaction", string? requiredFramework = null)
     {
         var appDir = scratch / $"app-{consumerTag}";
         if (Directory.Exists(appDir)) appDir.DeleteDirectory();
         appDir.CreateDirectory();
-        WriteX64SimConsumerApp(appDir, nupkgDir, bindingsOut, tfm, rid, bindingsPackageId, programNamespace, useGreeter);
+        WriteX64SimConsumerApp(appDir, nupkgDir, bindingsOut, tfm, rid, bindingsPackageId, programNamespace, useGreeter, appleAnchorType);
 
         DotNetBuild(s => s
             .SetProjectFile(appDir / "X64SimApp.csproj")
@@ -402,6 +538,7 @@ partial class Build
         // x86_64 in any embedded framework would crash at sim launch.
         var failures = new List<string>();
         int frameworkCount = 0;
+        var embeddedNames = new List<string>();
         foreach (var fwDir in Directory.EnumerateDirectories(frameworksDir, "*.framework"))
         {
             var fwName = Path.GetFileNameWithoutExtension(fwDir);
@@ -409,6 +546,7 @@ partial class Build
             if (!File.Exists(binary))
                 continue; // Stub framework with no Mach-O — Apple system frameworks ship like this.
             frameworkCount++;
+            embeddedNames.Add(fwName);
             var archs = LipoArchs(binary);
             if (!archs.Contains("x86_64", StringComparer.Ordinal))
             {
@@ -420,6 +558,17 @@ partial class Build
         if (frameworkCount == 0)
             Assert.Fail($"X64SimGate ({consumerTag}): {frameworksDir} contained no embedded framework " +
                         "binaries — ResolveNativeReferences picked nothing.");
+        // When a specific framework is required (Leg D's SwiftUI bridge), assert it
+        // actually embedded — otherwise the x86_64 loop above would pass vacuously
+        // on the wrapper alone and never certify the bridge second-slice path. The
+        // match is exact on the framework name (not a substring), so a sibling like
+        // a hypothetical 'TipKitBridgeHelper' could never satisfy the 'TipKitBridge'
+        // requirement while the real bridge is absent.
+        if (requiredFramework != null &&
+            !embeddedNames.Any(n => string.Equals(n, requiredFramework, StringComparison.Ordinal)))
+            Assert.Fail($"X64SimGate ({consumerTag}): required framework '{requiredFramework}' " +
+                        $"was not embedded — found only [{string.Join(", ", embeddedNames)}]. The " +
+                        "bridge xcframework's sim slice did not flow to the consumer.");
         if (failures.Count > 0)
         {
             Log.Error("X64SimGate ({Tag}) FAILED — {Count} embedded framework(s) missing x86_64 slice:",
@@ -435,7 +584,8 @@ partial class Build
 
     static void WriteX64SimConsumerApp(
         AbsolutePath appDir, AbsolutePath nupkgDir, AbsolutePath bindingsOut,
-        string tfm, string rid, string bindingsPackageId, string programNamespace, bool useGreeter)
+        string tfm, string rid, string bindingsPackageId, string programNamespace, bool useGreeter,
+        string appleAnchorType = "AppTransaction")
     {
         // For .NET-for-Apple sim builds, MtouchLink=None keeps the linker from
         // pruning code; ResolveNativeReferences still embeds the framework via
@@ -491,11 +641,12 @@ partial class Build
         else
         {
             // typeof keeps the binding-assembly reference alive for the linker
-            // without invoking StoreKit (which needs a configured StoreKit
-            // context that a packaging gate cannot provide). MtouchLink=None
-            // above ensures the assembly + its NativeReference are embedded even
-            // for the compile-only typeof shape. AppTransaction is StoreKit2's
-            // headline type and emits in every supported SDK.
+            // without invoking the Apple framework (which may need a configured
+            // runtime context that a packaging gate cannot provide). MtouchLink=None
+            // above ensures the assembly + its NativeReference(s) are embedded even
+            // for the compile-only typeof shape. The anchor type is the framework's
+            // headline type (StoreKit → AppTransaction; TipKit → Tips) and emits in
+            // every supported SDK.
             program = $$"""
                 // Copyright (c) 2026 Justin Wojciechowski.
                 // Licensed under the MIT License.
@@ -503,10 +654,11 @@ partial class Build
                 using System.Runtime.InteropServices;
 
                 // Force-load the bindings assembly so ResolveNativeReferences embeds
-                // its NativeReference (the wrapper xcframework). Walks types instead
-                // of calling them — StoreKit needs a configured account at runtime
-                // and this gate is build-only.
-                var asm = typeof(global::{{programNamespace}}.AppTransaction).Assembly;
+                // its NativeReference(s) (the wrapper xcframework, and — for a
+                // SwiftUI-bridge framework — the companion bridge xcframework).
+                // Walks types instead of calling them — the framework may need a
+                // configured context at runtime and this gate is build-only.
+                var asm = typeof(global::{{programNamespace}}.{{appleAnchorType}}).Assembly;
                 Console.WriteLine($"arch={RuntimeInformation.ProcessArchitecture} loaded={asm.GetName().Name} types={asm.GetTypes().Length}");
                 """;
         }

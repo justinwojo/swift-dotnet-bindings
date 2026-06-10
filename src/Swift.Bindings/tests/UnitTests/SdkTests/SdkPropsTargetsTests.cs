@@ -515,6 +515,119 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_FingerprintIncludesGenerationInputs()
+        {
+            // Three generation-affecting inputs must sit inside the fingerprint echoes so
+            // flipping any one invalidates _SwiftBindingUpToDate (otherwise the generator is
+            // skipped as "up to date" and silently reuses stale output). $(SwiftAppleSupplementPrototypeDir)
+            // is the unique tail anchor present ONLY in the two echoes, so pinning the new
+            // tokens right after it ties the assertion to the echo (not an unrelated CLI site).
+
+            // XCFramework-mode echo: SwiftFrameworkType drives --objc; SwiftAppleSupplementVersion
+            // drives --apple-version. Both alter generated output for source-xcframework bindings.
+            Assert.Contains(
+                "$(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency",
+                TargetsContent);
+
+            // Apple-framework-mode echo: NamespacePattern drives --namespace-pattern;
+            // SwiftAppleSupplementVersion drives --apple-version. This pair closes the echo.
+            Assert.Contains(
+                "$(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_SecondSliceCommitIsAtomicAndRecoverable()
+        {
+            // The wrapper and bridge second-slice commits must NOT be the old non-atomic
+            // RemoveDir(live)+mv(merged): a kill between them loses the xcframework while
+            // the fingerprint stamp (written pre-swap) marks the build up-to-date, so the
+            // ungated presence probe records HasWrapperXCFramework=False and drops the
+            // consumer NativeReference -> DllNotFoundException. Instead, each commit parks
+            // the live tree at a '.superseded' sibling, moves the merged tree in, rolls back
+            // from '.superseded' on failure, then drops the aside — one shell process.
+            Assert.Contains(
+                "mv &quot;$(_AFW_XCF)&quot; &quot;$(_AFW_XCF).superseded&quot;",
+                TargetsContent);
+            Assert.Contains(
+                "mv &quot;$(_AFW_XCF).superseded&quot; &quot;$(_AFW_XCF)&quot;; exit 1;",
+                TargetsContent);
+            Assert.Contains(
+                "mv &quot;$(_AFB_XCF)&quot; &quot;$(_AFB_XCF).superseded&quot;",
+                TargetsContent);
+            Assert.Contains(
+                "mv &quot;$(_AFB_XCF).superseded&quot; &quot;$(_AFB_XCF)&quot;; exit 1;",
+                TargetsContent);
+
+            // The old non-atomic commit comment must be gone for both targets.
+            Assert.DoesNotContain("now swap: remove original, move merged", TargetsContent);
+
+            // Stale staging 'merged.xcframework' from a prior interrupt is removed BEFORE each
+            // create (xcodebuild refuses to overwrite, and the bridge's Exists()-only success
+            // check would otherwise commit a stale tree).
+            Assert.Contains("_merge_slices/merged.xcframework\" />", TargetsContent);
+            Assert.Contains("_bridge_merge_slices/merged.xcframework\" />", TargetsContent);
+
+            // The bridge create runs with ContinueOnError (non-fatal degrade), so its
+            // success can't be inferred from Exists(merged) alone — a failed xcodebuild that
+            // left a partial tree would otherwise be committed over the working bridge. Its
+            // exit code is captured and the commit is gated on exit code 0 AND existence.
+            Assert.Contains("TaskParameter=\"ExitCode\" PropertyName=\"_AFB_MergeExitCode\"", TargetsContent);
+            Assert.Contains(
+                "_AFB_MergeSucceeded Condition=\"'$(_AFB_MergeExitCode)' == '0' AND Exists(",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkFingerprintHashesModuleDatabases()
+        {
+            // Apple-direct generation feeds declared cross-module databases to --module-database
+            // (e.g. RealityKit consuming RealityFoundationDatabase.xml). A change to a declared
+            // SwiftModuleDatabase or a SwiftFrameworkDependency's ModuleDatabasePath must
+            // invalidate _SwiftBindingUpToDate, so both inputs are hashed in the Apple-framework
+            // fingerprint too — not just the xcframework-mode one. Each hashing loop must now
+            // appear TWICE (once per mode); before this fix the Apple echo omitted both, leaving
+            // a stale-regeneration hole on cross-module DB edits.
+            Assert.Equal(2, CountOccurrences(TargetsContent, "@(SwiftModuleDatabase, '%0A')"));
+            Assert.Equal(2, CountOccurrences(TargetsContent,
+                "@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')"));
+        }
+
+        static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0, i = 0;
+            while ((i = haystack.IndexOf(needle, i, System.StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                i += needle.Length;
+            }
+            return count;
+        }
+
+        [Fact]
+        public void Targets_InterruptedSwapRecoveryIsWiredBeforePresenceProbe()
+        {
+            // SWIFTBIND053 surfaces the heal of an interrupted second-slice swap.
+            Assert.Contains("SWIFTBIND053", TargetsContent);
+
+            // Recovery is keyed on the asymmetric contract: a missing wrapper is catastrophic
+            // (whole binding DllNotFounds) and a single-slice wrapper is valid for the current
+            // platform, so it is RESTORED from '.superseded'. The bridge's parked tree is only
+            // ever single-slice, which a simulator-bearing platform drops per SWIFTBIND052, so
+            // restoring it would just be undone — the bridge is left missing (degrades per the
+            // documented contract) and only its orphaned '.superseded' is cleaned.
+            Assert.Contains("_AFW_WrapperNeedsRecovery", TargetsContent);
+            Assert.Contains("_AFW_BridgeNeedsRecovery", TargetsContent);
+            // Wrapper recovery does an mv-restore; bridge recovery is a RemoveDir of the aside.
+            Assert.Contains(
+                "if [ ! -d &quot;$(_AFW_WrapperPath)&quot; ]; then mv &quot;$(_AFW_WrapperPath).superseded&quot; &quot;$(_AFW_WrapperPath)&quot;",
+                TargetsContent);
+            Assert.Contains(
+                "Directories=\"$(_AFW_BridgePath).superseded\" />",
+                TargetsContent);
+        }
+
+        [Fact]
         public void Targets_FingerprintIncludesDocCommentsProperty()
         {
             Assert.Contains("SwiftGenerateDocComments", TargetsContent);

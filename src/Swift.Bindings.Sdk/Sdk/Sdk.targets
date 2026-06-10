@@ -599,7 +599,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -612,14 +612,27 @@ done; true"
          `[ -f ]` guards so the fingerprint stays well-defined for both modes.
          _SwiftAppleFrameworkType is bumped into the hash so an accidental
          user switch between Swift and ObjC modes for the same framework
-         re-runs the generator instead of silently reusing stale output. -->
+         re-runs the generator instead of silently reusing stale output.
+         Cross-module databases are hashed too (mirroring xcframework mode):
+         Apple-direct generation feeds these to the generator's module-database
+         flag (e.g. RealityKit consuming RealityFoundationDatabase.xml), so a change to a declared
+         SwiftModuleDatabase or a SwiftFrameworkDependency's ModuleDatabasePath
+         must invalidate the binding. (ProjectReference-discovered databases are
+         collected after this fingerprint runs and remain unhashed here, same as
+         xcframework mode — they exist only on incremental builds.) -->
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'"
           Command="(
       if [ -f &quot;$(_SwiftAppleFrameworkInterface)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkInterface)&quot;; fi ; \
       if [ -f &quot;$(_SwiftAppleFrameworkTbd)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkTbd)&quot;; fi ; \
       if [ -f &quot;$(_SwiftAppleFrameworkModulemap)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkModulemap)&quot;; fi ; \
       if [ -d &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; ]; then find -L &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; -type f -name '*.h' -exec shasum -a 256 {} \; ; fi ; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
+      echo &quot;@(SwiftModuleDatabase, '%0A')&quot; | while IFS= read -r db; do \
+        if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
+      done; \
+      echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
+        if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
+      done; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -795,7 +808,59 @@ done; true"
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_AFW_WrapperModule>$(_SwiftAppleFrameworkModule)SwiftBindings</_AFW_WrapperModule>
       <_AFW_WrapperPath>$(_SwiftBindingIntermediateDir)$(_AFW_WrapperModule).xcframework</_AFW_WrapperPath>
+      <_AFW_BridgeModule>$(_SwiftAppleFrameworkModule)Bridge</_AFW_BridgeModule>
+      <_AFW_BridgePath>$(_SwiftBindingIntermediateDir)$(_AFW_BridgeModule).xcframework</_AFW_BridgePath>
     </PropertyGroup>
+
+    <!-- Heal a second-slice swap that a SIGKILL interrupted mid-commit. The
+         _CompileAppleFramework{,Bridge}Second*Slice targets commit the merged fat
+         xcframework by parking the live tree at a '.superseded' sibling, moving the
+         merged tree into place, then dropping the aside (see those targets). An
+         interrupt between the two moves leaves the primary path empty with the
+         original parked at '.superseded'. The fingerprint stamp is written during
+         generation — BEFORE the swap — so the next build is "up-to-date", the
+         second-slice merge/swap is skipped (gated on _SwiftBindingUpToDate), and the
+         presence probe just below (which is NOT up-to-date gated) would otherwise see
+         no xcframework, record _SwiftBindingHas*XCFramework False, and drop the
+         consumer NativeReference -> DllNotFoundException. Recovery runs here, BEFORE
+         that probe and on EVERY build, to close that window.
+
+         WRAPPER and BRIDGE are handled ASYMMETRICALLY because their failure contracts
+         differ:
+         - WRAPPER: a missing wrapper is CATASTROPHIC (the whole binding DllNotFounds)
+           and there is no graceful-degrade guard. The parked '.superseded' is a
+           complete, working single-slice wrapper — valid for the current platform —
+           so RESTORE it (mv back). The fat second slice rebuilds on the next
+           out-of-date build. This mirrors WrapperXCFrameworkMerger.MergeFatSlices'
+           '.superseded' recovery. (We restore the parked single-slice original, NOT
+           the staging 'merged.xcframework', because a kill mid-`xcodebuild` can leave
+           staging partial while the parked original is always intact.)
+         - BRIDGE: the parked '.superseded' is only ever the pre-swap single-slice
+           bridge (the 2-slice fat lives solely in staging until the swap completes).
+           On a simulator-bearing platform a single-slice bridge is, by deliberate
+           policy, DROPPED (SWIFTBIND052 below: a primary-only bridge makes a
+           device/opposite-sim consumer fail at BUILD time, which is worse than the
+           non-fatal runtime DllNotFound of dropping it). So restoring it would just
+           be undone by that guard. The correct recovery is therefore to leave the
+           bridge MISSING — the ungated presence probe records HasBridgeXCFramework
+           False and SwiftUI bridge views degrade per the SWIFTBIND052 contract until
+           the next out-of-date build rebuilds the full 2-slice bridge — and only
+           CLEAN the orphaned '.superseded' so it does not leak on disk. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_AFW_WrapperNeedsRecovery Condition="Exists('$(_AFW_WrapperPath).superseded') AND !Exists('$(_AFW_WrapperPath)')">true</_AFW_WrapperNeedsRecovery>
+      <_AFW_BridgeNeedsRecovery Condition="Exists('$(_AFW_BridgePath).superseded') AND !Exists('$(_AFW_BridgePath)')">true</_AFW_BridgeNeedsRecovery>
+    </PropertyGroup>
+    <Warning Condition="'$(_AFW_WrapperNeedsRecovery)' == 'true'"
+             Code="SWIFTBIND053"
+             Text="Wrapper xcframework '$(_AFW_WrapperModule)' was missing while a '.superseded' sibling was present — a prior build's second-slice swap was interrupted (process killed mid-commit). Restoring the superseded xcframework so the wrapper-presence flag and consumer NativeReference stay intact; the fat second slice rebuilds on the next out-of-date build." />
+    <Warning Condition="'$(_AFW_BridgeNeedsRecovery)' == 'true'"
+             Code="SWIFTBIND053"
+             Text="SwiftUI bridge xcframework '$(_AFW_BridgeModule)' was missing while a '.superseded' sibling was present — a prior build's second bridge-slice swap was interrupted (process killed mid-commit). The parked bridge is single-slice only, which a simulator-bearing platform drops per SWIFTBIND052, so it is left missing (SwiftUI bridge views DllNotFound until the next out-of-date build rebuilds the full bridge); clearing the stale aside. The wrapper and main bindings are unaffected." />
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND Exists('$(_AFW_WrapperPath).superseded')"
+          Command="if [ ! -d &quot;$(_AFW_WrapperPath)&quot; ]; then mv &quot;$(_AFW_WrapperPath).superseded&quot; &quot;$(_AFW_WrapperPath)&quot;; else rm -rf &quot;$(_AFW_WrapperPath).superseded&quot;; fi"
+          StandardOutputImportance="low" />
+    <RemoveDir Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND Exists('$(_AFW_BridgePath).superseded')"
+               Directories="$(_AFW_BridgePath).superseded" />
 
     <!-- Native MSBuild emission — the prior heredoc-based Exec tripped MSBuild's
          expression parser on the embedded <Import ... Condition="Exists(...)" />
@@ -1094,16 +1159,31 @@ done; true"
                       Lines="@(_AFW_SecondSlicePlistLines)"
                       Overwrite="true" />
 
+    <!-- Drop any stale staging 'merged.xcframework' from a prior interrupted build
+         BEFORE the create. xcodebuild -create-xcframework refuses to overwrite an
+         existing output, so a leftover tree would otherwise hard-fail this merge;
+         and (for the bridge's ContinueOnError create below) a stale tree would be
+         mistaken for THIS build's success and committed. -->
+    <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+               Directories="$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework" />
+
     <!-- Merge both slices into a NEW staging xcframework (original still intact) -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
           Command="xcodebuild -create-xcframework -framework &quot;$(_AFW_FirstSliceFramework)&quot; -framework &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework&quot; -output &quot;$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
-    <!-- Merge succeeded — now swap: remove original, move merged into place -->
-    <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
-               Directories="$(_AFW_XCF)" />
+    <!-- Merge succeeded — now commit atomically and recoverably. Park the live
+         xcframework at a '.superseded' sibling (instead of deleting it outright),
+         move the merged fat tree into place, then drop the aside. A SIGKILL between
+         the two moves leaves the complete original parked at '.superseded', which
+         the recovery block in _GenerateSwiftBindingsAppleFramework restores on the
+         next build (before the wrapper-presence probe) — so no window ever leaves
+         the primary path empty AND unrecoverable (the state that drops the consumer
+         NativeReference and yields DllNotFoundException). A failed move-in rolls the
+         original back from '.superseded' and fails the build. Single Exec so the
+         whole swap is one shell process, not two interruptible MSBuild tasks. -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
-          Command="mv &quot;$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework&quot; &quot;$(_AFW_XCF)&quot;"
+          Command="set -e; rm -rf &quot;$(_AFW_XCF).superseded&quot;; mv &quot;$(_AFW_XCF)&quot; &quot;$(_AFW_XCF).superseded&quot;; mv &quot;$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework&quot; &quot;$(_AFW_XCF)&quot; || { mv &quot;$(_AFW_XCF).superseded&quot; &quot;$(_AFW_XCF)&quot;; exit 1; }; rm -rf &quot;$(_AFW_XCF).superseded&quot;"
           StandardOutputImportance="low" />
 
     <!-- Clean up staging directory -->
@@ -1241,23 +1321,43 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
                       Lines="@(_AFB_SecondSlicePlistLines)"
                       Overwrite="true" />
 
-    <!-- Merge both slices into a NEW staging xcframework (original still intact). -->
+    <!-- Drop any stale staging 'merged.xcframework' from a prior interrupted build
+         BEFORE the create. Because this create runs with ContinueOnError, the
+         _AFB_MergeSucceeded check below is just Exists(merged.xcframework): a stale
+         tree left by a prior kill would be mistaken for THIS build's success and
+         committed over the working bridge. Removing it first makes Exists() reflect
+         only this build's create. -->
+    <RemoveDir Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+               Directories="$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework" />
+
+    <!-- Merge both slices into a NEW staging xcframework (original still intact).
+         ContinueOnError so a bridge merge failure degrades non-fatally (the main
+         bindings + wrapper still ship) instead of failing the whole build — but
+         capture the exit code so the commit below can tell a real success from a
+         failed run that happened to leave a partial 'merged.xcframework' behind. -->
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
           Command="xcodebuild -create-xcframework -framework &quot;$(_AFB_FirstSliceFramework)&quot; -framework &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework&quot; -output &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high"
-          ContinueOnError="true" />
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="_AFB_MergeExitCode" />
+    </Exec>
 
-    <!-- Swap into place only if the merge produced a complete xcframework. A
-         ContinueOnError above can leave a partial/missing merge — guard the
-         destructive RemoveDir on the merged result existing so a failed bridge
-         build leaves the working primary-slice xcframework intact (non-fatal). -->
+    <!-- Swap into place only if the merge SUCCEEDED. ContinueOnError above can
+         leave a partial OR missing merge, so gate the destructive swap on BOTH
+         the create's exit code being 0 AND the merged result existing — an
+         Exists() check alone would treat a non-zero xcodebuild that wrote a
+         partial 'merged.xcframework' as success and commit a torn tree over the
+         working bridge. A failed bridge build then leaves the working
+         primary-slice xcframework intact (non-fatal). The commit itself is atomic
+         and recoverable (see the wrapper target's swap): park the live bridge
+         xcframework aside, move the merged tree in, drop the aside; a mid-commit
+         SIGKILL leaves the complete original at '.superseded' for
+         _GenerateSwiftBindingsAppleFramework's recovery block to restore. -->
     <PropertyGroup Condition="'$(_AFB_NeedsSecondSlice)' == 'true'">
-      <_AFB_MergeSucceeded Condition="Exists('$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework')">true</_AFB_MergeSucceeded>
+      <_AFB_MergeSucceeded Condition="'$(_AFB_MergeExitCode)' == '0' AND Exists('$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework')">true</_AFB_MergeSucceeded>
     </PropertyGroup>
-    <RemoveDir Condition="'$(_AFB_MergeSucceeded)' == 'true'"
-               Directories="$(_AFB_XCF)" />
     <Exec Condition="'$(_AFB_MergeSucceeded)' == 'true'"
-          Command="mv &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework&quot; &quot;$(_AFB_XCF)&quot;"
+          Command="set -e; rm -rf &quot;$(_AFB_XCF).superseded&quot;; mv &quot;$(_AFB_XCF)&quot; &quot;$(_AFB_XCF).superseded&quot;; mv &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/merged.xcframework&quot; &quot;$(_AFB_XCF)&quot; || { mv &quot;$(_AFB_XCF).superseded&quot; &quot;$(_AFB_XCF)&quot;; exit 1; }; rm -rf &quot;$(_AFB_XCF).superseded&quot;"
           StandardOutputImportance="low" />
 
     <!-- Clean up staging directory. -->

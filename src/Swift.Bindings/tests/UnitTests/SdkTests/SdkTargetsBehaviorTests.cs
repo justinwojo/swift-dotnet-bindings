@@ -171,6 +171,125 @@ namespace BindingsGeneration.Tests
             Assert.Contains(lines, l => l.Contains("VectorAnimation.xcframework"));
         }
 
+        // ── Second-slice park-aside swap + interrupted-swap recovery ──
+        //
+        // These exercise the EXACT shell commands Sdk.targets uses to commit a merged
+        // fat xcframework and to heal a swap that a SIGKILL interrupted mid-commit. The
+        // commit parks the live tree at a '.superseded' sibling, moves the merged tree
+        // in, rolls back on failure, then drops the aside; recovery (run every build,
+        // before the presence probe) restores a wrapper or cleans a bridge aside.
+
+        // The wrapper/bridge commit Exec, verbatim from Sdk.targets (X = live xcframework
+        // path, M = staging merged.xcframework path).
+        private static string SwapCommand(string x, string m) =>
+            $"set -e; rm -rf \"{x}.superseded\"; mv \"{x}\" \"{x}.superseded\"; " +
+            $"mv \"{m}\" \"{x}\" || {{ mv \"{x}.superseded\" \"{x}\"; exit 1; }}; rm -rf \"{x}.superseded\"";
+
+        // The wrapper recovery Exec, verbatim from Sdk.targets: restore if the primary is
+        // missing, else clear a stale aside.
+        private static string WrapperRecoveryCommand(string x) =>
+            $"if [ ! -d \"{x}\" ]; then mv \"{x}.superseded\" \"{x}\"; else rm -rf \"{x}.superseded\"; fi";
+
+        private static string MarkerOf(string dir) =>
+            File.Exists(Path.Combine(dir, "marker")) ? File.ReadAllText(Path.Combine(dir, "marker")) : "<none>";
+
+        private static void MakeTree(string dir, string marker)
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "marker"), marker);
+        }
+
+        [Fact]
+        public void SecondSliceSwap_ParkAsideCommit_ReplacesLiveTreeAndLeavesNoAside()
+        {
+            var live = Path.Combine(_tempDir, "Foo.xcframework");
+            var merged = Path.Combine(_tempDir, "_merge_slices", "merged.xcframework");
+            MakeTree(live, "ORIGINAL");
+            MakeTree(merged, "MERGED");
+
+            var result = RunShell(SwapCommand(live, merged));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.True(Directory.Exists(live), "live tree must exist after commit");
+            Assert.Equal("MERGED", MarkerOf(live));               // merged content swapped in
+            Assert.False(Directory.Exists(live + ".superseded"), "aside must be dropped");
+            Assert.False(Directory.Exists(merged), "staging merged must be consumed");
+        }
+
+        [Fact]
+        public void SecondSliceSwap_KillBetweenMoves_LeavesCompleteOriginalAtSuperseded()
+        {
+            // Simulate a SIGKILL after the park-aside mv but before the move-in: only the
+            // first two steps of the swap ran.
+            var live = Path.Combine(_tempDir, "Foo.xcframework");
+            MakeTree(live, "ORIGINAL");
+
+            var interrupted = RunShell($"set -e; rm -rf \"{live}.superseded\"; mv \"{live}\" \"{live}.superseded\"");
+
+            Assert.Equal(0, interrupted.ExitCode);
+            Assert.False(Directory.Exists(live), "primary path is empty in the interrupted window");
+            Assert.True(Directory.Exists(live + ".superseded"), "the complete original survives at .superseded");
+            Assert.Equal("ORIGINAL", MarkerOf(live + ".superseded"));
+
+            // Next build's recovery restores it before the presence probe.
+            var recovered = RunShell(WrapperRecoveryCommand(live));
+
+            Assert.Equal(0, recovered.ExitCode);
+            Assert.True(Directory.Exists(live), "wrapper restored");
+            Assert.Equal("ORIGINAL", MarkerOf(live));
+            Assert.False(Directory.Exists(live + ".superseded"), "aside cleared after restore");
+        }
+
+        [Fact]
+        public void WrapperRecovery_PrimaryAlreadyPresent_ClearsStaleAsideOnly()
+        {
+            // The swap completed (primary present) but a stale aside lingers (e.g. a kill
+            // after move-in, before the final rm). Recovery must NOT clobber the live tree.
+            var live = Path.Combine(_tempDir, "Foo.xcframework");
+            MakeTree(live, "MERGED");
+            MakeTree(live + ".superseded", "ORIGINAL");
+
+            var result = RunShell(WrapperRecoveryCommand(live));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal("MERGED", MarkerOf(live));                  // live tree untouched
+            Assert.False(Directory.Exists(live + ".superseded"), "stale aside cleared");
+        }
+
+        [Fact]
+        public void SecondSliceSwap_MoveInFails_RollsBackOriginalWithoutDataLoss()
+        {
+            // The staging merged tree does not exist, so the move-in fails; the rollback
+            // arm must restore the original from .superseded and fail non-zero (no data loss).
+            var live = Path.Combine(_tempDir, "Foo.xcframework");
+            var missingMerged = Path.Combine(_tempDir, "_merge_slices", "merged.xcframework");
+            MakeTree(live, "ORIGINAL");
+
+            var result = RunShell(SwapCommand(live, missingMerged));
+
+            Assert.NotEqual(0, result.ExitCode);                    // surfaces the failure
+            Assert.True(Directory.Exists(live), "original rolled back into place");
+            Assert.Equal("ORIGINAL", MarkerOf(live));
+            Assert.False(Directory.Exists(live + ".superseded"), "no aside left after rollback");
+        }
+
+        [Fact]
+        public void BridgeRecovery_RemovesSupersededWithoutRestoring()
+        {
+            // The bridge recovery is a RemoveDir of the '.superseded' aside (NOT an mv-back):
+            // a single-slice bridge would be dropped by SWIFTBIND052 anyway, so the bridge is
+            // left missing to degrade per contract and only the orphan is cleaned. Encodes the
+            // wrapper/bridge asymmetry as a `rm -rf` of the aside.
+            var live = Path.Combine(_tempDir, "FooBridge.xcframework");
+            MakeTree(live + ".superseded", "ORIGINAL");             // primary missing, aside present
+
+            var result = RunShell($"rm -rf \"{live}.superseded\"");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.False(Directory.Exists(live), "bridge stays missing — NOT restored");
+            Assert.False(Directory.Exists(live + ".superseded"), "orphan aside cleaned");
+        }
+
         // ── IntermediateOutputPath resolution ──
 
         [Fact]
