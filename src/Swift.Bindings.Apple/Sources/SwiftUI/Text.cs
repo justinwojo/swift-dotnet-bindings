@@ -3,6 +3,7 @@
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Swift.Runtime;
 
 namespace Swift.SwiftUI;
@@ -10,6 +11,18 @@ namespace Swift.SwiftUI;
 /// <summary>
 /// Represents SwiftUI.Text - a view that displays one or more lines of text.
 /// </summary>
+/// <remarks>
+/// SwiftUI.Text predates the supplement's deployment floor on every platform, so the
+/// type needs no <see cref="SupportedOSPlatformAttribute"/> version annotation. The
+/// type itself is also fully usable on Mac Catalyst — its metadata and the
+/// payload-marshalling path (<c>NewFromPayload</c>) bind there — so the supplement's
+/// factory registration legitimately references it on Catalyst. The single Catalyst
+/// restriction is <see cref="Create(string)"/>: <c>SBW_SwiftUI_Text_Create</c> is not
+/// exported in the macabi dylib, so that one method throws
+/// <see cref="PlatformNotSupportedException"/> there. The attribute is therefore on
+/// <see cref="Create(string)"/>, not the type — matching the runtime guard exactly and
+/// the convention the generated Apple types already follow.
+/// </remarks>
 public sealed class Text : ISwiftObject, IDisposable
 {
     private SwiftSafeHandle<Text> _payload = SwiftSafeHandle<Text>.Zero;
@@ -98,6 +111,7 @@ public sealed class Text : ISwiftObject, IDisposable
     /// </summary>
     /// <param name="content">The text content to display.</param>
     /// <returns>A new Text instance.</returns>
+    [UnsupportedOSPlatform("maccatalyst")]
     public static unsafe Text Create(string content)
     {
         if (OperatingSystem.IsMacCatalyst())

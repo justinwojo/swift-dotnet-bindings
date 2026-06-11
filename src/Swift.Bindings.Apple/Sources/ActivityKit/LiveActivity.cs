@@ -26,6 +26,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 
@@ -39,6 +40,20 @@ namespace Swift.ActivityKit;
 /// <c>NSSupportsLiveActivities</c> Info.plist key on the host app, and a
 /// WidgetKit extension that declares a matching <c>DotNetLiveActivityAttributes</c>.
 /// </summary>
+/// <remarks>
+/// The type-level <see cref="SupportedOSPlatformAttribute"/> mirrors the uniform
+/// iOS 16.2 floor that <c>EnsureSupported()</c> enforces at runtime, giving the
+/// .NET platform-compatibility analyzer (CA1416) a compile-time signal so consumers
+/// below 16.2 — or on macOS / tvOS, where the <c>SBW_LiveActivity_*</c> symbols are
+/// absent — are warned before they hit the runtime throw. The explicit
+/// <see cref="UnsupportedOSPlatformAttribute"/> for Mac Catalyst is required, not
+/// redundant: the analyzer treats Mac Catalyst as <em>inheriting</em> iOS support, so a
+/// bare <c>[SupportedOSPlatform("ios16.2")]</c> would NOT warn a Catalyst consumer even
+/// though <c>EnsureSupported()</c> throws there (the symbols are sliced out of macabi).
+/// The pair mirrors the convention the generated Apple types already follow.
+/// </remarks>
+[SupportedOSPlatform("ios16.2")]
+[UnsupportedOSPlatform("maccatalyst")]
 public sealed partial class LiveActivity
 {
     private long _handle;
