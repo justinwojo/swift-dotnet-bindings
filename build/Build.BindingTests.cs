@@ -789,25 +789,26 @@ partial class Build
         {
             RejectSkipBuildWithActiveSmokeFlags();
 
-            // --mixed-pack / --mixed-direct and --compile-only are mutually exclusive opt-in gates:
-            // --compile-only is a no-app-build compile-check gate, while the mixed legs build a
-            // mixed binding and run a consumer on a simulator/device. The --compile-only early
-            // return below would otherwise silently swallow the requested mixed leg. Fail loud
-            // rather than skip it.
-            if ((MixedPack || MixedDirect) && CompileOnly)
+            // The opt-in heavyweight legs (--mixed-pack, --mixed-direct, --swiftsupport) and
+            // --compile-only are mutually exclusive: --compile-only is a no-app-build compile-check
+            // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
+            // The --compile-only early return below would otherwise silently swallow the requested
+            // leg. Fail loud rather than skip it.
+            if ((MixedPack || MixedDirect || Swiftsupport) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct and --compile-only cannot be combined: --compile-only is a compile-check "
-                    + "gate with no app build or test run, while the mixed legs build a mixed binding and run a consumer "
-                    + "on a simulator/device. Pass exactly one.");
+                    "--mixed-pack/--mixed-direct/--swiftsupport and --compile-only cannot be combined: --compile-only is a "
+                    + "compile-check gate with no app build or test run, while the opt-in legs build a real app and run/inspect "
+                    + "it. Pass exactly one.");
 
-            // The two mixed legs exercise DIFFERENT consumption modes (--mixed-pack: a single packed
-            // PackageReference; --mixed-direct: SDK-direct, the app IS the binding) and each is a
-            // focused, exclusive run that returns early. Combining them would silently run only the
-            // first. Fail loud rather than skip one.
-            if (MixedPack && MixedDirect)
+            // The opt-in legs each exercise a DIFFERENT consumption/packaging mode (--mixed-pack: a
+            // single packed PackageReference; --mixed-direct: SDK-direct, the app IS the binding;
+            // --swiftsupport: a device IPA's App Store SwiftSupport folder) and each is a focused,
+            // exclusive run that returns early. Combining them would silently run only the first.
+            // Fail loud rather than skip one.
+            if (new[] { MixedPack, MixedDirect, Swiftsupport }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack and --mixed-direct cannot be combined: each is a focused, exclusive mixed-framework "
-                    + "leg that runs its own consumer and returns. Pass exactly one.");
+                    "--mixed-pack, --mixed-direct, and --swiftsupport cannot be combined: each is a focused, exclusive leg "
+                    + "that builds its own app and returns. Pass exactly one.");
 
             // --compile-only: run the binding pipeline + compile-check only (no app build,
             // no test execution). This is the CI gate — "does the generator emit valid C#?"
@@ -880,6 +881,19 @@ partial class Build
                 if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
                     Log.Warning("--mixed-direct is a sim-only leg; --device/--macos/--macos-x64/--catalyst/--catalyst-x64/--tvos are ignored.");
                 RunMixedDirectLeg();
+                return;
+            }
+
+            // --swiftsupport: the opt-in App Store SwiftSupport-folder gate (issue #42). Packs the
+            // Runtime, publishes a device IPA through a single-PackageReference consumer, and asserts
+            // the injected SwiftSupport/iphoneos folder is compliant. Builds + inspects on the host
+            // (a code-signing identity is required, but no connected device or simulator), so it
+            // composes with no platform flag.
+            if (Swiftsupport)
+            {
+                if (Sim || Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
+                    Log.Warning("--swiftsupport builds + inspects a device IPA on the host; platform flags are ignored.");
+                RunSwiftSupportLeg();
                 return;
             }
 

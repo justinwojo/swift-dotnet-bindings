@@ -137,6 +137,10 @@
     <None Include="../native/tvos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvos" />
     <None Include="../native/tvossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvossimulator" />
     <None Include="build/SwiftBindings.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
+    <!-- App Store SwiftSupport folder injector (issue #42), invoked by the .targets above
+         after the workload's CreateIpa. Packed adjacent to the targets so it resolves via
+         $(MSBuildThisFileDirectory)add-swiftsupport-folder.sh in the consuming app's build. -->
+    <None Include="build/add-swiftsupport-folder.sh" Pack="true" PackagePath="buildTransitive" />
     <!-- Pack the descriptor adjacent to the targets file so consumer projects can resolve
          it via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml. The same file is also
          consumed as <EmbeddedResource> above for the IL trimmer's auto-discovery path —

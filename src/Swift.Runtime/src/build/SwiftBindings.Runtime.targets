@@ -91,4 +91,65 @@
     <IlcArg Include="--descriptor:$(MSBuildThisFileDirectory)ILLink.Descriptors.xml" />
   </ItemGroup>
 
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- App Store SwiftSupport folder injection (issue #42)                     -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Apple requires a top-level SwiftSupport/ folder inside the .ipa (sibling
+       of Payload/) whenever the app ships Swift. Xcode populates it during
+       "Distribute App"; the .NET / MAUI build zips the .ipa directly and never
+       runs that pass, so App Store Connect rejects the upload with ITMS-90426
+       ("the SwiftSupport folder is missing"). Our binding is what pulls a Swift
+       framework into the consumer app, so closing this gap belongs here in the
+       Runtime package's buildTransitive targets — already imported by every
+       consumer (PackageReference and, transitively, SDK-direct).
+
+       Strategy B (post-process the finished IPA): AfterTargets="CreateIpa" runs
+       after _CoreCreateIpa + _ZipIpa, so $(IpaPackagePath) is the finished .ipa.
+       The script unzips it to scan the app's Mach-Os, builds SwiftSupport/<platform>
+       from the Apple-signed back-deployment copies of the referenced /usr/lib/swift
+       libswift* dylibs, then grow-appends that folder onto a scratch copy of the IPA
+       and swaps it over the original atomically (Payload/ and any other top-level
+       members stay byte-for-byte untouched). We depend only on the public-ish
+       $(IpaPackagePath) + the CreateIpa target name — far more robust to workload
+       churn than reaching into the internal _ZipIpa / _IpaPackageSource item
+       (Strategy A). The opt-in swiftsupport binding-tests gate guards this
+       against a workload bump silently breaking the hook.
+
+       Gating: only on a device IPA publish ($(BuildIpa) == 'true', which the
+       workload sets for device iOS/tvOS publish — never sim, never a plain
+       `dotnet build`). Consumers opt out with
+       <EnableSwiftSupportFolder>false</EnableSwiftSupportFolder>. The script is a
+       no-op (exit 0, IPA untouched) when no embeddable Swift dylibs are
+       referenced, so a consumer that references the Runtime without actually
+       linking Swift is unaffected. -->
+  <PropertyGroup>
+    <EnableSwiftSupportFolder Condition="'$(EnableSwiftSupportFolder)' == ''">true</EnableSwiftSupportFolder>
+  </PropertyGroup>
+
+  <Target Name="_SwiftBindingsAddSwiftSupportFolder"
+          AfterTargets="CreateIpa"
+          Condition="'$(BuildIpa)' == 'true'
+                     AND '$(EnableSwiftSupportFolder)' == 'true'
+                     AND !$(RuntimeIdentifier.Contains('simulator'))
+                     AND ($(TargetFramework.Contains('ios')) OR $(TargetFramework.Contains('tvos')))
+                     AND !$(TargetFramework.Contains('maccatalyst'))">
+
+    <!-- SwiftSupport platform subdir: iphoneos for iOS, appletvos for tvOS.
+         (maccatalyst is excluded above; macOS never sets BuildIpa.) -->
+    <PropertyGroup>
+      <_SwiftSupportPlatformDir Condition="$(TargetFramework.Contains('tvos'))">appletvos</_SwiftSupportPlatformDir>
+      <_SwiftSupportPlatformDir Condition="'$(_SwiftSupportPlatformDir)' == '' AND $(TargetFramework.Contains('ios'))">iphoneos</_SwiftSupportPlatformDir>
+    </PropertyGroup>
+
+    <Warning Condition="'$(IpaPackagePath)' == '' OR !Exists('$(IpaPackagePath)')"
+             Text="SwiftBindings: BuildIpa is true but the finished IPA was not found at IpaPackagePath ('$(IpaPackagePath)') — skipping SwiftSupport injection. The App Store may reject the upload (ITMS-90426)." />
+
+    <!-- $(_SdkDevPath) is the active Xcode developer dir resolved by the .NET iOS
+         workload; the script falls back to `xcode-select -p` if it is empty. -->
+    <Exec Condition="'$(IpaPackagePath)' != '' AND Exists('$(IpaPackagePath)') AND '$(_SwiftSupportPlatformDir)' != ''"
+          Command="bash &quot;$(MSBuildThisFileDirectory)add-swiftsupport-folder.sh&quot; &quot;$(IpaPackagePath)&quot; &quot;$(_SwiftSupportPlatformDir)&quot; &quot;$(_SdkDevPath)&quot;"
+          StandardOutputImportance="high"
+          StandardErrorImportance="high" />
+  </Target>
+
 </Project>

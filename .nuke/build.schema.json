@@ -302,6 +302,10 @@
           "type": "boolean",
           "description": "Fail on non-zero generator exit"
         },
+        "Swiftsupport": {
+          "type": "boolean",
+          "description": "Opt-in: build a device IPA through a Swift-binding consumer and assert a compliant App Store SwiftSupport/iphoneos folder is injected (issue #42). Builds + inspects on the host; needs a code-signing identity but no connected device. Never part of the default run or --compile-only"
+        },
         "Tier": {
           "type": "integer",
           "description": "Validation tier (1, 2, or 0 for all)",
