@@ -3,6 +3,7 @@
 
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Swift.ActivityKit;
 using Swift.Runtime;
 using Foundation;
@@ -218,11 +219,25 @@ public class MainViewController : UIViewController
         // Visual pixel proof: when launched with --persist-activity, skip the test
         // suite and instead start one Live Activity from the .NET facade and leave
         // it running so it renders on the lock screen via the embedded widget.
-        if (Application.PersistActivity)
+        // StartPersistentActivityAsync is [SupportedOSPlatform("ios16.2")] +
+        // [UnsupportedOSPlatform("maccatalyst")]; gate the call with CanUseLiveActivities,
+        // whose *Guard attributes tell CA1416 the call is statically safe when it is true.
+        // On an unsupported OS the visual-proof mode falls back to the normal test run.
+        if (Application.PersistActivity && CanUseLiveActivities)
             _ = StartPersistentActivityAsync();
         else
             _ = RunTestsAsync();
     }
+
+    // The ActivityKit content API needs iOS 16.2+ and is sliced out of macabi. Inline
+    // `!OperatingSystem.IsMacCatalyst()` is not reliably recognized by CA1416's flow
+    // analysis (Mac Catalyst inherits the iOS version, so the version check alone narrows
+    // it to 16.2 rather than excluding it); the *Guard attributes state the contract
+    // explicitly so the analyzer trusts the call site that tests this property.
+    [SupportedOSPlatformGuard("ios16.2")]
+    [UnsupportedOSPlatformGuard("maccatalyst")]
+    private static bool CanUseLiveActivities =>
+        OperatingSystem.IsIOSVersionAtLeast(16, 2) && !OperatingSystem.IsMacCatalyst();
 
     /// <summary>
     /// Waits for the app to reach the foreground-active state, then starts a single
@@ -231,6 +246,12 @@ public class MainViewController : UIViewController
     /// poll for that first (launch transitions through Inactive). The activity is
     /// intentionally never ended — the system keeps rendering it on the lock screen.
     /// </summary>
+    // Mirror the LiveActivity facade's platform contract ([SupportedOSPlatform("ios16.2")] +
+    // [UnsupportedOSPlatform("maccatalyst")]) onto this method so CA1416 is satisfied at the
+    // LiveActivity.* call sites below. The single caller (ViewDidLoad) guards entry with a
+    // positive OperatingSystem check the analyzer recognizes.
+    [SupportedOSPlatform("ios16.2")]
+    [UnsupportedOSPlatform("maccatalyst")]
     private async Task StartPersistentActivityAsync()
     {
         if (!await AppleSupplement.ActivityKitReadiness.WaitForForegroundActiveAsync(TimeSpan.FromSeconds(10)))
