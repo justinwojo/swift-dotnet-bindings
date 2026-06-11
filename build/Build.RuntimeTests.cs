@@ -2161,6 +2161,17 @@ partial class Build
             }
         }
 
+        // ABI coverage grid: render the grid + write the artifact BEFORE the runtime verdict
+        // switch so a red grid is always visible (the switch throws on Failure/Crash). The gate
+        // itself is enforced after the switch's Success fall-through (a green run can still fail
+        // the grid gate — e.g. a manifest cell citing a renamed method). Sim-only in Phase 0.
+        // Run the grid whenever --abi-grid is set, even if this run produced no JSONL: manifest
+        // integrity / rename-rot reads only the static inventory and must be enforced on EVERY run
+        // (RunAbiGridReport substitutes an empty result set when jsonlResults is null).
+        AbiGridReport? abiGrid = null;
+        if (AbiGrid)
+            abiGrid = RunAbiGridReport(platform, jsonlResults);
+
         // If we have aggregated results from crash recovery, adjust the final verdict.
         // A crash that was recovered (all remaining classes ran) is reported as Success/Failure
         // based on actual test results, not the crash status of the last launch.
@@ -2209,6 +2220,16 @@ partial class Build
                 Log.Information("=========================================");
                 throw new Exception($"Runtime tests timed out ({platform})");
         }
+
+        // Reached only on a Success fall-through (the other cases throw). A run can pass its
+        // own verdict yet fail the ABI grid gate. Two dimensions, enforced differently:
+        //  - Manifest integrity (rename-rot, malformed manifest) is static — it blocks on
+        //    EVERY run, including a fast partial (--skip-regen / --class-filter) run.
+        //  - Coverage (an expect-green cell not green on an exercised runtime) is run-dependent —
+        //    it blocks only on a full run; a partial run reports but does not block.
+        if (abiGrid != null && abiGrid.IsBlocking(abiGrid.Partial))
+            throw new Exception(
+                $"ABI coverage grid gate failed ({platform}): {abiGrid.BlockingFailureSummary(abiGrid.Partial)}");
     }
 
     /// <summary>

@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "description": "ABI Coverage Grid manifest — the single source of truth for thin-corner runtime coverage cells. See src/docs/Design/abi-coverage-grid.md. Phase 0 seeds a representative subset of EXISTING passing closure/tuple/inout tests to prove the report/gate plumbing end-to-end; Phase 1 authors the genuinely-unreached Latent-tied cells the audit exposes. Cells map to tests by (class, method) name over the existing test-results JSONL + TestClasses.g.txt inventory — no test-infra change (the [AbiCell] attribute is deferred to v2). 'runtimes' defaults to [sim, device]; the Phase 0 seed cells are sim-only by scope (device leg lands with Phase 1) and say so in 'runtimeNote'.",
+  "cells": [
+    {
+      "id": "closure.escaping.arg-int.ret-int",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "ClosureTests", "method": "TestEscapingWithInt32" }]
+    },
+    {
+      "id": "closure.escaping.arg-none.ret-void",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "ClosureTests", "method": "TestVoidCallback" }]
+    },
+    {
+      "id": "closure.return.arg-int.ret-int",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "ClosureTests", "method": "TestMakeAdder" }]
+    },
+    {
+      "id": "closure.throwing.arg-none.ret-int",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "ClosureEdgeCaseTests", "method": "TestThrowingClosureSuccess" }]
+    },
+    {
+      "id": "closure.escaping.arg-struct-nonfrozen.ret-int",
+      "disposition": "supported-low-priority",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "ClosureTests", "method": "TestClosureWithNonFrozenStructParam" }]
+    },
+    {
+      "id": "tuple.ret.pair.primitive",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestBasicPairCreation" }]
+    },
+    {
+      "id": "tuple.ret.pair.named",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestNamedPair" }]
+    },
+    {
+      "id": "tuple.ret.triple.primitive",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestTriple" }]
+    },
+    {
+      "id": "tuple.ret.septuple.primitive",
+      "disposition": "supported-low-priority",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSeptuple" }]
+    },
+    {
+      "id": "tuple.arg.pair.primitive",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSumPair" }]
+    },
+    {
+      "id": "inout.value.int.ret-primitive",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "ParameterTests", "method": "TestDoubleInPlace" }]
+    },
+    {
+      "id": "inout.struct.frozen",
+      "disposition": "expect-green",
+      "runtimes": ["sim"],
+      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "mapping": [{ "class": "ParameterTests", "method": "TestIncrementPoint" }]
+    },
+    {
+      "id": "closure.autoclosure.arg",
+      "disposition": "by-design-gray",
+      "reason": "@autoclosure (RC-CLOSURE) is Explicitly Out of Scope in roadmap.md: a compile-time Swift feature with no shipping-framework consumer; revisit only if one needs it. No fixture by design.",
+      "runtimes": ["sim", "device"],
+      "mapping": []
+    }
+  ]
+}

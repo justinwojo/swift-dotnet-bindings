@@ -815,6 +815,8 @@ partial class Build
             {
                 if (Sim || Device || Macos || Catalyst || Tvos)
                     Log.Warning("Platform flags are ignored when --compile-only is set");
+                if (AbiGrid)
+                    Log.Warning("--abi-grid is ignored when --compile-only is set (the grid is a runtime gate)");
 
                 // Fail-closed by default: every generator/wrapper failure mode is fatal
                 // unless --permissive opts out. --strict still works as the generator-only
