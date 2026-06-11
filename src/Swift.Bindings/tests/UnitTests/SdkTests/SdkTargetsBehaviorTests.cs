@@ -570,6 +570,43 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void BuildSiblingSwiftBindingDeps_PreBuildsSiblingProjectReference()
         {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var (output, exitCode) = RunSiblingPreBuildDump();
+            Assert.True(exitCode == 0, $"_CollectSwiftModuleDatabases (sibling pre-build) failed.\nOutput: {output}");
+            Assert.Contains("SIBLING_PREBUILT", output);
+        }
+
+        [Fact]
+        public void BuildSiblingSwiftBindingDeps_OuterNoBuild_SiblingPreBuildDoesNotInheritNoBuild()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Same global-NoBuild hazard as the companion (see
+            // BuildMixedObjCCompanion_OuterNoBuild_CompanionBuildDoesNotInheritNoBuild): a
+            // `dotnet pack --no-build` outer sets NoBuild=true as a GLOBAL property which the
+            // <MSBuild> task forwards to this out-of-band sibling pre-build. Here ContinueOnError
+            // would SWALLOW the resulting NETSDK1085 into a skipped pre-build — silently leaving a
+            // stale module database (the very failure mode _BuildSiblingSwiftBindingDeps exists to
+            // prevent) instead of a hard error. _BuildSiblingSwiftBindingDeps must therefore
+            // neutralize the inherited NoBuild (Properties NoBuild=false) so the sibling actually
+            // pre-builds. Assert on the value the sibling's Build receives — true would trip the
+            // guard in a real SDK sibling.
+            var (output, exitCode) = RunSiblingPreBuildDump(noBuild: true);
+            Assert.True(exitCode == 0, $"_CollectSwiftModuleDatabases (sibling pre-build) failed under outer NoBuild.\nOutput: {output}");
+            Assert.Contains("SIBLING_PREBUILT", output);
+            Assert.DoesNotContain("SIBLING_PREBUILT_NOBUILD:[true]", output);
+            Assert.Contains("SIBLING_PREBUILT_NOBUILD:[false]", output);
+        }
+
+        /// <summary>
+        /// Drives the REAL _CollectSwiftModuleDatabases chain so its DependsOn
+        /// _BuildSiblingSwiftBindingDeps pre-builds a stub sibling ProjectReference. The stub's
+        /// Build target echoes <c>SIBLING_PREBUILT</c> and the inherited <c>$(NoBuild)</c> so a
+        /// caller can assert both that the pre-build fired and the value it received. When
+        /// <paramref name="noBuild"/> is true, <c>-p:NoBuild=true</c> models a `dotnet pack --no-build`
+        /// outer (NoBuild as a forwarded GLOBAL property).
+        /// </summary>
+        private (string Output, int ExitCode) RunSiblingPreBuildDump(bool noBuild = false)
+        {
             // On a CLEAN first build a multi-framework library's lower binding (a sibling
             // ProjectReference) hasn't been built yet when _CollectSwiftModuleDatabases /
             // _GenerateSwiftBindings run — ResolveProjectReferences builds siblings AFTER
@@ -583,10 +620,11 @@ namespace BindingsGeneration.Tests
             // running early via _ComputeSwiftFingerprint's BeforeTargets — exactly the ordering
             // the pre-build target needs. Invoking the pre-build target alone would evaluate its
             // Condition before that runs and skip it.
-            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
             // A sibling "binding" project: a plain MSBuild project whose Build target echoes
             // a marker (a non-SDK <Project> so Targets="Build" hits our marker, not the MS default).
+            // It also echoes the forwarded $(NoBuild); a real SDK sibling would trip NETSDK1085 here
+            // if NoBuild=true rode in, so the SDK-less stub asserts on the propagated value instead.
             var siblingDir = Path.Combine(_tempDir, "Sibling.Swift.iOS");
             Directory.CreateDirectory(siblingDir);
             var siblingCsproj = Path.Combine(siblingDir, "Sibling.Swift.iOS.csproj");
@@ -595,6 +633,7 @@ namespace BindingsGeneration.Tests
                   <Target Name="Restore" />
                   <Target Name="Build">
                     <Message Importance="High" Text="SIBLING_PREBUILT" />
+                    <Message Importance="High" Text="SIBLING_PREBUILT_NOBUILD:[$(NoBuild)]" />
                   </Target>
                 </Project>
                 """);
@@ -637,12 +676,9 @@ namespace BindingsGeneration.Tests
             // Drive the real _CollectSwiftModuleDatabases entry: it DependsOn
             // _BuildSiblingSwiftBindingDeps, and its earlier _ComputeSwiftFingerprint dep pulls
             // in the BeforeTargets-scheduled discovery that populates _UserProjectReference first.
-            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CollectSwiftModuleDatabases -nologo -v:n");
-            Assert.True(result.ExitCode == 0,
-                $"_CollectSwiftModuleDatabases (sibling pre-build) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
-
-            var output = result.StdOut + "\n" + result.StdErr;
-            Assert.Contains("SIBLING_PREBUILT", output);
+            var noBuildArg = noBuild ? " -p:NoBuild=true" : "";
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CollectSwiftModuleDatabases -nologo -v:n{noBuildArg}");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
         }
 
         [Fact]
@@ -1060,6 +1096,26 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void BuildMixedObjCCompanion_OuterNoBuild_CompanionBuildDoesNotInheritNoBuild()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Regression (surfaced in SDK 0.14.0): `dotnet pack --no-build` sets NoBuild=true as a
+            // GLOBAL property, which the <MSBuild> task forwards by default to the out-of-band
+            // companion build. With Targets="Build", a real SDK companion's _CheckForBuildWithNoBuild
+            // guard then raises NETSDK1085 and the package is never produced. _BuildMixedObjCCompanion
+            // must neutralize the inherited NoBuild (Properties NoBuild=false) so the companion builds
+            // regardless of how the outer command was launched. We assert on the value the companion's
+            // Build actually receives — true here would trip NETSDK1085 in a real companion.
+            var (output, exitCode) = RunBuildMixedObjCCompanionDump(
+                frameworkType: "Mixed", companionPresent: true, noBuild: true);
+
+            Assert.True(exitCode == 0, $"_BuildMixedObjCCompanion failed under outer NoBuild.\nOutput: {output}");
+            Assert.Contains("COMPANION_BUILD:Config=", output);
+            Assert.DoesNotContain("COMPANION_BUILD_NOBUILD:[true]", output);
+            Assert.Contains("COMPANION_BUILD_NOBUILD:[false]", output);
+        }
+
+        [Fact]
         public void ConfigureSwiftBindingPack_MixedButNoCompanionCaptured_FailsClosedSWIFTBIND039()
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
@@ -1411,7 +1467,8 @@ namespace BindingsGeneration.Tests
         private (string Output, int ExitCode) RunBuildMixedObjCCompanionDump(
             string frameworkType,
             bool companionPresent,
-            string objCProjectName = "Mixed.ObjC.iOS.csproj")
+            string objCProjectName = "Mixed.ObjC.iOS.csproj",
+            bool noBuild = false)
         {
             var bindingDir = Path.Combine(_tempDir, "Mixed.Swift.iOS");
             Directory.CreateDirectory(bindingDir);
@@ -1444,6 +1501,10 @@ namespace BindingsGeneration.Tests
                       </Target>
                       <Target Name="Build">
                         <Message Importance="high" Text="COMPANION_BUILD:Config=$(Configuration)" />
+                        <!-- Echo the NoBuild the parent <MSBuild> task forwarded. A real SDK companion
+                             would trip NETSDK1085 here if NoBuild=true rode in; this SDK-less stub can't
+                             import that guard, so the test asserts on the propagated value instead. -->
+                        <Message Importance="high" Text="COMPANION_BUILD_NOBUILD:[$(NoBuild)]" />
                       </Target>
                       <Target Name="GetTargetPath" Returns="@(_StubCompanionOutput)">
                         <Message Importance="high" Text="COMPANION_GETTARGETPATH" />
@@ -1482,8 +1543,11 @@ namespace BindingsGeneration.Tests
             File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
             File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
 
+            // -p:NoBuild=true models `dotnet pack --no-build`, which sets NoBuild as a GLOBAL
+            // property that the MSBuild task forwards to the out-of-band companion build.
+            var noBuildArg = noBuild ? " -p:NoBuild=true" : "";
             var result = RunDotnet(
-                $"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:_BuildMixedObjCCompanion -nologo -v:n");
+                $"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:_BuildMixedObjCCompanion -nologo -v:n{noBuildArg}");
             return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
         }
 

@@ -1459,7 +1459,7 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
          (later value in the property list overrides); an absent pin contributes an empty
          segment MSBuild ignores, leaving the parent Configuration in force. -->
     <MSBuild Projects="@(_UserProjectReference)"
-             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetTargetFramework)"
+             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetTargetFramework);NoBuild=false"
              Targets="Build"
              BuildInParallel="false"
              ContinueOnError="true"
@@ -1473,9 +1473,13 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
          from Properties is not enough (the MSBuild task forwards the calling
          project's global TargetFramework otherwise). A config-only pin
          (SetConfiguration set, no SetTargetFramework) still lands here and is
-         honoured by appending SetConfiguration after the default. -->
+         honoured by appending SetConfiguration after the default.
+         NoBuild=false: same neutralization as the companion build below — these are out-of-band
+         SDK-internal prep builds, so a no-build pack outer (which forwards NoBuild=true as a global)
+         must not turn them into NETSDK1085 (here swallowed by ContinueOnError into a skipped
+         pre-build that leaves a stale module database) instead of an incremental no-op. -->
     <MSBuild Projects="@(_UserProjectReference)"
-             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration)"
+             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration);NoBuild=false"
              RemoveProperties="TargetFramework"
              Targets="Build"
              BuildInParallel="false"
@@ -1938,9 +1942,17 @@ done"
              RemoveProperties="TargetFramework"
              Targets="Restore"
              BuildInParallel="false" />
+    <!-- NoBuild=false neutralizes the outer invocation's NoBuild global. A no-build pack (the SDK
+         sets NoBuild=true as a GLOBAL property) forwards that global to this child <MSBuild> by
+         default; with Targets="Build" the companion's own _CheckForBuildWithNoBuild guard would then
+         raise NETSDK1085 and the package would never be produced (regression surfaced in SDK 0.14.0).
+         NoBuild is a statement about the OUTER (binding) project reusing its built output; it was
+         never meant to suppress this out-of-band companion build, whose assembly MUST exist to embed
+         in lib/ and to satisfy the Swift surface's references. Pinning NoBuild=false here builds the
+         companion incrementally (a no-op when up to date) regardless of how the outer was launched. -->
     <MSBuild Condition="'$(_SwiftBindingHasCompanion)' == 'true'"
              Projects="$(_SwiftBindingCompanionCsproj)"
-             Properties="Configuration=$(Configuration)"
+             Properties="Configuration=$(Configuration);NoBuild=false"
              RemoveProperties="TargetFramework"
              Targets="Build"
              BuildInParallel="false" />

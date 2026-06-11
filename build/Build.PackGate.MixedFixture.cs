@@ -309,11 +309,26 @@ partial class Build
         fixtureOut.CreateDirectory();
         WritePackGateMixedFixture(fixtureDir, nupkgDir, module, xcfw);
 
-        Log.Information("=== PackGate (mixed/static): packing fixture ===");
+        // Pack via build-then-pack --no-build (the downstream release-harness shape), NOT a
+        // from-scratch `dotnet pack`. --no-build sets NoBuild=true as a GLOBAL property; for a
+        // Mixed binding that global is forwarded to the out-of-band ObjC-companion <MSBuild> Build
+        // and trips NETSDK1085 unless the SDK neutralizes it (Sdk.targets _BuildMixedObjCCompanion
+        // pins NoBuild=false on the companion Build). The multi-tfm and dynamic legs still pack from scratch, so this
+        // leg is the gate that proves the no-build path for a Mixed framework produces the package at
+        // all. The package is equivalent either way, so the structural assertions below are unchanged.
+        Log.Information("=== PackGate (mixed/static): building fixture ===");
+        DotNetBuild(s => s
+            .SetProjectFile(fixtureDir / $"{module}.csproj")
+            .SetConfiguration("Release")
+            .EnableNoLogo()
+            .SetVerbosity(DotNetVerbosity.quiet));
+
+        Log.Information("=== PackGate (mixed/static): packing fixture (--no-build) ===");
         DotNetPack(s => s
             .SetProject(fixtureDir / $"{module}.csproj")
             .SetConfiguration("Release")
             .SetOutputDirectory(fixtureOut)
+            .EnableNoBuild()
             .EnableNoLogo()
             .SetVerbosity(DotNetVerbosity.quiet));
 
