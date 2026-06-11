@@ -2161,16 +2161,13 @@ partial class Build
             }
         }
 
-        // ABI coverage grid: render the grid + write the artifact BEFORE the runtime verdict
-        // switch so a red grid is always visible (the switch throws on Failure/Crash). The gate
-        // itself is enforced after the switch's Success fall-through (a green run can still fail
-        // the grid gate — e.g. a manifest cell citing a renamed method). Sim-only in Phase 0.
-        // Run the grid whenever --abi-grid is set, even if this run produced no JSONL: manifest
-        // integrity / rename-rot reads only the static inventory and must be enforced on EVERY run
-        // (RunAbiGridReport substitutes an empty result set when jsonlResults is null).
-        AbiGridReport? abiGrid = null;
+        // ABI coverage grid: stash this platform's results under its runtime key. The merged grid
+        // (sim+device) is rendered + gated once after the full platform loop in the BindingTests
+        // target (RunMergedAbiGridReport), not per-platform — so a cell is green only when it
+        // passes on every declared+exercised runtime. Stashing here (before the verdict switch
+        // that throws on Failure/Crash) captures crash-recovery-merged results for the grid.
         if (AbiGrid)
-            abiGrid = RunAbiGridReport(platform, jsonlResults);
+            StashAbiGridResults(platform, jsonlResults);
 
         // If we have aggregated results from crash recovery, adjust the final verdict.
         // A crash that was recovered (all remaining classes ran) is reported as Success/Failure
@@ -2221,15 +2218,9 @@ partial class Build
                 throw new Exception($"Runtime tests timed out ({platform})");
         }
 
-        // Reached only on a Success fall-through (the other cases throw). A run can pass its
-        // own verdict yet fail the ABI grid gate. Two dimensions, enforced differently:
-        //  - Manifest integrity (rename-rot, malformed manifest) is static — it blocks on
-        //    EVERY run, including a fast partial (--skip-regen / --class-filter) run.
-        //  - Coverage (an expect-green cell not green on an exercised runtime) is run-dependent —
-        //    it blocks only on a full run; a partial run reports but does not block.
-        if (abiGrid != null && abiGrid.IsBlocking(abiGrid.Partial))
-            throw new Exception(
-                $"ABI coverage grid gate failed ({platform}): {abiGrid.BlockingFailureSummary(abiGrid.Partial)}");
+        // The ABI grid gate is enforced once after the full platform loop (FinalizeAbiGridGate in
+        // the BindingTests target), not per-platform — the merged sim+device grid can only be
+        // graded after every requested runtime has run and stashed its results.
     }
 
     /// <summary>

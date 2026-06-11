@@ -901,14 +901,39 @@ partial class Build
             var anyPlatform = Sim || Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos;
             var runSim = Sim || !anyPlatform;
 
-            if (runSim)     RunSimulatorPlatform();
-            if (Device)     RunDevicePlatform();
-            if (Macos)      RunMacOSPlatform();
-            if (MacosX64)   RunMacOSPlatform(ApplePlatform.MacOSX64);
-            if (Catalyst)   RunCatalystPlatform();
-            if (CatalystX64) RunCatalystPlatform(ApplePlatform.MacCatalystX64);
-            if (Tvos)       RunTvOSSimulatorPlatform();
+            // The ABI grid grades sim+device together: each platform run stashes its results
+            // (StashAbiGridResults, inside ReportRuntimeTestResult), then one merged grid is
+            // rendered + gated here, after the loop. The try/finally renders the grid even if a
+            // platform's runtime tests throw (so a partial grid is still visible on failure); the
+            // gate itself is enforced only on the success path — when a platform's tests fail the
+            // build already fails with that verdict, and the grid throw must not mask it.
+            try
+            {
+                if (runSim)     RunSimulatorPlatform();
+                if (Device)     RunDevicePlatform();
+                if (Macos)      RunMacOSPlatform();
+                if (MacosX64)   RunMacOSPlatform(ApplePlatform.MacOSX64);
+                if (Catalyst)   RunCatalystPlatform();
+                if (CatalystX64) RunCatalystPlatform(ApplePlatform.MacCatalystX64);
+                if (Tvos)       RunTvOSSimulatorPlatform();
+            }
+            finally
+            {
+                if (AbiGrid)
+                    _abiGridReport = RunMergedAbiGridReport();
+            }
+
+            // Enforce the grid gate on the success path (the try above did not throw). Integrity
+            // (rename-rot, malformed manifest) blocks on every run; coverage (an expect-green cell
+            // not green on an exercised runtime) blocks only on a full run.
+            if (AbiGrid && _abiGridReport != null && _abiGridReport.IsBlocking(_abiGridReport.Partial))
+                throw new Exception(
+                    $"ABI coverage grid gate failed: {_abiGridReport.BlockingFailureSummary(_abiGridReport.Partial)}");
         });
+
+    /// <summary>Last merged ABI grid report from this BindingTests run; rendered in the finally,
+    /// gated on the success path. Field (not local) so the finally and the post-loop gate share it.</summary>
+    AbiGridReport? _abiGridReport;
 
     // ValidateBlastRadius runs the blast-radius smoke script and fails the build if any of
     // the three committed golden diffs (otool-L, nm, strings-swift) diverges from HEAD.

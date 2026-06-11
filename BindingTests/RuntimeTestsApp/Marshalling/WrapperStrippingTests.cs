@@ -70,14 +70,14 @@ public class WrapperStrippingTests : TestBase
 
     public void TestMixedEmittabilityInoutParam()
     {
-        // increment(counter: inout Int32) — emitted with CallConvSwift, no @_cdecl wrapper.
-        // Note: inout is marshalled as value param (int, not ref int) — possible marshalling gap.
+        // increment(counter: inout Int32) — `counter += count` (count = 5). The inout param now
+        // projects as `ref int`, so Swift's mutation is observable to the caller (was a marshalling
+        // gap: inout used to be passed by value and the write-back was silently lost).
         var obj = new MixedEmittability(name: "test", count: 5);
-        #pragma warning disable SB0001
-        obj.Increment(counter: 10);
-        #pragma warning restore SB0001
-        // Can't verify side effect since inout is marshalled as value — just verify no crash
-        TestLogger.Info("MixedEmittability.Increment called without crash");
+        int counter = 10;
+        obj.Increment(ref counter);
+        AssertEqual(15, counter, "Increment must add count (5) to the inout counter and write it back");
+        TestLogger.Info($"MixedEmittability.Increment(ref 10) → {counter}");
     }
 
     public void TestMixedEmittabilityOpaqueReturn()

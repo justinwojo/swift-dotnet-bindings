@@ -714,9 +714,15 @@ namespace BindingsGeneration
                     });
                     if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                     {
-                        // Preserve ref modifier for inout generic type parameters (e.g., non-frozen struct T).
-                        // Only generic params need ref — concrete types have marshalling handled by WrapperEmitter.
-                        var projInoutModifier = (argument.IsInOut && argument.IsGeneric) ? "ref" : "";
+                        // Emit `ref` for ALL inout params, not just generic ones. Every concrete inout
+                        // type that survives HasInoutWithAbiMismatch (primitives, blittable frozen structs,
+                        // frozen enums, frozen-with-ref-field structs) needs the caller's variable passed by
+                        // reference so Swift's mutation is observable on return — the fallback paths below
+                        // already do this (`argument.IsInOut ? "ref"`); the factory-projection path must
+                        // match. Without it a `ref value` into the P/Invoke writes through to a by-value
+                        // local copy and the writeback is lost. The matching readback for blittable frozen
+                        // structs is emitted by WrapperEmitter's frozen-struct inout writeback.
+                        var projInoutModifier = argument.IsInOut ? "ref" : "";
                         AddParameter(projection.PublicType, csParamName, projInoutModifier);
                         continue;
                     }

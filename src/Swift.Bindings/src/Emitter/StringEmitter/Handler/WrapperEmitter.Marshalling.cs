@@ -820,6 +820,16 @@ namespace BindingsGeneration
                         SwiftMarshal.MarshalToSwift({csName}, ref {csName}Span);
                         IntPtr {csName}Ptr = (IntPtr){csName}Buffer;
                         """);
+
+                    // inout: the Swift @_cdecl wrapper writes the mutated value back through the buffer
+                    // pointer (var + defer { pointee = … }). Read it back into the now-`ref` public param
+                    // after the call so the caller observes the mutation. The signature handler emits `ref`
+                    // for every concrete inout; this is the readback half for blittable frozen structs.
+                    // Primitives need no readback (their P/Invoke takes `ref value` directly); frozen
+                    // structs with ref fields share the caller's Payload buffer in place (handled above).
+                    if (argument.IsInOut)
+                        _cdeclFrozenStructInoutWritebacks.Add(
+                            $"{csName} = SwiftMarshal.MarshalFromSwift<{csTypeName}>({csName}Ptr);");
                 }
             }
         }
@@ -1382,6 +1392,9 @@ namespace BindingsGeneration
         private void EmitGenericInoutWriteback(CSharpWriter csWriter)
         {
             foreach (var line in _syncPlan.GenericInoutWritebackLines)
+                csWriter.WriteLine(line);
+            // Blittable frozen-struct inout readbacks, collected when their stack buffer was emitted.
+            foreach (var line in _cdeclFrozenStructInoutWritebacks)
                 csWriter.WriteLine(line);
         }
 

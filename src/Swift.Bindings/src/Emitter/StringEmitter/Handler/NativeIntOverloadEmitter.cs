@@ -52,6 +52,13 @@ internal static class NativeIntOverloadEmitter
             var arg = csSignature[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
                 continue;
+            // Never narrow an inout native-int param. inout is both input AND output, so narrowing
+            // it carries the same silent-truncation hazard the return type does (see the return-type
+            // note above) — AND the forwarder can't pass an `(nint)i` rvalue cast by `ref`. The param
+            // stays native `ref nint`/`ref nuint` below; other (non-inout) params still narrow, and a
+            // method whose only narrowable param is the inout one emits no overload (conversions empty).
+            if (arg.IsInOut)
+                continue;
             if (arg.SwiftTypeSpec is NamedTypeSpec ns && NativeIntMap.TryGetValue(ns.Name, out var mapping))
             {
                 conversions.Add((i, mapping.NativeType, mapping.ConvenienceType, isOptional: false));
@@ -101,6 +108,8 @@ internal static class NativeIntOverloadEmitter
             var conv = conversions.Find(c => c.index == i);
             if (conv != default)
             {
+                // inout params are excluded from `conversions` above, so a narrowed param is never
+                // inout — no ref modifier here.
                 if (conv.isOptional)
                 {
                     paramParts.Add($"{conv.convType}? {paramName}");
@@ -114,9 +123,19 @@ internal static class NativeIntOverloadEmitter
             }
             else
             {
-                var typeName = ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true);
-                paramParts.Add($"{typeName} {paramName}");
-                callArgs.Add(paramName);
+                // Non-narrowed param — forward as-is, preserving inout as `ref`. For an inout
+                // native-int param, force the native type (nint/nuint) so the forwarder matches the
+                // primary's `ref nint` signature; ResolveType could otherwise idiomatically narrow it
+                // to int and produce a CS1503 ref-type mismatch against the primary.
+                var refModifier = arg.IsInOut ? "ref " : "";
+                string typeName;
+                if (arg.IsInOut && arg.SwiftTypeSpec is NamedTypeSpec inoutNs &&
+                    NativeIntMap.TryGetValue(inoutNs.Name, out var inoutMapping))
+                    typeName = inoutMapping.NativeType;
+                else
+                    typeName = ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true);
+                paramParts.Add($"{refModifier}{typeName} {paramName}");
+                callArgs.Add($"{refModifier}{paramName}");
             }
         }
 

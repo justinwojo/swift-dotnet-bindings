@@ -753,24 +753,35 @@ public class OptionalProjection : ITypeProjection
     }
 
     /// <summary>
-    /// Element-level conversion for when this Optional appears as a dictionary/array value.
-    /// Converts SwiftOptional&lt;T&gt; → T? via .ToNullable() with optional inner element conversion.
+    /// Element-level conversion for when this Optional appears as a dictionary/array/tuple element.
+    /// Converts SwiftOptional&lt;T&gt; → a concrete <c>PublicType?</c> by gating on <c>HasValue</c>
+    /// (NOT <c>.ToNullable()</c>, which collapses a value-type inner's None to <c>Some(default)</c>),
+    /// applying the inner element conversion to the unwrapped <c>.Some</c> in the HasValue branch only.
     /// </summary>
     public string? GetReturnElementConversion(string elementVar)
     {
-        // Derive a unique inner variable name from elementVar to avoid CS0128 when
-        // multiple optional elements appear in the same scope (e.g., tuple elements).
-        var safeVar = elementVar.Replace(".", "_").Replace("[", "").Replace("]", "");
-        var innerVar = $"_optVal_{safeVar}";
-        var innerConv = _innerProjection.GetReturnElementConversion(innerVar);
+        // Both arms below gate on HasValue and build a CONCRETE Nullable<PublicType> rather than
+        // routing a genuine None through `ToNullable()`. Inside SwiftOptional<T>, ToNullable()
+        // returns the *unconstrained* type parameter's `T?`, which for a value-type inner collapses
+        // to `T` in IL (there is no Nullable<T> to carry a None), so a None surfaces as default(T)
+        // (0/false, or for a wrapped value type its zero value) and then widens back to Some(default)
+        // at the call site. At THIS emission site PublicType is the CONCRETE element type, so
+        // `PublicType?` is a real Nullable<T> and the None arm is a true null. `.Some` is read only
+        // when HasValue — a single payload read, ARC-identical to ToNullable()'s for a reference
+        // inner (each leaf inner conversion references its argument exactly once).
+        var innerPublic = _innerProjection.PublicType;
+        var innerConv = _innerProjection.GetReturnElementConversion($"{elementVar}.Some");
         if (innerConv != null)
         {
-            // Inner needs conversion: e.g., SwiftOptional<SwiftString> → string?
-            // ToNullable() gives SwiftString?, then convert the inner value.
-            return $"({elementVar}.ToNullable() is {{ }} {innerVar} ? ({_innerProjection.PublicType}?){innerConv} : default)";
+            // Inner needs conversion: e.g. SwiftOptional<Date> → DateTimeOffset?, SwiftOptional<SwiftString>
+            // → string?. Apply the inner conversion to the unwrapped `.Some` in the HasValue branch only;
+            // the None branch is a real `default(PublicType?)` null. Using `ToNullable() is { } v` here
+            // silently mis-reports a value-type inner's None as Some(default) — `is { }` always matches a
+            // non-nullable value type — which is the collapse the explicit form above avoids.
+            return $"({elementVar}.HasValue ? ({innerPublic}?)({innerConv}) : default({innerPublic}?))";
         }
-        // Simple inner: SwiftOptional<T> → T?
-        return $"{elementVar}.ToNullable()";
+        // Simple inner: SwiftOptional<T> → T?.
+        return $"({elementVar}.HasValue ? ({innerPublic}?){elementVar}.Some : default({innerPublic}?))";
     }
 
     public bool RequiresSwiftWrapper => false;

@@ -89,6 +89,12 @@ namespace BindingsGeneration
 
         private readonly record struct ExistentialHeapInfo(string HeapName, string? OwnsVar, int WitnessTableCount);
 
+        // Post-call readback statements for blittable frozen-struct inout params. Collected at the
+        // point the stack buffer is emitted (EmitCdeclFrozenStructMarshalling) so the readback is
+        // emitted iff the buffer was — no separate gate to drift. Flushed after the P/Invoke call by
+        // EmitGenericInoutWriteback, while {name}Ptr is still in scope, into the now-`ref` public param.
+        private readonly List<string> _cdeclFrozenStructInoutWritebacks = new();
+
         // Tracks parameter names for Optional<generic> arguments passed under Swift @in
         // (callee-destroyed) convention via raw CallConvSwift. Swift consumes the buffer;
         // running the SwiftOptional's normal Dispose afterwards would call VWT Destroy on

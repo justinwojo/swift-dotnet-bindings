@@ -565,6 +565,12 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     public T? ToNullable()
     {
         ThrowIfDisposed();
+        // NOTE: for a value-type `T`, `T?` here is the *unconstrained* type parameter's nullable
+        // form, which collapses to `T` in IL — there is no `Nullable<T>` to carry a None. A genuine
+        // None therefore surfaces as `default(T)` (e.g. 0 for int), NOT null. Callers that need a
+        // real `T?` for a value-type inner must branch on `HasValue`/`Case` and build the concrete
+        // `Nullable<T>` themselves (see OptionalProjection.GetReturnElementConversion). This method
+        // is correct for reference-type `T` (where `T?` is a true nullable reference).
         return Case == SwiftOptionalCases.Some ? Some : default;
     }
 

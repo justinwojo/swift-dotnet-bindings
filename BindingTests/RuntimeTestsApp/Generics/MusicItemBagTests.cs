@@ -143,16 +143,20 @@ public class MusicItemBagTests : TestBase
         // @_cdecl wrapper routes through CallConvCdecl with `ref nint i` and can be
         // called from Mono without the CallConvSwift ABI mismatch.
         //
-        // The public C# API hides inout (matches ParameterTests.TestIncrementValue /
-        // TestSwapValues convention — writeback semantics aren't surfaced at the API
-        // level, only at the P/Invoke). The guarantee exercised here is: the
-        // cross-boundary call completes without crashing and the wrapper's metadata +
-        // PWT plumbing still lines up for the concrete witness type.
+        // The public C# API surfaces inout as `ref nint` (matches ParameterTests convention),
+        // so the writeback is observable: formIndex(_:offsetBy:) sets `i = index(i, offsetBy:)`,
+        // i.e. i += distance. The guarantee exercised here is the cross-boundary call completing
+        // AND the inout index advancing correctly, with the wrapper's metadata + PWT plumbing
+        // lined up for the concrete witness type.
         using var bag = Functions.MakeMusicItemBag(
             firstId: "a", secondId: "b", thirdId: "c");
 
-        bag.FormIndex(1, 2);
-        bag.FormIndex(0, 3);
-        TestLogger.Info("FormIndex(inout Int, Int) round-trip completed without crash");
+        nint i = 1;
+        bag.FormIndex(ref i, 2);
+        AssertEqual(3, (int)i, "formIndex(offsetBy: 2) must advance the inout index 1 → 3");
+        i = 0;
+        bag.FormIndex(ref i, 3);
+        AssertEqual(3, (int)i, "formIndex(offsetBy: 3) must advance the inout index 0 → 3");
+        TestLogger.Info($"FormIndex(ref inout Int, Int) round-trip → i={i}");
     }
 }

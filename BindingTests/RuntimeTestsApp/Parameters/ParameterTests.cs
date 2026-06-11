@@ -21,38 +21,49 @@ public class ParameterTests : TestBase
     #region Inout Parameters
 
     // Inout parameters use @_cdecl wrappers with UnsafeMutableRawPointer + write-back semantics.
-    // The public API passes inout params by value (not ref), so mutations aren't observable
-    // to the caller. These tests verify the @_cdecl wrapper path completes without crashing.
+    // The public API passes them by `ref`, so Swift's in-place mutation IS observable to the caller.
+    // These tests assert the round-trip: the value Swift wrote back must reach the caller's variable.
+    // Primitives propagate the readback straight through the P/Invoke `ref`; blittable frozen structs
+    // marshal into a stack buffer, then re-read it (MarshalFromSwift) into the `ref` param after the call.
 
     public void TestIncrementValue()
     {
-        // incrementValue(_ value: inout Int32) — @_cdecl wrapper with UnsafeMutableRawPointer
-        TestLibFunctions.IncrementValue(42);
-        TestLogger.Info("IncrementValue(42) completed without crash");
+        // incrementValue(_ value: inout Int32) — Swift does `value += 1`.
+        int value = 42;
+        TestLibFunctions.IncrementValue(ref value);
+        AssertEqual(43, value, "IncrementValue must write the incremented value back to the caller");
+        TestLogger.Info($"IncrementValue(ref 42) → {value}");
     }
 
     public void TestSwapValues()
     {
-        // swapValues(_ a: inout Int32, _ b: inout Int32) — two inout params with write-back
-        TestLibFunctions.SwapValues(10, 20);
-        TestLogger.Info("SwapValues(10, 20) completed without crash");
+        // swapValues(_ a: inout Int32, _ b: inout Int32) — two inout params, both written back.
+        int a = 10, b = 20;
+        TestLibFunctions.SwapValues(ref a, ref b);
+        AssertEqual(20, a, "SwapValues must write the swapped value back to a");
+        AssertEqual(10, b, "SwapValues must write the swapped value back to b");
+        TestLogger.Info($"SwapValues(ref 10, ref 20) → a={a}, b={b}");
     }
 
     public void TestIncrementPoint()
     {
-        // incrementPoint(_ point: inout FrozenPoint) — inout frozen struct
+        // incrementPoint(_ point: inout FrozenPoint) — blittable frozen struct, Swift adds 1 to x and y.
         var point = new FrozenPoint(3.0, 4.0);
-        TestLibFunctions.IncrementPoint(point);
-        TestLogger.Info("IncrementPoint((3.0, 4.0)) completed without crash");
+        TestLibFunctions.IncrementPoint(ref point);
+        AssertEqual(4.0, point.X, "IncrementPoint must write the incremented x back to the caller");
+        AssertEqual(5.0, point.Y, "IncrementPoint must write the incremented y back to the caller");
+        TestLogger.Info($"IncrementPoint(ref (3,4)) → ({point.X}, {point.Y})");
     }
 
     public void TestDoubleInPlace()
     {
-        // doubleInPlace(_ value: inout Int32) -> Int32 — returns old value
-        // The Swift function doubles value in-place and returns the original.
-        int result = TestLibFunctions.DoubleInPlace(7);
-        AssertEqual(7, result, "DoubleInPlace should return original value");
-        TestLogger.Info($"DoubleInPlace(7) returned {result}");
+        // doubleInPlace(_ value: inout Int32) -> Int32 — doubles in-place, returns the OLD value.
+        // Exercises both channels at once: the return value AND the inout writeback.
+        int value = 7;
+        int result = TestLibFunctions.DoubleInPlace(ref value);
+        AssertEqual(7, result, "DoubleInPlace should return the original value");
+        AssertEqual(14, value, "DoubleInPlace must write the doubled value back to the caller");
+        TestLogger.Info($"DoubleInPlace(ref 7) returned {result}, value now {value}");
     }
 
     #endregion

@@ -127,7 +127,7 @@
       "properties": {
         "AbiGrid": {
           "type": "boolean",
-          "description": "Emit the ABI coverage grid report + gate after the platform run (sim-only in Phase 0)"
+          "description": "Emit the ABI coverage grid report + gate after the platform run(s), merging sim+device"
         },
         "AppleVersion": {
           "type": "string",

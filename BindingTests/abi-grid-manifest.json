@@ -1,95 +1,258 @@
 {
   "schemaVersion": 1,
-  "description": "ABI Coverage Grid manifest — the single source of truth for thin-corner runtime coverage cells. See src/docs/Design/abi-coverage-grid.md. Phase 0 seeds a representative subset of EXISTING passing closure/tuple/inout tests to prove the report/gate plumbing end-to-end; Phase 1 authors the genuinely-unreached Latent-tied cells the audit exposes. Cells map to tests by (class, method) name over the existing test-results JSONL + TestClasses.g.txt inventory — no test-infra change (the [AbiCell] attribute is deferred to v2). 'runtimes' defaults to [sim, device]; the Phase 0 seed cells are sim-only by scope (device leg lands with Phase 1) and say so in 'runtimeNote'.",
+  "description": "ABI Coverage Grid manifest — the single source of truth for thin-corner runtime coverage cells. See src/docs/Design/abi-coverage-grid.md. Phase 1 enumerates the closure / inout / tuple corners as a full cross-product and grades each cell on every declared+exercised runtime (sim = Mono JIT, device = NativeAOT). Cells map to tests by (class, method) name over the existing test-results JSONL + TestClasses.g.txt inventory; rename-rot (a cite absent from the inventory) is a hard integrity error. Disposition: expect-green (release-gating), supported-low-priority (reported, not gated), by-design-gray (intentionally unsupported, cites a roadmap rationale). DOCUMENTED ABSENCES (deliberately out of slice-1 scope, recorded here per design §5 rather than silently dropped): nested tuple returns ((A,B),C) — no fixture authored; sync tuple returns with a generic element (only the async-on-generic-parent shape exists, and it is suppressed by design — see tuple.ret.pair.contains-generic.async); async-closure-PARAM fan-out (the closure-PARAM and closure-RETURN fan-out legs are both authored here as closure.fanout.same-signature.closure-param / closure.fanout.same-signature.closure-return; the async leg shares the same emitter gap and is deferred to the decision point after the sync legs' fix lands); non-void closure RETURN (the closure-returning materialiser — IsDispatchableClosureReturningMethod — dispatches only a zero-arg `() -> Void` returned closure; a non-void returned closure like `() -> Int32` falls to the fatalError stub and is an unimplemented capability, orthogonal to the fan-out Latent, so the closure-RETURN fan-out cells use the supported `() -> Void` shape with a C#-side side-effect oracle); the full closure direction×escaping×effects×arity cross-product (the basics are already covered by existing ClosureTests/ClosureEdgeCaseTests and represented below; only the Latent-tied fan-out leg is newly authored).",
   "cells": [
     {
       "id": "closure.escaping.arg-int.ret-int",
       "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "runtimes": ["sim", "device"],
       "mapping": [{ "class": "ClosureTests", "method": "TestEscapingWithInt32" }]
     },
     {
       "id": "closure.escaping.arg-none.ret-void",
       "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "runtimes": ["sim", "device"],
       "mapping": [{ "class": "ClosureTests", "method": "TestVoidCallback" }]
     },
     {
       "id": "closure.return.arg-int.ret-int",
       "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "runtimes": ["sim", "device"],
       "mapping": [{ "class": "ClosureTests", "method": "TestMakeAdder" }]
     },
     {
       "id": "closure.throwing.arg-none.ret-int",
       "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "runtimes": ["sim", "device"],
       "mapping": [{ "class": "ClosureEdgeCaseTests", "method": "TestThrowingClosureSuccess" }]
     },
     {
       "id": "closure.escaping.arg-struct-nonfrozen.ret-int",
       "disposition": "supported-low-priority",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
+      "runtimes": ["sim", "device"],
       "mapping": [{ "class": "ClosureTests", "method": "TestClosureWithNonFrozenStructParam" }]
     },
     {
-      "id": "tuple.ret.pair.primitive",
-      "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
-      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestBasicPairCreation" }]
-    },
-    {
-      "id": "tuple.ret.pair.named",
-      "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
-      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestNamedPair" }]
-    },
-    {
-      "id": "tuple.ret.triple.primitive",
-      "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
-      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestTriple" }]
-    },
-    {
-      "id": "tuple.ret.septuple.primitive",
+      "id": "closure.fanout.same-signature.closure-param.peer",
       "disposition": "supported-low-priority",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
-      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSeptuple" }]
+      "runtimeNote": "Roadmap Latent 'Same-signature closure/async method fan-out gap' — the closure-PARAM leg the plain/async sibling fan-out fix did not reach. Rare in consumer code (no validation-set library produces it), so dispositioned supported-low-priority: a red is reported in the grid (the grid's purpose is to REACH this Latent), not release-gating. Reached on sim+device.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ClosureFanOutTests", "method": "TestClosureFan_PeerExistential" }]
     },
     {
-      "id": "tuple.arg.pair.primitive",
+      "id": "closure.fanout.same-signature.closure-param.owner",
       "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
-      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSumPair" }]
+      "runtimeNote": "Control: the same shared closure-param method dispatched through the OWNER existential reads its own populated vtable, so it must be green independent of the fan-out fix.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ClosureFanOutTests", "method": "TestClosureFan_OwnerExistential" }]
     },
     {
-      "id": "inout.value.int.ret-primitive",
-      "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
-      "mapping": [{ "class": "ParameterTests", "method": "TestDoubleInPlace" }]
+      "id": "closure.fanout.same-signature.closure-return.peer",
+      "disposition": "supported-low-priority",
+      "runtimeNote": "Roadmap Latent 'Same-signature closure/async method fan-out gap' — the closure-RETURN leg. Twin of the closure-param peer cell: the same emitter gap on the closure-returning path (EmitDispatchableClosureReturningMethodImplementation). Rare in consumer code, so dispositioned supported-low-priority: a red is reported in the grid (the grid's purpose is to REACH this Latent), not release-gating. Reached on sim+device.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ClosureFanOutTests", "method": "TestClosureRetFan_PeerExistential" }]
     },
     {
-      "id": "inout.struct.frozen",
+      "id": "closure.fanout.same-signature.closure-return.owner",
       "disposition": "expect-green",
-      "runtimes": ["sim"],
-      "runtimeNote": "Phase 0 sim-only proof; device leg added in Phase 1.",
-      "mapping": [{ "class": "ParameterTests", "method": "TestIncrementPoint" }]
+      "runtimeNote": "Control: the same shared closure-RETURNING method dispatched through the OWNER existential reads its own populated vtable, so it must be green independent of the fan-out fix.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ClosureFanOutTests", "method": "TestClosureRetFan_OwnerExistential" }]
     },
     {
       "id": "closure.autoclosure.arg",
       "disposition": "by-design-gray",
       "reason": "@autoclosure (RC-CLOSURE) is Explicitly Out of Scope in roadmap.md: a compile-time Swift feature with no shipping-framework consumer; revisit only if one needs it. No fixture by design.",
+      "runtimes": ["sim", "device"],
+      "mapping": []
+    },
+
+    {
+      "id": "inout.value.int",
+      "disposition": "expect-green",
+      "runtimeNote": "Headline writeback-observability fix: inout now projects as `ref T` and the C# caller observes the Swift mutation.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ParameterTests", "method": "TestIncrementValue" }]
+    },
+    {
+      "id": "inout.value.int.swap",
+      "disposition": "expect-green",
+      "runtimeNote": "Two inout params writing back independently.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ParameterTests", "method": "TestSwapValues" }]
+    },
+    {
+      "id": "inout.value.int.ret-primitive",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ParameterTests", "method": "TestDoubleInPlace" }]
+    },
+    {
+      "id": "inout.struct.frozen",
+      "disposition": "expect-green",
+      "runtimeNote": "Blittable frozen-struct inout: post-call MarshalFromSwift readback lands the mutated fields back in the C# `ref` var.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ParameterTests", "method": "TestIncrementPoint" }]
+    },
+    {
+      "id": "inout.struct.frozen.mixed-emit",
+      "disposition": "expect-green",
+      "runtimeNote": "inout Int32 on a class with mixed @_cdecl/CallConvSwift methods — writeback observed through the @_cdecl wrapper.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "WrapperStrippingTests", "method": "TestMixedEmittabilityInoutParam" }]
+    },
+    {
+      "id": "inout.generic-parent.nint",
+      "disposition": "expect-green",
+      "runtimeNote": "inout Int on a generic struct parent, routed through static protocol dispatch with `ref nint` writeback.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "MusicItemBagTests", "method": "TestMusicItemBag_FormIndex_InoutOnGenericParent_DoesNotCrash" }]
+    },
+    {
+      "id": "inout.generic-parent.nint.extension",
+      "disposition": "expect-green",
+      "runtimeNote": "inout Int on a generic Collection conformer declared in an extension block (selector-collision shape).",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "GenericIndexableCollectionTests", "method": "TestGenericIndexable_FormIndexAfter_AdvancesByOne" }]
+    },
+    {
+      "id": "inout.struct.resilient",
+      "disposition": "by-design-gray",
+      "reason": "HasInoutWithAbiMismatch rejects non-frozen (resilient) struct inout: a resilient struct is read through a pointer (no fixed layout), so it cannot be marshalled as a blittable `ref T` stack buffer with write-back. The method is not emitted — there is no runtime surface by design. Architectural ABI limitation, same family as the inout ObjC-bridgeable rejection (roadmap: 'Inout ObjC-bridgeable reverse-dispatch keeps a dead vtable slot').",
+      "runtimes": ["sim", "device"],
+      "mapping": []
+    },
+    {
+      "id": "inout.objc-bridgeable.url",
+      "disposition": "by-design-gray",
+      "reason": "inout ObjC-bridgeable (URL/URLRequest/Decimal) is rejected by HasInoutWithAbiMismatch on the direct path (the {p}Ref/{p}Copy write-back mismatch does not compile) and routed to a fatalError trap stub on the reverse-dispatch path. Roadmap 'Inout ObjC-bridgeable reverse-dispatch keeps a dead vtable slot' deferred it as disproportionate to a cosmetic dead slot on a near-unreachable signature; no active repro. No consumable runtime surface by design.",
+      "runtimes": ["sim", "device"],
+      "mapping": []
+    },
+
+    {
+      "id": "tuple.ret.pair.primitive.plain",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestBasicPairCreation" }]
+    },
+    {
+      "id": "tuple.ret.pair.named.plain",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestNamedPair" }]
+    },
+    {
+      "id": "tuple.ret.pair.named-divmod.plain",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestDivmod" }]
+    },
+    {
+      "id": "tuple.ret.pair.named-minmax.plain",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestMinmax" }]
+    },
+    {
+      "id": "tuple.ret.pair.mixed-primitive-bool.plain",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestMixedPair" }]
+    },
+    {
+      "id": "tuple.ret.triple.primitive.plain",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestTriple" }]
+    },
+    {
+      "id": "tuple.ret.septuple.primitive.plain",
+      "disposition": "supported-low-priority",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSeptuple" }]
+    },
+    {
+      "id": "tuple.arg.pair.primitive.plain",
+      "disposition": "expect-green",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSumPair" }]
+    },
+    {
+      "id": "tuple.ret.pair.mixed-primitive-struct.plain",
+      "disposition": "expect-green",
+      "runtimeNote": "Mixed primitive+struct element-mix: a frozen blittable struct embedded as the first tuple element (FrozenPoint, Int32). Newly authored.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestMakePointWithTag_StructElement" }]
+    },
+    {
+      "id": "tuple.ret.pair.contains-optional.some.plain",
+      "disposition": "expect-green",
+      "runtimeNote": "contains-optional element-mix, Some side: (Int32, Int32?) returning a non-nil upper. Newly authored.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSpanBounds_NonEmpty_SomeUpper" }]
+    },
+    {
+      "id": "tuple.ret.pair.contains-optional.nil.plain",
+      "disposition": "expect-green",
+      "runtimeNote": "contains-optional element-mix, None side: (Int32, Int32?) returning a nil upper. Newly authored.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestSpanBounds_Empty_NilUpper" }]
+    },
+    {
+      "id": "tuple.ret.pair.primitive.async",
+      "disposition": "expect-green",
+      "runtimeNote": "async tuple return (Int32, Int32) — async × tuple-return.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "AsyncGenericTupleTests", "method": "TestAsyncTupleWorker_IntPair" }]
+    },
+    {
+      "id": "tuple.ret.pair.mixed-string.async",
+      "disposition": "expect-green",
+      "runtimeNote": "async tuple return (String, Int32) — async × mixed-element.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "AsyncGenericTupleTests", "method": "TestAsyncTupleWorker_LabeledPair" }]
+    },
+    {
+      "id": "tuple.ret.pair.mixed-data.async",
+      "disposition": "expect-green",
+      "runtimeNote": "async tuple return (Data, Int32) — async × indirect-element (Foundation.Data).",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "AsyncDataTupleTests", "method": "TestAsyncDataTuple_DataFirst" }]
+    },
+    {
+      "id": "tuple.ret.pair.primitive.throws",
+      "disposition": "expect-green",
+      "runtimeNote": "throws × tuple-return, happy path. Newly authored.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestDivmodThrowing_Success" }]
+    },
+    {
+      "id": "tuple.ret.pair.primitive.throws.error-path",
+      "disposition": "expect-green",
+      "runtimeNote": "throws × tuple-return, error path: SwiftException surfaces before the tuple is materialized. Newly authored.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestDivmodThrowing_DivideByZeroThrows" }]
+    },
+    {
+      "id": "tuple.ret.pair.primitive.async-throws",
+      "disposition": "expect-green",
+      "runtimeNote": "async × throws × tuple-return, happy path. Newly authored.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestDivmodThrowingAsync_Success" }]
+    },
+    {
+      "id": "tuple.ret.pair.primitive.async-throws.error-path",
+      "disposition": "expect-green",
+      "runtimeNote": "async × throws × tuple-return, error path: faulted Task → awaited SwiftException. Newly authored.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "TupleMarshallingTests", "method": "TestDivmodThrowingAsync_DivideByZeroThrows" }]
+    },
+    {
+      "id": "tuple.ret.pair.contains-generic.async",
+      "disposition": "by-design-gray",
+      "reason": "A sync/async tuple return with a generic element on a generic-parent extension (AsyncGenericContainer<T>.fetchPair() async -> (T, Int32)) is intentionally suppressed by the generator: a @_silgen_name async wrapper on a generic-parent extension is a generic instance method that expects self + parent type metadata in implicit registers, while a fixed CallConvSwift P/Invoke can only pass them as trailing IntPtr args — an ABI mismatch that SIGSEGVs. The 'properly suppressed' invariant is asserted in Swift.Bindings.Unit.Tests (MemberValidationPipelineTests.ValidateMethodEmission_AsyncOnGenericParent_*). No runtime surface by design; the correct long-term fix is a generic-static-dispatch @_cdecl async bridge.",
       "runtimes": ["sim", "device"],
       "mapping": []
     }

@@ -598,6 +598,67 @@ public class CompositeProjectionTests
         Assert.DoesNotContain(".Buffer", elemConv!);
     }
 
+    #region Optional value-type element conversion — None must survive as a real null
+
+    // Regression: GetReturnElementConversion for a SwiftOptional with a value-type inner once
+    // emitted `{var}.ToNullable()`. Inside SwiftOptional<T>, ToNullable() returns the unconstrained
+    // type parameter's `T?`, which collapses to `T` in IL for a value type — so a genuine None
+    // surfaced as default(T) (0/false) and then widened back to Some(0) at the call site. This is
+    // the root cause behind a `(Int32, Int32?)` tuple return reading its nil upper bound as 0.
+    // The element conversion must instead branch on HasValue and build the *concrete* Nullable<T>.
+
+    [Fact]
+    public void OptionalBlittableInner_ReturnElementConversion_DoesNotUseToNullable()
+    {
+        // Inner public type is the lowered C# name the factory produces (Swift Int32 → "int").
+        var optProj = new OptionalProjection(new BlittableProjection("int"));
+        var conv = optProj.GetReturnElementConversion("opt");
+
+        Assert.NotNull(conv);
+        // Must NOT collapse a value-type None via ToNullable() (returns int, not int?).
+        Assert.DoesNotContain("ToNullable", conv!);
+        // Must guard on HasValue and produce a real Nullable<int> on both arms.
+        Assert.Contains("opt.HasValue", conv);
+        Assert.Contains("(int?)opt.Some", conv);
+        Assert.Contains("default(int?)", conv);
+    }
+
+    [Fact]
+    public void OptionalBoolInner_ReturnElementConversion_BuildsConcreteNullable()
+    {
+        // bool is the other value type that silently widens default(bool)=false to Some(false).
+        var optProj = new OptionalProjection(new BlittableProjection("bool"));
+        var conv = optProj.GetReturnElementConversion("flag");
+
+        Assert.NotNull(conv);
+        Assert.DoesNotContain("ToNullable", conv!);
+        Assert.Contains("flag.HasValue", conv);
+        Assert.Contains("default(bool?)", conv);
+    }
+
+    [Fact]
+    public void OptionalValueTypeInnerWithConversion_ReturnElementConversion_DoesNotCollapseNone()
+    {
+        // The innerConv arm: a VALUE-type inner that DOES supply a non-null element conversion.
+        // Date → DateTimeOffset (a struct) is the canonical case. `ToNullable() is { } v` would
+        // always match a non-nullable value type, so a genuine None would surface as Some(default).
+        // The conversion must instead guard on HasValue and yield a real default(DateTimeOffset?).
+        var optProj = new OptionalProjection(new DateProjection());
+        var conv = optProj.GetReturnElementConversion("stamp");
+
+        Assert.NotNull(conv);
+        // Must not route the None through the collapsing ToNullable()/is-pattern shape.
+        Assert.DoesNotContain("ToNullable", conv!);
+        Assert.DoesNotContain("is { }", conv);
+        // Must guard on HasValue, apply the inner Date conversion to .Some, and null the None arm.
+        Assert.Contains("stamp.HasValue", conv);
+        Assert.Contains("stamp.Some", conv);
+        Assert.Contains("AddSeconds", conv);
+        Assert.Contains("default(System.DateTimeOffset?)", conv);
+    }
+
+    #endregion
+
     /// <summary>
     /// Renders every statement (including the bodies of if/else blocks) into one text blob so a
     /// test can assert on code emitted inside branches, not just at the top level.

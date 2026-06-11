@@ -40,7 +40,7 @@ public static class AbiGridReporter
     public static AbiGridReport Generate(
         AbiGridManifest manifest,
         TestClassInventory staticInventory,
-        JsonlTestResults runResults,
+        IReadOnlyDictionary<string, JsonlTestResults> resultsByRuntime,
         IReadOnlyList<string> runtimesExercised,
         bool partial,
         string partialReason)
@@ -56,11 +56,20 @@ public static class AbiGridReporter
         // Static integrity — independent of which tests ran, so it blocks on partial runs too.
         report.IntegrityErrors.AddRange(manifest.Validate());
 
-        // Fast lookup of run entries by "Class.Method".
-        var runIndex = new Dictionary<string, JsonlTestResults.TestEntry>(StringComparer.Ordinal);
-        foreach (var t in runResults.Tests)
-            runIndex[$"{t.ClassName}.{t.TestName}"] = t; // last wins (already merged)
+        // Per-runtime fast lookup of run entries by "Class.Method". Each runtime is graded
+        // against ITS OWN results (sim against the sim JSONL, device against the device JSONL) —
+        // a cell is green only when it passes on every declared+exercised runtime (design §7).
+        // Merging into one index would let a sim pass mask a device crash (or vice versa).
+        var runIndexByRuntime = new Dictionary<string, Dictionary<string, JsonlTestResults.TestEntry>>(StringComparer.Ordinal);
+        foreach (var (rt, results) in resultsByRuntime)
+        {
+            var idx = new Dictionary<string, JsonlTestResults.TestEntry>(StringComparer.Ordinal);
+            foreach (var t in results.Tests)
+                idx[$"{t.ClassName}.{t.TestName}"] = t; // last wins (already crash-merged per runtime)
+            runIndexByRuntime[rt] = idx;
+        }
 
+        var emptyIndex = new Dictionary<string, JsonlTestResults.TestEntry>(StringComparer.Ordinal);
         var exercised = new HashSet<string>(runtimesExercised, StringComparer.Ordinal);
 
         foreach (var cell in manifest.Cells)
@@ -96,7 +105,8 @@ public static class AbiGridReporter
                 else if (!exercised.Contains(rt))
                     status = NotRun;
                 else
-                    status = CombineMappedStatus(cell, runIndex);
+                    status = CombineMappedStatus(
+                        cell, runIndexByRuntime.TryGetValue(rt, out var rtIndex) ? rtIndex : emptyIndex);
 
                 cellResult.RuntimeStatus[rt] = status;
             }

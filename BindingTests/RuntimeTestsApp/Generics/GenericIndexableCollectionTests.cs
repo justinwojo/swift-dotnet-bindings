@@ -95,17 +95,17 @@ public class GenericIndexableCollectionTests : TestBase
         using var coll = Functions.MakeGenericIndexableCollection(
             firstTag: "a", secondTag: "b", thirdTag: "c");
 
-        // C# surfaces the inout via a return-style API (or void-with-write;
-        // either way the cross-boundary call must complete without crashing
-        // — that's the regression we're guarding). The pass condition here
-        // is: we get through the P/Invoke at all on both Mono JIT and
-        // NativeAOT, which prior-art `TestMusicItemBag_FormIndex_*` already
-        // covers for inline-on-struct shape. This test extends the proof to
-        // the extension-block shape where the pre-fix selector-collision
-        // gate had been deleting the wrapper.
-        coll.FormIndex(1);
-        coll.FormIndex(2);
-        TestLogger.Info("FormIndex(after: inout Int) round-trip completed without crash");
+        // C# surfaces the inout as `ref nint`. formIndex(after:) sets `i = index(after: i)`,
+        // i.e. i += 1, so the writeback is observable. This extends the proof to the
+        // extension-block shape (where the pre-fix selector-collision gate had been deleting
+        // the wrapper) on both Mono JIT and NativeAOT.
+        nint i = 1;
+        coll.FormIndex(ref i);
+        AssertEqual(2, (int)i, "formIndex(after:) must advance the inout index 1 → 2");
+        i = 2;
+        coll.FormIndex(ref i);
+        AssertEqual(3, (int)i, "formIndex(after:) must advance the inout index 2 → 3");
+        TestLogger.Info($"FormIndex(after: ref inout Int) round-trip → i={i}");
     }
 
     public void TestGenericIndexable_BothSingleArgFormIndexOverloads_Emitted()

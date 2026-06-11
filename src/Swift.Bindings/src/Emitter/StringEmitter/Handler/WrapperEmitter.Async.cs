@@ -440,6 +440,23 @@ namespace BindingsGeneration
                 var tupleTypeSpec = (TupleTypeSpec)returnTypeArg.SwiftTypeSpec;
                 var resultVar = $"result{_env.MethodDecl.Name}";
 
+                // A NAMED tuple return — `(quotient: Int32, remainder: Int32)` — carries its
+                // element labels in each element's TypeLabel, which TypeSpec.ToString() renders
+                // as a `label: ` prefix. That is legal in a tuple TYPE but ILLEGAL in a
+                // @convention(c) FUNCTION-type parameter list ("function types cannot have
+                // argument labels"). Render the bare element type by transiently clearing the
+                // label (single-threaded emit; restored immediately) so the flattened callback
+                // param list and any MemoryLayout<...> reference use the unlabeled type.
+                static string UnlabeledType(TypeSpec ts)
+                {
+                    var saved = ts.TypeLabel;
+                    if (saved is null)
+                        return ts.ToString();
+                    ts.TypeLabel = null;
+                    try { return ts.ToString(); }
+                    finally { ts.TypeLabel = saved; }
+                }
+
                 // Build callback param types and invocation args, handling VALUE TYPES that
                 // can't be passed by value in @convention(c) callbacks.
                 // Non-primitive value types (Foundation.Data, Swift.String, frozen structs)
@@ -547,7 +564,7 @@ namespace BindingsGeneration
                         // Non-primitive value type or generic type param: heap-allocate and pass via pointer.
                         // C# reads the struct from the pointer via MarshalFromSwift or direct cast.
                         // Resolve generic type params (τ_0_0) to Swift sugared names (T) for MemoryLayout.
-                        var rawName = element.ToString();
+                        var rawName = UnlabeledType(element);
                         var swiftTypeName = swiftGenericParamLookup.TryGetValue(rawName, out var sugared)
                             ? sugared : rawName;
                         var ptrVar = $"_tupleBuf{i}";
@@ -565,7 +582,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        elementTypes.Add(element.ToString());
+                        elementTypes.Add(UnlabeledType(element));
                         callbackArgParts.Add($"{resultVar}.{i}");
                     }
                 }

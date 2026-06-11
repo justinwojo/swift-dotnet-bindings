@@ -16,55 +16,71 @@ using Serilog;
 // abi-grid-manifest.json cells to the run's results + the static TestClasses.g.txt
 // inventory, renders a green/red/by-design-gray grid, writes BindingTests/output/abi-grid.json,
 // and returns a gate verdict. The fixtures themselves are ordinary tests in the normal run —
-// there is no separate execution path. Phase 0 is sim-only proof-of-plumbing.
+// there is no separate execution path.
+//
+// Phase 1 grades sim+device together: each platform run stashes its JSONL under a runtime key
+// (StashAbiGridResults), and one merged grid (RunMergedAbiGridReport) is rendered + gated after
+// the platform loop, grading each cell against its runtime's own results so a cell is green only
+// when it passes on every declared+exercised runtime.
 //
 // See src/docs/Design/abi-coverage-grid.md.
 // ============================================================
 
 partial class Build
 {
-    [Parameter("Emit the ABI coverage grid report + gate after the platform run (sim-only in Phase 0)")]
+    [Parameter("Emit the ABI coverage grid report + gate after the platform run(s), merging sim+device")]
     readonly bool AbiGrid;
 
     AbsolutePath AbiGridManifestPath => BindingTestsDir / "abi-grid-manifest.json";
     AbsolutePath AbiGridArtifactPath => BtOutputDir / "abi-grid.json";
 
     /// <summary>
-    /// Runs the ABI grid report for a completed platform run. Renders the grid table + rollup,
-    /// writes the JSON artifact, and returns the report (including the gate verdict) so the
-    /// caller can enforce the gate after the normal runtime verdict. Returns null ONLY when the
-    /// grid does not apply to this run (non-sim platform in Phase 0). A run that produced no
-    /// results still grades — manifest integrity is enforced regardless, and the absent results
-    /// grade every mapped cell as 'missing' (which, on a full run, fails coverage).
-    ///
-    /// The report ALWAYS renders + writes its artifact before returning — even when cells are
-    /// red — so a failing grid is visible, not swallowed by the surrounding runtime verdict.
+    /// Per-runtime JSONL results accumulated across the platform runs of a single
+    /// <c>nuke binding-tests</c> invocation. Keyed by grid runtime ("sim" / "device"). The merged
+    /// grid (<see cref="RunMergedAbiGridReport"/>) grades each cell against its runtime's own
+    /// results, so a cell is green only when it passes on every declared+exercised runtime (§7).
     /// </summary>
-    AbiGridReport? RunAbiGridReport(string platform, JsonlTestResults? jsonlResults)
+    readonly Dictionary<string, JsonlTestResults> _abiGridResultsByRuntime = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Maps a runtime-test platform label to its ABI-grid runtime key, or null when the platform
+    /// is not one the grid grades. The grid's two declared runtimes are the iOS Simulator (Mono
+    /// JIT) and a physical iOS device (NativeAOT); macOS/Catalyst/tvOS are intentionally not grid
+    /// runtimes (the manifest declares only sim/device), so their results don't feed the grid.
+    /// </summary>
+    static string? AbiGridRuntimeKey(string platform) => platform switch
     {
-        // Phase 0 is sim-only. The full sim+device grid is a later phase.
-        if (!string.Equals(platform, "Simulator", StringComparison.OrdinalIgnoreCase))
-        {
-            Log.Warning("--abi-grid is sim-only in Phase 0; skipping grid for platform '{Platform}'.", platform);
-            return null;
-        }
+        "Simulator" => "sim",
+        "Device/NativeAOT" => "device",
+        _ => null,
+    };
 
-        // Manifest integrity (rename-rot, malformed manifest) is enforced on EVERY run — it reads
-        // only the static inventory, not the run results. So even a degenerate run that produced no
-        // JSONL (aggregated.Tests.Count == 0 -> null) still loads + validates the manifest; the
-        // run simply has no results, so every mapped cell grades 'missing' (and coverage, on a full
-        // run, fails — a Success verdict with zero test evidence cannot prove the expect-green cells).
-        if (jsonlResults == null)
-        {
-            // Manifest integrity still grades (it reads only the static inventory). Coverage is
-            // NOT skipped: with no results every mapped cell grades 'missing', so a full run fails
-            // coverage — a verdict with zero test evidence cannot prove the expect-green cells.
-            // (On a partial run, coverage is report-only either way.)
-            Log.Warning("--abi-grid: no test-results JSONL for this run; manifest integrity is still " +
-                        "enforced and every mapped cell will grade 'missing' (a full run fails coverage).");
-            jsonlResults = new JsonlTestResults();
-        }
+    /// <summary>
+    /// Records a completed platform run's results for the merged grid. No-op when --abi-grid is
+    /// off or the platform is not a grid runtime. A platform that ran but produced no JSONL is
+    /// stashed as an empty result set (and counts as exercised) so every mapped cell grades
+    /// 'missing' — a full run with zero evidence must fail coverage, not silently pass.
+    /// </summary>
+    void StashAbiGridResults(string platform, JsonlTestResults? jsonlResults)
+    {
+        if (!AbiGrid) return;
+        var rt = AbiGridRuntimeKey(platform);
+        if (rt == null) return;
+        _abiGridResultsByRuntime[rt] = jsonlResults ?? new JsonlTestResults();
+    }
 
+    /// <summary>
+    /// Renders + writes the merged ABI grid from every runtime stashed this invocation and returns
+    /// the report (including the gate verdict) WITHOUT throwing — the caller enforces the gate after
+    /// the platform loop so a test-failure exception (which means the build already fails) isn't
+    /// masked. The report always renders + writes its artifact even when cells are red, so a failing
+    /// grid is visible. Manifest integrity (rename-rot, malformed manifest) is enforced on EVERY run
+    /// — it reads only the static inventory — so even a degenerate run with no JSONL still grades.
+    /// When no grid runtime ran at all (e.g. a --macos-only --abi-grid run) the grade still happens
+    /// over the empty result set: integrity blocks, and every cell grades not-run (never gated).
+    /// </summary>
+    AbiGridReport RunMergedAbiGridReport()
+    {
         // --abi-grid was explicitly requested: a missing/broken manifest is a hard error,
         // not a silently-absent grid.
         var manifest = AbiGridManifest.Load(AbiGridManifestPath);
@@ -89,9 +105,14 @@ partial class Build
         if (smokeFlags.Count > 0) partialReasons.Add($"smoke flags: {string.Join(",", smokeFlags.Select(f => f.FlagName))}");
         var partial = partialReasons.Count > 0;
 
-        var runtimesExercised = new[] { "sim" };
+        // Runtimes that actually ran this invocation, in stable sim-before-device order. A cell's
+        // declared runtime that was NOT exercised grades 'not-run' (reported, never gated).
+        var runtimesExercised = new[] { "sim", "device" }
+            .Where(_abiGridResultsByRuntime.ContainsKey)
+            .ToArray();
+
         var report = AbiGridReporter.Generate(
-            manifest, staticInventory, jsonlResults, runtimesExercised,
+            manifest, staticInventory, _abiGridResultsByRuntime, runtimesExercised,
             partial, string.Join("; ", partialReasons));
 
         // Write the JSON artifact (always).
@@ -99,8 +120,9 @@ partial class Build
         File.WriteAllText(AbiGridArtifactPath, report.Json);
 
         // Render the human table + rollup.
+        var runtimeLabel = runtimesExercised.Length > 0 ? string.Join("+", runtimesExercised) : "none";
         Log.Information("");
-        Log.Information("=== ABI COVERAGE GRID ({Platform}) ===", platform);
+        Log.Information("=== ABI COVERAGE GRID ({Runtimes}) ===", runtimeLabel);
         foreach (var row in report.Table.Split('\n'))
             Log.Information("{Row}", row.TrimEnd());
         Log.Information("");

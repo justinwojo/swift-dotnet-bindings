@@ -1467,11 +1467,11 @@ public class EveryProtocolEmitter
                 if (HasClosureInMethodSignature(method))
                 {
                     if (IsDispatchableClosureMethod(method, closureHandler))
-                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler);
+                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, availAnnotations);
                     else if (IsDispatchableAsyncClosureMethod(method, closureHandler))
-                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler);
+                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, availAnnotations);
                     else if (IsDispatchableClosureReturningMethod(method, closureHandler))
-                        EmitDispatchableClosureReturningMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler);
+                        EmitDispatchableClosureReturningMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, availAnnotations);
                     else
                         EmitClosureMethodStub(writer, method);
                 }
@@ -3841,7 +3841,8 @@ public class EveryProtocolEmitter
     /// pair into a managed delegate via a per-shape `@_cdecl` invoke thunk.
     /// </summary>
     private void EmitClosureMethodImplementation(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
-        string vtableInstanceName, int index, ClosureHandler closureHandler)
+        string vtableInstanceName, int index, ClosureHandler closureHandler,
+        MethodEmissionPlan? plan = null, IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
     {
         // Build parameter list — same shape as EmitMethodImplementation so the Swift protocol
         // signature matches the requirement. Only closure params get expanded passing logic.
@@ -4024,14 +4025,57 @@ public class EveryProtocolEmitter
             }
         }
 
-        var passCode = passLines.Count > 0 ? string.Join("\n        ", passLines) + "\n        " : "";
         var argRefs = argRefList.Count > 0 ? ", " + string.Join(", ", argRefList) : "";
 
-        writer.WriteLines($$"""
-                var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                {{passCode}}{{vtableInstanceName}}.{{fieldName}}!(
+        // Resolve dispatch branches — same sibling fan-out as EmitMethodImplementation. A solo group
+        // (no same-signature siblings) keeps the historic single-branch `!(...)` shape, byte-identical
+        // to the pre-fan-out output. A real sibling group fans out across each sibling's per-protocol
+        // vtable index, picking the first whose function pointer is non-nil, so a C# impl conforming to
+        // only a NON-owner protocol dispatches through ITS populated vtable instead of force-unwrapping
+        // the owner's nil global vtable (which `!` would otherwise SIGSEGV on). This is the closure-param
+        // counterpart of the fix in EmitMethodFanOutBody: two protocols sharing a closure-param method
+        // signature (e.g. `func applyFactory(_ factory: @escaping () -> Int32)`) have a single
+        // EveryProtocol witness satisfying both, and dispatch through the peer existential must not
+        // assume the owner vtable is populated.
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> branches = plan?.Siblings.Count > 1
+            ? plan.Siblings
+            : new[] { (protocolDecl, index) };
+        bool forceSafeFanOut = plan?.HasFilteredPeers == true;
+
+        // `selfProto` box and the closure (fnPtr, ctx) extraction reference only `self` and the
+        // function arguments — both handle-independent — so emit them once before the branch chain.
+        writer.WriteLine($"var selfProto: {protocolDecl.SwiftTypeName.ModuleQualifiedName} = self");
+        foreach (var line in passLines)
+            writer.WriteLine(line);
+
+        if (branches.Count == 1 && !forceSafeFanOut)
+        {
+            writer.WriteLines($$"""
+                {{vtableInstanceName}}.{{fieldName}}!(
                     {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}})
-            """);
+                """);
+        }
+        else
+        {
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var (branchProto, branchIndex) = branches[i];
+                var branchVtable = GetVtableInstanceName(branchProto);
+                var branchField = GetMethodVtableFieldName(method, branchIndex);
+                var clause = i == 0 ? "if" : "else if";
+                var guard = BuildBranchGuardPrefix(branchProto, extensionAvailability);
+                writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.{branchField} {{");
+                writer.Indent++;
+                writer.WriteLine($"fn({branchVtable}.csVTHandle, &selfProto{argRefs})");
+                writer.Indent--;
+                writer.Write("} ");
+            }
+            writer.WriteLine("else {");
+            writer.Indent++;
+            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for closure method {method.Name}\")");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -4237,23 +4281,61 @@ public class EveryProtocolEmitter
     /// property, and there are no method parameters by this shape's gate.
     /// </summary>
     private void EmitDispatchableClosureReturningMethodImplementation(SwiftWriter writer, MethodDecl method,
-        ProtocolDecl protocolDecl, string vtableInstanceName, int methodIdx, ClosureHandler closureHandler)
+        ProtocolDecl protocolDecl, string vtableInstanceName, int methodIdx, ClosureHandler closureHandler,
+        MethodEmissionPlan? plan = null, IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
     {
         if (method.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not ClosureTypeSpec retClosure)
             throw new InvalidOperationException(
                 $"EmitDispatchableClosureReturningMethodImplementation called on method '{method.Name}' without a closure return type.");
 
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
-        var fieldGetter = $"{vtableInstanceName}.func_{method.Name}_{methodIdx}";
         var conventionCType = ClosureEmitter.GetSwiftConventionCType(retClosure, closureHandler);
         var swiftReturnTypeName = GetSwiftTypeName(retClosure);
 
+        // Same sibling fan-out as the closure-param / value-method paths: a same-signature
+        // sibling group must walk each sibling's vtable and dispatch through whichever the
+        // registered proxy populated, rather than force-unwrapping the owner's nil global
+        // vtable when a smaller-sibling proxy is in play. A solo group keeps the historic
+        // single-branch shape, byte-identical to the pre-fan-out output.
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> branches = plan?.Siblings.Count > 1
+            ? plan.Siblings
+            : new[] { (protocolDecl, methodIdx) };
+        bool forceSafeFanOut = plan?.HasFilteredPeers == true;
+
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}() -> {swiftReturnTypeName} {{");
         writer.Indent++;
+        if (branches.Count == 1 && !forceSafeFanOut)
+        {
+            writer.WriteLines($$"""
+                var selfProto: {{protocolName}} = self
+                let resultPtr = {{vtableInstanceName}}.{{GetMethodVtableFieldName(method, methodIdx)}}!(
+                    {{vtableInstanceName}}.csVTHandle, &selfProto)
+                """);
+        }
+        else
+        {
+            writer.WriteLine("let resultPtr: UnsafeRawPointer");
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var (branchProto, branchIndex) = branches[i];
+                var branchVtable = GetVtableInstanceName(branchProto);
+                var branchField = GetMethodVtableFieldName(method, branchIndex);
+                var clause = i == 0 ? "if" : "else if";
+                var guard = BuildBranchGuardPrefix(branchProto, extensionAvailability);
+                writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.{branchField} {{");
+                writer.Indent++;
+                writer.WriteLine($"var selfProto: {protocolName} = self");
+                writer.WriteLine($"resultPtr = fn({branchVtable}.csVTHandle, &selfProto)");
+                writer.Indent--;
+                writer.Write("} ");
+            }
+            writer.WriteLine("else {");
+            writer.Indent++;
+            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for closure-returning method {method.Name}\")");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
         writer.WriteLines($$"""
-            var selfProto: {{protocolName}} = self
-            let resultPtr = {{fieldGetter}}!(
-                {{vtableInstanceName}}.csVTHandle, &selfProto)
             let fnPtrSlot = resultPtr.load(as: UnsafeRawPointer?.self)
             let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
             resultPtr.deallocate()

@@ -270,6 +270,24 @@ public static class SwiftSourceStripper
         // must survive stripping for the existential-construction P/Invoke to resolve. This is
         // the intra-protocol twin of the AsyncRefineModifierBase/SyncRefineModifier pair above.
         "IntraEffectTagged",
+        // Same-signature CLOSURE-PARAM method fan-out (ABI Coverage Grid closure corner). Two
+        // protocols (ClosureFanOwner < ClosureFanPeer) declare the same closure-param method
+        // `applyFactory(_: @escaping () -> Int32)`. The owner emits the shared closure-method
+        // body; the peer gets an EMPTY stitched extension. ClosureFanOutTests reverse-dispatches
+        // through `any ClosureFanPeer` (peer-only impl) via callApplyFactoryViaPeer, so both
+        // EveryProtocol conformances and Get_EveryProtocol_ClosureFan{Owner,Peer}_WitnessTable
+        // must survive stripping. The closure-method emitter is the leg the plain/async sibling
+        // fan-out fix did not reach.
+        "ClosureFanOwner",
+        "ClosureFanPeer",
+        // Same-signature CLOSURE-RETURN method fan-out (ABI Coverage Grid closure corner). Twin of
+        // the param leg above: ClosureRetFanOwner < ClosureRetFanPeer share `makeNotifier() ->
+        // () -> Void`. The owner emits the shared closure-RETURNING body; the peer gets an EMPTY
+        // stitched extension. ClosureFanOutTests reverse-dispatches through `any ClosureRetFanPeer`
+        // (peer-only impl) via callMakeFactoryViaPeer, so both EveryProtocol conformances and
+        // Get_EveryProtocol_ClosureRetFan{Owner,Peer}_WitnessTable must survive stripping.
+        "ClosureRetFanOwner",
+        "ClosureRetFanPeer",
         // WRITE direction: a C# class implements MarkerProvider and is vended
         // to Swift through consumeMarkerProvider. The marshaller wraps the C# conformer in
         // the EveryProtocol-backed proxy, so Get_EveryProtocol_MarkerProvider_WitnessTable
