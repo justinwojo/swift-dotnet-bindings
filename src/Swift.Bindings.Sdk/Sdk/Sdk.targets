@@ -2291,12 +2291,22 @@ done"
     <PropertyGroup>
       <!-- Apple-framework mode: wrapper was compiled inline by the generator -->
       <_SwiftWrapperSkip Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">true</_SwiftWrapperSkip>
-      <!-- Fingerprint-based skip also requires the wrapper xcframework to exist on disk.
+      <!-- Fingerprint-based skip also requires the wrapper xcframework to exist on disk
+           AND the metadata to record a *completed* wrapper compile (HasWrapperXCFramework=True).
            _GenerateSwiftBindings writes the stamp but passes skip-wrapper-compilation, so a
            stamp-present/xcframework-absent state is legitimate (e.g. restore-time generation) and
-           must force recompilation instead of a false up-to-date skip. -->
+           must force recompilation instead of a false up-to-date skip. The HasWrapper=True clause
+           is load-bearing under parallel fan-in builds: when the SAME leaf csproj is scheduled in
+           two ProjectInstances sharing one obj dir, SwiftWrapperCompiler creates the .xcframework
+           directory EARLY (before the slices are compiled and before metadata flips to True). A
+           bare Exists() skip here lets the second context fast-skip on that partial dir and then
+           validate the still-False metadata — a spurious SWIFTBIND051. Requiring HasWrapper=True
+           keeps the fast path for genuinely-complete (incremental) builds while routing a context
+           that sees an in-flight peer's partial dir into _CompileSwiftWrapper, where the obj-dir
+           lock serializes it behind the producer. -->
       <_SwiftWrapperSkip Condition="'$(_SwiftBindingUpToDate)' == 'true'
                                     AND '@(ProjectReference)' == ''
+                                    AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
                                     AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">true</_SwiftWrapperSkip>
     </PropertyGroup>
 
@@ -2365,8 +2375,27 @@ done"
       <_SwiftWrapperCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftWrapperCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftWrapperCmd>
     </PropertyGroup>
 
+    <!-- Persist the generator invocation to a shell file so the lock wrapper can run it
+         verbatim without quote-mangling the embedded "%(...)"-quoted paths. The file name carries
+         a per-evaluation GUID so two concurrent ProjectInstances sharing this obj dir write (and
+         exec) DISTINCT files — a single shared cmd file would let one context's truncate-rewrite
+         tear the command another context is mid-`bash`-reading under the lock. The compiling
+         context execs its own file; a context that no-ops via the in-lock recheck never reads it. -->
+    <PropertyGroup Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'">
+      <_SwiftWrapperCmdFile>$(_SwiftBindingIntermediateDir)compile-wrapper-cmd-$([System.Guid]::NewGuid().ToString('N')).sh</_SwiftWrapperCmdFile>
+    </PropertyGroup>
+    <WriteLinesToFile Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'"
+                      File="$(_SwiftWrapperCmdFile)"
+                      Lines="$(_SwiftWrapperCmd)" Overwrite="true" />
+
+    <!-- Compile the wrapper under an obj-dir-scoped mutex. Under parallel fan-in builds the
+         same leaf csproj can be scheduled in two ProjectInstances sharing this obj dir; the lock
+         (and its in-lock completeness recheck) guarantees exactly one context runs the generator
+         while the others block, then observe the published wrapper and no-op. The lock script
+         removes the per-context cmd file when done. See scripts/compile-wrapper-locked.sh. -->
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'"
-          Command="$(_SwiftWrapperCmd)" ConsoleToMSBuild="true"
+          Command="/bin/bash &quot;$(MSBuildThisFileDirectory)scripts/compile-wrapper-locked.sh&quot; &quot;$(_SwiftBindingIntermediateDir)wrapper-compile.lock&quot; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot; &quot;$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework&quot; &quot;$(_SwiftWrapperCmdFile)&quot;"
+          ConsoleToMSBuild="true"
           StandardOutputImportance="low" StandardErrorImportance="high"
           IgnoreStandardErrorWarningFormat="true"
           ContinueOnError="WarnAndContinue" />

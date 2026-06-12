@@ -895,10 +895,18 @@ namespace BindingsGeneration.Tests
                 $"_CompileSwiftWrapper failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
 
             var output = result.StdOut + "\n" + result.StdErr;
+            // End-to-end: the wrapper compile actually executed and reached the generator. The
+            // compile now runs under the obj-dir lock (scripts/compile-wrapper-locked.sh), which
+            // executes the generator via a persisted command file rather than inline in the Exec.
             Assert.Contains("STUB_RECEIVED_ARGS:", output);
             Assert.Contains("--compile-wrapper-only", output);
-            Assert.Contains("--link-framework \"CoreVideo\"", output);
-            Assert.Contains("--link-library \"c++\"", output);
+            // The author-declared link flags reach that real wrapper-compile invocation. The stub
+            // echoes its received argv (STUB_RECEIVED_ARGS: + space-joined args), so asserting on the
+            // shell-parsed tokens proves the generator was actually CALLED with the flags — stronger
+            // than inspecting the persisted command file (which is now per-context GUID-named and
+            // removed by the lock script's exit trap).
+            Assert.Contains("--link-framework CoreVideo", output);
+            Assert.Contains("--link-library c++", output);
         }
 
         // ── Source-native-linkage is read solely by _ComputeSwiftBindingSourceXcframeworkInclusion
@@ -2938,6 +2946,344 @@ namespace BindingsGeneration.Tests
                 dir!.FullName, "src", "Swift.Bindings.Sdk", "Sdk", fileName);
             Assert.True(File.Exists(path), $"SDK file not found at {path}");
             System.Xml.Linq.XDocument.Load(path);
+        }
+    }
+
+    /// <summary>
+    /// Drives the real <c>Sdk/scripts/compile-wrapper-locked.sh</c> — the obj-dir mutex that
+    /// serializes wrapper-xcframework compilation across concurrent MSBuild ProjectInstances
+    /// sharing one obj/.../swift-binding/ tree (the parallel fan-in "Stripe" shape). The bug it
+    /// fixes: a second context observes the producer's EARLY-created partial .xcframework dir,
+    /// skips its own compile, and validates the still-False binding-metadata.props → spurious
+    /// SWIFTBIND051. These tests assert the lock's two guarantees — mutual exclusion, and an
+    /// in-lock completeness recheck that makes followers no-op once a peer has published.
+    /// </summary>
+    public class CompileWrapperLockTests : IDisposable
+    {
+        private readonly string _tempDir;
+        private readonly string _script;
+
+        public CompileWrapperLockTests()
+        {
+            _tempDir = Path.Combine(Path.GetTempPath(), "swiftbind-lock-tests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_tempDir);
+            _script = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "scripts", "compile-wrapper-locked.sh");
+            Assert.True(File.Exists(_script), $"lock script not found at {_script}");
+        }
+
+        public void Dispose()
+        {
+            try { Directory.Delete(_tempDir, true); } catch { /* best effort */ }
+        }
+
+        private string WriteProps(bool hasWrapper)
+        {
+            var props = Path.Combine(_tempDir, "binding-metadata.props");
+            File.WriteAllText(props, $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingHasWrapperXCFramework>{hasWrapper}</_SwiftBindingHasWrapperXCFramework>
+                  </PropertyGroup>
+                </Project>
+                """);
+            return props;
+        }
+
+        // A synthetic stand-in for the generator's --compile-wrapper-only invocation. Appends its
+        // PID to a runs-log so concurrency is observable; optionally simulates a SUCCESSFUL compile
+        // by creating the xcframework dir and flipping the props to True (what the real generator's
+        // UpdateMetadataPropsWrapperStatus does), or a NON-completing one to exercise pure mutex.
+        private string WriteCmdFile(string runsLog, string props, string xcfw, bool markComplete, double sleepSeconds)
+        {
+            var cmd = Path.Combine(_tempDir, "compile-wrapper-cmd-" + Guid.NewGuid().ToString("N") + ".sh");
+            var complete = markComplete
+                ? $"""
+                   mkdir -p "{xcfw}"
+                   printf '%s' '<Project><PropertyGroup><_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework></PropertyGroup></Project>' > "{props}"
+                   """
+                : "";
+            File.WriteAllText(cmd, $"""
+                #!/bin/bash
+                echo "START $$" >> "{runsLog}"
+                sleep {sleepSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}
+                {complete}
+                echo "END $$" >> "{runsLog}"
+                """);
+            return cmd;
+        }
+
+        private Process StartLock(string props, string xcfw, string cmdFile)
+        {
+            var lockBase = Path.Combine(_tempDir, "wrapper-compile.lock");
+            var psi = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add(_script);
+            psi.ArgumentList.Add(lockBase);
+            psi.ArgumentList.Add(props);
+            psi.ArgumentList.Add(xcfw);
+            psi.ArgumentList.Add(cmdFile);
+            return Process.Start(psi)!;
+        }
+
+        [Fact]
+        public void ConcurrentContexts_OnlyOneCompiles_RestSkipAfterPeerPublishes()
+        {
+            // Fresh obj dir: no wrapper, props False. The first context to take the lock "compiles"
+            // (marks complete); the others must observe the published wrapper and no-op.
+            var props = WriteProps(hasWrapper: false);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+
+            const int N = 5;
+            var procs = Enumerable.Range(0, N)
+                .Select(_ => StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: true, sleepSeconds: 0.3)))
+                .ToList();
+            foreach (var p in procs) { p.WaitForExit(30_000); Assert.Equal(0, p.ExitCode); }
+
+            // Exactly one context ran the (completing) compile; the rest skipped via the in-lock recheck.
+            var startLines = File.ReadAllLines(runs).Count(l => l.StartsWith("START"));
+            Assert.Equal(1, startLines);
+            Assert.True(Directory.Exists(xcfw), "the single compile must have produced the wrapper");
+        }
+
+        [Fact]
+        public void ConcurrentContexts_NonCompletingCompile_RunSerially_NeverOverlap()
+        {
+            // The compile never marks complete, so every context that takes the lock runs it. The
+            // lock must still serialize them — no two run at once (asserted by non-interleaved
+            // START/END pairs in the shared log).
+            var props = WriteProps(hasWrapper: false);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+
+            const int N = 4;
+            var procs = Enumerable.Range(0, N)
+                .Select(_ => StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: false, sleepSeconds: 0.2)))
+                .ToList();
+            foreach (var p in procs) { p.WaitForExit(30_000); Assert.Equal(0, p.ExitCode); }
+
+            var lines = File.ReadAllLines(runs).Where(l => l.Length > 0).ToList();
+            Assert.Equal(N * 2, lines.Count);                 // every context ran (no recheck-skip)
+            // Strict serialization: lines must alternate START,END,START,END … with each END
+            // matching the immediately-preceding START's PID. Any overlap interleaves a second
+            // START before the first END.
+            for (int i = 0; i < lines.Count; i += 2)
+            {
+                Assert.StartsWith("START ", lines[i]);
+                Assert.StartsWith("END ", lines[i + 1]);
+                Assert.Equal(lines[i].Substring("START ".Length), lines[i + 1].Substring("END ".Length));
+            }
+        }
+
+        [Fact]
+        public void AlreadyComplete_SkipsCompile_WithoutRunningGenerator()
+        {
+            // Pre-published wrapper: props True + xcframework on disk. The lock body must no-op.
+            var props = WriteProps(hasWrapper: true);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            Directory.CreateDirectory(xcfw);
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+
+            using var p = StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: true, sleepSeconds: 0.0));
+            p.WaitForExit(30_000);
+
+            Assert.Equal(0, p.ExitCode);
+            Assert.Equal("", File.ReadAllText(runs).Trim());   // generator never ran
+        }
+
+        [Fact]
+        public void Incomplete_RunsGeneratorOnce_AndPropagatesExitCode()
+        {
+            // props False, no xcframework → not complete → the generator runs. A non-zero generator
+            // exit must propagate (so MSBuild's ContinueOnError=WarnAndContinue + the downstream
+            // SWIFTBIND051 validation see a real failure).
+            var props = WriteProps(hasWrapper: false);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            var cmd = Path.Combine(_tempDir, "failing-cmd.sh");
+            File.WriteAllText(cmd, "#!/bin/bash\nexit 7\n");
+
+            using var p = StartLock(props, xcfw, cmd);
+            p.WaitForExit(30_000);
+
+            Assert.Equal(7, p.ExitCode);
+        }
+
+        [Fact]
+        public void WrongArgCount_FailsFast_DoesNotProceed()
+        {
+            // The Exec site hardcodes exactly four args; a drift to fewer must fail loudly rather
+            // than run with empty positionals (LOCKDIR=".d", bash "" …) and silently misbehave.
+            var psi = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add(_script);
+            psi.ArgumentList.Add(Path.Combine(_tempDir, "wrapper-compile.lock"));
+            psi.ArgumentList.Add(WriteProps(hasWrapper: false));   // only 2 of the 4 required args
+            using var p = Process.Start(psi)!;
+            p.WaitForExit(30_000);
+
+            Assert.Equal(2, p.ExitCode);
+        }
+
+        [Fact]
+        public void Release_DoesNotRemoveLock_WhenOwnershipChangedUnderUs()
+        {
+            // Ownership fence: if the lock is stolen and handed to a different live holder while we
+            // were compiling, our cleanup() exit trap must NOT remove it (doing so would drop that
+            // holder's lock and let a third context enter the critical section concurrently — Codex/Grok
+            // review). Modelled by externally rewriting the lock's pid to a foreign value before we exit;
+            // cleanup() compares on-disk pid to $$ and must leave the lockdir intact.
+            var props = WriteProps(hasWrapper: false);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+            var lockDir = Path.Combine(_tempDir, "wrapper-compile.lock") + ".d";
+            var pidFile = Path.Combine(lockDir, "pid");
+
+            // Non-completing compile with enough runtime to overwrite the pid mid-flight.
+            using var p = StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: false, sleepSeconds: 1.0));
+
+            // Wait for the lock to be acquired (pid file present), then simulate the steal handing
+            // ownership to a foreign holder by rewriting the pid to a value that is not our process.
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!File.Exists(pidFile) && DateTime.UtcNow < deadline) { Thread.Sleep(20); }
+            Assert.True(File.Exists(pidFile), "lock was never acquired");
+            File.WriteAllText(pidFile, "2147483647");   // a pid the lock script's process never has
+
+            p.WaitForExit(30_000);
+
+            // The exit trap saw pid != $$ and left the (now foreign-owned) lockdir in place.
+            Assert.True(Directory.Exists(lockDir),
+                "ownership fence must not delete a lock that was stolen out from under us");
+        }
+
+        [Fact]
+        public void DeadHolderLock_IsStolenAtomically_AndRecovers()
+        {
+            // A prior build was killed (SIGKILL) and left a lockdir whose stamped pid no longer
+            // refers to a live process. A fresh context must reclaim it (via the atomic capture
+            // steal) and go on to compile — not deadlock waiting on the abandoned holder.
+            var props = WriteProps(hasWrapper: false);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+
+            // Pre-seed an abandoned lock: pid that refers to no live process (out of macOS's
+            // default pid range → kill -0 yields ESRCH → treated as dead).
+            var lockDir = Path.Combine(_tempDir, "wrapper-compile.lock") + ".d";
+            Directory.CreateDirectory(lockDir);
+            File.WriteAllText(Path.Combine(lockDir, "pid"), "999999");
+
+            using var p = StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: true, sleepSeconds: 0.1));
+            p.WaitForExit(30_000);
+
+            Assert.Equal(0, p.ExitCode);
+            Assert.Equal(1, File.ReadAllLines(runs).Count(l => l.StartsWith("START")));   // it compiled
+            Assert.True(Directory.Exists(xcfw), "the recovered context must have produced the wrapper");
+        }
+
+        [Fact]
+        public void StaleLockWithNoStampedPid_IsStolenAfterThreshold_AndRecovers()
+        {
+            // A holder died in the mkdir→pid-write window: a lockdir exists but no pid was ever
+            // stamped. Once it ages past the staleness threshold, a fresh context must reclaim it
+            // (the gated mtime steal) and compile. Backdate the dir's mtime so `find -mmin +20`
+            // fires immediately rather than waiting 20 real minutes.
+            var props = WriteProps(hasWrapper: false);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+
+            var lockDir = Path.Combine(_tempDir, "wrapper-compile.lock") + ".d";
+            Directory.CreateDirectory(lockDir);   // NO pid file written → empty holder
+            Backdate(lockDir, "200001010000");    // long past STALE_MINUTES
+
+            using var p = StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: true, sleepSeconds: 0.1));
+            p.WaitForExit(30_000);
+
+            Assert.Equal(0, p.ExitCode);
+            Assert.Equal(1, File.ReadAllLines(runs).Count(l => l.StartsWith("START")));
+            Assert.True(Directory.Exists(xcfw), "the recovered context must have produced the wrapper");
+        }
+
+        [Fact]
+        public void StaleLockWithLivePid_IsNotPreempted_EvenPastThreshold()
+        {
+            // The mtime gate must NEVER preempt a genuinely-live holder: an old lockdir whose stamped
+            // pid is still alive is a slow compile, not an abandoned lock. Seed an old lockdir owned
+            // by a real live process; a fresh context must keep waiting (no compile) until that holder
+            // goes away — proving the stale steal does not fire on a non-empty live pid.
+            var props = WriteProps(hasWrapper: false);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+
+            // A real, live holder process (sleeps well past the test window).
+            var holder = Process.Start(new ProcessStartInfo { FileName = "/bin/sleep", ArgumentList = { "30" }, UseShellExecute = false })!;
+            try
+            {
+                var lockDir = Path.Combine(_tempDir, "wrapper-compile.lock") + ".d";
+                Directory.CreateDirectory(lockDir);
+                File.WriteAllText(Path.Combine(lockDir, "pid"), holder.Id.ToString());
+                Backdate(lockDir, "200001010000");   // old mtime, but holder is alive
+
+                using var p = StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: true, sleepSeconds: 0.1));
+                // Give the waiter ample time to (wrongly) steal if the gate were broken.
+                bool exited = p.WaitForExit(4_000);
+
+                Assert.False(exited, "the live holder must not be preempted — the waiter should still be blocking");
+                Assert.Equal("", File.ReadAllText(runs).Trim());   // no compile ran
+
+                // Now release the live holder; the waiter must then reclaim (dead-pid path) and finish.
+                holder.Kill();
+                holder.WaitForExit(5_000);
+                Assert.True(p.WaitForExit(30_000), "waiter must proceed once the holder is gone");
+                Assert.Equal(0, p.ExitCode);
+                Assert.Equal(1, File.ReadAllLines(runs).Count(l => l.StartsWith("START")));
+            }
+            finally
+            {
+                try { if (!holder.HasExited) holder.Kill(); } catch { /* best effort */ }
+            }
+        }
+
+        // Backdate a path's mtime via `touch -t [[CC]YY]MMDDhhmm` so `find -mmin +N` treats the lock
+        // as stale without waiting real minutes.
+        private static void Backdate(string path, string stamp)
+        {
+            using var t = Process.Start(new ProcessStartInfo
+            {
+                FileName = "/usr/bin/touch",
+                ArgumentList = { "-t", stamp, path },
+                UseShellExecute = false,
+            })!;
+            t.WaitForExit(5_000);
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (dir != null)
+            {
+                if (Directory.Exists(Path.Combine(dir, ".git")) || File.Exists(Path.Combine(dir, ".git")))
+                    return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
         }
     }
 }
