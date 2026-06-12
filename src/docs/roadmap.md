@@ -6,6 +6,16 @@ This doc covers longer-term themes, blocked items, and lower-priority ideas. Liv
 
 ---
 
+## Strategic posture (post-0.14)
+
+Distilled from a now-retired `research-directions.md` discussion. Standing framing for "what's next" decisions; revisit a point only if a new signal contradicts it.
+
+- **We are input-poor, not bug-poor.** Nearly every open roadmap item is "no active repro / not reached by any current corpus library." More internal bug-chasing and re-scanning the same validation libraries has sharply diminishing returns — it rediscovers known latents that already have "no emission site." The highest-value *remaining* bug source is **new real consumer inputs**, not internal sweeps. Don't launch another broad internal audit/refactor expecting a yield; lower the barrier to real inputs instead.
+- **The thin ABI corners are now exercised and clean.** The ABI coverage grid (`src/docs/Design/abi-coverage-grid.md`, `BindingTests/abi-grid-manifest.json`, `nuke binding-tests --abi-grid`) manufactured the under-tested corners the real-library corpus structurally can't reach — closures, inout, tuples, constrained generics — and graded them **green on sim + device**. Those latents are now "confirmed safe," not "unknown." The grid is a standing artifact; its cells are ordinary BindingTests gated by the everyday pass-count, so no separate baseline is needed. Widen to a new corner (actors / PATs / composition) only if a real consumer report or validation red motivates it.
+- **Async-emitter consolidation: investigated, not pursued.** The "merge the diverged async emitters" idea was audited and rejected. Reality is ~10 files / ~8,980 LOC, not 3; ~40% is genuinely-different jobs that must not merge (SwiftUI async-View, AsyncStream, AsyncSequence, async-closure inversion, the CSM generic-parent 2-param error ABI), and most remaining divergence is *intentional* — a naive merge would introduce a new ABI bug against working marshalling code. The divergence bugs are real (≥7 in 12 months) but were caught by *new input shapes reaching the path*, never by structure review — reinforcing the input-poor thesis. Only survivor is optional Tier-1 exact-duplicate extraction (`BuildMethodOwnGenericParams` ×2, the `SBW_CancelTask`/`SBW_Free` P/Invoke blocks, the Swift catch-body builder); everything above that is not worth the risk. Don't re-open without a new motivating signal.
+
+---
+
 ## Medium Priority
 
 | Item | Notes |

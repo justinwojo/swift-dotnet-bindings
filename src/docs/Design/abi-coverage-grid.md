@@ -1,8 +1,8 @@
 # Design: ABI Coverage Grid (thin-corner runtime coverage)
 
-Status: **design pass — revised after Codex + Grok review**, not yet approved for
-implementation. 2026-06-11. Companion to [`../research-directions.md`](../research-directions.md)
-(Direction 1).
+Status: **implemented — closure/inout/tuple + generics corners graded clean on sim + device**
+(see §11 Phase 2). 2026-06-11. Strategic framing in `../roadmap.md` → "Strategic posture
+(post-0.14)".
 
 > **Revision note (v2).** Independent reviews by Codex (`019eb50f-2950-7001-96a4-57f7a4e5a81e`)
 > and Grok (`019eb513-1365-73b2-aa3d-56ee30750f9f`) converged on six changes, all folded in
@@ -30,7 +30,7 @@ under-exercised corners of the ABI surface, by:
 3. Emitting a **green / red / by-design-gray grid** as a first-class artifact, plus a **gate**
    that fails if an expected-green cell has no fixture or doesn't pass.
 
-The motivating evidence (measured 2026-06-10, see research-directions.md): the existing
+The motivating evidence (measured 2026-06-10, see roadmap "Strategic posture (post-0.14)"): the existing
 end-to-end corpus (~44 apps across `swift-dotnet-packages` + `internal-binding-testing`,
 both runtimes, real value assertions) is **thick exactly where real libraries are thick**
 (enums, structs, optionals, simple async/protocols) and **thin exactly where they're thin**
