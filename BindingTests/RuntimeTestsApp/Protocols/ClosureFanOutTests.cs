@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 
@@ -76,6 +79,58 @@ public class ClosureFanOutTests : TestBase
         AssertEqual(99, impl.Recorded,
             "closure-return dispatch via Owner existential round-trips the returned closure's value");
     }
+
+    /// <summary>
+    /// ABI Coverage Grid — generics×closure corner: the ASYNC closure-param method fan-out leg,
+    /// folded in once the sync closure-param fan-out fix landed. AsyncClosureFanOwner /
+    /// AsyncClosureFanPeer both declare <c>applyFactory(_: @escaping () -> Int32) async</c>. Because
+    /// the EveryProtocol owner/peer grouping is async-INSENSITIVE (it dedups on the emitted Swift
+    /// witness, which drops <c>async</c>), these two async protocols share a fan-out group with the
+    /// SYNC ClosureFan{Owner,Peer} pair declaring the same selector. The four-protocol group's
+    /// lexically-first owner is AsyncClosureFanOwner, so the non-dispatchable fatalError stub must be
+    /// emitted SYNC (a sync candidate satisfies an async requirement) or the sync siblings' empty
+    /// extensions fail to conform — the bug this fixture surfaced and the generator fix closes.
+    ///
+    /// The unreached leg: dispatch the shared async closure-param method through the PEER (non-owner)
+    /// existential. Must route to the peer-only C# impl, which invokes the Swift factory closure.
+    ///
+    /// COMPILE-GATED ONLY (by-design-gray). Owner selection hands the body to the SYNC, non-throwing
+    /// sibling (ClosureFanOwner) so the four-protocol group conforms and the sync legs dispatch
+    /// correctly. The shared sync witness reads the SYNC per-protocol vtables; an async proxy
+    /// registers an async receiver thunk whose result is a Task, so reached through the sync
+    /// @convention(c) pointer it returns garbage (the exact hazard the sibling-ordering rationale in
+    /// EveryProtocolEmitter.ComputeMethodEmissionPlans documents). Async closure-param REVERSE
+    /// dispatch is not runtime-supported; this fixture exists to gate that the binding COMPILES (the
+    /// async conformance + @_cdecl wrappers emit) without regressing the sync fan-out. Running it
+    /// would force-unwrap a nil sync vtable and crash, blind-skipping the whole class — hence Skip.
+    /// </summary>
+    [Skip("async closure-param reverse dispatch is compile-gated only — the shared sync witness reads sync vtables; by-design-gray ABI grid cell")]
+    public async Task TestAsyncClosureFan_PeerExistential()
+    {
+        var impl = new AsyncClosureFanPeerOnlyImpl();
+        var result = await WithTimeout(
+            Functions.CallApplyFactoryAsyncViaPeerAsync(impl, 42), DefaultAsyncTimeout);
+        AssertEqual(42, result,
+            "async closure-param fan-out via Peer existential must reach the C# impl and invoke the factory");
+        AssertEqual(42, impl.LastFactoryValue, "the C# async peer impl must have invoked the factory closure");
+    }
+
+    /// <summary>
+    /// Control: dispatch the shared async closure-param method through the OWNER existential.
+    /// COMPILE-GATED ONLY (by-design-gray) — same rationale as TestAsyncClosureFan_PeerExistential:
+    /// the shared sync witness cannot route an async receiver thunk's Task result through the sync
+    /// @convention(c) pointer. Async closure-param reverse dispatch is not runtime-supported.
+    /// </summary>
+    [Skip("async closure-param reverse dispatch is compile-gated only — the shared sync witness reads sync vtables; by-design-gray ABI grid cell")]
+    public async Task TestAsyncClosureFan_OwnerExistential()
+    {
+        var impl = new AsyncClosureFanOwnerOnlyImpl();
+        var result = await WithTimeout(
+            Functions.CallApplyFactoryAsyncViaOwnerAsync(impl, 99), DefaultAsyncTimeout);
+        AssertEqual(99, result,
+            "async closure-param dispatch via Owner existential round-trips the factory value");
+        AssertEqual(99, impl.LastFactoryValue, "the C# async owner impl must have invoked the factory closure");
+    }
 }
 
 internal class ClosureFanPeerOnlyImpl : IClosureFanPeer
@@ -104,4 +159,24 @@ internal class ClosureRetFanOwnerOnlyImpl : IClosureRetFanOwner
     private readonly int _value;
     public ClosureRetFanOwnerOnlyImpl(int value) => _value = value;
     public Action MakeNotifier() => () => Recorded = _value;
+}
+
+internal class AsyncClosureFanPeerOnlyImpl : IAsyncClosureFanPeer
+{
+    public int LastFactoryValue = -1;
+    public Task ApplyFactoryAsync(Func<int> factory, CancellationToken cancellationToken = default)
+    {
+        LastFactoryValue = factory();
+        return Task.CompletedTask;
+    }
+}
+
+internal class AsyncClosureFanOwnerOnlyImpl : IAsyncClosureFanOwner
+{
+    public int LastFactoryValue = -1;
+    public Task ApplyFactoryAsync(Func<int> factory, CancellationToken cancellationToken = default)
+    {
+        LastFactoryValue = factory();
+        return Task.CompletedTask;
+    }
 }

@@ -288,6 +288,15 @@ public static class SwiftSourceStripper
         // Get_EveryProtocol_ClosureRetFan{Owner,Peer}_WitnessTable must survive stripping.
         "ClosureRetFanOwner",
         "ClosureRetFanPeer",
+        // Same-signature ASYNC closure-param method fan-out (ABI Coverage Grid generics-corner
+        // decision point). AsyncClosureFanOwner < AsyncClosureFanPeer share
+        // `applyFactory(_: @escaping () -> Int32) async` — the async leg of the closure-param
+        // fan-out Latent (the sync legs landed in 64ac9fef). ClosureFanOutTests reverse-dispatches
+        // through `any AsyncClosureFanPeer` (peer-only impl) via callApplyFactoryAsyncViaPeer, so
+        // both EveryProtocol conformances and Get_EveryProtocol_AsyncClosureFan{Owner,Peer}_
+        // WitnessTable must survive stripping.
+        "AsyncClosureFanOwner",
+        "AsyncClosureFanPeer",
         // WRITE direction: a C# class implements MarkerProvider and is vended
         // to Swift through consumeMarkerProvider. The marshaller wraps the C# conformer in
         // the EveryProtocol-backed proxy, so Get_EveryProtocol_MarkerProvider_WitnessTable

@@ -101,3 +101,52 @@ public func callMakeNotifierViaOwner(_ x: any ClosureRetFanOwner) {
     let notifier = x.makeNotifier()
     notifier()
 }
+
+// MARK: - Same-signature ASYNC closure-param method fan-out (ABI Coverage Grid — closure corner)
+//
+// The ASYNC leg of the closure-PARAM fan-out Latent, deferred in the Phase 1 manifest to this
+// decision point — the sync closure-param/return legs' fix landed in commit 64ac9fef, so the
+// async leg is reachable now. Identical shape to the sync closure-param fixture above, with the
+// shared method marked `async`. Async reverse-dispatch through EveryProtocol is itself a supported
+// capability (AsyncRefineModifierBase in SiblingMethodDispatch.swift), so a peer-only trap isolates
+// the closure-param fan-out emitter gap on the async path rather than async support in general.
+//
+// Shape: AsyncClosureFanOwner < AsyncClosureFanPeer lexically, so Owner is the vtable owner and
+// Peer gets the empty stitched extension. `callApplyFactoryAsyncViaPeer` dispatches the shared
+// async closure-param method through the PEER existential; a peer-only C# impl must still reach
+// the closure invocation. With the Latent unfixed this traps on the owner's nil vtable
+// force-unwrap before the closure can run.
+
+public protocol AsyncClosureFanOwner: AnyObject {
+    func applyFactory(_ factory: @escaping () -> Int32) async
+}
+
+public protocol AsyncClosureFanPeer: AnyObject {
+    func applyFactory(_ factory: @escaping () -> Int32) async
+}
+
+/// Drives Swift→C# dispatch of the shared async closure-param method through the PEER (non-owner)
+/// existential. Passes a Swift closure that records `value` into a class box when invoked, so the
+/// round-trip observes that the C# impl actually received and invoked the factory.
+public func callApplyFactoryAsyncViaPeer(_ x: any AsyncClosureFanPeer, _ value: Int32) async -> Int32 {
+    final class Box { var v: Int32 = -1 }
+    let box = Box()
+    await x.applyFactory {
+        box.v = value
+        return value
+    }
+    return box.v
+}
+
+/// Control: the same shared async method dispatched through the OWNER existential. The owner body
+/// reads its own (now-populated) vtable, so this works regardless of the fan-out fix — it pins
+/// that the fixture's async closure-param dispatch itself is sound.
+public func callApplyFactoryAsyncViaOwner(_ x: any AsyncClosureFanOwner, _ value: Int32) async -> Int32 {
+    final class Box { var v: Int32 = -1 }
+    let box = Box()
+    await x.applyFactory {
+        box.v = value
+        return value
+    }
+    return box.v
+}

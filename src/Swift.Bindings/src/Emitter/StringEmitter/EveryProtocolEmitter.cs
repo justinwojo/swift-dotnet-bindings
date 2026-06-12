@@ -561,26 +561,14 @@ public class EveryProtocolEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
-                // Skip vtable fields for closure methods that aren't on the dispatch
-                // surface — those get fatalError() stubs and the field would be dead code.
-                // Dispatchable closure-param methods and dispatchable closure-returning
-                // methods fall through to vtable-field emission. Param-side methods expand
+                // Skip vtable fields for the non-dispatchable categories (closure methods off the
+                // dispatch surface, method-level generics, Self-typed methods, mixed-generic protocol
+                // members) — those get fatalError() stubs and the field would be dead code. The
+                // ComputeMethodEmissionPlans fan-out branch filter gates on the SAME predicate, so
+                // the two stay in lock-step. (Param-side dispatchable closure methods expand
                 // per-closure to two UnsafeRawPointer slots; return-side methods reuse the
-                // value-shaped UnsafeRawPointer return slot already produced by
-                // EmitMethodVtableField.
-                if (HasClosureInMethodSignature(method)
-                    && !IsDispatchableClosureMethod(method, closureHandler)
-                    && !IsDispatchableClosureReturningMethod(method, closureHandler)
-                    && !IsDispatchableAsyncClosureMethod(method, closureHandler))
-                    continue;
-                // Skip vtable fields for method-level generic methods — they get fatalError() stubs
-                if (HasOnlyMethodLevelGenerics(method))
-                    continue;
-                // Skip vtable fields for Self-typed methods — they get fatalError() stubs
-                if (HasSelfTypeParamInSignature(method))
-                    continue;
-                // Skip vtable fields for mixed-generic protocols — all members get stubs
-                if (isMixedGenericProtocol)
+                // value-shaped UnsafeRawPointer return slot already produced by EmitMethodVtableField.)
+                if (!MethodEmitsVtableField(method, isMixedGenericProtocol, closureHandler))
                     continue;
                 // A method with an inout ObjC-bridgeable param also gets a fatalError trap stub
                 // (see the body pass + EmitInOutObjCBridgeableMethodStub) but, unlike the four
@@ -1079,35 +1067,80 @@ public class EveryProtocolEmitter
                     filteredKeys.Add(GetSwiftMethodFullSignature(method));
         }
 
+        // A sibling only contributes a fan-out BRANCH if its protocol actually emits a per-protocol
+        // vtable FUNC field for this method — a branch reads `branchVtable.func_{name}_{idx}`, which
+        // exists only when the field was emitted. Gate on the SAME MethodEmitsVtableField predicate
+        // that EmitProtocolVtableStruct uses for field emission, so a branch never references a
+        // non-existent member (Swift compile failure) and the two walks cannot drift.
+        var closureHandler = new ClosureHandler(_typeDatabase);
+        bool EntryEmitsVtableField(ProtocolDecl proto, MethodDecl method)
+            => MethodEmitsVtableField(method, IsMixedGenericProtocol(proto), closureHandler);
+
         var plans = new Dictionary<(string, string), MethodEmissionPlan>();
         foreach (var (groupKey, entries) in groups.Select(kv => (kv.Key, kv.Value)))
         {
+            // Owner selection prefers the maximally-SATISFYING witness shape — non-async AND
+            // non-throwing — before falling back to GetProtocolFallbackKey. The owner is the one
+            // sibling whose extension emits the real witness BODY; every other sibling gets an empty
+            // stitched extension that the owner's body must satisfy. A sync non-throwing witness
+            // satisfies an async and/or throwing requirement (Swift's effect subtyping), but the
+            // reverse fails: an async (or throwing) owner emits an async/throwing body — and for a
+            // CLOSURE-param method that body is the non-dispatchable fatalError stub (all real
+            // closure dispatch gates reject method.IsAsync) — leaving the sync siblings' empty
+            // extensions unsatisfied ("does not conform") and force-routing the sync siblings through
+            // a stub. Because the grouping is async/throws-INSENSITIVE (GetSwiftMethodFullSignature
+            // omits both), a mixed group must hand the body to a sync, non-throwing sibling when one
+            // exists. All-sync / all-async / all-throwing groups keep GetProtocolFallbackKey order
+            // (stable sort), so output is byte-identical for every non-mixed group.
             var ownerEntry = entries
-                .OrderBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
+                .OrderBy(e => e.Method.IsAsync ? 1 : 0)
+                .ThenBy(e => e.Method.Throws ? 1 : 0)
+                .ThenBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
                 .First();
             var owner = ownerEntry.Proto;
             var ownerIndex = ownerEntry.Index;
             // Fan-out branch order: try ABI-matching siblings first. The emitted pure-Swift
             // EveryProtocol witness always drops `async` (EmitMethodImplementation's asyncDecl is
             // gated on _useObjCBase) — a sync witness satisfies an async requirement — so the
-            // witness's @convention(c) vtable call is sync-ABI. An async sibling's per-protocol
-            // global vtable slot, however, holds an async C# receiver thunk that marshals a Task as
-            // the result; reached through the sync pointer it returns garbage (a sync protocol
-            // refining an async one and declaring the same selector). Ordering sync (non-async) siblings
-            // first makes a mixed async/sync group
-            // dispatch through the ABI-compatible vtable; the async branch stays a trailing fallback
-            // so an all-async group still emits a branch (its runtime dispatch is compile-gated only).
+            // witness's @convention(c) vtable call is sync-ABI. A NON-CLOSURE async sibling's
+            // per-protocol global vtable slot, however, holds an async C# receiver thunk that marshals
+            // a Task as the result; reached through the sync pointer it returns garbage (a sync
+            // protocol refining an async one and declaring the same selector). Ordering sync
+            // (non-async) siblings first makes a mixed async/sync group dispatch through the
+            // ABI-compatible vtable; the async branch stays a trailing fallback.
+            //
+            // The branch set is also FILTERED to siblings that actually emit a vtable func field
+            // (EntryEmitsVtableField) — a CLOSURE-param method that is itself async has no dispatchable
+            // field (IsDispatchableAsyncClosureMethod bails on method.IsAsync), so its per-protocol
+            // vtable struct carries only csVTHandle and a branch over it would reference a missing
+            // member. Such siblings still register their plan below (so they emit an empty conformance
+            // extension satisfied by the owner's sync witness) — they are dropped only from the
+            // fan-out branch list, never from the conformance set.
+            //
             // The owner still emits the body (gated on plan.Owner, not Siblings[0]); Siblings carries
-            // no owner-first contract — it is purely the nil-check fan-out order. All-sync and
-            // all-async groups keep GetProtocolFallbackKey order (stable sort), so output is
-            // byte-identical for every non-mixed group.
+            // no owner-first contract — it is purely the nil-check fan-out order. All-sync groups keep
+            // GetProtocolFallbackKey order (stable sort), so output is byte-identical for every
+            // non-mixed group of field-emitting siblings.
             var siblings = entries
+                .Where(e => EntryEmitsVtableField(e.Proto, e.Method))
                 .OrderBy(e => e.Method.IsAsync ? 1 : 0)
                 .ThenBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
                 .Select(e => (e.Proto, e.Index))
                 .ToList();
+            // HasFilteredPeers forces the nil-check fan-out (guarded `if let fn` branches + a
+            // fatalError fallback) even when only ONE branch survives. Two filters can shrink the
+            // emitted branch set below the conformance set: the ModuleHandler-level filteredKeys
+            // (mixed-generic/conformance-skipped owners) AND the local EntryEmitsVtableField pass
+            // above (async/throwing closure-param, method-level-generic, Self-typed, mixed-generic
+            // members that emit a stub and NO vtable field). Either one dropping a peer means a C#
+            // impl conforming ONLY to the dropped peer dispatches through the sole surviving
+            // sibling's vtable, whose field is nil for that instance — so a bare single-branch
+            // force-unwrap (`!`) would SIGSEGV. `siblings.Count < entries.Count` detects the
+            // field-filter drop and routes to the guarded fatalError path (a cleaner failure for an
+            // already by-design-non-dispatchable peer). Byte-identical for every group where no peer
+            // was filtered (siblings.Count == entries.Count) and for genuine solo groups.
             var plan = new MethodEmissionPlan(owner, ownerIndex, siblings,
-                HasFilteredPeers: filteredKeys.Contains(groupKey));
+                HasFilteredPeers: filteredKeys.Contains(groupKey) || siblings.Count < entries.Count);
             foreach (var entry in entries)
                 plans[(GetProtocolFallbackKey(entry.Proto), groupKey)] = plan;
         }
@@ -3217,6 +3250,12 @@ public class EveryProtocolEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? RenderTypeSpec(returnType!) : "Void";
+        // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
+        // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
+        // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
+        // owner-selection hands the witness to the sync, non-throwing sibling whenever one exists, so
+        // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
+        // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
@@ -3377,6 +3416,12 @@ public class EveryProtocolEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? RenderTypeSpec(returnType!) : "Void";
+        // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
+        // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
+        // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
+        // owner-selection hands the witness to the sync, non-throwing sibling whenever one exists, so
+        // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
+        // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
@@ -3429,6 +3474,12 @@ public class EveryProtocolEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
+        // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
+        // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
+        // owner-selection hands the witness to the sync, non-throwing sibling whenever one exists, so
+        // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
+        // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
@@ -3483,6 +3534,12 @@ public class EveryProtocolEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
+        // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
+        // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
+        // owner-selection hands the witness to the sync, non-throwing sibling whenever one exists, so
+        // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
+        // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
@@ -4442,6 +4499,37 @@ public class EveryProtocolEmitter
     /// inside tuples, arrays, dictionaries, or optionals) disqualifies the method, because
     /// the dispatch path can only marshal one (fnPtr, ctx) pair per method.
     /// </summary>
+    /// <summary>
+    /// Single source of truth for "does this protocol method emit a per-protocol vtable FUNC field?"
+    /// A method gets a <c>func_{name}_{idx}</c> slot UNLESS it is one of the four non-dispatchable
+    /// categories that emit a fatalError stub instead: a closure-bearing method off the dispatch
+    /// surface (async/throwing/otherwise non-dispatchable closure param or return), a method-level
+    /// generic, a Self-typed method, or any member of a mixed-generic protocol. A method with an
+    /// inout ObjC-bridgeable param also traps via a stub but deliberately KEEPS its slot
+    /// (dead-but-harmless, see EmitProtocolVtableStruct), so it is NOT excluded here.
+    ///
+    /// <para>BOTH the vtable-struct field walk (<see cref="EmitProtocolVtableStruct"/>) and the
+    /// same-signature fan-out branch filter (<c>ComputeMethodEmissionPlans</c>) gate on this
+    /// predicate. Keeping it in one place prevents the two from drifting: a divergence would either
+    /// emit a fan-out branch referencing a missing <c>func_...</c> member (Swift compile failure) or
+    /// leave a dead slot the fan-out never reads.</para>
+    /// </summary>
+    internal static bool MethodEmitsVtableField(MethodDecl method, bool isMixedGenericProtocol, ClosureHandler closureHandler)
+    {
+        if (HasClosureInMethodSignature(method)
+            && !IsDispatchableClosureMethod(method, closureHandler)
+            && !IsDispatchableClosureReturningMethod(method, closureHandler)
+            && !IsDispatchableAsyncClosureMethod(method, closureHandler))
+            return false;
+        if (HasOnlyMethodLevelGenerics(method))
+            return false;
+        if (HasSelfTypeParamInSignature(method))
+            return false;
+        if (isMixedGenericProtocol)
+            return false;
+        return true;
+    }
+
     internal static bool IsDispatchableClosureMethod(MethodDecl method, ClosureHandler closureHandler)
     {
         if (method.IsAsync || method.Throws)

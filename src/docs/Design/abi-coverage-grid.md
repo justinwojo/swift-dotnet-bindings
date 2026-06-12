@@ -260,6 +260,46 @@ must be green on its declared runtimes.
 - **Decision point.** If the gaps are dirty, widen to constrained/multi-param/pack generics.
   If clean, that itself is a strong 1.0 signal — stop cheaply, keep the grid as a standing
   artifact. (Ratchet baseline is a later add once the first full grid exists.)
+- **Phase 2 — generics corner.** Phase 1 came back dirty, so the corner widened to generics.
+  Audit-first (mandatory): the existing CSM composition-constraint and constrained-free-function
+  coverage was inventoried and mapped as `expect-green` before authoring; only the genuinely
+  missing cells were added. Enumerated the generics cross-product (constraint × arity × direction
+  — single / composition / multi-where constraints, one- and two-type-param arity, host-method vs
+  free-function direction) onto the ~6 CSM-filter Latents. Folded in the async-closure-PARAM
+  fan-out cell deferred in Phase 1 (now unblocked by the sync closure-param fan-out fix), with its
+  fixture + `PreservedProtocols` entry. Graded `--sim --device`, triaged every cell.
+
+### Phase 2 decision point — generics corner is **clean**
+
+The generics corner graded clean on both runtimes:
+
+- `expect-green`: **41/41 green on sim+device (100%)** — including all 14 new generics cells
+  (CSM composition inline/where-clause × struct/class; constrained free functions single /
+  composition / multi-where / two-type-param same-id / distinct-id).
+- `supported-low-priority`: 4/4 green (reported, not gated).
+- `by-design-gray`: 7, each citing an out-of-scope rationale — notably
+  `generics.freefunc.constraint.self-requirement` (Self-requirement protocols erase Self→AnyType;
+  conformer value types aren't emitted as the C# interface, so the open-generic free function is
+  uncallable from C# — a documented boundary) and the two
+  `generics.closure-fanout.async.closure-param.{peer,owner}` cells (async closure-param reverse
+  dispatch is compile-gated only: the shared sync witness reads sync vtables, so an async receiver
+  thunk's Task result routed through the sync `@convention(c)` pointer returns garbage).
+
+No grid reds. One **latent robustness defect** surfaced during the paired code review of the new
+fan-out filter (not a grid red — a review find on this session's diff): when the vtable-field
+filter drops a same-signature peer down to a single surviving branch, the fan-out body took the
+bare force-unwrap path instead of the guarded nil-check, so dispatch through the dropped peer's
+existential would `SIGSEGV` rather than `fatalError`. Root-caused and fixed (force safe fan-out
+when `siblings.Count < entries.Count`), with the field-emission gate extracted to a single
+`MethodEmitsVtableField` predicate both walks share (closing the duplicate-gate drift hazard).
+Covered by two new `EveryProtocolEmitterTests`; proven byte-identical generated output for the
+whole BindingTests corpus.
+
+**Decision: stop — do not widen further.** A clean generics corner on top of clean closure / tuple
+/ inout corners is a strong 1.0 ABI signal. Widening speculatively to actors / PATs / protocol
+composition would be authoring-for-its-own-sake against the thin-corner premise; defer those to a
+future slice *if a real consumer report or validation red motivates them*. Keep the grid as a
+standing artifact and let the everyday `--sim --device` cadence guard against regression.
 
 ## 12. Decisions from review (was: open questions)
 

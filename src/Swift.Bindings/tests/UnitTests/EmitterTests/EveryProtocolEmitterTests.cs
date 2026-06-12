@@ -413,6 +413,52 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void ComputeMethodEmissionPlans_FieldFilteredPeerLeavesSingleBranch_ForcesSafeFanOut()
+    {
+        // A sync closure-param method emits a vtable field (IsDispatchableClosureMethod admits it);
+        // the SAME selector declared `async` does NOT (every closure-dispatch predicate bails on
+        // IsAsync), so EntryEmitsVtableField filters the async peer out of the branch list. The
+        // async-insensitive grouping key co-groups the two, so the surviving branch set is a single
+        // entry. A C# impl conforming ONLY to the async peer dispatches through the sync sibling's
+        // vtable — nil for that instance — so the plan must force the guarded nil-check fan-out
+        // (HasFilteredPeers) rather than the bare single-branch force-unwrap, which would SIGSEGV.
+        var syncProto = CreateSimpleProtocol("SyncFactory");
+        syncProto.Methods.Add(CreateMethodWithClosureParam("applyFactory", "factory"));
+        var asyncProto = CreateSimpleProtocol("AsyncFactory");
+        var asyncMethod = CreateMethodWithClosureParam("applyFactory", "factory");
+        asyncMethod.IsAsync = true;
+        asyncProto.Methods.Add(asyncMethod);
+
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { syncProto, asyncProto });
+
+        var plan = Assert.Single(new HashSet<EveryProtocolEmitter.MethodEmissionPlan>(plans.Values));
+        Assert.Equal("SyncFactory", plan.Owner.Name);   // sync, non-throwing wins owner selection
+        Assert.Single(plan.Siblings);                   // async peer filtered out of the branch list
+        Assert.True(plan.HasFilteredPeers);             // the field-filter drop must force safe fan-out
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_FieldFilteredPeer_EmitsGuardedFanOutNotForceUnwrap()
+    {
+        // Emission counterpart of the plan test above: even with a single surviving branch, the
+        // dropped async peer forces the nil-check shape — a guarded `if let fn` + fatalError
+        // fallback, never the bare `!(` force-unwrap that SIGSEGVs when dispatched through the
+        // filtered peer's existential.
+        var syncProto = CreateSimpleProtocol("SyncFactory");
+        syncProto.Methods.Add(CreateMethodWithClosureParam("applyFactory", "factory"));
+        var asyncProto = CreateSimpleProtocol("AsyncFactory");
+        var asyncMethod = CreateMethodWithClosureParam("applyFactory", "factory");
+        asyncMethod.IsAsync = true;
+        asyncProto.Methods.Add(asyncMethod);
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { syncProto, asyncProto });
+
+        var output = EmitFullConformanceWithMethodPlans(syncProto, plans);
+
+        Assert.Contains("if let fn", output);
+        Assert.Contains("no sibling vtable populated for closure method applyFactory", output);
+    }
+
+    [Fact]
     public void ComputeSiblingMethodFallbacks_SameSignatureGroup_RecordsCrossProtocolSibling()
     {
         var first = CreateProtocolWithMethod("FirstProtocol", "conflict");

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "ABI Coverage Grid manifest — the single source of truth for thin-corner runtime coverage cells. See src/docs/Design/abi-coverage-grid.md. Phase 1 enumerates the closure / inout / tuple corners as a full cross-product and grades each cell on every declared+exercised runtime (sim = Mono JIT, device = NativeAOT). Cells map to tests by (class, method) name over the existing test-results JSONL + TestClasses.g.txt inventory; rename-rot (a cite absent from the inventory) is a hard integrity error. Disposition: expect-green (release-gating), supported-low-priority (reported, not gated), by-design-gray (intentionally unsupported, cites a roadmap rationale). DOCUMENTED ABSENCES (deliberately out of slice-1 scope, recorded here per design §5 rather than silently dropped): nested tuple returns ((A,B),C) — no fixture authored; sync tuple returns with a generic element (only the async-on-generic-parent shape exists, and it is suppressed by design — see tuple.ret.pair.contains-generic.async); async-closure-PARAM fan-out (the closure-PARAM and closure-RETURN fan-out legs are both authored here as closure.fanout.same-signature.closure-param / closure.fanout.same-signature.closure-return; the async leg shares the same emitter gap and is deferred to the decision point after the sync legs' fix lands); non-void closure RETURN (the closure-returning materialiser — IsDispatchableClosureReturningMethod — dispatches only a zero-arg `() -> Void` returned closure; a non-void returned closure like `() -> Int32` falls to the fatalError stub and is an unimplemented capability, orthogonal to the fan-out Latent, so the closure-RETURN fan-out cells use the supported `() -> Void` shape with a C#-side side-effect oracle); the full closure direction×escaping×effects×arity cross-product (the basics are already covered by existing ClosureTests/ClosureEdgeCaseTests and represented below; only the Latent-tied fan-out leg is newly authored).",
+  "description": "ABI Coverage Grid manifest — the single source of truth for thin-corner runtime coverage cells. See src/docs/Design/abi-coverage-grid.md. Phase 1 enumerates the closure / inout / tuple corners as a full cross-product and grades each cell on every declared+exercised runtime (sim = Mono JIT, device = NativeAOT). Phase 2 adds the GENERICS corner (generics.*): the CSM (ConcreteSpecializationEngine) method-level constraint specialization path (inline + where-clause protocol composition, struct/class conformers) and the open-generic constrained FREE-function CallConvSwift [Obsolete(SB0001)] fallback path (single constraint, composition, multi-where, two-type-param where-clause), plus two by-design-gray boundaries — a Self-requirement constraint (sumTwo) and the async closure-param fan-out leg. Cells map to tests by (class, method) name over the existing test-results JSONL + TestClasses.g.txt inventory; rename-rot (a cite absent from the inventory) is a hard integrity error. Disposition: expect-green (release-gating), supported-low-priority (reported, not gated), by-design-gray (intentionally unsupported, cites a roadmap rationale). DOCUMENTED ABSENCES (deliberately out of slice-1 scope, recorded here per design §5 rather than silently dropped): nested tuple returns ((A,B),C) — no fixture authored; sync tuple returns with a generic element (only the async-on-generic-parent shape exists, and it is suppressed by design — see tuple.ret.pair.contains-generic.async); async-closure-PARAM fan-out (NOW FOLDED IN as generics.closure-fanout.async.closure-param.{peer,owner}: the sync closure-PARAM/closure-RETURN legs are closure.fanout.same-signature.* and the async leg is by-design-gray — its conformance compiles after the owner-selection + branch-filter fix, but async closure-param reverse dispatch is compile-gated only, so its runtime fixtures are [Skip]); non-void closure RETURN (the closure-returning materialiser — IsDispatchableClosureReturningMethod — dispatches only a zero-arg `() -> Void` returned closure; a non-void returned closure like `() -> Int32` falls to the fatalError stub and is an unimplemented capability, orthogonal to the fan-out Latent, so the closure-RETURN fan-out cells use the supported `() -> Void` shape with a C#-side side-effect oracle); the full closure direction×escaping×effects×arity cross-product (the basics are already covered by existing ClosureTests/ClosureEdgeCaseTests and represented below; only the Latent-tied fan-out leg is newly authored).",
   "cells": [
     {
       "id": "closure.escaping.arg-int.ret-int",
@@ -255,6 +255,108 @@
       "reason": "A sync/async tuple return with a generic element on a generic-parent extension (AsyncGenericContainer<T>.fetchPair() async -> (T, Int32)) is intentionally suppressed by the generator: a @_silgen_name async wrapper on a generic-parent extension is a generic instance method that expects self + parent type metadata in implicit registers, while a fixed CallConvSwift P/Invoke can only pass them as trailing IntPtr args — an ABI mismatch that SIGSEGVs. The 'properly suppressed' invariant is asserted in Swift.Bindings.Unit.Tests (MemberValidationPipelineTests.ValidateMethodEmission_AsyncOnGenericParent_*). No runtime surface by design; the correct long-term fix is a generic-static-dispatch @_cdecl async bridge.",
       "runtimes": ["sim", "device"],
       "mapping": []
+    },
+
+    {
+      "id": "generics.csm.method.composition.inline.struct",
+      "disposition": "expect-green",
+      "runtimeNote": "CSM (ConcreteSpecializationEngine) method-level generic with an INLINE protocol-composition constraint <T: Describable & TestIdentifiable> on a specializable host (CompositionItemProcessor), value-type conformer (SimpleItem). Reaches the roadmap latent 'CSM per-method where-clause filter treats T : P & Q as one opaque target': if live, ParseMethodLevelConstraints would store the composition as a single name, false-reject every conformer, and emit NO concrete DescribeBoth(SimpleItem) overload. It compiles and round-trips, proving the engine SPLITS the composition and verifies each protocol independently, emitting a CallConvCdecl specialization (no SB0001). Latent not live → expect-green.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "CompositionMethodConstraintTests", "method": "TestDescribeBoth_InlineComposition_StructConformer_RoundTrips" }]
+    },
+    {
+      "id": "generics.csm.method.composition.inline.class",
+      "disposition": "expect-green",
+      "runtimeNote": "Class-conformer (MultiProtocolEntity) twin of generics.csm.method.composition.inline.struct — the CSM inline-composition specialization for a reference-type conformer.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "CompositionMethodConstraintTests", "method": "TestDescribeBoth_InlineComposition_ClassConformer_RoundTrips" }]
+    },
+    {
+      "id": "generics.csm.method.composition.where-clause.struct",
+      "disposition": "expect-green",
+      "runtimeNote": "Explicit-where spelling of the same CSM composition <T> where T: Describable & TestIdentifiable (tagBoth), value-type conformer. Proves the where-clause and inline-composition parses converge on the same split-and-verify path. CallConvCdecl specialization, no SB0001.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "CompositionMethodConstraintTests", "method": "TestTagBoth_WhereClauseComposition_StructConformer_RoundTrips" }]
+    },
+    {
+      "id": "generics.csm.method.composition.where-clause.class",
+      "disposition": "expect-green",
+      "runtimeNote": "Class-conformer twin of generics.csm.method.composition.where-clause.struct.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "CompositionMethodConstraintTests", "method": "TestTagBoth_WhereClauseComposition_ClassConformer_RoundTrips" }]
+    },
+
+    {
+      "id": "generics.freefunc.constraint.single.struct",
+      "disposition": "expect-green",
+      "runtimeNote": "Open-generic constrained FREE function constrained<T: Describable> — single protocol constraint, value-type conformer. Distinct dispatch path from CSM: emits as an open-generic <T> method passing payload + TypeMetadata + one ProtocolWitnessTable handle to a CallConvSwift P/Invoke with no @_cdecl wrapper, stamped [Obsolete(SB0001)] (transport-risk diagnostic, not a grid disposition). Compiled but previously exercised by no test; this cell reaches it.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ConstrainedGenericFreeFunctionTests", "method": "TestConstrained_SingleConstraint_StructConformer_RoundTripsDescription" }]
+    },
+    {
+      "id": "generics.freefunc.constraint.single.class",
+      "disposition": "expect-green",
+      "runtimeNote": "Class-conformer twin of generics.freefunc.constraint.single.struct (constrained<MultiProtocolEntity>).",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ConstrainedGenericFreeFunctionTests", "method": "TestConstrained_SingleConstraint_ClassConformer_RoundTripsDescription" }]
+    },
+    {
+      "id": "generics.freefunc.constraint.composition.struct",
+      "disposition": "expect-green",
+      "runtimeNote": "Open-generic free function with a protocol-COMPOSITION constraint multiConstrained<T: Describable & TestIdentifiable>, value-type conformer — the free-function (CallConvSwift fallback) counterpart of the CSM composition cells, passing one PWT handle per split constraint.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ConstrainedGenericFreeFunctionTests", "method": "TestMultiConstrained_Composition_StructConformer_RoundTrips" }]
+    },
+    {
+      "id": "generics.freefunc.constraint.composition.class",
+      "disposition": "expect-green",
+      "runtimeNote": "Class-conformer twin of generics.freefunc.constraint.composition.struct.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ConstrainedGenericFreeFunctionTests", "method": "TestMultiConstrained_Composition_ClassConformer_RoundTrips" }]
+    },
+    {
+      "id": "generics.freefunc.constraint.multi-where.struct",
+      "disposition": "expect-green",
+      "runtimeNote": "Open-generic free function with a multi-clause where spelling describeConstrained<T> where T: Describable, T: TestIdentifiable — two separate where-clause entries (not an inline composition), value-type conformer. Verifies the multi-entry where-clause emits one PWT handle per entry.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ConstrainedGenericFreeFunctionTests", "method": "TestDescribeConstrained_MultiWhereClause_RoundTrips" }]
+    },
+    {
+      "id": "generics.freefunc.two-type-params.where.same-id",
+      "disposition": "expect-green",
+      "runtimeNote": "Open-generic free function with TWO type parameters and a where-clause compareIdentifiables<T, U> where T: Describable — exercises multi-type-param metadata + selective constraint (only T constrained, U free), Bool return, equal-id branch.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ConstrainedGenericFreeFunctionTests", "method": "TestCompareIdentifiables_TwoParams_SameId_ReturnsTrue" }]
+    },
+    {
+      "id": "generics.freefunc.two-type-params.where.distinct-id",
+      "disposition": "expect-green",
+      "runtimeNote": "Distinct-id branch twin of generics.freefunc.two-type-params.where.same-id — confirms the Bool return discriminates, not a constant.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ConstrainedGenericFreeFunctionTests", "method": "TestCompareIdentifiables_TwoParams_DistinctId_ReturnsFalse" }]
+    },
+
+    {
+      "id": "generics.freefunc.constraint.self-requirement",
+      "disposition": "by-design-gray",
+      "reason": "An open-generic free function constrained on a Self-requirement protocol — sumTwo<T: Summable>(_:_:) -> T where Summable is `func add(_ other: Self) -> Self` — is uncallable from C# by any generated path. A Self-requirement protocol projects its C# interface with Self erased to Swift.AnyType (ISummable carries `Swift.AnyType Add(Swift.AnyType)`), and NO value-type conformer is emitted as `: ISummable` (the witness table is registered for Swift-internal/existential use only — the same boundary roadmap/constraints record as 'PAT and Self-requirement protocols ARE rejected for existential params'). The open-generic SumTwo<T> where T : ISummable therefore has no satisfying C# argument. This is a by-design boundary of Self-requirement constraints, not a fixable round-trip cell; no fixture by design. Long-term lift would require materializing a concrete Self-typed conformer surface, out of scope.",
+      "runtimes": ["sim", "device"],
+      "mapping": []
+    },
+
+    {
+      "id": "generics.closure-fanout.async.closure-param.peer",
+      "disposition": "by-design-gray",
+      "reason": "ASYNC closure-PARAM same-signature fan-out, PEER leg: AsyncClosureFanOwner/AsyncClosureFanPeer both declare `applyFactory(_: @escaping () -> Int32) async`. The EveryProtocol owner/peer grouping is async-INSENSITIVE (GetSwiftMethodFullSignature drops async), so these share a fan-out group with the sync ClosureFan{Owner,Peer} declaring the same selector. ComputeMethodEmissionPlans owner-selection hands the witness BODY to the sync, non-throwing sibling (so the group conforms and the sync legs dispatch correctly), and the closure fan-out branch list is filtered to siblings that emit a vtable func field — an async closure-param method has none (IsDispatchableAsyncClosureMethod bails on method.IsAsync; its per-protocol vtable carries only csVTHandle). The async conformance + @_cdecl wrappers COMPILE (this is what the fixture gates, without regressing the sync fan-out), but the shared sync witness reads the SYNC vtables; an async proxy registers an async receiver thunk whose result is a Task, so reached through the sync @convention(c) pointer it would return garbage. Async closure-param REVERSE dispatch is therefore compile-gated only; the runtime fixtures are [Skip]. Long-term lift needs the Task-bridging machinery the dispatchable-async-closure gate (IsDispatchableAsyncClosureParam, restricted to `() async -> Int32` PARAMS) does not yet extend to async METHODS — out of scope.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ClosureFanOutTests", "method": "TestAsyncClosureFan_PeerExistential" }]
+    },
+    {
+      "id": "generics.closure-fanout.async.closure-param.owner",
+      "disposition": "by-design-gray",
+      "reason": "OWNER leg of the async closure-param fan-out — same rationale as generics.closure-fanout.async.closure-param.peer: the shared sync witness cannot route an async receiver thunk's Task result through the sync @convention(c) pointer, so async closure-param reverse dispatch is compile-gated only and the runtime fixture is [Skip]. The fixture gates that the async conformance compiles without regressing the sync fan-out.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "ClosureFanOutTests", "method": "TestAsyncClosureFan_OwnerExistential" }]
     }
   ]
 }
