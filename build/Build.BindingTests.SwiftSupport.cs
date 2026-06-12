@@ -3,23 +3,41 @@
 //
 // Build.BindingTests.SwiftSupport.cs — opt-in App Store SwiftSupport-folder gate (issue #42)
 //
-// Closes the one gap nothing else covers: a .NET-for-iOS DEVICE IPA built through our binding
-// must carry a compliant top-level SwiftSupport/iphoneos folder, or App Store Connect rejects
-// the upload with ITMS-90426. The fix is an MSBuild target in the Runtime package's
-// buildTransitive targets (AfterTargets="CreateIpa") that post-processes the finished .ipa via
-// build/add-swiftsupport-folder.sh. Because that target leans on workload-version-specific
-// behavior ($(IpaPackagePath), the CreateIpa target name), a workload bump that breaks the hook
+// Closes the one gap nothing else covers: a .NET-for-iOS DEVICE App Store artifact built through
+// our binding must carry a compliant top-level SwiftSupport/iphoneos folder, or App Store Connect
+// rejects the upload with ITMS-90426. The fix is a pair of MSBuild targets in the Runtime
+// package's buildTransitive targets that inject the folder via build/add-swiftsupport-folder.sh —
+// one AfterTargets="CreateIpa" (the `dotnet publish -p:BuildIpa=true` / VS "Distribute" path) and
+// one AfterTargets="Archive" (the VS "Publish" → .xcarchive → Xcode Organizer "Distribute App"
+// path the issue #42 reporter actually uses). Both lean on workload-version-specific behavior
+// ($(IpaPackagePath)/CreateIpa, $(ArchiveDir)/Archive), so a workload bump that breaks either hook
 // must fail OUR CI here — not a user's submission.
 //
 // WHAT THIS GATE DOES
 //   1. Packs SwiftBindings.Runtime at a throwaway version into a local feed (so the
-//      buildTransitive target + script are exercised through a REAL package, exactly as a
+//      buildTransitive targets + script are exercised through a REAL package, exactly as a
 //      consumer gets them — buildTransitive does not flow across a ProjectReference).
-//   2. Writes a tiny consumer app that takes ONE PackageReference on SwiftBindings.Runtime and
-//      sets <BuildIpa>true</BuildIpa>, then publishes it for ios-arm64 (device).
-//   3. Asserts the produced .ipa has SwiftSupport/iphoneos that is non-empty, contains only
+//   2. Writes a tiny consumer app that takes ONE PackageReference on SwiftBindings.Runtime.
+//   3. IPA leg: publishes the app for ios-arm64 (device) with <BuildIpa>true</BuildIpa>, then
+//      asserts the produced .ipa has SwiftSupport/iphoneos that is non-empty, contains only
 //      Apple-signed libswift*.dylib entries, no .DS_Store / __MACOSX, and a Payload/ whose app
 //      signature still verifies.
+//   4. Archive leg: builds the same app with <ArchiveOnBuild>true</ArchiveOnBuild> for ios-arm64,
+//      then asserts the produced .xcarchive's OWN top-level SwiftSupport/iphoneos folder (sibling
+//      of Products/) is non-empty, Apple-signed, complete, and clean. This is the exact artifact
+//      our AfterTargets="Archive" hook produces, and the one Xcode's App Store export carries into
+//      the IPA verbatim.
+//
+//   The archive leg deliberately asserts the injected ARCHIVE folder, NOT an exported IPA: the
+//   carry-through (Xcode copying <archive>/SwiftSupport into the App Store IPA) is Apple-toolchain
+//   behavior — backed by Microsoft's own Xamarin.iOS.SwiftRuntimeSupport (same $(ArchiveDir)/
+//   SwiftSupport anchor, AfterTargets="Archive") and by the reporter's own confirmation that
+//   manually adding the folder to the archive cleared ITMS-90426 through this exact flow. Running
+//   `xcodebuild -exportArchive -exportOptionsPlist method=app-store-connect` would require an Apple
+//   DISTRIBUTION cert + App Store provisioning profile, which a CI/build host generally lacks; the
+//   final proof is a real submission. Our code's responsibility — a correct, complete, Apple-signed
+//   folder at the archive root — is exactly what this leg gates, deterministically and with only the
+//   development identity the host already has.
 //
 // WHY A BARE RUNTIME REFERENCE IS A FAITHFUL FIXTURE
 //   The SwiftBindings.Runtime package bundles libSwiftBindingsRuntime.dylib into the app's
@@ -51,7 +69,7 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 partial class Build
 {
-    [Parameter("Opt-in: build a device IPA through a Swift-binding consumer and assert a compliant App Store SwiftSupport/iphoneos folder is injected (issue #42). Builds + inspects on the host; needs a code-signing identity but no connected device. Never part of the default run or --compile-only.")]
+    [Parameter("Opt-in: through a Swift-binding consumer, build BOTH App Store artifacts — a device IPA (BuildIpa) and a .xcarchive (ArchiveOnBuild) — and assert each carries a compliant SwiftSupport/iphoneos folder (issue #42). Builds + inspects on the host; needs a code-signing identity but no connected device. Never part of the default run or --compile-only.")]
     readonly bool Swiftsupport;
 
     // Throwaway version with its own suffix so this leg's NuGet-cache clears never collide with
@@ -89,6 +107,15 @@ partial class Build
         WriteSwiftSupportConsumerApp(appDir);
         File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
 
+        // Leg 1 — the IPA path (CreateIpa hook). Leg 2 — the archive path (Archive hook).
+        RunSwiftSupportIpaLeg(appDir, scratch);
+        RunSwiftSupportArchiveLeg(appDir, scratch);
+    }
+
+    // Leg 1: publish a device IPA (BuildIpa) so the workload's CreateIpa target — and our
+    // AfterTargets="CreateIpa" hook — runs, then assert the injected IPA-root SwiftSupport folder.
+    void RunSwiftSupportIpaLeg(AbsolutePath appDir, AbsolutePath scratch)
+    {
         Log.Information("=== swiftsupport: publishing device IPA (ios-arm64) ===");
         DotNetPublish(s => s
             .SetProject(appDir / $"{SwiftSupportAppName}.csproj")
@@ -184,6 +211,19 @@ partial class Build
               <ItemGroup>
                 <None Include="Info.plist" />
               </ItemGroup>
+
+              <!-- The workload's Archive task writes the .xcarchive to Xcode's own Archives
+                   directory (~/Library/Developer/Xcode/Archives/<date>/<name> <timestamp>.xcarchive)
+                   and exposes the chosen path only as the $(ArchiveDir) output property — there is no
+                   input to redirect it. Capture that exact path to a file so the gate can locate the
+                   archive deterministically instead of guessing/globbing the date folder. Same
+                   AfterTargets="Archive" anchor the SwiftSupport hook uses, so $(ArchiveDir) is set. -->
+              <Target Name="_CaptureArchiveDirForSwiftSupportGate"
+                      AfterTargets="Archive"
+                      Condition="'$(ArchiveOnBuild)' == 'true' AND '$(ArchiveDir)' != ''">
+                <WriteLinesToFile File="$(MSBuildProjectDirectory)/archive-dir.txt"
+                                  Lines="$(ArchiveDir)" Overwrite="true" />
+              </Target>
             </Project>
             """;
         File.WriteAllText(appDir / $"{SwiftSupportAppName}.csproj", csproj);
@@ -234,35 +274,88 @@ partial class Build
             "</dict>\n</plist>\n");
     }
 
-    // Structural + signing assertions on the produced IPA. Enumerates zip entries for the cheap
-    // structural checks, then ditto-extracts (preserving signatures) for the codesign checks.
+    // Leg 2: build the same app as a .xcarchive (ArchiveOnBuild) so the workload's Archive target —
+    // and our AfterTargets="Archive" hook — runs, then assert the archive's OWN top-level
+    // SwiftSupport folder. BuildIpa is forced off: this leg exercises the archive path only.
+    void RunSwiftSupportArchiveLeg(AbsolutePath appDir, AbsolutePath scratch)
+    {
+        Log.Information("=== swiftsupport: building .xcarchive (ArchiveOnBuild, ios-arm64) ===");
+
+        // The workload's Archive task always writes the .xcarchive to Xcode's own Archives directory
+        // and exposes the path only as the $(ArchiveDir) output property — BuildIpa is forced off so
+        // this leg exercises the archive hook, not the IPA one. The consumer csproj captures
+        // $(ArchiveDir) to archive-dir.txt (see _CaptureArchiveDirForSwiftSupportGate); read it back
+        // to locate the archive precisely rather than globbing the date folder.
+        var archiveDirFile = appDir / "archive-dir.txt";
+        if (File.Exists(archiveDirFile)) File.Delete(archiveDirFile);
+
+        DotNetBuild(s => s
+            .SetProjectFile(appDir / $"{SwiftSupportAppName}.csproj")
+            .SetConfiguration("Release")
+            .SetRuntime(SwiftSupportIosRid)
+            .SetProperty("ArchiveOnBuild", "true")
+            .SetProperty("BuildIpa", "false")
+            .EnableNoLogo()
+            .SetVerbosity(DotNetVerbosity.quiet));
+
+        // archive-dir.txt is written by the consumer's _CaptureArchiveDirForSwiftSupportGate target
+        // purely to LOCATE the archive; its absence means $(ArchiveDir) was never set (no archive was
+        // produced), NOT that the injector hook ran or didn't — that is proven directly below by
+        // asserting the SwiftSupport folder on the located archive.
+        if (!File.Exists(archiveDirFile))
+            throw new Exception(
+                $"--swiftsupport: the ArchiveOnBuild build did not write {archiveDirFile} — $(ArchiveDir) was " +
+                "never set, so the workload's Archive target did not produce an .xcarchive. Check the build log above.");
+        var archiveDir = File.ReadAllText(archiveDirFile).Trim();
+        if (archiveDir.Length == 0 || !Directory.Exists(archiveDir))
+            throw new Exception(
+                $"--swiftsupport: captured $(ArchiveDir) is empty or missing on disk ('{archiveDir}'). " +
+                "The Archive task did not create an .xcarchive.");
+        var archive = (AbsolutePath)archiveDir;
+        if (!Directory.Exists(archive / "Products" / "Applications"))
+            throw new Exception(
+                $"--swiftsupport: {archive} has no Products/Applications — not an app archive.");
+        Log.Information("    archive: {Path}", archive);
+
+        try
+        {
+            AssertSwiftSupportArchive(archive, SwiftSupportPlatformDir, scratch);
+        }
+        finally
+        {
+            // The Archive task wrote into the developer's ~/Library/Developer/Xcode/Archives — this
+            // is a throwaway gate fixture, so remove it (and the date folder, IF this run created it
+            // and left it otherwise empty) rather than littering Xcode Organizer with SwiftSupportApp
+            // archives. The date folder is removed only when it holds nothing but Finder metadata
+            // (.DS_Store) — never when it still contains the developer's own archives.
+            try
+            {
+                var dateFolder = archive.Parent;
+                archive.DeleteDirectory();
+                if (dateFolder is not null && Directory.Exists(dateFolder)
+                    && Directory.EnumerateFileSystemEntries(dateFolder)
+                        .All(e => string.Equals(Path.GetFileName(e), ".DS_Store", StringComparison.Ordinal)))
+                    dateFolder.DeleteDirectory();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("--swiftsupport: could not clean up archive {Path}: {Message}", archive, ex.Message);
+            }
+        }
+    }
+
+    // Structural + signing assertions on the produced IPA. Cheap zip-entry checks for IPA-level
+    // litter + Payload presence, then ditto-extract (preserving signatures) and run the shared
+    // folder assertions on the IPA-root SwiftSupport folder.
     void AssertSwiftSupportIpa(AbsolutePath ipa, string platformDir, AbsolutePath scratch)
     {
-        var prefix = $"SwiftSupport/{platformDir}/";
         var failures = new System.Collections.Generic.List<string>();
 
         using (var zip = ZipFile.OpenRead(ipa))
         {
             var entries = zip.Entries.Select(e => e.FullName).ToList();
 
-            // (a) the folder exists and is non-empty.
-            var swiftSupportFiles = entries
-                .Where(n => n.StartsWith(prefix, StringComparison.Ordinal) && !n.EndsWith("/", StringComparison.Ordinal))
-                .ToList();
-            if (swiftSupportFiles.Count == 0)
-                failures.Add(
-                    $"SwiftSupport/{platformDir}/ is missing or empty — the injector did not run or found no embeddable " +
-                    "Swift dylibs. (Is libSwiftBindingsRuntime.dylib bundled in the app's Frameworks/? Did CreateIpa fire?)");
-
-            // (b) every entry under it is a libswift*.dylib.
-            foreach (var f in swiftSupportFiles)
-            {
-                var name = Path.GetFileName(f);
-                if (!(name.StartsWith("libswift", StringComparison.Ordinal) && name.EndsWith(".dylib", StringComparison.Ordinal)))
-                    failures.Add($"unexpected non-libswift entry in SwiftSupport/{platformDir}/: {f}");
-            }
-
-            // (c) no Finder/zip litter — these are exactly the things that drew ITMS-90430.
+            // No Finder/zip litter anywhere in the IPA — these are exactly what drew ITMS-90430.
             foreach (var n in entries)
             {
                 if (Path.GetFileName(n) == ".DS_Store")
@@ -271,12 +364,12 @@ partial class Build
                     failures.Add($"stray __MACOSX in the IPA: {n}");
             }
 
-            // (d) Payload/ is intact (the app bundle is still there).
+            // Payload/ is intact (the app bundle is still there).
             if (!entries.Any(n => n.StartsWith("Payload/", StringComparison.Ordinal) && n.Contains(".app/", StringComparison.Ordinal)))
                 failures.Add("Payload/<app>.app is missing — the re-zip did not preserve the app bundle.");
         }
 
-        // Extract with ditto (preserves symlinks + code signatures) for the signing checks.
+        // Extract with ditto (preserves symlinks + code signatures) for the folder + signing checks.
         var extract = scratch / "ipa-extract";
         if (Directory.Exists(extract)) extract.DeleteDirectory();
         extract.CreateDirectory();
@@ -284,41 +377,112 @@ partial class Build
             .AssertWaitForExit()
             .AssertZeroExitCode();
 
-        // (e) each SwiftSupport dylib keeps Apple's signature (we ditto-copied, never re-signed).
+        var appBundle = Directory.GetDirectories(extract / "Payload", "*.app").FirstOrDefault();
         var swiftSupportDir = extract / "SwiftSupport" / platformDir;
-        if (Directory.Exists(swiftSupportDir))
+        AssertSwiftSupportFolder(swiftSupportDir, platformDir, appBundle, failures);
+
+        // The app signature still verifies — proves the re-zip did not corrupt Payload/.
+        if (appBundle is null)
+            failures.Add("no .app under Payload/ after extraction.");
+        else
+            AssertAppSignatureVerifies((AbsolutePath)appBundle, "the IPA re-zip", failures);
+
+        ReportSwiftSupport(failures, swiftSupportDir, platformDir, $"IPA {ipa.Name}");
+    }
+
+    // Structural + signing assertions on the produced .xcarchive's OWN top-level SwiftSupport
+    // folder (sibling of Products/) — the artifact our AfterTargets="Archive" hook writes and the
+    // one Xcode's App Store export carries into the IPA. The archive is a plain directory, so the
+    // shared folder assertions run directly on it (no zip / ditto needed).
+    void AssertSwiftSupportArchive(AbsolutePath archive, string platformDir, AbsolutePath scratch)
+    {
+        var failures = new System.Collections.Generic.List<string>();
+
+        var appBundle = Directory.GetDirectories(archive / "Products" / "Applications", "*.app").FirstOrDefault();
+        if (appBundle is null)
+            failures.Add($"no .app under {archive}/Products/Applications — not an app archive.");
+
+        var swiftSupportDir = archive / "SwiftSupport" / platformDir;
+        AssertSwiftSupportFolder(swiftSupportDir, platformDir, appBundle, failures);
+
+        // The app signature still verifies — we only added a sibling SwiftSupport/ folder, so the
+        // app bundle the workload signed must be byte-for-byte untouched.
+        if (appBundle is not null)
+            AssertAppSignatureVerifies((AbsolutePath)appBundle, "the SwiftSupport archive injection", failures);
+
+        ReportSwiftSupport(failures, swiftSupportDir, platformDir, $"archive {archive.Name}");
+    }
+
+    // Folder-level assertions shared by both legs, run on a real on-disk SwiftSupport/<platform>
+    // directory (the ditto-extracted one for the IPA, the archive's own for the archive leg):
+    //   (a) exists and is non-empty;
+    //   (b) every entry is a libswift*.dylib;
+    //   (c) no Finder/zip litter inside the folder;
+    //   (e) every dylib keeps Apple's PLATFORM-binary signature (ditto-copied, never re-signed);
+    //   (g) completeness over the app's Swift-runtime closure.
+    // appBundle (when resolvable) seeds the completeness walk.
+    void AssertSwiftSupportFolder(AbsolutePath swiftSupportDir, string platformDir, string? appBundle, System.Collections.Generic.List<string> failures)
+    {
+        if (!Directory.Exists(swiftSupportDir))
         {
-            foreach (var dylib in Directory.GetFiles(swiftSupportDir, "*.dylib"))
-            {
-                var auth = CodesignDisplay(dylib);
-                // Require the Apple PLATFORM-binary leaf authority ("Software Signing"), not merely
-                // a substring "Apple": a dylib re-signed with an "Apple Development: …" identity
-                // also contains "Apple" (and even "Apple Root CA"), yet is NOT the preserved Apple
-                // toolchain signature App Store validation expects. ditto must have copied it verbatim.
-                if (!auth.Contains("Authority=Software Signing", StringComparison.Ordinal))
-                    failures.Add(
-                        $"SwiftSupport dylib lacks the Apple platform-binary signature (expected 'Authority=Software Signing'; " +
-                        $"a re-sign or unsigned copy would fail this): {Path.GetFileName(dylib)} — codesign authorities:\n{auth}");
-            }
+            failures.Add(
+                $"SwiftSupport/{platformDir}/ is missing — the injector did not run or found no embeddable Swift dylibs. " +
+                "(Is a Swift framework / libSwiftBindingsRuntime.dylib present in the app? Did the hook fire?)");
+            return;
         }
 
-        // (f) the app signature still verifies — proves the re-zip did not corrupt Payload/.
-        var appBundle = Directory.GetDirectories(extract / "Payload", "*.app").FirstOrDefault();
-        if (appBundle is null)
+        var allEntries = Directory.GetFiles(swiftSupportDir, "*", SearchOption.AllDirectories);
+        var dylibs = Directory.GetFiles(swiftSupportDir, "*.dylib");
+
+        // (a) non-empty.
+        if (dylibs.Length == 0)
+            failures.Add($"SwiftSupport/{platformDir}/ is empty — the injector found no embeddable Swift dylibs.");
+
+        // (b) every entry is a libswift*.dylib (ignoring the litter checked in (c)).
+        foreach (var f in allEntries)
         {
-            failures.Add("no .app under Payload/ after extraction.");
+            var name = Path.GetFileName(f);
+            if (name == ".DS_Store") continue; // reported by (c)
+            if (!(name.StartsWith("libswift", StringComparison.Ordinal) && name.EndsWith(".dylib", StringComparison.Ordinal)))
+                failures.Add($"unexpected non-libswift entry in SwiftSupport/{platformDir}/: {name}");
         }
-        else
+
+        // (c) no Finder/zip litter inside the folder.
+        foreach (var f in allEntries)
         {
+            if (Path.GetFileName(f) == ".DS_Store")
+                failures.Add($"stray .DS_Store in SwiftSupport/{platformDir}/: {f}");
+            if (f.Contains("__MACOSX", StringComparison.Ordinal))
+                failures.Add($"stray __MACOSX in SwiftSupport/{platformDir}/: {f}");
+        }
+
+        // (e) each SwiftSupport dylib keeps Apple's signature (we ditto-copied, never re-signed).
+        foreach (var dylib in dylibs)
+        {
+            var auth = CodesignDisplay(dylib);
+            // Require the Apple PLATFORM-binary leaf authority ("Software Signing"), not merely
+            // a substring "Apple": a dylib re-signed with an "Apple Development: …" identity
+            // also contains "Apple" (and even "Apple Root CA"), yet is NOT the preserved Apple
+            // toolchain signature App Store validation expects. ditto must have copied it verbatim.
+            if (!auth.Contains("Authority=Software Signing", StringComparison.Ordinal))
+                failures.Add(
+                    $"SwiftSupport dylib lacks the Apple platform-binary signature (expected 'Authority=Software Signing'; " +
+                    $"a re-sign or unsigned copy would fail this): {Path.GetFileName(dylib)} — codesign authorities:\n{auth}");
+
+            // The authority string ('codesign -dvvv') is a display read — it returns 0 and prints the
+            // original authorities even for a tampered binary whose seal no longer validates. Pair it
+            // with '--verify --strict', which actually checks the signature against the contents, so a
+            // corrupted/modified copy (or one ditto failed to preserve) cannot pass as Apple-signed.
             var verify = ProcessTasks.StartProcess(
                     XcRun.FindTool("codesign"),
-                    ArgumentEscaper.Join(new[] { "--verify", "--strict", appBundle }),
+                    ArgumentEscaper.Join(new[] { "--verify", "--strict", dylib }),
                     logOutput: false)
                 .AssertWaitForExit();
             if (verify.ExitCode != 0)
                 failures.Add(
-                    $"app signature failed codesign --verify after SwiftSupport injection (exit {verify.ExitCode}) — the re-zip " +
-                    $"may have corrupted Payload/:\n{string.Join("\n", verify.Output.Select(o => o.Text))}");
+                    $"SwiftSupport dylib failed codesign --verify --strict (exit {verify.ExitCode}) — its Apple signature " +
+                    $"is invalid (tampered, or not preserved by the copy): {Path.GetFileName(dylib)}\n" +
+                    string.Join("\n", verify.Output.Select(o => o.Text)));
         }
 
         // (g) completeness: SwiftSupport must contain a back-deployment copy of EVERY Swift runtime
@@ -330,11 +494,9 @@ partial class Build
         //     fails here even though (a)/(b) pass. Deps with no toolchain copy are OS-resident or
         //     embedded and correctly excluded; this mirrors the injector's find_copy gate.
         var swiftLibDir = ToolchainSwiftLibDir();
-        if (Directory.Exists(swiftSupportDir) && appBundle is not null && swiftLibDir is not null)
+        if (appBundle is not null && swiftLibDir is not null)
         {
-            var present = Directory.GetFiles(swiftSupportDir, "*.dylib")
-                .Select(Path.GetFileName)
-                .ToHashSet(StringComparer.Ordinal);
+            var present = dylibs.Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
 
             var seen = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
             var queue = new System.Collections.Generic.Queue<string>();
@@ -355,18 +517,38 @@ partial class Build
                     if (seen.Add(d2)) queue.Enqueue(d2);
             }
         }
+    }
 
+    // codesign --verify --strict on the app bundle: proves the SwiftSupport step left the app the
+    // workload signed byte-for-byte intact (the IPA re-zip / the archive sibling-folder write).
+    static void AssertAppSignatureVerifies(AbsolutePath appBundle, string what, System.Collections.Generic.List<string> failures)
+    {
+        var verify = ProcessTasks.StartProcess(
+                XcRun.FindTool("codesign"),
+                ArgumentEscaper.Join(new[] { "--verify", "--strict", appBundle.ToString() }),
+                logOutput: false)
+            .AssertWaitForExit();
+        if (verify.ExitCode != 0)
+            failures.Add(
+                $"app signature failed codesign --verify after SwiftSupport injection (exit {verify.ExitCode}) — {what} " +
+                $"may have corrupted the app bundle:\n{string.Join("\n", verify.Output.Select(o => o.Text))}");
+    }
+
+    // Common pass/fail reporting for a leg: fail the gate with all collected defects, or log the OK
+    // line with the dylib count.
+    static void ReportSwiftSupport(System.Collections.Generic.List<string> failures, AbsolutePath swiftSupportDir, string platformDir, string artifact)
+    {
         if (failures.Count > 0)
         {
-            Log.Error("--swiftsupport gate FAILED — {Count} defect(s) in {Ipa}:", failures.Count, ipa.Name);
+            Log.Error("--swiftsupport gate FAILED — {Count} defect(s) in {Artifact}:", failures.Count, artifact);
             foreach (var f in failures) Log.Error("  {Detail}", f);
-            Assert.Fail($"--swiftsupport: {failures.Count} defect(s) in the produced IPA — see log.");
+            Assert.Fail($"--swiftsupport: {failures.Count} defect(s) in {artifact} — see log.");
         }
 
         var count = Directory.Exists(swiftSupportDir) ? Directory.GetFiles(swiftSupportDir, "*.dylib").Length : 0;
         Log.Information(
-            "--swiftsupport gate OK — SwiftSupport/{Platform}/ has {Count} Apple-signed libswift*.dylib, no .DS_Store/__MACOSX, Payload signature verifies.",
-            platformDir, count);
+            "--swiftsupport gate OK — {Artifact}: SwiftSupport/{Platform}/ has {Count} Apple-signed libswift*.dylib, no .DS_Store/__MACOSX, app signature verifies.",
+            artifact, platformDir, count);
     }
 
     // codesign -dvvv prints the signature display (authorities, etc.) to stderr. ProcessTasks
@@ -425,10 +607,13 @@ partial class Build
     }
 
     // Path of the Apple-signed back-deployment copy of `basename` for the platform, or null if the
-    // toolchain has none (mirrors the script's find_copy: first matching swift-*/<platform>/<basename>).
+    // toolchain has none. Mirrors the script's find_copy (first matching swift-*/<platform>/<basename>),
+    // and — like the script's lexical `ls swift-*/...` glob — walks the swift-* dirs in ordinal order
+    // so that if a basename ever exists in more than one back-deployment dir, the injector and this
+    // gate deterministically agree on which physical copy is "the" copy.
     static string? ToolchainCopyPath(string swiftLibDir, string platformDir, string basename)
     {
-        foreach (var d in Directory.GetDirectories(swiftLibDir, "swift-*"))
+        foreach (var d in Directory.GetDirectories(swiftLibDir, "swift-*").OrderBy(p => p, StringComparer.Ordinal))
         {
             var p = Path.Combine(d, platformDir, basename);
             if (File.Exists(p)) return p;

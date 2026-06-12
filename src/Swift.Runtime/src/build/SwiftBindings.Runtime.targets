@@ -147,7 +147,57 @@
     <!-- $(_SdkDevPath) is the active Xcode developer dir resolved by the .NET iOS
          workload; the script falls back to `xcode-select -p` if it is empty. -->
     <Exec Condition="'$(IpaPackagePath)' != '' AND Exists('$(IpaPackagePath)') AND '$(_SwiftSupportPlatformDir)' != ''"
-          Command="bash &quot;$(MSBuildThisFileDirectory)add-swiftsupport-folder.sh&quot; &quot;$(IpaPackagePath)&quot; &quot;$(_SwiftSupportPlatformDir)&quot; &quot;$(_SdkDevPath)&quot;"
+          Command="bash &quot;$(MSBuildThisFileDirectory)add-swiftsupport-folder.sh&quot; --mode ipa &quot;$(IpaPackagePath)&quot; &quot;$(_SwiftSupportPlatformDir)&quot; &quot;$(_SdkDevPath)&quot;"
+          StandardOutputImportance="high"
+          StandardErrorImportance="high" />
+  </Target>
+
+  <!-- Archive distribution path (issue #42, the reporter's actual flow).
+
+       The IPA target above only fires when the .NET workload itself builds and zips the .ipa
+       ($(BuildIpa) == 'true' — `dotnet publish`, VS "Distribute"). The recommended VS/MAUI App
+       Store flow does NOT go through it: VS "Publish" runs the workload's Archive target
+       ($(ArchiveOnBuild) == 'true') to produce a .xcarchive, then the user distributes that
+       archive through Xcode's Organizer ("Distribute App → App Store Connect") or
+       `xcodebuild -exportArchive`, which assembles and uploads the IPA. $(BuildIpa) is never set,
+       so the IPA hook never runs, and the workload's Archive task does not populate SwiftSupport
+       — so the exported IPA is missing it → ITMS-90426.
+
+       The fix mirrors the IPA target on the archive: write SwiftSupport/<platform> at the
+       .xcarchive ROOT (sibling of Products/), where Xcode's App Store export carries it into the
+       IPA verbatim. This is the exact anchor Microsoft's own Xamarin.iOS.SwiftRuntimeSupport
+       package used ($(ArchiveDir)/SwiftSupport, AfterTargets="Archive"), honored by Apple's
+       distribution for years. Running as part of the archive build on the Mac host means it works
+       identically for local Mac builds and VS-from-Windows "Pair to Mac" remote builds — the
+       reporter's setup — with no manual step and no flow change.
+
+       Gating mirrors the IPA target but keys on $(ArchiveOnBuild) instead of $(BuildIpa); the two
+       switches are mutually exclusive per invocation. The script hard-fails if a non-weak Swift
+       runtime dylib has no Apple-signed toolchain copy, and is a no-op when no embeddable Swift
+       dylibs are referenced. -->
+  <Target Name="_SwiftBindingsAddSwiftSupportFolderToArchive"
+          AfterTargets="Archive"
+          Condition="'$(ArchiveOnBuild)' == 'true'
+                     AND '$(EnableSwiftSupportFolder)' == 'true'
+                     AND !$(RuntimeIdentifier.Contains('simulator'))
+                     AND ($(TargetFramework.Contains('ios')) OR $(TargetFramework.Contains('tvos')))
+                     AND !$(TargetFramework.Contains('maccatalyst'))">
+
+    <!-- SwiftSupport platform subdir: iphoneos for iOS, appletvos for tvOS. -->
+    <PropertyGroup>
+      <_SwiftSupportPlatformDir Condition="$(TargetFramework.Contains('tvos'))">appletvos</_SwiftSupportPlatformDir>
+      <_SwiftSupportPlatformDir Condition="'$(_SwiftSupportPlatformDir)' == '' AND $(TargetFramework.Contains('ios'))">iphoneos</_SwiftSupportPlatformDir>
+      <!-- $(ArchiveDir) is the Archive task's output property (authoritative); $(ArchivePath) is
+           the workload's own archive-location property, used as a defensive fallback. -->
+      <_SwiftSupportArchiveDir Condition="'$(ArchiveDir)' != ''">$(ArchiveDir)</_SwiftSupportArchiveDir>
+      <_SwiftSupportArchiveDir Condition="'$(_SwiftSupportArchiveDir)' == ''">$(ArchivePath)</_SwiftSupportArchiveDir>
+    </PropertyGroup>
+
+    <Warning Condition="'$(_SwiftSupportArchiveDir)' == '' OR !Exists('$(_SwiftSupportArchiveDir)/Products/Applications')"
+             Text="SwiftBindings: ArchiveOnBuild is true but the finished .xcarchive (with Products/Applications) was not found at ArchiveDir/ArchivePath ('$(_SwiftSupportArchiveDir)') — skipping SwiftSupport injection. A later App Store distribution of this archive may be rejected (ITMS-90426)." />
+
+    <Exec Condition="'$(_SwiftSupportArchiveDir)' != '' AND Exists('$(_SwiftSupportArchiveDir)/Products/Applications') AND '$(_SwiftSupportPlatformDir)' != ''"
+          Command="bash &quot;$(MSBuildThisFileDirectory)add-swiftsupport-folder.sh&quot; --mode archive &quot;$(_SwiftSupportArchiveDir)&quot; &quot;$(_SwiftSupportPlatformDir)&quot; &quot;$(_SdkDevPath)&quot;"
           StandardOutputImportance="high"
           StandardErrorImportance="high" />
   </Target>

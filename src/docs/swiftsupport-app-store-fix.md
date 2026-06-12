@@ -1,18 +1,28 @@
 # SwiftSupport folder for App Store submission (issue #42)
 
-Status: **implemented (Strategy B).** Captured 2026-06-11. The SDK automation, its packaging,
-and a dedicated device-IPA gate now ship:
-- `src/Swift.Runtime/src/build/add-swiftsupport-folder.sh` — the IPA post-processor.
-- `src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets` — `_SwiftBindingsAddSwiftSupportFolder`
-  (`AfterTargets="CreateIpa"`), opt-out via `<EnableSwiftSupportFolder>false</EnableSwiftSupportFolder>`.
+Status: **implemented (Strategy B), now covering BOTH distribution flows.** Captured 2026-06-11,
+extended 2026-06-12 to the `.xcarchive` → Xcode Organizer flow. The SDK automation, its packaging,
+and a dedicated host gate now ship:
+- `src/Swift.Runtime/src/build/add-swiftsupport-folder.sh` — the injector, with `--mode ipa|archive`.
+  Both modes share one scan/copy core; ipa mode grow-appends into the finished `.ipa`, archive mode
+  writes the folder into the `.xcarchive` root.
+- `src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets` — two hooks, both opt-out via
+  `<EnableSwiftSupportFolder>false</EnableSwiftSupportFolder>`:
+  - `_SwiftBindingsAddSwiftSupportFolder` (`AfterTargets="CreateIpa"`) — the direct `BuildIpa=true`
+    path (VS "Distribute", `dotnet publish -p:BuildIpa=true`).
+  - `_SwiftBindingsAddSwiftSupportFolderToArchive` (`AfterTargets="Archive"`, gated
+    `ArchiveOnBuild=true`) — the `.xcarchive` path the issue #42 reporter actually uses (VS
+    "Publish" → Xcode Organizer "Distribute App").
 - `src/Swift.Runtime/src/Swift.Runtime.csproj` — packs the script into `buildTransitive/`.
-- `nuke binding-tests --swiftsupport` (`build/Build.BindingTests.SwiftSupport.cs`) — the gate that
-  publishes a single-`PackageReference` device IPA and asserts the injected `SwiftSupport/iphoneos`
-  folder is Apple-signed, complete, and clean.
+- `nuke binding-tests --swiftsupport` (`build/Build.BindingTests.SwiftSupport.cs`) — the host gate.
+  Two legs from one consumer app: an **IPA leg** (`BuildIpa=true` publish) and an **archive leg**
+  (`ArchiveOnBuild=true` build). Each asserts the injected `SwiftSupport/iphoneos` is Apple-signed,
+  complete, and clean, and that the app signature still verifies.
 
 This doc is self-sufficient: it records the diagnosis and the implemented design, so a fresh
 session can understand the fix from it without re-deriving anything. Read it top to bottom; the
-**"SDK automation plan"** section documents the design that shipped.
+**"SDK automation plan"** section documents the IPA design that shipped first, and **"The archive
+distribution flow"** documents the second hook added for the reporter's actual flow.
 
 ---
 
@@ -280,6 +290,70 @@ consistent with the existing `--mixed-pack` / `--mixed-direct` opt-in heavyweigh
    `.framework`) is an independent, latent App Store-hygiene risk flagged during review
    (ITMS-90432/90087 class). NOT the cause of #42. Track separately; consider wrapping the runtime
    as a proper `.framework` in a future cleanup. Do not bundle into this fix.
+
+---
+
+## The archive distribution flow (issue #42 reporter's actual path)
+
+The original fix hooked `CreateIpa` — it fires only when the build produces an `.ipa` directly
+(`BuildIpa=true`: VS "Distribute", `dotnet publish -p:BuildIpa=true`). But the reporter, like most
+VS/MAUI users following Microsoft's documented App Store flow, does **not** take that path. He uses
+**VS "Publish" → produce a `.xcarchive` → open Xcode Organizer → "Distribute App" → App Store
+Connect**. In that flow the .NET build emits an `.xcarchive` (via `ArchiveOnBuild=true` →
+`Archive`/`_CoreArchive`) and **Xcode** — not .NET — produces the final IPA during export. The
+`CreateIpa` hook never runs, so the original fix did nothing for him. This is why he still hit
+ITMS-90426 after the first fix shipped.
+
+### The fix: inject into the archive root, exactly where Xcode expects it
+
+A `.xcarchive` is a directory with `Products/Applications/<app>.app` plus sibling metadata folders.
+Apple's archive→export tooling honors a top-level **`SwiftSupport/<platform>/`** folder in the
+archive root and carries it into the exported App Store IPA. So the second hook,
+`_SwiftBindingsAddSwiftSupportFolderToArchive`, runs `AfterTargets="Archive"` (gated
+`ArchiveOnBuild=true`) and writes `<archive>/SwiftSupport/iphoneos/` using the **same** scan/copy
+core as the IPA path — same weak/non-weak split, same toolchain back-deployment copies, same
+Apple-signed `ditto`, same dependency closure. The only difference is the destination and that there
+is no zip step (the archive is a plain directory).
+
+### Why this anchor is right (historical precedent, both reviewers concurred)
+
+This is exactly what Microsoft's own **`Xamarin.iOS.SwiftRuntimeSupport`** did for years: its targets
+ran `AfterTargets="Archive"`, gated `ArchiveOnBuild=true`, and copied the Swift dylibs to
+`$(ArchiveDir)/SwiftSupport`. Its readme explicitly supported "generating the archive of the app
+(not the IPA)" and routed users through Xcode Organizer's Distribute App wizard — Apple's export
+honored the archive-root folder. The community `Xamarin.Swift 1.2.0` package carried both anchors
+(`_CoreCreateIpa` for the IPA staging dir and `_CoreArchive`/`$(ArchiveDir)` for archives) for the
+same reason. We adopted the **public** `Archive` target + `$(ArchiveDir)` output property (Microsoft's
+shape) rather than the internal `_CoreArchive`, for robustness to workload churn.
+
+The reporter independently confirmed the carry-through: manually adding a populated `SwiftSupport`
+folder to his archive cleared ITMS-90426 through this exact Organizer flow (the only residual was a
+Finder `.DS_Store`, which our injector never produces).
+
+### Why the gate asserts the archive folder, not an exported IPA
+
+The faithful end-to-end check would be: inject into the archive, run
+`xcodebuild -exportArchive -exportOptionsPlist method=app-store-connect`, unzip the resulting IPA,
+and assert `SwiftSupport/iphoneos` survived. That export requires an **Apple Distribution**
+certificate + an App Store provisioning profile, which a CI/build host generally lacks (ours has only
+a development identity, zero distribution profiles). Shipping an `xcodebuild -exportArchive` step we
+cannot actually run would be worse than not having it — an untestable gate that silently no-ops.
+
+So the archive leg asserts **our code's responsibility**: a correct, complete, Apple-signed
+`SwiftSupport/iphoneos` at the archive root — deterministically, with only the development identity
+the host already has. The carry-through (Xcode copying `<archive>/SwiftSupport` into the App Store
+IPA) is Apple-toolchain behavior, backed by the Microsoft precedent above and the reporter's manual
+confirmation. The final proof remains a real App Store submission, same caveat as the IPA leg.
+
+### Gate mechanics worth knowing
+
+The workload's `Archive` MSBuild task always writes the `.xcarchive` to Xcode's own Archives
+directory (`~/Library/Developer/Xcode/Archives/<date>/<name> <timestamp>.xcarchive`) and exposes the
+chosen path only as the `$(ArchiveDir)` **output** property — there is no input property to redirect
+it (`ArchivePath` does not control it). The gate's consumer csproj therefore captures `$(ArchiveDir)`
+to `archive-dir.txt` via a small `AfterTargets="Archive"` target, and the gate reads that file to
+locate the archive precisely instead of globbing the date folder. The gate deletes the throwaway
+archive (and its now-empty date folder) afterward so it does not litter Xcode Organizer.
 
 ---
 
