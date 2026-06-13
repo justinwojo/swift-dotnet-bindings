@@ -89,6 +89,9 @@ When a runtime test crashes (SIGSEGV, SIGKILL, Mono JIT assertion):
 ## Emission Pipeline Dual-Path Hazard
 `EmitBoundGenericArguments()` and `EmitTypeConversions()` (which calls `TryEmitParameterConversionViaProjection()`) BOTH run for the same parameters. They create variables with the `{name}Buffer` naming convention. If a new fast path in one creates `{name}Buffer`, verify the other path doesn't ALSO create it. Run `nuke validate` with a library that has Optional<CGFloat> params as a canary — it exercises both paths.
 
+## New Reverse-Dispatch Test → add the protocol to PreservedProtocols
+When adding a BindingTests test where Swift dispatches **back into** a C# conformer through a protocol's witness table / EveryProtocol vtable (reverse dispatch — receiver getters/setters, vtable round-trips), add the protocol name to `PreservedProtocols` in `build/Helpers/SwiftSourceStripper.cs:22`. The harness's source stripper drops conformances and their witness-table getters from the test dylib unless the protocol is in that set; a missing getter surfaces as `EntryPointNotFoundException` at runtime, NOT a compile error. This stripper is SEPARATE from the generator's own stripping — editing one does not affect the other. Caveat: `--skip-regen` reuses the already-built wrapper, so it won't pick up a freshly-added preserved protocol — run a full `nuke binding-tests` (regen) when validating the new entry.
+
 ## Runtime Test Pre-Flight (saves 20+ min)
 Before writing runtime tests for a new batch:
 1. Read generated C# bindings for the types — identify non-blittable params, missing entry points

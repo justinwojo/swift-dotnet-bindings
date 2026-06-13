@@ -16,8 +16,7 @@ demangler, it makes sense to port this instead.
 
 The general process should be:
 
-- Read the corresponding dylib file using MachO.cs, specifying the target architecture
-- Extract the symbols from the file
+- Extract the exported symbols from the library's `.tbd` file (`TbdParser`)
 - Demangle the symbols into a collection of objects implementing a common interface
 - Separate the demangled symbols into groupings needed for binding
 
@@ -28,7 +27,7 @@ obvious gains in parallel processing but requires the either another pass to
 put the needed symbols where they belong or it requires the binding code to
 look up the required symbols.
 
-An alternative approach using .tbd files is described in [Retrieving symbols missing from abi.json](retrieving-symbols-outside-abi-json.md).
+The shipped `.tbd`-based symbol retrieval is described in [Retrieving symbols missing from abi.json](retrieving-symbols-outside-abi-json.md).
 
 ## Overview of the Demangling Code
 

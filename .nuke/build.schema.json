@@ -250,10 +250,6 @@
           "type": "boolean",
           "description": "Opt-in: pack a mixed (ObjC+Swift) binding into ONE nupkg and consume it via a single PackageReference on iOS sim/device. Composes with --sim/--device; never part of the default run or --compile-only"
         },
-        "NuGetApiKey": {
-          "type": "string",
-          "default": "Secrets must be entered via 'nuke :secrets [profile]'"
-        },
         "OutputDir": {
           "type": "string",
           "description": "NuGet output directory"

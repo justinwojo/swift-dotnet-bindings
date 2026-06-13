@@ -44,7 +44,7 @@ The last case is a trailing closure which is exactly equivalent to the second in
 
 ## ABI Differences
 
-Closures follow the same calling conventions as [functions](binding-functions.md).
+Closures follow the same calling conventions as functions.
 
 With support for Swift calling conventions in the runtime, we should be insulated from issues in the ABI differences.
 
@@ -154,13 +154,11 @@ This eliminates the need for the "heavy-handed" approach described in the Runtim
 
 ### Closure Cdecl compatibility
 
-Not all closure signatures can be represented as `@convention(c)`. The generator checks each closure parameter for Cdecl compatibility:
+Not all closure signatures can be represented as `@convention(c)`. The generator checks each closure parameter for Cdecl compatibility (`IsCdeclCompatibleType` in `ClosureEmitter.SwiftWrapper.cs`):
 - Primitive types, pointers, and `OpaquePointer` are Cdecl-compatible
-- `SwiftString`, complex structs, and protocol existentials are NOT Cdecl-compatible in closure position
+- Coverage extends to frozen structs (including `Swift.String`, via dedicated string-callback marshalling), non-frozen structs, complex enums, and protocol existentials (bridged as heap pointers)
 
-Methods with closures that can't be Cdecl-adapted either:
-- Get a **standalone closure wrapper** (if the closure is escaping and the method otherwise qualifies for an @_cdecl wrapper), or
-- Fall back to **direct `CallConvSwift` P/Invoke** with the original Swift thick closure ABI
+A method gets a **standalone closure wrapper** only when *all* of its thunk closures are Cdecl-compatible (`NeedsClosureCdeclWrapper`). Methods with any closure that can't be Cdecl-adapted fall back to **direct `CallConvSwift` P/Invoke** with the original Swift thick closure ABI.
 
 ### Delegate projection
 

@@ -118,7 +118,7 @@ const TRACKS = {
   L2: {
     report: 'Track-L2_ObjC-Interop.md',
     title: 'ObjC interop pipeline',
-    targets: 'src/Swift.Bindings/src/ObjC/**; ObjC unit tests; Apple supplement paths; src/docs/apple-framework-deferred-work.md',
+    targets: 'src/Swift.Bindings/src/ObjC/**; ObjC unit tests; Apple supplement paths',
     hunt: 'ObjC import blind spots; availability projection drift; name collisions; Swift-overlay/Foundation routing mistakes.',
   },
   L3: {

@@ -3,8 +3,7 @@
 This document covers the projection of Swift's `UnsafeMutableRawBufferPointer`
 parameter type into C#. It is the writable companion to the existing
 `UnsafeRawBufferPointer` → `ReadOnlySpan<byte>` projection (see
-[`binding-overview.md`](binding-overview.md) for the broader marshalling
-philosophy and [`memory-management.md`](memory-management.md) for memory
+[`memory-management.md`](memory-management.md) for memory
 ownership rules).
 
 ## Surface

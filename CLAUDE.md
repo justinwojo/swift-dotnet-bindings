@@ -21,10 +21,10 @@ Swift/.NET interop: generates C# bindings from compiled Swift libraries (`.dylib
 |---|---|---|
 | `nuke compile` | fast | Build the project |
 | `nuke test` | ~2 min | Unit + integration tests |
-| `nuke validate` | ~2 min | Compile gate across real-world libs. Flags: `--tier N`, `--filter X` |
+| `nuke validate` | ~5 min | Compile gate across real-world libs. Flags: `--tier N`, `--filter X` |
 | `nuke fetch` | — | Download xcframeworks (first time only) |
 | `nuke binding-tests [flags]` | varies | End-to-end BindingTests gate — see flag table below |
-| `nuke pack --version X.Y.Z` | fast | Build all 3 NuGet packages → `/tmp/swift-nuget/` |
+| `nuke pack --version X.Y.Z --apple-version A.B.C` | fast | Build all 4 NuGet packages (Runtime, Sdk, Templates, Apple) → `/tmp/swift-nuget/`. `--apple-version` is **required** (pack hard-fails without it so the Apple supplement can't silently ride an unrelated version); pass `--skip-apple` to ship the 3 SDK-lane packages only. |
 
 ### `nuke binding-tests` flags
 
@@ -46,7 +46,7 @@ One target covers the compile gate and every runtime gate. Platform flags compos
 | `--class-filter NAME` | Run only one test class (Simulator path) |
 | `--mixed-pack` | **Opt-in, heavyweight.** Packs a mixed (ObjC+Swift) binding into ONE nupkg and consumes it via a single `PackageReference` on iOS sim/device. Composes with `--sim`/`--device` (defaults to sim). Never in the default run or `--compile-only`. See note below. |
 | `--mixed-direct` | **Opt-in, heavyweight, sim-only.** Builds a mixed (ObjC+Swift) binding in **SDK-direct mode** — the app's OWN csproj imports `SwiftBindings.Sdk` + `<SwiftFramework>`, so the app IS the binding project (no PackageReference) — then runs it on the iOS Simulator. The runtime gate for consumption *path b*. Mutually exclusive with `--mixed-pack`; never in the default run or `--compile-only`. See note below. |
-| `--swiftsupport` | **Opt-in, heavyweight, host-only.** Packs `SwiftBindings.Runtime` to a local feed, publishes a single-`PackageReference` device IPA (`ios-arm64`, `BuildIpa=true`), and asserts the App Store `SwiftSupport/iphoneos` folder our `CreateIpa` hook injects is compliant (issue #42): non-empty, contains only Apple-signed `libswift*.dylib`, no `.DS_Store`/`__MACOSX`, Payload signature intact. Builds + inspects on the build host (needs a signing identity; **no** device/sim — platform flags are ignored). Mutually exclusive with `--mixed-pack`/`--mixed-direct`; never in the default run or `--compile-only`. See note below. |
+| `--swiftsupport` | **Opt-in, heavyweight, host-only.** Packs `SwiftBindings.Runtime` to a local feed and, from one single-`PackageReference` consumer app, exercises **both** App Store distribution flows (issue #42): an **IPA leg** (`ios-arm64`, `BuildIpa=true`) asserting the `SwiftSupport/iphoneos` our `CreateIpa` hook injects into the finished `.ipa`, and an **archive leg** (`ArchiveOnBuild=true`) asserting the folder our `Archive` hook writes into the `.xcarchive` root — the VS Publish → Xcode Organizer path the reporter actually uses. Each leg asserts the folder is compliant: non-empty, only Apple-signed `libswift*.dylib`, no `.DS_Store`/`__MACOSX`, app signature intact. Builds + inspects on the build host (needs a signing identity; **no** device/sim — platform flags are ignored). Mutually exclusive with `--mixed-pack`/`--mixed-direct`; never in the default run or `--compile-only`. Full diagnosis + design: `src/docs/swiftsupport-app-store-fix.md`. |
 
 The compile gate (`--compile-only`) and the runtime gates are complementary: the first asks "does it compile?", the second asks "does it pass?". Generator/emitter changes want both — run `nuke binding-tests --compile-only` then `nuke binding-tests --skip-regen`. For runtime-only C# changes, `nuke binding-tests --skip-regen` alone is enough.
 
@@ -70,6 +70,21 @@ All options: `dotnet run --project src/Swift.Bindings/src -- --help`. Validation
 - **Package prefix is `SwiftBindings.*`** (not `Swift.*` — reserved by Microsoft). Assembly/namespace stays `Swift.Runtime`.
 - SDK source: `src/Swift.Bindings.Sdk/Sdk/`. Automates generate → compile → pack into `dotnet build`.
 - SDK inter-framework deps use `<SwiftFrameworkDependency>` with `PackageId` + `PackageVersion`.
+
+### Releasing
+
+Releases are cut by GitHub Actions (`.github/workflows/release.yml`), triggered by pushing a `release/**` branch whose name encodes the lane + version(s):
+
+| Branch | Lane | Publishes |
+|---|---|---|
+| `release/sdk-X.Y.Z+apple-A.B.C` | combined | All 4 packages — Runtime/Sdk/Templates at `X.Y.Z`, Apple at `A.B.C` |
+| `release/sdk-X.Y.Z` | SDK only | Runtime/Sdk/Templates at `X.Y.Z` (Apple stays at its latest `apple-v*`) |
+| `release/apple-A.B.C` | Apple only | SwiftBindings.Apple at `A.B.C` (SDK lane stays at its latest `sdk-v*`) |
+
+- Append `-dryrun.N` (e.g. `release/sdk-0.15.0-dryrun.1`) to validate + pack **without** publishing, tagging, or releasing.
+- A prerelease version (`-preview`/`-alpha`/`-beta`/`-rc`) marks the GitHub Release as a prerelease.
+- Publish is gated on `nuke test`, `nuke binding-tests --strict --compile-only` + a tier-2 sim run, `nuke validate-blast-radius`, and a NuGet preflight. On success the pipeline `dotnet nuget push`es each nupkg, pushes the lane tag(s) (`sdk-v*` / `apple-v*`), and creates the GitHub Release with nupkgs attached (notes from a branch `RELEASE-NOTES.md` if present, else auto-generated).
+- The NuGet key is the repo's `NUGET_API_KEY` **GitHub Actions secret**, consumed directly by `dotnet nuget push` — there is no `nuke publish` target.
 
 ## Working Guidelines
 

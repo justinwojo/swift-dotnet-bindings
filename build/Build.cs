@@ -84,8 +84,6 @@ partial class Build : NukeBuild
     [Parameter("Run sequentially (no parallelism)")]
     readonly bool Serial;
 
-    [Parameter] [Secret] readonly string? NuGetApiKey;
-
     // --- Computed paths ---
     AbsolutePath SourceDir => RootDirectory / "src";
     AbsolutePath BindingTestsDir => RootDirectory / "BindingTests";
