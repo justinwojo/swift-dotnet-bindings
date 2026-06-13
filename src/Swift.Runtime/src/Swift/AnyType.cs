@@ -46,6 +46,9 @@ public struct AnyType : ISwiftObject
     }
     public SwiftSafeHandle<AnyType> Payload => _payload;
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
+
     /// <summary>
     /// Creates a new SwiftOptional from a Swift payload
     /// </summary>

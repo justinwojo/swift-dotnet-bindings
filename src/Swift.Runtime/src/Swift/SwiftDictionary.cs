@@ -118,6 +118,9 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
     }
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         // Uses HashableConformanceRegistry for NativeAOT safety — avoids MakeGenericType

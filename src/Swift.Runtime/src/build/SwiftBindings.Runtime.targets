@@ -7,6 +7,44 @@
     <IncludeSwiftBindingsRuntimeNative Condition="'$(IncludeSwiftBindingsRuntimeNative)' == ''">true</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Defect H: build-time runtime-flavor switch for SwiftRuntimeInfo         -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- The managed heuristic in SwiftRuntimeInfo cannot distinguish Mono full-AOT
+       on an iOS *device* (rid 'ios-arm64', no PublishAot, SwiftBindingsInteropMode=Safe)
+       from NativeAOT: both report IsDynamicCodeSupported=false and neither exposes the
+       'Mono.Runtime' type. Misclassifying the supported device-Mono build as NativeAOT
+       enables direct static-virtual generic dispatch, which aborts Mono (jit-info.c:918).
+       We inject the build-time truth as an AppContext switch read by SwiftRuntimeInfo:
+       true iff the binding is built for the NativeAOT (Direct) interop contract, false for
+       Mono/CoreCLR (Safe). The switch is authoritative; the heuristic is only a fallback
+       when it is absent — so injecting it for *every* config (Direct and Safe alike) is
+       what actually closes the hole.
+
+       This lives in the Runtime package's buildTransitive targets because that file is
+       imported by every consumer (PackageReference bindings, SDK-direct apps, and pure
+       Runtime consumers), giving a single injection point with no resolution-logic drift.
+
+       The value is computed inside a target that runs just before the runtimeconfig.json
+       generation so SwiftBindingsInteropMode/PublishAot are fully resolved regardless of
+       import order (Grok flagged top-level-property ordering as the main risk). The
+       resolution mirrors the SDK / ConsumerTargetsEmitter twin: explicit Direct/Safe wins;
+       otherwise Direct iff PublishAot. The PublishAot fallback also yields the correct
+       answer when SwiftBindingsInteropMode is unset (pure Runtime consumer) or still 'Auto'. -->
+  <Target Name="_SwiftBindingsInjectRuntimeFlavorSwitch"
+          BeforeTargets="GenerateBuildRuntimeConfigurationFiles;GenerateRuntimeConfigurationFiles">
+    <PropertyGroup>
+      <_SwiftRuntimeIsNativeAot Condition="'$(SwiftBindingsInteropMode)' == 'Direct'">true</_SwiftRuntimeIsNativeAot>
+      <_SwiftRuntimeIsNativeAot Condition="'$(SwiftBindingsInteropMode)' == 'Safe'">false</_SwiftRuntimeIsNativeAot>
+      <_SwiftRuntimeIsNativeAot Condition="'$(_SwiftRuntimeIsNativeAot)' == '' AND '$(PublishAot)' == 'true'">true</_SwiftRuntimeIsNativeAot>
+      <_SwiftRuntimeIsNativeAot Condition="'$(_SwiftRuntimeIsNativeAot)' == ''">false</_SwiftRuntimeIsNativeAot>
+    </PropertyGroup>
+    <ItemGroup>
+      <RuntimeHostConfigurationOption Include="Swift.Runtime.IsNativeAot"
+                                      Value="$(_SwiftRuntimeIsNativeAot)" />
+    </ItemGroup>
+  </Target>
+
   <!-- macOS: TFM contains 'macos' but NOT 'maccatalyst' -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
                          AND $(TargetFramework.Contains('macos'))

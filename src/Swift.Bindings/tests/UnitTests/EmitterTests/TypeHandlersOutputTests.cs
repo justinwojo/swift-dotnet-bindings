@@ -38,6 +38,8 @@ public class TypeHandlersOutputTests
         Assert.Contains("public partial class Loader : ISwiftObject, IDisposable", csOutput);
         Assert.Contains("SwiftClassHandle<Loader> _handle", csOutput);
         Assert.Contains("public SwiftClassHandle<Loader> Payload => _handle;", csOutput);
+        // Finding 56a: non-reflective borrowed-marshal finalizer suppression — class handle is the payload.
+        Assert.Contains("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_handle);", csOutput);
         Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
     }
 
@@ -236,6 +238,8 @@ public class TypeHandlersOutputTests
         Assert.Contains("public partial class CacheKey : ISwiftObject, ISwiftStruct, IDisposable", csOutput);
         Assert.Contains("SwiftSafeHandle<CacheKey> _payload", csOutput);
         Assert.Contains("public SwiftSafeHandle<CacheKey> Payload => _payload;", csOutput);
+        // Finding 56a: non-reflective borrowed-marshal finalizer suppression — the SafeHandle payload field.
+        Assert.Contains("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_payload);", csOutput);
     }
 
     [Fact]

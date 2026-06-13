@@ -100,44 +100,47 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
             ProtocolConformanceDescriptor candidate;
-            if (SwiftRuntimeInfo.IsNativeAotRuntime)
+
+            // Cache-first on ALL runtimes (Finding 32). Generated module initializers register
+            // a concrete-typed conformance factory for every (type, protocol) pair on all
+            // runtimes (RegisterConformanceFactory), so the hot path is a dictionary lookup +
+            // delegate invoke. A registered factory is authoritative — its result (including
+            // Zero, meaning "no conformance") is used directly without reflection. This replaces
+            // the prior per-call MakeGenericType + Invoke on the Mono branch.
+            var cached = InteropServices.ConformanceDispatcher.TryGet(type, typeof(TProtocol));
+            if (cached.HasValue)
             {
-                // NativeAOT: try factory cache first (populated by ProtocolConformanceDescriptorHelper)
-                var cached = InteropServices.ConformanceDispatcher.TryGet(type, typeof(TProtocol));
-                if (cached.HasValue)
+                candidate = cached.Value;
+            }
+            else if (SwiftRuntimeInfo.IsNativeAotRuntime)
+            {
+                // NativeAOT fallback: trigger type initialization to populate conformance cache.
+                // Types like SwiftString register their conformances in ConformanceDispatcher
+                // during static construction (NativeAotRegisterConformances).
+                try
                 {
-                    candidate = cached.Value;
-                }
-                else
-                {
-                    // NativeAOT fallback: trigger type initialization to populate conformance cache.
-                    // Types like SwiftString register their conformances in ConformanceDispatcher
-                    // during static construction (NativeAotRegisterConformances).
-                    try
+                    RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+                    cached = InteropServices.ConformanceDispatcher.TryGet(type, typeof(TProtocol));
+                    if (cached.HasValue)
                     {
-                        RuntimeHelpers.RunClassConstructor(type.TypeHandle);
-                        cached = InteropServices.ConformanceDispatcher.TryGet(type, typeof(TProtocol));
-                        if (cached.HasValue)
-                        {
-                            candidate = cached.Value;
-                        }
-                        else
-                        {
-                            // Last resort: reflection with MakeGenericMethod
-                            candidate = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(type, typeof(TProtocol));
-                        }
+                        candidate = cached.Value;
                     }
-                    catch
+                    else
                     {
-                        // RunClassConstructor or reflection failed; try reflection directly
+                        // Last resort: reflection with MakeGenericMethod
                         candidate = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(type, typeof(TProtocol));
                     }
+                }
+                catch
+                {
+                    // RunClassConstructor or reflection failed; try reflection directly
+                    candidate = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(type, typeof(TProtocol));
                 }
             }
             else
             {
-                // Mono JIT: use MakeGenericType + ProtocolConformanceDescriptorHelper
-                // which internally uses reflection to avoid Mono JIT assertion
+                // Mono cold fallback (cache miss): MakeGenericType + ProtocolConformanceDescriptorHelper
+                // which internally uses reflection to avoid the Mono JIT assertion.
                 var helperType = typeof(ProtocolConformanceDescriptorHelper<,>).MakeGenericType(typeof(TType), typeof(TProtocol));
                 candidate = (ProtocolConformanceDescriptor)helperType.GetMethod("GetProtocolConformanceDescriptor")!.Invoke(null, null)!;
             }

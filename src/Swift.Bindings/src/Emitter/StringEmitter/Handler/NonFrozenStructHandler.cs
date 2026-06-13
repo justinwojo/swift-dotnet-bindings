@@ -453,6 +453,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
+            csWriter.WriteLine("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_payload);");
             csWriter.WriteLine();
             var simpleName = typeNameWithGenerics.Contains('<')
                 ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))

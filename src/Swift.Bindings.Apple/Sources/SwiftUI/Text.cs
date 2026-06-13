@@ -51,6 +51,9 @@ public sealed class Text : ISwiftObject, IDisposable
         }
     }
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
+
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     #region ISwiftObject Implementation

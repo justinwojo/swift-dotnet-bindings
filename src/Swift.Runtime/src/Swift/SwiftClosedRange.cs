@@ -117,6 +117,9 @@ public class SwiftClosedRange<Bound> : ISwiftObject, ISwiftStruct, IDisposable
         get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
     }
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         // ClosedRange's metadata accessor requires a Comparable witness table for Bound.

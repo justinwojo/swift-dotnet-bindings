@@ -151,6 +151,14 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
         get { ThrowIfDisposed(); ThrowIfCSharpOnly(); return _payload!.DangerousGetHandle(); }
     }
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    // _payload is null for C#-only instances (no native allocation) — nothing to suppress there.
+    void ISwiftObject.SuppressPayloadFinalizer()
+    {
+        if (_payload is not null)
+            global::System.GC.SuppressFinalize(_payload);
+    }
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftResult<TSuccess, TFailure>), _ =>

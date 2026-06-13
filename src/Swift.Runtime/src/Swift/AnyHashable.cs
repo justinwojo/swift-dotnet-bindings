@@ -27,6 +27,9 @@ public struct AnyHashable : ISwiftObject
 
     public SwiftSafeHandle<AnyHashable> Payload => _payload;
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
+
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
         return new AnyHashable(payload);

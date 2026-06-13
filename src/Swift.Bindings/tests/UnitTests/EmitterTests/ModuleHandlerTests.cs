@@ -1523,6 +1523,33 @@ public class ModuleHandlerTests
         Assert.Contains("#pragma warning restore CA2255", csOutput);
     }
 
+    [Fact]
+    public void Emit_ModuleInitializer_AssertsRuntimeContractVersion()
+    {
+        // Finding 32: the module initializer must perform the runtime-contract handshake
+        // so a binding generated against an incompatible runtime fails loudly at load.
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("global::Swift.Runtime.RuntimeContract.AssertCompatible(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ModuleInitializer_ContractCheckPrecedesRegistrations()
+    {
+        // The contract check is the single unconditional guard BEFORE the best-effort
+        // (try/catch) framework-resolver and factory registrations — so an incompatible
+        // binding cannot silently fall through to a later dispatch failure.
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        var assertIdx = csOutput.IndexOf("RuntimeContract.AssertCompatible(");
+        var resolverIdx = csOutput.IndexOf("SwiftFrameworkResolver.RegisterForAssembly");
+
+        Assert.True(assertIdx >= 0, "AssertCompatible call not found");
+        Assert.True(resolverIdx >= 0, "RegisterForAssembly call not found");
+        Assert.True(assertIdx < resolverIdx,
+            "AssertCompatible must precede the framework-resolver registration");
+    }
+
     #endregion
 
     #region Witness Table Registration Emission Tests

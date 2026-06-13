@@ -40,6 +40,22 @@ public interface ISwiftObject : IDisposable
     /// </summary>
     IntPtr SwiftHandle => throw new NotSupportedException(
         $"SwiftHandle is not available for {GetType().Name}. Only heap-backed Swift types support handle extraction.");
+
+    /// <summary>
+    /// Suppresses the finalizer of this object's backing payload, if it owns one.
+    /// Called by <see cref="InteropServices.SwiftMarshal.MarshalBorrowedFromSwift{T}"/> when a
+    /// borrowed (+0) native reference is wrapped: the wrapper must not release a handle it does
+    /// not own, so its payload <see cref="System.Runtime.InteropServices.SafeHandle"/> finalizer
+    /// (which would call <c>ReleaseHandle</c> → <c>Arc.Release</c> / VWT destroy) must be suppressed.
+    /// This is the non-reflective replacement for the former per-call
+    /// <c>GetType().GetProperty("Payload")</c> + boxed <c>GetValue</c> lookup.
+    /// The default is a no-op for types with no separately-finalizable payload — value-type
+    /// (frozen) structs, existential-container-backed proxies, and SafeHandle-subclass wrappers
+    /// whose own finalizer is already suppressed by the caller's <c>GC.SuppressFinalize(this)</c>.
+    /// Heap-backed wrappers that hold a payload SafeHandle in a separate field override this to
+    /// call <c>GC.SuppressFinalize</c> on that field.
+    /// </summary>
+    void SuppressPayloadFinalizer() { }
 }
 
 /// <summary>
@@ -108,9 +124,17 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
     public static ISwiftObject NewFromPayload(IntPtr payload)
     {
         // On NativeAOT, use direct static virtual dispatch.
-        // On Mono (JIT or AOT/simulator), use reflection to avoid JIT assertion.
         if (SwiftRuntimeInfo.IsNativeAotRuntime)
             return DirectDispatchNewFromPayload(payload);
+
+        // Mono / CoreCLR: consult the factory cache first (Finding 32). Generated module
+        // initializers register a concrete-typed factory for every emitted type on all
+        // runtimes, so this is a cache lookup + delegate invoke in the common case rather
+        // than per-call reflection. We do not register here on Mono — the registration
+        // lambda contains the static-abstract T.NewFromPayload that would assert on Mono.
+        var cached = Swift.Runtime.InteropServices.NewFromPayloadDispatcher.TryCreate(typeof(T), payload);
+        if (cached != null)
+            return (ISwiftObject)cached;
         return SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(T), payload);
     }
 

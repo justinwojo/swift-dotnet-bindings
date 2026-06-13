@@ -30,6 +30,9 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
 
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
+
     /// <summary>The numeric value of the measurement.</summary>
     /// <remarks>
     /// Swift's Foundation.Measurement is declared as <c>{ unit: UnitType; value: Double }</c>,

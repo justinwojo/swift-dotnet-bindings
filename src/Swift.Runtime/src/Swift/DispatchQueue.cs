@@ -39,6 +39,9 @@ public sealed class DispatchQueue : ISwiftObject, ISwiftStruct, IDisposable
 
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
 
+    // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
+    void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

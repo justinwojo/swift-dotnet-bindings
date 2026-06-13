@@ -47,6 +47,14 @@ namespace BindingsGeneration
     /// </summary>
     public class ModuleHandler : BaseHandler, IModuleHandler
     {
+        /// <summary>
+        /// Runtime-dispatch contract version emitted into each generated module initializer's
+        /// <c>RuntimeContract.AssertCompatible(...)</c> call (Finding 32). Bump in lockstep with
+        /// <c>Swift.Runtime.RuntimeContract.Version</c> whenever the module-init ↔ runtime
+        /// dispatch contract changes shape. See RuntimeContract.cs for the bump discipline.
+        /// </summary>
+        internal const int EmittedRuntimeContractVersion = 1;
+
         private readonly NamespacePatternResolver _namespacePatternResolver;
 
         public ModuleHandler(ILogger logger, NamespacePatternResolver? namespacePatternResolver = null) : base(logger)
@@ -367,6 +375,12 @@ namespace BindingsGeneration
                     [ModuleInitializer]
                     internal static void Initialize()
                     {
+                        // Runtime-contract handshake (Finding 32): a single unconditional check
+                        // before the best-effort (try/catch) registrations below. If this binding
+                        // was generated against a different runtime dispatch contract than the
+                        // loaded SwiftBindings.Runtime, fail loudly at module load rather than let
+                        // an incompatible binding silently fall through to a later dispatch failure.
+                        global::Swift.Runtime.RuntimeContract.AssertCompatible({{EmittedRuntimeContractVersion}});
                         global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly);
                 """);
             foreach (var typeName in factoryTypes)

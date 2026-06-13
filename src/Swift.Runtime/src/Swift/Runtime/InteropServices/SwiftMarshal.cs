@@ -934,6 +934,17 @@ public static class SwiftMarshal
             NewFromPayloadDispatcher.Register(typeof(T), handle => (object)T.NewFromPayload(handle));
             return (T)DirectNewFromPayload<T>(swiftSource);
         }
+
+        // Mono / CoreCLR: consult the factory cache first (Finding 32). Generated module
+        // initializers register a concrete-typed factory for every emitted type on ALL
+        // runtimes (RegisterSwiftObjectFactory<ConcreteType>), so the common case is a
+        // dictionary lookup + delegate invoke — no per-call reflection. We must NOT register
+        // here on Mono: the registration lambda contains the static-abstract T.NewFromPayload
+        // call, which would compile in this possibly-shared generic body and assert on Mono
+        // (jit-info.c:918). Reflection remains the cold fallback on a cache miss.
+        var cached = NewFromPayloadDispatcher.TryCreate(typeof(T), swiftSource);
+        if (cached != null)
+            return (T)cached;
         return (T)SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(T), swiftSource);
     }
 
@@ -977,26 +988,20 @@ public static class SwiftMarshal
     [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwiftCore")]
     [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwiftCore")]
     [UnconditionalSuppressMessage("Trimming", "IL2059", Justification = "Delegates to MarshalFromSwiftCore")]
-    [UnconditionalSuppressMessage("Trimming", "IL2070",
-        Justification = "GetProperty on ISwiftObject types whose Payload property is always preserved")]
-    [UnconditionalSuppressMessage("Trimming", "IL2075",
-        Justification = "GetType().GetProperty on ISwiftObject types whose Payload property is always preserved via TrimmerRoots.xml")]
     public static T MarshalBorrowedFromSwift<T>(IntPtr swiftSource)
     {
         var obj = MarshalFromSwiftCore<T>(swiftSource);
         if (obj != null)
         {
             GC.SuppressFinalize(obj);
-            // Generated wrapper classes hold a SafeHandle in a Payload property.
-            // The SafeHandle's finalizer calls ReleaseHandle (Arc.Release / VWT.Destroy),
-            // which would double-release a borrowed native handle.
-            if (obj is ISwiftObject)
-            {
-                var payloadProp = obj.GetType().GetProperty("Payload",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (payloadProp?.GetValue(obj) is object payload)
-                    GC.SuppressFinalize(payload);
-            }
+            // Generated wrapper classes hold a SafeHandle payload. The SafeHandle's finalizer
+            // calls ReleaseHandle (Arc.Release / VWT.Destroy), which would double-release a
+            // borrowed (+0) native handle. SuppressPayloadFinalizer is a non-reflective virtual
+            // (ISwiftObject DIM) that suppresses that payload finalizer; the default is a no-op
+            // for types with no separately-finalizable payload. Replaces the former per-call
+            // GetType().GetProperty("Payload") + boxed GetValue reflection (Finding 56a).
+            if (obj is ISwiftObject swiftObj)
+                swiftObj.SuppressPayloadFinalizer();
         }
         return obj;
     }
