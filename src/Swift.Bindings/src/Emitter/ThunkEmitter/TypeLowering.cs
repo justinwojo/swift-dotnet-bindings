@@ -151,10 +151,17 @@ public static class TypeLowering
                 // so only @frozen simple enums can be safely lowered.
                 if (record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
                     && record.Flags.HasFlag(TypeRecordFlags.Frozen))
+                {
+                    // A null InlineSize means the enum's size was never measured — without it the
+                    // value's byte size is unknown, so decline to @_cdecl rather than fabricate an
+                    // 8-byte value (which mis-describes the usual 1-byte enum). See Finding 44.
+                    if (!record.InlineSize.HasValue)
+                        return null;
                     return new TypeLoweringResult(
                         new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
                         IsIndirect: false,
-                        TotalByteSize: record.InlineSize ?? 8);
+                        TotalByteSize: record.InlineSize.Value);
+                }
                 return null; // Non-frozen or complex enum — can't lower
 
             case TypeRecordKind.Struct:

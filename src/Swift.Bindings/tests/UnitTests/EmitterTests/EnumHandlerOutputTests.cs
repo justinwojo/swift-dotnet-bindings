@@ -709,8 +709,16 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_GenericEnum_EmitsGenericTypeAndPInvokeHelper()
+    public void Emit_GenericEnum_FailsClosedOnPayloadCaseFactory_StillEmitsTypeAndHelper()
     {
+        // Defect A (architecture-review-2026-06): a generic enum's payload-case constructor is never
+        // exported as a callable function symbol — `nm -gU` of the built framework shows only the
+        // `…mlFWC` case-descriptor DATA, not an `…mlF` function. The previous emission imported that
+        // dangling symbol via `{Enum}_PInvoke.PInvoke_{Case}`, so the static factory threw
+        // EntryPointNotFoundException on first call. The generator now FAILS CLOSED: it skips the C#
+        // factory and emits a loud "Unsupported" member comment instead. The generic TYPE, its
+        // `_PInvoke` metadata helper, and the TryGet payload extractor (for natively-constructed
+        // values) are unaffected and still emit. Correct metadata-aware factory routing is Session 8.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("ValueProviderStorage", moduleDecl, isFrozen: true);
@@ -726,15 +734,18 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // T has no protocol conformances, so the ISwiftObject seed is dropped — blittable
-        // instantiations like ValueProviderStorage<float> compile at the call site.
+        // The generic type itself still emits. T has no protocol conformances, so the ISwiftObject
+        // seed is dropped — blittable instantiations like ValueProviderStorage<float> compile.
         Assert.Contains("public partial class ValueProviderStorage<T> : ISwiftObject, ISwiftStruct, IDisposable", csOutput);
         Assert.DoesNotContain("ValueProviderStorage<T> : ISwiftObject, ISwiftStruct, IDisposable where", csOutput);
-        Assert.Contains("public static unsafe ValueProviderStorage<T> Boxed(T value)", csOutput);
-        Assert.Contains("var valueMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
-        Assert.Contains("SwiftMarshal.MarshalToSwift(value, ref valueSwiftSpan);", csOutput);
-        Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)valueSwiftBuffer", csOutput);
+        // The _PInvoke helper class still emits — the metadata/TryGet path needs PInvoke_getMetadata.
         Assert.Contains("internal static unsafe partial class ValueProviderStorage_PInvoke", csOutput);
+
+        // Fail closed: the dangling payload-case factory and its P/Invoke are NOT emitted.
+        Assert.DoesNotContain("public static unsafe ValueProviderStorage<T> Boxed(", csOutput);
+        Assert.DoesNotContain("PInvoke_Boxed", csOutput);
+        // Instead, a loud Unsupported member comment marks the skipped factory.
+        Assert.Contains("// Unsupported: method 'Boxed'", csOutput);
     }
 
     [Fact]
@@ -916,22 +927,14 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_GenericEnum_CaseFactorySugaredTypeParameter_ResolvesAppleShape()
+    public void Emit_GenericEnum_FailsClosedOnSugaredPayloadCaseFactory()
     {
-        // The original sugared-name fix resolved the TryGet path via a
-        // local AnyType bypass but left GetCSharpTypeNameForEnumCase still pre-gated on
-        // TypeSpecHelpers.IsGenericTypeParameter (length-≤3 simple-letter shortlist).
-        // EmitEnumCaseWithAssociatedValues (the static case factory) shares that helper,
-        // so for Apple-shape sugared payloads it kept seeing AnyType and bailed at the
-        // factory's own AnyType gate — emitting the read-only `Verified` accessor only,
-        // never the constructable factory.
-        //
-        // The actual fix drops the IsGenericTypeParameter pre-gate inside
-        // GetCSharpTypeNameForEnumCase. The extended TryGetGenericTypeParameterName
-        // already handles τ_X_Y, T+digit, AND multi-character sugared names; non-matches
-        // fall through to the typedb lookup unchanged. This test guards the factory
-        // side: for VerificationResult<SignedType>.verified(SignedType), the static
-        // factory must emit with the resolved TSignedType parameter, not AnyType.
+        // Companion to Emit_GenericEnum_FailsClosedOnPayloadCaseFactory_StillEmitsTypeAndHelper for
+        // the Apple-framework SUGARED generic-parameter shape (NamedTypeSpec("SignedType") rather
+        // than "τ_0_0"). Defect A fails closed regardless of how the payload's generic parameter is
+        // spelled: the dangling `…mlF` factory is skipped and replaced with an Unsupported member
+        // comment. The sugared-name *extractor* resolution (TSignedType, not AnyType) is still
+        // exercised on the TryGet path by Emit_GenericEnum_TryGetSugaredTypeParameterPayload_ResolvesAppleShape.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("VerificationResult", moduleDecl, isFrozen: true);
@@ -948,15 +951,13 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // The static case factory MUST emit with TSignedType in its parameter list —
-        // the constructable surface (Verified(T payload)) is what consumers call to
-        // round-trip a payload through the C# → Swift boundary.
-        Assert.Contains("Verified(TSignedType", csOutput);
-        // The factory must return the bound generic enum instance, not AnyType.
-        Assert.Contains("VerificationResult<TSignedType> Verified", csOutput);
-        // AnyType must never leak into the factory parameter list — that was the
-        // case-factory-skip symptom guarded here.
+        // Fail closed: no constructable factory for the generic payload case (neither the resolved
+        // TSignedType shape nor the AnyType shape the original sugared-name bug produced).
+        Assert.DoesNotContain("VerificationResult<TSignedType> Verified", csOutput);
+        Assert.DoesNotContain("public static unsafe VerificationResult<TSignedType> Verified(", csOutput);
         Assert.DoesNotContain("Verified(global::Swift.AnyType", csOutput);
+        // A loud Unsupported member comment marks the skipped factory.
+        Assert.Contains("// Unsupported: method 'Verified'", csOutput);
     }
 
     [Fact]

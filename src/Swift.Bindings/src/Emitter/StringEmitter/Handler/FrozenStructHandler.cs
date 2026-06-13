@@ -296,7 +296,10 @@ namespace BindingsGeneration
 
                 foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
-                    if (!propertyDecl.HasStorage)
+                    // A `static let`/`static var` has storage but lives in type-level metadata, not in the
+                    // instance's value layout. Emitting it as a backing field over-sizes the Buffer mirror and
+                    // shifts every following field, corrupting the blit. Only instance stored fields lay out here.
+                    if (!propertyDecl.HasStorage || propertyDecl.IsStatic)
                         continue;
 
                     switch (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, env.TypeDatabase, out int fieldByteSize))
@@ -577,7 +580,9 @@ namespace BindingsGeneration
 
             foreach (var propertyDecl in structDecl.Properties)
             {
-                if (!propertyDecl.HasStorage)
+                // Static stored fields are not part of the instance Buffer (see the emission loop), so their
+                // size-derivability is irrelevant to whether the Buffer can be laid out — skip them here too.
+                if (!propertyDecl.HasStorage || propertyDecl.IsStatic)
                     continue;
                 if (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, typeDatabase, out _) == FrozenFieldLayoutKind.Indeterminate)
                     return true;
@@ -644,7 +649,9 @@ namespace BindingsGeneration
             bool offsetDiverged = false;
             foreach (PropertyDecl propertyDecl in structDecl.Properties)
             {
-                if (!propertyDecl.HasStorage)
+                // Static stored fields do not participate in the instance's by-value layout; advancing the
+                // cursors for them would fabricate a false offset divergence. Skip, matching the emission loop.
+                if (!propertyDecl.HasStorage || propertyDecl.IsStatic)
                     continue;
                 if (!TryGetFrozenFieldLayout(propertyDecl.SwiftTypeSpec, typeDatabase,
                         out int swiftSize, out int swiftAlign, out int csSize, out int csAlign,

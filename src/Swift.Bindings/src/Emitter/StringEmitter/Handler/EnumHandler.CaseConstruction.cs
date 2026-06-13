@@ -134,6 +134,41 @@ namespace BindingsGeneration
                 parameters[i] = (type, publicType, $"{name}{suffix}", typeSpec);
             }
 
+            // Determine early whether this case can route through a @_cdecl wrapper (C calling
+            // convention). Hoisted above all emission so the Defect A fail-closed guard can run
+            // before anything is written to csWriter.
+            var useCdeclWrapper = swiftWriter != null && emissionCtx != null &&
+                EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDatabase);
+
+            // Defect A — fail closed for enum payload-case constructors that need generic
+            // type-metadata routing we don't yet support. Two shapes reach here:
+            //   (1) the enum is itself generic (enum E<T>): its case constructor is never
+            //       exported as a plain function symbol — `nm -gU` of the built framework shows
+            //       only the `…mlFWC` case-descriptor DATA, not an `…mlF` function — and the
+            //       @_cdecl wrapper path declines generic enums, so useCdeclWrapper is false and
+            //       the only remaining path imports caseDecl.MangledName directly via
+            //       CallConvSwift: a dangling P/Invoke that throws EntryPointNotFoundException.
+            //   (2) the enum is nested in a generic parent (struct Outer<T> { enum E }): E is
+            //       still parameterized by the parent's T, so constructing Outer<T>.E needs T's
+            //       metadata. The parser normally stamps the outer signature onto E so
+            //       IsGeneric is already true (case 1 covers it); IsInheritedGenericContext also
+            //       fail-closes the edge where E's own generic signature is absent from the ABI.
+            //       With the @_cdecl wrapper now declined for both, the remaining direct path is
+            //       likewise unexported — skip rather than ship a trap.
+            // Emitting either would compile but crash at runtime. Pattern-matching these cases
+            // from natively-constructed values still works; only the C#-side factory is
+            // unavailable. Correct metadata-aware case-factory routing is Session 8 territory.
+            if ((enumDecl.IsGeneric || WrapperValidation.IsInheritedGenericContext(enumDecl)) && !useCdeclWrapper)
+            {
+                _logger.LogWarning(
+                    "Enum case '{Enum}.{Case}' belongs to a generic enum; its case constructor is not an exported function symbol and cannot be reached through a @_cdecl wrapper. Skipping the C# factory to avoid a dangling P/Invoke (EntryPointNotFoundException at runtime).",
+                    enumDecl.Name, caseName);
+                UnsupportedCommentEmitter.EmitMemberSkipped(
+                    csWriter, capitalizedName, BindingItemKind.Method, SkipReason.MissingWrapperSymbol,
+                    "generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.");
+                return false;
+            }
+
             // Generate the static method for this case — prefer symbol graph doc over synthetic
             if (caseDecl.Documentation != null && !caseDecl.Documentation.IsEmpty)
             {
@@ -161,9 +196,7 @@ namespace BindingsGeneration
             csWriter.Indent++;
             csWriter.WriteLine($"var {resultVarName} = new {enumTypeName}();");
 
-            // Determine early if this case can use a @_cdecl wrapper (needed for String marshalling below)
-            var useCdeclWrapper = swiftWriter != null && emissionCtx != null &&
-                EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDatabase);
+            // (useCdeclWrapper computed above, before any emission, for the Defect A fail-closed guard.)
 
             // Emit conversions for parameters that differ between public and internal types
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);

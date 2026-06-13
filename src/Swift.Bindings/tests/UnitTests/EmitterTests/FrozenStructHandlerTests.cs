@@ -716,6 +716,57 @@ public class FrozenStructHandlerTests
         Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
     }
 
+    [Fact]
+    public void SubWordOptionalMismatch_StaticOptionalIgnored_NoFalseSkip()
+    {
+        // A `static let flag: Bool?` has storage but lives in type metadata, not the instance value
+        // layout. Were the static counted, Bool?@0(size1) followed by the instance Int32?@4 would
+        // diverge from the C# word layout (@0/@8) and the struct would be WRONGLY skipped. With static
+        // fields excluded (matching the emission loop), only the lone instance Int32? remains — which
+        // lays out safely — so the predicate must report no mismatch.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithMixedFields("StaticBoolThenInstInt32",
+            ("flag", OptionalOf("Swift.Bool"), /*isStatic*/ true),
+            ("count", OptionalOf("Swift.Int32"), /*isStatic*/ false));
+
+        Assert.False(FrozenStructHandler.HasSubWordOptionalLayoutMismatch(s, db));
+    }
+
+    [Fact]
+    public void IndeterminateBufferLayout_StaticIndeterminateFieldIgnored_NoFalseSkip()
+    {
+        // A Buffer-backed (RequiresMemoryManagement) frozen struct whose ONLY indeterminate-size stored
+        // field is `static` — a generic value type (ClosedRange<Int>) with no persisted/derivable inline
+        // size. Statics live in type metadata, never in the instance Buffer, so the instance layout (a
+        // lone Int32? sized from the primitive table) is fully determinable. The predicate must NOT skip.
+        var db = new TypeDatabase();
+        var s = CreateFrozenStructWithMixedFields("StaticIndeterminate",
+            ("shared", new NamedTypeSpec("Swift.ClosedRange", new NamedTypeSpec("Swift.Int")), /*isStatic*/ true),
+            ("count", OptionalOf("Swift.Int32"), /*isStatic*/ false));
+        db.AddOutOfModuleTypes(new[]
+        {
+            (s.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "StaticIndeterminate"),
+                SwiftTypeName = s.SwiftTypeName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            }),
+            (SwiftTypeName.FromModuleQualifiedName("Swift.ClosedRange"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "ClosedRange"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.ClosedRange"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = null, // per-instantiation size unknown cross-compile → indeterminate if instance
+            }),
+        });
+
+        Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(s, db));
+    }
+
     private static NamedTypeSpec OptionalOf(string innerSwiftName)
         => new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(innerSwiftName));
 
@@ -727,6 +778,20 @@ public class FrozenStructHandlerTests
         {
             var prop = CreatePropertyDecl(fieldName, "Swift.Int", hasStorage: true);
             prop.SwiftTypeSpec = spec;
+            s.Properties.Add(prop);
+        }
+        return s;
+    }
+
+    private static StructDecl CreateFrozenStructWithMixedFields(
+        string name, params (string fieldName, TypeSpec spec, bool isStatic)[] fields)
+    {
+        var s = CreateFrozenStructDecl(name);
+        foreach (var (fieldName, spec, isStatic) in fields)
+        {
+            var prop = CreatePropertyDecl(fieldName, "Swift.Int", hasStorage: true);
+            prop.SwiftTypeSpec = spec;
+            prop.IsStatic = isStatic;
             s.Properties.Add(prop);
         }
         return s;

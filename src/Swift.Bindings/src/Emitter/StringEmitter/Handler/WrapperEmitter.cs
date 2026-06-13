@@ -358,6 +358,23 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits the consumer-facing [UnsupportedSwiftType] flag when a parameter degraded to a
+        /// fallback (e.g. a PAT existential the resolver could not project to an interface). Shared
+        /// by the constructor / ObjC-rooted-constructor / failable-factory emit paths so a degraded
+        /// `init(_ a: any P)` carries the same loud marker a degraded method already does — and the
+        /// AttributeUsage on UnsupportedSwiftTypeAttribute includes Constructor, so this is valid C#.
+        /// EmitAttribute also records the existential degradation onto the emission context for the
+        /// per-distinct SWIFTBIND023 diagnostic (dedup-safe alongside RecordExistentialDegradations).
+        /// </summary>
+        private void EmitFallbackAttribute(CSharpWriter csWriter)
+        {
+            if (_fallbackInfo.HasValue)
+            {
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value, _emissionContext);
+            }
+        }
+
+        /// <summary>
         /// Emits the constructor wrapper.
         /// </summary>
         /// <param name="writer">The IndentedTextWriter instance.</param>
@@ -382,6 +399,7 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
+            EmitFallbackAttribute(csWriter);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
@@ -541,6 +559,7 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // Now emit the public constructor that calls the helper
+            EmitFallbackAttribute(csWriter);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
@@ -563,7 +582,7 @@ namespace BindingsGeneration
             EmitClosureReturnInvokeThunkHelper(csWriter);
             if (_fallbackInfo.HasValue)
             {
-                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value);
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value, _emissionContext);
             }
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);

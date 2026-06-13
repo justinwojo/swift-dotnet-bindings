@@ -1617,6 +1617,21 @@ namespace BindingsGeneration
                                     enumCaseDecl.AssociatedValues.Add(typeSpec);
                                 }
                             }
+
+                            // Disambiguate `case foo((A, B))` — ONE unlabeled tuple-typed
+                            // associated value — from `case foo(A, B)` — N separate values.
+                            // Both flatten to the same AssociatedValues list and the same ABI
+                            // Tuple node; only the enum-case function type's printedName tells
+                            // them apart by an extra paren around the parameter clause
+                            // ("((A, B)) -> Enum" vs "(A, B) -> Enum"). Record it so the wrapper
+                            // re-wraps the args into a single tuple. The labeled counterpart is
+                            // handled by OuterTupleLabel above.
+                            if (enumCaseDecl.AssociatedValues.Count > 1 &&
+                                string.IsNullOrEmpty(enumCaseDecl.OuterTupleLabel) &&
+                                IsSingleTupleAssociatedValueParam(returnPart.PrintedName))
+                            {
+                                enumCaseDecl.IsSingleTuplePayload = true;
+                            }
                         }
                     }
                 }
@@ -1664,6 +1679,67 @@ namespace BindingsGeneration
             }
 
             return enumCaseDecl;
+        }
+
+        /// <summary>
+        /// Whether an enum-case function type's printedName has a single tuple-typed
+        /// parameter (a single UNLABELED tuple associated value), distinguished from
+        /// N separate associated values by an extra paren around the parameter clause:
+        /// <c>((Int32, BoxedCounter)) -&gt; Enum</c> (single tuple) vs
+        /// <c>(Int32, String) -&gt; Enum</c> (two values). Returns true only when the
+        /// leading balanced-paren parameter clause wraps exactly one further balanced-paren
+        /// group spanning its entire interior.
+        /// </summary>
+        internal static bool IsSingleTupleAssociatedValueParam(string? funcPrintedName)
+        {
+            if (string.IsNullOrEmpty(funcPrintedName) || funcPrintedName[0] != '(')
+                return false;
+
+            // Find the leading balanced-paren parameter clause.
+            int depth = 0;
+            int clauseEnd = -1;
+            for (int i = 0; i < funcPrintedName.Length; i++)
+            {
+                char c = funcPrintedName[i];
+                if (c == '(')
+                {
+                    depth++;
+                }
+                else if (c == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        clauseEnd = i;
+                        break;
+                    }
+                }
+            }
+            if (clauseEnd < 1)
+                return false;
+
+            // Strip the parameter-clause parens; a single tuple payload leaves an interior
+            // that is itself ONE balanced-paren group spanning the whole remainder.
+            var inner = funcPrintedName.Substring(1, clauseEnd - 1).Trim();
+            if (inner.Length < 2 || inner[0] != '(' || inner[inner.Length - 1] != ')')
+                return false;
+
+            depth = 0;
+            for (int i = 0; i < inner.Length; i++)
+            {
+                char c = inner[i];
+                if (c == '(')
+                {
+                    depth++;
+                }
+                else if (c == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i == inner.Length - 1;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -2228,6 +2304,18 @@ namespace BindingsGeneration
                 functionReduction?.Function?.ParameterList is TupleTypeSpec paramTuple)
             {
                 methodDecl.HasVariadicParameter = HasVariadicElement(paramTuple);
+            }
+            if (!methodDecl.HasVariadicParameter && functionReduction is null)
+            {
+                // Tier 2b: the reducer produces no FunctionReduction for some symbols —
+                // notably constructors/allocators, which have no reducer rule — so tier 2
+                // can't reach the parameter list. The demangled NODE tree is still built,
+                // and the authoritative "d" variadic marker lives in it, so consult it
+                // directly. Like tier 2 this is per-overload-exact: it flags a variadic
+                // init(x: T...) while leaving a plain init(x: [T]) sibling — which shares
+                // the same Array ABI shape and printedName — untouched, so unlike the
+                // name-keyed tier-3 fallback it never over-skips a plain-array overload.
+                methodDecl.HasVariadicParameter = demangler.HasVariadicParameterMarker(mangledName);
             }
             if (!methodDecl.HasVariadicParameter &&
                 !methodDecl.CSSignature.Skip(1).Any(p => IsArraySpec(p.SwiftTypeSpec)))

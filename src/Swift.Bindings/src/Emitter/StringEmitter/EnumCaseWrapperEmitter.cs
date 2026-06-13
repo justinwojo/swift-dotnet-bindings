@@ -30,8 +30,19 @@ public static class EnumCaseWrapperEmitter
         if (string.IsNullOrEmpty(typeDatabase.AsyncLibraryName))
             return false;
 
-        // 2. Skip generic enums — type metadata routing not yet supported for enum case factories
-        if (enumDecl.IsGeneric)
+        // 2. Skip generic enums AND enums nested in a generic parent — type-metadata
+        // routing is not yet supported for enum case factories. The Swift ABI digester
+        // stamps the outer generic signature onto a nested decl, so a non-generic-looking
+        // enum nested in a generic parent (struct Outer<T> { enum E { case n(Int32) } })
+        // normally already reports IsGeneric == true; either way, constructing Outer<T>.E
+        // needs T's metadata, which the @_cdecl wrapper does not route. Consulting
+        // IsInheritedGenericContext brings this gate in line with the constructor/method/
+        // property wrapper emitters (all of which already decline inherited generic context)
+        // and fail-closes the edge where the nested enum's own generic signature is absent
+        // from the ABI: without it, the wrapper would be emitted with no metadata params
+        // while the C# side injects the inherited PInvokeHelperContext's metadata params —
+        // a C#/Swift signature mismatch. Correct metadata-aware routing is Session 8.
+        if (enumDecl.IsGeneric || WrapperValidation.IsInheritedGenericContext(enumDecl))
             return false;
 
         // 3. Each associated value must be mappable to @_cdecl params
@@ -310,6 +321,17 @@ public static class EnumCaseWrapperEmitter
                 destructuredArgs.Add($"{elemLabel}{valName}.{elemAccessor}");
             }
             return $"{enumQualifiedName}.{caseDecl.Name}({string.Join(", ", destructuredArgs)})";
+        }
+
+        // `case foo((a, b, ...))` — a single UNLABELED tuple-typed associated value — was
+        // flattened upstream into N AssociatedValues (a, b, …) but the constructor still
+        // expects ONE tuple parameter. Re-wrap the flattened (bare) call args into a tuple:
+        // `foo((a, b))`. Without this Swift rejects `foo(a, b)` with "enum case 'foo'
+        // expects a single parameter of type '(A, B)'". The labeled counterpart is handled
+        // by the OuterTupleLabel branch below.
+        if (caseDecl.IsSingleTuplePayload && callArgs.Count > 1)
+        {
+            return $"{enumQualifiedName}.{caseDecl.Name}(({string.Join(", ", callArgs)}))";
         }
 
         // `case foo(label: (a:, b:, ...))` was flattened upstream into N AssociatedValues

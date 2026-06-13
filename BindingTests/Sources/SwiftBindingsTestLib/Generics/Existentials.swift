@@ -143,6 +143,14 @@ public struct AttributeHolder {
         self.stored = FlagAttribute(label: "flag", value: flag)
     }
 
+    /// Constructor taking a PAT existential directly. The generator cannot project
+    /// `any AttributeKind` (associated type), so this parameter degrades to `object`.
+    /// Exercises the constructor existential-degradation flag + SWIFTBIND023 recording
+    /// path — constructors previously emitted no `[UnsupportedSwiftType]` marker at all.
+    public init(existing attribute: any AttributeKind) {
+        self.stored = attribute
+    }
+
     public var attribute: any AttributeKind {
         return stored
     }

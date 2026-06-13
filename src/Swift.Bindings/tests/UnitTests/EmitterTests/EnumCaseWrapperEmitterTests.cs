@@ -56,6 +56,61 @@ public class EnumCaseWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmit_EnumNestedInGenericParent_StampedParams_ReturnsFalse()
+    {
+        // A non-generic-looking enum nested in a generic parent
+        // (struct Outer<T> { enum E { case n(Int32) } }). The Swift ABI digester stamps
+        // the outer generic signature onto the nested decl, so the parser populates the
+        // nested enum's GenericParameters with the inherited T — IsGeneric is therefore
+        // already true and the case factory is correctly declined. This pins that the
+        // reachable shape never emits a case-factory wrapper (constructing Outer<T>.E
+        // needs T's metadata, which the @_cdecl wrapper does not route).
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var outer = CreateEnumDecl("Outer", moduleDecl);
+        outer.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var nested = CreateEnumDecl("E", moduleDecl);
+        nested.ParentDecl = outer;
+        nested.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var caseDecl = CreateCaseDecl("number", new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }, moduleDecl);
+
+        Assert.False(EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(nested, caseDecl, typeDb));
+    }
+
+    [Fact]
+    public void ShouldEmit_EnumNestedInGenericParent_OwnSignatureAbsent_ReturnsFalse()
+    {
+        // Fail-closed edge: a nested enum whose OWN generic signature is absent (empty
+        // GenericParameters → IsGeneric false) but whose parent is generic. Without the
+        // IsInheritedGenericContext check this slips past the IsGeneric guard and the
+        // @_cdecl wrapper is emitted with no metadata-routing, producing a C#/Swift
+        // signature mismatch (the C# side injects the inherited PInvokeHelperContext's
+        // metadata params; the wrapper omits them). The gate must decline on the
+        // inherited generic context too, matching the constructor/method/property
+        // wrapper emitters.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var outer = CreateEnumDecl("Outer", moduleDecl);
+        outer.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var nested = CreateEnumDecl("E", moduleDecl);
+        nested.ParentDecl = outer; // GenericParameters intentionally left empty
+        var caseDecl = CreateCaseDecl("number", new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }, moduleDecl);
+
+        Assert.False(EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(nested, caseDecl, typeDb));
+    }
+
+    [Fact]
     public void ShouldEmit_ClosureAssociatedValue_ReturnsFalse()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment();
@@ -471,6 +526,74 @@ public class EnumCaseWrapperEmitterTests
         // Must use positional index access for unlabeled elements
         Assert.Contains(".0", output);
         Assert.Contains(".1", output);
+    }
+
+    [Fact]
+    public void EmitWrapper_SingleUnlabeledTuplePayload_RewrapsArgsIntoTuple()
+    {
+        // case shipped((Int32, BoxedCounter)) — ONE unlabeled tuple-typed associated value.
+        // The ABI flattens it into N AssociatedValues, identical in shape to `case foo(A, B)`
+        // (two separate values). The parser sets IsSingleTuplePayload from the enum-case
+        // function-type's paren nesting; the wrapper must re-wrap the flattened args into a
+        // single tuple — .shipped((value0, value1)) — or Swift rejects the malformed
+        // .shipped(value0, value1) ("enum case 'shipped' expects a single parameter of
+        // type '(A, B)'") and the @_cdecl wrapper is stripped, dangling its C# P/Invoke.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("TaggedDelivery", moduleDecl);
+        var caseDecl = CreateCaseDecl("shipped", new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        }, moduleDecl);
+        caseDecl.IsSingleTuplePayload = true;
+
+        var dummyMethod = CreateDummyMethod("shipped", enumDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+            swiftWriter, enumDecl, caseDecl, "SBW_TestModule_TaggedDelivery_shipped_12345678", env, ctx);
+
+        var output = sw.ToString();
+        // Re-wrapped into a single tuple argument (double opening paren).
+        Assert.Contains("TestModule.TaggedDelivery.shipped((", output);
+        // NOT the broken flattened form .shipped(value0, value1) (single paren before the value).
+        Assert.DoesNotContain("TestModule.TaggedDelivery.shipped(value", output);
+    }
+
+    [Fact]
+    public void EmitWrapper_TwoSeparateValues_NotRewrappedWhenFlagUnset()
+    {
+        // Control: the same flattened AssociatedValues shape WITHOUT the flag (a genuine
+        // `case foo(A, B)`) must keep the standard flat construction, never gaining a tuple.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Outcome", moduleDecl);
+        var caseDecl = CreateCaseDecl("success", new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        }, moduleDecl);
+        // IsSingleTuplePayload deliberately left false.
+
+        var dummyMethod = CreateDummyMethod("success", enumDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+            swiftWriter, enumDecl, caseDecl, "SBW_TestModule_Outcome_success_12345678", env, ctx);
+
+        var output = sw.ToString();
+        // Flat construction (single opening paren), no spurious tuple wrap.
+        Assert.Contains("TestModule.Outcome.success(value", output);
+        Assert.DoesNotContain("TestModule.Outcome.success((", output);
     }
 
     [Fact]

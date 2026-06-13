@@ -358,7 +358,7 @@ namespace BindingsGeneration
 
                 // Emit indexer declaration
                 var subscriptHelperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
-                EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos, subscriptHelperPrefix);
+                EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos, subscriptHelperPrefix, context.GetEmissionContext());
 
                 // Collect candidate for convenience int/uint overload (deferred to second pass)
                 convenienceCandidates.Add((subscriptDecl, returnTypeName, paramInfos));
@@ -384,16 +384,37 @@ namespace BindingsGeneration
             ITypeDatabase typeDatabase,
             string returnTypeName,
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
-            string helperPrefix = "")
+            string helperPrefix = "",
+            ModuleEmissionContext? emissionContext = null)
         {
             var paramList = string.Join(", ", paramInfos.Select(p => $"{p.typeName} {p.paramName}"));
 
-            // Emit [UnsupportedSwiftType] if needed
+            // Emit one [UnsupportedSwiftType] flag if the return type OR any index parameter degrades
+            // to AnyType. Scanning only the return type left a subscript like
+            // `subscript(_ key: any PWithAssociatedType) -> Int` with a silent `object` index param —
+            // no flag and no SWIFTBIND023 (the protocol-subscript path already scans index params).
             var closureHandler = new ClosureHandler(typeDatabase);
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, subscriptDecl.ReturnTypeSpec, out var fallbackInfo))
             {
-                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo);
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo, emissionContext);
             }
+            else
+            {
+                foreach (var indexParam in subscriptDecl.IndexParameters)
+                {
+                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, indexParam.SwiftTypeSpec, out var indexFallbackInfo))
+                    {
+                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, indexFallbackInfo, emissionContext);
+                        break; // One attribute is enough to flag the indexer
+                    }
+                }
+            }
+
+            // Record EVERY distinct degraded existential across the indexer (return + each index
+            // parameter), not just the one the flag names, so SWIFTBIND023 fires per distinct type.
+            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                emissionContext, typeDatabase, closureHandler,
+                new[] { subscriptDecl.ReturnTypeSpec }.Concat(subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec)));
 
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: true);
             csWriter.WriteLine($"public {returnTypeName} this[{paramList}]");

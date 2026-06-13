@@ -111,9 +111,12 @@ public class SwiftABIParserTests
     [Fact]
     public void CreateEnumDecl_WithRawValueType_SetsRawValueTypeName()
     {
-        var enumDecl = CreateEnumDecl("IntEnum", rawValueTypeName: "Swift.Int");
+        // The Swift ABI digester emits raw value types unqualified; RawValueTypeName stores
+        // the unqualified spelling (qualified→bare normalization is pinned separately in
+        // RawValueTypeNameNormalizationTests).
+        var enumDecl = CreateEnumDecl("IntEnum", rawValueTypeName: "Int");
 
-        Assert.Equal("Swift.Int", enumDecl.RawValueTypeName);
+        Assert.Equal("Int", enumDecl.RawValueTypeName);
     }
 
     [Fact]

@@ -1326,7 +1326,10 @@ public static class ConstructorWrapperEmitter
 
         foreach (var prop in parentTypeDecl.Properties)
         {
-            if (!prop.HasStorage) continue;
+            // A `static` stored optional lives in type metadata, not the instance — it has no valid
+            // `\Type.prop` instance keypath, so a MemoryLayout.offset(of:) tag-fixup over it would emit
+            // uncompilable Swift. Only instance stored fields carry an in-struct tag byte to fix up.
+            if (!prop.HasStorage || prop.IsStatic) continue;
             if (prop.SwiftTypeSpec is not NamedTypeSpec optSpec) continue;
             if (optSpec.Name != "Swift.Optional" || optSpec.GenericParameters.Count != 1) continue;
 

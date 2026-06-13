@@ -943,9 +943,12 @@ public class SilgenNameTrampolineTests
 
         Assert.Contains("@_cdecl", swiftOutput);
         Assert.True(method.UsesCdeclMethodWrapper);
-        // Tag-only enum: must use safe copyMemory widening, not load(as: Int.self)
+        // Tag-only enum: must use safe copyMemory widening, not load(as: Int.self).
+        // The transport scalar is 32-bit Int32 (matching the C# `int` P/Invoke side —
+        // the int↔Int width contract pinned by EnumAbiWidthConsistencyTests), zero-init'd
+        // and copyMemory-widened from the enum's actual (usually 1-byte) allocation.
         Assert.Contains("let resultSize = MemoryLayout.size(ofValue: result)", swiftOutput);
-        Assert.Contains("var tag: Int = 0", swiftOutput);
+        Assert.Contains("var tag: Int32 = 0", swiftOutput);
         Assert.Contains("copyMemory", swiftOutput);
         Assert.Contains("byteCount: resultSize", swiftOutput);
         Assert.DoesNotContain("load(as: Int.self)", swiftOutput);

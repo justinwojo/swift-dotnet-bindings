@@ -525,7 +525,7 @@ public class ProtocolProxyEmitterTests
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
                 Kind = TypeRecordKind.Enum,
-                RawValueTypeName = "Swift.Int"
+                RawValueTypeName = "Int"
             })
         });
 
@@ -5017,6 +5017,98 @@ public class ProtocolProxyEmitterTests
 
         // No proxy class should be emitted
         Assert.DoesNotContain("ContainerProxy", output);
+    }
+
+    #endregion
+
+    #region Witness-Dispatch Eligibility Parity (Defect cluster D / Finding 8 forward path)
+
+    // The Swift @_cdecl wrapper emission (WitnessDispatchEmitter.EmitWitnessDispatchFunctions)
+    // and the C# proxy emission (EmitWitnessDispatchPInvokes decl walk + EmitInterfaceImplementation
+    // caller walk) independently compute the per-member dispatch INDEX baked into the
+    // SBW_<proto>_method_<name>_<idx> symbol. They MUST agree on which members participate.
+    // Swift skips @objc-optional methods BEFORE bumping the index; if the C# walks bump the
+    // index for the optional member they reference SBW_<proto>_method_<req>_<N+1> while Swift
+    // only ever exported SBW_<proto>_method_<req>_<N> — a symbol that isn't in the binary, so
+    // the existential caller dies with EntryPointNotFoundException at runtime. These tests pin
+    // the cross-walk parity through the shared eligibility predicates.
+
+    [Fact]
+    public void EmitProxyClass_ObjCOptionalMethod_DoesNotDriftRequiredMethodDispatchIndex()
+    {
+        // Member order: required `alpha` (idx 0), @objc-optional `beta` (skipped both sides),
+        // required `gamma`. Swift assigns gamma idx 1 (beta consumes no index). The C# proxy
+        // must reference SBW_..._method_gamma_1 — NOT _gamma_2 — and must not reference the
+        // optional `beta` at all (Swift never exports it).
+        var protocol = CreateSimpleProtocol("WitnessMethodParity");
+
+        var alpha = CreateMethodDecl("alpha");
+        var beta = CreateMethodDecl("beta");
+        beta.IsObjCOptional = true;
+        var gamma = CreateMethodDecl("gamma");
+
+        protocol.Methods.Add(alpha);
+        protocol.Methods.Add(beta);
+        protocol.Methods.Add(gamma);
+
+        var output = EmitProxyClass(protocol);
+
+        // Positive control: the harness really does emit forward-dispatch method symbols.
+        Assert.Contains("SBW_WitnessMethodParity_method_alpha_0", output);
+
+        // Core fix: gamma keeps the index Swift gave it (1), because the optional method
+        // between them consumes no index on either side.
+        Assert.Contains("SBW_WitnessMethodParity_method_gamma_1", output);
+        Assert.DoesNotContain("SBW_WitnessMethodParity_method_gamma_2", output);
+
+        // The @objc-optional method participates in NO forward dispatch (Swift skips it), so the
+        // proxy must not declare or call a symbol the wrapper never exported.
+        Assert.DoesNotContain("SBW_WitnessMethodParity_method_beta_", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ObjCOptionalAndCustomActorProperties_NotWitnessDispatched()
+    {
+        // The Swift wrapper skips @objc-optional properties AND custom-actor-isolated (non-main)
+        // properties from witness dispatch. The C# proxy walks must mirror that exactly: emit no
+        // SBW getter P/Invoke and no call site for those properties, so nothing references a
+        // symbol the wrapper never exported. A normal required property is the positive control.
+        RegisterSwiftInt32();
+        var protocol = CreateSimpleProtocol("WitnessPropertyParity");
+
+        protocol.Properties.Add(CreateInt32Getter("delta"));                         // required
+        protocol.Properties.Add(CreateInt32Getter("epsilon", isObjCOptional: true)); // @objc optional
+        protocol.Properties.Add(CreateInt32Getter("zeta", isCustomActorIsolated: true)); // custom actor
+
+        var output = EmitProxyClass(protocol);
+
+        // Positive control: a plain required blittable property IS witness-dispatched.
+        Assert.Contains("SBW_WitnessPropertyParity_get_delta_0", output);
+
+        // @objc-optional and custom-actor properties are skipped by the Swift wrapper, so the
+        // proxy must not reference their (non-existent) getter symbols.
+        Assert.DoesNotContain("SBW_WitnessPropertyParity_get_epsilon_", output);
+        Assert.DoesNotContain("SBW_WitnessPropertyParity_get_zeta_", output);
+    }
+
+    private static PropertyDecl CreateInt32Getter(string name, bool isObjCOptional = false, bool isCustomActorIsolated = false)
+    {
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IsStatic = false,
+            HasStorage = false,
+            IsObjCOptional = isObjCOptional,
+            IsActorIsolated = isCustomActorIsolated,
+            IsMainActorIsolated = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl($"{name}_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        };
     }
 
     #endregion

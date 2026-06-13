@@ -2195,6 +2195,34 @@ public class TypeDatabaseExtensionsTests
         Assert.Null(fallbackInfo);
     }
 
+    // KNOWN GAP (pins the TypeSpec-overload switch default in TypeDatabaseExtensions.cs): a
+    // protocol-composition existential (`any P & Q`) is modelled as a ProtocolListTypeSpec, NOT a
+    // NamedTypeSpec, so TryGetAnyTypeFallbackInfo(TypeSpec) returns false even when both members
+    // are PAT/Self-requirement existentials that ExistentialHandler.GetPublicExistentialType
+    // collapses to `object`. That degradation is therefore invisible to BOTH the
+    // [UnsupportedSwiftType] flag and the SWIFTBIND023 diagnostic. This is a pre-existing gap whose
+    // correct fix is the Finding 21 resolver-records-its-own-degradation refactor (so the resolver
+    // that already produces the composition interface emits the SyntheticFallback when it collapses
+    // to object), NOT mirroring projectability logic into a second resolution universe here (the
+    // Finding 10 anti-pattern). This test pins the current behavior so that work flips a red test.
+    [Fact]
+    public void TryGetAnyTypeFallbackInfo_ProtocolListComposition_ReturnsFalse()
+    {
+        var typeDatabase = new TypeDatabase();
+        var composition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Unknown.PWithAssoc") { IsAny = true },
+            new NamedTypeSpec("Unknown.QWithAssoc") { IsAny = true },
+        });
+
+        // The TypeSpec overload (the one the flag + diagnostic walker call) does not classify
+        // ProtocolListTypeSpec — the switch default returns false. Documenting, not endorsing.
+        var isFallback = typeDatabase.TryGetAnyTypeFallbackInfo((TypeSpec)composition, out var fallbackInfo);
+
+        Assert.False(isFallback);
+        Assert.Null(fallbackInfo);
+    }
+
     // --- ComparisonResult resolves as simple enum ---
 
     [Fact]

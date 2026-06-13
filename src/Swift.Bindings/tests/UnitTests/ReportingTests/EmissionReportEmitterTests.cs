@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+#nullable enable
+
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -148,5 +151,85 @@ public class EmissionReportEmitterTests
     {
         var ctx = new ModuleEmissionContext();
         EmissionReportEmitter.AssertSilentTombstoneInvariant(ctx, "TestModule");
+    }
+
+    [Fact]
+    public void TryRecordExistentialDegradation_DedupsPerTypeAndIgnoresEmpty()
+    {
+        // Defect E: each distinct PAT existential that degrades to `object` is recorded once.
+        // First sighting returns true (newly recorded), repeats return false, blanks are ignored —
+        // so the loud SWIFTBIND023 channel fires exactly once per type regardless of emission-site count.
+        var ctx = new ModuleEmissionContext();
+
+        Assert.True(ctx.TryRecordExistentialDegradation("any AttributeKind"));
+        Assert.False(ctx.TryRecordExistentialDegradation("any AttributeKind"));
+        Assert.True(ctx.TryRecordExistentialDegradation("any Shape"));
+        Assert.False(ctx.TryRecordExistentialDegradation(""));
+        Assert.False(ctx.TryRecordExistentialDegradation(null!));
+
+        Assert.Equal(2, ctx.DegradedExistentials.Count);
+    }
+
+    [Fact]
+    public void BuildReport_DegradedExistentials_SortedAndDeduped()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.TryRecordExistentialDegradation("any Shape");
+        ctx.TryRecordExistentialDegradation("any AttributeKind");
+        ctx.TryRecordExistentialDegradation("any Shape"); // duplicate — should dedup
+
+        var report = EmissionReportEmitter.BuildReport(ctx, "TestModule");
+
+        Assert.Equal(new[] { "any AttributeKind", "any Shape" }, report.DegradedExistentials);
+    }
+
+    [Fact]
+    public void BuildReport_EmptyContext_DegradedExistentialsEmpty()
+    {
+        var ctx = new ModuleEmissionContext();
+        var report = EmissionReportEmitter.BuildReport(ctx, "TestModule");
+
+        Assert.Empty(report.DegradedExistentials);
+    }
+
+    [Fact]
+    public void Emit_DegradedExistentials_LogsSwiftbind023OncePerType()
+    {
+        // The "loud SB-diagnostic instead of silent object degradation" requirement: Emit must raise
+        // exactly one SWIFTBIND023 warning per distinct degraded existential, naming the Swift type.
+        var ctx = new ModuleEmissionContext();
+        ctx.TryRecordExistentialDegradation("any AttributeKind");
+        ctx.TryRecordExistentialDegradation("any Shape");
+        var logger = new CapturingLogger();
+        var tmpDir = Directory.CreateTempSubdirectory().FullName;
+
+        try
+        {
+            EmissionReportEmitter.Emit(ctx, "TestModule", tmpDir, logger);
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, recursive: true);
+        }
+
+        var swiftbind023 = logger.Entries
+            .Where(e => e.Level == LogLevel.Warning && e.Message.Contains("SWIFTBIND023"))
+            .ToList();
+        Assert.Equal(2, swiftbind023.Count);
+        Assert.Contains(swiftbind023, e => e.Message.Contains("any AttributeKind"));
+        Assert.Contains(swiftbind023, e => e.Message.Contains("any Shape"));
+    }
+
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
     }
 }

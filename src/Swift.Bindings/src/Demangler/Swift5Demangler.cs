@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -46,6 +47,60 @@ namespace BindingsGeneration.Demangling
                 slice.Advance(GetManglingPrefixLength(originalIdentifier));
                 return Run();
             }
+        }
+
+        /// <summary>
+        /// Reports whether <paramref name="mangledName"/> carries a Swift variadic
+        /// parameter marker (the <c>d</c> mangling token, surfaced as a
+        /// <see cref="NodeKind.VariadicMarker"/> node).
+        ///
+        /// This exists because <see cref="Run(string)"/> reduces the node tree to an
+        /// <see cref="IReduction"/>, and the reducer has no rule for some top-level
+        /// nodes — notably <c>Constructor</c>/<c>Allocator</c> — so it yields a
+        /// <see cref="ReductionError"/> with no parameter list to inspect. The node
+        /// tree itself is still built, and the variadic marker lives in it, so we walk
+        /// the raw tree directly. This is per-overload-exact: it distinguishes a
+        /// variadic <c>init(x: T...)</c> from a plain <c>init(x: [T])</c> sibling,
+        /// where both render the same printedName/Array ABI shape.
+        /// Returns false if the tree cannot be built.
+        /// </summary>
+        public bool HasVariadicParameterMarker(string mangledName)
+        {
+            if (string.IsNullOrEmpty(mangledName))
+                return false;
+            lock (runLock)
+            {
+                nodeStack.Clear();
+                substitutions.Clear();
+                words.Clear();
+                originalIdentifier = mangledName;
+                slice = new StringSlice(originalIdentifier);
+                slice.Advance(GetManglingPrefixLength(originalIdentifier));
+                Node topLevelNode;
+                try
+                {
+                    topLevelNode = DemangleType(null);
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+                return NodeTreeContainsVariadicMarker(topLevelNode);
+            }
+        }
+
+        static bool NodeTreeContainsVariadicMarker(Node node)
+        {
+            if (node is null)
+                return false;
+            if (node.Kind == NodeKind.VariadicMarker)
+                return true;
+            foreach (var child in node.Children)
+            {
+                if (NodeTreeContainsVariadicMarker(child))
+                    return true;
+            }
+            return false;
         }
 
         IReduction Run()

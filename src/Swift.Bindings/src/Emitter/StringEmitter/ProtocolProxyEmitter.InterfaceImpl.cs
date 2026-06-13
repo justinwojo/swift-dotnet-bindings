@@ -96,7 +96,11 @@ public partial class ProtocolProxyEmitter
         var emittedCSharpKeys = new Dictionary<string, MethodDecl>();
         foreach (var method in protocolDecl.Methods)
         {
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
+            // Shared eligibility predicate — must mirror the Swift wrapper and the P/Invoke decl
+            // walk so the index threaded into EmitMethodImplementation (and thus the SBW call
+            // site) matches the symbol the wrapper actually exported. @objc-optional methods
+            // consume no index; the interface satisfies them via a default no-op.
+            if (!WitnessDispatchEmitter.IsMethodWitnessDispatchEligible(method))
                 continue;
             // @objc optional methods are no-op DIM defaults on the interface (ProtocolHandler),
             // so the proxy needn't implement them and they get no witness accessor. The producer
@@ -830,6 +834,23 @@ public partial class ProtocolProxyEmitter
             && dispatchEmitter.IsPropertyExistentialReturn(property))
         {
             isExistentialReturnGetter = true;
+        }
+
+        // @objc-optional and custom-actor-isolated (non-@MainActor) properties are NOT witness
+        // dispatched: the Swift wrapper walk (and the C# P/Invoke decl walk) skip them via the
+        // shared eligibility predicate, so NO SBW accessor symbol exists for them. Force every
+        // dispatch path off here — after all the strategy re-evaluations above — so the accessor
+        // bodies below fall through to the SB0003 NotSupportedException fallback (which still
+        // satisfies the interface) instead of calling a symbol the binary never exported.
+        if (!WitnessDispatchEmitter.IsPropertyWitnessDispatchEligible(property))
+        {
+            isGetterDispatchable = false;
+            isSetterDispatchable = false;
+            isClassReturnGetter = false;
+            isStructReturnGetter = false;
+            isCollectionReturnGetter = false;
+            isOptionalClassReturnGetter = false;
+            isExistentialReturnGetter = false;
         }
 
         bool isGetterDispatched = isGetterDispatchable || isClassReturnGetter || isStructReturnGetter

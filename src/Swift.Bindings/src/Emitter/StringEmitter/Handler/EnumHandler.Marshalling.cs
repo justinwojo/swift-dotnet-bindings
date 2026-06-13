@@ -238,18 +238,23 @@ namespace BindingsGeneration
         /// </summary>
         internal static string GetSwiftAbiMetadataType(string? rawValueTypeName)
         {
+            // Accept BOTH module-qualified ("Swift.Int8") and unqualified ("Int8") spellings, mirroring
+            // CdeclParamMapper.GetSwiftRawValueType. This mapper's element-metadata width MUST match the
+            // Swift ABI width of the same raw value; the unknown fallback is pointer-width `nint` (8B), so
+            // a qualified small-int name slipping through would over-size a 1–4 byte element's metadata and
+            // corrupt tuple layout. Pinned (alongside GetCSharpEnumUnderlyingType) by EnumAbiWidthConsistencyTests.
             return rawValueTypeName switch
             {
-                "Int" => "nint",     // Swift.Int is pointer-sized
-                "UInt" => "nuint",   // Swift.UInt is pointer-sized
-                "Int8" => "sbyte",
-                "UInt8" => "byte",
-                "Int16" => "short",
-                "UInt16" => "ushort",
-                "Int32" => "int",
-                "UInt32" => "uint",
-                "Int64" => "long",
-                "UInt64" => "ulong",
+                "Swift.Int" or "Int" => "nint",     // Swift.Int is pointer-sized
+                "Swift.UInt" or "UInt" => "nuint",  // Swift.UInt is pointer-sized
+                "Swift.Int8" or "Int8" => "sbyte",
+                "Swift.UInt8" or "UInt8" => "byte",
+                "Swift.Int16" or "Int16" => "short",
+                "Swift.UInt16" or "UInt16" => "ushort",
+                "Swift.Int32" or "Int32" => "int",
+                "Swift.UInt32" or "UInt32" => "uint",
+                "Swift.Int64" or "Int64" => "long",
+                "Swift.UInt64" or "UInt64" => "ulong",
                 // Null/unknown: NS_ENUM convention is NSInteger (pointer-sized)
                 null or "" => "nint",
                 _ => "nint"

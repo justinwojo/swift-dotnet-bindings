@@ -50,6 +50,17 @@ public class EmissionReport
     /// </summary>
     [JsonProperty("csmConformerRejections")]
     public List<CsmConformerRejectionEntry> CsmConformerRejections { get; set; } = new();
+
+    /// <summary>
+    /// Swift textual forms (e.g. <c>any AttributeKind</c>) of protocol existentials that could not
+    /// be projected to a real C# type and degraded to <c>object</c> on a generated surface. Each
+    /// distinct type appears once. <see cref="EmissionReportEmitter.Emit"/> raises one loud
+    /// SWIFTBIND023 warning per entry so the degradation — previously visible only via the
+    /// consumer-facing <c>[UnsupportedSwiftType]</c> attribute — is surfaced at generation time.
+    /// Sorted for deterministic output.
+    /// </summary>
+    [JsonProperty("degradedExistentials")]
+    public List<string> DegradedExistentials { get; set; } = new();
 }
 
 /// <summary>
@@ -146,6 +157,20 @@ public static class EmissionReportEmitter
                 "Emission: {Count} CSM conformer rejections (multi-constraint intersection filter)",
                 report.CsmConformerRejections.Count);
         }
+
+        // Defect E: turn the previously-silent existential→object degradation into a loud
+        // per-type diagnostic. One SWIFTBIND023 warning per distinct existential — the real
+        // ExistentialUnion projection is deferred, so the consumer gets `object` for now, but
+        // the binding author is told exactly which protocol surfaces lost type fidelity.
+        foreach (var degraded in report.DegradedExistentials)
+        {
+            logger.LogWarning(
+                "SWIFTBIND023: protocol existential '{ExistentialType}' could not be projected to a "
+                + "concrete C# type and was degraded to 'object'. The member is still usable but loses "
+                + "static type fidelity; this is recorded under degradedExistentials in "
+                + "binding-emission-report.json.",
+                degraded);
+        }
     }
 
     /// <summary>
@@ -203,6 +228,12 @@ public static class EmissionReportEmitter
 
         // Silent tombstones (sorted for deterministic output)
         report.SilentTombstones = emissionContext.SilentTombstones
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        // Degraded existentials (Defect E): PAT existentials that fell back to `object`,
+        // sorted for deterministic output and a deterministic SWIFTBIND023 warning order.
+        report.DegradedExistentials = emissionContext.DegradedExistentials
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 

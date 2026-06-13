@@ -509,24 +509,10 @@ partial class Build
             // Load previous baseline for comparison
             var prevBaseline = ValidationBaseline.Load(BaselinePath);
 
-            // Update baseline only on full unfiltered runs. Preserve the existing runtime_tests
-            // baseline (populated by a separate nuke binding-tests --sim run) so a validate
-            // pass doesn't stomp it back to null on write-out.
-            if (isFullRun)
-            {
-                var newBaseline = new ValidationBaseline
-                {
-                    GitSha = GetGitShortSha(),
-                    Gate = new() { Libraries = currentResults },
-                    SkipMetrics = skipMetrics,
-                    RuntimeTests = prevBaseline.RuntimeTests
-                };
-                newBaseline.Save(BaselinePath);
-            }
-            else
-            {
-                Log.Debug("Filtered run — baseline not updated");
-            }
+            // Baseline is saved AFTER the regression gate below (Finding 29). Saving it here —
+            // before the gate — let a failing run ratchet its own failures into the baseline, so
+            // the next run printed "No regressions detected" and the detector self-erased. Only a
+            // fully-green unfiltered run updates the baseline now.
 
             // Log skip metrics summary
             if (skipMetrics.TotalEmittedMembers > 0 || skipMetrics.TotalSkippedMembers > 0)
@@ -599,10 +585,12 @@ partial class Build
             }
 
             // === Regression Detection ===
+            int regressionCount = 0;
             if (prevBaseline.Gate.Libraries.Count > 0)
             {
                 Log.Information("--- Regression Check ---");
                 var (regressions, improvements, drift) = prevBaseline.Compare(currentResults, isFullRun);
+                regressionCount = regressions.Count;
 
                 foreach (var r in regressions)
                 {
@@ -687,16 +675,39 @@ partial class Build
             else
                 Log.Information("  Tier: {Tier}", Tier);
 
-            if (isFullRun)
-                Log.Debug("  Baseline: {Path} (updated)", BaselinePath);
+            Log.Information("");
+
+            // === Gate (Finding 29) ===
+            // The verdict is computed from compile/dependency failures AND regressions; the
+            // baseline is then ratcheted only on a fully-green unfiltered run. Saving the baseline
+            // before the gate (the old behavior) persisted a failing run's failures, after which
+            // the next run printed "No regressions detected" — an advisory, self-erasing detector.
+            bool validationFailed =
+                compileFailed > 0 || compileNoOutput > 0 || depFailed > 0 || regressionCount > 0;
+
+            if (isFullRun && !validationFailed)
+            {
+                // Preserve the existing runtime_tests baseline (populated by a separate
+                // nuke binding-tests --sim run) so a validate pass doesn't stomp it to null.
+                var newBaseline = new ValidationBaseline
+                {
+                    GitSha = GetGitShortSha(),
+                    Gate = new() { Libraries = currentResults },
+                    SkipMetrics = skipMetrics,
+                    RuntimeTests = prevBaseline.RuntimeTests
+                };
+                newBaseline.Save(BaselinePath);
+                Log.Debug("  Baseline: {Path} (updated — green run)", BaselinePath);
+            }
+            else if (isFullRun)
+                Log.Warning("  Baseline: {Path} (NOT updated — validation failed; prior baseline preserved)", BaselinePath);
             else
                 Log.Debug("  Baseline: {Path} (not updated — filtered/tier run)", BaselinePath);
 
-            Log.Information("");
-
-            // Exit with failure if any compile failures
-            if (compileFailed > 0 || compileNoOutput > 0 || depFailed > 0)
-                Assert.Fail($"Validation failed: {compileFailed + depFailed} compile failures, {compileNoOutput} no output");
+            if (validationFailed)
+                Assert.Fail(
+                    $"Validation failed: {compileFailed + depFailed} compile failures, " +
+                    $"{compileNoOutput} no output, {regressionCount} regressions");
         });
 
     // ============================================================

@@ -486,6 +486,17 @@ namespace BindingsGeneration
                 ScanProtocolsForFrameworkImports(moduleDecl.Protocols, neededImports);
             }
 
+            // Scan top-level free functions and global properties. These live directly on
+            // the module (not inside moduleDecl.Types), so the type scan above never reaches
+            // them — yet their @_cdecl wrappers reference parameter/return/value types just
+            // like type members do. A free function taking/returning an Apple-framework type
+            // (e.g. roundTripOptionalASCredentialParameters(_: ASAuthorizationPublicKeyCredentialParameters?))
+            // otherwise emits a wrapper that references the framework without importing it,
+            // which fails swiftc with "cannot find type 'X' in scope". The declared-imports
+            // path can't cover this: it deliberately skips Apple frameworks and relies on this
+            // scan to add them only when their types appear in the wrapper's public surface.
+            ScanModuleMembersForFrameworkImports(moduleDecl, neededImports);
+
             // Drop implicit / already-imported / self modules discovered during the scan.
             // Swift stdlib is implicit; Foundation is imported unconditionally on the wrapper
             // side and lives in System on the C# side; the module being bound is its own
@@ -726,6 +737,29 @@ namespace BindingsGeneration
                 {
                     ScanTypesForFrameworkImports(type.Types, neededImports);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Scans a module's top-level free functions and global properties for framework
+        /// types. Unlike type members (covered by <see cref="ScanTypesForFrameworkImports"/>),
+        /// these hang directly off the <see cref="ModuleDecl"/>, so without this pass an
+        /// Apple-framework type used only by a free function or global never triggers its
+        /// `import` and the wrapper fails to compile.
+        /// </summary>
+        private void ScanModuleMembersForFrameworkImports(ModuleDecl moduleDecl, HashSet<string> neededImports)
+        {
+            foreach (var method in moduleDecl.Methods)
+            {
+                foreach (var sig in method.CSSignature)
+                {
+                    ScanTypeSpecForImports(sig.SwiftTypeSpec, neededImports);
+                }
+            }
+
+            foreach (var property in moduleDecl.Properties)
+            {
+                ScanTypeSpecForImports(property.SwiftTypeSpec, neededImports);
             }
         }
 

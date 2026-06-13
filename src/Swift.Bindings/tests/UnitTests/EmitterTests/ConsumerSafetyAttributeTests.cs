@@ -121,6 +121,29 @@ public class ConsumerSafetyAttributeTests
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
     }
 
+    [Fact]
+    public void Constructor_ExistentialParam_EmitsUnsupportedSwiftTypeFlagAndRecordsDegradation()
+    {
+        // A constructor taking a PAT existential (`any AttributeKind`) degrades the parameter to
+        // `object`. Constructors previously emitted NO [UnsupportedSwiftType] flag at all — the flag
+        // path lived only in EmitMethod — so the degradation was silent (no consumer marker, nothing
+        // recorded for the SWIFTBIND023 diagnostic). The ctor must now carry the consumer-facing flag
+        // AND record the degradation onto the emission context.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var ctor = CreateConstructor(classDecl, moduleDecl);
+        ctor.CSSignature.Add(CreateArg("attr",
+            new NamedTypeSpec("TestModule.AttributeKind") { IsAny = true }, moduleDecl));
+
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitConstructor(ctor, typeDatabase, emissionContext);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(", csOutput);
+        Assert.Contains("any TestModule.AttributeKind", csOutput);
+        Assert.Contains("any TestModule.AttributeKind", emissionContext.DegradedExistentials);
+    }
+
     #endregion
 
     #region Deliverable 2: Symbol Cross-Referencing
@@ -725,7 +748,8 @@ public class ConsumerSafetyAttributeTests
 
     private static (string csOutput, string swiftOutput) EmitConstructor(
         MethodDecl methodDecl,
-        TypeDatabase typeDatabase)
+        TypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -735,7 +759,10 @@ public class ConsumerSafetyAttributeTests
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = emissionContext is null
+            ? TypeHandlerContext.Empty
+            : new TypeHandlerContext(null, new(), null, EmissionContext: emissionContext);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

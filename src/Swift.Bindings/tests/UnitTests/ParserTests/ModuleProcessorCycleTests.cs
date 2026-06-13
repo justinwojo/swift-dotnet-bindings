@@ -232,6 +232,100 @@ public class ModuleProcessorCycleTests
         Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
     }
 
+    [Fact]
+    public void FinalizeTypeProcessing_FrozenStructWithOptionalBoolField_DeclinesLayout()
+    {
+        // Finding 44: Optional<Bool> uses Swift's spare-bit optimization — Optional<Bool> is
+        // 1 byte (nil folded into a spare Bool bit pattern), NOT inner(1) + tag(1) = 2 bytes.
+        // The old ClassifyFieldType blanket `{inner},i1` fabricated a 2-byte field. Only
+        // payloads that use every bit pattern (the fixed-width int/float scalars) genuinely
+        // gain a tag byte; for spare-bit payloads (Bool, pointers, …) the layout cannot be
+        // derived by this hand-rolled grammar, so the struct must decline to @_cdecl
+        // (AbiFieldLayout null) rather than ship a wrong width.
+        var typeSpecS = new NamedTypeSpec("TestModule.OptBoolHolder");
+        var optionalBool = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"));
+        var structS = CreateStructDecl("OptBoolHolder", typeSpecS, ("flag", optionalBool));
+
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl> { { typeSpecS, structS } };
+        var typeDatabase = new TypeDatabase();
+        RegisterSwiftOptional(typeDatabase);
+        var processor = new ModuleProcessor(
+            "TestModule", "/tmp/TestModule.dylib", "TestModule", typeDecls, typeDatabase, NullLogger.Instance);
+
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(result.ModuleDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.OptBoolHolder"), out var record));
+        // Struct stays frozen — declining the layout does not clear Frozen (that only happens
+        // for unresolvable field types); it just leaves AbiFieldLayout null.
+        Assert.True(record!.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.Null(record.AbiFieldLayout);
+    }
+
+    [Fact]
+    public void FinalizeTypeProcessing_FrozenStructWithOptionalInt32Field_KeepsTagLayout()
+    {
+        // Control for Finding 44: a fixed-width integer payload genuinely gains a 1-byte tag
+        // (Optional<Int32> is 5 bytes in Swift — Int32 uses every bit pattern, no spare bits),
+        // so the `{inner},i1` layout is provably correct and is PRESERVED. Only the spare-bit
+        // payloads decline — this case must keep emitting "i4,i1".
+        var typeSpecS = new NamedTypeSpec("TestModule.OptInt32Holder");
+        var optionalInt32 = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int32"));
+        var structS = CreateStructDecl("OptInt32Holder", typeSpecS, ("count", optionalInt32));
+
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl> { { typeSpecS, structS } };
+        var typeDatabase = new TypeDatabase();
+        RegisterSwiftOptional(typeDatabase);
+        var processor = new ModuleProcessor(
+            "TestModule", "/tmp/TestModule.dylib", "TestModule", typeDecls, typeDatabase, NullLogger.Instance);
+
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(result.ModuleDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.OptInt32Holder"), out var record));
+        Assert.Equal("i4,i1", record!.AbiFieldLayout);
+    }
+
+    [Fact]
+    public void FinalizeTypeProcessing_FrozenStructWithUnknownSizeEnumField_DeclinesLayout()
+    {
+        // Finding 44: a simple-enum field whose own InlineSize is unknown (null — e.g. a
+        // cross-module dependency emitted without a measured size) must decline the parent
+        // struct's layout (AbiFieldLayout null) rather than fabricate an 8-byte field via the
+        // old `record.InlineSize ?? 8`, which silently inflated a 1-byte enum to 8.
+        var typeDatabase = new TypeDatabase();
+
+        // Pre-register the referenced simple enum with an UNKNOWN size.
+        var enumName = SwiftTypeName.FromModuleQualifiedName("Dep.Mode");
+        var enumModule = new ModuleTypeDatabase("Dep", "/tmp/Dep.dylib");
+        enumModule.RegisterType(enumName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Dep", "Mode"),
+            SwiftTypeName = enumName,
+            MetadataAccessor = "$s3Dep4ModeO",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            Kind = TypeRecordKind.Enum,
+            InlineSize = null, // size unknown — must not default to 8
+        });
+        typeDatabase.AddModuleDatabase(enumModule);
+
+        var typeSpecS = new NamedTypeSpec("TestModule.ModeHolder");
+        var structS = CreateStructDecl("ModeHolder", typeSpecS, ("mode", new NamedTypeSpec("Dep.Mode")));
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl> { { typeSpecS, structS } };
+        var processor = new ModuleProcessor(
+            "TestModule", "/tmp/TestModule.dylib", "TestModule", typeDecls, typeDatabase, NullLogger.Instance);
+
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(result.ModuleDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ModeHolder"), out var record));
+        Assert.True(record!.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.Null(record.AbiFieldLayout);
+    }
+
     private static ProtocolDecl CreateProtocolDecl(string name, NamedTypeSpec typeSpec,
         NamedTypeSpec[]? inherited = null, bool classBound = false, string moduleName = "TestModule")
     {
@@ -252,6 +346,28 @@ public class ModuleProcessorCycleTests
             ParentDecl = null,
             ModuleDecl = null
         };
+    }
+
+    /// <summary>
+    /// Registers the stdlib <c>Swift.Optional</c> enum record (seeded from SwiftDatabase.xml in the
+    /// real pipeline) so that a frozen struct with an Optional-typed field stays frozen through
+    /// CacluateFlags and reaches ComputeAbiFieldLayout — the path Finding 44's Optional `,i1` rule
+    /// lives on. Without it, CacluateFlags fails the field's TryGetTypeRecord and clears Frozen, so
+    /// the layout is never computed and the rule is never exercised.
+    /// </summary>
+    private static void RegisterSwiftOptional(TypeDatabase typeDatabase)
+    {
+        var optionalName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
+        var swiftModule = new ModuleTypeDatabase("Swift", "/tmp/Swift.dylib");
+        swiftModule.RegisterType(optionalName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "Optional"),
+            SwiftTypeName = optionalName,
+            MetadataAccessor = "$sSqMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Enum,
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
     }
 
     private static StructDecl CreateStructDecl(string name, NamedTypeSpec typeSpec, params (string propName, NamedTypeSpec propType)[] properties)

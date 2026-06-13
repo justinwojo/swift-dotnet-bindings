@@ -13,18 +13,26 @@ namespace BindingsGeneration
         /// </summary>
         internal static string GetCSharpEnumUnderlyingType(string? rawValueTypeName)
         {
+            // Accept BOTH the module-qualified ("Swift.Int64") and unqualified ("Int64") raw-value
+            // spellings for every known integral type. This must mirror the domain of
+            // CdeclParamMapper.GetSwiftRawValueType, which already recognizes both forms — the two
+            // helpers describe the SAME value crossing the @_cdecl boundary and must agree on its
+            // byte width. If only the unqualified form were handled here, a qualified raw-value name
+            // would fall through to 4-byte `int` while the Swift wrapper emitted the true width
+            // (e.g. Int64 = 8), corrupting the call frame on any non-arm64-zero-extended path.
+            // Pinned by EnumAbiWidthConsistencyTests across the full qualified+unqualified domain.
             return rawValueTypeName switch
             {
-                "Int8" => "sbyte",
-                "UInt8" => "byte",
-                "Int16" => "short",
-                "UInt16" => "ushort",
-                "Int32" => "int",
-                "UInt32" => "uint",
+                "Swift.Int8" or "Int8" => "sbyte",
+                "Swift.UInt8" or "UInt8" => "byte",
+                "Swift.Int16" or "Int16" => "short",
+                "Swift.UInt16" or "UInt16" => "ushort",
+                "Swift.Int32" or "Int32" => "int",
+                "Swift.UInt32" or "UInt32" => "uint",
                 // Swift.Int and Swift.UInt are platform-width (64-bit on arm64/x86_64).
                 // Map to long/ulong to match NSInteger/NSUInteger ABI.
-                "Int64" or "Int" => "long",
-                "UInt64" or "UInt" => "ulong",
+                "Swift.Int64" or "Int64" or "Swift.Int" or "Int" => "long",
+                "Swift.UInt64" or "UInt64" or "Swift.UInt" or "UInt" => "ulong",
                 // No raw value → int (tag values fit in int for practical enum sizes)
                 null or "" => "int",
                 _ => "int"

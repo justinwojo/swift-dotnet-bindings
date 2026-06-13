@@ -145,7 +145,7 @@ namespace BindingsGeneration
                     }
 
                     // Emit as static abstract (no DIM — static abstract members can't have default implementations)
-                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: true);
+                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: true, emissionCtx: emissionCtx);
                     staticAbstractPropertyNames.Add(propertyDecl.Name);
                     emittedInterfaceMemberCount++;
                     ReportCollector.RecordMemberEmitted(propertyDecl);
@@ -221,13 +221,13 @@ namespace BindingsGeneration
                 {
                     skippedPropertyNames.Add(propertyDecl.Name);
                     optionalDimPropertyNames.Add(propertyDecl.Name);
-                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: false, isObjCOptional: true);
+                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: false, isObjCOptional: true, emissionCtx: emissionCtx);
                     emittedInterfaceMemberCount++;
                     ReportCollector.RecordMemberEmitted(propertyDecl);
                     continue;
                 }
 
-                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isPropertyExtDefault);
+                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isPropertyExtDefault, emissionCtx: emissionCtx);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(propertyDecl);
             }
@@ -294,7 +294,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl);
+                EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl, emissionCtx: emissionCtx);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(subscriptDecl);
                 subscriptIndex++;
@@ -687,7 +687,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a property declaration for an interface.
         /// </summary>
-        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false, bool isStaticAbstract = false, bool isObjCOptional = false)
+        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false, bool isStaticAbstract = false, bool isObjCOptional = false, ModuleEmissionContext? emissionCtx = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -725,8 +725,15 @@ namespace BindingsGeneration
             // Emit [UnsupportedSwiftType] if the property type falls back to AnyType
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, propertyDecl.SwiftTypeSpec, out var fallbackInfo))
             {
-                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo);
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo, emissionCtx);
             }
+
+            // The single flag above names only the first degraded existential; record the whole
+            // property type so every DISTINCT degraded existential (e.g. `(any P, any Q)`) raises its
+            // own loud SWIFTBIND023 instead of being silently degraded to object. Dedup makes the
+            // overlap with the flag above harmless.
+            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                emissionCtx, typeDatabase, closureHandler, new[] { propertyDecl.SwiftTypeSpec });
 
             XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, protocolContext, emitObsolete: true);
@@ -871,7 +878,7 @@ namespace BindingsGeneration
         /// Swift: subscript(key: ImageCacheKey) -> ImageContainer? { get set }
         /// C#:   SwiftOptional<ImageContainer> this[ImageCacheKey key] { get; set; }
         /// </summary>
-        private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null)
+        private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, ModuleEmissionContext? emissionCtx = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
@@ -914,7 +921,7 @@ namespace BindingsGeneration
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, subscriptDecl.ReturnTypeSpec, out var subscriptFallbackInfo))
             {
-                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, subscriptFallbackInfo);
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, subscriptFallbackInfo, emissionCtx);
             }
             else
             {
@@ -922,11 +929,17 @@ namespace BindingsGeneration
                 {
                     if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, param.SwiftTypeSpec, out var paramFallbackInfo))
                     {
-                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, paramFallbackInfo);
+                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, paramFallbackInfo, emissionCtx);
                         break; // One attribute is enough to flag the subscript
                     }
                 }
             }
+
+            // Record EVERY distinct degraded existential (return + each index parameter), not just the
+            // one the single flag names, so SWIFTBIND023 fires per distinct type.
+            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                emissionCtx, typeDatabase, closureHandler,
+                new[] { subscriptDecl.ReturnTypeSpec }.Concat(subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec)));
 
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, subscriptDecl, protocolContext, emitObsolete: true);
             csWriter.WriteLine($"{returnTypeName} this[{string.Join(", ", parameters)}] {accessors}");
@@ -1001,7 +1014,7 @@ namespace BindingsGeneration
                 {
                     if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, returnArg.SwiftTypeSpec, out var returnFallbackInfo))
                     {
-                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, returnFallbackInfo);
+                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, returnFallbackInfo, emissionCtx);
                         emittedAttribute = true;
                     }
                 }
@@ -1012,11 +1025,18 @@ namespace BindingsGeneration
                 {
                     if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, methodDecl.CSSignature[j].SwiftTypeSpec, out var paramFallbackInfo))
                     {
-                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, paramFallbackInfo);
+                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, paramFallbackInfo, emissionCtx);
                         break; // One attribute is enough to flag the method
                     }
                 }
             }
+
+            // Record EVERY distinct degraded existential across the signature (return + every param),
+            // not just the one the single flag names, so SWIFTBIND023 fires per distinct type.
+            // CSSignature[0] is the return.
+            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                emissionCtx, typeDatabase, closureHandler,
+                methodDecl.CSSignature.Select(a => a.SwiftTypeSpec));
 
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
             var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,

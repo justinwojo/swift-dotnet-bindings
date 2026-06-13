@@ -198,15 +198,9 @@ public class WitnessDispatchEmitter
         var emittedPropertyNames = new HashSet<string>();
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic)
-                continue;
-            // @objc optional properties: calling on existential returns Optional — skip dispatch
-            if (property.IsObjCOptional)
-                continue;
-            // Custom actor-isolated properties: we can't annotate the dispatch accessor with
-            // the correct actor, so it would be a non-isolated access → compile error.
-            // @MainActor properties are handled by the emission methods (they add @MainActor).
-            if (property.IsActorIsolated && !property.IsMainActorIsolated)
+            // Eligibility (static / @objc-optional / custom-actor) is the shared predicate so all
+            // three witness-dispatch walks agree on which members get an SBW accessor and index.
+            if (!IsPropertyWitnessDispatchEligible(property))
                 continue;
             if (!emittedPropertyNames.Add(property.Name + "_get"))
                 continue;
@@ -253,11 +247,7 @@ public class WitnessDispatchEmitter
         // Property setters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic)
-                continue;
-            if (property.IsObjCOptional)
-                continue;
-            if (property.IsActorIsolated && !property.IsMainActorIsolated)
+            if (!IsPropertyWitnessDispatchEligible(property))
                 continue;
             if (!emittedPropertyNames.Add(property.Name + "_set"))
                 continue;
@@ -275,10 +265,8 @@ public class WitnessDispatchEmitter
         // Methods
         foreach (var method in protocolDecl.Methods)
         {
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
-                continue;
-            // @objc optional methods: calling on existential returns Optional — skip dispatch
-            if (method.IsObjCOptional)
+            // Shared eligibility predicate keeps this walk's index in lockstep with both C# walks.
+            if (!IsMethodWitnessDispatchEligible(method))
                 continue;
 
             var methodKey = GetMethodKey(method);
@@ -1067,6 +1055,49 @@ public class WitnessDispatchEmitter
     public static bool IsStringDispatchType(TypeSpec? typeSpec)
     {
         return IsStringType(typeSpec);
+    }
+
+    /// <summary>
+    /// Single source of truth for whether a protocol method participates in witness-table
+    /// forward dispatch (gets a Swift @_cdecl accessor and a matching C# P/Invoke + call site).
+    ///
+    /// This predicate is consumed by ALL THREE walks that compute the per-member dispatch index:
+    /// the Swift wrapper emission (EmitWitnessDispatchFunctions), the C# P/Invoke declaration walk
+    /// (ProtocolProxyEmitter.EmitWitnessDispatchPInvokes), and the C# caller walk
+    /// (ProtocolProxyEmitter.EmitInterfaceImplementation). Any divergence shifts the index baked
+    /// into SBW_{proto}_method_{name}_{idx}, so one side ends up referencing a symbol the other
+    /// never emitted — a runtime EntryPointNotFoundException, not a compile error. @objc-optional
+    /// methods are non-dispatchable (the existential call returns Optional and the witness is
+    /// absent); they consume NO index and the interface satisfies them via a default no-op.
+    /// </summary>
+    public static bool IsMethodWitnessDispatchEligible(MethodDecl method)
+    {
+        return !method.IsConstructor
+            && method.MethodType != MethodType.Static
+            && !method.IsObjCOptional;
+    }
+
+    /// <summary>
+    /// Single source of truth for whether a protocol property participates in witness-table
+    /// forward dispatch. Mirrors <see cref="IsMethodWitnessDispatchEligible"/> for the property
+    /// accessor walks. Beyond static (not part of the existential witness table), two kinds are
+    /// excluded because the Swift wrapper cannot emit an accessor for them:
+    /// <list type="bullet">
+    /// <item>@objc-optional properties — the existential access returns Optional, no witness.</item>
+    /// <item>Custom-actor-isolated (non-@MainActor) properties — a synchronous @_cdecl accessor
+    /// cannot be annotated with the custom actor, so accessing the requirement would be a
+    /// cross-actor (non-isolated) access that does not compile. @MainActor properties ARE
+    /// dispatched (the accessor adds @MainActor).</item>
+    /// </list>
+    /// Ineligible properties degrade to the existing non-dispatchable fallback in
+    /// EmitPropertyImplementation (an SB0003 NotSupportedException getter/setter that still
+    /// satisfies the interface), so nothing references an unexported SBW symbol.
+    /// </summary>
+    public static bool IsPropertyWitnessDispatchEligible(PropertyDecl property)
+    {
+        return !property.IsStatic
+            && !property.IsObjCOptional
+            && !(property.IsActorIsolated && !property.IsMainActorIsolated);
     }
 
     /// <summary>

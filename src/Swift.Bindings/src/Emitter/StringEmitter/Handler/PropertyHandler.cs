@@ -771,6 +771,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             fallbackInfo = foundFallbackInfo;
         }
 
+        // The single flag above names only the first degraded existential, but SWIFTBIND023 promises
+        // one loud warning per DISTINCT degraded existential. Record the whole property type so a
+        // second-or-later existential (e.g. a property typed `(any P, any Q)`) is not silently
+        // degraded to object; dedup makes the overlap with the flag above harmless.
+        UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+            context.GetEmissionContext(), propertyEnv.TypeDatabase, propertyEnv.ClosureHandler,
+            new[] { propertyDecl.SwiftTypeSpec });
+
         var staticModifier = propertyDecl.IsStatic ? "static " : string.Empty;
 
         // Compute virtual/override/sealed override modifier for class instance properties.
@@ -792,7 +800,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Then emit the property
         if (fallbackInfo.HasValue)
         {
-            UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value);
+            UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value, context.GetEmissionContext());
         }
         XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);

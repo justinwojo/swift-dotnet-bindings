@@ -1368,6 +1368,31 @@ public sealed class ModuleEmissionContext
             _emittedOpaqueTypes.Add(moduleQualifiedName);
     }
 
+    // ==================== Degraded Existentials (Defect E) ====================
+
+    private readonly HashSet<string> _degradedExistentials = new();
+
+    /// <summary>
+    /// Swift textual forms (e.g. <c>any AttributeKind</c>) of protocol existentials that could not
+    /// be projected to a real C# type and degraded to <c>object</c>. Each distinct type is recorded
+    /// once across however many member surfaces touched it; <see cref="EmissionReportEmitter.Emit"/>
+    /// turns the set into one loud SWIFTBIND023 warning per type so the degradation is no longer
+    /// silent behind only the consumer-facing <c>[UnsupportedSwiftType]</c> attribute.
+    /// </summary>
+    public IReadOnlyCollection<string> DegradedExistentials => _degradedExistentials;
+
+    /// <summary>
+    /// Records that a protocol existential degraded to <c>object</c>. Returns true if this was the
+    /// first sighting of <paramref name="swiftExistentialType"/> (so callers can dedup work), false
+    /// for a repeat or a blank value.
+    /// </summary>
+    public bool TryRecordExistentialDegradation(string swiftExistentialType)
+    {
+        if (string.IsNullOrEmpty(swiftExistentialType))
+            return false;
+        return _degradedExistentials.Add(swiftExistentialType);
+    }
+
     // ==================== Native Thunks ====================
 
     private readonly System.Text.StringBuilder _assemblyBuilder = new();

@@ -311,6 +311,14 @@ public static class DefaultParameterOverloadEmitter
                 }
             }
 
+            // The single flag above names only the first degraded position, but SWIFTBIND023 promises
+            // one loud warning per DISTINCT degraded existential. Record the whole overload signature
+            // (return + every param) so an existential that only appears as a 2nd+ position is not
+            // silently degraded to object; dedup makes the overlap with the flag above harmless.
+            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                emissionContext, env.TypeDatabase, env.ClosureHandler,
+                overloadDecl.CSSignature.Select(a => a.SwiftTypeSpec));
+
             var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo, emissionContext);
             if (overloadDecl.IsConstructor && !overloadDecl.IsFailable && !overloadDecl.IsAsync)
             {

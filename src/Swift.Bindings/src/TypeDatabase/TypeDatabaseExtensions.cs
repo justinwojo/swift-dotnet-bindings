@@ -9,7 +9,16 @@ namespace BindingsGeneration;
 
 public static class TypeDatabaseExtensions
 {
-    public readonly record struct AnyTypeFallbackInfo(string Reason, string SwiftType);
+    public readonly record struct AnyTypeFallbackInfo(string Reason, string SwiftType)
+    {
+        /// <summary>
+        /// The <see cref="Reason"/> value set when a protocol existential (<c>any P</c>) cannot be
+        /// projected to a real C# type and degrades to <c>object</c>. Used to route the loud
+        /// SWIFTBIND023 diagnostic — distinguishing existential degradation from unrelated fallbacks
+        /// (unsupported closures, unknown generics) that share the <c>[UnsupportedSwiftType]</c> path.
+        /// </summary>
+        public const string ExistentialFallbackReason = "Existential type fallback";
+    }
     private static readonly HashSet<string> BareGenericCSharpTypeNames = new(StringComparer.Ordinal)
     {
         "SwiftDictionary", "Swift.SwiftDictionary", "Swift.Runtime.SwiftDictionary",
@@ -215,6 +224,20 @@ public static class TypeDatabaseExtensions
             case NamedTypeSpec namedTypeSpec:
                 return typeDatabase.TryGetAnyTypeFallbackInfo(namedTypeSpec, out fallbackInfo);
             default:
+                // KNOWN GAP: only NamedTypeSpec degradations are classified here. A
+                // ProtocolListTypeSpec composition (`any P & Q`) that ExistentialHandler
+                // .GetPublicExistentialType collapses to `object` (class-bound, `any Sendable`,
+                // PAT-without-projection) is invisible to BOTH the [UnsupportedSwiftType] flag
+                // and the SWIFTBIND023 diagnostic, because the resolver/strategy that produces
+                // the SyntheticFallback only matches NamedTypeSpec too. Detecting *only* the
+                // degrading compositions (GetPublicExistentialType returns a real composition
+                // interface when EffectiveProtocolsHaveTypeRecords) requires the resolver itself
+                // to record the degradation — the Finding 21 configured/unconfigured-fork
+                // refactor — rather than mirroring projectability logic into a second universe
+                // here, which is the Finding 10 "two resolution universes" duplication this gap
+                // is deliberately NOT widened into. Pinned by
+                // TypeDatabaseExtensionsTests.TryGetAnyTypeFallbackInfo_ProtocolListComposition_ReturnsFalse
+                // so a future fix flips a red test rather than landing as silent drift.
                 fallbackInfo = null;
                 return false;
         }

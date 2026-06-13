@@ -207,6 +207,31 @@ public class EnumParserTests
 
     #endregion
 
+    #region Single-Tuple-Payload Detection
+
+    [Theory]
+    // Single UNLABELED tuple-typed associated value → double paren around the param clause.
+    [InlineData("((Swift.Int32, SwiftBindingsTestLib.BoxedCounter)) -> SwiftBindingsTestLib.TaggedDelivery", true)]
+    [InlineData("((Swift.Int, Swift.Bool)) -> Module.Pair", true)]
+    // N separate values → single paren.
+    [InlineData("(Swift.Int32, Swift.String) -> Module.NetworkResponse", false)]
+    // Single non-tuple value → single paren, single element.
+    [InlineData("(Swift.Int32) -> Module.Boxed", false)]
+    // Labeled single tuple → handled by OuterTupleLabel, not this detector (label breaks the
+    // leading-paren shape, so this returns false by design).
+    [InlineData("(label: (a: Swift.Int, b: Swift.Int)) -> Module.Labeled", false)]
+    // Two values where the FIRST is a tuple → not a single tuple payload.
+    [InlineData("((Swift.Int, Swift.Int), Swift.Bool) -> Module.Mixed", false)]
+    // No associated values.
+    [InlineData("Module.Plain.Type -> Module.Plain", false)]
+    [InlineData("", false)]
+    public void IsSingleTupleAssociatedValueParam_ClassifiesByParenNesting(string funcPrintedName, bool expected)
+    {
+        Assert.Equal(expected, SwiftABIParser.IsSingleTupleAssociatedValueParam(funcPrintedName));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static EnumDecl CreateEnumDecl(string name)

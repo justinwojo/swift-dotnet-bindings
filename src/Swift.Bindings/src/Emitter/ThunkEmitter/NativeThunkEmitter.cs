@@ -638,10 +638,29 @@ public static class NativeThunkEmitter
             if (lowering != null && lowering.Slots.Count > 1)
                 return false;
 
-            // Can't lower — check if it's a class type (always a single pointer, safe)
-            if (env.TypeDatabase.TryGetTypeRecord(arg.SwiftTypeSpec, out var record)
-                && record.Kind == TypeRecordKind.Class)
-                continue;
+            // Can't lower via TypeLowering. Two value shapes are still single-register-safe
+            // for the thunk's 1:1 register shifting even without a lowering result:
+            if (env.TypeDatabase.TryGetTypeRecord(arg.SwiftTypeSpec, out var record))
+            {
+                // Class: always a single pointer.
+                if (record.Kind == TypeRecordKind.Class)
+                    continue;
+
+                // Frozen simple enum: a tag-only enum is always ≤ 8 bytes and is passed in one
+                // integer register, so forwarding it in a single GPR is correct regardless of its
+                // exact byte width. LowerParameterType now declines it when InlineSize is unknown
+                // (Finding 44 — don't fabricate a layout SIZE, which would corrupt struct-field
+                // offsets), but thunk eligibility only needs "fits in one GPR", which a frozen
+                // simple enum always satisfies. This mirrors the frozen-simple-enum branch of
+                // NeedsReturnBridging on the return side; without it, the InlineSize-null cross-
+                // compile path would needlessly drop every frozen-enum-param setter/method to the
+                // @_cdecl wrapper. Non-frozen simple enums use the indirect resilient ABI and are
+                // correctly NOT matched here (they lack the Frozen flag).
+                if (record.Kind == TypeRecordKind.Enum
+                    && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
+                    && record.Flags.HasFlag(TypeRecordFlags.Frozen))
+                    continue;
+            }
 
             // Unknown/unlowerable parameter — thunk can't handle it safely
             return false;

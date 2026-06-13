@@ -688,7 +688,13 @@ public class ClosureEmitterDirectTests
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol
             });
-        // Register simple enum with Int raw value
+        // Register simple enum with an Int32 raw value. The parser emits raw-value type
+        // names UNQUALIFIED (e.g. "Int32", never "Swift.Int32" — the whole codebase compares
+        // RawValueTypeName == "String", not "Swift.String"), so the realistic fixture uses the
+        // bare form. Int32 is the width-consistent 4-byte case: GetCSharpEnumUnderlyingType →
+        // "int" and CdeclParamMapper.GetSwiftRawValueType → "Int32" both describe 4 bytes, so the
+        // closure cast is `(int)`. (A platform-width "Int" raw value would correctly cast through
+        // `(long)`; that width contract is pinned by EnumAbiWidthConsistencyTests.)
         testModule.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("TestModule.StatusEnum"),
             new TypeRecord
@@ -698,7 +704,7 @@ public class ClosureEmitterDirectTests
                 MetadataAccessor = "$s10TestModule10StatusEnumOMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
                 Kind = TypeRecordKind.Enum,
-                RawValueTypeName = "Swift.Int"
+                RawValueTypeName = "Int32"
             });
         typeDatabase.AddModuleDatabase(testModule);
 

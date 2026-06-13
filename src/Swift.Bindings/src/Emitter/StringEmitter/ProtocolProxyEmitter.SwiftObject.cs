@@ -445,10 +445,11 @@ public partial class ProtocolProxyEmitter
         var protocolName = protocolDecl.Name;
         var emittedPInvokes = new HashSet<string>();
 
-        // Property getters (skip static properties - not part of witness table)
+        // Property getters — eligibility (static / @objc-optional / custom-actor) must match the
+        // Swift wrapper walk exactly, else we declare a P/Invoke for a symbol it never exported.
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic)
+            if (!WitnessDispatchEmitter.IsPropertyWitnessDispatchEligible(property))
                 continue;
 
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
@@ -553,10 +554,10 @@ public partial class ProtocolProxyEmitter
             }
         }
 
-        // Property setters (skip static properties - not part of witness table)
+        // Property setters — same shared eligibility predicate as the getter walk above.
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic)
+            if (!WitnessDispatchEmitter.IsPropertyWitnessDispatchEligible(property))
                 continue;
 
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
@@ -596,7 +597,9 @@ public partial class ProtocolProxyEmitter
         var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
+            // Shared eligibility predicate — @objc-optional methods consume no index here, exactly
+            // as in the Swift wrapper walk, so a required method's SBW index never drifts.
+            if (!WitnessDispatchEmitter.IsMethodWitnessDispatchEligible(method))
                 continue;
             // @objc optional methods get no witness accessor — the producer
             // (WitnessDispatchEmitter) skips them BEFORE the index increment, so this

@@ -41,6 +41,34 @@ public static class TypeSpecHelpers
     }
 
     /// <summary>
+    /// Normalizes an enum raw-value type name to its unqualified stdlib spelling
+    /// (e.g. "Swift.Int32" → "Int32", "Swift.String" → "String").
+    ///
+    /// Enum raw value types are always Swift stdlib types (the integer/float families,
+    /// String, Character), and the Swift ABI digester emits them unqualified — so in
+    /// practice this is already bare. But <c>RawValueTypeName</c> drives a family of
+    /// bare-only classification switches (<see cref="EnumDecl.IsIntegralRawValue"/>,
+    /// <c>EnumDecl.IsStringRawValue</c>, the SwiftUI <c>MapEnumRawValueType</c> bridge,
+    /// and assorted direct <c>== "String"</c> / <c>== "Int32"</c> checks) that select the
+    /// emission strategy and public surface for the enum and all its members. A qualified
+    /// spelling slipping in from any registration source (XML re-read, cross-module
+    /// pre-registration, hand-written test records) would silently mis-route those.
+    /// Normalizing at the two carriers' assignment sites (the <see cref="EnumDecl"/>
+    /// setter and the <c>TypeRecord</c> init accessor) makes the documented "always
+    /// unqualified" invariant true by construction for every entry path, so the
+    /// classifiers stay correct without cascading both-spelling checks across them.
+    /// </summary>
+    /// <param name="rawValueTypeName">The raw value type name (may be null/empty/qualified).</param>
+    /// <returns>The unqualified spelling, or the input unchanged when null/empty/non-Swift.</returns>
+    public static string? NormalizeRawValueTypeName(string? rawValueTypeName)
+    {
+        const string swiftPrefix = "Swift.";
+        if (!string.IsNullOrEmpty(rawValueTypeName) && rawValueTypeName.StartsWith(swiftPrefix, StringComparison.Ordinal))
+            return rawValueTypeName.Substring(swiftPrefix.Length);
+        return rawValueTypeName;
+    }
+
+    /// <summary>
     /// Checks if a TypeSpec represents a generic type parameter.
     /// </summary>
     /// <param name="typeSpec">The type specification to check.</param>

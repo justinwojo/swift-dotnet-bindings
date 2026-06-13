@@ -681,6 +681,33 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void LowerReturnType_SimpleFrozenEnum_NullInlineSize_DeclinesToCdecl()
+        {
+            // Finding 44: a simple frozen enum whose InlineSize is unknown (null — e.g. the
+            // iOS-on-macOS cross-compile path where the metadata accessor can't be dlopened)
+            // must DECLINE (return null → route to @_cdecl) rather than fabricate an 8-byte
+            // default. The old `record.InlineSize ?? 8` shipped a wrong 8-byte TotalByteSize
+            // for what is usually a 1-byte enum — a fabricated layout, not a measured one.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Tag");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Tag"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib3TagO",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int",
+                InlineSize = null, // size unknown — must not default to 8
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+            var typeSpec = new NamedTypeSpec("MyLib.Tag");
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
         public void LowerReturnType_NonFrozenSimpleEnum_ReturnsNull()
         {
             // Non-frozen simple enums are passed indirectly in Swift ABI (resilient layout).

@@ -146,8 +146,17 @@ public record TypeRecord
     /// <summary>
     /// The raw value type name for RawRepresentable enums (e.g., "Int", "Int32", "String").
     /// Null if the type is not an enum or does not conform to RawRepresentable.
+    /// Normalized to the unqualified stdlib spelling on assignment (XML re-read, cross-module
+    /// pre-registration, and hand-written test records all flow through here) so the bare-only
+    /// classification switches that consume it stay correct — see
+    /// <see cref="TypeSpecHelpers.NormalizeRawValueTypeName"/>.
     /// </summary>
-    public string? RawValueTypeName { get; init; }
+    public string? RawValueTypeName
+    {
+        get => _rawValueTypeName;
+        init => _rawValueTypeName = TypeSpecHelpers.NormalizeRawValueTypeName(value);
+    }
+    private readonly string? _rawValueTypeName;
 
     /// <summary>
     /// The number of members emitted in the C# interface for this protocol.

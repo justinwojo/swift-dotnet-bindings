@@ -2170,18 +2170,39 @@ partial class Build
             StashAbiGridResults(platform, jsonlResults);
 
         // If we have aggregated results from crash recovery, adjust the final verdict.
-        // A crash that was recovered (all remaining classes ran) is reported as Success/Failure
-        // based on actual test results, not the crash status of the last launch.
+        // A crash that was recovered (all remaining classes ran) is reported from the aggregated
+        // results, not the crash status of the last launch. But a recovered crash is still a
+        // crash: synthesized crash entries carry status "crash" (never "fail"), so FailCount can
+        // be 0 while CrashCount > 0. A crash is OUR bug, never a passing result — so any remaining
+        // crash fails the run (Finding 27).
         var effectiveResult = result.Result;
         if (jsonlResults != null && jsonlResults.CrashCount > 0 &&
             result.Result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure)
         {
-            // Crash recovery completed — report based on aggregated fail count
-            if (jsonlResults.FailCount > 0)
-                effectiveResult = TestResult.Failure;
-            else
-                effectiveResult = TestResult.Success;
+            effectiveResult = TestResult.Failure;
             Log.Information("Crash recovery completed — reporting based on aggregated results.");
+        }
+
+        // Finding 27: a crash is never a green result. Even when the process exited cleanly and
+        // the verdict above is Success, an individual test recorded as "crash" (e.g. a teardown
+        // or class-init fault the console marker would still print past) must fail the run.
+        if (effectiveResult == TestResult.Success && jsonlResults != null && jsonlResults.CrashCount > 0)
+        {
+            Log.Error("{Crash} crashed test(s) recorded — a crash is never a passing result (Finding 27).",
+                jsonlResults.CrashCount);
+            effectiveResult = TestResult.Failure;
+        }
+
+        // Finding 27: a green verdict with no JSONL artifact rests on the console "TEST SUCCESS"
+        // string alone — exactly the channel a teardown crash after the marker would still print.
+        // Require the structured results to certify a green run, unless the operator explicitly
+        // opted into --permissive (local exploration only).
+        if (effectiveResult == TestResult.Success && jsonlResults == null && !Permissive)
+        {
+            Log.Error("Runtime tests reported success for {Platform} but produced no JSONL results artifact; " +
+                "refusing to certify a green run on the console marker alone (pass --permissive to override).",
+                platform);
+            effectiveResult = TestResult.Failure;
         }
 
         Log.Information("");

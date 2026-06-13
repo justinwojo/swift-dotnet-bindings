@@ -655,6 +655,9 @@ namespace BindingsGeneration.Tests
         {
             // Setter with frozen enum value param on FINAL class. No Tj dispatch — uses direct
             // dispatch with standard calling convention. Thunk is safe.
+            // The enum carries NO InlineSize on purpose (the cross-compile reality): a frozen
+            // simple enum stays thunk-eligible without it via the AreAllParametersLowerable
+            // frozen-simple-enum fallback — do NOT "fix" this by adding InlineSize.
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyEnum", new TypeRecord
             {
@@ -678,6 +681,74 @@ namespace BindingsGeneration.Tests
 
             var env = new MethodEnvironment(method, db);
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenSimpleEnumParam_NullInlineSize_ReturnsTrue()
+        {
+            // Finding 44 fallout: TypeLowering now declines a frozen simple (tag-only) enum's
+            // byte SIZE when InlineSize is unknown — the iOS-on-macOS cross-compile path, where
+            // the bound module's own metadata accessor can't be dlopened, leaves InlineSize null.
+            // But a tag-only enum is always ≤ 8 bytes and crosses in ONE integer register, so it
+            // stays thunk-eligible: AreAllParametersLowerable recognizes the frozen-simple-enum
+            // shape (LowerParameterType returns null) and the descriptor counts it as a single
+            // integer-register param (its "unlowerable → 1 integer register" branch). This mirrors
+            // NeedsReturnBridging on the return side. Without the param-side fallback, every
+            // frozen-enum-param method would needlessly drop to the @_cdecl wrapper on the
+            // cross-compile path. Regular (non-accessor) method isolates the param-lowering gate.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                // InlineSize intentionally omitted (null) — the cross-compile reality.
+            });
+
+            var parentDecl = CreateClassDecl();
+            parentDecl.IsFinal = true;
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new TupleTypeSpec(), ""),                  // void return
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), "mode"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_NonFrozenSimpleEnumParam_FinalClass_ReturnsFalse()
+        {
+            // The frozen-simple-enum param fallback is gated on the Frozen flag. A NON-frozen
+            // simple enum uses the resilient (indirect) ABI and is intentionally NOT promoted by
+            // the fallback — it declines to the @_cdecl wrapper (the historical behavior, and the
+            // boundary NeedsReturnBridging keeps on the return side too). Final class avoids the
+            // Tj-dispatch gate, isolating the lowering decision as the reason for the rejection.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum, // NOT frozen — resilient/indirect ABI
+            });
+
+            var parentDecl = CreateClassDecl();
+            parentDecl.IsFinal = true;
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new TupleTypeSpec(), ""),
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), "mode"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
         [Fact]
@@ -789,6 +860,9 @@ namespace BindingsGeneration.Tests
             // The thunk's `mov x20, x_n` correctly forwards the C# pinned-self pointer.
             // Setters are not marked IsMutating in the ABI parser; MethodIsSetter
             // (Name ends with "_Set") is the signal IsSelfTypeLowerable uses.
+            // The enum value param carries NO InlineSize on purpose — it stays thunk-eligible
+            // via the frozen-simple-enum fallback in AreAllParametersLowerable (the struct's own
+            // InlineSize=16 satisfies the self-pointer check separately).
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyEnum", new TypeRecord
             {

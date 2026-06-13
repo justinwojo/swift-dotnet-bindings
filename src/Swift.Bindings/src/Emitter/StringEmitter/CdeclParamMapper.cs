@@ -828,7 +828,15 @@ public static class CdeclParamMapper
         "Swift.Double" or "Double" => "Double",
         "CoreFoundation.CGFloat" or "CGFloat" => "CGFloat",
         "Swift.String" or "String" => "String",
-        _ => "Int" // fallback
+        // No raw value (tag-only enum like `enum Direction { case north }`) and any
+        // unrecognized type name map to Int32 — the 32-bit transport the C# side uses
+        // (EnumHandler.GetCSharpEnumUnderlyingType(null) == "int"). Emitting pointer-width
+        // `Int` here while C# passes a 32-bit `int` is a latent ABI width mismatch that only
+        // survives arm64 zero-extension of the argument register; both @_cdecl carriers
+        // (CdeclParamMapper.Map and CdeclReturnMapping) must agree with C# on width. The
+        // tag-only conversion (`load(as:)` from the low bytes / zero-init + copyMemory) is
+        // width-agnostic, so a 4-byte transport reads the same low tag byte a wider one did.
+        _ => "Int32"
     };
 
     /// <summary>

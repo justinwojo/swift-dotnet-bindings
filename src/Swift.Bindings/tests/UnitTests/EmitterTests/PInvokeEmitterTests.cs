@@ -174,7 +174,11 @@ public class PInvokeEmitterTests
     public void ReturnType_SimpleEnum_ReturnsUnderlyingType()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterSimpleEnum(testModule, "TestModule.Status", "TestModule", "Status", "Swift.Int");
+        // Int32 raw value — the realistic unqualified form the parser emits, and the
+        // width-consistent 4-byte case: the C# P/Invoke carrier (GetCSharpEnumUnderlyingType →
+        // "int") and the Swift @_cdecl carrier (GetSwiftRawValueType → "Int32") are both 4 bytes.
+        // The platform-width Int → long contract is pinned by EnumAbiWidthConsistencyTests.
+        RegisterSimpleEnum(testModule, "TestModule.Status", "TestModule", "Status", "Int32");
 
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
@@ -486,7 +490,11 @@ public class PInvokeEmitterTests
     public void Parameter_SimpleEnum_UsesUnderlyingType()
     {
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-        RegisterSimpleEnum(testModule, "TestModule.Status", "TestModule", "Status", "Swift.Int");
+        // Int32 raw value — the realistic unqualified form the parser emits, and the
+        // width-consistent 4-byte case: the C# P/Invoke carrier (GetCSharpEnumUnderlyingType →
+        // "int") and the Swift @_cdecl carrier (GetSwiftRawValueType → "Int32") are both 4 bytes.
+        // The platform-width Int → long contract is pinned by EnumAbiWidthConsistencyTests.
+        RegisterSimpleEnum(testModule, "TestModule.Status", "TestModule", "Status", "Int32");
 
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);

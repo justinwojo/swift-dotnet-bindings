@@ -196,17 +196,19 @@ public class EnumHandlerTests
     [Fact]
     public void EnumDecl_WithRawValueType_HasRawValueTypeName()
     {
-        var enumDecl = CreateEnumDecl("HTTPMethod", rawValueTypeName: "Swift.String");
+        // Raw value types are stored unqualified (the digester emits them bare);
+        // qualified→bare normalization is pinned in RawValueTypeNameNormalizationTests.
+        var enumDecl = CreateEnumDecl("HTTPMethod", rawValueTypeName: "String");
 
-        Assert.Equal("Swift.String", enumDecl.RawValueTypeName);
+        Assert.Equal("String", enumDecl.RawValueTypeName);
     }
 
     [Fact]
     public void EnumDecl_WithIntRawValue_HasCorrectRawValueType()
     {
-        var enumDecl = CreateEnumDecl("StatusCode", rawValueTypeName: "Swift.Int");
+        var enumDecl = CreateEnumDecl("StatusCode", rawValueTypeName: "Int");
 
-        Assert.Equal("Swift.Int", enumDecl.RawValueTypeName);
+        Assert.Equal("Int", enumDecl.RawValueTypeName);
     }
 
     [Fact]
@@ -220,7 +222,7 @@ public class EnumHandlerTests
     [Fact]
     public void EnumDecl_IsRawRepresentable_CanBeDetected()
     {
-        var enumDecl = CreateEnumDecl("HTTPMethod", rawValueTypeName: "Swift.String");
+        var enumDecl = CreateEnumDecl("HTTPMethod", rawValueTypeName: "String");
 
         var isRawRepresentable = enumDecl.RawValueTypeName != null;
 

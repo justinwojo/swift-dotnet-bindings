@@ -583,7 +583,28 @@ namespace BindingsGeneration
             // orphan public C# member.
             methodEnv.EmissionContext = context.GetEmissionContext();
 
-            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, emissionContext: context.GetEmissionContext());
+            // Surface any PAT-existential degradation in the constructor's parameters. Constructors
+            // previously emitted NO [UnsupportedSwiftType] flag at all (the flag path lived only in
+            // EmitMethod), so a degraded `init(_ a: any P)` silently degraded the param to object.
+            // Thread the first degraded position into WrapperEmitter so the ctor public surface
+            // carries the same loud marker a degraded method does, and record EVERY distinct degraded
+            // existential across the parameters so SWIFTBIND023 fires once per type rather than only
+            // for the first. Dedup makes the flag/record overlap harmless. Constructors have no
+            // return existential, so the parameters (CSSignature) carry the whole story.
+            TypeDatabaseExtensions.AnyTypeFallbackInfo? ctorFallbackInfo = null;
+            foreach (var argument in methodEnv.MethodDecl.CSSignature)
+            {
+                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(methodEnv.TypeDatabase, methodEnv.ClosureHandler, argument.SwiftTypeSpec, out var foundCtorFallbackInfo))
+                {
+                    ctorFallbackInfo = foundCtorFallbackInfo;
+                    break;
+                }
+            }
+            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                context.GetEmissionContext(), methodEnv.TypeDatabase, methodEnv.ClosureHandler,
+                methodEnv.MethodDecl.CSSignature.Select(a => a.SwiftTypeSpec));
+
+            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, ctorFallbackInfo, context.GetEmissionContext());
 
             // C2: Emit Swift typed error extractor for ALL throwing constructors
             // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
@@ -1298,6 +1319,16 @@ namespace BindingsGeneration
                         break;
                     }
                 }
+
+                // The single [UnsupportedSwiftType] flag above (carried into WrapperEmitter via
+                // fallbackInfo) names only the first degraded position, but SWIFTBIND023 promises one
+                // loud warning per DISTINCT degraded existential. Record the whole signature (return +
+                // every param) so an existential that only ever appears as a 2nd+ position is not
+                // silently degraded to object. CSSignature[0] is the return; dedup makes the overlap
+                // with the flag above harmless.
+                UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                    context.GetEmissionContext(), methodEnv.TypeDatabase, methodEnv.ClosureHandler,
+                    methodEnv.MethodDecl.CSSignature.Select(a => a.SwiftTypeSpec));
             }
 
             // Pre-scan: flag methods that will get throwing closure simplification overloads

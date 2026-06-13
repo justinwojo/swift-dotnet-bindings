@@ -584,10 +584,19 @@ namespace BindingsGeneration
                         if (TryGetTypeRecord(innerType, out var innerRecord) && innerRecord.Kind == TypeRecordKind.Class)
                             return "p8";
 
-                        // Optional<value type> = inner layout + a 1-byte tag (integer slot)
-                        var innerLayout = ClassifyFieldType(innerType);
-                        if (innerLayout != null)
-                            return $"{innerLayout},i1";
+                        // Swift only adds a 1-byte discriminator tag to an Optional when the payload
+                        // uses EVERY bit pattern of its storage — i.e. the fixed-width integer/float
+                        // scalars. Every other payload (Bool, pointers, class refs, spare-tag enums,
+                        // structs carrying spare bits) folds `.none` into a spare inhabitant, keeping
+                        // the SAME size with no tag. This hand-rolled grammar can't derive those
+                        // widths, so it must decline (route to @_cdecl) rather than fabricate
+                        // `{inner},i1` and ship a too-wide field. See Finding 44.
+                        if (s_optionalTagAddingScalars.Contains(innerType.Name))
+                        {
+                            var innerLayout = ClassifyFieldType(innerType);
+                            if (innerLayout != null)
+                                return $"{innerLayout},i1";
+                        }
                     }
                     return null;
                 }
@@ -614,8 +623,15 @@ namespace BindingsGeneration
 
                 case TypeRecordKind.Enum:
                     if (record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
-                        // Simple enum occupies one integer slot sized by its raw value.
-                        return $"i{NormalizeFieldWidth(record.InlineSize ?? 8)}";
+                    {
+                        // Simple enum occupies one integer slot sized by its raw value. A null
+                        // InlineSize means the size was never measured (e.g. a cross-module
+                        // dependency emitted without a layout) — decline rather than fabricate an
+                        // 8-byte field, which silently inflates the usual 1-byte enum. See Finding 44.
+                        if (!record.InlineSize.HasValue)
+                            return null;
+                        return $"i{NormalizeFieldWidth(record.InlineSize.Value)}";
+                    }
                     return null; // Complex enum — can't classify without deeper analysis
 
                 case TypeRecordKind.Struct:
@@ -648,6 +664,25 @@ namespace BindingsGeneration
             if (size <= 4) return 4;
             return 8;
         }
+
+        /// <summary>
+        /// Swift fixed-width scalar payloads whose <c>Optional</c> genuinely gains a 1-byte
+        /// discriminator tag: they use every bit pattern of their storage, so there is no spare
+        /// inhabitant for <c>.none</c> to fold into (e.g. <c>Optional&lt;Int32&gt;</c> is 5 bytes,
+        /// <c>Optional&lt;Double&gt;</c> is 9). EVERY other payload — Bool, pointers, class refs,
+        /// enums, structs — keeps the SAME size under Optional via the spare-bit / extra-inhabitant
+        /// optimization and must NOT have a <c>,i1</c> tag appended. Mirror of the fixed-width arms
+        /// of <see cref="ClassifyFieldType"/>'s primitive switch, minus Bool and the pointer types.
+        /// See Finding 44.
+        /// </summary>
+        private static readonly HashSet<string> s_optionalTagAddingScalars = new()
+        {
+            "Swift.Int", "Swift.UInt", "Swift.Int64", "Swift.UInt64",
+            "Swift.Int32", "Swift.UInt32", "Swift.Int16", "Swift.UInt16",
+            "Swift.Int8", "Swift.UInt8",
+            "Swift.Float", "Swift.Double",
+            "CoreFoundation.CGFloat", "CoreGraphics.CGFloat",
+        };
 
         /// <summary>
         /// Processes an enum declaration and registers it in the type database.

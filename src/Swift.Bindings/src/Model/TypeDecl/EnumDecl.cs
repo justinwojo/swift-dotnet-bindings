@@ -48,6 +48,21 @@ namespace BindingsGeneration
         /// the malformed <c>EnumType.foo(a: ..., b: ...)</c>. Null when no outer label exists.
         /// </summary>
         public string? OuterTupleLabel { get; set; }
+
+        /// <summary>
+        /// When the source declaration was <c>case foo((A, B, ...))</c> — i.e. a single,
+        /// UNLABELED associated value that is itself a tuple — the ABI represents the
+        /// associated-value list identically to <c>case foo(A, B, ...)</c> (N separate
+        /// values): both surface as one Tuple node with N children. Only the enum-case
+        /// function type's printedName tells them apart by paren nesting
+        /// (<c>((A, B)) -&gt; Enum</c> vs <c>(A, B) -&gt; Enum</c>). The ABI parser flattens
+        /// the tuple's elements into <see cref="AssociatedValues"/> either way; this flag
+        /// records that they must be re-wrapped into a single tuple so the @_cdecl wrapper
+        /// emits <c>EnumType.foo((a, b))</c> rather than the malformed <c>EnumType.foo(a, b)</c>
+        /// (which Swift rejects: "enum case 'foo' expects a single parameter of type '(A, B)'").
+        /// The labeled counterpart is carried by <see cref="OuterTupleLabel"/> instead.
+        /// </summary>
+        public bool IsSingleTuplePayload { get; set; }
     }
 
     /// <summary>
@@ -83,8 +98,16 @@ namespace BindingsGeneration
         /// <summary>
         /// The raw value type name for RawRepresentable enums (e.g., "Int", "String").
         /// Null if the enum does not conform to RawRepresentable.
+        /// Normalized to the unqualified stdlib spelling on assignment so the bare-only
+        /// classification switches below (and downstream consumers) stay correct regardless
+        /// of the assignment source — see <see cref="TypeSpecHelpers.NormalizeRawValueTypeName"/>.
         /// </summary>
-        public string? RawValueTypeName { get; set; }
+        public string? RawValueTypeName
+        {
+            get => _rawValueTypeName;
+            set => _rawValueTypeName = TypeSpecHelpers.NormalizeRawValueTypeName(value);
+        }
+        private string? _rawValueTypeName;
 
         /// <summary>
         /// Whether this enum conforms to RawRepresentable.

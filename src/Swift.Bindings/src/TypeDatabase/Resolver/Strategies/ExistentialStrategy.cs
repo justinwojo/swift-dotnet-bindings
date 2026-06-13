@@ -44,7 +44,7 @@ internal sealed class ExistentialStrategy : IResolutionStrategy
                 IsProjectablePlainExistential(named, context.Database)
                     ? null
                     : new TypeDatabaseExtensions.AnyTypeFallbackInfo(
-                        "Existential type fallback",
+                        TypeDatabaseExtensions.AnyTypeFallbackInfo.ExistentialFallbackReason,
                         typeSpec.ToString());
 
             result = new TypeResolutionResult(

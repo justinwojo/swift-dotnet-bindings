@@ -3658,9 +3658,11 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
         var output = sw.ToString();
 
-        // Tag-only enum must use safe copyMemory widening, NOT .rawValue or load(as: Int.self)
+        // Tag-only enum must use safe copyMemory widening, NOT .rawValue or load(as: Int.self).
+        // Transport scalar is 32-bit Int32 to match the C# `int` P/Invoke side (the int↔Int
+        // width contract pinned by EnumAbiWidthConsistencyTests).
         Assert.Contains("let resultSize = MemoryLayout.size(ofValue: result)", output);
-        Assert.Contains("var tag: Int = 0", output);
+        Assert.Contains("var tag: Int32 = 0", output);
         Assert.Contains("copyMemory", output);
         Assert.Contains("byteCount: resultSize", output);
         Assert.DoesNotContain(".rawValue", output);
