@@ -521,10 +521,39 @@ public class ClosureEmitterDirectTests
             "$s10TestModule9getResultyyF", useCdecl: false);
 
         var result = output.ToString();
-        // Existential return should extract container via ExistentialContainerFactory
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate", result);
+        // A closure return hands Swift a +1-owned existential, so the callback must mint an
+        // independent reference (CreateOwnedExistential1) rather than borrow the proxy's R0 via
+        // GetOrCreate — the proxy cannot be kept alive past the callback's return to Swift.
+        Assert.Contains("ExistentialContainerFactory.CreateOwnedExistential1", result);
+        Assert.DoesNotContain("ExistentialContainerFactory.GetOrCreate", result);
         // Simple enum return should cast to underlying type
         Assert.Contains("(int)", result);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_ScalarExistentialReturn_MintsOwnedContainer()
+    {
+        // Closure: () -> any ImageProcessing
+        // The callback returns the existential by value to Swift, which takes +1 ownership.
+        // Borrowing the proxy's R0 (GetOrCreate) would let a GC finalize the proxy and release
+        // R0 before Swift retains the returned existential — so the callback must mint an owned
+        // container (CreateOwnedExistential1) whose +1 transfers to Swift.
+        var typeDatabase = CreateTypeDatabaseWithProtocolAndSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var existentialReturn = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureTypeSpec = new ClosureTypeSpec(null, existentialReturn);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "getProcessor", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule12getProcessoryyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("ExistentialContainerFactory.CreateOwnedExistential1", result);
+        Assert.DoesNotContain("ExistentialContainerFactory.GetOrCreate", result);
     }
 
     [Fact]
@@ -549,6 +578,85 @@ public class ClosureEmitterDirectTests
         Assert.Contains("new ImageProcessingProxy(", result);
         // Simple enum should be cast from underlying int to enum type (namespace-qualified)
         Assert.Contains("(TestModule.StatusEnum)", result);
+    }
+
+    [Fact]
+    public void EmitClosureReturnMarshalling_CompositionExistentialArg_PinsProxyAcrossNativeCall()
+    {
+        // Invoke direction: the closure receives a composition existential (any A & B) ARG and
+        // forwards it to the Swift function pointer. A composition projects to ExistentialContainer2
+        // with no auto-wrap factory — _arg0 IS the Swift-vended proxy aliasing its sole +1 (R0).
+        // Under B2 the proxy is weakly registered, so a GC could finalize it and release R0 while
+        // the Swift function pointer still borrows the container. The forwarded arg must be pinned
+        // across the native call (the EC2+ analogue of the EC1 GetOrCreate __ka keepAlive), and
+        // with a non-void return the call is hoisted into _invRet so KeepAlive lands after it.
+        var typeDatabase = CreateTypeDatabaseWithTwoProtocols();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (any Nameable & Ageable) -> Int
+        var compositionArg = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Nameable"),
+            new NamedTypeSpec("TestModule.Ageable"),
+        });
+        var closureTypeSpec = new ClosureTypeSpec(compositionArg, new NamedTypeSpec("Swift.Int"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+
+        var result = output.ToString();
+        // EC2 composition takes the direct-cast container path, NOT the EC1 GetOrCreate factory.
+        Assert.Contains(
+            "((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer2>)_arg0).GetExistentialContainer()",
+            result);
+        // The forwarded proxy is pinned past the native function-pointer call (the re-review High).
+        Assert.Contains("GC.KeepAlive(_arg0)", result);
+        // Non-void return ⇒ the call is hoisted so KeepAlive runs after _fp but before the return shape.
+        Assert.Contains("var _invRet = _fp(", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithTwoProtocols()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Nameable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "INameable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Nameable"),
+                MetadataAccessor = "$s10TestModule8NameablePMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Ageable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IAgeable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Ageable"),
+                MetadataAccessor = "$s10TestModule7AgeablePMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
     }
 
     private static TypeDatabase CreateTypeDatabaseWithProtocolAndSimpleEnum()

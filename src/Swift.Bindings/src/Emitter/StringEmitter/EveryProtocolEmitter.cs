@@ -500,7 +500,14 @@ public class EveryProtocolEmitter
         // the closure-param methods.
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic || property.IsObjCOptional)
+            // Non-requirement properties (e.g. a protocol-extension default impl that survives
+            // parsing because it is not flagged IsFromExtension) have no C# override to dispatch
+            // to — Swift owns the body — so they get NO vtable slot. The plan/fan-out populators
+            // (ComputePropertyEmissionPlans / ComputeSiblingPropertyFallbacks at :680/:703/:774)
+            // already exclude !IsProtocolRequirement; the struct layout and
+            // ProtocolVtableMembers.IncludesProperty MUST match or the populated slots land in the
+            // wrong positions and Swift reads garbage (Defect F / Finding-8 positional corruption).
+            if (property.IsStatic || property.IsObjCOptional || !property.IsProtocolRequirement)
                 continue;
             // Skip vtable fields for non-dispatchable closure properties — they get fatalError() stubs.
             // Dispatchable closure properties get their own vtable-field shape (two pointer slots per accessor).

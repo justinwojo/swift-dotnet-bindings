@@ -19,7 +19,12 @@ internal static class ProtocolVtableMembers
 {
     internal static bool IncludesProperty(PropertyDecl property, ProtocolDecl protocol, ClosureHandler closureHandler)
     {
-        if (property.IsStatic || property.IsObjCOptional)
+        // Defect F: a non-requirement property (e.g. a protocol-extension default impl) has no C#
+        // override — Swift owns the body — so it gets NO vtable slot. This matches the plan/fan-out
+        // populators (EveryProtocolEmitter.ComputePropertyEmissionPlans / ComputeSiblingPropertyFallbacks)
+        // and the struct emitter (EveryProtocolEmitter.EmitProtocolVtableStruct). Keeping the slot
+        // here would diverge from the populators and shift later fields (Finding-8 positional corruption).
+        if (property.IsStatic || property.IsObjCOptional || !property.IsProtocolRequirement)
             return false;
         var isMixedGeneric = EveryProtocolEmitter.IsMixedGenericProtocol(protocol);
         if (EveryProtocolEmitter.HasClosureInPropertyType(property))

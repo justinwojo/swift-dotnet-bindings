@@ -549,10 +549,13 @@ namespace BindingsGeneration
                     }
                     // Thread the runtime owns-bit out of GetOrCreate (declared before the try
                     // by EmitExistentialHeapDeclarations) so the finally / async holder destroys ONLY
-                    // a freshly boxed value conformer's +1, never a borrowed proxy container.
+                    // a freshly boxed value conformer's +1, never a borrowed proxy container. Also
+                    // thread out the keep-alive proxy (change 4): the finally / async holder pins it
+                    // across the native call so an auto-wrapped proxy cannot be finalized — releasing
+                    // R0 — while Swift is still reading the borrowed container.
                     var createExpr = proxyClassName != null
-                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, static __v => new {proxyClassName}(__v), out {csName}Owns)"
-                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, out {csName}Owns)";
+                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, static __v => new {proxyClassName}(__v), out {csName}Owns, out {csName}KeepAlive)"
+                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, out {csName}Owns, out {csName}KeepAlive)";
                     csWriter.WriteLine($"var {csName}Container = {createExpr};");
                 }
                 else
@@ -568,10 +571,14 @@ namespace BindingsGeneration
                     int reverseOffset = existentialTotal - existentialIndex;
                     // The foreground finally is skipped for async; the holder carries the owns-bit
                     // + witness count so the callback cleanup runs the existential destroy after
-                    // the continuation drains the @in_guaranteed buffer.
+                    // the continuation drains the @in_guaranteed buffer. BOTH holders also carry the
+                    // keep-alive reference (change 4) so the GCHandle-rooted holder keeps R0 alive
+                    // across the suspension (the async analog of the synchronous GC.KeepAlive): the
+                    // owning-candidate path pins the GetOrCreate-boxed proxy local, the EC2+/well-known
+                    // borrowed path pins the parameter itself (owns=false — it never boxed a +1).
                     var holderCtor = owningCandidate
-                        ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {protocolList.Protocols.Count})"
-                        : $"new ExistentialContainerHeap((IntPtr){csName}Heap)";
+                        ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {protocolList.Protocols.Count}, {csName}KeepAlive)"
+                        : $"new ExistentialContainerHeap((IntPtr){csName}Heap, false, {protocolList.Protocols.Count}, {csName})";
                     csWriter.WriteLine($"_asyncCallHolder[_asyncCallHolder.Length - 1 - {reverseOffset}] = {holderCtor};");
                     existentialIndex++;
                 }

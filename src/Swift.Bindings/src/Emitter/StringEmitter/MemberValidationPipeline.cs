@@ -397,27 +397,31 @@ public class MemberValidationPipeline
             }
         }
 
-        // ── Gate 5b: Tuple parameters with P/Invoke-vs-C# element type mismatch ──
+        // ── Gate 5b: Tuple parameters whose elements need per-element marshalling ──
         // PInvokeEmitter emits tuple params as ValueTuple<P/Invoke types>, while the
-        // public-facing C# signature uses ValueTuple<idiomatic types>. When element
-        // P/Invoke type is IntPtr but C# type is a class/struct (e.g., a non-frozen
-        // Swift struct projected as a class with .Payload), no per-element conversion
-        // is generated — the call site passes the raw class tuple and CS1503s.
+        // public-facing C# signature uses ValueTuple<idiomatic types>. When ANY element's
+        // P/Invoke type differs from its C# type — a class/non-frozen struct (IntPtr vs the
+        // class), an existential (ExistentialContainerN vs the I{Composition} interface), a
+        // simple enum (underlying int vs the enum), a frozen-mem-mgmt struct (.Buffer vs the
+        // struct) — no per-element conversion is threaded to the call site, so the standard
+        // ValueTuple path passes the raw public-typed tuple and CS1503s (fail-open today).
         //
-        // The CdeclTuple buffer path (PInvokeEmitter ~L517) already gates this via
-        // IsCdeclSafeTuple (primitives only). The standard ValueTuple path has no such
-        // gate — it just emits broken code. This gate mirrors the closure-side check
-        // (TupleHandler.HasClosureUnsafeTupleElements) at the method/ctor level.
+        // The CdeclTuple buffer path (PInvokeEmitter ~L557) already handles the all-primitive
+        // case via IsCdeclSafeTuple; frozen-blittable/pointer tuples pass raw with no conversion
+        // (P/Invoke type == C# type). HasUnmarshalledTupleElements flags exactly the remainder —
+        // the convertible-element tuples whose per-element conversion + call-arg threading is not
+        // yet implemented (tracked as its own work unit). Broader than the closure-side
+        // HasClosureUnsafeTupleElements (IntPtr subset only); applied here at the method/ctor level.
         var tupleHandler = new TupleHandler(_typeDatabase);
         foreach (var argument in methodDecl.CSSignature.Skip(1))
         {
             if (!tupleHandler.IsTuple(argument))
                 continue;
             var tupleSpec = tupleHandler.GetTupleTypeSpec(argument)!;
-            if (tupleHandler.HasClosureUnsafeTupleElements(tupleSpec))
+            if (tupleHandler.HasUnmarshalledTupleElements(tupleSpec))
             {
                 return ValidationResult.Skip(SkipReason.UnsupportedSignature,
-                    $"Tuple parameter '{argument.Name}' has elements whose P/Invoke type (IntPtr) differs from the C# type — per-element marshalling is not yet implemented for tuple-of-class/struct.");
+                    $"Tuple parameter '{argument.Name}' has elements whose P/Invoke type differs from the C# type — per-element marshalling for convertible-element tuple parameters is not yet implemented.");
             }
         }
 

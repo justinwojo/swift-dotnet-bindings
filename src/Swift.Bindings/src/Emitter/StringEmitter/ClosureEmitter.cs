@@ -296,10 +296,13 @@ public static partial class ClosureEmitter
         // Build argument list for invoking the Swift function
         // Need to convert C# types to Swift types (e.g., bool -> byte, AnyError -> EC1)
         var invokeArgsFallback = new List<string>();
+        // +0 borrowed existential ARGS whose auto-wrapped proxy must be pinned across the native
+        // function-pointer call (design change 4 / mechanism 3) — GC.KeepAlive'd after _fp(...) returns.
+        var keepAliveVarsFallback = new List<string>();
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex, closureHandler);
+            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex, closureHandler, keepAliveVars: keepAliveVarsFallback);
             invokeArgsFallback.Add(argExpr);
             argIndex++;
         }
@@ -307,13 +310,32 @@ public static partial class ClosureEmitter
         invokeArgsFallback.Add("_swiftSelf");
         var invokeArgsStringFallback = string.Join(", ", invokeArgsFallback);
 
+        // GC.KeepAlive(...) for the borrowed existential args, emitted AFTER the native call returns so
+        // a weakly-registered auto-wrapped proxy's R0 cannot be released while Swift is still borrowing.
+        var keepAliveSuffixFallback = keepAliveVarsFallback.Count > 0
+            ? " " + string.Join(" ", keepAliveVarsFallback.Select(v => $"GC.KeepAlive({v});"))
+            : string.Empty;
+        // When the closure has a return value AND there are args to keep alive, hoist the native call
+        // into a local so KeepAlive lands after it but before the value is consumed by the return shape.
+        var preCallFallback = string.Empty;
+
         // Generate the closure body
         // For well-known protocol returns (ExistentialContainer1 from P/Invoke → AnyError for delegate)
-        string invokeExprFallback = $"_fp({invokeArgsStringFallback})";
+        string invokeExprFallback;
+        if (keepAliveVarsFallback.Count > 0 && hasReturn)
+        {
+            preCallFallback = $"var _invRet = _fp({invokeArgsStringFallback});{keepAliveSuffixFallback} ";
+            invokeExprFallback = "_invRet";
+        }
+        else
+        {
+            invokeExprFallback = $"_fp({invokeArgsStringFallback})";
+        }
         string returnExprFallback;
         if (!hasReturn)
         {
-            returnExprFallback = $"{invokeExprFallback};";
+            // Void: the call IS the statement, so KeepAlive simply follows it.
+            returnExprFallback = $"{invokeExprFallback};{keepAliveSuffixFallback}";
         }
         else if (returnIsBool)
         {
@@ -389,6 +411,10 @@ public static partial class ClosureEmitter
             returnExprFallback = $"return {invokeExprFallback};";
         }
 
+        // Prefix the hoisted "var _invRet = _fp(...); GC.KeepAlive(...);" for the return-value
+        // keepAlive case; empty string (no-op) for void and the no-existential-arg case.
+        returnExprFallback = preCallFallback + returnExprFallback;
+
         csWriter.WriteLines($$"""
             // Wrap Swift closure in SwiftEscapingClosure for ARC management
             var _closureWrapper = SwiftEscapingClosure<{{delegateType}}>.FromSwift({{resultVariableName}}.FunctionPointer, {{resultVariableName}}.Context);
@@ -436,11 +462,30 @@ public static partial class ClosureEmitter
             {
                 var pt = closureHandler.GetPublicExistentialType(returnType) ?? "object";
                 var qp = closureHandler.GetQualifiedProxyClassName(returnType);
+                // A closure return is +1-owned by Swift, so mint an independent reference rather
+                // than borrow the proxy's construction +1 (R0). After this callback returns the
+                // existential by value, there is no C# statement left to GC.KeepAlive the proxy,
+                // so a borrowed (GetOrCreate) container would let a GC finalize the proxy and
+                // release R0 before Swift retains the value. CreateOwnedExistential1 mints the +1
+                // Swift takes ownership of and is internally keep-alive-safe across the mint.
                 return qp != null
-                    ? $"return Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({resultExpr}, static __v => new {qp}(__v));"
-                    : $"return Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({resultExpr});";
+                    ? $"return Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({resultExpr}, static __v => new {qp}(__v));"
+                    : $"return Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({resultExpr});";
             }
             var ct = closureHandler.GetPInvokeExistentialType(returnType);
+            // EC2+ composition return (any P & Q…): ShouldUseGetOrCreate is EC1-only, so a composition
+            // existential falls here. Its only conformer is a Swift-vended proxy whose
+            // GetExistentialContainer() BORROWS the proxy's stored bytes — returning that borrowed alias
+            // at +1 would double-release the proxy's sole construction +1 (R0) once Swift's owned
+            // release and the proxy's release both fire. Mint an independent +1 via the always-mint
+            // composition sibling of CreateOwnedExistential1 (no boxable composition conformer exists,
+            // so there is no donate arm). Same owned-closure-return rationale as the EC1 branch above.
+            if (ExistentialHandler.IsOwnedExistentialContainerType(ct) &&
+                ct != "Swift.Runtime.ExistentialContainer1")
+            {
+                var pt = closureHandler.GetPublicExistentialType(returnType) ?? "object";
+                return $"return Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{pt}, {ct}>({resultExpr});";
+            }
             return $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){resultExpr}).GetExistentialContainer();";
         }
 
@@ -493,14 +538,27 @@ public static partial class ClosureEmitter
                     {
                         var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
                         var qp = closureHandler.GetQualifiedProxyClassName(elem);
+                        // Returned tuple element is +1-owned by Swift — mint an independent
+                        // reference (see the scalar-return case above for the full rationale).
                         elems.Add(qp != null
-                            ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc}, static __v => new {qp}(__v))"
-                            : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
+                            ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({acc}, static __v => new {qp}(__v))"
+                            : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({acc})");
                     }
                     else
                     {
                         var ct = closureHandler.GetPInvokeExistentialType(elem);
-                        elems.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                        // EC2+ composition tuple element: mint an independent +1 (see the scalar-return
+                        // case above) — a returned borrowed alias would double-release the proxy's R0.
+                        if (ExistentialHandler.IsOwnedExistentialContainerType(ct) &&
+                            ct != "Swift.Runtime.ExistentialContainer1")
+                        {
+                            var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
+                            elems.Add($"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{pt}, {ct}>({acc})");
+                        }
+                        else
+                        {
+                            elems.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                        }
                     }
                 }
                 else if (closureHandler.IsExistentialParam(elem))
@@ -1126,7 +1184,7 @@ public static partial class ClosureEmitter
     /// </summary>
     /// <param name="useNintCast">When true, casts to nint (safe context, invoke thunk P/Invoke).
     /// When false, casts to void* (unsafe context, fallback lambda with function pointers).</param>
-    private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler? closureHandler = null, bool useNintCast = false)
+    private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler? closureHandler = null, bool useNintCast = false, List<string>? keepAliveVars = null)
     {
         // Bool requires bool -> byte conversion
         if (MarshallingHelpers.IsBoolType(typeSpec))
@@ -1157,11 +1215,31 @@ public static partial class ClosureEmitter
             {
                 var pt = closureHandler.GetPublicExistentialType(typeSpec) ?? "object";
                 var qp = closureHandler.GetQualifiedProxyClassName(typeSpec);
-                return qp != null
-                    ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex}, static __v => new {qp}(__v))"
-                    : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex})";
+                if (qp != null)
+                {
+                    // +0 borrowed existential closure ARG (design change 4 / mechanism 3): the
+                    // auto-wrapped EC1 aliases the proxy's sole R0, which under B2's weak proxy
+                    // registration a GC could release while the Swift function pointer borrows it.
+                    // When the caller supplies a keepAliveVars sink, capture the proxy via the keepAlive
+                    // GetOrCreate overload so the caller can GC.KeepAlive it after the native call. The
+                    // qp == null path roots via the already-convertible/boxable _arg itself (no auto-wrap).
+                    if (keepAliveVars != null)
+                    {
+                        var kaVar = $"_arg{argIndex}__ka";
+                        keepAliveVars.Add(kaVar);
+                        return $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex}, static __v => new {qp}(__v), out _, out var {kaVar})";
+                    }
+                    return $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex}, static __v => new {qp}(__v))";
+                }
+                return $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex})";
             }
             var ct = closureHandler.GetPInvokeExistentialType(typeSpec);
+            // +0 borrowed EC2+ composition closure ARG: no auto-wrap exists (a composition interface is
+            // only implemented by the Swift-vended proxy), so _arg{argIndex} IS the proxy aliasing its
+            // sole R0. Pin it across the native function-pointer call when a sink is supplied — the EC2+
+            // analogue of the EC1 GetOrCreate keepAlive above (design change 4 / mechanism 3).
+            if (keepAliveVars != null)
+                keepAliveVars.Add($"_arg{argIndex}");
             return $"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{argIndex}).GetExistentialContainer()";
         }
 
@@ -1195,13 +1273,30 @@ public static partial class ClosureEmitter
                         {
                             var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
                             var qp = closureHandler.GetQualifiedProxyClassName(elem);
-                            elements.Add(qp != null
-                                ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc}, static __v => new {qp}(__v))"
-                                : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
+                            if (qp != null && keepAliveVars != null)
+                            {
+                                // +0 borrowed existential tuple-element closure ARG — pin the auto-wrapped
+                                // proxy across the native call (design change 4 / mechanism 3). The out var
+                                // declared in the nested tuple literal is in scope at the hoisted call site.
+                                var kaVar = $"_arg{argIndex}_e{i}__ka";
+                                keepAliveVars.Add(kaVar);
+                                elements.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc}, static __v => new {qp}(__v), out _, out var {kaVar})");
+                            }
+                            else
+                            {
+                                elements.Add(qp != null
+                                    ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc}, static __v => new {qp}(__v))"
+                                    : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
+                            }
                         }
                         else
                         {
                             var ct = closureHandler.GetPInvokeExistentialType(elem);
+                            // +0 borrowed EC2+ composition tuple-element closure ARG — pin the proxy
+                            // ({acc} is the element accessor, which IS the proxy: no auto-wrap for
+                            // compositions) across the native call (design change 4 / mechanism 3).
+                            if (keepAliveVars != null)
+                                keepAliveVars.Add(acc);
                             elements.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
                         }
                     }

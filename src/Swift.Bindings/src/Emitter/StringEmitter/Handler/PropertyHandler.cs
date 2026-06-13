@@ -1060,13 +1060,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // the caller must run the existential value-witness destroy afterward. Thread the
                 // runtime owns-bit; borrowed proxy/class containers (and the non-factory EC2+/
                 // well-known path) report owns=false and are only freed, never over-released.
+                // Also thread the keep-alive proxy (change 4) so the finally pins it past the native
+                // call — an auto-wrapped proxy is otherwise unrooted while Swift reads the container,
+                // and a GC could finalize it and release R0 mid-call.
                 var createExpr = useFactory
                     ? (proxyClassName != null
-                        ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, static __p => new {proxyClassName}(__p), out __owns)"
-                        : $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, out __owns)")
+                        ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, static __p => new {proxyClassName}(__p), out __owns, out __keepAlive)"
+                        : $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, out __owns, out __keepAlive)")
                     : $"((global::Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)__v).GetExistentialContainer()";
                 var ownsArg = useFactory ? "__owns" : "false";
-                var ownsDecl = useFactory ? "\n        bool __owns = false;" : "";
+                var ownsDecl = useFactory ? "\n        bool __owns = false;\n        object? __keepAlive = null;" : "";
+                // EC2+/well-known (!useFactory): no auto-wrap, so a non-null `value` IS the Swift-vended
+                // proxy aliasing its sole R0 — pin it directly across the native setter call, the same
+                // hazard the EC1 useFactory path closes via __keepAlive.
+                var keepAliveStmt = useFactory
+                    ? "\n                                global::System.GC.KeepAlive(__keepAlive);"
+                    : "\n                                global::System.GC.KeepAlive(value);";
 
                 csWriter.WriteLines($$"""
                     set {
@@ -1083,7 +1092,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                                 }
                                 {{methodName}}(__ptr, __hasVal);
                             } finally {
-                                global::Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential(__heap, 1, {{ownsArg}});
+                                global::Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential(__heap, 1, {{ownsArg}});{{keepAliveStmt}}
                             }
                         }
                     }

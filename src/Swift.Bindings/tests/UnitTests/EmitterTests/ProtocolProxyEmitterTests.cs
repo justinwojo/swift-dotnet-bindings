@@ -75,6 +75,30 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_StampsPerModuleEveryProtocolMetadata_NotGlobalLatch()
+    {
+        // Finding 33: an opaque (non-class-bound, non-ObjC) proxy must source its
+        // EveryProtocol metadata from THIS module's own NativeMethods accessor via the
+        // per-proxy s_everyProtocolMetadata static — never through the deleted
+        // process-global EveryProtocol.SetTypeMetadata latch (which stamped whichever
+        // module initialised first onto every module's opaque existentials).
+        var protocolDecl = CreateSimpleProtocol("MetadataProto");
+        var output = EmitProxyClass(protocolDecl);
+
+        // The per-module static is sourced from the module's own metadata accessor.
+        Assert.Contains(
+            "private static readonly TypeMetadata s_everyProtocolMetadata = TypeMetadata.FromHandle(NativeMethods.GetEveryProtocolMetadata());",
+            output);
+        // The opaque existential's metadata word and GetTypeMetadata() both read the
+        // per-module field, not a shared latch.
+        Assert.Contains("_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;", output);
+        Assert.Contains("return s_everyProtocolMetadata;", output);
+        // The global latch is gone: the proxy must not reference it in any direction.
+        Assert.DoesNotContain("EveryProtocol.SetTypeMetadata", output);
+        Assert.DoesNotContain("EveryProtocol.GetTypeMetadata", output);
+    }
+
+    [Fact]
     public void EmitProxyClass_InheritsAvailabilityFromProtocol()
     {
         // The proxy class declaration should inherit the source protocol's
@@ -294,6 +318,102 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_ObjCOptionalMethodBeforeRequired_DoesNotConsumeReverseDispatchSlot()
+    {
+        // Defect C (Session 1): an @objc optional method that PRECEDES a required method
+        // must NOT consume a reverse-dispatch slot index. The Swift producers
+        // (EveryProtocolEmitter.EmitProtocolVtableStruct, WitnessDispatchEmitter) skip
+        // @objc-optional methods BEFORE incrementing the slot index, so the required method
+        // that follows lands at slot 0. The C# proxy consumers (vtable struct + local vtable
+        // + vtable assignments + receivers + witness P/Invoke + interface impl) must do the
+        // same — otherwise the required method lands one pointer slot past where Swift reads
+        // it (Finding-8 positional corruption) and the C# vtable struct grows an extra field
+        // Swift never wrote.
+        var protocol = CreateSimpleProtocol("OptionalFirstProto");
+        var optional = CreateMethodDecl("willFireOptional");
+        optional.IsObjCOptional = true;
+        var required = CreateMethodDecl("didFireRequired");
+        protocol.Methods.Add(optional);
+        protocol.Methods.Add(required);
+
+        var output = EmitProxyClass(protocol);
+
+        // The required method occupies slot 0 across every numbering scheme.
+        // Scheme #2 — vtable field index (Swift↔C# positional slot) + its receiver:
+        Assert.Contains("Receive_didFireRequired_0(", output);
+        Assert.DoesNotContain("Receive_didFireRequired_1(", output);
+        Assert.Contains("func_didFireRequired_0;", output);
+        Assert.DoesNotContain("func_didFireRequired_1;", output);
+        // Scheme #1 — the SBW witness-accessor symbol the C#→Swift forward call binds to. Pre-fix
+        // the SwiftObject.cs / InterfaceImpl.cs consumer walks named `_1`, a symbol the dylib never
+        // exports → EntryPointNotFoundException at the first forward dispatch. (Substring match
+        // sidesteps the protocol-name prefix.)
+        Assert.Contains("method_didFireRequired_0", output);
+        Assert.DoesNotContain("method_didFireRequired_1", output);
+        // ...and the @objc-optional method gets no reverse-dispatch slot of its own.
+        Assert.DoesNotContain("Receive_willFireOptional", output);
+        Assert.DoesNotContain("func_willFireOptional", output);
+    }
+
+    [Fact]
+    public void IncludesProperty_AgreesWithPlanBuilder_AcrossFlagMatrix()
+    {
+        // Finding 31 (Session 1): the predicates that decide "does this protocol property get a
+        // vtable slot?" — the documented single-source-of-truth ProtocolVtableMembers.IncludesProperty
+        // and the plan/fan-out populators (EveryProtocolEmitter.ComputePropertyEmissionPlans) —
+        // must agree across the IsStatic × IsObjCOptional × IsProtocolRequirement × IsFromExtension
+        // matrix for a plain (non-closure, non-Self, non-generic) property. Divergence on any axis
+        // means a struct slot the populator never fills (or vice versa); Swift copies the vtable
+        // positionally, so a mismatched slot shifts every later field (Defect F / Finding-8
+        // corruption). This locks the sites together so they cannot silently re-diverge.
+        var closureHandler = new ClosureHandler(_typeDatabase);
+
+        foreach (var isStatic in new[] { false, true })
+        foreach (var isObjCOptional in new[] { false, true })
+        foreach (var isRequirement in new[] { false, true })
+        foreach (var isFromExtension in new[] { false, true })
+        {
+            var protocol = CreateSimpleProtocol("FlagMatrixProto");
+            var prop = new PropertyDecl
+            {
+                Name = "value",
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                IsStatic = isStatic,
+                HasStorage = false,
+                Accessors = new List<AccessorDecl>
+                {
+                    new GetAccessorDecl { Method = CreateMethodDecl("value_get") }
+                },
+                IsObjCOptional = isObjCOptional,
+                IsProtocolRequirement = isRequirement,
+                IsFromExtension = isFromExtension,
+                ParentDecl = null,
+                ModuleDecl = null
+            };
+            protocol.Properties.Add(prop);
+
+            var label = $"static={isStatic} objcOpt={isObjCOptional} req={isRequirement} ext={isFromExtension}";
+
+            // Documented slot rule: a plain property earns a slot iff it is an instance,
+            // non-optional protocol requirement. IsFromExtension has no independent effect at the
+            // emitter layer — the parser already drops (IsFromExtension && !IsProtocolRequirement)
+            // upstream — so it must not move the outcome here.
+            bool expected = !isStatic && !isObjCOptional && isRequirement;
+
+            bool includesProperty = ProtocolVtableMembers.IncludesProperty(prop, protocol, closureHandler);
+            Assert.True(expected == includesProperty,
+                $"IncludesProperty disagreed with the documented slot rule for [{label}]");
+
+            // Exercise the real populator (not a re-encoded predicate) so a future change to
+            // ComputePropertyEmissionPlans that re-diverges from IncludesProperty is caught here.
+            var plans = EveryProtocolEmitter.ComputePropertyEmissionPlans(new[] { protocol });
+            bool planIncludes = plans.ContainsKey($"{prop.Name}|{prop.SwiftTypeSpec}");
+            Assert.True(includesProperty == planIncludes,
+                $"IncludesProperty and ComputePropertyEmissionPlans diverged for [{label}]");
+        }
+    }
+
+    [Fact]
     public void EmitProxyClass_SetterReceiver_OptionalString_AppliesConversion()
     {
         // Regression: Protocol property setter receiver marshals Swift ABI type (SwiftOptional<SwiftString>)
@@ -507,58 +627,60 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_ReceiverUsesSwiftObjectRegistry()
+    public void EmitProxyClass_ReceiverResolvesImplFromTracker()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        // Receivers read only the first existential word (handle) and look the proxy
-        // up via TryGetProxy(handle, ...) so unregistered handles produce a safe
-        // default return rather than throwing across the [UnmanagedCallersOnly]
-        // boundary (regression guard). Reading the full
-        // ExistentialContainer1 (5 words) over-reads stack memory when Swift passes
-        // a class-bound (2-word) existential for EveryObjCProtocol-rooted proxies.
+        // Receivers read only the first existential word (handle) — the sole field the
+        // lookup uses. Reading the full ExistentialContainer1 (5 words) over-reads stack
+        // memory when Swift passes a class-bound (2-word) existential for EveryObjCProtocol.
         //
-        // Lookup is typed by IProtocolProxyImpl<IInterface> (covariant) so an
-        // inherited-protocol child callback can find a sibling-typed parent proxy
-        // registered under the same EveryProtocol handle (justinwojo/swift-dotnet-bindings#40).
+        // Design B2 change 2: on the canonical (no-sibling) path the impl is resolved from
+        // ProxyLifetimeTracker's strong root via ResolveImpl<IInterface>(handle) — alive for
+        // exactly as long as Swift holds the proxy — NOT from a SwiftObjectRegistry.TryGetProxy
+        // proxy lookup (that primitive survives only on the sibling-fan-out / cross-module-parent
+        // paths). ResolveImpl<IFace>(handle) has the identical truth value: it succeeds iff the
+        // rooted impl implements IFace.
         Assert.Contains("var handle = *(IntPtr*)selfContainer;", output);
-        Assert.Contains("SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<ITestProtocol>>(handle", output);
+        Assert.Contains("Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<ITestProtocol>(handle)", output);
+        Assert.DoesNotContain("SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<ITestProtocol>>(handle", output);
     }
 
     [Fact]
     public void EmitProxyClass_ReceiverGuardsAgainstDeadImpl()
     {
-        // If the impl is GC'd while Swift still holds a strong retain on
-        // the proxy, the weak _csharpImpl unwrap returns null. Generated receivers
-        // must detect that and return a default value instead of dereferencing.
+        // Design B2: the impl is strong-rooted by ProxyLifetimeTracker for exactly as long as
+        // Swift holds the proxy, so on the canonical (no-sibling) path a null resolve is an
+        // invariant violation — not a recoverable "GC'd while Swift held it" state. The receiver
+        // therefore trips the LOUD backstop (Environment.FailFast naming the member + handle)
+        // rather than fabricating a default and silently corrupting the boundary. The fabrication
+        // branch is DELETED on this path (the carrier-sized fallback survives only on the
+        // sibling-fan-out path, a genuine cross-protocol miss).
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
         var output = EmitProxyClass(protocolDecl);
 
-        // Getter: null impl must produce an AllocZeroed buffer of the ABI type size
-        // (cannot throw from [UnmanagedCallersOnly] — process-terminating).
-        // The proxy exposes its weak impl via the IProtocolProxyImpl<TInterface>.UserImpl
-        // accessor so the receiver can read it through the covariantly-typed lookup result.
-        Assert.Contains("var impl = proxy.UserImpl;", output);
+        Assert.Contains("var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<ITestProtocol>(handle);", output);
         Assert.Contains("if (impl is null)", output);
-        Assert.Contains("AllocZeroed", output);
-        // After the guard, dispatch uses the local `impl` — NOT `proxy._csharpImpl!`
-        // (the bang-dereference was the exact bug guarded here).
+        Assert.Contains("global::System.Environment.FailFast(", output);
+        // Dispatch uses the rooted local `impl` — never the proxy's weak field (the bang-deref
+        // and the proxy.UserImpl read are both gone on the canonical path).
         Assert.DoesNotContain("proxy._csharpImpl!", output);
+        Assert.DoesNotContain("var impl = proxy.UserImpl;", output);
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_OptionalBoolGetter_ReturnsNone()
+    public void EmitProxyClass_SiblingFanoutAllMiss_OptionalBoolGetter_ReturnsNone()
     {
-        // When the proxy is unregistered or the user impl is GC'd while Swift still holds a
-        // strong retain, an Optional-returning getter must hand Swift the canonical .none.
+        // On the sibling-fan-out path, when this interface AND every recorded sibling miss the
+        // per-handle lookup, an Optional-returning getter must hand Swift the canonical .none.
         // A zero-filled buffer is NOT nil: Optional<Bool>'s extra-inhabitant encoding reads
-        // all-zero as Some(false), so the fallback must marshal SwiftOptional<bool>.NewNone()
+        // all-zero as Some(false), so the terminal fallback must marshal SwiftOptional<bool>.NewNone()
         // (the carrier the success path also uses), not AllocZeroedSwiftBuffer.
         var optionalBool = new NamedTypeSpec("Swift.Optional");
         optionalBool.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
         var protocolDecl = CreateProtocolWithProperty("OptBoolDeadProto", "flag", hasGetter: true, hasSetter: false, optionalBool);
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "flag");
 
         // Find the getter receiver function definition (not the vtable assignment).
         var receiverIdx = output.IndexOf("private static IntPtr Receive_flag_get(");
@@ -579,11 +701,12 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_OptionalIntMethod_ReturnsNone()
+    public void EmitProxyClass_SiblingFanoutAllMiss_OptionalIntMethod_ReturnsNone()
     {
-        // Same .none fallback, exercised on the method-receiver emit site (separate code path
-        // from EmitPropertyReceivers). Optional<Int32> uses a trailing tag byte where 0 = Some,
-        // so a zero buffer would decode to Some(0); the fallback must marshal .none.
+        // Same .none terminal fallback, exercised on the method-receiver emit site (separate code
+        // path from EmitPropertyReceivers) when this interface and every recorded sibling miss.
+        // Optional<Int32> uses a trailing tag byte where 0 = Some, so a zero buffer would decode to
+        // Some(0); the fallback must marshal .none.
         RegisterSwiftInt32();
         var optionalInt = new NamedTypeSpec("Swift.Optional");
         optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
@@ -600,7 +723,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null
         });
         protocolDecl.Methods.Add(method);
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithMethodSibling(protocolDecl, method);
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_getMaybe_0(");
         Assert.True(receiverIdx >= 0, "Receive_getMaybe_0 function definition not found in output");
@@ -616,15 +739,15 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_OptionalSubscriptGetter_ReturnsNone()
+    public void EmitProxyClass_SiblingFanoutAllMiss_OptionalSubscriptGetter_ReturnsNone()
     {
         // Third emit site: the subscript getter receiver is a separate code path from
-        // property getters and method returns, so it gets its own .none-fallback test.
+        // property getters and method returns, so it gets its own sibling-miss .none-fallback test.
         RegisterSwiftInt32();
         var optionalInt = new NamedTypeSpec("Swift.Optional");
         optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
         var protocolDecl = CreateSimpleProtocol("OptSubscriptDeadProto");
-        protocolDecl.Subscripts.Add(new SubscriptDecl
+        var subscript = new SubscriptDecl
         {
             Name = "subscript",
             MangledName = "$s7IndexedP9subscriptSiSgSicig",
@@ -649,9 +772,10 @@ public class ProtocolProxyEmitterTests
             },
             ParentDecl = null,
             ModuleDecl = null
-        });
+        };
+        protocolDecl.Subscripts.Add(subscript);
 
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithSubscriptSibling(protocolDecl, subscript, 0);
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_subscript_0_get(");
         Assert.True(receiverIdx >= 0, "Receive_subscript_0_get function definition not found in output");
@@ -669,25 +793,29 @@ public class ProtocolProxyEmitterTests
     /// <c>GetReceiverGetterCarrierType</c> is a second switch that must stay aligned with
     /// <c>GetReceiverGetterConversion</c> and <c>GetReceiverExistentialGetterConversion</c>. A
     /// future projection added to the conversion switch but not the carrier helper would silently
-    /// reintroduce the dead-impl buffer-size mismatch on the very path that is supposed to be
-    /// crash-proof. The tests below pin one example per major projection family: every Swift
-    /// collection carrier (including protocol/existential element variants) constructs a valid
-    /// empty collection rather than a null storage pointer. Any drift in the carrier type or the
-    /// empty-collection decision fails immediately.
+    /// reintroduce a buffer-size mismatch on the one receiver path that still fabricates a fallback
+    /// buffer: the sibling-fan-out terminal reached when every candidate interface misses the
+    /// per-handle lookup. (Design B2 deleted the fabrication branch on the canonical no-sibling
+    /// path, which now FailFasts — see <c>ReceiverGuardsAgainstDeadImpl</c>.) The tests below drive
+    /// that fan-out path via the <c>EmitProxyClassWith*Sibling</c> harness and pin one example per
+    /// major projection family: every Swift collection carrier (including protocol/existential
+    /// element variants) constructs a valid empty collection rather than a null storage pointer, and
+    /// every Optional carrier marshals its canonical <c>.none</c> rather than a zero buffer. Any
+    /// drift in the carrier type or the empty-collection/<c>.none</c> decision fails immediately.
     /// </summary>
     [Fact]
-    public void EmitProxyClass_DeadImplPath_ArrayGetter_ReturnsEmptyCollection()
+    public void EmitProxyClass_SiblingFanoutAllMiss_ArrayGetter_ReturnsEmptyCollection()
     {
         // Array<String> getter — success path: MarshalToSwiftBuffer<SwiftArray<SwiftString>>(swiftResult).
         // A zero-filled buffer is a null storage pointer, NOT a valid empty array (a caller that
-        // reads Count/iterates dereferences null). The dead-impl path must construct the canonical
-        // empty SwiftArray<SwiftString> (carrier-typed, not IReadOnlyList<string>) and marshal it
-        // through the same MarshalToSwiftBuffer path the success branch uses.
+        // reads Count/iterates dereferences null). The sibling-miss terminal must construct the
+        // canonical empty SwiftArray<SwiftString> (carrier-typed, not IReadOnlyList<string>) and
+        // marshal it through the same MarshalToSwiftBuffer path the success branch uses.
         RegisterSwiftString();
         var arrayString = new NamedTypeSpec("Swift.Array");
         arrayString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         var protocolDecl = CreateProtocolWithProperty("ArrayCarrierProto", "items", hasGetter: true, hasSetter: false, arrayString);
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "items");
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_items_get(");
         Assert.True(receiverIdx >= 0, "Receive_items_get function definition not found in output");
@@ -700,10 +828,10 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_DictionaryGetter_ReturnsEmptyCollection()
+    public void EmitProxyClass_SiblingFanoutAllMiss_DictionaryGetter_ReturnsEmptyCollection()
     {
         // Dictionary<String, Int> getter — success path: MarshalToSwiftBuffer<SwiftDictionary<SwiftString, nint>>.
-        // Dead-impl null path must construct an empty SwiftDictionary carrier (its empty form is the
+        // Sibling-miss terminal must construct an empty SwiftDictionary carrier (its empty form is the
         // _swiftEmptyDictionarySingleton, not a null pointer).
         RegisterSwiftString();
         RegisterSwiftInt();
@@ -712,7 +840,7 @@ public class ProtocolProxyEmitterTests
         dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
         var protocolDecl = CreateProtocolWithProperty("DictCarrierProto", "lookup", hasGetter: true, hasSetter: false, dictType);
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "lookup");
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_lookup_get(");
         Assert.True(receiverIdx >= 0, "Receive_lookup_get function definition not found in output");
@@ -725,15 +853,15 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_SetGetter_ReturnsEmptyCollection()
+    public void EmitProxyClass_SiblingFanoutAllMiss_SetGetter_ReturnsEmptyCollection()
     {
         // Set<Int32> getter — success path: MarshalToSwiftBuffer<SwiftSet<int>>.
-        // Dead-impl null path must construct an empty SwiftSet carrier (Set.init), not a null buffer.
+        // Sibling-miss terminal must construct an empty SwiftSet carrier (Set.init), not a null buffer.
         RegisterSwiftInt32();
         var setType = new NamedTypeSpec("Swift.Set");
         setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
         var protocolDecl = CreateProtocolWithProperty("SetCarrierProto", "ids", hasGetter: true, hasSetter: false, setType);
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "ids");
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_ids_get(");
         Assert.True(receiverIdx >= 0, "Receive_ids_get function definition not found in output");
@@ -746,18 +874,18 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_ProtocolElementArrayGetter_ReturnsEmptyCollection()
+    public void EmitProxyClass_SiblingFanoutAllMiss_ProtocolElementArrayGetter_ReturnsEmptyCollection()
     {
         // Array<some-protocol> getter: the carrier is a protocol/existential element collection
         // (here SwiftArray<TestModule.IDrawable>). Empty construction is still safe — the success
         // path constructs the same carrier via SwiftArray<…>.FromEnumerable (the same ctor), so
-        // new SwiftArray<…>() resolves no element metadata the success path doesn't. The dead-impl
-        // path must therefore construct the canonical empty collection here too, not a null buffer.
+        // new SwiftArray<…>() resolves no element metadata the success path doesn't. The sibling-miss
+        // terminal must therefore construct the canonical empty collection here too, not a null buffer.
         RegisterProtocol("Drawable");
         var arrayOfProto = new NamedTypeSpec("Swift.Array");
         arrayOfProto.GenericParameters.Add(new NamedTypeSpec("TestModule.Drawable"));
         var protocolDecl = CreateProtocolWithProperty("ExistentialArrayCarrierProto", "shapes", hasGetter: true, hasSetter: false, arrayOfProto);
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "shapes");
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_shapes_get(");
         Assert.True(receiverIdx >= 0, "Receive_shapes_get function definition not found in output");
@@ -770,15 +898,15 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_ObjCBridgedGetter_SizesByCarrier()
+    public void EmitProxyClass_SiblingFanoutAllMiss_ObjCBridgedGetter_SizesByCarrier()
     {
         // ObjC-bridged getter — success path: MarshalToSwiftBuffer<IntPtr>(value.Handle).
-        // Dead-impl null path must AllocZeroed by IntPtr (carrier), NOT by the public
+        // Sibling-miss terminal must AllocZeroed by IntPtr (carrier), NOT by the public
         // .NET wrapper class type (Foundation.NSUrlSession).
         RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
         var protocolDecl = CreateProtocolWithProperty("ObjCCarrierProto", "session",
             hasGetter: true, hasSetter: false, new NamedTypeSpec("Foundation.NSURLSession"));
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "session");
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_session_get(");
         Assert.True(receiverIdx >= 0, "Receive_session_get function definition not found in output");
@@ -790,14 +918,14 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_DeadImplPath_NativeRemappedGetter_SizesByCarrier()
+    public void EmitProxyClass_SiblingFanoutAllMiss_NativeRemappedGetter_SizesByCarrier()
     {
         // NativeRemapped getter — success path: MarshalToSwiftBuffer<SwiftWrapperType>(value.ToWrapper()).
-        // Dead-impl null path must AllocZeroed by the Swift wrapper type, NOT the .NET native type.
+        // Sibling-miss terminal must AllocZeroed by the Swift wrapper type, NOT the .NET native type.
         RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
         var protocolDecl = CreateProtocolWithProperty("RemappedCarrierProto", "endpoint",
             hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.CustomValue"));
-        var output = EmitProxyClass(protocolDecl);
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "endpoint");
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_endpoint_get(");
         Assert.True(receiverIdx >= 0, "Receive_endpoint_get function definition not found in output");
@@ -838,7 +966,12 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("SwiftObjectRegistry.RegisterStrong(_everyProtocolHandle, this)", output);
+        // Design B2 change 3: the C#-impl proxy registers WEAKLY (Register, not RegisterStrong)
+        // so the consumer dropping it lets the proxy be collected — that collection is the signal
+        // that releases R0. A strong registry root would pin the proxy for the EveryProtocol's
+        // whole lifetime and break the release-on-drop story.
+        Assert.Contains("SwiftObjectRegistry.Register(_everyProtocolHandle, this)", output);
+        Assert.DoesNotContain("SwiftObjectRegistry.RegisterStrong(_everyProtocolHandle, this)", output);
     }
 
     [Fact]
@@ -1281,10 +1414,14 @@ public class ProtocolProxyEmitterTests
 
         // Property declaration + any emitted reference is namespace-qualified.
         Assert.Contains("DepModule.IShape", output);
+        Assert.Contains("public DepModule.IShape? Shape", output);
         // Regression guards: no bare unqualified forms survive. Each would compile-fail
         // in the consuming module; the qualified forms (DepModule.IShape, ...SwiftInterop.ShapeProxy)
-        // do not contain these substrings.
-        Assert.DoesNotContain("public IShape", output);
+        // do not contain these substrings. Guard the bare property-declaration form as
+        // `public IShape?` (the unqualified `Optional<any Shape>` type) — NOT `public IShape`,
+        // which spuriously matches the proxy's own same-module interface `public IShapeHolder`
+        // appearing in B2 lifetime comments.
+        Assert.DoesNotContain("public IShape?", output);
         Assert.DoesNotContain("GetOrCreate<IShape>", output);
         Assert.DoesNotContain("new ShapeProxy(", output);
         Assert.DoesNotContain("(IShape?)", output);
@@ -4930,6 +5067,67 @@ public class ProtocolProxyEmitterTests
             closureSkippedMethodKeys: closureSkippedMethodKeys,
             closureSkippedPropertyNames: closureSkippedPropertyNames);
         return stringWriter.ToString();
+    }
+
+    // ---- Sibling-fan-out receiver harness (Design B2) --------------------------------
+    //
+    // Under Design B2 the carrier-sized null fallback (BuildReceiverNullFallbackExpr /
+    // GetReceiverGetterCarrierType) survives on EXACTLY ONE receiver path: the
+    // sibling-fan-out path, reached after every candidate-interface lookup misses. The
+    // canonical no-sibling path resolves the impl from ProxyLifetimeTracker and FailFasts
+    // on null — it never fabricates a carrier buffer (that is what ReceiverGuardsAgainstDeadImpl
+    // pins). So the carrier-sizing-alignment invariant is observable only when a sibling
+    // fallback is recorded for the member. These helpers seed a one-entry sibling map (a
+    // distinct dummy sibling protocol) keyed exactly as the receiver looks it up, so emission
+    // takes the fan-out path: the primary + sibling lookup-hit blocks emit ahead of the
+    // asserted terminal carrier fallback.
+    private string EmitProxyClassWithContext(ProtocolDecl protocolDecl, ModuleEmissionContext ctx)
+    {
+        var emitter = new ProtocolProxyEmitter(_typeDatabase, NullLogger.Instance, "TestModule", ctx);
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        emitter.EmitProxyClass(writer, protocolDecl);
+        return stringWriter.ToString();
+    }
+
+    private string EmitProxyClassWithPropertySibling(ProtocolDecl protocolDecl, string propertyName, bool siblingHasSetter = false)
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.SetSiblingPropertyFallbacks(
+            new Dictionary<(string ProtoQName, string PropertyName), IReadOnlyList<ModuleEmissionContext.SiblingPropertyFallback>>
+            {
+                [(EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl), propertyName)] =
+                    new[] { new ModuleEmissionContext.SiblingPropertyFallback(CreateSimpleProtocol("SiblingFallbackProto"), siblingHasSetter) }
+            });
+        return EmitProxyClassWithContext(protocolDecl, ctx);
+    }
+
+    private string EmitProxyClassWithMethodSibling(ProtocolDecl protocolDecl, MethodDecl method)
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.SetSiblingMethodFallbacks(
+            new Dictionary<(string ProtoQName, string MethodKey), IReadOnlyList<ModuleEmissionContext.SiblingMethodFallback>>
+            {
+                [(EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl), EveryProtocolEmitter.GetMethodSiblingMapKey(method))] =
+                    new[] { new ModuleEmissionContext.SiblingMethodFallback(CreateSimpleProtocol("SiblingFallbackProto")) }
+            });
+        return EmitProxyClassWithContext(protocolDecl, ctx);
+    }
+
+    private string EmitProxyClassWithSubscriptSibling(ProtocolDecl protocolDecl, SubscriptDecl subscript, int index)
+    {
+        var ctx = new ModuleEmissionContext();
+        // Mirror the receiver's key shape (ProtocolProxyEmitter.Receivers.cs): the literal
+        // "subscript_{index}(" + comma-joined index-param Swift type strings + ")".
+        var subscriptKey = $"subscript_{index}(" +
+            string.Join(",", subscript.IndexParameters.Select(p => p.SwiftTypeSpec?.ToString() ?? "")) + ")";
+        ctx.SetSiblingSubscriptFallbacks(
+            new Dictionary<(string ProtoQName, string SubscriptKey), IReadOnlyList<ModuleEmissionContext.SiblingSubscriptFallback>>
+            {
+                [(EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl), subscriptKey)] =
+                    new[] { new ModuleEmissionContext.SiblingSubscriptFallback(CreateSimpleProtocol("SiblingFallbackProto"), index, false) }
+            });
+        return EmitProxyClassWithContext(protocolDecl, ctx);
     }
 
     private static ProtocolDecl CreateSimpleProtocol(string name)

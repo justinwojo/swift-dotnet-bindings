@@ -60,6 +60,8 @@ public static partial class ClosureEmitter
 
         // Generate marshalling code for each struct parameter
         var invokeArgs = new List<string>();
+        // +0 borrowed EC2+ composition proxies to pin across the native call (see the EC2+ arg branch).
+        var keepAliveArgs = new List<string>();
         for (int i = 0; i < argTypes.Count; i++)
         {
             var arg = argTypes[i];
@@ -99,6 +101,10 @@ public static partial class ClosureEmitter
                 else
                 {
                     var ct = closureHandler.GetPInvokeExistentialType(arg);
+                    // +0 borrowed EC2+ composition closure ARG: no auto-wrap (a composition interface is
+                    // only implemented by the Swift-vended proxy), so _arg{i} IS the proxy aliasing its
+                    // sole R0. Pin it across the native call (design change 4 / mechanism 3).
+                    keepAliveArgs.Add($"_arg{i}");
                     invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
                 }
             }
@@ -129,10 +135,24 @@ public static partial class ClosureEmitter
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         // Generate the invoke and return
-        string invokeExpr = $"_fp({invokeArgsString})";
+        // Pin any +0 borrowed EC2+ composition proxies (keepAliveArgs) across the native call: with a
+        // return value, hoist the call into a local so KeepAlive lands after _fp(...) but before the
+        // return shape consumes it; for void, KeepAlive simply follows the call statement. Empty when
+        // there are no EC2+ composition args, leaving the prior emission byte-identical.
+        var keepAliveStmts = string.Concat(keepAliveArgs.Select(a => $" GC.KeepAlive({a});"));
+        string invokeExpr;
+        if (keepAliveArgs.Count > 0 && hasReturn)
+        {
+            csWriter.WriteLine($"var _invRet = _fp({invokeArgsString});{keepAliveStmts}");
+            invokeExpr = "_invRet";
+        }
+        else
+        {
+            invokeExpr = $"_fp({invokeArgsString})";
+        }
         if (!hasReturn)
         {
-            csWriter.WriteLine($"{invokeExpr};");
+            csWriter.WriteLine($"{invokeExpr};{keepAliveStmts}");
         }
         else if (returnIsBool)
         {
@@ -223,6 +243,8 @@ public static partial class ClosureEmitter
         // Track which arguments need cleanup and collect invoke args
         var invokeArgs = new List<string>();
         var nonFrozenArgs = new List<int>();
+        // +0 borrowed EC2+ composition proxies to pin across the native call (see the EC2+ arg branch).
+        var keepAliveArgs = new List<string>();
 
         for (int i = 0; i < argTypes.Count; i++)
         {
@@ -279,6 +301,10 @@ public static partial class ClosureEmitter
                 else
                 {
                     var ct = closureHandler.GetPInvokeExistentialType(arg);
+                    // +0 borrowed EC2+ composition closure ARG: no auto-wrap (a composition interface is
+                    // only implemented by the Swift-vended proxy), so _arg{i} IS the proxy aliasing its
+                    // sole R0. Pin it across the native call (design change 4 / mechanism 3).
+                    keepAliveArgs.Add($"_arg{i}");
                     invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
                 }
             }
@@ -317,10 +343,24 @@ public static partial class ClosureEmitter
         }
 
         // Generate the invoke and return
-        string invokeExpr = $"_fp({invokeArgsString})";
+        // Pin any +0 borrowed EC2+ composition proxies (keepAliveArgs) across the native call: with a
+        // return value, hoist the call into a local so KeepAlive lands after _fp(...) but before the
+        // return shape consumes it; for void, KeepAlive simply follows the call statement. Empty when
+        // there are no EC2+ composition args, leaving the prior emission byte-identical.
+        var keepAliveStmts = string.Concat(keepAliveArgs.Select(a => $" GC.KeepAlive({a});"));
+        string invokeExpr;
+        if (keepAliveArgs.Count > 0 && hasReturn)
+        {
+            csWriter.WriteLine($"var _invRet = _fp({invokeArgsString});{keepAliveStmts}");
+            invokeExpr = "_invRet";
+        }
+        else
+        {
+            invokeExpr = $"_fp({invokeArgsString})";
+        }
         if (!hasReturn)
         {
-            csWriter.WriteLine($"{invokeExpr};");
+            csWriter.WriteLine($"{invokeExpr};{keepAliveStmts}");
         }
         else if (returnIsBool)
         {

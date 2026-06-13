@@ -259,10 +259,15 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             return ($"Foundation.NSArray.FromNSObjects({valueExpr}.ToArray())", true);
         }
 
-        var rawElem = arr.ElementProjection.MarshalFromSwiftType;
+        // Existential elements ride the owned (+1) carrier (stride-correct type + owned mint): the
+        // SwiftArray store + its value-witness destroy balance an independent retain rather than
+        // over-releasing the proxy's sole +1. No-op for non-existential elements; mirrors the forward
+        // ArrayProjection param path. The exclusion list (Class/KeyPath/NonFrozenStruct/ObjCRooted) still
+        // returns null so the container holds typed wrappers directly (struct-by-value / nil-ptr ABI).
+        var rawElem = ExistentialElementCarrier.CarrierType(arr.ElementProjection, arr.ElementProjection.MarshalFromSwiftType);
         var elemConv = arr.ElementProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
-            : arr.ElementProjection.GetParameterElementConversion("e");
+            : ExistentialElementCarrier.ParamConversion(arr.ElementProjection, "e");
         if (elemConv != null)
             return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
         return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
@@ -278,14 +283,16 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             return ($"Foundation.NSDictionary.FromObjectsAndKeys({valueExpr}.Select(kvp => {valToNS}).ToArray(), {valueExpr}.Select(kvp => {keyToNS}).ToArray())", true);
         }
 
+        // Keys can never be existential (`any P` is not Hashable), so only the VALUE rides the owned
+        // carrier; no-op for non-existential values. Mirrors the forward DictionaryProjection param path.
         var rawK = dict.KeyProjection.MarshalFromSwiftType;
-        var rawV = dict.ValueProjection.MarshalFromSwiftType;
+        var rawV = ExistentialElementCarrier.CarrierType(dict.ValueProjection, dict.ValueProjection.MarshalFromSwiftType);
         var keyConv = dict.KeyProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : dict.KeyProjection.GetParameterElementConversion("kvp.Key");
         var valConv = dict.ValueProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
-            : dict.ValueProjection.GetParameterElementConversion("kvp.Value");
+            : ExistentialElementCarrier.ParamConversion(dict.ValueProjection, "kvp.Value");
         if (keyConv != null || valConv != null)
         {
             var keyExpr = keyConv ?? "kvp.Key";
@@ -311,10 +318,12 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             return ($"new Foundation.NSSet({valueExpr}.ToArray())", true);
         }
 
-        var rawElem = set.ElementProjection.MarshalFromSwiftType;
+        // Existential elements ride the owned (+1) carrier; no-op for non-existential. Mirrors the
+        // forward SetProjection param path (and the exclusion list keeps typed-wrapper-by-value).
+        var rawElem = ExistentialElementCarrier.CarrierType(set.ElementProjection, set.ElementProjection.MarshalFromSwiftType);
         var elemConv = set.ElementProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
-            : set.ElementProjection.GetParameterElementConversion("e");
+            : ExistentialElementCarrier.ParamConversion(set.ElementProjection, "e");
         if (elemConv != null)
             return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
         return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);

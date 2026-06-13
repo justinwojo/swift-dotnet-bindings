@@ -408,3 +408,50 @@ public protocol CrossModuleSkippedMethodParentDelegate: AnyObject {
     /// The cctor must also assign it to slot 1; pre-fix it tried slot 0.
     func dispatchableAfterSkippedMethod(value: Int32)
 }
+
+// MARK: - Finding 33 — per-module EveryProtocol metadata (dependency-module side)
+//
+// `DepReverseValue` is an OPAQUE (non-`AnyObject`) reverse-dispatch protocol living in the
+// dependency module. When a C# class conforms to it, the auto-wrapped proxy builds an
+// opaque existential whose metadata word comes from THIS module's
+// `NativeMethods.GetEveryProtocolMetadata()` (the per-proxy `s_everyProtocolMetadata`
+// static). The companion main-module protocol (`ReverseInvariantAlpha`) does the same with
+// the MAIN module's accessor.
+//
+// Pre-Finding-33 the C# `EveryProtocol` type held one process-global metadata latch, so
+// whichever module initialised first won and the other module's opaque existentials were
+// stamped with the wrong type metadata. A single C# object conforming to BOTH the main and
+// dependency opaque protocols and being dispatched through BOTH in the same process is the
+// scenario that exposes the latch: the dependency existential is STORED (copied via its
+// value-witness table, which is keyed on the metadata word) and then dispatched, so a
+// wrong-module metadata word corrupts the copy/destroy rather than merely mislabelling a
+// type.
+
+public protocol DepReverseValue {
+    /// Returns `value + 3000` so the C# test can prove the dependency view serviced the
+    /// call with this module's metadata.
+    func depValue(_ value: Int32) -> Int32
+}
+
+/// Stores and dispatches a dependency-module opaque existential. The store copies the
+/// existential through its (per-module) value-witness table; `roundTripStored` then
+/// dispatches into it. Used by the Finding-33 two-module fixture.
+public class DepReverseValueHarness {
+    private var stored: (any DepReverseValue)?
+
+    public init() {}
+
+    /// Direct dispatch (no storage): returns `value + 3000` for a correct resolver.
+    public func pingDepValue(_ d: any DepReverseValue, value: Int32) -> Int32 {
+        return d.depValue(value)
+    }
+
+    /// Store the existential (value-witness copy through this module's metadata) then
+    /// dispatch into it. A wrong-module metadata word would corrupt the stored copy.
+    public func roundTripStored(_ d: any DepReverseValue, value: Int32) -> Int32 {
+        stored = d
+        let result = stored?.depValue(value) ?? -1
+        stored = nil
+        return result
+    }
+}

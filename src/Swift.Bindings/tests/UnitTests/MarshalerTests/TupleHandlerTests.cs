@@ -467,6 +467,84 @@ public class TupleHandlerTests
 
     #endregion
 
+    #region HasUnmarshalledTupleElements (fail-closed tuple-parameter gate)
+
+    [Fact]
+    public void HasUnmarshalledTupleElements_WithExistentialElement_ReturnsTrue()
+    {
+        // The SAME existential element that HasClosureUnsafeTupleElements treats as safe (it only
+        // catches the IntPtr subset for the closure-callback delegate-shape contract) is UNmarshalled
+        // on the tuple-PARAMETER path: its P/Invoke ExistentialContainerN differs from its C# interface,
+        // and the converted-tuple call-argument path does not yet thread per-element conversion. Gate 5b
+        // skips such a member fail-closed (UnsupportedSignature) instead of emitting non-compiling code.
+        var existentialElement = new NamedTypeSpec("TestModule.SomeProtocol") { IsAny = true };
+        var intElement = new NamedTypeSpec("Swift.Int");
+        var tuple = new TupleTypeSpec(new List<TypeSpec> { existentialElement, intElement });
+
+        // Strict superset: the IntPtr-subset gate misses this element, the unmarshalled gate catches it.
+        Assert.False(_tupleHandler.HasClosureUnsafeTupleElements(tuple));
+        Assert.True(_tupleHandler.HasUnmarshalledTupleElements(tuple));
+    }
+
+    [Fact]
+    public void HasUnmarshalledTupleElements_WithNonFrozenStructElement_ReturnsTrue()
+    {
+        // Non-frozen struct → P/Invoke IntPtr vs C# class type → mismatch → fail-closed.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("ImagePipeline.ImageResponse"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.True(_tupleHandler.HasUnmarshalledTupleElements(tuple));
+    }
+
+    [Fact]
+    public void HasUnmarshalledTupleElements_WithClassElement_ReturnsTrue()
+    {
+        // Swift class → P/Invoke IntPtr vs C# class type → mismatch → fail-closed.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("ImagePipeline.ImageTask"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        Assert.True(_tupleHandler.HasUnmarshalledTupleElements(tuple));
+    }
+
+    [Fact]
+    public void HasUnmarshalledTupleElements_WithOnlyPrimitives_ReturnsFalse()
+    {
+        // All-frozen-primitive tuple — P/Invoke type equals C# type for every element, so the raw
+        // ValueTuple path marshals correctly. Must NOT be falsely rejected.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Double")
+        });
+
+        Assert.False(_tupleHandler.HasUnmarshalledTupleElements(tuple));
+    }
+
+    [Fact]
+    public void HasUnmarshalledTupleElements_WithPointerType_ReturnsFalse()
+    {
+        // UnsafeMutablePointer<T> is IntPtr in BOTH contexts (modulo the System. prefix). The Norm()
+        // helper folds "System.IntPtr" == "IntPtr" so the prefix difference is not a false mismatch.
+        var pointerType = new NamedTypeSpec("Swift.UnsafeMutablePointer");
+        pointerType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            pointerType,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.False(_tupleHandler.HasUnmarshalledTupleElements(tuple));
+    }
+
+    #endregion
+
     #region TupleTypeSpec Kind Tests
 
     [Fact]

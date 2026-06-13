@@ -43,9 +43,13 @@ public class SetProjection : ITypeProjection
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 
-    public string SwiftContainerGenericType => $"SwiftSet<{_elementProjection.SwiftContainerGenericType}>";
+    // PARAMETER direction: existential elements ride the owned (+1) carrier type so the
+    // FromEnumerable store + the set's value-witness destroy balance against an independent
+    // retain rather than over-releasing the proxy's sole construction +1. Mirrors ArrayProjection.
+    public string SwiftContainerGenericType => $"SwiftSet<{ExistentialElementCarrier.CarrierType(_elementProjection, _elementProjection.SwiftContainerGenericType)}>";
 
-    public string ContainerTypeName => $"SwiftSet<{_elementProjection.MarshalFromSwiftType}>";
+    // READ direction: same carrier element type so the slot stride agrees. Mirrors ArrayProjection.
+    public string ContainerTypeName => $"SwiftSet<{_elementProjection.ArrayElementCarrierType}>";
 
     public string MarshalFromSwiftType => ContainerTypeName;
 
@@ -55,8 +59,8 @@ public class SetProjection : ITypeProjection
     /// </summary>
     private (List<MarshalStatement> setup, string containerExpr) BuildContainerSetup(string paramName)
     {
-        var rawElem = _elementProjection.SwiftContainerGenericType;
-        var elemConversion = _elementProjection.GetParameterElementConversion("e");
+        var rawElem = ExistentialElementCarrier.CarrierType(_elementProjection, _elementProjection.SwiftContainerGenericType);
+        var elemConversion = ExistentialElementCarrier.ParamConversion(_elementProjection, "e");
         // When SwiftContainerGenericType matches the C# public type, the SwiftSet<T>
         // container holds typed wrapper instances directly (e.g. SwiftSet<NonFrozenStruct>).
         // FromEnumerable then dispatches to ISwiftObject.MarshalToSwift per element, which
@@ -238,8 +242,8 @@ public class SetProjection : ITypeProjection
             return $"new Foundation.NSSet({elementVar}.ToArray())";
         }
 
-        var rawElem = _elementProjection.SwiftContainerGenericType;
-        var elemConversion = _elementProjection.GetParameterElementConversion("e");
+        var rawElem = ExistentialElementCarrier.CarrierType(_elementProjection, _elementProjection.SwiftContainerGenericType);
+        var elemConversion = ExistentialElementCarrier.ParamConversion(_elementProjection, "e");
         // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
         // matches the C# public type, FromEnumerable wants the typed wrapper directly.
         if (elemConversion != null && rawElem != _elementProjection.PublicType)

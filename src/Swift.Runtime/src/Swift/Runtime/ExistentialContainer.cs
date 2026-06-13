@@ -1107,16 +1107,33 @@ public static class ExistentialContainerFactory
     /// </remarks>
     public static ExistentialContainer1 GetOrCreate<TProtocol>(TProtocol value, out bool ownsContainer)
         where TProtocol : class
+        => GetOrCreate(value, out ownsContainer, out _);
+
+    /// <summary>
+    /// <c>keepAlive</c>-returning overload of <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/>
+    /// (design change 4 — see <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>).
+    /// <paramref name="keepAlive"/> is the object whose liveness must span the native call: the proxy
+    /// that owns the EveryProtocol construction +1 (R0). Under Design B2 the proxy is registered only
+    /// weakly, so a borrowed proxy container (raw pointers, no managed ref) would let a GC during the
+    /// Swift call finalize the proxy → release R0 → premature deinit / UAF mid-call. The marshalling
+    /// site captures this and emits <c>GC.KeepAlive(keepAlive)</c> after the call returns. It is the
+    /// proxy in both existential branches and <c>null</c> in the boxable branch (owned container, no
+    /// proxy to root). KeepAlive is harmless in the already-a-proxy branch (the proxy is a live arg).
+    /// </summary>
+    public static ExistentialContainer1 GetOrCreate<TProtocol>(TProtocol value, out bool ownsContainer, out object? keepAlive)
+        where TProtocol : class
     {
         if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
         {
             ownsContainer = false;
+            keepAlive = convertible;
             return convertible.GetExistentialContainer();
         }
 
         if (value is IExistentialBoxable boxable)
         {
             ownsContainer = true;
+            keepAlive = null;
             return boxable.BoxAsExistential1<TProtocol>();
         }
 
@@ -1228,16 +1245,35 @@ public static class ExistentialContainerFactory
         Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback,
         out bool ownsContainer)
         where TProtocol : class
+        => GetOrCreate(value, wrapFallback, out ownsContainer, out _);
+
+    /// <summary>
+    /// <c>keepAlive</c>-returning overload of
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, out bool)"/>
+    /// (design change 4). <paramref name="keepAlive"/> is the proxy whose liveness must span the
+    /// native call so that R0 is not released mid-call by a GC of an otherwise-unrooted auto-wrapped
+    /// proxy — see <see cref="GetOrCreate{TProtocol}(TProtocol, out bool, out object)"/> for the full
+    /// rationale. It is the (built or reused) proxy in the convertible and auto-wrap branches and
+    /// <c>null</c> in the boxable branch.
+    /// </summary>
+    public static ExistentialContainer1 GetOrCreate<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback,
+        out bool ownsContainer,
+        out object? keepAlive)
+        where TProtocol : class
     {
         if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
         {
             ownsContainer = false;
+            keepAlive = convertible;
             return convertible.GetExistentialContainer();
         }
 
         if (value is IExistentialBoxable boxable)
         {
             ownsContainer = true;
+            keepAlive = null;
             return boxable.BoxAsExistential1<TProtocol>();
         }
 
@@ -1252,10 +1288,9 @@ public static class ExistentialContainerFactory
         // The inner dictionary keys per protocol type so that one C# instance implementing
         // multiple generated interfaces gets a distinct proxy (and matching witness table)
         // for each protocol it can be passed as. Weak references mean the
-        // SwiftObjectRegistry strong root is the authoritative liveness signal —
-        // when ProxyLifetimeTracker releases the +1 and Swift's deinit fires, the
-        // proxy becomes collectible and the cache entry becomes stale; the next
-        // lookup rebuilds.
+        // SwiftObjectRegistry weak root is NOT a liveness anchor — the caller MUST keep the
+        // returned proxy (keepAlive) alive across the native call, else a GC could finalize it
+        // mid-call and release R0 (the EveryProtocol construction +1) prematurely.
         var perImplMap = s_autoWrapCache.GetValue(
             value,
             static _ => new ConcurrentDictionary<Type, WeakReference<ISwiftExistentialConvertible<ExistentialContainer1>>>());
@@ -1263,6 +1298,7 @@ public static class ExistentialContainerFactory
         if (perImplMap.TryGetValue(typeof(TProtocol), out var weakRef) &&
             weakRef.TryGetTarget(out var cached))
         {
+            keepAlive = cached;
             return cached.GetExistentialContainer();
         }
 
@@ -1277,8 +1313,9 @@ public static class ExistentialContainerFactory
 
         // A benign race here lets two concurrent misses both build proxies; the
         // losing proxy becomes a weak-cache orphan but is still tracked by
-        // ProxyLifetimeTracker, so its +1 releases when impl is GC'd.
+        // ProxyLifetimeTracker, so its +1 releases when the proxy is collected.
         perImplMap[typeof(TProtocol)] = new WeakReference<ISwiftExistentialConvertible<ExistentialContainer1>>(proxy);
+        keepAlive = proxy;
         return proxy.GetExistentialContainer();
     }
 
@@ -1321,7 +1358,19 @@ public static class ExistentialContainerFactory
         TProtocol value,
         Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
         where TProtocol : class
-        => MintOrDonateClassCarrier(GetOrCreate(value, wrapFallback, out bool ownsContainer), ownsContainer);
+    {
+        // B2 change 4: an auto-wrapped proxy is the SOLE owner of R0 (the EveryProtocol
+        // construction +1) and is now registered only weakly, so nothing strong roots it
+        // between GetOrCreate building it and the synchronous mint below. A GC + finalizer in
+        // that window would release R0 → free the Swift object → MintOrDonate's Arc retain /
+        // value-witness copy reads freed memory. Keep the proxy alive until the array owns its
+        // own +1. No-op (and harmless) for the convertible/boxable shapes where keepAlive is the
+        // live arg or null.
+        var container = GetOrCreate(value, wrapFallback, out bool ownsContainer, out object? keepAlive);
+        var carrier = MintOrDonateClassCarrier(container, ownsContainer);
+        GC.KeepAlive(keepAlive);
+        return carrier;
+    }
 
     /// <summary>
     /// No-fallback overload, emitted at call sites whose proxy class was suppressed (a
@@ -1336,7 +1385,14 @@ public static class ExistentialContainerFactory
     /// </summary>
     public static ClassExistentialContainer1 CreateOwnedClassCarrier<TProtocol>(TProtocol value)
         where TProtocol : class
-        => MintOrDonateClassCarrier(GetOrCreate(value, out bool ownsContainer), ownsContainer);
+    {
+        // B2 change 4: keep the (possibly auto-wrapped) proxy alive across the synchronous mint —
+        // see the two-arg overload for the full rationale.
+        var container = GetOrCreate(value, out bool ownsContainer, out object? keepAlive);
+        var carrier = MintOrDonateClassCarrier(container, ownsContainer);
+        GC.KeepAlive(keepAlive);
+        return carrier;
+    }
 
     private static ClassExistentialContainer1 MintOrDonateClassCarrier(ExistentialContainer1 container, bool ownsContainer)
     {
@@ -1393,7 +1449,16 @@ public static class ExistentialContainerFactory
         TProtocol value,
         Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
         where TProtocol : class
-        => MintOrDonateExistential1(GetOrCreate(value, wrapFallback, out bool ownsContainer), ownsContainer);
+    {
+        // B2 change 4: keep the (possibly auto-wrapped) proxy alive across the synchronous mint —
+        // here the mint is the existential value-witness InitializeWithCopy, which reads the
+        // payload; a premature R0 release would have it read freed memory. See
+        // CreateOwnedClassCarrier for the full rationale.
+        var container = GetOrCreate(value, wrapFallback, out bool ownsContainer, out object? keepAlive);
+        var carrier = MintOrDonateExistential1(container, ownsContainer);
+        GC.KeepAlive(keepAlive);
+        return carrier;
+    }
 
     /// <summary>
     /// No-fallback overload, emitted at call sites whose proxy class was suppressed (a
@@ -1409,7 +1474,14 @@ public static class ExistentialContainerFactory
     /// </summary>
     public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(TProtocol value)
         where TProtocol : class
-        => MintOrDonateExistential1(GetOrCreate(value, out bool ownsContainer), ownsContainer);
+    {
+        // B2 change 4: keep the (possibly auto-wrapped) proxy alive across the synchronous mint —
+        // see CreateOwnedExistential1(value, wrapFallback) for the full rationale.
+        var container = GetOrCreate(value, out bool ownsContainer, out object? keepAlive);
+        var carrier = MintOrDonateExistential1(container, ownsContainer);
+        GC.KeepAlive(keepAlive);
+        return carrier;
+    }
 
     private static unsafe ExistentialContainer1 MintOrDonateExistential1(ExistentialContainer1 container, bool ownsContainer)
     {
@@ -1440,6 +1512,65 @@ public static class ExistentialContainerFactory
             // from CopyWireBufferRetains (which runs only AFTER metadata resolves) throws a DIFFERENT
             // type and is intentionally NOT caught — masking it would hand a borrowed (+0) carrier to
             // an __owned consume and re-introduce the over-release.
+            return container;
+        }
+    }
+
+    /// <summary>
+    /// Owned (+1) C#→Swift mint for an EC2+ COMPOSITION existential (<c>any P &amp; Q…</c>), the
+    /// multi-protocol sibling of <see cref="CreateOwnedExistential1{TProtocol}(TProtocol)"/>. Emitted
+    /// by <c>ExistentialProjection.GetOwnedParameterElementConversion</c> at every C#→Swift owned
+    /// hand-off of a composition existential (reverse-dispatch getter/method returns, closure returns).
+    /// <para>
+    /// The only C# type that implements a composition interface is the Swift-vended
+    /// <c>{Composition}Proxy</c>: value conformers box solely as EC1 via
+    /// <see cref="IExistentialBoxable.BoxAsExistential1{TProtocol}"/> (there is no
+    /// <c>BoxAsExistential2</c>), so <see cref="ISwiftExistentialConvertible{T}.GetExistentialContainer"/>
+    /// here ALWAYS returns the proxy's stored bytes BORROWED — no fresh retain. Handing those bytes back
+    /// to Swift unchanged at +1 would alias the proxy's sole construction +1 (R0): Swift's owned release
+    /// and the proxy's eventual release would both target that one retain — a double-release. So this
+    /// unconditionally mints an independent +1 via the existential value-witness InitializeWithCopy
+    /// (arity-generic in <see cref="IExistentialContainer.Count"/>), exactly as
+    /// <see cref="MintOrDonateExistential1"/>'s borrowed arm does for EC1. Unlike EC1 there is no donate
+    /// arm — no boxable composition conformer exists, so the source is unconditionally borrowed and the
+    /// owns-bit branching collapses away.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="TProtocol">The composition interface (e.g. <c>IAgeableAndNameable</c>).</typeparam>
+    /// <typeparam name="TContainer">The EC2..EC8 carrier the proxy implements (e.g. <c>ExistentialContainer2</c>).</typeparam>
+    public static unsafe TContainer CreateOwnedCompositionExistential<TProtocol, TContainer>(TProtocol value)
+        where TProtocol : class
+        where TContainer : unmanaged, IExistentialContainer
+    {
+        // Only a Swift-vended proxy implements the composition interface, so this cast and the
+        // borrowed GetExistentialContainer() always succeed; an incompatible input throws
+        // InvalidCastException, preserving the throw-on-incompatible contract (mirrors the
+        // no-fallback CreateOwnedExistential1 overload).
+        var container = ((ISwiftExistentialConvertible<TContainer>)value).GetExistentialContainer();
+        TContainer owned = default;
+        try
+        {
+            var metadata = TypeMetadata.GetExistentialTypeMetadata(container.Count);
+            // owned/container are unmanaged stack locals; Unsafe.AsPointer takes their addresses
+            // without a `fixed` (a CS0213 error on already-fixed locals, and unavailable for an
+            // open unmanaged generic).
+            Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains(
+                (IntPtr)Unsafe.AsPointer(ref owned), (IntPtr)Unsafe.AsPointer(ref container), metadata);
+            // B2 change 4: the proxy is the SOLE owner of R0 (the EveryProtocol construction +1) and
+            // is registered only weakly, so nothing strong roots it across this mint. `container` is an
+            // unmanaged stack copy of the proxy's bytes — keeping IT alive is a no-op; the InitializeWithCopy
+            // above retains the payload the proxy owns, so a GC + finalizer between GetExistentialContainer()
+            // and this retain would release R0 → free the Swift object → the copy reads/retains freed memory.
+            // Root the proxy itself across the mint, mirroring the EC1 CreateOwnedExistential1 keepAlive.
+            GC.KeepAlive(value);
+            return owned;
+        }
+        catch (SwiftRuntimeException)
+        {
+            // SwiftBindingsRuntime unavailable (no-Swift-runtime unit contexts): nothing there
+            // consumes the container, so the aliased (+0) fallback is safe. A genuine value-witness
+            // fault throws a DIFFERENT type and is intentionally NOT caught — masking it would
+            // re-introduce the over-release. Mirrors MintOrDonateExistential1.
             return container;
         }
     }

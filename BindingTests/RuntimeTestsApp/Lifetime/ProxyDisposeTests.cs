@@ -134,23 +134,50 @@ public class ProxyDisposeTests : TestBase
         public void SetValue(int newValue) => _value = newValue;
     }
 
-    public void TestProxyDisposeReleasesStrongReference()
+    public void TestProxyDisposeReleasesNativeReference()
     {
-        // Drain pending finalizers so prior tests' leaked impls don't race the
-        // registry sample below. Without this, allocating the new proxy can
-        // trigger GC mid-sample and finalize ~24 stale impls between the two
-        // reads, masking the +1 delta we're actually checking.
+        // Design B2: a C#-impl proxy registers WEAKLY (SwiftObjectRegistry.Register,
+        // not RegisterStrong) and roots its impl by Swift-liveness through
+        // ProxyLifetimeTracker, keyed on the EveryProtocol handle. The proxy owns the
+        // construction +1 (R0); Dispose releases it exactly once, which drives Swift's
+        // last retain to zero -> EveryProtocol.deinit -> OnEveryProtocolDeinit, freeing
+        // the impl root and unregistering the (weak) registry entry. So the observable
+        // is NOT a StrongCount delta (the superseded RegisterStrong model) — it is:
+        //   1. construction leaves StrongCount unchanged (weak registration), and
+        //   2. while alive the proxy is discoverable and its impl is rooted by handle, and
+        //   3. Dispose releases R0 -> deinit -> impl root freed + entry unregistered.
+        //
+        // Drain pending finalizers so prior tests' torn-down proxies don't race the
+        // registry/tracker samples below.
         ForceGC();
-        var initialCount = SwiftObjectRegistry.StrongCount;
+        var initialStrong = SwiftObjectRegistry.StrongCount;
+        var initialWeak = SwiftObjectRegistry.Count;
 
         var proxy = new HasValueProxy(new SimpleHasValue(99));
-        var afterCreate = SwiftObjectRegistry.StrongCount;
-        AssertEqual(initialCount + 1, afterCreate, "StrongCount should increase by 1 after proxy creation");
+        var handle = ((ISwiftObject)proxy).SwiftHandle;
 
+        // (1) Weak registration: construction must NOT bump StrongCount.
+        AssertEqual(initialStrong, SwiftObjectRegistry.StrongCount,
+            "C#-impl proxy must register WEAKLY: StrongCount must not change on construction (B2)");
+
+        // (2) While alive: proxy is discoverable in the weak registry by its
+        //     EveryProtocol handle, and the impl is rooted + resolvable by that handle.
+        AssertTrue(SwiftObjectRegistry.TryGetProxy<HasValueProxy>(handle, out var found) && ReferenceEquals(found, proxy),
+            "Proxy must be weak-registered and discoverable by its EveryProtocol handle while alive");
+        AssertNotNull(ProxyLifetimeTracker.ResolveImpl<IHasValue>(handle),
+            "Impl must be rooted and resolvable by handle while the proxy holds R0");
+        GC.KeepAlive(proxy);
+
+        // (3) Dispose releases R0 exactly once -> deinit -> impl root freed + unregister.
         proxy.Dispose();
         ForceGC();
-        var afterDispose = SwiftObjectRegistry.StrongCount;
-        AssertEqual(initialCount, afterDispose, "StrongCount should return to initial value after dispose");
+
+        AssertNull(ProxyLifetimeTracker.ResolveImpl<IHasValue>(handle),
+            "Impl root must be freed after Dispose drives EveryProtocol.deinit");
+        AssertFalse(SwiftObjectRegistry.TryGetProxy<HasValueProxy>(handle, out _),
+            "Registry entry must be unregistered after Dispose drives EveryProtocol.deinit");
+        AssertEqual(initialWeak, SwiftObjectRegistry.Count,
+            "Weak registry count must return to baseline after dispose");
     }
 
     public void TestProxyDoubleDisposeIsSafe()

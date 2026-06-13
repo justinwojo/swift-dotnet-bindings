@@ -65,6 +65,12 @@ public partial class ProtocolProxyEmitter
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
                 continue;
+            // @objc optional methods get no vtable slot — the Swift producer
+            // (EveryProtocolEmitter.EmitProtocolVtableStruct) skips them BEFORE the index
+            // increment, so this struct must omit the field AND not consume the slot, or the
+            // C# [StructLayout] grows a field Swift never wrote and every later slot shifts.
+            if (method.IsObjCOptional)
+                continue;
 
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
             if (!methodIndices.TryGetValue(methodKey, out var idx))
@@ -143,6 +149,12 @@ public partial class ProtocolProxyEmitter
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            // @objc optional methods get no vtable slot — the Swift producer
+            // (EveryProtocolEmitter.EmitProtocolVtableStruct) skips them BEFORE the index
+            // increment, so this struct must omit the field AND not consume the slot, or the
+            // C# [StructLayout] grows a field Swift never wrote and every later slot shifts.
+            if (method.IsObjCOptional)
                 continue;
 
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);

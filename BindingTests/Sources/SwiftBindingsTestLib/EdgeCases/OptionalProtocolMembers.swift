@@ -63,3 +63,49 @@ public func invokeRequired(_ delegate: OptionalCallbackDelegate, tag: Int32) {
 public func makeMinimalOptionalConformer() -> MinimalOptionalConformer {
     return MinimalOptionalConformer()
 }
+
+// MARK: - `@objc optional` member declared BEFORE a required member (Defect C)
+//
+// `OptionalCallbackDelegate` above declares its required method FIRST, so it
+// cannot catch the reverse-dispatch slot-index skew: the index for the required
+// member is 0 whether or not optionals are skipped. This protocol puts the
+// optional FIRST.
+//
+// The reverse-dispatch vtable (Swift → C# callback) numbers its slots by walking
+// the protocol's members. The producers (the Swift wrapper's vtable struct and
+// the `SBW_…` witness accessors) skip `@objc optional` members BEFORE assigning a
+// slot index, so `fireRequired` must land at slot 0. If a C# consumer walk
+// increments the slot index BEFORE skipping the optional, the C#-side vtable
+// struct gains a phantom slot for the optional and pushes `fireRequired`'s
+// function pointer to offset 8 — while the Swift wrapper still reads offset 0.
+// Swift then calls a null/garbage pointer → SIGSEGV (the same-module Finding-8
+// shape). `OptionalFirstDelegate` exercises that exact ordering end-to-end.
+
+@objc public protocol OptionalFirstDelegate: NSObjectProtocol {
+    /// Optional, declared FIRST — must consume NO reverse-dispatch slot.
+    @objc optional func willStartOptional(_ tag: Int32)
+
+    /// Required, declared AFTER the optional — must occupy vtable slot 0.
+    func fireRequired(_ tag: Int32)
+}
+
+/// Records the tag handed back by Swift so the runtime test can assert the
+/// reverse call landed on the required member (and carried the right value).
+public class RecordingFirstConformer: NSObject, OptionalFirstDelegate {
+    public var lastFiredTag: Int32 = -1
+
+    public override init() {
+        super.init()
+    }
+
+    public func fireRequired(_ tag: Int32) {
+        lastFiredTag = tag
+    }
+}
+
+/// Reverse-dispatch entry point: Swift invokes the REQUIRED member on whatever
+/// is plugged in. A C#-backed conformer routes the call through the generated
+/// vtable slot 0; a native conformer dispatches directly.
+public func invokeFireRequired(_ delegate: OptionalFirstDelegate, tag: Int32) {
+    delegate.fireRequired(tag)
+}

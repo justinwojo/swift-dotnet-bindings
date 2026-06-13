@@ -325,9 +325,18 @@ public static partial class ClosureEmitter
         string asyncFuncExpr = parameterName;
         if (hasReturn && returnAbiType != null)
         {
-            var paramConversion = (returnProjection != null && returnProjection.PublicType != returnAbiType)
-                ? returnProjection.GetParameterElementConversion("r")
-                : null;
+            string? paramConversion = null;
+            if (returnProjection != null && returnProjection.PublicType != returnAbiType)
+            {
+                // Existential async RETURN: the awaited delegate result is handed to Swift at +1
+                // (owned) — the ContinueWith lambda writes it into the ABI-shaped return slot and Swift
+                // adopts it. Mint an independent +1 rather than borrow the proxy's R0, mirroring the
+                // synchronous closure return (F2 / BuildCallbackReturnStatement). No-op for the
+                // non-existential projected-return case (e.g. Data).
+                paramConversion = returnProjection is ExistentialProjection existAsyncRet
+                    ? existAsyncRet.GetOwnedParameterElementConversion("r")
+                    : returnProjection.GetParameterElementConversion("r");
+            }
             if (paramConversion != null)
             {
                 if (args.Count > 0)

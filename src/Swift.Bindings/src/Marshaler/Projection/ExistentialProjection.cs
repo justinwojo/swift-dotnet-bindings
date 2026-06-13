@@ -147,6 +147,64 @@ public class ExistentialProjection : ITypeProjection
                 : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
     /// <summary>
+    /// keepAlive-capturing variant of <see cref="GetParameterElementConversion"/> for the +0 BORROWED
+    /// closure-ARGUMENT direction (design change 4 / mechanism 3). A C# lambda that wraps a Swift
+    /// function pointer passes an <c>any P</c> argument by value into the native call, where Swift
+    /// borrows it (+0) for the call's duration. The EC1 aliases the auto-wrapped proxy's sole
+    /// construction +1 (R0); under Design B2's weak proxy registration nothing strong roots that proxy
+    /// while Swift runs, so a GC between the wrap and Swift's borrow could finalize the proxy → release
+    /// R0 → UAF mid-call. This emits the keepAlive <c>GetOrCreate</c> overload, binding the proxy into
+    /// <paramref name="keepAliveVar"/> so the marshalling site can emit <c>GC.KeepAlive({keepAliveVar})</c>
+    /// AFTER the native call returns (by which point Swift has finished borrowing). There is no container
+    /// temp to own a +1 here (the arg is borrowed, not stored), so an owned mint would leak — keepAlive
+    /// is the correct fence (contrast <see cref="GetArrayElementCarrierConversion"/>'s owned-element
+    /// mint, whose collection carrier DOES own a +1). Returns <c>null</c> for bare <c>Any</c> (a fresh
+    /// owned EC0 box, no proxy), EC2+ composition, and no-proxy well-known existentials — none of which
+    /// have a <c>GetOrCreate</c> keepAlive overload. (EC2+ composition still BORROW-aliases its proxy's
+    /// R0, but via <see cref="GetParameterElementConversion"/>'s <c>GetExistentialContainer()</c> form,
+    /// not <c>GetOrCreate</c>.) The sole caller is <c>ClosureProjection</c>'s lambda-builder, which is
+    /// dead code in live closure emission — closures are diverted to the string-emitter
+    /// <c>ClosureEmitter</c> before any projection is built — so the live EC2+ closure-arg keepAlive is
+    /// emitted by <c>ClosureEmitter.GetSwiftInvokeArgExpression</c>, not through this projection path.
+    /// </summary>
+    public string? GetKeepAliveParameterElementConversion(string elementVar, string keepAliveVar) =>
+        !_isBareAny && _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
+            ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v), out _, out var {keepAliveVar})"
+            : null;
+
+    /// <summary>
+    /// Owned (+1) C#→Swift counterpart to <see cref="GetParameterElementConversion"/> (which borrows).
+    /// A reverse-dispatch getter/method that RETURNS <c>any P</c> hands Swift a +1-owned existential:
+    /// the C# thunk writes the container into a buffer (<c>MarshalToSwiftBuffer</c>, a byte-copy that
+    /// does NOT retain) and Swift loads + owns it after the thunk returns. Borrowing the proxy's
+    /// construction +1 (R0) via <see cref="GetParameterElementConversion"/> would (a) under B2's weak
+    /// proxy registration let a GC release R0 before Swift loads, and (b) over-release once the proxy
+    /// finalizes against the +1 Swift now owns. So mint an independent +1 via
+    /// <see cref="Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1"/> — the scalar EC1
+    /// sibling of <see cref="GetArrayElementCarrierConversion"/>'s owned element mint, which the
+    /// array/dictionary getter-return arms already use. Bare-<c>Any</c> (EC0) boxes a fresh owned +1
+    /// already. EC2+ composition (<c>any P &amp; Q…</c>) mints through the always-mint
+    /// <see cref="Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential{TProtocol,TContainer}"/>:
+    /// the only conformer is a Swift-vended proxy whose <c>GetExistentialContainer()</c> borrows, so the
+    /// raw bytes would alias the proxy's sole +1 (no <c>BoxAsExistential2</c> donate arm exists). The
+    /// borrowed <c>GetExistentialContainer()</c> form remains only for no-proxy well-known/object
+    /// existentials, which carry their own self-owning release.
+    ///
+    /// NOT to be confused with the owned Swift→C# <see cref="GetOwnedReturnElementConversion"/>: that
+    /// ADOPTS a Swift-returned container INTO a C# proxy (<c>new Proxy(container, ownsContainer:true)</c>),
+    /// the inverse transform. "Parameter" here = the C#→Swift hand-off direction (the getter-return
+    /// projection is built with <c>IsParameter = true</c>); "Return" there = the Swift→C# read direction.
+    /// </summary>
+    public string? GetOwnedParameterElementConversion(string elementVar) =>
+        _isBareAny
+            ? $"ExistentialContainer0.Box({elementVar})"
+            : _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
+                ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
+                : _proxyClassName != null && ExistentialHandler.IsOwnedExistentialContainerType(_containerType)
+                    ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{_publicType}, {_containerType}>({elementVar})"
+                    : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
+
+    /// <summary>
     /// Per-element conversion for the PARAMETER/WRITE direction of a <c>[any P]</c> array (and the
     /// receiver-getter write path) — the symmetric counterpart to <see cref="ArrayElementCarrierType"/>,
     /// which fixed only the READ stride. For a class-bound single-protocol existential the Swift array

@@ -13,7 +13,8 @@ import Foundation
 /// Receiver protocol used by the lifetime harness. Kept to a single blittable
 /// method so the generator's protocol proxy is trivially dispatchable on both
 /// Mono (simulator) and NativeAOT (device). The C# tests assert liveness via
-/// SwiftObjectRegistry.StrongCount rather than relying on callback counts.
+/// the weak SwiftObjectRegistry.Count (auto-wrapped proxies register weakly
+/// under Design B2) rather than relying on callback counts.
 public protocol ProxyLifetimeReceiver: AnyObject {
     func ping(value: Int32)
 }

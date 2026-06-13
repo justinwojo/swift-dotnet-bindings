@@ -98,6 +98,12 @@ public partial class ProtocolProxyEmitter
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
                 continue;
+            // @objc optional methods are no-op DIM defaults on the interface (ProtocolHandler),
+            // so the proxy needn't implement them and they get no witness accessor. The producer
+            // (WitnessDispatchEmitter) skips them BEFORE the index increment; mirror that here so
+            // a following required method keeps the producer's accessor index.
+            if (method.IsObjCOptional)
+                continue;
 
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
             if (!methodIndices.ContainsKey(methodKey))

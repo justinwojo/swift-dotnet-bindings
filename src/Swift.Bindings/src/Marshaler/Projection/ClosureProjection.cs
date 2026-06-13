@@ -92,12 +92,37 @@ public class ClosureProjection : ITypeProjection
         var callArgs = new List<string>();
         var bodySetup = new List<MarshalStatement>();
         var bodyCleanup = new List<MarshalStatement>();
+        // +0 borrowed existential closure ARGS whose backing proxy must be pinned across the native
+        // function-pointer call (design change 4 / mechanism 3) — GC.KeepAlive'd after _fp(...) returns.
+        var keepAliveVars = new List<string>();
 
         for (int i = 0; i < _argProjections.Count; i++)
         {
             var argName = $"arg{i}";
             lambdaArgs.Add(argName);
             var conv = _argProjections[i].GetParameterElementConversion(argName);
+
+            // +0 borrowed existential closure ARG (design change 4 / mechanism 3): the EC1 aliases the
+            // auto-wrapped proxy's sole R0, which under B2's weak proxy registration a GC could release
+            // while the Swift function pointer is still borrowing it. Capture the proxy via the keepAlive
+            // GetOrCreate overload (hoisted into a named local below) and pin it across the _fp(...) call.
+            // Returns null for bare Any (owned box), EC2+ composition, and no-proxy existentials, which
+            // have no GetOrCreate keepAlive overload — NOT because EC2+ doesn't alias R0 (it does, via
+            // GetExistentialContainer()). This projection lambda-builder is, however, dead code for live
+            // closure emission: WrapperEmitter diverts every closure return (Return.cs `IsClosure` guard)
+            // and closure param (Marshalling.cs loop guards) to the string-emitter ClosureEmitter before a
+            // projection is built — so the live EC2+ closure-arg keepAlive is emitted by
+            // ClosureEmitter.GetSwiftInvokeArgExpression, not here.
+            if (_argProjections[i] is ExistentialProjection existArg)
+            {
+                var kaVar = $"{argName}__ka";
+                var kaConv = existArg.GetKeepAliveParameterElementConversion(argName, kaVar);
+                if (kaConv != null)
+                {
+                    conv = kaConv;
+                    keepAliveVars.Add(kaVar);
+                }
+            }
 
             // For blittable types with different public/PInvoke types (enums),
             // element conversion may be null (containers don't need it) but closures
@@ -133,17 +158,27 @@ public class ClosureProjection : ITypeProjection
             _returnProjection.PInvokeType != _returnProjection.PublicType)
             returnConv = $"({_returnProjection.PublicType})fpResult";
 
+        // GC.KeepAlive(...) for any +0 existential args, emitted AFTER the native call returns so the
+        // backing proxy's R0 cannot be released while Swift is still borrowing it (design change 4).
+        var keepAliveCode = keepAliveVars.Count > 0
+            ? " " + string.Join(" ", keepAliveVars.Select(v => $"GC.KeepAlive({v});"))
+            : string.Empty;
+        var fpCall = $"(({BuildFuncPtrType()}){resultName}.FunctionPointer)({fpArgs})";
+
         string lambdaBody;
         if (_returnProjection != null)
         {
             if (returnConv != null)
-                lambdaBody = $"var fpResult = (({BuildFuncPtrType()}){resultName}.FunctionPointer)({fpArgs}); return {returnConv};";
+                lambdaBody = $"var fpResult = {fpCall};{keepAliveCode} return {returnConv};";
+            else if (keepAliveVars.Count > 0)
+                // KeepAlive must land after the native call but still return its result.
+                lambdaBody = $"var fpResult = {fpCall};{keepAliveCode} return fpResult;";
             else
-                lambdaBody = $"return (({BuildFuncPtrType()}){resultName}.FunctionPointer)({fpArgs});";
+                lambdaBody = $"return {fpCall};";
         }
         else
         {
-            lambdaBody = $"(({BuildFuncPtrType()}){resultName}.FunctionPointer)({fpArgs});";
+            lambdaBody = $"{fpCall};{keepAliveCode}";
         }
 
         // Prepend bodySetup conversion statements into the lambda body
@@ -202,7 +237,15 @@ public class ClosureProjection : ITypeProjection
             var invokeArgList = string.Join(", ", invokeArgs);
             if (_returnProjection != null)
             {
-                var retConv = _returnProjection.GetParameterElementConversion("delResult");
+                // Existential RETURN: the C# delegate hands Swift a +1-owned existential (the thunk
+                // writes it into the return buffer; Swift adopts it after the thunk returns). Mint an
+                // independent +1 rather than borrow the proxy's R0 — under B2's weak proxy registration a
+                // GC could release R0 before Swift loads, and the proxy finalizer would over-release the
+                // +1 Swift now owns. Mirrors the reverse-dispatch getter return (task #8); no-op for
+                // non-existential returns.
+                var retConv = _returnProjection is ExistentialProjection existRet
+                    ? existRet.GetOwnedParameterElementConversion("delResult")
+                    : _returnProjection.GetParameterElementConversion("delResult");
                 // For blittable types with different public/PInvoke types (enums),
                 // element conversion may be null but closures need the cast.
                 // Only for castable types — NOT IntPtr/SafeHandle (classes, non-frozen structs).

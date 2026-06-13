@@ -20,25 +20,40 @@ public partial class ProtocolProxyEmitter
             private static readonly object _vtableLock = new object();
 
             """);
+
+        // Finding 33: per-proxy (per-module) EveryProtocol metadata. The opaque existential
+        // layout stamps this into ObjectMetadata, and GetTypeMetadata() returns it. Sourced
+        // from THIS module's own metadata accessor so that, in a multi-binding app, module B's
+        // opaque proxies never read module A's metadata — the failure mode of the old
+        // process-global first-wins EveryProtocol latch. Class-bound (EveryObjCProtocol)
+        // carriers use a 2-word layout that never consults ObjectMetadata, so they emit none.
+        if (!_useObjCBase)
+        {
+            writer.WriteLines($$"""
+                private static readonly TypeMetadata s_everyProtocolMetadata = TypeMetadata.FromHandle(NativeMethods.{{GetMetadataMethodName}}());
+
+                """);
+        }
     }
 
     private void EmitInstanceFields(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
     {
-        // _everyProtocolHandle is a plain IntPtr — the Swift +1 retain is owned by
-        // ProxyLifetimeTracker (anchored to the user's impl via a
-        // ConditionalWeakTable), not by this proxy. The tracker releases the +1
-        // when the impl is garbage-collected; the Swift-side deinit callback
-        // (OnEveryProtocolDeinit) drops the strong registry root when Swift's
-        // last retain is released. Zero means the proxy was built from an
-        // existing Swift-owned container (the Swift-backed ctor).
+        // _everyProtocolHandle is a plain IntPtr carrying the Swift EveryProtocol the
+        // factory created with a +1 (R0, the construction retain). Under Design B2 that
+        // +1 is owned by THIS proxy and released on the proxy's finalizer/Dispose via
+        // ProxyLifetimeTracker.ReleaseHandle (gated by _ownsEveryProtocolR0). The impl
+        // itself is rooted independently — by a strong GCHandle in ProxyLifetimeTracker
+        // keyed on this handle — so reverse dispatch resolves it via ResolveImpl without
+        // depending on a live proxy. Swift's deinit callback (OnEveryProtocolDeinit) frees
+        // that strong root and drops the (weak) registry entry once Swift's last retain is
+        // released. Zero means the proxy was built from an existing Swift-owned container
+        // (the Swift-backed ctor), which owns no R0.
         //
-        // _csharpImpl is a WEAK reference to the user's impl. This is load-bearing:
-        // the proxy is strongly rooted by SwiftObjectRegistry for the lifetime of
-        // the Swift existential container, so a strong _csharpImpl would root the
-        // impl transitively and the tracker's impl-GC trigger would never fire.
-        // The _csharpImpl property unwraps the weak ref on each access; all the
-        // generator's receiver/interface-impl emit sites continue to use the
-        // member access syntax unchanged.
+        // _csharpImplRef is a WEAK reference to the user's impl, retained only to satisfy
+        // the IProtocolProxyImpl<TInterface>.UserImpl contract (covariant cross-module
+        // registry lookups). It is NOT the reverse-dispatch resolution path under Design
+        // B2 — receivers resolve through ProxyLifetimeTracker.ResolveImpl, whose strong
+        // root keeps the impl alive for exactly as long as Swift references the proxy.
         writer.WriteLines($$"""
             private readonly WeakReference<{{interfaceName}}>? _csharpImplRef;
 
@@ -53,26 +68,31 @@ public partial class ProtocolProxyEmitter
                 }
             }
 
-            // Common entry-point for receivers to access the user-supplied C# impl across
-            // sibling proxy types. Receivers look up by `IProtocolProxyImpl<TInterface>`
-            // instead of the specific proxy class, so an inherited-protocol callback
-            // (a sub-protocol inheriting a method from its base)
-            // reaches the registered child proxy's user impl through covariance.
+            // Satisfies the IProtocolProxyImpl<TInterface> contract for covariant
+            // cross-module registry lookups. Reverse dispatch itself no longer reads this
+            // (it resolves through ProxyLifetimeTracker.ResolveImpl); see the field
+            // comment above.
             {{interfaceName}}? Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>.UserImpl => _csharpImpl;
 
             private readonly IntPtr _everyProtocolHandle;
             private ExistentialContainer1 _swiftContainer;
             private bool _disposed;
 
+            // True only for C#-impl-backed proxies (built by the public {{interfaceName}}-taking
+            // ctor): they own the EveryProtocol construction +1 (R0) and release it on
+            // Dispose/finalize via ProxyLifetimeTracker.ReleaseHandle. False for Swift-backed
+            // proxies (the ExistentialContainer1 ctor), which never created an R0.
+            private readonly bool _ownsEveryProtocolR0;
+
             // True only for proxies that ADOPTED a Swift-returned existential at +1 (the
             // owned-return marshalling paths construct with `ownsContainer: true`). Such a
             // proxy owns the container's value-witness retains and must release them on
             // Dispose/finalize. False for every other construction — C#-impl-backed
-            // proxies (lifetime owned by ProxyLifetimeTracker), borrowed parameter wraps
+            // proxies (R0 owned via ProxyLifetimeTracker), borrowed parameter wraps
             // (ExistentialContainerFactory.GetOrCreate), payload-pointer reads
             // (NewFromPayload), and externally-constructed/synthetic containers — none of
-            // which own a +1, so releasing their (often borrowed or zeroed) container
-            // would be a use-after-free / null-metadata crash.
+            // which own a value-witness +1, so releasing their (often borrowed or zeroed)
+            // container would be a use-after-free / null-metadata crash.
             private readonly bool _ownsContainer;
 
             """);
@@ -215,6 +235,11 @@ public partial class ProtocolProxyEmitter
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
                 continue;
+            // @objc optional methods get no vtable slot — the Swift producer skips them BEFORE
+            // the index increment, so this assignment loop must not consume the slot either, or
+            // the following required method's delegate lands in the wrong struct field.
+            if (method.IsObjCOptional)
+                continue;
 
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
             if (!methodIndices.ContainsKey(methodKey))
@@ -274,6 +299,11 @@ public partial class ProtocolProxyEmitter
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            // @objc optional methods get no vtable slot — the Swift producer skips them BEFORE
+            // the index increment, so this assignment loop must not consume the slot either, or
+            // the following required method's delegate lands in the wrong struct field.
+            if (method.IsObjCOptional)
                 continue;
 
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
@@ -562,14 +592,15 @@ public partial class ProtocolProxyEmitter
         var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in parentDecl.Methods)
         {
-            // Mirror Vtables.cs / Receivers.cs: constructors and statics
-            // skip BEFORE the index/key block so they don't consume a slot.
-            // ObjC-optional and the filter-excluded dispatchability cases
-            // (closure, generic, Self-typed, mixed-generic protocol) still
-            // consume the index — the C# vtable struct emitter does the
-            // same so the dispatchable method that follows lands at the
-            // slot the struct field carries.
+            // Mirror Vtables.cs / Receivers.cs / EveryProtocolEmitter: constructors,
+            // statics, and @objc-optional methods skip BEFORE the index/key block so they
+            // do NOT consume a slot (the Swift producer skips optional before its increment).
+            // The filter-excluded dispatchability cases (closure, generic, Self-typed,
+            // mixed-generic protocol) DO consume the index — IncludesMethod drops their
+            // emission AFTER the increment, matching the producer, so the dispatchable
+            // method that follows lands at the slot the struct field carries.
             if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+            if (method.IsObjCOptional) continue;
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, parentDecl);
             if (!methodIndices.ContainsKey(methodKey))
             {
@@ -614,10 +645,11 @@ public partial class ProtocolProxyEmitter
         foreach (var method in parentDecl.Methods)
         {
             // See the local-vtable loop above for the early-continue
-            // rationale: constructor/static/ObjC-optional methods are
+            // rationale: constructor/static/@objc-optional methods are
             // dropped without consuming a slot, matching Vtables.cs /
             // Receivers.cs / EveryProtocolEmitter.
             if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+            if (method.IsObjCOptional) continue;
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, parentDecl);
             if (!methodIndices.ContainsKey(methodKey))
             {

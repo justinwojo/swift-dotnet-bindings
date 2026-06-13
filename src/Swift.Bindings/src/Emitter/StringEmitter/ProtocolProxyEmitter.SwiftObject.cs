@@ -12,14 +12,13 @@ public partial class ProtocolProxyEmitter
         var wrapperLibPath = _typeDatabase.AsyncLibraryName ?? _typeDatabase.GetLibraryPath(_moduleName);
 
         // GetTypeMetadata source: class-bound (NSObjectProtocol-rooted EveryObjCProtocol)
-        // proxies must NOT return EveryProtocol's metadata — that's a different Swift
-        // type's metadata. Read directly from the EveryObjCProtocol accessor without
-        // caching into the EveryProtocol static slot (priming that slot from the ObjC
-        // code path would poison later opaque-layout proxies — same invariant as the
-        // constructor's metadataInitBlock).
+        // proxies must NOT return the opaque EveryProtocol metadata — that's a different
+        // Swift type's metadata — so they read directly from the EveryObjCProtocol accessor.
+        // Opaque proxies return the per-module s_everyProtocolMetadata field (Finding 33),
+        // sourced from this module's own metadata accessor rather than a process-global latch.
         var getTypeMetadataBody = _useObjCBase
             ? $"return TypeMetadata.FromHandle(NativeMethods.{GetMetadataMethodName}());"
-            : "// Proxy classes don't have their own Swift metadata\n                // They use the EveryProtocol metadata\n                return EveryProtocol.GetTypeMetadata();";
+            : "// Per-module EveryProtocol metadata (Finding 33) — see s_everyProtocolMetadata.\n                return s_everyProtocolMetadata;";
 
         // NewFromPayload: Swift→C# wrap factory. Symmetric to the receiver-side fix —
         // for class-bound proxies (AnyObject-rooted OR NSObjectProtocol-rooted EveryObjCProtocol),
@@ -112,26 +111,34 @@ public partial class ProtocolProxyEmitter
                 _disposed = true;
                 GC.SuppressFinalize(this);
                 ReleaseAdoptedSwiftContainer();
-                // C#-impl-backed proxies anchor their +1 via ProxyLifetimeTracker, so
-                // Dispose only unregisters the strong root here; the ARC release waits
-                // for impl GC (tracker finalizer) or Swift's last release (deinit
-                // callback). The null-safe receivers ensure an Unregister'd handle does
-                // not throw across the [UnmanagedCallersOnly] boundary if Swift
-                // dispatches concurrently.
+                // Design B2: a C#-impl-backed proxy owns the EveryProtocol construction +1
+                // (R0). Drop the (weak) registry entry, then release R0 through
+                // ProxyLifetimeTracker (the finalizer-safe Cdecl trampoline). Releasing R0 may
+                // drive Swift's retain count to zero and fire OnEveryProtocolDeinit, which frees
+                // the impl's strong root and re-runs Unregister (idempotent). The HandleEntry
+                // atomic makes the release exactly-once even if the finalizer also runs. The
+                // null-safe receivers ensure an Unregister'd handle does not throw across the
+                // [UnmanagedCallersOnly] boundary if Swift dispatches concurrently.
                 if (_everyProtocolHandle != IntPtr.Zero)
                     SwiftObjectRegistry.Unregister(_everyProtocolHandle);
+                if (_ownsEveryProtocolR0)
+                    Swift.Runtime.ProxyLifetimeTracker.ReleaseHandle(_everyProtocolHandle);
             }
 
             /// <summary>
             /// Finalizer — releases an adopted (<c>_ownsContainer</c>) existential container
-            /// if the consumer never called <see cref="Dispose"/>. Non-owning proxies
-            /// suppress finalization in their constructor, so this only runs for owners.
+            /// and, for a C#-impl-backed proxy, the EveryProtocol construction +1 (R0) via
+            /// <see cref="Swift.Runtime.ProxyLifetimeTracker.ReleaseHandle"/>, if the consumer
+            /// never called <see cref="Dispose"/>. Proxies that own neither suppress
+            /// finalization in their constructor, so this only runs for owners.
             /// </summary>
             ~{{proxyClassName}}()
             {
                 if (_disposed) return;
                 _disposed = true;
                 ReleaseAdoptedSwiftContainer();
+                if (_ownsEveryProtocolR0)
+                    Swift.Runtime.ProxyLifetimeTracker.ReleaseHandle(_everyProtocolHandle);
             }
 
             // Releases an ADOPTED Swift-returned existential container's +1. Gated to
@@ -590,6 +597,11 @@ public partial class ProtocolProxyEmitter
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            // @objc optional methods get no witness accessor — the producer
+            // (WitnessDispatchEmitter) skips them BEFORE the index increment, so this
+            // consumer must too or the following required method's accessor symbol skews.
+            if (method.IsObjCOptional)
                 continue;
 
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);

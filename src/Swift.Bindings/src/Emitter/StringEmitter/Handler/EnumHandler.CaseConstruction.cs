@@ -354,7 +354,7 @@ namespace BindingsGeneration
             // cleanup (same pattern as WrapperEmitter). The owning condition must match the
             // marshalling loop's GetOrCreate gate exactly so the owns-bit only exists when a
             // value conformer may have been boxed at +1.
-            var existentialHeaps = new List<(string HeapName, string? OwnsVar, int WitnessTableCount)>();
+            var existentialHeaps = new List<(string HeapName, string? OwnsVar, int WitnessTableCount, string? KeepAliveVar)>();
             if (useCdeclWrapper)
             {
                 var preScanHandler = new ExistentialHandler(typeDatabase);
@@ -369,15 +369,32 @@ namespace BindingsGeneration
                         {
                             var heapName = $"{bareName}Heap";
                             var containerType = preScanHandler.GetCSharpExistentialType(protocolList);
+                            bool hasTypeRecords = preScanHandler.AllProtocolsHaveTypeRecords(protocolList);
                             bool owningCandidate =
-                                preScanHandler.AllProtocolsHaveTypeRecords(protocolList) &&
+                                hasTypeRecords &&
                                 containerType == "Swift.Runtime.ExistentialContainer1" &&
                                 !preScanHandler.TryGetWellKnownProtocolType(protocolList, out _);
                             string? ownsVar = owningCandidate ? $"{bareName}Owns" : null;
-                            existentialHeaps.Add((heapName, ownsVar, protocolList.Protocols.Count));
+                            // Change 4 (B2): an auto-wrapped proxy is registered WEAKLY now, so
+                            // nothing strong roots it across the native call. Capture it here and
+                            // GC.KeepAlive it in the finally so the proxy (and its construction-time
+                            // R0) survives until the @_cdecl factory has consumed the container.
+                            //  - EC1 owning candidate: capture the (possibly auto-wrapped) proxy via the
+                            //    GetOrCreate out-keepAlive into a dedicated `object?` local.
+                            //  - EC2+/well-known borrowed proxy (records present, not owning): the param
+                            //    itself IS the proxy (no auto-wrap), so pin the param directly — no backing
+                            //    local. (Unknown protocols with no records pass a raw blittable container
+                            //    with no R0 to protect, so no pin.)
+                            string? keepAliveVar =
+                                owningCandidate ? $"{bareName}KeepAlive"
+                                : hasTypeRecords ? name
+                                : null;
+                            existentialHeaps.Add((heapName, ownsVar, protocolList.Protocols.Count, keepAliveVar));
                             csWriter.WriteLine($"void* {heapName} = null;");
                             if (ownsVar != null)
                                 csWriter.WriteLine($"bool {ownsVar} = false;");
+                            if (owningCandidate)
+                                csWriter.WriteLine($"object? {bareName}KeepAlive = null;");
                         }
                     }
                 }
@@ -427,8 +444,8 @@ namespace BindingsGeneration
                                     // conformer was boxed at +1 (borrowed proxy/class containers
                                     // report owns=false and must not be over-released).
                                     var expr = proxyClassName != null
-                                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, static __v => new {proxyClassName}(__v), out {bareName}Owns)"
-                                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, out {bareName}Owns)";
+                                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, static __v => new {proxyClassName}(__v), out {bareName}Owns, out {bareName}KeepAlive)"
+                                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, out {bareName}Owns, out {bareName}KeepAlive)";
                                     csWriter.WriteLine($"var {bareName}Container = {expr};");
                                 }
                                 else
@@ -611,13 +628,16 @@ namespace BindingsGeneration
                 csWriter.WriteLine("finally");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                foreach (var (heapName, ownsVar, witnessCount) in existentialHeaps)
+                foreach (var (heapName, ownsVar, witnessCount, keepAliveVar) in existentialHeaps)
                 {
                     // Route through the centralized helper — it null-checks the heap,
                     // runs the existential value-witness destroy only when owns==true (the
                     // enum-case factory borrows the @in_guaranteed buffer like every other
                     // existential-param site), and frees the buffer.
                     csWriter.WriteLine($"Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential({heapName}, {witnessCount}, {ownsVar ?? "false"});");
+                    // Change 4 (B2): pin the borrowed proxy until the native consumer is done.
+                    if (keepAliveVar != null)
+                        csWriter.WriteLine($"global::System.GC.KeepAlive({keepAliveVar});");
                 }
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

@@ -48,12 +48,46 @@ public class OptionalProtocolMembersTests : TestBase
         }
     }
 
+    /// <summary>
+    /// Pure-C# conformer to <see cref="IOptionalFirstDelegate"/>, whose Swift
+    /// protocol declares an <c>@objc optional</c> member BEFORE its required
+    /// member. Implements only the mandatory <c>FireRequired</c>.
+    /// </summary>
+    private sealed class RecordingFirstConformer : IOptionalFirstDelegate
+    {
+        public int LastFiredTag = -1;
+
+        public void FireRequired(int tag)
+        {
+            LastFiredTag = tag;
+        }
+    }
+
     public void TestMinimalCSharpConformerCompiles()
     {
         // Compilation alone proves the optional members lowered to DIMs.
         var conformer = new MinimalCSharpConformer();
         conformer.DidFireRequired(7);
         AssertEqual(7, conformer.LastRequiredTag, "Mandatory method dispatched");
+    }
+
+    public void TestReverseDispatchLandsOnRequiredAfterOptional()
+    {
+        // Defect C end-to-end gate. OptionalFirstDelegate declares
+        // `@objc optional func willStartOptional` BEFORE the required
+        // `func fireRequired`. The reverse-dispatch vtable must skip the optional
+        // before assigning a slot index, so `fireRequired` occupies slot 0 on BOTH
+        // the Swift producer side and the C# consumer side.
+        //
+        // Pre-fix, the C# consumer walks incremented the slot index before skipping
+        // the optional, so the C#-side vtable struct gained a phantom slot and pushed
+        // FireRequired's function pointer to offset 8 while Swift still read offset 0
+        // → null call → SIGSEGV. A green run here proves the slots realign at 0 and
+        // the reverse call lands on the required member carrying the right value.
+        var conformer = new RecordingFirstConformer();
+        Functions.InvokeFireRequired(conformer, 1234);
+        AssertEqual(1234, conformer.LastFiredTag,
+            "Swift reverse-dispatch landed on the required member after a leading optional");
     }
 
     public void TestOptionalVoidDIMIsNoOp()

@@ -256,6 +256,9 @@ public static partial class ClosureEmitter
         var heapInTry = new List<string>();      // allocations + init (inside try, before the call)
         var heapCleanup = new List<string>();    // null-guarded Destroy+Free (finally)
         var frozenPrologue = new List<string>(); // frozen stackalloc setup (no cleanup)
+        // +0 borrowed existential ARGS whose auto-wrapped proxy must be pinned across the native call
+        // (design change 4 / mechanism 3) — GC.KeepAlive'd immediately after _fp(...) returns.
+        var keepAliveVarsThrowing = new List<string>();
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
@@ -296,7 +299,7 @@ public static partial class ClosureEmitter
             }
             else
             {
-                invokeArgs.Add(GetSwiftInvokeArgExpression(arg, argIndex, closureHandler));
+                invokeArgs.Add(GetSwiftInvokeArgExpression(arg, argIndex, closureHandler, keepAliveVars: keepAliveVarsThrowing));
             }
             argIndex++;
         }
@@ -310,6 +313,14 @@ public static partial class ClosureEmitter
         var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
         var successType = hasReturn ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true) : "Swift.SwiftVoid";
         var resultType = $"Swift.SwiftResult<{successType}, SwiftError>";
+
+        // GC.KeepAlive(...) for the borrowed existential args, emitted right after the _fp(...) call so
+        // a weakly-registered auto-wrapped proxy's R0 cannot be released while Swift is still borrowing.
+        // Empty when no existential arg needs pinning. The out vars are declared at the call statement,
+        // so this following statement is in scope (inside the heap-cleanup try when one is present).
+        var keepAliveLineThrowing = keepAliveVarsThrowing.Count > 0
+            ? string.Join(" ", keepAliveVarsThrowing.Select(v => $"GC.KeepAlive({v});"))
+            : string.Empty;
 
         csWriter.WriteLines($$"""
             // Wrap Swift closure in SwiftEscapingClosure for ARC management
@@ -352,6 +363,7 @@ public static partial class ClosureEmitter
         {
             csWriter.WriteLines($$"""
                         var _rawResult = _fp({{invokeArgsString}});
+                        {{keepAliveLineThrowing}}
 
                         // Check for error
                         if (_error.Value != null)
@@ -389,6 +401,7 @@ public static partial class ClosureEmitter
         {
             csWriter.WriteLines($$"""
                         _fp({{invokeArgsString}});
+                        {{keepAliveLineThrowing}}
 
                         // Check for error
                         if (_error.Value != null)

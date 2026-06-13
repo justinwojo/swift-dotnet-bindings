@@ -2315,6 +2315,12 @@ paths), Finding 33 (EveryProtocol global latch → per-module metadata), Defects
 `ProtocolProxyEmitter*`, `EveryProtocolEmitter*`, `EveryProtocol.cs`, registry/tracker,
 BindingTests fixtures (red-first: an abandon-impl-then-callback probe, a two-module
 metadata fixture, the optional-before-required protocol fixture).
+The existential-lifetime fold-in (owned-mint + borrowed-keepAlive for `any P & Q…`
+composition existentials, plus a fail-closed tuple-of-convertible-element parameter gate)
+shipped under this session and spun off two tracked follow-up units — full
+tuple-of-convertible-element parameter marshalling, and the EC2+ composition
+collection-element carrier owned-mint — recorded in
+`session1-reverse-dispatch-lifetime-vtable.md` under "Deferred / split-out units".
 
 **Session 2 — Async boundary correctness** ⚠device 🔍design.
 Defect I tactical fix (handle lifecycle owned by completion, producer cancel registration,

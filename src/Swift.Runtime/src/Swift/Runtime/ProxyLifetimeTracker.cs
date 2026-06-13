@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -13,71 +12,76 @@ using System.Threading;
 namespace Swift.Runtime;
 
 /// <summary>
-/// Anchors the +1 ARC retain on an <c>EveryProtocol</c> handle to the lifetime of
-/// the user's C# protocol implementation object (the "impl").
-///
-/// Auto-wrapped protocol proxies need to keep the Swift-side <c>EveryProtocol</c>
-/// instance alive while the user's impl is reachable, but must release the +1
-/// retain once the impl itself becomes collectible — otherwise the proxy and its
-/// underlying Swift allocation leak until process exit.
-///
-/// The tracker stores a <see cref="ConditionalWeakTable{TKey, TValue}"/> keyed
-/// weakly by the impl. When the impl is garbage-collected, the associated
-/// <c>ProxyCleanup</c> becomes unreachable and its finalizer runs
-/// <see cref="SwiftReleaseTrampoline.Release"/> on every tracked handle (the
-/// finalizer-safe path that routes through the <c>SBW_SwiftRelease</c> Swift
-/// wrapper). Combined with the Swift <c>EveryProtocol.deinit</c> callback routed
-/// to <see cref="OnEveryProtocolDeinit"/>, this releases the
-/// <see cref="SwiftObjectRegistry"/> strong root and allows the proxy to be
-/// collected.
+/// Lifetime broker for an auto-wrapped C#-implementation protocol proxy and the
+/// Swift <c>EveryProtocol</c> instance that carries it across the ABI boundary.
+/// Implements "Design B2" (see <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>),
+/// which fixes the inverted-lifetime / silent-value-fabrication defect (Defect G).
 ///
 /// <para>
-/// Deinit/finalizer race: each handle is represented by a <c>HandleEntry</c>
-/// with an atomic <c>Released</c> flag. Whichever path (Swift deinit callback or
-/// managed finalizer) observes the flag == 0 via <c>Interlocked.Exchange</c>
-/// "wins" the release; the loser sees 1 and becomes a no-op. This guarantees
-/// exactly-one native release per tracked handle and prevents the stale-pointer
-/// <c>swift_isDeallocating</c> read that was possible in the earlier
-/// WeakReference-keyed design.
+/// Two independent roots, both keyed by the EveryProtocol <c>handle</c>:
+/// </para>
+/// <list type="number">
+///   <item>
+///     <description>
+///     <b>Strong impl root</b> (<see cref="s_implRoots"/>): a strong <see cref="GCHandle"/> on
+///     the user's C# implementation object. Allocated in <see cref="Track"/> (from the proxy
+///     ctor) and freed in <see cref="OnEveryProtocolDeinitCore"/> (Swift's last retain dropped).
+///     This roots the impl by <i>Swift liveness</i> — the impl stays reachable for exactly as
+///     long as Swift holds the EveryProtocol, so reverse dispatch can always resolve it via
+///     <see cref="ResolveImpl{T}"/> and never has to fabricate a value.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///     <b>R0 ownership</b> (<see cref="s_entries"/>): the construction <c>+1</c> retain the
+///     <c>SBW_Create…</c> factory put on the EveryProtocol (via <c>Unmanaged.passRetained</c>).
+///     This is owned by the <i>proxy</i> and released on the proxy's finalizer/Dispose through
+///     <see cref="ReleaseHandle"/> → <see cref="SwiftReleaseTrampoline.Release"/> (the
+///     Mono-finalizer-safe Cdecl path). The per-handle <see cref="HandleEntry.Released"/> atomic
+///     flag guarantees exactly-one native release even if Dispose and the finalizer race.
+///     </description>
+///   </item>
+/// </list>
+///
+/// <para>
+/// Why two roots and not one: the teardown chain is
+/// <c>R0 released → Swift's last store-retain released → EveryProtocol deinit →
+/// OnEveryProtocolDeinit → free impl GCHandle + Unregister</c>. Gating R0 release on
+/// EveryProtocol liveness deadlocks (deinit needs R0 released; R0 release needs deinit), so R0
+/// is released on a signal independent of EveryProtocol liveness — <b>proxy collection</b> —
+/// and the proxy is registered only <i>weakly</i> in <see cref="SwiftObjectRegistry"/> so it can
+/// be collected once the consumer drops it. Reverse dispatch therefore must NOT depend on a live
+/// proxy; it resolves the impl from the strong root instead. The full cycle/impossibility
+/// analysis is in the design doc.
 /// </para>
 ///
 /// <para>
-/// Process-exit safety: both <c>ProxyCleanup</c>'s finalizer and
-/// <see cref="OnEveryProtocolDeinit"/> short-circuit on
-/// <see cref="SwiftExitGuard.IsProcessExiting"/>, mirroring
-/// <see cref="SwiftClassHandle{T}"/>'s release path. Calls into the partially
-/// torn-down Swift runtime during shutdown are the kind of thing that crashes
-/// iOS processes on exit, so we deliberately leak in that case.
+/// Process-exit safety: <see cref="ReleaseHandle"/> and <see cref="OnEveryProtocolDeinitCore"/>
+/// both short-circuit on <see cref="SwiftExitGuard.IsProcessExiting"/>, mirroring
+/// <see cref="SwiftClassHandle{T}"/>'s release path — calls into a partially torn-down Swift
+/// runtime during shutdown crash iOS processes, so we deliberately leak in that case.
 /// </para>
 /// </summary>
 public static class ProxyLifetimeTracker
 {
-    // Primary: weakly keyed by impl. Value becomes eligible for finalization when
-    // impl is GC'd, at which point ProxyCleanup.~ProxyCleanup releases the +1(s).
-    private static readonly ConditionalWeakTable<object, ProxyCleanup> s_tracker = new();
+    // handle -> strong GCHandle on the user's C# impl. Roots the impl for exactly as long as
+    // Swift holds the EveryProtocol. Freed in OnEveryProtocolDeinitCore (Swift's last retain).
+    private static readonly ConcurrentDictionary<IntPtr, GCHandle> s_implRoots = new();
 
-    // Secondary: handle -> HandleEntry. Holds a DIRECT reference to the per-handle
-    // state (NOT a WeakReference<impl>) so that a Swift-driven deinit can detach the
-    // handle even if the impl object is already unreachable. The entry's atomic
-    // Released flag serializes Swift's deinit callback against the finalizer so
-    // SwiftReleaseTrampoline.Release runs exactly once per handle.
+    // handle -> per-handle R0 state. The atomic Released flag serializes the proxy's Dispose
+    // path against its finalizer so SwiftReleaseTrampoline.Release runs exactly once per handle.
     private static readonly ConcurrentDictionary<IntPtr, HandleEntry> s_entries = new();
 
     /// <summary>
-    /// Associates an EveryProtocol handle with the lifetime of <paramref name="impl"/>.
-    /// The tracker takes responsibility for calling
-    /// <see cref="SwiftReleaseTrampoline.Release"/> on <paramref name="handle"/> when
-    /// <paramref name="impl"/> becomes unreachable (unless Swift's deinit runs first,
-    /// in which case <see cref="OnEveryProtocolDeinit"/> marks the entry released so
-    /// the finalizer skips it).
+    /// Associates an EveryProtocol <paramref name="handle"/> with the lifetime of
+    /// <paramref name="impl"/>. Allocates a strong <see cref="GCHandle"/> rooting the impl (freed
+    /// when Swift's deinit fires via <see cref="OnEveryProtocolDeinitCore"/>) and a
+    /// <see cref="HandleEntry"/> tracking the construction <c>+1</c> the proxy will release on its
+    /// finalizer/Dispose (via <see cref="ReleaseHandle"/>).
     /// </summary>
     /// <remarks>
-    /// Transactional publication: the secondary map is written FIRST with a
-    /// placeholder-but-valid entry; if attaching the entry to the cleanup bundle
-    /// throws, the secondary map write is rolled back so a subsequent
-    /// <see cref="NotifyDeinit"/> sees no leftover state and the caller's
-    /// compensating release is the only path that touches the handle. This
-    /// guarantees Track is all-or-nothing with respect to the global handle index.
+    /// Transactional publication: both maps are written, and if the second write fails the first
+    /// is rolled back, so the handle index is all-or-nothing. A duplicate handle is rejected.
     /// </remarks>
     public static void Track(object impl, IntPtr handle)
     {
@@ -86,57 +90,78 @@ public static class ProxyLifetimeTracker
         if (handle == IntPtr.Zero)
             throw new ArgumentException("Handle cannot be zero", nameof(handle));
 
-        var cleanup = s_tracker.GetValue(impl, static _ => new ProxyCleanup());
-        // CRITICAL: HandleEntry must NOT hold a strong reference back to ProxyCleanup,
-        // and s_entries must NOT have any path that reaches ProxyCleanup. Otherwise the
-        // global s_entries dictionary roots the cleanup, the CWT impl-key weak collection
-        // can never finalize it, and the +1 leak the tracker exists to fix is reintroduced.
-        // The cleanup is only reachable from the CWT entry (keyed weakly by impl).
         var entry = new HandleEntry(handle);
-
         if (!s_entries.TryAdd(handle, entry))
             throw new InvalidOperationException($"Handle {handle.ToString($"X{IntPtr.Size * 2}")} is already tracked");
 
+        var implRoot = GCHandle.Alloc(impl, GCHandleType.Normal);
+        if (!s_implRoots.TryAdd(handle, implRoot))
+        {
+            // Roll back the entry write so a subsequent Track/NotifyDeinit sees no leftover state.
+            implRoot.Free();
+            s_entries.TryRemove(handle, out _);
+            throw new InvalidOperationException($"Handle {handle.ToString($"X{IntPtr.Size * 2}")} is already tracked");
+        }
+    }
+
+    /// <summary>
+    /// Resolves the C# implementation rooted for <paramref name="handle"/>, viewed as
+    /// <typeparamref name="T"/>. This is the reverse-dispatch entry point: receiver thunks call
+    /// <c>ResolveImpl&lt;IFace&gt;(handle)</c> instead of locating a (possibly already-collected)
+    /// proxy. Returns <c>null</c> only if the impl is no longer rooted — which, in the canonical
+    /// pattern, cannot happen while Swift references the proxy (the receiver's loud backstop
+    /// treats a null here as a hard invariant violation).
+    /// </summary>
+    public static T? ResolveImpl<T>(IntPtr handle) where T : class
+    {
+        if (handle != IntPtr.Zero && s_implRoots.TryGetValue(handle, out var implRoot) && implRoot.IsAllocated)
+            return implRoot.Target as T;
+        return null;
+    }
+
+    /// <summary>
+    /// Releases the construction <c>+1</c> (R0) on <paramref name="handle"/>'s EveryProtocol.
+    /// Called from the C#-impl proxy's finalizer and <c>Dispose</c>. Routes through
+    /// <see cref="SwiftReleaseTrampoline.Release"/> — the finalizer-safe Cdecl path — NOT
+    /// <c>Arc.Release</c>, which crashes Mono with <c>!ji-&gt;async</c> after CallConvSwift JIT
+    /// contamination on the finalizer thread. The per-handle <see cref="HandleEntry.Released"/>
+    /// flag makes this exactly-once even if Dispose and the finalizer both call it.
+    /// </summary>
+    public static void ReleaseHandle(IntPtr handle)
+    {
+        // Mirror SwiftClassHandle's process-exit guard: skip native release during shutdown
+        // because the Swift runtime may be partially torn down.
+        if (SwiftExitGuard.IsProcessExiting)
+            return;
+        if (handle == IntPtr.Zero)
+            return;
+
+        if (!s_entries.TryGetValue(handle, out var entry))
+            return;
+
+        // Atomically claim the release — the loser (other of Dispose/finalizer) becomes a no-op.
+        if (Interlocked.Exchange(ref entry.Released, 1) == 1)
+            return;
+
+        s_entries.TryRemove(handle, out _);
         try
         {
-            cleanup.Add(entry);
+            SwiftReleaseTrampoline.Release(handle);
         }
         catch
         {
-            s_entries.TryRemove(handle, out _);
-            throw;
+            // Already deallocating via a race — ignore.
         }
     }
 
     /// <summary>
-    /// Called from <see cref="OnEveryProtocolDeinit"/> — marks <paramref name="handle"/>'s
-    /// entry as released so the finalizer-driven release path is a no-op. Safe to call
-    /// even if the owning impl has already been garbage-collected (the entry is held
-    /// directly, not via the impl).
-    /// </summary>
-    internal static void NotifyDeinit(IntPtr handle)
-    {
-        if (!s_entries.TryRemove(handle, out var entry))
-            return;
-
-        // Claim the release — if the cleanup finalizer has already snapshotted the
-        // _entries list, it will see this flag set and skip the trampoline release
-        // (SwiftReleaseTrampoline.Release) for this entry.
-        Interlocked.Exchange(ref entry.Released, 1);
-    }
-
-    /// <summary>
-    /// Unmanaged callback invoked from the generated Swift <c>EveryProtocol.deinit</c>
-    /// after Swift's last retain has dropped. Drops the <see cref="SwiftObjectRegistry"/>
-    /// strong root and marks the handle's entry released so the finalizer-driven
-    /// release path is skipped.
-    ///
-    /// <para>
-    /// Called on an arbitrary Swift release thread. Must be idempotent and non-throwing
-    /// across the ABI boundary. <c>[UnmanagedCallersOnly]</c> methods cannot be called
-    /// from managed code directly; the body delegates to <see cref="OnEveryProtocolDeinitCore"/>
-    /// so the managed unit tests can exercise the same logic.
-    /// </para>
+    /// Unmanaged callback invoked from the generated Swift <c>EveryProtocol.deinit</c> after
+    /// Swift's last retain has dropped. Frees the impl's strong <see cref="GCHandle"/> (making the
+    /// impl collectable), drops the <see cref="SwiftObjectRegistry"/> root, and scrubs the R0
+    /// entry. Called on an arbitrary Swift release thread — must be idempotent and non-throwing
+    /// across the ABI boundary. <c>[UnmanagedCallersOnly]</c> methods cannot be called from
+    /// managed code directly; the body delegates to <see cref="OnEveryProtocolDeinitCore"/> so the
+    /// managed unit tests can exercise the same logic.
     /// </summary>
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
     public static void OnEveryProtocolDeinit(IntPtr handle)
@@ -145,8 +170,8 @@ public static class ProxyLifetimeTracker
     }
 
     /// <summary>
-    /// Shared implementation for the EveryProtocol deinit callback, callable from
-    /// both the unmanaged trampoline and managed unit tests.
+    /// Shared implementation for the EveryProtocol deinit callback, callable from both the
+    /// unmanaged trampoline and managed unit tests.
     /// </summary>
     internal static void OnEveryProtocolDeinitCore(IntPtr handle)
     {
@@ -155,8 +180,17 @@ public static class ProxyLifetimeTracker
 
         try
         {
+            // Swift's last retain is gone: the impl no longer needs to be kept alive, so free its
+            // strong root. By the time deinit fires the proxy has already released R0 (that is what
+            // drove the retain to zero), so the R0 entry is normally already gone; scrub it anyway
+            // so a never-disposed entry does not linger.
+            if (s_implRoots.TryRemove(handle, out var implRoot) && implRoot.IsAllocated)
+                implRoot.Free();
+
             SwiftObjectRegistry.Unregister(handle);
-            NotifyDeinit(handle);
+
+            if (s_entries.TryRemove(handle, out var entry))
+                Interlocked.Exchange(ref entry.Released, 1);
         }
         catch
         {
@@ -165,44 +199,38 @@ public static class ProxyLifetimeTracker
     }
 
     /// <summary>
-    /// Test helper: drops every tracked handle for <paramref name="impl"/> without
-    /// calling the native release path (<see cref="SwiftReleaseTrampoline.Release"/>).
-    /// Used by unit tests that register mock pointers which cannot be passed to
-    /// <c>swift_release</c>. Each entry is marked released so any racing
-    /// deinit/finalizer becomes a no-op, and the global secondary index is
-    /// scrubbed of the handles.
+    /// Test helper: reports whether a handle is still being tracked (either root present).
     /// </summary>
-    internal static bool TryDropAllForTest(object impl)
+    internal static bool IsTrackedForTest(IntPtr handle)
+        => s_implRoots.ContainsKey(handle) || s_entries.ContainsKey(handle);
+
+    /// <summary>
+    /// Test helper: drops every tracked root for <paramref name="handle"/> WITHOUT calling the
+    /// native release path (<see cref="SwiftReleaseTrampoline.Release"/>). Unit tests register mock
+    /// pointers that cannot be passed to <c>swift_release</c>, so this frees the impl GCHandle,
+    /// marks the R0 entry released, and scrubs both indices. Returns whether anything was dropped.
+    /// </summary>
+    internal static bool DropForTest(IntPtr handle)
     {
-        if (s_tracker.TryGetValue(impl, out var cleanup))
+        var dropped = false;
+        if (s_implRoots.TryRemove(handle, out var implRoot))
         {
-            cleanup.DropAllForTest();
-            return true;
+            if (implRoot.IsAllocated)
+                implRoot.Free();
+            dropped = true;
         }
-        return false;
+        if (s_entries.TryRemove(handle, out var entry))
+        {
+            Interlocked.Exchange(ref entry.Released, 1);
+            dropped = true;
+        }
+        return dropped;
     }
 
     /// <summary>
-    /// Test helper: reports whether a handle is still being tracked.
-    /// </summary>
-    internal static bool IsTrackedForTest(IntPtr handle)
-        => s_entries.ContainsKey(handle);
-
-    /// <summary>
-    /// Per-handle entry. Held by both the global <see cref="s_entries"/> dictionary
-    /// AND the per-impl <see cref="ProxyCleanup"/> list, with an atomic
-    /// <see cref="Released"/> flag that the deinit callback and the finalizer race
-    /// on so exactly one path releases the handle.
-    ///
-    /// <para>
-    /// Deliberately does NOT carry a back-reference to its owning
-    /// <see cref="ProxyCleanup"/>: such a back-reference would let the global
-    /// <see cref="s_entries"/> dictionary transitively root the cleanup, defeating
-    /// the impl-keyed <see cref="ConditionalWeakTable{TKey, TValue}"/> weak collection
-    /// and reintroducing the original +1 leak. NotifyDeinit only flips Released —
-    /// the cleanup's eventual finalizer is the path that runs the trampoline
-    /// release (SwiftReleaseTrampoline.Release).
-    /// </para>
+    /// Per-handle R0 state. The atomic <see cref="Released"/> flag is claimed by whichever of the
+    /// proxy's Dispose or finalizer path runs first, so <see cref="SwiftReleaseTrampoline.Release"/>
+    /// fires exactly once per handle.
     /// </summary>
     private sealed class HandleEntry
     {
@@ -213,106 +241,6 @@ public static class ProxyLifetimeTracker
         public HandleEntry(IntPtr handle)
         {
             Handle = handle;
-        }
-    }
-
-    /// <summary>
-    /// Per-impl cleanup bundle. One instance is associated with each tracked impl
-    /// via <see cref="ConditionalWeakTable{TKey, TValue}"/>; its finalizer runs
-    /// when the impl is garbage-collected.
-    /// </summary>
-    private sealed class ProxyCleanup
-    {
-        private readonly List<HandleEntry> _entries = new();
-        private readonly object _lock = new();
-
-        public void Add(HandleEntry entry)
-        {
-            lock (_lock)
-            {
-                _entries.Add(entry);
-            }
-        }
-
-        public void Remove(HandleEntry entry)
-        {
-            lock (_lock)
-            {
-                _entries.Remove(entry);
-            }
-        }
-
-        internal void DropAllForTest()
-        {
-            // Drop managed bookkeeping only — unit tests register mock pointers that
-            // would crash swift_release. Each entry is marked released so a racing
-            // deinit/finalizer is a no-op, and the secondary index is scrubbed.
-            HandleEntry[] snapshot;
-            lock (_lock)
-            {
-                snapshot = _entries.ToArray();
-                _entries.Clear();
-            }
-            foreach (var entry in snapshot)
-            {
-                Interlocked.Exchange(ref entry.Released, 1);
-                s_entries.TryRemove(entry.Handle, out _);
-            }
-        }
-
-        private void ReleaseAll()
-        {
-            // Snapshot under lock to avoid mutating the list during iteration if
-            // OnEveryProtocolDeinit races in on another thread.
-            HandleEntry[] snapshot;
-            lock (_lock)
-            {
-                if (_entries.Count == 0)
-                    return;
-                snapshot = _entries.ToArray();
-                _entries.Clear();
-            }
-
-            foreach (var entry in snapshot)
-            {
-                // Atomically claim the release — if NotifyDeinit already marked it
-                // (Swift deinit beat us to the finalizer), skip this entry so
-                // SwiftReleaseTrampoline.Release is not called on a dead pointer.
-                if (Interlocked.Exchange(ref entry.Released, 1) == 1)
-                    continue;
-
-                s_entries.TryRemove(entry.Handle, out _);
-                try
-                {
-                    // Finalizer thread: must route through the SBW_SwiftRelease Swift
-                    // wrapper, not Arc.Release directly. Arc.cs documents the direct
-                    // path as crashing Mono with `jit-info.c:918 !ji->async` after
-                    // CallConvSwift JIT state contamination — the same reason
-                    // SwiftClassHandle<T>.ReleaseHandle uses the trampoline.
-                    SwiftReleaseTrampoline.Release(entry.Handle);
-                }
-                catch
-                {
-                    // Already deallocating via a race — ignore.
-                }
-            }
-        }
-
-        ~ProxyCleanup()
-        {
-            // Mirror SwiftClassHandle's process-exit guard: skip native release
-            // during shutdown because the Swift runtime may be partially torn down.
-            if (SwiftExitGuard.IsProcessExiting)
-                return;
-
-            try
-            {
-                ReleaseAll();
-            }
-            catch
-            {
-                // Finalizers must not throw.
-            }
         }
     }
 }

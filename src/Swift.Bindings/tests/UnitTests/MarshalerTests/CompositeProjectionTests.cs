@@ -219,11 +219,16 @@ public class CompositeProjectionTests
         // Should have if/else branching (existential has element conversion)
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header.Contains("if ("));
 
-        // The some branch should contain existential container extraction
+        // The some branch should contain existential container extraction. SwiftOptional has
+        // owned element semantics — the `using` SwiftOptional value-witness-destroys its .Some
+        // payload at teardown and the store consumes one +1 — so the existential element must
+        // ride the OWNED (+1) carrier mint (CreateOwnedExistential1), not the borrowed leaf
+        // (GetOrCreate) which would over-release the proxy's sole construction +1. Mirrors the
+        // owned-element pairing in Array/Set/Dictionary carriers.
         var ifBlock = plan.SetupStatements.OfType<MarshalStatement.Block>()
             .First(b => b.Header.Contains("if ("));
         var someLine = Assert.IsType<MarshalStatement.Line>(ifBlock.Body[0]);
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IImageProcessing>", someLine.Code);
+        Assert.Contains("ExistentialContainerFactory.CreateOwnedExistential1<IImageProcessing>", someLine.Code);
     }
 
     #endregion

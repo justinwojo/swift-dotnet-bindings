@@ -33,9 +33,6 @@ public sealed class EveryProtocol : ISwiftObject
         ? "EveryProtocol [DISPOSED]"
         : $"EveryProtocol (0x{Handle:X})";
 
-    private static volatile IntPtr _typeMetadataHandle;
-    private static readonly object _metadataLock = new object();
-
     private readonly SwiftClassHandle<EveryProtocol> _handle;
 
     /// <summary>
@@ -59,37 +56,20 @@ public sealed class EveryProtocol : ISwiftObject
     IntPtr ISwiftObject.SwiftHandle => _handle.DangerousGetHandle();
 
     /// <summary>
-    /// Gets the Swift type metadata for EveryProtocol.
-    /// The metadata is loaded from the generated Swift wrapper library.
+    /// Not supported on this runtime type. EveryProtocol's Swift type metadata is no longer
+    /// held in a process-global latch here; each generated protocol proxy now sources its
+    /// EveryProtocol metadata from its OWN module's <c>NativeMethods.GetEveryProtocolMetadata</c>
+    /// accessor (the per-proxy <c>s_everyProtocolMetadata</c> static field — "Finding 33" in
+    /// <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>). The old first-wins latch
+    /// returned whichever binding initialized first, so module B's opaque proxies could read
+    /// module A's metadata in a multi-binding app. There is no module-agnostic metadata to
+    /// return from this shared runtime type, so this throws rather than silently handing back a
+    /// zeroed <see cref="TypeMetadata"/>.
     /// </summary>
     public static TypeMetadata GetTypeMetadata()
-    {
-        if (_typeMetadataHandle != IntPtr.Zero)
-        {
-            return TypeMetadata.Cache.GetOrAdd(typeof(EveryProtocol), _ =>
-                TypeMetadata.FromHandle(_typeMetadataHandle));
-        }
-
-        // Metadata not yet registered — will be set by the first protocol proxy
-        // that calls SetTypeMetadata() during static initialization.
-        return default;
-    }
-
-    /// <summary>
-    /// Sets the type metadata handle for EveryProtocol.
-    /// Called by generated proxy classes during static initialization.
-    /// </summary>
-    /// <param name="handle">The Swift type metadata handle for EveryProtocol.</param>
-    public static void SetTypeMetadata(IntPtr handle)
-    {
-        lock (_metadataLock)
-        {
-            if (_typeMetadataHandle == IntPtr.Zero)
-            {
-                _typeMetadataHandle = handle;
-            }
-        }
-    }
+        => throw new NotSupportedException(
+            "EveryProtocol type metadata is per-binding-module; resolve it from the generated " +
+            "proxy's own NativeMethods.GetEveryProtocolMetadata accessor, not this shared runtime type.");
 
     /// <inheritdoc/>
     public static ISwiftObject NewFromPayload(IntPtr payload)

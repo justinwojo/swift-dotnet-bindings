@@ -1418,6 +1418,7 @@ public class EveryProtocolEmitterTests
             SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
             IsStatic = false,
             HasStorage = false,
+            IsProtocolRequirement = true,
             Accessors = new List<AccessorDecl>
             {
                 new GetAccessorDecl { Method = CreateMethodDecl("count_get") }
@@ -1425,13 +1426,15 @@ public class EveryProtocolEmitterTests
             ParentDecl = null,
             ModuleDecl = null
         });
-        // Self-typed property — should NOT have vtable field
+        // Self-typed property — should NOT have vtable field. Marked a requirement so the ONLY
+        // reason it is skipped is the Self-type (τ_0_0), not the requirement gate.
         protocol.Properties.Add(new PropertyDecl
         {
             Name = "self_prop",
             SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
             IsStatic = false,
             HasStorage = false,
+            IsProtocolRequirement = true,
             Accessors = new List<AccessorDecl>
             {
                 new GetAccessorDecl { Method = CreateMethodDecl("self_prop_get") }
@@ -1463,6 +1466,9 @@ public class EveryProtocolEmitterTests
             SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
             IsStatic = false,
             HasStorage = false,
+            // Requirement so the DoesNotContain below attributes the skip to the mixed-generic
+            // protocol shape, not the requirement gate.
+            IsProtocolRequirement = true,
             Accessors = new List<AccessorDecl>
             {
                 new GetAccessorDecl { Method = CreateMethodDecl("count_get") }
@@ -2219,6 +2225,11 @@ public class EveryProtocolEmitterTests
             SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
             IsStatic = false,
             HasStorage = false,
+            // A genuine protocol property requirement — the vtable struct only allots a slot to
+            // requirements (a !IsProtocolRequirement default-impl property is Swift-owned, no slot;
+            // the struct layout MUST match ComputePropertyEmissionPlans, else slots land in the
+            // wrong positions — Defect F / Finding-8 positional corruption).
+            IsProtocolRequirement = true,
             Accessors = accessors,
             ParentDecl = null,
             ModuleDecl = null

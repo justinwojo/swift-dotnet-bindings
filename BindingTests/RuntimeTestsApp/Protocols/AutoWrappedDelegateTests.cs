@@ -88,56 +88,63 @@ public class AutoWrappedDelegateTests : TestBase
     }
 
     /// <summary>
-    /// Weak-slot survival under GC pressure: assigns the impl to the **weak**
-    /// <c>delegate</c> property only — no strong fallback — forces GC, and
-    /// asserts that the weak slot still services <c>fire()</c>.
+    /// Weak-store lifetime contract under GC (Design B2): a plain C# impl
+    /// auto-wrapped into a Swift <c>weak var delegate</c> slot is NOT kept alive
+    /// by the C# impl. Holding the impl reachable does not anchor the Swift-side
+    /// existential, so after GC the weak slot clears and <c>fire()</c> routes
+    /// through "no slot" (<c>LastNotifiedSlot == 0</c>).
     ///
     /// <para>
-    /// Under the impl-anchored lifetime model, the live <c>impl</c> local
-    /// anchors the auto-wrapped proxy via <c>ProxyLifetimeTracker</c>, which
-    /// keeps the Swift <c>EveryProtocol</c> container retained, which in turn
-    /// keeps the Swift-side <c>weak var delegate</c> slot resolvable. GC.Collect
-    /// must not sever this chain as long as <c>impl</c> is reachable.
+    /// This is the deliberate inverse of the old behaviour. Pre-B2 the auto-wrap
+    /// cache + <c>SwiftObjectRegistry.RegisterStrong</c> rooted the proxy forever,
+    /// so a dropped/GC'd impl still routed fire() correctly — at the cost of
+    /// leaking one proxy per <c>(impl, protocol)</c> pair for the process
+    /// lifetime. B2 roots the impl <em>from</em> Swift liveness (a strong
+    /// handle-keyed GCHandle in <c>ProxyLifetimeTracker</c>), never the proxy/
+    /// existential from impl liveness — a strong impl→proxy link would recreate
+    /// exactly the uncollectable cross-boundary cycle B2 exists to break. So the
+    /// auto-wrapped proxy is registered only weakly; once nothing strongly holds
+    /// it, GC collects it, its finalizer releases the construction <c>+1</c> (R0),
+    /// EveryProtocol deinits, and Swift zeroes the weak reference.
     /// </para>
     ///
     /// <para>
-    /// Pre-fix, this test validated the leak-as-feature behaviour: the auto-wrap
-    /// cache and <c>SwiftObjectRegistry.RegisterStrong</c> rooted the proxy
-    /// forever, so even an impl that was dropped and GC'd still routed fire()
-    /// correctly — at the cost of leaking one proxy per <c>(impl, protocol)</c>
-    /// pair for the rest of the process. The fix intentionally breaks that
-    /// behaviour; the collectibility invariant is covered by
-    /// <c>ProxyLifetimeTests</c>. This test now validates the remaining
-    /// (correct) invariant: while <c>impl</c> is alive, fire() still dispatches
-    /// through the Swift weak slot across a GC cycle.
+    /// Asserting <c>LastNotifiedSlot == 0</c> here is a meaningful regression
+    /// guard: if a strong impl→proxy link (or <c>RegisterStrong</c>) is ever
+    /// reintroduced, the proxy would survive GC, the weak slot would still
+    /// resolve, and this would flip back to slot 1 — flagging the return of the
+    /// leak. The complementary positive case — dispatch SURVIVES GC when Swift
+    /// strongly retains the existential — lives in
+    /// <c>ProxyLifetimeTests.TestStrongSwiftRetainSurvivesImplGc</c>.
     /// </para>
     /// </summary>
-    public void TestProxySurvivesBeyondLocalScope()
+    public void TestWeakSwiftStoreIsNotALifetimeAnchor()
     {
         var monitor = new AutoWrappedMonitor();
         var impl = new AutoWrappedDelegateImpl();
-        // Deliberately NOT setting monitor.StrongDelegate — the weak slot is the
-        // only path that can keep the impl reachable from Swift's side. As long
-        // as `impl` stays alive in this test scope, ProxyLifetimeTracker keeps
-        // the proxy (and therefore the Swift weak slot) reachable across GC.
+        // Assign into the WEAK `delegate` slot only — no strong Swift retain. The
+        // auto-wrapped proxy is weakly cached + weakly registered and is rooted by
+        // nothing once the setter call returns.
         monitor.Delegate = impl;
 
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
+        // Collect from a worker thread so a stale conservative reference to the
+        // transient proxy in this frame cannot falsely keep it alive.
+        ForceGCThorough();
 
-        // After GC, the weak slot must still resolve and dispatch into the
-        // managed implementation because `impl` is still rooted by this frame.
+        // The proxy was collected, R0 released, EveryProtocol deinit'd, and Swift
+        // zeroed `weak var delegate`. fire() still runs (counter increments) but
+        // finds no delegate, so it records slot 0 and never reaches the impl.
         monitor.Fire();
         monitor.Fire();
 
-        AssertEqual(2, monitor.LastFiredValue, "Two fires after GC reached the delegate (counter=2)");
-        AssertEqual(1, monitor.LastNotifiedSlot,
-            "fire() routed through the weak slot — proxy survived GC while impl is rooted");
+        AssertEqual(2, monitor.LastFiredValue, "Both fires ran (counter=2) even with the weak slot cleared");
+        AssertEqual(0, monitor.LastNotifiedSlot,
+            "Weak Swift store is not a lifetime anchor: the auto-wrapped proxy was collected, so fire() routed through no slot (0)");
+        AssertFalse(impl.WasCalled, "No dispatch reached the impl once the pure-weak proxy was collected");
 
-        // Anchor impl past the GC cycles above so the tracker keeps the proxy
-        // alive. Dropping this would be the collectibility scenario that
-        // ProxyLifetimeTests covers.
+        // Keep impl reachable across the GC above to prove the point precisely:
+        // a LIVE C# impl does NOT keep a pure-weak auto-wrapped Swift delegate
+        // alive — B2 roots impl from Swift, not Swift from impl.
         GC.KeepAlive(impl);
     }
 

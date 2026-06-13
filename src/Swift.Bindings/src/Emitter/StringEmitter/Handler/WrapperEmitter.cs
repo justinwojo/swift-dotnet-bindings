@@ -85,9 +85,14 @@ namespace BindingsGeneration
         // OwnsVar is the name of the runtime owns-bit local (non-null only for the EC1 GetOrCreate
         // path, the only one that can freshly box a value conformer at +1); when set,
         // the finally runs the existential value-witness destroy gated on that bit before freeing.
+        // KeepAliveVar names the reference the finally GC.KeepAlive's after the native call (design
+        // change 4) so an otherwise-unrooted proxy cannot be finalized — and release R0 — mid-call.
+        // For the EC1 GetOrCreate path it is the `object?` local GetOrCreate writes the backing proxy
+        // into; for the EC2+/well-known borrowed path it is the method parameter itself (the proxy is
+        // passed through, not re-boxed). Null only when the arg owns no pinnable backing.
         private readonly List<ExistentialHeapInfo> _existentialHeapNames = new();
 
-        private readonly record struct ExistentialHeapInfo(string HeapName, string? OwnsVar, int WitnessTableCount);
+        private readonly record struct ExistentialHeapInfo(string HeapName, string? OwnsVar, int WitnessTableCount, string? KeepAliveVar);
 
         // Post-call readback statements for blittable frozen-struct inout params. Collected at the
         // point the stack buffer is emitted (EmitCdeclFrozenStructMarshalling) so the readback is
@@ -659,10 +664,24 @@ namespace BindingsGeneration
                 // MUST mirror EmitExistentialContainerMarshalling's branch at the GetOrCreate site.
                 bool owningCandidate = IsOwningExistentialCandidate(protocolList);
                 string? ownsVar = owningCandidate ? $"{csName}Owns" : null;
-                _existentialHeapNames.Add(new ExistentialHeapInfo(heapName, ownsVar, protocolList.Protocols.Count));
+                // Both existential-arg paths must pin the backing reference across the borrowed native
+                // call (change 4): the JIT may treat the source as dead once its bytes are copied into
+                // the call buffer, and under B2's weak proxy registration nothing else strong-roots an
+                // auto-wrapped/Swift-vended proxy while Swift reads the @in_guaranteed container —
+                // finalizing it would release R0 mid-call (UAF). The EC1 GetOrCreate path pins the proxy
+                // it boxes into a fresh `{csName}KeepAlive` local; the EC2+/well-known borrowed path
+                // passes the proxy/wrapper THROUGH as the parameter, so it pins the parameter local
+                // (csName) directly — no fresh local to declare. (EC2+ compositions are always a
+                // Swift-vended proxy; well-known wrappers self-own — pinning is harmless there.)
+                string? keepAliveVar = owningCandidate ? $"{csName}KeepAlive" : csName;
+                _existentialHeapNames.Add(new ExistentialHeapInfo(heapName, ownsVar, protocolList.Protocols.Count, keepAliveVar));
                 csWriter.WriteLine($"void* {heapName} = null;");
                 if (ownsVar != null)
                     csWriter.WriteLine($"bool {ownsVar} = false;");
+                // Only the EC1 GetOrCreate path needs a fresh keep-alive LOCAL declared; the borrowed
+                // path's keepAliveVar IS the method parameter, already in scope.
+                if (owningCandidate)
+                    csWriter.WriteLine($"object? {keepAliveVar} = null;");
             }
         }
 
@@ -839,6 +858,12 @@ namespace BindingsGeneration
                 // centralized helper handles the owns-gate, the metadata-unavailable try/catch, and
                 // the buffer free — single source of truth across every existential-param site.
                 csWriter.WriteLine($"Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential({info.HeapName}, {info.WitnessTableCount}, {info.OwnsVar ?? "false"});");
+                // Change 4: pin the borrowed proxy until after the native call has returned (Swift
+                // has by now completed its store-retain or finished borrowing). Keeps an
+                // otherwise-unrooted auto-wrapped proxy from being finalized — and releasing R0 —
+                // while Swift is still using the container. No-op when the proxy is null (boxable).
+                if (info.KeepAliveVar != null)
+                    csWriter.WriteLine($"global::System.GC.KeepAlive({info.KeepAliveVar});");
             }
         }
 

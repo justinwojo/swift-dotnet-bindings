@@ -269,6 +269,37 @@ public abstract class TestBase
     }
 
     /// <summary>
+    /// Forces collection from a throwaway worker thread, scrubbing its own stack
+    /// first, then running several blocking+compacting full collections with a
+    /// finalizer drain between each. Use this (not <see cref="ForceGC"/>) when a
+    /// test asserts that a transient object was actually collected: under Mono's
+    /// conservative stack scan a stale reference to the object can linger in the
+    /// test thread's frame/registers and falsely keep it alive. Running the GC on
+    /// a separate thread whose stack never touched the object defeats that.
+    /// </summary>
+    protected static void ForceGCThorough(int cycles = 6)
+    {
+        var worker = new System.Threading.Thread(() =>
+        {
+            // Scrub the worker's own stack with a throwaway allocation loop so a
+            // leftover managed pointer cannot pose as a conservative root.
+            var scratch = new object[256];
+            for (int i = 0; i < scratch.Length; i++)
+                scratch[i] = new object();
+            GC.KeepAlive(scratch);
+
+            for (int i = 0; i < cycles; i++)
+            {
+                GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+                GC.WaitForPendingFinalizers();
+            }
+        })
+        { IsBackground = true };
+        worker.Start();
+        worker.Join();
+    }
+
+    /// <summary>
     /// Creates GC pressure by allocating temporary objects.
     /// Useful for testing that handles survive GC correctly.
     /// </summary>

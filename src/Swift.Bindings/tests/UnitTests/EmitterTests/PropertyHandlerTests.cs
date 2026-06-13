@@ -1319,17 +1319,70 @@ public class PropertyHandlerTests
         // The GetOrCreate call carries a wrap fallback so plain C# implementations of the
         // interface are auto-wrapped in the generator-emitted DataCachingProxy at the call site.
         // It also threads the runtime owns-bit (out __owns) so the finally can run the
-        // existential value-witness destroy only when a value conformer was boxed at +1.
+        // existential value-witness destroy only when a value conformer was boxed at +1, AND
+        // the keep-alive proxy (out __keepAlive, design change 4) so a GC can't finalize an
+        // auto-wrapped proxy and release R0 while Swift still reads the container mid-call.
         Assert.Contains(
-            "ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v, static __p => new DataCachingProxy(__p), out __owns)",
+            "ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v, static __p => new DataCachingProxy(__p), out __owns, out __keepAlive)",
             csOutput);
         Assert.Contains("NativeMemory.Alloc", csOutput);
         Assert.Contains("Unsafe.Copy(__heap, ref __container)", csOutput);
         Assert.Contains("__hasVal", csOutput);
         // Cleanup goes through the owns-gated destroy-and-free helper, not a bare free.
         Assert.Contains("DestroyAndFreeExistential(__heap, 1, __owns)", csOutput);
+        // The auto-wrapped proxy is pinned past the native setter call (change 4).
+        Assert.Contains("GC.KeepAlive(__keepAlive)", csOutput);
         // Setter passes decomposed args — NOT simple pass-through
         Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_OptionalCompositionExistentialProperty_SetterPinsValueAcrossNativeCall()
+    {
+        // EC2+ sibling of Emit_OptionalExistentialProperty_SetterGetsCdeclWrapper.
+        // A composition existential (any A & B) projects to ExistentialContainer2, which has no
+        // auto-wrap factory — only the Swift-vended {Composition}Proxy implements the interface,
+        // so a non-null `value` IS that proxy aliasing its sole construction +1 (R0). Under B2 the
+        // proxy is weakly registered, so nothing roots it across the native setter call: a GC could
+        // finalize it and release R0 while Swift still reads the borrowed container (UAF).
+        // The setter must pin `value` itself (the EC2+ analogue of the EC1 __keepAlive).
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+        RegisterProtocol(typeDatabase, "TestModule.Reloadable");
+
+        // Distinct class/property names from Emit_OptionalExistentialProperty_SetterGetsCdeclWrapper:
+        // the cdecl wrapper-symbol collector is process-global, so two xcframework-mode tests emitting
+        // the same SBW_Get_TestModule_<Class>_<prop> symbol would make whichever runs second emit
+        // empty Swift output (the generator emits each module once in a real run).
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Compositor", moduleDecl);
+
+        var optionalCompositionType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[]
+            {
+                new NamedTypeSpec("TestModule.DataCaching"),
+                new NamedTypeSpec("TestModule.Reloadable"),
+            }));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "composedCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalCompositionType;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Cdecl wrapper, decomposed setter (not simple pass-through) — same shape as EC1.
+        Assert.Contains("CallConvCdecl", csOutput);
+        Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
+        // EC2 composition takes the direct-cast container path, NOT the EC1 GetOrCreate factory.
+        Assert.Contains(
+            "((global::Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer2>)__v).GetExistentialContainer()",
+            csOutput);
+        Assert.DoesNotContain("GetOrCreate", csOutput);
+        // The proxy is borrowed (+0), so the owns-bit is hard-false and the proxy itself is pinned
+        // past the native setter call — the keepAlive that the re-review flagged as missing for EC2+.
+        Assert.Contains("DestroyAndFreeExistential(__heap, 1, false)", csOutput);
+        Assert.Contains("global::System.GC.KeepAlive(value)", csOutput);
     }
 
     [Fact]

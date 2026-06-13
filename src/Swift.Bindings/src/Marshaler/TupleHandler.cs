@@ -345,6 +345,37 @@ public class TupleHandler
     }
 
     /// <summary>
+    /// True when any tuple element needs per-element marshalling conversion that the converted-tuple
+    /// call-argument path does NOT yet implement — i.e. its P/Invoke element type differs from its C#
+    /// element type. The only WORKING tuple-PARAMETER paths are (a) all-cdecl-primitive tuples
+    /// (PInvokeEmitter's <c>IsCdeclSafeTuple</c> stackalloc-buffer path) and (b) tuples whose every
+    /// element's P/Invoke type already equals its C# type (frozen-blittable structs, pointer types),
+    /// passed as a raw <c>ValueTuple</c> with no conversion. Every other element makes the standard
+    /// <c>ValueTuple</c> path hand Swift a raw tuple of public C# types against a P/Invoke expecting
+    /// differing element types — e.g. an existential element's P/Invoke <c>ExistentialContainerN</c> vs
+    /// its <c>I{Composition}</c> interface, a simple enum's underlying-int vs the enum type, a
+    /// class/non-frozen-struct's <c>IntPtr</c> vs the class, a frozen-mem-mgmt struct's <c>.Buffer</c>
+    /// vs the struct — a CS1503 the generator emits FAIL-OPEN today. Until the full per-element
+    /// tuple-conversion + call-arg-threading path lands (its own work unit), such a member is skipped
+    /// fail-closed. Strict superset of <see cref="HasClosureUnsafeTupleElements"/> (which catches only
+    /// the IntPtr subset, for the closure-callback delegate-shape contract); pointer types are
+    /// <c>IntPtr</c> in BOTH contexts (modulo the <c>System.</c> prefix) and stay supported.
+    /// </summary>
+    public bool HasUnmarshalledTupleElements(TupleTypeSpec tupleTypeSpec)
+    {
+        // "IntPtr" (P/Invoke form) and "System.IntPtr" (C# form) name the same pointer-sized type;
+        // pointer-typed elements are safe and must not trip the mismatch (matches the prefix-tolerant
+        // comparison in HasClosureUnsafeTupleElements).
+        static string Norm(string t) => t == "System.IntPtr" ? "IntPtr" : t;
+        foreach (var element in tupleTypeSpec.Elements)
+        {
+            if (Norm(TranslateElementTypeToPInvoke(element)) != Norm(TranslateElementTypeToCSharp(element)))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Translates a TypeSpec element to its C# equivalent type.
     /// </summary>
     internal string TranslateElementTypeToCSharp(TypeSpec typeSpec)

@@ -64,6 +64,11 @@ public partial class ProtocolProxyEmitter
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
                 continue;
+            // @objc optional methods get no reverse-dispatch slot — the Swift producer skips
+            // them BEFORE the index increment, so this receiver loop must not consume the slot
+            // either, or the following required method's trampoline lands in the wrong field.
+            if (method.IsObjCOptional)
+                continue;
 
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
             if (!methodIndices.TryGetValue(methodKey, out var idx))
@@ -160,12 +165,12 @@ public partial class ProtocolProxyEmitter
                 // *(ExistentialContainer1*)selfContainer, which over-reads stack memory when
                 // Swift passes a class-bound (2-word) existential for EveryObjCProtocol.
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                // Dead-impl safe: use TryGetProxy so an Unregister'd handle
-                // (e.g. after user Dispose) is a silent no-op instead of throwing
-                // InvalidOperationException across the [UnmanagedCallersOnly] boundary.
-                // The impl weak-reference unwrap may ALSO return null if the user dropped
-                // the impl while Swift still holds a strong retain on the proxy;
-                // in that case we return a zero-filled buffer rather than NRE-crash.
+                // nullReturnStr sizes the all-siblings-missed fallback buffer on the sibling
+                // fan-out path (it must match the carrier the success path marshals). The
+                // no-sibling path no longer returns it: under Design B2 reverse dispatch resolves
+                // the impl from ProxyLifetimeTracker's strong root — alive for exactly as long as
+                // Swift holds the proxy — so a missing impl is an invariant violation that trips
+                // Environment.FailFast, not a fabricated zero buffer.
                 //
                 // The buffer size MUST match the carrier the success path uses
                 // for MarshalToSwiftBuffer<T>(...). When a getter conversion is present the
@@ -187,15 +192,7 @@ public partial class ProtocolProxyEmitter
                     : BuildReceiverNullFallbackExpr(carrierTypeName);
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
-                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                    writer.Indent++;
-                    writer.WriteLine($"return {nullReturnStr};");
-                    writer.Indent--;
-                    writer.WriteLine("var impl = proxy.UserImpl;");
-                    writer.WriteLine("if (impl is null)");
-                    writer.Indent++;
-                    writer.WriteLine($"return {nullReturnStr};");
-                    writer.Indent--;
+                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter");
                     writer.WriteLine($"var result = impl.{pascalPropertyName};");
                     if (isStringReturn)
                     {
@@ -271,14 +268,13 @@ public partial class ProtocolProxyEmitter
                             try
                             {
                                 var handle = *(IntPtr*)selfContainer;
-                                // Dead-impl safe: silently drop the write if the proxy is unregistered
-                                // or the managed impl has already been GC'd. A throw here would propagate
-                                // across the [UnmanagedCallersOnly] boundary and terminate the process.
-                                if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>>(handle, out var proxy) || proxy is null)
-                                    return;
-                                var impl = proxy.UserImpl;
+                                // Design B2: resolve the impl from ProxyLifetimeTracker's strong root.
+                                // A null resolve means the impl was collected while Swift still held the
+                                // proxy — a lifetime-invariant violation — so trip the loud backstop
+                                // rather than silently dropping the write.
+                                var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{{interfaceName}}>(handle);
                                 if (impl is null)
-                                    return;
+                                    global::System.Environment.FailFast("Swift reverse-dispatch on {{protocolDecl.Name}}.{{pascalPropertyName}} setter resolved no live C# implementation for EveryProtocol handle 0x" + handle.ToString("X") + ". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).");
                                 var value = {{marshalExpr}};
                                 impl.{{pascalPropertyName}} = {{assignmentExpr}};
                             }
@@ -372,15 +368,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                 if (setterSiblings == null || setterSiblings.Count == 0)
                 {
-                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                    writer.Indent++;
-                    writer.WriteLine("return;");
-                    writer.Indent--;
-                    writer.WriteLine("var impl = proxy.UserImpl;");
-                    writer.WriteLine("if (impl is null)");
-                    writer.Indent++;
-                    writer.WriteLine("return;");
-                    writer.Indent--;
+                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} setter");
                     EmitClosureSetterBody(writer, isOptional, pascalPropertyName, delegateType, invokerClassName, implVar: "impl");
                 }
                 else
@@ -417,15 +405,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
-                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                    writer.Indent++;
-                    writer.WriteLine("return buf;");
-                    writer.Indent--;
-                    writer.WriteLine("var impl = proxy.UserImpl;");
-                    writer.WriteLine("if (impl is null)");
-                    writer.Indent++;
-                    writer.WriteLine("return buf;");
-                    writer.Indent--;
+                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter");
                     EmitClosureGetterBody(writer, pascalPropertyName, nullableDelegateType, getterThunkName, implVar: "impl");
                     writer.WriteLine("return buf;");
                 }
@@ -501,15 +481,7 @@ public partial class ProtocolProxyEmitter
         // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
         // path returns the same shape (mirrors Shape 3's getter).
         writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
-        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-        writer.Indent++;
-        writer.WriteLine("return buf;");
-        writer.Indent--;
-        writer.WriteLine("var impl = proxy.UserImpl;");
-        writer.WriteLine("if (impl is null)");
-        writer.Indent++;
-        writer.WriteLine("return buf;");
-        writer.Indent--;
+        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalMethodName}()");
         writer.WriteLine($"{delegateType}? _del = impl.{pascalMethodName}();");
         writer.WriteLine("if (_del is null)");
         writer.Indent++;
@@ -599,15 +571,7 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
         EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-        writer.Indent++;
-        writer.WriteLine("return;");
-        writer.Indent--;
-        writer.WriteLine("var impl = proxy.UserImpl;");
-        writer.WriteLine("if (impl is null)");
-        writer.Indent++;
-        writer.WriteLine("return;");
-        writer.Indent--;
+        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalMethodName}()");
         // Wrap the (fnPtr, ctx) pair in SwiftEscapingClosure so Arc.Retain keeps the Swift
         // context alive across the async boundary; the invoker class holds the wrapper
         // reference for the duration of the impl call. Use a method-group bound to the
@@ -665,10 +629,11 @@ public partial class ProtocolProxyEmitter
                 EmitUcoGuardOpen(writer);
 
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                // Dead-impl safe: return zeroed buffer rather than throwing on missing
-                // proxy / GC'd impl ([UnmanagedCallersOnly] cannot throw).
-                // Size the fallback by the carrier the success path uses for
-                // MarshalToSwiftBuffer<T>(...), not by the idiomatic interface type.
+                // subscriptNullReturnStr sizes the all-siblings-missed fallback buffer on the
+                // sibling fan-out path. The no-sibling path resolves the impl from
+                // ProxyLifetimeTracker's strong root (Design B2) and FailFasts on a null resolve
+                // instead of returning it. Size the fallback by the carrier the success path uses
+                // for MarshalToSwiftBuffer<T>(...), not by the idiomatic interface type.
                 var subscriptIsString = IsStringTypeSpec(subscript.ReturnTypeSpec);
                 var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
                     ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
@@ -701,15 +666,7 @@ public partial class ProtocolProxyEmitter
 
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
-                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                    writer.Indent++;
-                    writer.WriteLine($"return {subscriptNullReturnStr};");
-                    writer.Indent--;
-                    writer.WriteLine("var impl = proxy.UserImpl;");
-                    writer.WriteLine("if (impl is null)");
-                    writer.Indent++;
-                    writer.WriteLine($"return {subscriptNullReturnStr};");
-                    writer.Indent--;
+                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript getter");
                     writer.WriteLine($"var result = impl[{indexArgs}];");
                     // String returns use Utf8Slice encoding to avoid ARC issues with
                     // MarshalToSwiftBuffer<SwiftString> — same rationale as the property
@@ -810,17 +767,7 @@ public partial class ProtocolProxyEmitter
                 var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
                 if (setterSiblings == null || setterSiblings.Count == 0)
                 {
-                    // Dead-impl safe: silently drop the write if the proxy is unregistered
-                    // or the impl has been GC'd.
-                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                    writer.Indent++;
-                    writer.WriteLine("return;");
-                    writer.Indent--;
-                    writer.WriteLine("var impl = proxy.UserImpl;");
-                    writer.WriteLine("if (impl is null)");
-                    writer.Indent++;
-                    writer.WriteLine("return;");
-                    writer.Indent--;
+                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript setter");
                     writer.WriteLine($"impl[{indexArgs}] = value;");
                 }
                 else
@@ -848,22 +795,20 @@ public partial class ProtocolProxyEmitter
     /// On lookup hit, materialises the subscript value, applies any conversion, and returns
     /// via MarshalToSwiftBuffer. On miss, falls through to the next sibling. Indexes are
     /// unmarshalled once by the caller and threaded in via <paramref name="indexArgs"/>.
-    /// Uses the bare names <c>result</c>/<c>swiftResult</c>/<c>impl</c>/<c>proxy</c>
-    /// because each lookup block is its own C# scope — same pattern as the property
-    /// counterpart <see cref="EmitGetterLookupHit"/>.
+    /// The impl variable is suffixed per-lookup (<c>impl_{slug}</c>) because a declaration
+    /// pattern variable in an <c>if</c> condition leaks into the ENCLOSING method scope, not
+    /// the block — two bare <c>is {} impl</c> siblings would collide (CS0128) and the second
+    /// read possibly-unassigned (CS0165). <c>result</c>/<c>swiftResult</c> stay bare because
+    /// they are block-scoped <c>var</c>s. Same per-slug scheme as <see cref="EmitGetterLookupHit"/>.
     /// </summary>
     private void EmitSubscriptGetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
         string indexArgs, TypeSpec returnTypeSpec, string? getterConversion, bool isStringReturn)
     {
-        var proxyVar = $"proxy_{slug}";
-        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        var implVar = $"impl_{slug}";
+        writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
         writer.WriteLine("{");
         writer.Indent++;
-        writer.WriteLine($"var impl = {proxyVar}.UserImpl;");
-        writer.WriteLine("if (impl is not null)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine($"var result = impl[{indexArgs}];");
+        writer.WriteLine($"var result = {implVar}[{indexArgs}];");
         if (isStringReturn)
         {
             writer.WriteLine("return MarshalStringToUtf8Slice(result);");
@@ -879,8 +824,6 @@ public partial class ProtocolProxyEmitter
         }
         writer.Indent--;
         writer.WriteLine("}");
-        writer.Indent--;
-        writer.WriteLine("}");
     }
 
     /// <summary>
@@ -890,18 +833,12 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private void EmitSubscriptSetterLookupHit(CSharpWriter writer, string interfaceName, string slug, string indexArgs)
     {
-        var proxyVar = $"proxy_{slug}";
-        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        var implVar = $"impl_{slug}";
+        writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
         writer.WriteLine("{");
         writer.Indent++;
-        writer.WriteLine($"var impl = {proxyVar}.UserImpl;");
-        writer.WriteLine("if (impl is not null)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine($"impl[{indexArgs}] = value;");
+        writer.WriteLine($"{implVar}[{indexArgs}] = value;");
         writer.WriteLine("return;");
-        writer.Indent--;
-        writer.WriteLine("}");
         writer.Indent--;
         writer.WriteLine("}");
     }
@@ -1036,21 +973,14 @@ public partial class ProtocolProxyEmitter
             // MarshalToSwiftBuffer<T>. See BuildReceiverNullFallbackExpr.
             methodNullReturnExpr = $"return {BuildReceiverNullFallbackExpr(methodCarrierTypeName)};";
         }
-        // No-sibling path acquires the proxy/impl eagerly (byte-identical to the historic shape).
-        // The sibling path skips this and instead does per-interface lookups after unmarshalling,
-        // since params must be unmarshalled once before trying each sibling impl.
+        // No-sibling path resolves the impl from ProxyLifetimeTracker's strong root (Design B2);
+        // a null resolve trips Environment.FailFast (the impl cannot be collected while Swift holds
+        // the proxy). The sibling path skips this and instead does per-interface lookups after
+        // unmarshalling, since params must be unmarshalled once before trying each sibling impl.
         bool useMethodSiblingFallback = siblingFallbacks != null && siblingFallbacks.Count > 0;
         if (!useMethodSiblingFallback)
         {
-            writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-            writer.Indent++;
-            writer.WriteLine(methodNullReturnExpr);
-            writer.Indent--;
-            writer.WriteLine("var impl = proxy.UserImpl;");
-            writer.WriteLine("if (impl is null)");
-            writer.Indent++;
-            writer.WriteLine(methodNullReturnExpr);
-            writer.Indent--;
+            EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{method.Name}()");
         }
 
         // Unmarshal parameters - use param{i} for local variable names to avoid conflicts with rawArg{i}
@@ -1742,6 +1672,9 @@ public partial class ProtocolProxyEmitter
         if (projection is ArrayProjection arrExistProj && arrExistProj.ElementProjection is ExistentialProjection arrExist)
             return $"SwiftArray<{arrExist.ArrayElementCarrierType}>";
 
+        if (projection is SetProjection setExistProj && setExistProj.ElementProjection is ExistentialProjection setExist)
+            return $"SwiftSet<{setExist.ArrayElementCarrierType}>";
+
         if (projection is DictionaryProjection dictExistProj && dictExistProj.ValueProjection is ExistentialProjection dictExist)
         {
             var abiKeyType = dictExistProj.KeyProjection.SwiftContainerGenericType;
@@ -1790,15 +1723,19 @@ public partial class ProtocolProxyEmitter
             new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
-        // Standalone existential
+        // Standalone existential. This is the getter RETURN direction (C#→Swift, +1 owned), so mint
+        // an owned container rather than borrow the proxy's R0 — matching the array/dictionary arms
+        // below, which already route through the owned GetArrayElementCarrierConversion. Note this is
+        // the owned C#→Swift (Parameter) transform, NOT the owned Swift→C# (Return) adopt used by the
+        // collection SETTER arms — see the two methods' docs in ExistentialProjection.
         if (projection is ExistentialProjection existProj)
-            return existProj.GetParameterElementConversion(varName);
+            return existProj.GetOwnedParameterElementConversion(varName);
 
-        // Optional<existential>
+        // Optional<existential> — same owned C#→Swift direction; mint the inner +1.
         if (projection is OptionalProjection optProj && optProj.InnerProjection is ExistentialProjection innerExist)
         {
             var containerType = innerExist.PInvokeType;
-            var extractExpr = innerExist.GetParameterElementConversion($"{varName}Val");
+            var extractExpr = innerExist.GetOwnedParameterElementConversion($"{varName}Val");
             return $"({varName} is {{}} {varName}Val ? SwiftOptional<{containerType}>.NewSome({extractExpr}) : SwiftOptional<{containerType}>.NewNone())";
         }
 
@@ -1811,6 +1748,17 @@ public partial class ProtocolProxyEmitter
             var containerType = arrExist.ArrayElementCarrierType;
             var elemConv = arrExist.GetArrayElementCarrierConversion("i");
             return $"SwiftArray<{containerType}>.FromEnumerable({varName}.Select(i => {elemConv}))";
+        }
+
+        // Set<existential>. Same owned-carrier + stride agreement as the array path above. This arm is
+        // REQUIRED here (not in the legacy GetReceiverSetGetterConversion switch fall-through, which has
+        // no existential awareness): a class-bound single-protocol element uses the 16-byte
+        // ClassExistentialContainer1, opaque/composition elements stay on the 40-byte carrier (no-op).
+        if (projection is SetProjection setProj && setProj.ElementProjection is ExistentialProjection setExist)
+        {
+            var containerType = setExist.ArrayElementCarrierType;
+            var elemConv = setExist.GetArrayElementCarrierConversion("i");
+            return $"SwiftSet<{containerType}>.FromEnumerable({varName}.Select(i => {elemConv}))";
         }
 
         // Dictionary<K, existential>. Carrier + per-value conversion must agree on stride, exactly like
@@ -1989,18 +1937,14 @@ public partial class ProtocolProxyEmitter
         // Without the 2-word layout, Swift reads WT from Payload1 (which C# leaves zero)
         // → SIGSEGV on the first witness dispatch (@objc:NSObject reverse-dispatch repro, issue #40).
         var useClassBoundContainerLayout = IsProtocolClassBound(protocolDecl) || _useObjCBase;
+        // Opaque (5-word) proxies read their own module's EveryProtocol metadata from the
+        // per-proxy static field s_everyProtocolMetadata (Finding 33 — see the field declaration
+        // and rationale in ProtocolProxyEmitter.StaticInit.cs). The field initializer fetches the
+        // handle from this module's NativeMethods accessor, so there is no process-global
+        // first-wins latch and no priming step in the ctor.
         var containerInitLines = useClassBoundContainerLayout
             ? "_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;"
-            : "_swiftContainer.ObjectMetadata = EveryProtocol.GetTypeMetadata();\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";
-
-        // Metadata cache priming is opaque-layout-only and must never poison the
-        // EveryProtocol static cache from the EveryObjCProtocol code path: storing
-        // EveryObjCProtocol metadata into EveryProtocol.SetTypeMetadata would survive
-        // for the process lifetime and corrupt later opaque-layout proxies that read
-        // ObjectMetadata back from the cache (construction-order dependent bug).
-        var metadataInitBlock = (_useObjCBase || _useEntityBase)
-            ? "// Class-bound carrier (_useObjCBase / _useEntityBase): the 2-word layout doesn't\n                    // consult ObjectMetadata, and the carrier's own metadata handle\n                    // (GetEveryObjCProtocolMetadata / GetEveryEntityProtocolMetadata) MUST NOT be\n                    // cached into EveryProtocol.SetTypeMetadata — that static slot is owned by the\n                    // pure-Swift EveryProtocol code path, and priming it from a carrier would\n                    // poison later opaque-layout proxies that read ObjectMetadata back from it."
-            : $"if (EveryProtocol.GetTypeMetadata().Handle == IntPtr.Zero)\n                        EveryProtocol.SetTypeMetadata(NativeMethods.{GetMetadataMethodName}());";
+            : "_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";
 
         // Constructor for C# implementation
         writer.WriteLines($$"""
@@ -2011,43 +1955,37 @@ public partial class ProtocolProxyEmitter
             public unsafe {{proxyClassName}}({{interfaceName}} implementation)
             {
                 if (implementation == null) throw new ArgumentNullException(nameof(implementation));
-                // Weak reference — see the field declaration in
-                // ProtocolProxyEmitter.StaticInit.cs for the rationale. The
-                // impl-anchored lifetime model requires that the proxy does NOT
-                // strongly root the impl; otherwise the strong-registry chain
-                // prevents impl GC, prevents tracker release, prevents deinit,
-                // prevents unregister — a permanent leak.
+                // Design B2: the impl is rooted by Swift-liveness through ProxyLifetimeTracker's
+                // strong handle-keyed GCHandle (allocated in Track below), NOT by this proxy.
+                // _csharpImplRef stays WEAK and exists only to satisfy the covariant
+                // IProtocolProxyImpl<T>.UserImpl cross-module contract — reverse dispatch resolves
+                // the impl via ProxyLifetimeTracker.ResolveImpl, never through this field.
                 _csharpImplRef = new WeakReference<{{interfaceName}}>(implementation);
 
                 // Create a real Swift {{(_useObjCBase ? "EveryObjCProtocol" : "EveryProtocol")}} instance via @_cdecl factory.
-                // The pointer carries a +1 retain from Unmanaged.passRetained(). We hold
-                // it as a plain IntPtr — the +1 is owned by ProxyLifetimeTracker, anchored
-                // to the lifetime of _csharpImpl. When the impl is GC'd, the tracker's
-                // finalizer calls SwiftReleaseTrampoline.Release (the documented
-                // finalizer-safe path on Mono); Swift's deinit then fires and
-                // OnEveryProtocolDeinit drops the SwiftObjectRegistry strong root.
+                // The pointer carries a construction +1 (R0) from Unmanaged.passRetained(). We hold
+                // it as a plain IntPtr. Under Design B2, R0 is owned by THIS proxy and released on
+                // the proxy's finalizer/Dispose via ProxyLifetimeTracker.ReleaseHandle (the
+                // finalizer-safe Cdecl trampoline). Releasing R0 drives Swift's last retain to zero,
+                // which fires EveryProtocol.deinit -> OnEveryProtocolDeinit, freeing the impl's
+                // strong root and dropping the (weak) SwiftObjectRegistry entry.
                 _everyProtocolHandle = NativeMethods.{{CreateHelperMethodName}}();
+                _ownsEveryProtocolR0 = true;
 
                 try
                 {
-                    // Initialize EveryProtocol metadata from Swift (once per process).
-                    // Only relevant for opaque (non-class-bound) protocols where the
-                    // existential container stores ObjectMetadata. Class-bound
-                    // (NSObjectProtocol-rooted EveryObjCProtocol) proxies skip this
-                    // entirely so the EveryObjCProtocol metadata never poisons the
-                    // pure-Swift EveryProtocol static cache.
-                    {{metadataInitBlock}}
-
-                    // Create existential container manually
+                    // Create existential container manually. Opaque (5-word) layouts store this
+                    // module's own EveryProtocol metadata (s_everyProtocolMetadata, Finding 33);
+                    // class-bound (NSObjectProtocol-rooted) layouts don't consult ObjectMetadata.
                     _swiftContainer = new ExistentialContainer1();
                     _swiftContainer.Payload0 = _everyProtocolHandle;
                     {{containerInitLines}}
 
-                    // Register this proxy so Swift callbacks can find us. The strong
-                    // registry entry is dropped when OnEveryProtocolDeinit fires from
-                    // Swift's deinit, which can only happen after ProxyLifetimeTracker
-                    // has released the +1 (i.e., after impl GC).
-                    SwiftObjectRegistry.RegisterStrong(_everyProtocolHandle, this);
+                    // Register this proxy WEAKLY so Swift callbacks can find us while the consumer
+                    // holds a reference, but the proxy can still be collected once dropped — its
+                    // collection is the signal that releases R0 (see the lifetime analysis in
+                    // ProxyLifetimeTracker). The entry is dropped when OnEveryProtocolDeinit fires.
+                    SwiftObjectRegistry.Register(_everyProtocolHandle, this);
 
                     // Wire Swift deinit -> C# callback. The context arg is the handle
                     // itself, so OnEveryProtocolDeinit can locate the registry entry
@@ -2057,24 +1995,23 @@ public partial class ProtocolProxyEmitter
                         &Swift.Runtime.ProxyLifetimeTracker.OnEveryProtocolDeinit,
                         _everyProtocolHandle);
 
-                    // Anchor the ground-state +1 to the impl lifetime. Tracker must be
-                    // called AFTER the deinit callback is wired up so that a super-fast
-                    // Swift release (e.g., never-stored call) still routes through
+                    // Root the impl by Swift-liveness (strong GCHandle keyed by handle) and record
+                    // the R0 entry. Tracker must be called AFTER the deinit callback is wired up so
+                    // that a super-fast Swift release (e.g., never-stored call) still routes through
                     // OnEveryProtocolDeinit before the finalizer path runs.
                     Swift.Runtime.ProxyLifetimeTracker.Track(implementation, _everyProtocolHandle);
                 }
                 catch
                 {
-                    // Ctor failed before tracker/registry wiring was complete — release
-                    // the +1 directly to avoid leaking the Swift instance.
+                    // Ctor failed before tracker/registry wiring was complete — release R0
+                    // directly to avoid leaking the Swift instance. This runs on a normal thread
+                    // (not the finalizer), so the direct CallConvSwift Arc.Release is safe here.
                     SwiftObjectRegistry.Unregister(_everyProtocolHandle);
                     try { Arc.Release(_everyProtocolHandle); } catch { /* already deallocating */ }
                     throw;
                 }
-                // C#-impl-backed proxies never adopt a +1 container (ProxyLifetimeTracker
-                // owns the release path); the finalizer's container release is a no-op for
-                // them, so suppress it to keep them off the finalizer queue.
-                GC.SuppressFinalize(this);
+                // Design B2: do NOT suppress finalization. The finalizer is what releases R0 when
+                // the consumer drops the proxy without disposing it.
                 Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
 
@@ -2101,6 +2038,9 @@ public partial class ProtocolProxyEmitter
                 _swiftContainer = container;
                 _csharpImplRef = null;
                 _everyProtocolHandle = IntPtr.Zero;
+                // Swift-backed proxies do NOT own a construction +1 (R0) — they wrap a container
+                // Swift already owns — so the finalizer/Dispose must not call ReleaseHandle.
+                _ownsEveryProtocolR0 = false;
                 _ownsContainer = ownsContainer;
                 // Only an owning proxy has anything to release; suppress the finalizer for
                 // borrowed/synthetic containers so they never queue a no-op finalize (and,
@@ -2147,6 +2087,28 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
+    /// Emits the "Design B2" reverse-dispatch preamble for a receiver that has NO sibling
+    /// fallback: resolve the C# implementation from the handle-keyed strong root in
+    /// <c>ProxyLifetimeTracker</c> and bind it to a non-null local <c>impl</c> typed as
+    /// <paramref name="interfaceName"/>. The strong root keeps the impl alive for exactly as long
+    /// as Swift references the proxy, so a null resolve here cannot happen in the canonical pattern;
+    /// it signals that the impl was collected while Swift still held the proxy — a lifetime-invariant
+    /// violation. Rather than silently fabricating a return value (Defect G's data-corruption failure
+    /// mode), we trip the loud backstop <see cref="System.Environment.FailFast(string)"/>, which is
+    /// <c>[DoesNotReturn]</c> so the downstream body sees <c>impl</c> as non-null.
+    /// <paramref name="memberDescription"/> names the protocol member for the crash diagnostic.
+    /// </summary>
+    private static void EmitResolveImplOrFailFast(CSharpWriter writer, string interfaceName,
+        ProtocolDecl protocolDecl, string memberDescription)
+    {
+        writer.WriteLine($"var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle);");
+        writer.WriteLine("if (impl is null)");
+        writer.Indent++;
+        writer.WriteLine($"global::System.Environment.FailFast(\"Swift reverse-dispatch on {protocolDecl.Name}.{memberDescription} resolved no live C# implementation for EveryProtocol handle 0x\" + handle.ToString(\"X\") + \". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).\");");
+        writer.Indent--;
+    }
+
+    /// <summary>
     /// Emits a try-lookup block for one interface in a sibling-property getter receiver.
     /// On lookup hit, materialises the property value, applies any conversion, and returns
     /// via the appropriate marshalling helper. On miss, falls through to the next sibling.
@@ -2154,13 +2116,8 @@ public partial class ProtocolProxyEmitter
     private static void EmitGetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
         string pascalPropertyName, string? getterConversion, bool isStringReturn)
     {
-        var proxyVar = $"proxy_{slug}";
         var implVar = $"impl_{slug}";
-        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
-        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
         writer.WriteLine("{");
         writer.Indent++;
         writer.WriteLine($"var result = {implVar}.{pascalPropertyName};");
@@ -2177,8 +2134,6 @@ public partial class ProtocolProxyEmitter
         }
         writer.Indent--;
         writer.WriteLine("}");
-        writer.Indent--;
-        writer.WriteLine("}");
     }
 
     /// <summary>
@@ -2192,13 +2147,8 @@ public partial class ProtocolProxyEmitter
     private static void EmitMethodLookupHit(CSharpWriter writer, string interfaceName, string slug,
         string pascalMethodName, string argsString, bool hasReturn, bool isStringReturn, string? returnConv)
     {
-        var proxyVar = $"proxy_{slug}";
         var implVar = $"impl_{slug}";
-        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
-        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
         writer.WriteLine("{");
         writer.Indent++;
         if (hasReturn)
@@ -2225,8 +2175,6 @@ public partial class ProtocolProxyEmitter
         }
         writer.Indent--;
         writer.WriteLine("}");
-        writer.Indent--;
-        writer.WriteLine("}");
     }
 
     /// <summary>
@@ -2238,19 +2186,12 @@ public partial class ProtocolProxyEmitter
     private static void EmitSetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
         string pascalPropertyName, string assignmentExpr)
     {
-        var proxyVar = $"proxy_{slug}";
         var implVar = $"impl_{slug}";
-        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
-        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
         writer.WriteLine("{");
         writer.Indent++;
         writer.WriteLine($"{implVar}.{pascalPropertyName} = {assignmentExpr};");
         writer.WriteLine("return;");
-        writer.Indent--;
-        writer.WriteLine("}");
         writer.Indent--;
         writer.WriteLine("}");
     }
@@ -2318,18 +2259,11 @@ public partial class ProtocolProxyEmitter
     private void EmitClosureSetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
         bool isOptional, string pascalPropertyName, string delegateType, string invokerClassName)
     {
-        var proxyVar = $"proxy_{slug}";
         var implVar = $"impl_{slug}";
-        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
-        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
         writer.WriteLine("{");
         writer.Indent++;
         EmitClosureSetterBody(writer, isOptional, pascalPropertyName, delegateType, invokerClassName, implVar);
-        writer.Indent--;
-        writer.WriteLine("}");
         writer.Indent--;
         writer.WriteLine("}");
     }
@@ -2364,19 +2298,12 @@ public partial class ProtocolProxyEmitter
     private void EmitClosureGetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
         string pascalPropertyName, string nullableDelegateType, string getterThunkName)
     {
-        var proxyVar = $"proxy_{slug}";
         var implVar = $"impl_{slug}";
-        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
-        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
         writer.WriteLine("{");
         writer.Indent++;
         EmitClosureGetterBody(writer, pascalPropertyName, nullableDelegateType, getterThunkName, implVar);
         writer.WriteLine("return buf;");
-        writer.Indent--;
-        writer.WriteLine("}");
         writer.Indent--;
         writer.WriteLine("}");
     }

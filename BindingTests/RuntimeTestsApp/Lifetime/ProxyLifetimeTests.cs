@@ -12,12 +12,15 @@ namespace RuntimeTestsApp.Lifetime;
 ///
 /// <para>
 /// These tests verify that auto-wrapped protocol proxies are unregistered
-/// from <see cref="SwiftObjectRegistry"/> when EITHER the user's impl is
-/// garbage-collected OR Swift releases its last reference to the existential
-/// container, whichever comes first. In practice: impl GC triggers the
-/// release chain via <c>ProxyLifetimeTracker</c> → <c>Arc.Release</c> →
-/// Swift <c>EveryProtocol.deinit</c> → <c>OnEveryProtocolDeinit</c> → strong
-/// registry cleanup.
+/// from <see cref="SwiftObjectRegistry"/> once the proxy is collected and its
+/// construction +1 (R0) is released, driving Swift's last reference to zero.
+/// Under Design B2 the proxy is registered WEAKLY, so once the consumer drops
+/// it the chain is: proxy collected → finalizer → <c>ProxyLifetimeTracker</c>
+/// <c>.ReleaseHandle</c> → <c>SwiftReleaseTrampoline.Release</c> → Swift
+/// <c>EveryProtocol.deinit</c> → <c>OnEveryProtocolDeinit</c> → weak-registry
+/// <c>Unregister</c> + impl-root <c>GCHandle</c> free. (When Swift strongly
+/// retains the existential instead, that retain — not the proxy — keeps the
+/// chain alive; see <c>TestStrongSwiftRetainSurvivesImplGc</c>.)
 /// </para>
 ///
 /// <para>
@@ -28,7 +31,7 @@ namespace RuntimeTestsApp.Lifetime;
 /// hasn't yet reused the stack slot that held the pointer). The original
 /// auto-wrap leak was <b>unbounded</b> — every assignment leaked one proxy
 /// forever. The new design bounds leaks to live impls. These tests prove
-/// boundedness: after N assignments, <see cref="SwiftObjectRegistry.StrongCount"/>
+/// boundedness: after N assignments, the weak <see cref="SwiftObjectRegistry.Count"/>
 /// returns to within a small constant of baseline — NOT the exact baseline.
 /// With the original (broken) code, N iterations leak N proxies; with the
 /// fix, N iterations leak at most ~2 (the conservative-scan noise floor).
@@ -70,10 +73,12 @@ public class ProxyLifetimeTests : TestBase
     // Layer C — lifetime harness: exercises proxy cleanup through GC finalization.
 
     /// <summary>
-    /// Number of GC cycles to run before asserting — ProxyCleanup's finalizer
-    /// + Swift's deinit fires in two distinct GC passes (first collects the
-    /// impl and the tracker's CWT entry, second collects the proxy after
-    /// its strong-registry root drops from the deinit callback).
+    /// Number of GC cycles to run before asserting. The cleanup spans more than
+    /// one pass: a pass collects the weakly-registered proxy and queues its
+    /// finalizer; the finalizer releases R0 → Swift <c>EveryProtocol.deinit</c> →
+    /// <c>OnEveryProtocolDeinit</c> frees the impl-root <c>GCHandle</c> and
+    /// unregisters the entry; a later pass then collects the now-unrooted impl.
+    /// Several cycles give that chain room to drain on the conservative Mono GC.
     /// </summary>
     private const int GcCycles = 6;
 
@@ -126,15 +131,76 @@ public class ProxyLifetimeTests : TestBase
         }
     }
 
+    /// <summary>
+    /// Asserts the per-iteration leak is within the conservative-scan noise floor,
+    /// measured against the WEAK <see cref="SwiftObjectRegistry.Count"/>.
+    ///
+    /// <para>
+    /// Design B2 registers every auto-wrapped C#-impl proxy <b>weakly</b>
+    /// (<c>SwiftObjectRegistry.Register</c>, never <c>RegisterStrong</c>), so
+    /// <see cref="SwiftObjectRegistry.StrongCount"/> is structurally 0 for these
+    /// objects and is blind to their lifecycle — it would stay at baseline even
+    /// under a catastrophic R0 leak. The weak <c>Count</c> is the faithful signal:
+    /// the registry entry is added in the proxy ctor (alongside the tracker's
+    /// impl-root <c>GCHandle</c>) and removed in the one
+    /// <c>OnEveryProtocolDeinitCore</c> callback (which also frees that root), so
+    /// <c>Count</c> moves in lockstep with the tracker root and returns to baseline
+    /// iff every R0→deinit→Unregister chain completed. A leaked iteration leaves a
+    /// lingering entry, so <c>Count</c> grows by the leak count.
+    /// </para>
+    /// </summary>
     private void AssertBoundedLeak(int baseline, string scenarioDescription)
     {
-        var current = SwiftObjectRegistry.StrongCount;
+        var current = SwiftObjectRegistry.Count;
         var leaked = current - baseline;
         TestLogger.Info($"[ProxyLifetime] {scenarioDescription}: baseline={baseline}, current={current}, leaked={leaked}");
         AssertTrue(
             leaked <= MaxResidualLeak,
-            $"{scenarioDescription}: StrongCount leaked {leaked} > tolerance {MaxResidualLeak} (baseline={baseline}, current={current}). " +
+            $"{scenarioDescription}: weak-registry Count leaked {leaked} > tolerance {MaxResidualLeak} (baseline={baseline}, current={current}). " +
             "The impl-anchored tracker / Swift deinit chain is not releasing proxies.");
+    }
+
+    /// <summary>
+    /// Demonstrates that the leak signal used by <see cref="AssertBoundedLeak"/>
+    /// actually has teeth — guarding against a repeat of the superseded
+    /// <c>StrongCount</c> signal, which was structurally 0 for these weakly
+    /// registered proxies and so could never observe a leak. The weak
+    /// <see cref="SwiftObjectRegistry.Count"/> must rise by exactly one per LIVE
+    /// auto-wrapped proxy (proving a real per-iteration leak WOULD surface as a
+    /// growing Count), then return to baseline once every proxy is cleaned up.
+    /// Without this, a <c>leaked=0</c> reading in the bulk scenarios is ambiguous:
+    /// it cannot distinguish "cleanup works" from "the signal is dead".
+    /// </summary>
+    public void TestWeakRegistryCountTracksLiveProxies()
+    {
+        ForceGc();
+        var baseline = SwiftObjectRegistry.Count;
+
+        const int liveCount = 8;
+        var harnesses = new ProxyLifetimeHarness?[liveCount];
+        for (int i = 0; i < liveCount; i++)
+        {
+            var harness = new ProxyLifetimeHarness();
+            // The strong Swift `receiver` slot retains the auto-wrapped proxy's
+            // EveryProtocol, so its weak-registry entry persists for as long as
+            // `harness` is reachable — the same shape a leaked iteration takes.
+            harness.Receiver = new PingReceiverImpl();
+            harnesses[i] = harness;
+        }
+
+        // Teeth: each live proxy is exactly one weak-registry entry. If this
+        // stayed at baseline, the signal would be blind to leaks (the old bug).
+        AssertEqual(baseline + liveCount, SwiftObjectRegistry.Count,
+            "Weak Count must rise by one per live auto-wrapped proxy — else the leak signal is hollow");
+
+        // Drop every strong reference; the R0 -> deinit -> Unregister chain must run.
+        for (int i = 0; i < liveCount; i++)
+            harnesses[i] = null;
+        ForceGc();
+
+        var after = SwiftObjectRegistry.Count;
+        AssertTrue(after - baseline <= MaxResidualLeak,
+            $"Weak Count must return to baseline after the proxies are cleaned up (baseline={baseline}, after={after})");
     }
 
     /// <summary>
@@ -144,14 +210,14 @@ public class ProxyLifetimeTests : TestBase
     ///
     /// <para>
     /// Pre-fix behaviour: each call leaked one proxy forever, so after N
-    /// iterations <c>StrongCount</c> would be <c>baseline + N</c>.
-    /// Post-fix: <c>StrongCount</c> should be within <see cref="MaxResidualLeak"/>
+    /// iterations the weak-registry <c>Count</c> would be <c>baseline + N</c>.
+    /// Post-fix: <c>Count</c> should be within <see cref="MaxResidualLeak"/>
     /// of baseline.
     /// </para>
     /// </summary>
     public void TestOneShotMethodParameterReleasesAfterImplGc()
     {
-        var baseline = SwiftObjectRegistry.StrongCount;
+        var baseline = SwiftObjectRegistry.Count;
 
         for (int i = 0; i < BulkIterations; i++)
             FireOneShot();
@@ -179,7 +245,7 @@ public class ProxyLifetimeTests : TestBase
     /// </summary>
     public void TestDelegateSetThenClearReleasesProxy()
     {
-        var baseline = SwiftObjectRegistry.StrongCount;
+        var baseline = SwiftObjectRegistry.Count;
 
         for (int i = 0; i < BulkIterations; i++)
             AssignAndClear();
@@ -206,7 +272,7 @@ public class ProxyLifetimeTests : TestBase
     /// </summary>
     public void TestOverwriteThenClearReleasesBothProxies()
     {
-        var baseline = SwiftObjectRegistry.StrongCount;
+        var baseline = SwiftObjectRegistry.Count;
 
         for (int i = 0; i < BulkIterations; i++)
             AssignOverwriteClear();
@@ -239,7 +305,7 @@ public class ProxyLifetimeTests : TestBase
     /// </summary>
     public void TestCacheReuseAfterDeinitRebuilds()
     {
-        var baseline = SwiftObjectRegistry.StrongCount;
+        var baseline = SwiftObjectRegistry.Count;
 
         for (int i = 0; i < BulkIterations; i++)
             CacheRebuildRound();
@@ -275,7 +341,7 @@ public class ProxyLifetimeTests : TestBase
     /// </summary>
     public void TestCrossThreadFinalReleaseFromSwift()
     {
-        var baseline = SwiftObjectRegistry.StrongCount;
+        var baseline = SwiftObjectRegistry.Count;
 
         // Bulk-iterate so conservative-scan noise doesn't mask a
         // per-iteration leak.
@@ -302,33 +368,53 @@ public class ProxyLifetimeTests : TestBase
     }
 
     /// <summary>
-    /// Regression: impl is GC'd while Swift still holds a STRONG retain on
-    /// the proxy. The tracker releases our +1 (via the cleanup
-    /// finalizer) but Swift's strong retain keeps the EveryProtocol alive,
-    /// so <see cref="ProxyLifetimeTracker.OnEveryProtocolDeinit"/> never
-    /// fires and <see cref="SwiftObjectRegistry.TryGetProxyFromContainer"/>
-    /// still returns the proxy. Swift calls a method on the proxy — the
-    /// weak <c>_csharpImpl</c> unwrap returns null. Pre-fix the generated
-    /// receiver did <c>proxy._csharpImpl!.Method(...)</c> and threw
-    /// NullReferenceException across the <c>[UnmanagedCallersOnly]</c>
-    /// boundary, terminating the process. Post-fix the receiver returns a
-    /// safe default (void return = no-op, value returns = zeroed buffer).
+    /// Defect G / Design B2 invariant: the C# impl is rooted by <b>Swift
+    /// liveness</b>, so it survives GC for exactly as long as Swift holds the
+    /// EveryProtocol — and reverse dispatch therefore resolves the <i>live</i>
+    /// impl rather than fabricating a value.
+    ///
+    /// <para>
+    /// The test drops every managed reference to the impl while Swift still
+    /// strongly retains the proxy (the <c>strongDelegate</c> slot), then forces
+    /// GC. Under B2 the proxy is registered only <i>weakly</i> in
+    /// <see cref="SwiftObjectRegistry"/> (so it can be collected), but
+    /// <see cref="ProxyLifetimeTracker"/> holds a <b>strong GCHandle</b> on the
+    /// impl keyed by the EveryProtocol handle, freed only when Swift's deinit
+    /// fires. Because Swift's <c>strongDelegate</c> keeps the EveryProtocol
+    /// alive, that root is still allocated after GC, so the impl is NOT
+    /// collected. <see cref="AutoWrappedMonitor.FireStrong"/> then dispatches
+    /// through the witness table, the receiver resolves the live impl via
+    /// <see cref="ProxyLifetimeTracker.ResolveImpl{T}"/>, and the C# method
+    /// actually runs.
+    /// </para>
+    ///
+    /// <para>
+    /// Pre-B2 (the inverted-lifetime defect) the impl was held only weakly, so
+    /// this GC collected it and the receiver either crashed across the
+    /// <c>[UnmanagedCallersOnly]</c> boundary (NullReferenceException) or
+    /// silently fabricated a default — neither of which runs the real callback.
+    /// The assertion that the impl's <c>MonitorDidUpdate</c> actually executed
+    /// (via the static observed-call counter) is what distinguishes B2's
+    /// "rooted + resolved" from the old "collected + fabricated".
+    /// </para>
     ///
     /// <para>
     /// Uses <see cref="AutoWrappedMonitor.AutoWrappedMonitor(Swift.Runtime.IAutoWrappedMonitorDelegate)"/>
     /// (the <c>init(initialDelegate:)</c> constructor), which stores the
     /// delegate in both the <c>weak delegate</c> AND the
-    /// <c>strong strongDelegate</c> property — so Swift's strong retain
-    /// outlives the tracker's +1 release and the monitor's
-    /// <see cref="AutoWrappedMonitor.FireStrong"/> path dispatches directly
-    /// into the (now-dead) proxy without going through a nullable check on
-    /// the Swift side.
+    /// <c>strong strongDelegate</c> property — so Swift's strong retain anchors
+    /// the EveryProtocol (and thus the impl GCHandle root) past the GC cycle.
     /// </para>
     /// </summary>
     public void TestStrongSwiftRetainSurvivesImplGc()
     {
+        // Reset the cross-frame observation counter: the impl is intentionally
+        // unreachable from this frame (so it CAN be collected if B2 is broken),
+        // so we observe its callback through a static rather than a live ref.
+        AutoWrappedDelegateImplForLifetime.ResetObservation();
+
         // Create the monitor outside the helper so it stays rooted past the
-        // GC cycle — only the impl must become collectible.
+        // GC cycle — only the impl is dropped.
         AutoWrappedMonitor monitor = null!;
         try
         {
@@ -336,22 +422,31 @@ public class ProxyLifetimeTests : TestBase
 
             ForceGc();
 
-            // Swift still strongly retains the proxy (strongDelegate slot).
-            // The receiver must survive the impl-GC and return a safe default.
-            // Pre-fix: this line terminates the process with a NullReferenceException
-            // that propagates across the [UnmanagedCallersOnly] boundary.
-            // Post-fix: the receiver's null-impl guard silently no-ops and
-            // lastNotifiedSlot remains 0 because the delegate method is not actually called.
+            // Swift still strongly retains the proxy (strongDelegate slot), so
+            // the impl GCHandle root is still allocated and the impl survived GC.
+            // Pre-B2 this line crashed (collected impl → NRE across the
+            // [UnmanagedCallersOnly] boundary) or no-opped a fabricated default.
             monitor.FireStrong();
 
-            // Survival assertion: we got here without the process being
-            // terminated. The monitor's counter still increments (that is a
-            // Swift-side side effect, independent of the delegate callback).
-            AssertTrue(monitor.LastFiredValue >= 1, "Monitor counter still increments even with dead impl");
+            // Swift sets lastNotifiedSlot = 2 immediately before dispatching the
+            // strong slot — necessary but NOT sufficient (it was 2 pre-B2 too).
+            AssertEqual(2, monitor.LastNotifiedSlot, "FireStrong dispatched the strong slot");
+
+            // The decisive B2 assertion: the LIVE impl actually serviced the
+            // reverse call. ResolveImpl returned the Swift-rooted impl rather
+            // than the loud backstop firing or a value being fabricated.
+            AssertTrue(
+                AutoWrappedDelegateImplForLifetime.ObservedCallCount >= 1,
+                "B2: impl rooted by Swift liveness survived GC and actually serviced the reverse call " +
+                $"(observed {AutoWrappedDelegateImplForLifetime.ObservedCallCount} calls)");
+            AssertEqual(
+                monitor.LastFiredValue, AutoWrappedDelegateImplForLifetime.LastObservedValue,
+                "the live impl received the same counter value Swift dispatched");
 
             TestLogger.Info(
-                $"[ProxyLifetime] Strong Swift retain + dead impl survived: " +
-                $"counter={monitor.LastFiredValue}, lastNotifiedSlot={monitor.LastNotifiedSlot}");
+                $"[ProxyLifetime] Strong Swift retain kept impl alive for dispatch: " +
+                $"counter={monitor.LastFiredValue}, lastNotifiedSlot={monitor.LastNotifiedSlot}, " +
+                $"observedCalls={AutoWrappedDelegateImplForLifetime.ObservedCallCount}");
         }
         finally
         {
@@ -436,12 +531,26 @@ internal class PingReceiverImpl : IProxyLifetimeReceiver
 /// </summary>
 internal class AutoWrappedDelegateImplForLifetime : IAutoWrappedMonitorDelegate
 {
+    // Cross-frame observation: the lifetime test deliberately holds NO managed
+    // reference to the impl, so it observes whether the reverse call actually ran
+    // through these statics rather than through a live instance reference.
+    internal static int ObservedCallCount;
+    internal static int LastObservedValue;
+
+    internal static void ResetObservation()
+    {
+        ObservedCallCount = 0;
+        LastObservedValue = 0;
+    }
+
     public void MonitorDidUpdate(int value)
     {
-        // Intentionally empty. If this method ever runs after GC, the
-        // regression-guard test will have caught a Swift-to-dead-impl
-        // dispatch and the test body's assertions will confirm the
-        // fallback path (not this method) serviced the call.
+        // Under B2 this MUST run after GC: the impl is rooted by Swift liveness,
+        // so reverse dispatch resolves the live impl. Pre-B2 the impl was
+        // collected and this never ran (the receiver crashed or fabricated a
+        // default) — the static counter is how the test tells the two apart.
+        ObservedCallCount++;
+        LastObservedValue = value;
     }
 }
 

@@ -23,8 +23,21 @@ public static class SwiftSourceStripper
     {
         "HasValue", "ExistentialParamDelegate",
         "ProcessingMode",
+        // Defect C reverse-dispatch gate: OptionalFirstDelegate declares an
+        // `@objc optional` member BEFORE its required member. RecordingFirstConformer
+        // (C#) is passed to Swift `invokeFireRequired`, which dispatches the required
+        // member back through the EveryProtocol/EveryObjCProtocol vtable slot 0. The
+        // conformance and its witness-table getter must survive stripping or the
+        // existential-construction P/Invoke fails with EntryPointNotFoundException.
+        "OptionalFirstDelegate",
         "Describable", "TestIdentifiable", "Displayable",
         "Nameable", "Ageable", "Addable", "Subtractable", "Multipliable", "Dividable",
+        // EC2 composition owned-return reverse dispatch (CompositionArgLifetime.swift):
+        // CompositionArgLifetimeProbeTests passes a C# conformer of NameableAgeableProvider to
+        // Swift readProvidedNameableAgeable, which calls the `provided` getter back into C#
+        // (reverse dispatch). The conformance + witness-table getter must survive stripping or
+        // the existential-construction P/Invoke fails with EntryPointNotFoundException.
+        "NameableAgeableProvider",
         "Named", "Prioritized",
         "TaskDescriptor", "StringProcessor",
         "StatusHandler", "PriorityHandler",
@@ -51,6 +64,16 @@ public static class SwiftSourceStripper
         // lives in BindingTests/Sources/SwiftBindingsTestLib/Lifetime/ProxyLifetimeFixture.swift
         // and dispatches Swift→C# via a blittable ping() method.
         "ProxyLifetimeReceiver",
+        // Design B2 reverse-dispatch invariants (Defect G / Finding 33):
+        // ReverseDispatchInvariantTests exercises R1 cross-talk (a single C# class
+        // implementing two unrelated opaque protocols), R4 stored-existential value
+        // round-trip, and the Finding-33 two-module metadata path. All four protocols
+        // are reverse-dispatched (Swift→C#) so their EveryProtocol conformance + witness
+        // getters must survive stripping. ReverseStoredDelegate is class-bound; the rest
+        // are opaque (metadata-word load-bearing). DepReverseValue lives in the
+        // dependency module's strip set below.
+        "ReverseInvariantAlpha", "ReverseInvariantBeta", "ReverseStoredDelegate",
+        "DepReverseValue",
         // Vtable-slot-collision regression fixture: DataLoadingDelegate has a
         // non-dispatchable closure method (onDataLoaded with multi-arg closure) plus a
         // non-closure method (sourceIdentifier). The C# proxy struct must omit the

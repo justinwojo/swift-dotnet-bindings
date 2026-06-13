@@ -106,8 +106,12 @@ public class OptionalProjection : ITypeProjection
         // above. The two coincide for every inner reaching here EXCEPT FrozenWithMemoryProjection, whose
         // SwiftContainerGenericType is the by-value `.Buffer` struct — nonexistent for a handle-backed
         // wrapper such as SwiftClosedRange<T>.
-        var optType = $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
-        var innerConv = _innerProjection.GetParameterElementConversion(patVar);
+        // SwiftOptional has owned element semantics — its value-witness destroy runs on the .Some
+        // payload at teardown. An existential inner must therefore ride the owned (+1) carrier
+        // (matching carrier type so the slot stride agrees), not the bare borrowed leaf which would
+        // over-release the proxy's sole +1. No-op for every non-existential inner. Mirrors Array/Set.
+        var optType = $"SwiftOptional<{ExistentialElementCarrier.CarrierType(_innerProjection, _innerProjection.MarshalFromSwiftType)}>";
+        var innerConv = ExistentialElementCarrier.ParamConversion(_innerProjection, patVar);
         var skipInnerConv = innerConv != null
             && _innerProjection.SwiftContainerGenericType == _innerProjection.PublicType;
         var someArg = (skipInnerConv ? null : innerConv) ?? patVar;
@@ -132,7 +136,9 @@ public class OptionalProjection : ITypeProjection
     /// C# type for use as a generic parameter in Swift containers (enum name for enums,
     /// SwiftArray&lt;T&gt; for arrays, etc.)
     /// </summary>
-    private string OptionalTypeParam => _innerProjection.SwiftContainerGenericType;
+    // Existential inner rides the owned carrier element type (stride-correct); every other inner
+    // keeps its SwiftContainerGenericType (preserves FrozenWithMemory's by-value `.Buffer` generic).
+    private string OptionalTypeParam => ExistentialElementCarrier.CarrierType(_innerProjection, _innerProjection.SwiftContainerGenericType);
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
@@ -242,7 +248,9 @@ public class OptionalProjection : ITypeProjection
             };
         }
 
-        var innerParamConv = _innerProjection.GetParameterElementConversion($"{paramName}Value");
+        // Existential inner rides the owned (+1) carrier so the SwiftOptional store + VWT destroy
+        // balance an independent retain rather than over-releasing the proxy's sole +1; no-op otherwise.
+        var innerParamConv = ExistentialElementCarrier.ParamConversion(_innerProjection, $"{paramName}Value");
         var containerPlan = _innerProjection.GetContainerCreationPlan($"{paramName}Value");
 
         // The SwiftOptional<T> generic parameter. The container and element-conversion branches

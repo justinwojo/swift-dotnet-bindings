@@ -22,10 +22,15 @@ public protocol AutoWrappedMonitorDelegate: AnyObject {
 
 /// Monitor class with a `weak var delegate` property (exactly the reporter's shape).
 ///
-/// `weak` is the idiomatic Swift pattern but irrelevant to the bug: both `weak` and
-/// strong delegate properties flow through the same generated setter. The
-/// {Protocol}Proxy self-roots via SwiftObjectRegistry.RegisterStrong, so callbacks
-/// keep firing even though Swift only holds a weak reference.
+/// `weak` is the idiomatic Swift pattern and is irrelevant to the auto-wrap bug
+/// itself (issue #16): both `weak` and strong delegate properties flow through the
+/// same generated setter. It IS, however, load-bearing for lifetime: under Design
+/// B2 the auto-wrapped {Protocol}Proxy is registered only weakly and owns the
+/// construction +1 on its EveryProtocol, so a `weak var` store is not a lifetime
+/// anchor — once the consumer drops every strong reference, the proxy is collected,
+/// the +1 is released, and this slot zeroes. A strong `strongDelegate` store keeps
+/// the existential (and therefore reverse dispatch) alive across GC. The C# tests
+/// assert both halves of that contract via `lastNotifiedSlot`.
 public class AutoWrappedMonitor {
     public weak var delegate: AutoWrappedMonitorDelegate?
     public var strongDelegate: AutoWrappedMonitorDelegate?

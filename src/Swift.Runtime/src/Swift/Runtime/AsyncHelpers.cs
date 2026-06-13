@@ -118,13 +118,28 @@ namespace Swift.Runtime
         /// <summary>Number of witness tables in the existential (1 for EC1) — selects the existential metadata used for the destroy.</summary>
         public readonly int WitnessTableCount;
 
+        /// <summary>
+        /// The proxy that owns the borrowed container's EveryProtocol construction +1 (R0), or
+        /// <c>null</c> for an owned/boxable container (design change 4 — see
+        /// <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>). The async analog of the
+        /// synchronous <c>GC.KeepAlive</c>: because this struct is stored in the GCHandle-rooted async
+        /// holder array, holding the proxy reference here keeps it (and therefore R0) alive across the
+        /// Swift suspension, so an otherwise-unrooted auto-wrapped proxy cannot be finalized — and
+        /// release R0 — while the continuation is still reading the <c>@in_guaranteed</c> buffer.
+        /// </summary>
+        public readonly object? KeepAlive;
+
         public ExistentialContainerHeap(IntPtr ptr) : this(ptr, false, 0) { }
 
         public ExistentialContainerHeap(IntPtr ptr, bool ownsContainer, int witnessTableCount)
+            : this(ptr, ownsContainer, witnessTableCount, null) { }
+
+        public ExistentialContainerHeap(IntPtr ptr, bool ownsContainer, int witnessTableCount, object? keepAlive)
         {
             Ptr = ptr;
             OwnsContainer = ownsContainer;
             WitnessTableCount = witnessTableCount;
+            KeepAlive = keepAlive;
         }
     }
 
