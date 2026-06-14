@@ -836,6 +836,13 @@ partial class Build
                 RunBuildBridge();
                 ReportBindingTestResults();
 
+                // Cross-artifact parity gate: diff the generated C# against the built
+                // Swift libraries (symbol existence, struct-mirror arity, vtable parity)
+                // and fail on any NEW divergence vs build/baselines/parity-baseline.json.
+                // Runs by default in --compile-only (the host where fresh artifacts exist);
+                // fail-closed unless --permissive, consistent with the wrapper-build gate.
+                RunParityGate(failClosed);
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

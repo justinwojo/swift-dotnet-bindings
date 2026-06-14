@@ -15,6 +15,15 @@
     </ProjectReference>
   </ItemGroup>
 
+  <!-- Link-compile the parity-gate logic from the Nuke build assembly so its pure
+       parsing/diffing is unit-tested here without a project reference to _build
+       (which would drag in Nuke). The file is self-contained (BCL only, #nullable
+       enable, source-gen JSON) so it compiles cleanly under this project's
+       Nullable=disable + IsAotCompatible + warnings-as-errors. -->
+  <ItemGroup>
+    <Compile Include="../../../../build/Helpers/ArtifactParityGate.cs" Link="Parity/ArtifactParityGate.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="8.0.1">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

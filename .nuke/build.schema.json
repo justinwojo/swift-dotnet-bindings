@@ -42,6 +42,7 @@
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
         "RuntimeUnitTests",
+        "SeedParityBaseline",
         "SeedSkipSurfaceBaseline",
         "SmokeTest",
         "Test",
