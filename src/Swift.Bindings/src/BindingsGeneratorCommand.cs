@@ -45,6 +45,7 @@ public static class BindingsGeneratorCommand
         var namespacePattern = parseResult.GetValueForOption(options.NamespacePattern);
         var sdkMode = parseResult.GetValueForOption(options.SdkMode);
         var packageId = parseResult.GetValueForOption(options.PackageId);
+        var assemblyNameOverride = parseResult.GetValueForOption(options.AssemblyName);
         var swiftRuntimeVersion = parseResult.GetValueForOption(options.SwiftRuntimeVersion);
         var wrapperArchitectures = parseResult.GetValueForOption(options.WrapperArchitectures);
         var targetArchitectures = parseResult.GetValueForOption(options.TargetArchitectures);
@@ -675,7 +676,7 @@ public static class BindingsGeneratorCommand
 
         var depModuleNames = GetDependencyModuleNamesForSwiftImports(resolvedDependencies);
         var factsAggregator = BuildInterfaceFactsAggregator(interfaceFactsProducer, logger);
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, factsAggregator: factsAggregator);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, factsAggregator: factsAggregator, descriptorAssemblyNameOverride: assemblyNameOverride);
         if (!success)
         {
             context.ExitCode = 1;

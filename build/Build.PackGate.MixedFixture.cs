@@ -40,6 +40,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Xml.Linq;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
@@ -389,6 +390,16 @@ partial class Build
         // (f) and the embed is NOT also (or instead) declared as a nuspec <dependency>.
         AssertNuspecHasNoCompanionDependency(extract, "PackGateMixedFixture", module, failures);
 
+        // (g) Defect J binding leg — the generic-bearing binding ships a trimmer
+        //     descriptor under buildTransitive/ named after its own assembly. This is
+        //     the hermetic host-only proof that the binding-package descriptor delivery
+        //     (not just the Runtime/Apple packages) reaches a packed consumer; the iOS
+        //     mixed-pack leg adds the NativeAOT-on-device runtime proof of the same.
+        AssertBindingDescriptorDelivered(extract, module, failures);
+
+        // (h) Finding 55 — the packable SDK-driven binding ships its doc XML in lib/.
+        AssertBindingDocFileDelivered(extract, module, failures);
+
         if (failures.Count > 0)
         {
             Log.Error("PackGate (mixed/static) FAILED — {Count} structural defect(s) in {Nupkg}:",
@@ -520,10 +531,24 @@ partial class Build
             $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n" +
             $"@implementation {probeClass}\n- (NSString *)greeting {{ return @\"{PackGateMixedObjCGreeting}\"; }}\n@end\n");
 
+        // The open-generic struct ({module}Box<T>) is the descriptor trigger: the
+        // generator records every open-generic ISwiftObject type and emits an
+        // ILLink.Descriptors.xml that roots its reflection metadata for NativeAOT
+        // (Defect J). Without a generic-bearing type the binding emits NO descriptor,
+        // so the packed-consumer-topology assertion would have nothing to check. The
+        // shape mirrors BindingTests' proven BlittableElementBuffer<T> (an
+        // unconstrained generic struct with a stored T + a T-returning method), so it
+        // generates + compiles through the minimal mixed pipeline the same way.
         var libSwift = buildRoot / "Lib.swift";
         File.WriteAllText(libSwift,
             $"public func {module}Marker() -> Int32 {{ return 1 }}\n" +
-            $"public struct {module}Value {{ public let n: Int32; public init(n: Int32) {{ self.n = n }} }}\n");
+            $"public struct {module}Value {{ public let n: Int32; public init(n: Int32) {{ self.n = n }} }}\n" +
+            $"public struct {module}Box<T> {{\n" +
+            $"    public let value: T\n" +
+            $"    public let count: Int32\n" +
+            $"    public init(value: T, count: Int32) {{ self.value = value; self.count = count }}\n" +
+            $"    public func first() -> T {{ return value }}\n" +
+            $"}}\n");
 
         return (probeM, libSwift);
     }
@@ -868,6 +893,78 @@ partial class Build
                 $"companion {companionDll} is embedded under lib/{slice}/ — expected a version-qualified {tfmInfix} TFM slice " +
                 $"(lib/net*-{tfmInfix}<version>/, e.g. lib/net10.0-{tfmInfix}26.0/) matching the Swift binding's lib/ layout. A bare " +
                 $"'net10.0-{tfmInfix}' (no platform version) or lib/ root drop is not resolvable by the consumer's TFM.");
+    }
+
+    // Defect J binding-package leg: a generic-bearing binding (the {module}Box<T>
+    // open generic in WriteMixedFrameworkSources) MUST ship a trimmer descriptor
+    // under buildTransitive/ so a NativeAOT consumer roots the generic's reflection
+    // metadata. Two failure modes this catches: (1) the descriptor is not packed at
+    // all (inert delivery — the original Defect J), and (2) it IS packed but its
+    // <assembly fullname> does not equal the assembly the generated types compile
+    // into ($(AssemblyName) == the module name in SDK mode), which makes ILLink/ILC
+    // silently skip every entry (the second Defect-J root cause). The descriptor is
+    // packed per-TFM (buildTransitive/<packtfm>/ILLink.Descriptors.xml), so glob
+    // rather than hardcode the version-qualified TFM folder.
+    static void AssertBindingDescriptorDelivered(
+        AbsolutePath extract, string expectedAssemblyName, List<string> failures)
+    {
+        var buildTransitive = extract / "buildTransitive";
+        var descriptors = Directory.Exists(buildTransitive)
+            ? Directory.EnumerateFiles(buildTransitive, "ILLink.Descriptors.xml", SearchOption.AllDirectories).ToList()
+            : new List<string>();
+        if (descriptors.Count == 0)
+        {
+            failures.Add(
+                $"generic-bearing binding nupkg ships NO buildTransitive/**/ILLink.Descriptors.xml — the open-generic " +
+                $"ISwiftObject type ({expectedAssemblyName}Box<T>) emitted a descriptor at generate time, but it was not " +
+                $"packed, so a NativeAOT consumer would never root the generic's reflection metadata (Defect J).");
+            return;
+        }
+        foreach (var descriptor in descriptors)
+        {
+            var rel = Path.GetRelativePath(extract, descriptor);
+            XDocument doc;
+            try
+            {
+                doc = XDocument.Load(descriptor);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"buildTransitive descriptor {rel} is not parseable XML: {ex.Message}");
+                continue;
+            }
+            var named = doc.Descendants("assembly")
+                .Select(a => (string?)a.Attribute("fullname"))
+                .Where(n => n is not null)
+                .ToList();
+            if (!named.Contains(expectedAssemblyName))
+                failures.Add(
+                    $"buildTransitive descriptor {rel} names assembly [{string.Join(", ", named)}] but the generated " +
+                    $"types compile into '{expectedAssemblyName}' (SDK mode: <assembly fullname> must equal $(AssemblyName)). " +
+                    $"A mismatched name makes ILLink/ILC skip every <type> entry, so the descriptor is inert (Defect J " +
+                    $"second root cause).");
+        }
+    }
+
+    // Finding 55: a packable SDK-driven binding ships its XML doc file (the generator's
+    // /// comments) next to the managed dll in lib/, so a PackageReference consumer gets
+    // IntelliSense. The file is named after the assembly ($(AssemblyName).xml == {module}.xml).
+    // This is the end-to-end proof that GenerateDocumentationFile takes effect on the SDK
+    // path: the doc-file defaulting must precede the Microsoft.NET.Sdk import so
+    // DocumentationFile is derived at evaluation time (and re-derived on a --no-build pack),
+    // otherwise the doc XML is silently never produced.
+    static void AssertBindingDocFileDelivered(AbsolutePath extract, string module, List<string> failures)
+    {
+        var lib = extract / "lib";
+        var docs = Directory.Exists(lib)
+            ? Directory.EnumerateFiles(lib, $"{module}.xml", SearchOption.AllDirectories).ToList()
+            : new List<string>();
+        if (docs.Count == 0)
+            failures.Add(
+                $"packable binding nupkg ships no lib/**/{module}.xml — GenerateDocumentationFile did not take effect, so " +
+                $"the generator's /// doc comments never travel to a PackageReference consumer (Finding 55). The SDK's " +
+                $"doc-file defaulting must precede the Microsoft.NET.Sdk import so DocumentationFile is derived at " +
+                $"evaluation time.");
     }
 
     // Asserts the consumer .targets reference the wrapper behind Exists() and the

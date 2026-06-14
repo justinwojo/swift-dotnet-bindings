@@ -466,7 +466,14 @@ namespace BindingsGeneration
                     <PackageId>{packageId}</PackageId>{versionComment}
                     <PackageVersion>{options.Metadata.PackageVersion}</PackageVersion>
                     <SupportedOSPlatformVersion>{options.Metadata.EffectiveMinimumOSVersion}</SupportedOSPlatformVersion>
-                    <NoWarn>CS0169;CS0414;CA1420</NoWarn>
+                    <!-- Emit the XML doc file so the thousands of generated /// doc comments
+                         travel with the package (NuGet auto-includes the sibling assembly-named
+                         .xml in lib/, surfacing IntelliSense for consumers). CS1591 is suppressed
+                         because doc-comment coverage of the generated surface is partial — not
+                         every public member carries one — and we will not fail the binding build
+                         over a member the generator chose not to document. -->
+                    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+                    <NoWarn>CS0169;CS0414;CA1420;CS1591</NoWarn>
                     <!-- Disable default Compile items: the generator already lists every emitted
                          .cs file explicitly below, and the SDK's wildcard would otherwise pull in
                          the same files a second time and trip NETSDK1022 ("duplicate Compile
@@ -521,6 +528,15 @@ namespace BindingsGeneration
                   <!-- NuGet pack layout -->
                   <ItemGroup>
                     <None Include="{packageId}.targets" Pack="true"
+                          PackagePath="{pi.GetBuildTransitivePath()}" />
+                    <!-- Ship the ILLink descriptor loose, adjacent to {packageId}.targets in
+                         buildTransitive/ (per-TFM), so the consumer-facing targets can root it via
+                         $(MSBuildThisFileDirectory)ILLink.Descriptors.xml for a downstream
+                         PackageReference consumer's NativeAOT publish. ILC does not auto-discover
+                         the EmbeddedResource copy from a referenced assembly. Exists()-guarded so
+                         it no-ops when the module emitted no open generics (no descriptor). -->
+                    <None Include="{TrimmerDescriptorEmitter.FileName}" Pack="true"
+                          Condition="Exists('{TrimmerDescriptorEmitter.FileName}')"
                           PackagePath="{pi.GetBuildTransitivePath()}" />{(emitSourceXcfw ? $"""
 
                     <None Include="{packSourceXcfwRelative}/**" Pack="true"

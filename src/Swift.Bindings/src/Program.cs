@@ -49,7 +49,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -547,15 +547,28 @@ namespace BindingsGeneration
                 // Swift.SwiftArray`1; this is the per-module counterpart. The descriptor
                 // is load-bearing alongside the cctor pattern for NativeAOT trimming.
                 //
-                // The assembly fullname must match the produced assembly's short name. The csproj
-                // emitted by BindingProjectEmitter does not set <AssemblyName> explicitly, so the
-                // assembly name defaults to MSBuildProjectName = the packageId. Wildcard fullname
-                // would over-match across the trimmed closed-world; resolving the exact name keeps
-                // the descriptor scoped to this binding's assembly. When no platform was threaded
-                // in (e.g., unit-test paths that don't ship a binding), fall back to iOS so the
-                // descriptor still writes a coherent file rather than silently dropping the gate.
+                // The assembly fullname MUST exactly equal the .NET assembly the generated types
+                // actually compile into, or ILC matches nothing and the descriptor is inert. Two
+                // production modes resolve that assembly differently:
+                //   • CLI/pack mode: BindingProjectEmitter writes "{packageId}.csproj" with no
+                //     explicit <AssemblyName>, so the assembly name defaults to MSBuildProjectName
+                //     = the packageId = GetDefaultSwiftPackageId(moduleName). The module-derived
+                //     default below is therefore correct and no override is passed.
+                //   • SDK mode (pack and SDK-direct): the SDK compiles the generated .cs into the
+                //     *consuming* project's own assembly via _IncludeGeneratedSwiftBindings, whose
+                //     name is $(AssemblyName) — unrelated to the module. The SDK passes that name
+                //     through --assembly-name (descriptorAssemblyNameOverride); without it the
+                //     descriptor would name "{Module}.Swift.iOS" while the types live in e.g. the
+                //     app's own assembly, rooting nothing on device.
+                // Wildcard fullname would over-match across the trimmed closed-world; resolving the
+                // exact name keeps the descriptor scoped to this binding's assembly. When no
+                // platform was threaded in (e.g., unit-test paths that don't ship a binding), fall
+                // back to iOS so the descriptor still writes a coherent file rather than silently
+                // dropping the gate.
                 var descriptorPlatform = PlatformInfoFactory.Create(platform ?? ApplePlatform.iOS);
-                var descriptorAssemblyName = descriptorPlatform.GetDefaultSwiftPackageId(moduleName);
+                var descriptorAssemblyName = string.IsNullOrEmpty(descriptorAssemblyNameOverride)
+                    ? descriptorPlatform.GetDefaultSwiftPackageId(moduleName)
+                    : descriptorAssemblyNameOverride;
                 TrimmerDescriptorEmitter.Emit(emissionContext, outputDirectory, descriptorAssemblyName, logger);
 
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)

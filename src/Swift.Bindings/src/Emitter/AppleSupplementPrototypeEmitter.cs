@@ -213,7 +213,7 @@ public static class AppleSupplementPrototypeEmitter
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <!-- Prototype project for SwiftBindings.Apple. Emitted by the generator on demand
-                     when --apple-supplement-prototype-dir is passed. Swappable for a
+                     when the apple-supplement-prototype-dir option is passed. Swappable for a
                      PackageReference to SwiftBindings.Apple — assembly name, root namespace, and
                      emitted .cs contents all match the canonical package. -->
                 <TargetFramework>{tfm}</TargetFramework>

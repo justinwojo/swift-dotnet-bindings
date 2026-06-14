@@ -209,6 +209,24 @@ namespace BindingsGeneration
                 {wrapperNativeRef}{bridgeNativeRef}{resourceBundleItems}    </ItemGroup>
                   </Target>
 
+                  <!-- NativeAOT trimmer-descriptor delivery (PackageReference consumers, ILC/PublishAot
+                       path ONLY). The descriptor is packed loose beside this file in buildTransitive/
+                       (per-TFM), so $(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}
+                       resolves on the consumer. The IL trimmer (PublishTrimmed without AOT) auto-
+                       discovers the descriptor embedded as an EmbeddedResource in the binding assembly,
+                       so that path needs nothing here. ILC does NOT auto-discover embedded descriptors
+                       from a referenced assembly, so root the loose copy via an IlcArg descriptor entry,
+                       plus a TrimmerRootDescriptor for the IL-trimmer sub-pass ILC runs internally. Both
+                       are gated on PublishAot; under pure PublishTrimmed the embedded resource covers it.
+                       The descriptor is a static package file that exists at the consumer's evaluation
+                       time, so a top-level ItemGroup is correct here (unlike the ProjectReference path,
+                       where the descriptor is generated late). Exists()-guarded so a binding with no open
+                       generics — hence no descriptor packed — no-ops cleanly. -->
+                  <ItemGroup Condition="'$(PublishAot)' == 'true' AND Exists('$(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}')">
+                    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}" />
+                    <IlcArg Include="--descriptor:$(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}" />
+                  </ItemGroup>
+
                   <!-- SwiftBindingFramework registration for downstream tooling -->
                   <ItemGroup>
                     <SwiftBindingFramework Include="{options.ModuleName}">
@@ -371,6 +389,24 @@ namespace BindingsGeneration
                   </Target>
                 """;
 
+            // NativeAOT trimmer-descriptor delivery for ProjectReference (path c) consumers.
+            // Unlike the packed {PackageId}.targets, the descriptor here is GENERATED into the
+            // generator output dir next to this file and does NOT exist at the consumer's outer
+            // evaluation on a clean build — the referenced binding project has not generated it
+            // yet. So the roots live INSIDE the deferred _ResolveLocal{sanitized}NativeReferences
+            // target (DependsOnTargets="ResolveProjectReferences"), where Exists() re-evaluates
+            // after the binding builds — exactly the reason the native references are in a target
+            // rather than a static ItemGroup. Per-item PublishAot + Exists guards keep them inert
+            // for non-AOT builds and for bindings with no open generics. When the consuming app
+            // imports this file, these inject into the app's own ILC item collection.
+            var descriptorRootsPR = $"""
+
+                      <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}"
+                                             Condition="'$(PublishAot)' == 'true' AND Exists('$(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}')" />
+                      <IlcArg Include="--descriptor:$(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}"
+                              Condition="'$(PublishAot)' == 'true' AND Exists('$(MSBuildThisFileDirectory){TrimmerDescriptorEmitter.FileName}')" />
+                """;
+
             var content = $"""
                 <Project>
                   <!-- ProjectReference consumer targets for {options.PackageId}.
@@ -393,7 +429,8 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>
-                {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}{localResourceBundleItems}    </ItemGroup>
+                {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}{localResourceBundleItems}{descriptorRootsPR}
+                    </ItemGroup>
                   </Target>
                 {companionReferenceTarget}
                 </Project>

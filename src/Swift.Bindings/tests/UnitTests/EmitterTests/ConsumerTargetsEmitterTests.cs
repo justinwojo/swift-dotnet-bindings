@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -1005,6 +1006,163 @@ namespace BindingsGeneration.Tests
         }
 
         private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+    }
+
+    #endregion
+
+    #region I. NativeAOT Trimmer-Descriptor Delivery (Defect J)
+
+    /// <summary>
+    /// Defect J: a binding package that emits an open-generic ISwiftObject ships
+    /// <c>ILLink.Descriptors.xml</c>, but ILC does NOT auto-discover a descriptor embedded in
+    /// a referenced assembly — it must be rooted explicitly on the consumer. So the consumer
+    /// <c>.targets</c> (packed in buildTransitive/, imported by a downstream PackageReference)
+    /// must root the loose descriptor packed beside it via BOTH <c>TrimmerRootDescriptor</c>
+    /// (the IL-trimmer path) and <c>IlcArg --descriptor</c> (the NativeAOT/ILC path), gated on
+    /// PublishAot and Exists() so non-AOT builds and descriptor-less bindings no-op. The
+    /// .ProjectReference.targets (local path-c consumers) must do the same, but from INSIDE
+    /// the deferred resolve target because the descriptor is generated late.
+    /// </summary>
+    public class ConsumerTargetsDescriptorDeliveryTests
+    {
+        [Fact]
+        public void Emit_NupkgTargets_RootsDescriptorForNativeAot()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
+                // Both rooting mechanisms must be present — TrimmerRootDescriptor alone does
+                // nothing under NativeAOT (it is the PublishTrimmed-without-AOT path); IlcArg
+                // --descriptor is what ILC actually reads.
+                Assert.Contains(
+                    "<TrimmerRootDescriptor Include=\"$(MSBuildThisFileDirectory)ILLink.Descriptors.xml\" />",
+                    content);
+                Assert.Contains(
+                    "<IlcArg Include=\"--descriptor:$(MSBuildThisFileDirectory)ILLink.Descriptors.xml\" />",
+                    content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NupkgTargets_DescriptorRootsGatedOnPublishAotAndExists()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
+                // A binding with no open generics packs no descriptor, and a non-AOT consumer
+                // has no ILC item collection — both must no-op. The ItemGroup carries the
+                // PublishAot + Exists guard so the rooting is inert in those cases.
+                Assert.Contains(
+                    "<ItemGroup Condition=\"'$(PublishAot)' == 'true' AND Exists('$(MSBuildThisFileDirectory)ILLink.Descriptors.xml')\">",
+                    content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ProjectReferenceTargets_RootsDescriptorInsideDeferredResolveTarget()
+        {
+            // Path c (local ProjectReference): the descriptor is GENERATED next to this file by
+            // the referenced binding build and does NOT exist at the consumer's outer evaluation
+            // on a clean build. So the roots must live INSIDE the deferred
+            // _ResolveLocal{sanitized}NativeReferences target (which DependsOn ResolveProjectReferences),
+            // where Exists() re-evaluates after the binding builds — NOT in a static top-level
+            // ItemGroup that would evaluate Exists() too early and drop the descriptor.
+            var dir = CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                }, NullLogger.Instance);
+
+                var prContent = File.ReadAllText(
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
+
+                Assert.Contains(
+                    "<TrimmerRootDescriptor Include=\"$(MSBuildThisFileDirectory)ILLink.Descriptors.xml\"",
+                    prContent);
+                Assert.Contains(
+                    "<IlcArg Include=\"--descriptor:$(MSBuildThisFileDirectory)ILLink.Descriptors.xml\"",
+                    prContent);
+                // Each item carries its own per-item PublishAot + Exists guard (an ItemGroup-level
+                // Condition can't be used inside a Target that also injects unconditional native refs).
+                Assert.Contains(
+                    "Condition=\"'$(PublishAot)' == 'true' AND Exists('$(MSBuildThisFileDirectory)ILLink.Descriptors.xml')\"",
+                    prContent);
+
+                // Structural: the descriptor roots must sit INSIDE the deferred resolve target,
+                // not before it. Assert the roots appear after the target's opening tag.
+                var targetIdx = prContent.IndexOf(
+                    "_ResolveLocalImagePipelineNativeReferences", StringComparison.Ordinal);
+                var rootIdx = prContent.IndexOf("--descriptor:$(MSBuildThisFileDirectory)", StringComparison.Ordinal);
+                Assert.True(targetIdx >= 0 && rootIdx > targetIdx,
+                    "descriptor roots must be emitted inside the deferred resolve target");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+        private static string EmitAndRead(string dir, string module, string packageId, string minOS, bool hasWrapper)
+            => ConsumerTargetsTestHelper.EmitAndRead(dir, module, packageId, minOS, hasWrapper);
+    }
+
+    #endregion
+
+    #region H. Emitted-targets XML well-formedness (--in-comment guard)
+
+    /// <summary>
+    /// Both emitted consumer-targets files are imported by a downstream consumer's build,
+    /// so any malformed XML in them breaks every consumer with MSB4024. The recurring hazard
+    /// is a CLI-flag token (e.g. "--descriptor") written into an XML COMMENT: a "--" inside
+    /// "&lt;!-- ... --&gt;" is illegal per the XML spec. XDocument.Parse throws on such a defect,
+    /// so parsing the emitted output across the wrapper/bridge matrix locks the class out at the
+    /// emitter unit layer — far earlier than the PackGate consumer build that would otherwise
+    /// be the first to surface it.
+    /// </summary>
+    public class ConsumerTargetsWellFormednessTests
+    {
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        [InlineData(true, true)]
+        public void EmittedTargets_AreWellFormedXml(bool hasWrapper, bool hasBridge)
+        {
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = hasWrapper,
+                    HasBridgeXCFramework = hasBridge,
+                }, NullLogger.Instance);
+
+                // The PackageReference-path targets (carries the descriptor-delivery comment).
+                AssertWellFormed(Path.Combine(dir, "ImagePipeline.Swift.iOS.targets"));
+                // The ProjectReference-path targets.
+                AssertWellFormed(Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static void AssertWellFormed(string path)
+        {
+            Assert.True(File.Exists(path), $"emitter did not produce {path}");
+            var ex = Record.Exception(() => XDocument.Parse(File.ReadAllText(path)));
+            Assert.True(ex == null, $"emitted targets is not well-formed XML ({Path.GetFileName(path)}): {ex?.Message}");
+        }
     }
 
     #endregion

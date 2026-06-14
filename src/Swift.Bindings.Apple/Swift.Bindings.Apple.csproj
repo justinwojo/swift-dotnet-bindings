@@ -22,6 +22,13 @@
          exceeds 260" warning) is intentionally NOT suppressed — under
          TreatWarningsAsErrors it is a second, independent backstop. -->
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- Pack-time package self-consistency validation (Finding 51, mirrors SwiftBindings.Runtime).
+         Runs NuGet's offline compatible-framework / compatible-RID validators over the produced
+         supplement nupkg. PackageValidationBaselineVersion (the cross-version ABI-additivity check)
+         is deliberately omitted: a baseline forces an offline-breaking PackageDownload, and the
+         supplement's cross-major-additive contract + floor-only Runtime range is the version-window
+         end-state decision reserved for the project owner. See src/docs/version-coexistence-policy.md. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
     <AssemblyName>SwiftBindings.Apple</AssemblyName>
     <RootNamespace>Swift</RootNamespace>
 
@@ -102,6 +109,16 @@
           Pack="true"
           PackagePath="runtimes/native/SBApple.xcframework/" />
     <None Include="build/SwiftBindings.Apple.targets"
+          Pack="true"
+          PackagePath="buildTransitive/" />
+    <!-- The NativeAOT trimmer descriptor must travel loose alongside the .targets above
+         (flat buildTransitive/, no TFM subdir) so SwiftBindings.Apple.targets can root it via
+         $(MSBuildThisFileDirectory)ILLink.Descriptors.xml. ILC does NOT auto-discover the
+         EmbeddedResource copy below from a referenced assembly — only a TrimmerRootDescriptor /
+         IlcArg injected into the *publishing* project reaches ILC. The embedded copy stays for
+         the IL-trimmer (non-AOT PublishTrimmed) auto-discovery path; this loose copy is for the
+         NativeAOT injection in build/SwiftBindings.Apple.targets. -->
+    <None Include="ILLink.Descriptors.xml"
           Pack="true"
           PackagePath="buildTransitive/" />
   </ItemGroup>

@@ -1,4 +1,29 @@
 <Project>
+  <!-- XML doc-file defaulting MUST precede the Microsoft.NET.Sdk import below, because
+       Microsoft.NET.Sdk.BeforeCommon.targets derives $(DocumentationFile) from
+       $(GenerateDocumentationFile) at EVALUATION time, in-place at that import. Setting
+       GenerateDocumentationFile after the import (anywhere lower in this file) is too late —
+       DocumentationFile is already finalized, so the generator's /// doc comments would
+       silently never travel with the packed binding. This block runs after the csproj body
+       (Sdk.targets is the bottom import) so IsPackable is fully resolved, yet before BeforeCommon
+       — the only window that works.
+
+       Scoped to a PACKABLE Swift-binding project (the binding library NuGet auto-includes the
+       sibling $(AssemblyName).xml in lib/, surfacing IntelliSense for consumers). An SDK-direct
+       app sets IsPackable=false, so it is excluded and never inherits the CS1591 noise. We gate
+       PURELY on IsPackable, NOT on the presence of a SwiftFramework / SwiftAppleFrameworkTarget
+       item: those items are populated by the _DiscoverSwiftFrameworks target at EXECUTION time
+       (auto-discovery of a root *.xcframework), so they are still empty here at EVALUATION time —
+       gating on them would silently skip doc-file generation for every binding that relies on
+       auto-discovery instead of an explicit <SwiftFramework Include=...> item. Importing this SDK
+       with IsPackable=true is itself the signal that this is a Swift binding (Sdk.props defaults
+       IsPackable=true; only an SDK-direct app overrides it to false). CS1591 is suppressed because
+       doc-comment coverage of the generated surface is partial. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <GenerateDocumentationFile Condition="'$(GenerateDocumentationFile)' == ''">true</GenerateDocumentationFile>
+    <NoWarn Condition="'$(GenerateDocumentationFile)' == 'true'">$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
   <!-- Intermediate dir must be defined in .targets (not .props) so that
@@ -599,7 +624,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -632,7 +657,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)&quot; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -746,6 +771,8 @@ done; true"
            correctly invalidates _SwiftWrapperSkip. -->
       <_SwiftGenCmd Condition="'$(SwiftTargetArchitectures)' != ''">$(_SwiftGenCmd) --target-architectures $(SwiftTargetArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
+      <!-- Root the ILLink descriptor under this project's own assembly (see _GenerateSwiftBindings). -->
+      <_SwiftGenCmd Condition="'$(AssemblyName)' != ''">$(_SwiftGenCmd) --assembly-name "$(AssemblyName)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">$(_SwiftGenCmd) --apple-supplement-prototype-dir "$(SwiftAppleSupplementPrototypeDir)"</_SwiftGenCmd>
       <!-- Cross-framework dependency module databases (e.g., RealityKit consuming
@@ -781,6 +808,8 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
+      <!-- Root the ILLink descriptor under this project's own assembly (see _GenerateSwiftBindings). -->
+      <_SwiftGenCmd Condition="'$(AssemblyName)' != ''">$(_SwiftGenCmd) --assembly-name "$(AssemblyName)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
@@ -1573,6 +1602,12 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
+      <!-- Assembly name the generated .cs compiles into. In SDK mode _IncludeGeneratedSwiftBindings
+           folds the generated source into THIS project's own assembly ($(AssemblyName)), not a
+           module-named one, so the emitted ILLink trimmer descriptor must root types under
+           $(AssemblyName) or ILC matches nothing on NativeAOT. $(AssemblyName) is defaulted to
+           $(MSBuildProjectName) in the .NET SDK props, so it is always populated here. -->
+      <_SwiftGenCmd Condition="'$(AssemblyName)' != ''">$(_SwiftGenCmd) --assembly-name "$(AssemblyName)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftFramework.NamespacePattern)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.SymbolGraph)' != ''">$(_SwiftGenCmd) --symbolgraph "%(SwiftFramework.SymbolGraph)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.BridgeHints)' != ''">$(_SwiftGenCmd) --bridge-hints "%(SwiftFramework.BridgeHints)"</_SwiftGenCmd>
@@ -2543,6 +2578,54 @@ done"
       <ObjcBindingCoreSource Include="$(_SwiftBindingIntermediateDir)BgenDelegates.cs"
                               Condition="Exists('$(_SwiftBindingIntermediateDir)BgenDelegates.cs')" />
     </ItemGroup>
+
+    <!-- Embed the generator-emitted trimmer descriptor as a linker descriptor so the IL trimmer
+         (PublishTrimmed without AOT — e.g. a Mono Release build that member-trims our assembly via
+         TrimMode=full) auto-discovers and honors it, exactly as Swift.Runtime, SwiftBindings.Apple,
+         and the CLI-generated binding csproj embed theirs. ILC (NativeAOT) does NOT auto-discover
+         embedded descriptors from an assembly, so the loose copy is additionally rooted via IlcArg
+         in the PublishAot-gated targets below. Embedding here is the single place that covers all
+         three SDK-path shapes — SDK-built binding packages, SDK-direct apps, and Apple-framework-
+         direct bindings — since they all fold their generated types in through this target. Without
+         it the descriptor was inert outside NativeAOT for every SDK-built binding. Exists()-guarded:
+         a binding with no open-generic ISwiftObject emits no descriptor. -->
+    <ItemGroup Condition="Exists('$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml')">
+      <EmbeddedResource Include="$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml">
+        <LogicalName>ILLink.Descriptors.xml</LogicalName>
+      </EmbeddedResource>
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 5a: Root the NativeAOT trimmer descriptor (SDK-direct path)      -->
+  <!--                                                                         -->
+  <!-- In SDK-direct mode the app IS the binding: Target 5 above folds the     -->
+  <!-- generated .cs (incl. open-generic ISwiftObject types) into the app's    -->
+  <!-- OWN assembly ($(AssemblyName)), then the app publishes NativeAOT. No    -->
+  <!-- PackageReference to a binding exists on this path, so the packed        -->
+  <!-- buildTransitive consumer .targets that roots the descriptor for the     -->
+  <!-- PackageReference path is never imported — ILC would never see the       -->
+  <!-- descriptor and would trim the open generics' reflection metadata.       -->
+  <!-- Root the generator-emitted descriptor here instead. Its                 -->
+  <!-- <assembly fullname> is $(AssemblyName) (the generator is invoked with   -->
+  <!-- the assembly-name option set to $(AssemblyName) in SDK mode), so it     -->
+  <!-- names the exact assembly the types compile into and the roots actually  -->
+  <!-- bind. Gated on                                                          -->
+  <!-- PublishAot + Exists so it is inert for a non-AOT publish and for a      -->
+  <!-- packable binding-library build (no ILC runs there). This roots the      -->
+  <!-- loose copy for the ILC/NativeAOT path only; the IL-trimmer path         -->
+  <!-- (PublishTrimmed without AOT) is covered by the EmbeddedResource that    -->
+  <!-- _IncludeGeneratedSwiftBindings (Target 5) folds into the assembly, which -->
+  <!-- the IL trimmer auto-discovers — mirroring SwiftBindings.Runtime.targets. -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_RootSwiftBindingTrimmerDescriptor"
+          AfterTargets="_IncludeGeneratedSwiftBindings"
+          BeforeTargets="ResolveProjectReferences"
+          Condition="Exists('$(_SwiftBindingIntermediateDir)')">
+    <ItemGroup Condition="'$(PublishAot)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml')">
+      <TrimmerRootDescriptor Include="$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml" />
+      <IlcArg Include="--descriptor:$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml" />
+    </ItemGroup>
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -2980,6 +3063,21 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
       &lt;SourcePackage&gt;$(PackageId)&lt;/SourcePackage&gt;
     &lt;/SwiftModuleDatabase&gt;
   &lt;/ItemGroup&gt;
+  &lt;!-- NativeAOT trimmer-descriptor delivery (Apple-framework-direct PackageReference, ILC path
+       only). The descriptor is packed loose beside this file in buildTransitive/$(_SwiftBindingPackTfm)/
+       by _ConfigureSwiftBindingPack; ILC does not auto-discover the descriptor embedded in a referenced
+       assembly, so root the loose copy via an IlcArg descriptor entry (plus a TrimmerRootDescriptor for
+       the IL-trimmer sub-pass ILC runs internally). The standalone IL-trimmer path (PublishTrimmed
+       without AOT) is covered by the descriptor embedded in the referenced binding assembly, which the
+       trimmer auto-discovers, so this PublishAot-gated group is correct. The descriptor's
+       &lt;assembly fullname&gt; is set under $(AssemblyName) (the generator assembly-name option) so it
+       matches the packed managed DLL. Top-level ItemGroup is correct: the descriptor is a static package
+       file present at the consumer's evaluation. Exists()-guarded so a binding with no open generics
+       (no descriptor packed) no-ops. --&gt;
+  &lt;ItemGroup Condition=&quot;'\%24(PublishAot)' == 'true' AND Exists('\%24(MSBuildThisFileDirectory)ILLink.Descriptors.xml')&quot;&gt;
+    &lt;TrimmerRootDescriptor Include=&quot;\%24(MSBuildThisFileDirectory)ILLink.Descriptors.xml&quot; /&gt;
+    &lt;IlcArg Include=&quot;--descriptor:\%24(MSBuildThisFileDirectory)ILLink.Descriptors.xml&quot; /&gt;
+  &lt;/ItemGroup&gt;
   &lt;Target Name=&quot;$(_CT_ValidateTarget)&quot; BeforeTargets=&quot;Build&quot;
           Condition=&quot;'\%24(SupportedOSPlatformVersion)' != '' AND \%24([System.Version]::Parse('\%24(SupportedOSPlatformVersion)').CompareTo(\%24([System.Version]::Parse('$(_SwiftBindingMinimumOSVersion)')))) &amp;lt; 0&quot;&gt;
     &lt;Warning Text=&quot;$(PackageId) requires $(_SwiftBindingPlatform) $(_SwiftBindingMinimumOSVersion)+, but SupportedOSPlatformVersion is '\%24(SupportedOSPlatformVersion)'.&quot;
@@ -3133,6 +3231,18 @@ TARGETSEOF"
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets')" />
+      <!-- ILLink trimmer descriptor, packed loose beside $(PackageId).targets in
+           buildTransitive/$(_SwiftBindingPackTfm)/ so the consumer-facing .targets (written by
+           ConsumerTargetsEmitter, or synthesized in _SynthesizeAppleFrameworkConsumerTargets for
+           Apple-framework targets) can root it via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml
+           for a downstream PackageReference NativeAOT publish. The generator emits the descriptor
+           into the intermediate dir only when the module has ≥1 open-generic ISwiftObject, so the
+           Exists() guard no-ops otherwise. Its <assembly fullname> is rooted under $(AssemblyName)
+           (passed via the assembly-name generator option) so it matches the managed DLL packed
+           under lib/. -->
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml"
+            PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
+            Condition="Exists('$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml')" />
       <!-- Source xcframework, sliced down to slices the current RID can consume.
            Wrapper/bridge xcframeworks are already per-TFM (no duplication problem)
            and are packed raw below. _SliceSourceXcframework runs BeforeTargets this

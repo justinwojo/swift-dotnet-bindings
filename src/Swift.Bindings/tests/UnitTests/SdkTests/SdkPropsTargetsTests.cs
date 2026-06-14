@@ -4,7 +4,9 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests
@@ -1512,6 +1514,84 @@ namespace BindingsGeneration.Tests
             Assert.True(iosOverrideIdx > cascadeIdx, "Per-platform overrides must come AFTER the legacy seed.");
         }
 
+        [Fact]
+        public void Targets_DocFileDefaulting_PrecedesMicrosoftNetSdkImport()
+        {
+            // Microsoft.NET.Sdk.BeforeCommon.targets derives $(DocumentationFile) from
+            // $(GenerateDocumentationFile) at EVALUATION time, in-place at the Microsoft.NET.Sdk
+            // targets import. Defaulting GenerateDocumentationFile AFTER that import is too late:
+            // DocumentationFile is already finalized, so the generator's /// doc comments would
+            // silently never travel with the packed binding (Finding 55 inert). Pin the ordering.
+            var docIdx = TargetsContent.IndexOf("<GenerateDocumentationFile", StringComparison.Ordinal);
+            Assert.True(docIdx > 0, "Sdk.targets must default GenerateDocumentationFile.");
+            var importIdx = TargetsContent.IndexOf("Sdk=\"Microsoft.NET.Sdk\"", StringComparison.Ordinal);
+            Assert.True(importIdx > 0, "Sdk.targets must import Microsoft.NET.Sdk.");
+            Assert.True(docIdx < importIdx,
+                "GenerateDocumentationFile must be defaulted BEFORE the Microsoft.NET.Sdk import, else " +
+                "BeforeCommon.targets has already derived DocumentationFile and the doc file is never produced.");
+        }
+
+        [Fact]
+        public void Targets_DocFileDefaulting_GatesOnIsPackableOnly_NotItem()
+        {
+            // The doc-file gate must key purely on IsPackable. It must NOT depend on a
+            // SwiftFramework / SwiftAppleFrameworkTarget item, because those are populated by the
+            // _DiscoverSwiftFrameworks TARGET at execution time (auto-discovery of a root
+            // *.xcframework) and are still empty here at evaluation time — gating on them would
+            // silently skip doc-file generation for every auto-discovery binding (Finding 55 gap).
+            // It also must not reference an @(Item) directly in the Condition (MSB4099 — prohibited
+            // in a PropertyGroup Condition outside a Target).
+            var docIdx = TargetsContent.IndexOf("<GenerateDocumentationFile", StringComparison.Ordinal);
+            Assert.True(docIdx > 0, "Sdk.targets must default GenerateDocumentationFile.");
+            // The enabling PropertyGroup's gate is the nearest preceding Condition="...".
+            var gateStart = TargetsContent.LastIndexOf("Condition=\"", docIdx, StringComparison.Ordinal);
+            Assert.True(gateStart > 0, "Doc-file PropertyGroup must carry a Condition.");
+            var gateEnd = TargetsContent.IndexOf('"', gateStart + "Condition=\"".Length);
+            var gateCondition = TargetsContent.Substring(gateStart, gateEnd - gateStart);
+            Assert.Equal("Condition=\"'$(IsPackable)' == 'true'", gateCondition);
+            // No leftover item-probe machinery, and no direct item reference in the gate.
+            Assert.DoesNotContain("_SwiftBindingDocFileItemProbe", TargetsContent);
+            Assert.DoesNotContain("@(SwiftFramework", gateCondition);
+            Assert.DoesNotContain("@(SwiftAppleFrameworkTarget", gateCondition);
+        }
+
+        [Fact]
+        public void Targets_Fingerprint_HashesAssemblyName_NotJustPackageId()
+        {
+            // The generator stamps the trimmer descriptor's <assembly fullname> from
+            // --assembly-name "$(AssemblyName)". If the incremental fingerprint hashes only
+            // $(PackageId), a consumer that changes $(AssemblyName) WITHOUT changing $(PackageId)
+            // keeps a stale descriptor naming the old assembly — inert under ILC (Defect J). Both
+            // the xcframework-mode and Apple-framework-mode fingerprints must hash $(AssemblyName)
+            // adjacent to $(PackageId); the adjacency only exists in those two hash pipelines.
+            var occurrences = 0;
+            var idx = 0;
+            while ((idx = TargetsContent.IndexOf("$(PackageId) $(AssemblyName)", idx, StringComparison.Ordinal)) >= 0)
+            {
+                occurrences++;
+                idx += "$(PackageId) $(AssemblyName)".Length;
+            }
+            Assert.True(occurrences >= 2,
+                $"Both fingerprint echoes must hash $(AssemblyName) next to $(PackageId); found {occurrences}.");
+        }
+
+        [Fact]
+        public void Targets_SdkPath_EmbedsTrimmerDescriptorForIlTrimmerAutoDiscovery()
+        {
+            // SDK-built bindings, SDK-direct apps, and Apple-framework-direct bindings all fold their
+            // generated types in through _IncludeGeneratedSwiftBindings. They must ALSO embed the
+            // generator-emitted ILLink.Descriptors.xml as a linker descriptor so the IL trimmer
+            // (PublishTrimmed without AOT) auto-discovers it — matching Swift.Runtime,
+            // SwiftBindings.Apple, and the CLI-generated binding csproj. Without the embed, the
+            // descriptor was honored ONLY under NativeAOT (the PublishAot-gated IlcArg roots), so a
+            // Mono Release consumer that member-trims the assembly would strip the open-generic
+            // ISwiftObject metadata the descriptor pins. Exists()-guarded for bindings with no generics.
+            var block = ExtractTargetBlock("_IncludeGeneratedSwiftBindings");
+            Assert.Contains("<EmbeddedResource Include=\"$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml\">", block);
+            Assert.Contains("<LogicalName>ILLink.Descriptors.xml</LogicalName>", block);
+            Assert.Contains("Condition=\"Exists('$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml')\"", block);
+        }
+
         // Returns the opening <Target …> tag text (everything up to the first '>')
         // for the target whose Name attribute is `targetName`. None of the relevant
         // target attributes (AfterTargets/BeforeTargets/Condition) contain a literal
@@ -1631,6 +1711,119 @@ namespace BindingsGeneration.Tests
             var end = content.IndexOf("</ItemGroup>", idx, StringComparison.Ordinal);
             if (end < 0) return null;
             return content.Substring(start, end - start + "</ItemGroup>".Length);
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir, ".git");
+                if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                    return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
+        }
+    }
+
+    /// <summary>
+    /// Guards the shipped MSBuild/descriptor assets against the malformed-XML bug class.
+    /// A "--" (double hyphen) inside an XML comment is ILLEGAL per the XML spec; MSBuild
+    /// rejects it with MSB4024, which breaks EVERY consumer that imports the file (the
+    /// props/targets are imported by every binding project; the descriptors are loaded by
+    /// the trimmer/ILC). CLI-flag tokens written into comments (e.g. "--assembly-name",
+    /// "--descriptor") are the recurring hazard. XDocument.Load throws on such a defect,
+    /// so loading each shipped asset locks the whole class out at unit-test time — far
+    /// cheaper than discovering it from a downstream consumer build.
+    /// </summary>
+    public class ShippedMsbuildXmlWellFormednessTests
+    {
+        public static IEnumerable<object[]> ShippedXmlAssets()
+        {
+            var root = FindRepoRoot();
+            yield return new object[] { Path.Combine(root, "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.props") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Bindings.Apple", "build", "SwiftBindings.Apple.targets") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Bindings.Apple", "ILLink.Descriptors.xml") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Runtime", "src", "build", "SwiftBindings.Runtime.targets") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Runtime", "src", "ILLink.Descriptors.xml") };
+        }
+
+        [Theory]
+        [MemberData(nameof(ShippedXmlAssets))]
+        public void ShippedAsset_IsWellFormedXml(string path)
+        {
+            Assert.True(File.Exists(path), $"Shipped MSBuild/descriptor asset is missing: {path}");
+            // Throws XmlException on a "--"-in-comment (MSB4024) or any other malformed XML.
+            var ex = Record.Exception(() => XDocument.Load(path));
+            Assert.True(ex == null, $"Shipped asset is not well-formed XML ({path}): {ex?.Message}");
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir, ".git");
+                if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                    return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
+        }
+    }
+
+    // The shipped .targets/.props parse fine via XDocument, but they also CONTAIN — as heredoc
+    // text or C# raw-string literals — the MSBuild XML they WRITE OUT at the consumer's build. A
+    // "--" inside one of those generated comments is invisible to XDocument.Load of the source
+    // (the comment is escaped text or a string literal there) yet becomes a real "<!-- ... -- ... -->"
+    // in the emitted file, which fails to import with MSB4024. CLI-flag prose like "--descriptor"
+    // or "--apple-supplement-prototype-dir" in a comment is the recurring trigger. Scan the comment
+    // spans in both forms and forbid the double-hyphen.
+    public class GeneratedMsbuildCommentWellFormednessTests
+    {
+        public static IEnumerable<object[]> SourcesThatEmitXml()
+        {
+            var root = FindRepoRoot();
+            yield return new object[] { Path.Combine(root, "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.props") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Bindings.Apple", "build", "SwiftBindings.Apple.targets") };
+            yield return new object[] { Path.Combine(root, "src", "Swift.Runtime", "src", "build", "SwiftBindings.Runtime.targets") };
+            var emitterDir = Path.Combine(root, "src", "Swift.Bindings", "src", "Emitter");
+            foreach (var cs in Directory.GetFiles(emitterDir, "*.cs"))
+                yield return new object[] { cs };
+        }
+
+        [Theory]
+        [MemberData(nameof(SourcesThatEmitXml))]
+        public void EmittedXmlComments_HaveNoDoubleHyphen(string path)
+        {
+            Assert.True(File.Exists(path), $"Source missing: {path}");
+            var content = File.ReadAllText(path);
+            // Plain form: <!-- ... --> inside C# raw strings emitted into generated XML.
+            AssertNoDoubleHyphenInComments(content, "<!--", "-->", path);
+            // Escaped/heredoc form: &lt;!-- ... --&gt; written verbatim into a generated file.
+            AssertNoDoubleHyphenInComments(content, "&lt;!--", "--&gt;", path);
+        }
+
+        private static void AssertNoDoubleHyphenInComments(string content, string start, string end, string path)
+        {
+            var i = 0;
+            while (true)
+            {
+                var s = content.IndexOf(start, i, StringComparison.Ordinal);
+                if (s < 0) break;
+                var innerStart = s + start.Length;
+                var e = content.IndexOf(end, innerStart, StringComparison.Ordinal);
+                if (e < 0) break; // tolerate an unterminated marker (e.g. "-->" appearing in unrelated prose)
+                var inner = content.Substring(innerStart, e - innerStart);
+                Assert.False(inner.Contains("--", StringComparison.Ordinal),
+                    $"Illegal '--' inside an emitted XML comment in {path}: " +
+                    $"\"{(inner.Length > 100 ? inner.Substring(0, 100) : inner).Trim()}\" — " +
+                    "this becomes MSB4024 when the generated MSBuild file is imported.");
+                i = e + end.Length;
+            }
         }
 
         private static string FindRepoRoot()

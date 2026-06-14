@@ -347,7 +347,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <exception cref="NotImplementedException">Throws if unable to look up the ISwiftObject.GetTypeMetadata method.</exception>
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple metadata path only; non-tuple paths are AOT-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2087",
-        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     [UnconditionalSuppressMessage("Trimming", "IL2059",
         Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
     static bool TryGetTypeMetadataUncached<T>([NotNullWhen(true)] out TypeMetadata? result)

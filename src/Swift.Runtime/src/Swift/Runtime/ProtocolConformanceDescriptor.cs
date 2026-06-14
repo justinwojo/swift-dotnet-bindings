@@ -89,7 +89,7 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
     [UnconditionalSuppressMessage("AOT", "IL3050",
         Justification = "MakeGenericType only used on Mono JIT where dynamic code is supported; NativeAOT uses reflection helper")]
     [UnconditionalSuppressMessage("Trimming", "IL2087",
-        Justification = "typeof(TType) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+        Justification = "typeof(TType) satisfies DynamicallyAccessedMembers at runtime; types preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     [UnconditionalSuppressMessage("Trimming", "IL2059",
         Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is an ISwiftObject whose static constructor is preserved")]
     public static bool TryGet<TType, TProtocol>([NotNullWhen(true)] out ProtocolConformanceDescriptor? result)

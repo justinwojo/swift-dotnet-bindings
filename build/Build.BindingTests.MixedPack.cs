@@ -324,6 +324,16 @@ partial class Build
         // (f) and the embed is NOT also (or instead) declared as a nuspec <dependency>.
         AssertNuspecHasNoCompanionDependency(extract, "MixedPackFixture", module, failures);
 
+        // (g) Defect J binding leg — the generic-bearing binding ships a trimmer descriptor
+        //     under buildTransitive/ named after its own assembly, so the NativeAOT consumer
+        //     this leg then publishes (--mixed-pack --device) actually roots the open generic's
+        //     reflection metadata. This is the device-runtime complement to the static leg's
+        //     hermetic host-only structural proof of the same descriptor delivery.
+        AssertBindingDescriptorDelivered(extract, module, failures);
+
+        // (h) Finding 55 — the packable SDK-driven binding ships its doc XML in lib/.
+        AssertBindingDocFileDelivered(extract, module, failures);
+
         if (failures.Count > 0)
         {
             Log.Error("--mixed-pack structural check FAILED — {Count} defect(s) in {Nupkg}:",

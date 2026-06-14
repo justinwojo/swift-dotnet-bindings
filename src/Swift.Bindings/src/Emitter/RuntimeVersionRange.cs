@@ -18,6 +18,13 @@ namespace BindingsGeneration
     /// bindings' consumers. Plain <c>Version="0.8.0"</c> is NuGet-interpreted
     /// as a minimum-only float, which would happily resolve a future-
     /// incompatible 0.9.0 cached locally.
+    /// <para>
+    /// The patch-must-be-additive contract this range encodes is written up in
+    /// <c>src/docs/version-coexistence-policy.md</c> and its enforcement seam is
+    /// <c>EnablePackageValidation</c> on the Runtime/Apple csprojs (a baseline
+    /// version, the cross-version ABI check, is a deferred owner decision — see
+    /// that doc). This comment is no longer the only thing standing behind the rule.
+    /// </para>
     /// </remarks>
     internal static class RuntimeVersionRange
     {

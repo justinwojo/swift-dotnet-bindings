@@ -91,6 +91,16 @@ public class CliOptions
         aliases: new[] { "--package-id" },
         description: "Package ID for NuGet packaging. Overrides the default '{Module}.Swift.iOS'.");
 
+    public Option<string?> AssemblyName { get; } = new(
+        aliases: new[] { "--assembly-name" },
+        description: "Name of the .NET assembly the generated C# compiles into. Used as the " +
+                     "<assembly fullname> of the emitted ILLink trimmer descriptor so ILC roots " +
+                     "the open generics in the right assembly. In SDK mode the generated code is " +
+                     "compiled into the consuming project's own assembly ($(AssemblyName)), which " +
+                     "may differ from the module-derived default, so the SDK passes this explicitly. " +
+                     "When omitted (CLI/pack mode) the descriptor falls back to the emitted csproj's " +
+                     "name ('{Module}.Swift.{platform}'), which equals that assembly's name.");
+
     public Option<string?> SwiftRuntimeVersion { get; } = new(
         aliases: new[] { "--swift-runtime-version" },
         description: "Version of the SwiftBindings.Runtime NuGet package to reference from the emitted .csproj. " +
@@ -347,6 +357,7 @@ public class CliOptions
             NamespacePattern,
             SdkMode,
             PackageId,
+            AssemblyName,
             SwiftRuntimeVersion,
             WrapperArchitectures,
             TargetArchitectures,

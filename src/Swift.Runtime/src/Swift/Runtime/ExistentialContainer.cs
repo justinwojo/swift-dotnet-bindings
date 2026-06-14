@@ -921,7 +921,7 @@ public static class ExistentialContainerFactory
     /// <returns>An <see cref="ExistentialContainer0"/> holding <paramref name="value"/>.</returns>
     /// <exception cref="SwiftRuntimeException">Thrown if the value's Swift metadata cannot be resolved.</exception>
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2072",
-        Justification = "value.GetType() is an ISwiftObject implementation whose GetTypeMetadata/NewFromPayload members are preserved via TrimmerRoots.xml")]
+        Justification = "value.GetType() is an ISwiftObject implementation whose GetTypeMetadata/NewFromPayload members are preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     public static ExistentialContainer0 CreateAnyRuntime(ISwiftObject value)
     {
         ArgumentNullException.ThrowIfNull(value);

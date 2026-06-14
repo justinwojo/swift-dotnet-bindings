@@ -925,7 +925,7 @@ public static class SwiftMarshal
     /// <param name="swiftSource">Memory to read from</param>
     /// <returns>The C# object created by marshaling</returns>
     [UnconditionalSuppressMessage("Trimming", "IL2087",
-        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; the type is preserved for consumers by the shipped ILLink.Descriptors.xml — Swift.Runtime's own embedded+rooted descriptor for Runtime-owned types (closed ValueTuple generics, SwiftArray, etc.) and the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     public static T MarshalFromSwiftObject<T>(IntPtr swiftSource) where T : ISwiftObject
     {
         if (SwiftRuntimeInfo.IsNativeAotRuntime)
@@ -969,7 +969,7 @@ public static class SwiftMarshal
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2087",
-        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; the type is preserved for consumers by the shipped ILLink.Descriptors.xml — Swift.Runtime's own embedded+rooted descriptor for Runtime-owned types (closed ValueTuple generics, SwiftArray, etc.) and the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     [UnconditionalSuppressMessage("Trimming", "IL2059",
         Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
     public static T MarshalFromSwift<T>(IntPtr swiftSource)
@@ -1010,7 +1010,7 @@ public static class SwiftMarshal
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2087",
-        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; the type is preserved for consumers by the shipped ILLink.Descriptors.xml — Swift.Runtime's own embedded+rooted descriptor for Runtime-owned types (closed ValueTuple generics, SwiftArray, etc.) and the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     [UnconditionalSuppressMessage("Trimming", "IL2059",
         Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
     private static T MarshalFromSwiftCore<T>(IntPtr swiftSource)
@@ -1042,7 +1042,10 @@ public static class SwiftMarshal
             }
 
             // Fallback: reflection. Works on Mono JIT always; works on NativeAOT only
-            // for types preserved via TrimmerRoots.xml (Swift.Runtime types).
+            // for types kept by the shipped ILLink.Descriptors.xml — Swift.Runtime's own
+            // embedded+rooted descriptor for Runtime-owned types, plus the per-binding
+            // descriptor delivered in buildTransitive/ for generated types. (The
+            // BindingTests app's TrimmerRoots.xml is a test-only mirror, not shipped.)
             return (T)SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(T), swiftSource);
         }
         var type = typeof(T);
@@ -1371,9 +1374,11 @@ public static class SwiftMarshal
         // annotation flow under ILC and stripped the closed-ctor metadata,
         // surfacing as "Could not find constructor for ValueTuple`N" on
         // NativeAOT for tuple returns from SwiftOptional<(T1, T2)> shapes.
-        // Belt-and-braces preservation of System.ValueTuple`N constructors
-        // lives in ILLink.Descriptors.xml (consumer-side) and the BindingTests
-        // app's TrimmerRoots.xml (which is what actually keeps device green).
+        // Belt-and-braces preservation of System.ValueTuple`N constructors for
+        // CONSUMERS lives in Swift.Runtime's shipped ILLink.Descriptors.xml,
+        // delivered + rooted to ILC by build/SwiftBindings.Runtime.targets. The
+        // BindingTests app's TrimmerRoots.xml is only the in-repo mirror that keeps
+        // this repo's device gate green; it is never shipped to consumers.
         return CreateValueTuple<T>(typeof(T), elementValues);
     }
 
@@ -1693,15 +1698,19 @@ public static class SwiftMarshal
     /// <para>
     /// The operative NativeAOT preservation of
     /// <c>System.ValueTuple`1..`8</c> for every reachable closed
-    /// instantiation comes from a trimmer descriptor. The package-side hint
-    /// lives in this project's embedded <c>ILLink.Descriptors.xml</c>; ILC
-    /// does not auto-discover embedded descriptors from referenced
-    /// assemblies (only the IL trimmer does), so a NativeAOT consumer also
-    /// has to pass the descriptor explicitly to ILC via an IlcArg item.
-    /// The in-tree <c>BindingTests/RuntimeTestsApp/TrimmerRoots.xml</c>
-    /// mirror plus the IlcArg in RuntimeTestsApp.csproj is what keeps the
-    /// device gate green for this repo's tests; downstream NuGet consumers
-    /// are tracked as a buildTransitive followup.
+    /// instantiation comes from a trimmer descriptor. It lives in this
+    /// project's <c>ILLink.Descriptors.xml</c> (embedded for the IL-trimmer
+    /// auto-discovery path). ILC does not auto-discover embedded descriptors
+    /// from referenced assemblies, so the descriptor must be passed to ILC
+    /// explicitly via an IlcArg item — and for downstream NuGet consumers it
+    /// is: <c>build/SwiftBindings.Runtime.targets</c> ships the loose copy in
+    /// <c>buildTransitive/</c> and injects the PublishAot-gated
+    /// <c>--descriptor:</c> IlcArg + <c>TrimmerRootDescriptor</c> into the
+    /// consuming app's publish, so a NativeAOT consumer keeps the closed
+    /// ValueTuple ctors with no action of their own. The in-tree
+    /// <c>BindingTests/RuntimeTestsApp/TrimmerRoots.xml</c> mirror plus the
+    /// IlcArg in RuntimeTestsApp.csproj is only what keeps this repo's own
+    /// device gate green; it is a test artifact, never shipped to consumers.
     /// </para>
     /// </summary>
     [RequiresUnreferencedCode("ValueTuple constructor access")]

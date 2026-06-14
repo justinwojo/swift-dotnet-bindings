@@ -24,4 +24,21 @@
     </NativeReference>
   </ItemGroup>
 
+  <!-- NativeAOT trimmer-descriptor delivery (ILC/PublishAot path ONLY). The IL trimmer
+       (PublishTrimmed without AOT) auto-discovers the descriptor embedded as an EmbeddedResource
+       in the SwiftBindings.Apple assembly, so that path needs nothing here. ILC, by contrast, does
+       NOT auto-discover embedded descriptors from a referenced assembly — so root the loose copy
+       packed beside this file (buildTransitive/ILLink.Descriptors.xml) via an IlcArg descriptor
+       entry, plus a TrimmerRootDescriptor for the IL-trimmer sub-pass ILC runs internally (which
+       likewise ignores the embedded copy). Both are gated on PublishAot + an Exists() guard,
+       mirroring SwiftBindings.Runtime.targets — under pure PublishTrimmed neither is added because
+       the embedded resource already covers it. The
+       descriptor's <assembly fullname="SwiftBindings.Apple"> matches this package's <AssemblyName>,
+       so the roots actually bind. The descriptor is a static package file present at consumer
+       evaluation time, so a top-level ItemGroup (not a deferred target) is correct here. -->
+  <ItemGroup Condition="'$(PublishAot)' == 'true' AND Exists('$(MSBuildThisFileDirectory)ILLink.Descriptors.xml')">
+    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)ILLink.Descriptors.xml" />
+    <IlcArg Include="--descriptor:$(MSBuildThisFileDirectory)ILLink.Descriptors.xml" />
+  </ItemGroup>
+
 </Project>

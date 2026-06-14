@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Xml.Linq;
 using Swift.Runtime;
 using Xunit;
 
@@ -94,6 +95,80 @@ public class AotAnnotationTests
         using var reader = new System.IO.StreamReader(stream!);
         var content = reader.ReadToEnd();
         Assert.Contains("SwiftClosureMarshaller", content);
+    }
+
+    #endregion
+
+    #region ILLink.Descriptors.xml reconciles with the trim/AOT suppressions
+
+    // The IL2087/IL2070/IL2072/IL2026 suppressions across ISwiftObject,
+    // TypeMetadata, ProtocolConformanceDescriptor, ExistentialContainer and
+    // SwiftMarshal justify themselves by claiming the reached types/members are
+    // preserved by the shipped Swift.Runtime ILLink.Descriptors.xml — NOT the
+    // BindingTests app's TrimmerRoots.xml, which consumers never receive. These
+    // tests reconcile that claim against the descriptor's actual content, so a
+    // suppression and its preservation entry cannot silently drift apart.
+
+    private static string ReadEmbeddedRuntimeDescriptor()
+    {
+        var assembly = typeof(Swift.Runtime.SwiftClosureMarshaller).Assembly;
+        var name = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.Contains("ILLink.Descriptors"));
+        Assert.NotNull(name);
+        using var stream = assembly.GetManifestResourceStream(name!);
+        Assert.NotNull(stream);
+        using var reader = new System.IO.StreamReader(stream!);
+        return reader.ReadToEnd();
+    }
+
+    [Fact]
+    public void ILLinkDescriptors_AssemblyName_MatchesRuntimeAssembly()
+    {
+        // Root-cause invariant (Defect J): a trimmer descriptor is INERT unless its
+        // <assembly fullname> equals the .NET assembly the preserved types actually
+        // compile into. If the Runtime assembly were ever renamed without updating the
+        // descriptor, ILC would root nothing and every suppression above would become a
+        // silent trim hazard while still compiling clean. Pin the match.
+        var runtimeAssemblyName = typeof(Swift.Runtime.SwiftClosureMarshaller).Assembly.GetName().Name;
+        Assert.Equal("Swift.Runtime", runtimeAssemblyName);
+
+        var doc = XDocument.Parse(ReadEmbeddedRuntimeDescriptor());
+        var assemblyFullnames = doc.Descendants("assembly")
+            .Select(a => a.Attribute("fullname")?.Value)
+            .ToList();
+        Assert.Contains(runtimeAssemblyName, assemblyFullnames);
+    }
+
+    [Theory]
+    // Runtime-owned ISwiftObject types whose static NewFromPayload / GetTypeMetadata /
+    // GetProtocolConformanceDescriptor the suppressions reach via reflection:
+    [InlineData("Swift.Runtime", "Swift.SwiftString")]
+    [InlineData("Swift.Runtime", "Swift.SwiftArray`1")]
+    [InlineData("Swift.Runtime", "Swift.SwiftOptional`1")]
+    [InlineData("Swift.Runtime", "Swift.KeyPath`2")]
+    // Reflection infrastructure the suppressed call paths route through:
+    [InlineData("Swift.Runtime", "Swift.Runtime.SwiftObjectReflectionHelper")]
+    [InlineData("Swift.Runtime", "Swift.Runtime.InteropServices.NewFromPayloadDispatcher")]
+    [InlineData("Swift.Runtime", "Swift.Runtime.ProtocolConformanceDescriptor")]
+    [InlineData("Swift.Runtime", "Swift.Runtime.ProtocolWitnessTable")]
+    // The dynamic ValueTuple path (CreateValueTuple's IL2026/IL2087 suppression):
+    [InlineData("System.Private.CoreLib", "System.ValueTuple`2")]
+    [InlineData("System.Private.CoreLib", "System.ValueTuple`8")]
+    public void ILLinkDescriptors_PreservesSuppressionDependency(string assemblyName, string typeFullname)
+    {
+        var doc = XDocument.Parse(ReadEmbeddedRuntimeDescriptor());
+        var asm = doc.Descendants("assembly")
+            .FirstOrDefault(a => a.Attribute("fullname")?.Value == assemblyName);
+        Assert.NotNull(asm);
+        var type = asm!.Elements("type")
+            .FirstOrDefault(t => t.Attribute("fullname")?.Value == typeFullname);
+        Assert.NotNull(type);
+        // Each reconciled entry must keep enough to satisfy the reflective lookup the
+        // suppression performs: preserve="all" (members + reflection metadata) or
+        // preserve="methods". Anything weaker would not back the suppression's claim.
+        var preserve = type!.Attribute("preserve")?.Value;
+        Assert.True(preserve == "all" || preserve == "methods",
+            $"{typeFullname} must preserve all/methods to back its trim suppression; found '{preserve}'.");
     }
 
     #endregion

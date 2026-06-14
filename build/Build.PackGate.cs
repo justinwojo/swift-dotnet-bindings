@@ -21,6 +21,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Xml.Linq;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
@@ -146,6 +147,13 @@ partial class Build
             // pinning. Catches a packaging-contract regression at pack time, before
             // downstream consumers crash at runtime.
             AssertRuntimeBuildTransitiveLayout(nupkgDir, PackGateVersion);
+
+            // 2d. Same NativeAOT descriptor-delivery contract for the Apple supplement (Defect J).
+            // Before the fix the supplement embedded the descriptor but never rooted it on the
+            // consumer — the Foundation.Data / Measurement`1 wrappers were trim-inert. This asserts
+            // the descriptor ships loose in buildTransitive/, names the SwiftBindings.Apple assembly,
+            // is rooted by the packed targets under PublishAot, and is embedded in every TFM dll.
+            AssertAppleBuildTransitiveLayout(nupkgDir, PackGateAppleVersion);
 
             // 3. Clear NuGet caches for SwiftBindings.* so the throwaway-version packages
             // aren't shadowed by a stale entry from a previous pack-gate run.
@@ -1135,6 +1143,15 @@ partial class Build
                 $"--descriptor: path resolves to a non-existent file. Path: {runtimePath}");
         }
 
+        // Assembly-name-match invariant (Defect J second root cause): a descriptor whose
+        // <assembly fullname> does not equal the .NET assembly the preserved types compile
+        // into is INERT — ILC roots nothing and silently strips everything the descriptor
+        // claims to pin, while pack + restore stay green. Parse the packed descriptor and
+        // assert it names the Runtime assembly.
+        AssertDescriptorNamesAssembly(
+            archive, "buildTransitive/ILLink.Descriptors.xml", "Swift.Runtime",
+            $"SwiftBindings.Runtime.{runtimeVersion}.nupkg");
+
         // Embedded-resource leg of the contract: the IL trimmer (ILLink) auto-discovers
         // descriptors embedded as ManifestResource on referenced assemblies. Trimmed-but-
         // not-AOT consumers (PublishTrimmed=true on a library, or any IsTrimmable=true
@@ -1190,6 +1207,171 @@ partial class Build
 
         Log.Information("  Runtime nupkg buildTransitive layout: ILLink.Descriptors.xml + SwiftBindings.Runtime.targets present");
         Log.Information("  Runtime assembly embedded resource: ILLink.Descriptors.xml present in all {Count} TFM-specific Swift.Runtime.dll entries", dllEntries.Count);
+    }
+
+    // Parses an ILLink descriptor packed at <paramref name="descriptorEntryPath"/> inside the
+    // open nupkg <paramref name="archive"/> and asserts it carries an <assembly fullname>
+    // equal to <paramref name="expectedAssemblyName"/>. This is the Defect J root-cause guard:
+    // a descriptor names the assembly its <type> entries live in, and ILC only roots them if
+    // that name matches the real .NET assembly the types compile into. Under the SDK production
+    // path the generated types compile into the *consuming project's* $(AssemblyName), so a
+    // descriptor still naming "{module}.Swift.iOS" (the CLI-path assembly) would root nothing
+    // — the bug pack/restore can't see. Pin the name on the shipped artifact.
+    static void AssertDescriptorNamesAssembly(
+        ZipArchive archive, string descriptorEntryPath, string expectedAssemblyName, string nupkgLabel)
+    {
+        var entry = archive.Entries.FirstOrDefault(e =>
+            string.Equals(e.FullName, descriptorEntryPath, StringComparison.OrdinalIgnoreCase));
+        if (entry == null)
+            Assert.Fail($"PackGate: {nupkgLabel} is missing descriptor entry '{descriptorEntryPath}'.");
+
+        string xml;
+        using (var stream = entry!.Open())
+        using (var reader = new StreamReader(stream))
+            xml = reader.ReadToEnd();
+
+        var assemblyNames = XDocument.Parse(xml)
+            .Descendants("assembly")
+            .Select(a => a.Attribute("fullname")?.Value)
+            .Where(v => !string.IsNullOrEmpty(v))
+            .ToList();
+
+        if (!assemblyNames.Contains(expectedAssemblyName))
+        {
+            Assert.Fail(
+                $"PackGate: the descriptor '{descriptorEntryPath}' in {nupkgLabel} does not name " +
+                $"assembly '{expectedAssemblyName}' — its <assembly fullname> value(s) are " +
+                $"[{string.Join(", ", assemblyNames)}]. A descriptor whose assembly name does not " +
+                $"match the .NET assembly its preserved types compile into is INERT: ILC roots " +
+                $"nothing and silently strips every type the descriptor claims to pin, while pack " +
+                $"and restore stay green. This is the Defect J root cause — fix the --assembly-name " +
+                $"passed to TrimmerDescriptorEmitter (or the package's <AssemblyName>).");
+        }
+
+        Log.Information("  Descriptor {Path} correctly names assembly '{Asm}'", descriptorEntryPath, expectedAssemblyName);
+    }
+
+    // Apple-package leg of the Defect J buildTransitive assertion (mirrors
+    // AssertRuntimeBuildTransitiveLayout). SwiftBindings.Apple.{ver}.nupkg must ship
+    // buildTransitive/ILLink.Descriptors.xml adjacent to buildTransitive/SwiftBindings.Apple.targets
+    // (the targets roots the descriptor via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml),
+    // the packed descriptor must name the SwiftBindings.Apple assembly (the assembly-name-match
+    // root cause), the targets must actually inject the PublishAot-gated IlcArg/TrimmerRootDescriptor,
+    // and every TFM-specific SwiftBindings.Apple.dll must embed the descriptor for the IL-trimmer
+    // auto-discovery path. Before this fix the Apple supplement's descriptor was inert: packed but
+    // never rooted on the consumer. Unlike the binding package, Apple's buildTransitive layout is
+    // flat (no per-TFM subdir) because the supplement ships one xcframework correct on every Apple TFM.
+    static void AssertAppleBuildTransitiveLayout(AbsolutePath nupkgDir, string appleVersion)
+    {
+        var applePath = nupkgDir / $"SwiftBindings.Apple.{appleVersion}.nupkg";
+        if (!File.Exists(applePath))
+            Assert.Fail($"PackGate: expected Apple nupkg at {applePath}, but it was not produced.");
+
+        using var archive = ZipFile.OpenRead(applePath);
+        string[] requiredEntries =
+        {
+            "buildTransitive/SwiftBindings.Apple.targets",
+            "buildTransitive/ILLink.Descriptors.xml",
+        };
+        var missing = requiredEntries
+            .Where(e => !archive.Entries.Any(entry => string.Equals(entry.FullName, e, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (missing.Count > 0)
+        {
+            Assert.Fail(
+                $"PackGate: SwiftBindings.Apple.{appleVersion}.nupkg is missing required " +
+                $"buildTransitive entr(ies): {string.Join(", ", missing)}. Without " +
+                $"ILLink.Descriptors.xml adjacent to SwiftBindings.Apple.targets, every NativeAOT " +
+                $"consumer's IlcArg --descriptor: resolves to a non-existent file and the supplement's " +
+                $"hand-rolled ISwiftObject wrappers (Foundation.Data, Measurement`1) get stripped. " +
+                $"Path: {applePath}");
+        }
+
+        // Assembly-name-match invariant (Defect J second root cause).
+        AssertDescriptorNamesAssembly(
+            archive, "buildTransitive/ILLink.Descriptors.xml", "SwiftBindings.Apple",
+            $"SwiftBindings.Apple.{appleVersion}.nupkg");
+
+        // The targets file must actually root the descriptor under PublishAot. The Runtime path
+        // proves its analogous conditional fires via a live hermetic plain-net10.0 consumer
+        // (AssertRuntimeAotDescriptorInjection); the Apple package ships only Apple-TFM assets, so a
+        // hermetic plain-net10.0 consumer cannot restore it (NU1202) — a live injection probe would
+        // require the Apple workload + runtime-pack restore, sacrificing the hermeticity that is the
+        // Runtime probe's whole design point to re-prove a byte-identical MSBuild conditional shape.
+        // Assert the rooting statically on the packed targets content instead: under PublishAot=true
+        // it injects both the IlcArg --descriptor and the TrimmerRootDescriptor at the loose copy.
+        var targetsEntry = archive.Entries.First(e =>
+            string.Equals(e.FullName, "buildTransitive/SwiftBindings.Apple.targets", StringComparison.OrdinalIgnoreCase));
+        string targetsXml;
+        using (var stream = targetsEntry.Open())
+        using (var reader = new StreamReader(stream))
+            targetsXml = reader.ReadToEnd();
+
+        var targetsNoWs = new string(targetsXml.Where(c => !char.IsWhiteSpace(c)).ToArray());
+        var injectionChecks = new (string fragment, string desc)[]
+        {
+            ("'$(PublishAot)'=='true'", "PublishAot gate"),
+            ("Exists('$(MSBuildThisFileDirectory)ILLink.Descriptors.xml')", "Exists() guard"),
+            ("<IlcArgInclude=\"--descriptor:$(MSBuildThisFileDirectory)ILLink.Descriptors.xml\"", "IlcArg --descriptor"),
+            ("<TrimmerRootDescriptorInclude=\"$(MSBuildThisFileDirectory)ILLink.Descriptors.xml\"", "TrimmerRootDescriptor"),
+        };
+        var missingInjection = injectionChecks
+            .Where(c => !targetsNoWs.Contains(new string(c.fragment.Where(ch => !char.IsWhiteSpace(ch)).ToArray())))
+            .Select(c => c.desc)
+            .ToList();
+        if (missingInjection.Count > 0)
+        {
+            Assert.Fail(
+                $"PackGate: SwiftBindings.Apple.targets does not wire the NativeAOT descriptor " +
+                $"injection — missing: {string.Join(", ", missingInjection)}. The descriptor ships " +
+                $"but is never rooted on the consumer, leaving the supplement's trim coverage inert. " +
+                $"Path: {applePath}");
+        }
+
+        // Embedded-resource leg: each TFM-specific SwiftBindings.Apple.dll must carry the
+        // ILLink.Descriptors.xml manifest resource for the IL-trimmer (non-AOT PublishTrimmed)
+        // auto-discovery path. Apple ships four TFM assemblies (ios/maccatalyst/tvos/macos).
+        var dllEntries = archive.Entries
+            .Where(e =>
+                e.FullName.StartsWith("lib/", StringComparison.OrdinalIgnoreCase) &&
+                e.FullName.EndsWith("/SwiftBindings.Apple.dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (dllEntries.Count == 0)
+        {
+            Assert.Fail(
+                $"PackGate: SwiftBindings.Apple.{appleVersion}.nupkg contains no " +
+                $"lib/<tfm>/SwiftBindings.Apple.dll entry — cannot verify the embedded " +
+                $"ILLink.Descriptors.xml manifest resource. Path: {applePath}");
+        }
+
+        var missingResource = new List<string>();
+        foreach (var dllEntry in dllEntries)
+        {
+            using var dllStream = dllEntry.Open();
+            using var ms = new MemoryStream();
+            dllStream.CopyTo(ms);
+            ms.Position = 0;
+            using var peReader = new PEReader(ms);
+            var mdReader = peReader.GetMetadataReader();
+            var hasDescriptor = mdReader.ManifestResources
+                .Select(h => mdReader.GetString(mdReader.GetManifestResource(h).Name))
+                .Contains("ILLink.Descriptors.xml");
+            if (!hasDescriptor)
+                missingResource.Add(dllEntry.FullName);
+        }
+
+        if (missingResource.Count > 0)
+        {
+            Assert.Fail(
+                $"PackGate: the following SwiftBindings.Apple.dll entries inside " +
+                $"SwiftBindings.Apple.{appleVersion}.nupkg are missing the embedded " +
+                $"'ILLink.Descriptors.xml' manifest resource: {string.Join(", ", missingResource)}. " +
+                $"Restore <EmbeddedResource Include=\"ILLink.Descriptors.xml\"> in " +
+                $"src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj.");
+        }
+
+        Log.Information("  Apple nupkg buildTransitive layout: ILLink.Descriptors.xml + SwiftBindings.Apple.targets present, descriptor injection wired");
+        Log.Information("  Apple assembly embedded resource: ILLink.Descriptors.xml present in all {Count} TFM-specific SwiftBindings.Apple.dll entries", dllEntries.Count);
     }
 
     // Item-injection assertion: under PublishAot=true, the buildTransitive .targets must

@@ -433,9 +433,95 @@ namespace BindingsGeneration.Tests
                 content);
         }
 
+        [Fact]
+        public void Emit_PacksDescriptorLooseIntoBuildTransitive()
+        {
+            // Defect J (binding leg): the EmbeddedResource copy is invisible to ILC, which
+            // does NOT auto-discover descriptors embedded in referenced assemblies. So the
+            // descriptor must ALSO ship loose in buildTransitive/<tfm>/ — adjacent to the
+            // consumer .targets that root it via $(MSBuildThisFileDirectory) for a downstream
+            // PackageReference consumer's NativeAOT publish. Without this pack item the
+            // descriptor never reaches the consumer at all and the package's trim coverage
+            // is inert.
+            var content = EmitAndRead();
+            var defaultPi = PlatformInfoFactory.Create(ApplePlatform.iOS);
+            Assert.Contains("<None Include=\"ILLink.Descriptors.xml\" Pack=\"true\"", content);
+            // Exists()-guarded so a module with no open generics (no descriptor) no-ops.
+            Assert.Contains("Condition=\"Exists('ILLink.Descriptors.xml')\"", content);
+            // Lands in the SAME version-qualified buildTransitive/ dir as the consumer targets,
+            // so $(MSBuildThisFileDirectory)ILLink.Descriptors.xml resolves beside them.
+            Assert.Contains($"PackagePath=\"buildTransitive/{defaultPi.PackTfm}/\"", content);
+        }
+
         private static string EmitAndRead()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"bpe_trim_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var sourceXcfwPath = Path.Combine(dir, "..", "ImagePipeline.xcframework");
+                Directory.CreateDirectory(sourceXcfwPath);
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "ImagePipeline",
+                    Metadata = new XCFrameworkMetadata
+                    {
+                        LibraryVersion = "12.8.0",
+                        PackageVersion = "12.8.0",
+                        IsVersionPlaceholder = false,
+                        MinimumOSVersion = "15.0",
+                        EffectiveMinimumOSVersion = "15.0",
+                        SdkVersion = null,
+                        ModuleName = "ImagePipeline",
+                        Platforms = new List<string>()
+                    },
+                    SourceXCFrameworkPath = sourceXcfwPath,
+                }, _logger);
+                return File.ReadAllText(Path.Combine(dir, "ImagePipeline.Swift.iOS.csproj"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+    }
+
+    #endregion
+
+    #region B3. Generated Documentation File Tests (Finding 55)
+
+    /// <summary>
+    /// Finding 55: the generator emits thousands of /// doc comments across the binding
+    /// surface, but they never reach a packaged consumer unless the csproj emits the XML
+    /// doc file (NuGet auto-includes the sibling assembly-named .xml in lib/, which is what
+    /// surfaces IntelliSense downstream). The emitter must turn <c>GenerateDocumentationFile</c>
+    /// on AND suppress CS1591 — doc coverage of the generated surface is partial, so the
+    /// binding build must not fail over a member the generator chose not to document.
+    /// </summary>
+    public class BindingProjectDocumentationFileTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_GenerateDocumentationFile_Enabled()
+        {
+            var content = EmitAndRead();
+            Assert.Contains("<GenerateDocumentationFile>true</GenerateDocumentationFile>", content);
+        }
+
+        [Fact]
+        public void Emit_NoWarn_SuppressesCS1591()
+        {
+            // With GenerateDocumentationFile on, every public member lacking a /// comment
+            // raises CS1591. Generated doc coverage is partial, so CS1591 must be suppressed
+            // or the binding build breaks on the first undocumented member — turning a
+            // documentation *improvement* into a build regression.
+            var content = EmitAndRead();
+            Assert.Contains("CS1591", content);
+            Assert.Matches(@"<NoWarn>[^<]*CS1591[^<]*</NoWarn>", content);
+        }
+
+        private static string EmitAndRead()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_doc_{Guid.NewGuid():N}");
             Directory.CreateDirectory(dir);
             try
             {
