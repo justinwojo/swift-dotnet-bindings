@@ -1227,10 +1227,12 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Emit_DevSentinel_EmitsProjectReferenceGatedOnRepoRootProperty()
         {
-            // ProjectReference (NOT a bare <Reference>+<HintPath>) is required so the in-tree
-            // Swift.Runtime project's `<Content Include="../native/.../libSwiftBindingsRuntime.dylib">`
-            // items copy through to the consumer. A raw assembly reference would compile cleanly
-            // but ship a project missing its native concurrency runtime at run/pack time.
+            // ProjectReference (NOT a bare <Reference>+<HintPath>) is required so the binding
+            // compiles against the in-tree Swift.Runtime managed assembly built from source and
+            // picks up its runtime-flavor wiring. A raw assembly reference would bind against a
+            // stale on-disk dll and miss that wiring. (The native runtime ships as a
+            // SwiftBindingsRuntime.framework NativeReference, which does not propagate across a
+            // ProjectReference — the deploy harness injects it separately.)
             var content = EmitWithRuntimeVersion(BindingProjectEmitter.DefaultSwiftRuntimeVersion);
             Assert.Contains(
                 "<ProjectReference Include=\"$(SwiftBindingsRepoRoot)/src/Swift.Runtime/src/Swift.Runtime.csproj\"",

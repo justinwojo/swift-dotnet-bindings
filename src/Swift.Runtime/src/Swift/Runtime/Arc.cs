@@ -152,7 +152,7 @@ public static class Arc
     /// Finalizer-safe release of a class-bound existential payload (<c>any P</c> class
     /// reference, native Swift OR Objective-C). Routes through the
     /// <c>SBW_SwiftUnknownObjectRelease</c> <c>@_cdecl</c> trampoline in our own
-    /// <c>SwiftBindingsRuntime.dylib</c>, which performs the actual
+    /// SwiftBindingsRuntime native framework, which performs the actual
     /// <c>swift_unknownObjectRelease</c> from inside Swift — so the managed caller crosses
     /// only one Cdecl boundary and avoids the Mono <c>!ji->async</c> assertion that a direct
     /// runtime-release P/Invoke triggers on the GC finalizer thread. Mirrors how the opaque
@@ -323,7 +323,7 @@ public static class Arc
 /// <para>
 /// The fix is to route the call through a Swift <c>@_cdecl</c> wrapper
 /// (<c>SBW_SwiftRelease</c>) we control: the C# side only crosses one Cdecl
-/// boundary into our own loaded <c>SwiftBindingsRuntime.dylib</c>, and the
+/// boundary into our own loaded SwiftBindingsRuntime native framework, and the
 /// Swift wrapper performs the actual <c>swift_release</c> call from inside
 /// Swift where Mono's JIT contamination has no effect. This is the exact same
 /// trick <c>SBW_VWTDestroy</c> uses for Swift struct VWT destruction on the

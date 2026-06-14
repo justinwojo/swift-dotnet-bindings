@@ -153,7 +153,7 @@ public class LifetimeTrackingTests : TestBase
     /// `SwiftClosureContext.EnsureRegistered`. The GCHandle is freed exactly
     /// once when Swift releases the closure.
     /// </summary>
-    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
+    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestEphemeralClosureReleasesCapturedSafeHandle()
     {
         LifetimeTracker.Reset();

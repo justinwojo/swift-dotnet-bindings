@@ -182,7 +182,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// </para>
     /// <para>
     /// During finalization: calls VWT Destroy via <c>SBW_VWTDestroy</c>, a <c>@_cdecl</c>
-    /// function in <c>SwiftBindingsRuntime.dylib</c> called with
+    /// function in the SwiftBindingsRuntime native framework called with
     /// <c>CallingConvention.Cdecl</c>. DllImport stubs are resolved by the runtime loader
     /// (not JIT-compiled), making this safe from the GC finalizer thread on all runtimes
     /// including Mono (which crashes on JIT from the finalizer when CallConvSwift
@@ -259,7 +259,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
 
     /// <summary>
     /// Handles GC finalizer release: calls VWT Destroy via Cdecl trampoline
-    /// (<c>SBW_VWTDestroy</c> in SwiftBindingsRuntime.dylib) using metadata cached
+    /// (<c>SBW_VWTDestroy</c> in the SwiftBindingsRuntime native framework) using metadata cached
     /// at construction time. DllImport stubs are resolved by the runtime loader —
     /// no JIT compilation needed — making this safe from the finalizer thread on
     /// both Mono and NativeAOT.
@@ -277,7 +277,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         catch
         {
             // Swallow exceptions - ReleaseHandle must not throw per SafeHandle contract.
-            // DllNotFoundException if SwiftBindingsRuntime.dylib is not loaded (e.g., unit tests).
+            // DllNotFoundException if the SwiftBindingsRuntime native framework is not loaded (e.g., unit tests).
         }
 
         // Free the .NET-allocated buffer
@@ -314,7 +314,7 @@ internal static class VwtDestroyTrampoline
 {
     /// <summary>
     /// Calls VWT Destroy on the Swift side via a <c>@_cdecl</c> function in
-    /// <c>SwiftBindingsRuntime.dylib</c>. The function reads VWT Destroy from
+    /// the SwiftBindingsRuntime native framework. The function reads VWT Destroy from
     /// <c>metadata[-1]</c> (the VWT pointer, ABI-stable since Swift 5.0) and
     /// calls it with the value pointer and metadata.
     /// </summary>

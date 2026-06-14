@@ -7,7 +7,7 @@ namespace Swift.Runtime;
 
 /// <summary>
 /// Closure-context owner-token bridge: pairs Swift's <c>_SBClosureCtx</c> reference-
-/// counted box (defined in <c>libSwiftBindingsRuntime.dylib</c>) with the C# free
+/// counted box (defined in the SwiftBindingsRuntime native framework) with the C# free
 /// callback that releases the wrapped <see cref="GCHandle"/> when the box deinits.
 /// </summary>
 /// <remarks>
@@ -57,7 +57,7 @@ internal static class SwiftClosureContext
             }
             catch (DllNotFoundException)
             {
-                // libSwiftBindingsRuntime.dylib not packaged (e.g.
+                // The SwiftBindingsRuntime native framework not packaged (e.g.
                 // IncludeSwiftBindingsRuntimeNative=false). Falling back to
                 // the prior leak behaviour is acceptable for those builds —
                 // the closure-context owner token is opt-in via the runtime.

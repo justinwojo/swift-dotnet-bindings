@@ -95,7 +95,7 @@ public class EscapingClosureLifetimeTests : TestBase
     /// the <see cref="WeakReference"/> stayed alive for the lifetime of the
     /// process because the <c>GCHandle</c> leaked.
     /// </summary>
-    [SkipOnSimulator("N-3 owner-token box lives in libSwiftBindingsRuntime.dylib. " +
+    [SkipOnSimulator("N-3 owner-token box lives in the SwiftBindingsRuntime native framework. " +
         "RuntimeTestsApp sets IncludeSwiftBindingsRuntimeNative=false (to avoid the " +
         "InstallNameTool .dylib.tmp rename failure on simulator), so on " +
         "simulator the wrapper falls back to _SBClosureCtxFallback — a no-deinit class " +
@@ -149,7 +149,7 @@ public class EscapingClosureLifetimeTests : TestBase
     /// delegate targets. Pre-fix the count grew linearly; post-fix the count
     /// must collapse to a small constant (conservative-stack-scan noise floor).
     /// </summary>
-    [SkipOnSimulator("N-3 owner-token box lives in libSwiftBindingsRuntime.dylib; " +
+    [SkipOnSimulator("N-3 owner-token box lives in the SwiftBindingsRuntime native framework; " +
         "RuntimeTestsApp omits the dylib via IncludeSwiftBindingsRuntimeNative=false, so " +
         "the wrapper's no-deinit _SBClosureCtxFallback preserves the prior leak on " +
         "simulator by design. Device build loads the framework via NativeReference and " +

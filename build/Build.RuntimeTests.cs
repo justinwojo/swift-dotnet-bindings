@@ -2460,24 +2460,64 @@ partial class Build
     // ============================================================
 
     /// <summary>
-    /// Injects libSwiftBindingsRuntime.dylib into the app bundle Frameworks/ directory.
-    /// Defaults to the iOS simulator runtime; pass "tvossimulator" for tvOS.
+    /// Injects the native SwiftBindingsRuntime into the app bundle. The runtime ships as a
+    /// signed dynamic framework inside SwiftBindingsRuntime.xcframework (Apple TN2435; see
+    /// src/docs/runtime-framework-packaging.md), so the source is now a per-slice
+    /// SwiftBindingsRuntime.framework rather than a loose per-platform dylib.
+    ///
+    /// For the simulator runtimes the caller passes the app's Frameworks/ dir, and the
+    /// resolver loads @rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime (its first
+    /// candidate, where @rpath resolves to Frameworks/), so we inject the whole signed bundle
+    /// (binary + Info.plist + _CodeSignature) — the exact production shape: iOS installd
+    /// rejects an embedded framework that lacks an Info.plist at its root, and the simulator
+    /// app is not re-signed, so copying the committed slice verbatim keeps it self-consistent.
+    /// For the desktop runtimes (macOS / Mac Catalyst) the caller passes the executable dir and
+    /// the resolver loads @executable_path/libSwiftBindingsRuntime.dylib, so we drop the slice
+    /// binary next to the executable under that loose name — preserving the established desktop
+    /// load path (dlopen uses the explicit search-path string, not the binary's install_name).
+    ///
+    /// Defaults to the iOS simulator slice; pass "tvossimulator"/"macos"/"maccatalyst" for the others.
     /// </summary>
     void InjectRuntimeDylib(AbsolutePath appFrameworks, string nativeSubdir = "iossimulator")
     {
-        var runtimeDylib = RootDirectory / "src" / "Swift.Runtime" / "native" / nativeSubdir /
-            "libSwiftBindingsRuntime.dylib";
+        var sliceId = nativeSubdir switch
+        {
+            "iossimulator" => "ios-arm64_x86_64-simulator",
+            "tvossimulator" => "tvos-arm64_x86_64-simulator",
+            "macos" => "macos-arm64_x86_64",
+            "maccatalyst" => "ios-arm64_x86_64-maccatalyst",
+            _ => throw new ArgumentException(
+                $"Unknown runtime native subdir '{nativeSubdir}'.", nameof(nativeSubdir)),
+        };
+
+        var sliceFwDir = RootDirectory / "src" / "Swift.Runtime" / "native" /
+            "SwiftBindingsRuntime.xcframework" / sliceId / "SwiftBindingsRuntime.framework";
+        var sliceBinary = sliceFwDir / "SwiftBindingsRuntime";
+
+        if (!File.Exists(sliceBinary))
+        {
+            Log.Warning("SwiftBindingsRuntime framework binary not found at {Path}", sliceBinary);
+            Log.Warning("Existential metadata tests will fail.");
+            return;
+        }
 
         appFrameworks.CreateDirectory();
-        if (File.Exists(runtimeDylib))
+
+        if (nativeSubdir is "iossimulator" or "tvossimulator")
         {
-            File.Copy(runtimeDylib, appFrameworks / "libSwiftBindingsRuntime.dylib", overwrite: true);
-            Log.Information("Injected libSwiftBindingsRuntime.dylib into app bundle.");
+            // Copy the whole signed .framework bundle (binary + Info.plist + _CodeSignature),
+            // not just the binary: iOS installd rejects an embedded framework with no Info.plist
+            // at its root. The simulator app is not re-signed, so the committed slice's bundle
+            // stays internally consistent when copied verbatim.
+            var fwDir = appFrameworks / "SwiftBindingsRuntime.framework";
+            if (Directory.Exists(fwDir)) fwDir.DeleteDirectory();
+            sliceFwDir.Copy(fwDir);
+            Log.Information("Injected SwiftBindingsRuntime.framework into app bundle Frameworks/.");
         }
         else
         {
-            Log.Warning("libSwiftBindingsRuntime.dylib not found at {Path}", runtimeDylib);
-            Log.Warning("Existential metadata tests will fail.");
+            File.Copy(sliceBinary, appFrameworks / "libSwiftBindingsRuntime.dylib", overwrite: true);
+            Log.Information("Injected libSwiftBindingsRuntime.dylib (from {Slice} slice) next to the executable.", sliceId);
         }
     }
 
@@ -3143,14 +3183,22 @@ partial class Build
 
     void BuildRuntimeDeviceXcframework(ApplePlatform platform)
     {
-        Log.Information("=== Building SwiftBindingsRuntime xcframework (device) ===");
+        Log.Information("=== Staging SwiftBindingsRuntime device slice (from committed xcframework) ===");
 
-        var runtimeDylib = RootDirectory / "src" / "Swift.Runtime" / "native" / "ios" /
-            "libSwiftBindingsRuntime.dylib";
+        // The runtime ships prebuilt as SwiftBindingsRuntime.xcframework (Apple TN2435; see
+        // src/docs/runtime-framework-packaging.md). Its ios-arm64 slice already carries the
+        // correct install_name (@rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime)
+        // and an ad-hoc signature, so the device test app just consumes that slice instead of
+        // rebuilding it from a loose dylib (the old native/ios/libSwiftBindingsRuntime.dylib
+        // no longer exists). The device app NativeReferences .build/SwiftBindingsRuntime.xcframework
+        // (gated on its ios-arm64 slice existing), so we stage the slice there.
+        var committedBinary = RootDirectory / "src" / "Swift.Runtime" / "native" /
+            "SwiftBindingsRuntime.xcframework" / "ios-arm64" / "SwiftBindingsRuntime.framework" /
+            "SwiftBindingsRuntime";
 
-        if (!File.Exists(runtimeDylib))
+        if (!File.Exists(committedBinary))
         {
-            Log.Warning("Device runtime dylib not found at {Path}. Skipping.", runtimeDylib);
+            Log.Warning("Committed device runtime slice not found at {Path}. Skipping.", committedBinary);
             return;
         }
 
@@ -3158,26 +3206,11 @@ partial class Build
         var runtimeFwDir = runtimeXcfw / "ios-arm64" / "SwiftBindingsRuntime.framework";
         runtimeFwDir.CreateDirectory();
 
-        File.Copy(runtimeDylib, runtimeFwDir / "SwiftBindingsRuntime", overwrite: true);
+        File.Copy(committedBinary, runtimeFwDir / "SwiftBindingsRuntime", overwrite: true);
 
-        // Fix install_name to use @rpath
-        try
-        {
-            XcRunTool($"install_name_tool -id @rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime " +
-                $"{runtimeFwDir / "SwiftBindingsRuntime"}");
-        }
-        catch (Exception ex)
-        {
-            Log.Warning("install_name_tool failed: {Message}", ex.Message);
-        }
-
-        // Code sign
-        try
-        {
-            XcRunTool($"codesign --force --sign - \"{runtimeFwDir / "SwiftBindingsRuntime"}\"");
-        }
-        catch { /* Best-effort signing */ }
-
+        // The copied binary keeps its @rpath install_name and ad-hoc signature; the .NET
+        // workload re-signs the framework on embed. Stamp the per-slice and xcframework
+        // Info.plists for this device platform.
         PlistGenerator.WriteFrameworkPlist(
             runtimeFwDir / "Info.plist",
             "com.swiftbindings.SwiftBindingsRuntime", "SwiftBindingsRuntime", "SwiftBindingsRuntime",
@@ -3186,7 +3219,7 @@ partial class Build
         // Create xcframework Info.plist with device slice (preserve simulator if exists)
         WriteDeviceXcframeworkPlist(runtimeXcfw / "Info.plist", "SwiftBindingsRuntime", platform);
 
-        Log.Information("SwiftBindingsRuntime device xcframework built successfully.");
+        Log.Information("SwiftBindingsRuntime device slice staged successfully.");
     }
 
     /// <summary>

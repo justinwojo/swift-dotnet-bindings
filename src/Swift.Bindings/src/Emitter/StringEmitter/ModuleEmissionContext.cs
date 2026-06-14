@@ -1612,7 +1612,7 @@ public sealed class ModuleEmissionContext
     /// <summary>
     /// Whether the per-module Swift helpers that wrap an escaping closure's GCHandle
     /// pointer in an <c>_SBClosureCtx</c> box (resolved via <c>dlsym</c> from the
-    /// already-loaded <c>libSwiftBindingsRuntime.dylib</c>) have been emitted into
+    /// already-loaded SwiftBindingsRuntime native framework) have been emitted into
     /// the wrapper source. Each wrapper module emits the dlsym lookup + box-factory
     /// helpers exactly once; per-closure adapter code refers to the helper by a
     /// fixed name.

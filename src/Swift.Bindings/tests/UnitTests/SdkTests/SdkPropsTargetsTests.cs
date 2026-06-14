@@ -1645,8 +1645,12 @@ namespace BindingsGeneration.Tests
     }
 
     /// <summary>
-    /// Content validation tests for Swift.Runtime.csproj and Swift.Runtime.targets
-    /// to ensure platform-specific native dylib conditions don't overlap.
+    /// Content validation tests for Swift.Runtime.csproj and Swift.Runtime.targets:
+    /// the native runtime must ship as a single framework xcframework
+    /// (<see href="https://developer.apple.com/library/archive/technotes/tn2435/">Apple TN2435</see>),
+    /// never as loose per-platform <c>libSwiftBindingsRuntime.dylib</c> items, and the old
+    /// SwiftSupport-folder injection must be gone (issue #42; see
+    /// src/docs/runtime-framework-packaging.md).
     /// </summary>
     public class RuntimeNativeAssetConditionTests
     {
@@ -1660,52 +1664,79 @@ namespace BindingsGeneration.Tests
             Path.Combine(RuntimeDir, "build", "SwiftBindings.Runtime.targets"));
 
         [Fact]
-        public void Csproj_MacOsDylibCondition_ExcludesTvos()
-        {
-            // The macOS dylib must NOT match net10.0-tvos. The condition must use a positive
-            // 'macos' check (not just exclude 'ios' and 'maccatalyst'), otherwise tvOS picks
-            // up the wrong dylib.
-            var macosBlock = ExtractDylibBlock(CsprojContent, "native/macos/");
-            Assert.NotNull(macosBlock);
-            Assert.Contains("Contains('macos')", macosBlock);
-            // Must not use the old exclusion-only pattern
-            Assert.DoesNotContain("!$(TargetFramework.Contains('ios')) AND !$(TargetFramework.Contains('maccatalyst'))", macosBlock);
-        }
-
-        [Fact]
-        public void Targets_MacOsDylibCondition_ExcludesTvos()
-        {
-            var macosBlock = ExtractDylibBlock(TargetsContent, "native/macos/");
-            Assert.NotNull(macosBlock);
-            Assert.Contains("Contains('macos')", macosBlock);
-            Assert.DoesNotContain("!$(TargetFramework.Contains('ios')) AND !$(TargetFramework.Contains('maccatalyst'))", macosBlock);
-        }
-
-        [Fact]
         public void Csproj_HasTvosTargetFramework()
         {
             Assert.Contains("net10.0-tvos", CsprojContent);
         }
 
         [Fact]
-        public void Csproj_HasTvosDylibContentItems()
+        public void Csproj_EmbedsRuntimeAsFrameworkXcframework()
         {
-            Assert.Contains("native/tvos/libSwiftBindingsRuntime.dylib", CsprojContent);
-            Assert.Contains("native/tvossimulator/libSwiftBindingsRuntime.dylib", CsprojContent);
+            // The native runtime is embedded via a single NativeReference Kind="Framework"
+            // to the xcframework — the TN2435-compliant shape — not loose dylibs.
+            Assert.Contains("native/SwiftBindingsRuntime.xcframework", CsprojContent);
+            var block = ExtractItemGroupAround(CsprojContent, "<NativeReference Include=\"$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework\"");
+            Assert.NotNull(block);
+            Assert.Contains("<Kind>Framework</Kind>", block);
         }
 
         [Fact]
-        public void Targets_HasTvosDylibBlocks()
+        public void Targets_EmbedsRuntimeAsFrameworkXcframework()
         {
-            Assert.Contains("native/tvos/libSwiftBindingsRuntime.dylib", TargetsContent);
-            Assert.Contains("native/tvossimulator/libSwiftBindingsRuntime.dylib", TargetsContent);
+            Assert.Contains("native/SwiftBindingsRuntime.xcframework", TargetsContent);
+            var block = ExtractItemGroupAround(TargetsContent, "<NativeReference Include=\"$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework\"");
+            Assert.NotNull(block);
+            Assert.Contains("<Kind>Framework</Kind>", block);
         }
 
-        private static string? ExtractDylibBlock(string content, string dylib)
+        [Fact]
+        public void Csproj_PacksRuntimeXcframeworkRecursively()
         {
-            var idx = content.IndexOf(dylib, StringComparison.Ordinal);
+            // The whole xcframework tree must be packed under native/SwiftBindingsRuntime.xcframework
+            // so the buildTransitive NativeReference can resolve a slice from the consumer's nupkg.
+            Assert.Contains("native/SwiftBindingsRuntime.xcframework/**", CsprojContent);
+
+            // PackagePath MUST be the fixed destination-folder form — exactly the path followed by a
+            // trailing slash and closing quote, with NO %(RecursiveDir) or explicit-filename token.
+            // NuGet appends each source file's own %(RecursiveDir)%(Filename)%(Extension) under a
+            // folder target; folding %(RecursiveDir) (or a filename) into PackagePath makes NuGet
+            // re-append the recursive path, doubling every slice segment and failing the pack with
+            // NU5123 (path too long). A prefix-only Contains check passes for that broken form too —
+            // which is how the regression once shipped — so pin the exact closed folder form here.
+            Assert.Contains("PackagePath=\"native/SwiftBindingsRuntime.xcframework/\"", CsprojContent);
+        }
+
+        [Fact]
+        public void RuntimeAssets_NoLooseRuntimeDylibPackaging()
+        {
+            // TN2435 regression guard: a loose libSwiftBindingsRuntime.dylib copied into an
+            // app's Frameworks/ is what App Store review rejected (issue #42). Neither the
+            // csproj nor the buildTransitive targets may ship the runtime as a loose dylib.
+            foreach (var content in new[] { CsprojContent, TargetsContent })
+            {
+                Assert.DoesNotContain("libSwiftBindingsRuntime.dylib", content);
+                Assert.DoesNotContain("<Kind>Dynamic</Kind>", content);
+            }
+        }
+
+        [Fact]
+        public void Targets_NoSwiftSupportFolderInjection()
+        {
+            // The SwiftSupport-folder injector (and its opt-out property + script) was removed:
+            // a compliant app embeds the OS-resident stable Swift ABI plus our signed framework
+            // and needs no SwiftSupport/ folder (issue #42).
+            Assert.DoesNotContain("add-swiftsupport-folder.sh", TargetsContent);
+            Assert.DoesNotContain("EnableSwiftSupportFolder", TargetsContent);
+            Assert.DoesNotContain("AfterTargets=\"CreateIpa\"", TargetsContent);
+            Assert.DoesNotContain("AfterTargets=\"Archive\"", TargetsContent);
+        }
+
+        // Returns the <ItemGroup>…</ItemGroup> enclosing the first occurrence of <paramref name="needle"/>,
+        // or null if absent. Lets a test assert metadata (e.g. <Kind>) lives on the right item.
+        private static string? ExtractItemGroupAround(string content, string needle)
+        {
+            var idx = content.IndexOf(needle, StringComparison.Ordinal);
             if (idx < 0) return null;
-            // Walk backward to find the enclosing <ItemGroup
             var start = content.LastIndexOf("<ItemGroup", idx, StringComparison.Ordinal);
             if (start < 0) return null;
             var end = content.IndexOf("</ItemGroup>", idx, StringComparison.Ordinal);

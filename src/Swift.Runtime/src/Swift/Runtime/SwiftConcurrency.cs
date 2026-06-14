@@ -77,8 +77,8 @@ public static class SwiftConcurrency
             catch (DllNotFoundException ex)
             {
                 throw new InvalidOperationException(
-                    "SwiftBindingsRuntime native library not found. Ensure libSwiftBindingsRuntime.dylib " +
-                    "is included in your application bundle.", ex);
+                    "SwiftBindingsRuntime native library not found. Ensure the SwiftBindings.Runtime package is referenced " +
+                    "so its native SwiftBindingsRuntime.framework is embedded in your app bundle.", ex);
             }
         }
     }

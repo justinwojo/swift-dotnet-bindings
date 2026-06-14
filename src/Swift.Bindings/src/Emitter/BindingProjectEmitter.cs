@@ -325,30 +325,38 @@ namespace BindingsGeneration
             // .csproj, gated on the SwiftBindingsRepoRoot MSBuild property (settable via
             // -p:SwiftBindingsRepoRoot=... or in the consumer's Directory.Build.props). The
             // ProjectReference (NOT a raw `<Reference>`+`<HintPath>`) is load-bearing: it
-            // pulls in the Swift.Runtime project's `<Content Include="../native/.../libSwift
-            // BindingsRuntime.dylib">` items, which copy the concurrency runtime dylib into
-            // the consumer's output (and into Frameworks/ on iOS/tvOS/maccatalyst). A bare
-            // assembly reference would compile cleanly but ship a project that can't load
-            // its native runtime at run/pack time. When the property is unset, we fall back
-            // to an exact-version PackageReference (`[0.0.0-dev]`) so the failure mode is a
-            // clean NU1102 ("package not found"), not a silent stale binding.
+            // builds the binding against the in-tree Swift.Runtime MANAGED assembly from
+            // source (so it tracks current runtime types) and resolves the runtime-flavor
+            // property wiring — a bare assembly reference would bind against a stale on-disk
+            // dll and miss that wiring. The NATIVE runtime is a separate concern: it now
+            // ships as a `SwiftBindingsRuntime.framework` embedded via `<NativeReference>`,
+            // and NativeReference items do NOT propagate across a ProjectReference. The
+            // repo's in-tree deploy harnesses inject that framework into the app bundle
+            // themselves (and set IncludeSwiftBindingsRuntimeNative=false on the reference);
+            // a standalone dev binding built this way is for local compile/test, not device
+            // distribution. When the property is unset, we fall back to an exact-version
+            // PackageReference (`[0.0.0-dev]`) so the failure mode is a clean NU1102
+            // ("package not found"), not a silent stale binding.
             //
             // For any real version the PackageReference path is unchanged — published
             // consumers see the same csproj they always did, and the published nupkg's
-            // `buildTransitive/SwiftBindings.Runtime.targets` carries the same dylib-copy
-            // logic for them.
+            // `buildTransitive/SwiftBindings.Runtime.targets` embeds the native framework
+            // (via NativeReference) for them.
             var runtimeReference = runtimeVersion == DefaultSwiftRuntimeVersion
                 ? $"""
                     <!-- Local-dev wiring: 0.0.0-dev has no published nupkg. Set
                          SwiftBindingsRepoRoot (-p:SwiftBindingsRepoRoot=/path/to/swift-bindings
                          or in Directory.Build.props) to bind against the in-tree Swift.Runtime
-                         project. The ProjectReference form (not a bare HintPath) is required
-                         so the in-tree project's native dylib copy items flow through to the
-                         consumer — without it, builds compile but ship without
-                         libSwiftBindingsRuntime.dylib. Without the property, the build falls
-                         back to an exact-version PackageReference (`[0.0.0-dev]`), which fails
-                         with a clear "package not found" error instead of silently resolving to
-                         a stale cached SwiftBindings.Runtime nupkg under ~/.nuget/packages/. -->
+                         project. The ProjectReference form (not a bare HintPath) is required so
+                         the binding compiles against current Swift.Runtime managed types and
+                         picks up its runtime-flavor wiring. (The native runtime ships as a
+                         SwiftBindingsRuntime.framework NativeReference, which does not flow
+                         across a ProjectReference; for local device testing the harness injects
+                         it, and published consumers get it via the package's buildTransitive
+                         targets.) Without the property, the build falls back to an exact-version
+                         PackageReference (`[0.0.0-dev]`), which fails with a clear "package not
+                         found" error instead of silently resolving to a stale cached
+                         SwiftBindings.Runtime nupkg under ~/.nuget/packages/. -->
                     <ProjectReference Include="$(SwiftBindingsRepoRoot)/src/Swift.Runtime/src/Swift.Runtime.csproj"
                                       Condition="'$(SwiftBindingsRepoRoot)' != ''" />
                     <PackageReference Include="SwiftBindings.Runtime" Version="[{runtimeVersion}]" Condition="'$(SwiftBindingsRepoRoot)' == ''" />

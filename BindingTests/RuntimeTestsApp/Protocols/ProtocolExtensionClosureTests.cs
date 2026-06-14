@@ -46,7 +46,7 @@ public class ProtocolExtensionClosureTests : TestBase
     /// because the per-call GCHandle is freed by the `_SBClosureCtx` deinit
     /// upcall after the wrapper returns.
     /// </summary>
-    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
+    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestEscapingVoidReleasesCapturedTrackedObject()
     {
         LifetimeTracker.Reset();

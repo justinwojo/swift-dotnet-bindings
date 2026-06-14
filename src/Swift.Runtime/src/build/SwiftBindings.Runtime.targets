@@ -45,73 +45,30 @@
     </ItemGroup>
   </Target>
 
-  <!-- macOS: TFM contains 'macos' but NOT 'maccatalyst' -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
-                         AND $(TargetFramework.Contains('macos'))
-                         AND !$(TargetFramework.Contains('maccatalyst'))
-                         AND Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
+  <!-- Native runtime, embedded as a signed dynamic framework via a single
+       <NativeReference Kind="Framework"> to the committed xcframework. The .NET Apple
+       workload picks the right per-platform/-arch slice, embeds the .framework into the
+       consumer app bundle's Frameworks/, and re-signs it — the TN2435-compliant shape that
+       replaced the loose-dylib <Content> injection that App Store review rejected
+       (ITMS-90426/90429, issue #42). One item is correct on every Apple TFM (iOS device +
+       simulator, tvOS device + simulator, macOS, Mac Catalyst); the workload's xcframework
+       handling resolves the slice from $(RuntimeIdentifier) at publish time, so no per-RID
+       or per-platform item is needed. Mirrors SwiftBindings.Apple.targets and every
+       generated binding's emitted ConsumerTargets.
 
-  <!-- iOS device: TFM contains 'ios', RID is non-empty and starts with 'ios-' (not 'iossimulator-') -->
-  <!-- On iOS, @rpath resolves to .app/Frameworks/, so the dylib must be placed there. -->
+       The Apple-TFM guard is load-bearing here (more than in the authoring csproj): this
+       file ships in buildTransitive/ and is imported by EVERY leg of a consumer that
+       references the Runtime package — including the non-Apple legs (plain net10.0, and a
+       MAUI/multi-targeted app's net10.0-android / net10.0-windows legs, which resolve the
+       package's net10.0 lib asset). A <NativeReference> is invalid outside an Apple TFM, so
+       the item must self-restrict; without the guard a multi-targeted consumer's non-Apple
+       leg gets an invalid NativeReference. -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
-                         AND $(TargetFramework.Contains('ios'))
-                         AND '$(RuntimeIdentifier)' != ''
-                         AND $(RuntimeIdentifier.StartsWith('ios-'))
-                         AND Exists('$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
-
-  <!-- iOS simulator: TFM contains 'ios', RID is non-empty and starts with 'iossimulator-' -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
-                         AND $(TargetFramework.Contains('ios'))
-                         AND '$(RuntimeIdentifier)' != ''
-                         AND $(RuntimeIdentifier.StartsWith('iossimulator-'))
-                         AND Exists('$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
-
-  <!-- Mac Catalyst: TFM contains 'maccatalyst' -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
-                         AND $(TargetFramework.Contains('maccatalyst'))
-                         AND Exists('$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib')">
-    <NativeReference Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib">
-      <Kind>Dynamic</Kind>
+                         AND ($(TargetFramework.Contains('ios')) OR $(TargetFramework.Contains('macos')) OR $(TargetFramework.Contains('maccatalyst')) OR $(TargetFramework.Contains('tvos')))
+                         AND Exists('$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework')">
+    <NativeReference Include="$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework">
+      <Kind>Framework</Kind>
     </NativeReference>
-  </ItemGroup>
-
-  <!-- tvOS device: TFM contains 'tvos', RID starts with 'tvos-' -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
-                         AND $(TargetFramework.Contains('tvos'))
-                         AND '$(RuntimeIdentifier)' != ''
-                         AND $(RuntimeIdentifier.StartsWith('tvos-'))
-                         AND Exists('$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
-
-  <!-- tvOS simulator: TFM contains 'tvos', RID starts with 'tvossimulator-' -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
-                         AND $(TargetFramework.Contains('tvos'))
-                         AND '$(RuntimeIdentifier)' != ''
-                         AND $(RuntimeIdentifier.StartsWith('tvossimulator-'))
-                         AND Exists('$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
   </ItemGroup>
 
   <!-- NativeAOT trimmer descriptor wiring.
@@ -129,115 +86,13 @@
     <IlcArg Include="--descriptor:$(MSBuildThisFileDirectory)ILLink.Descriptors.xml" />
   </ItemGroup>
 
-  <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- App Store SwiftSupport folder injection (issue #42)                     -->
-  <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Apple requires a top-level SwiftSupport/ folder inside the .ipa (sibling
-       of Payload/) whenever the app ships Swift. Xcode populates it during
-       "Distribute App"; the .NET / MAUI build zips the .ipa directly and never
-       runs that pass, so App Store Connect rejects the upload with ITMS-90426
-       ("the SwiftSupport folder is missing"). Our binding is what pulls a Swift
-       framework into the consumer app, so closing this gap belongs here in the
-       Runtime package's buildTransitive targets — already imported by every
-       consumer (PackageReference and, transitively, SDK-direct).
-
-       Strategy B (post-process the finished IPA): AfterTargets="CreateIpa" runs
-       after _CoreCreateIpa + _ZipIpa, so $(IpaPackagePath) is the finished .ipa.
-       The script unzips it to scan the app's Mach-Os, builds SwiftSupport/<platform>
-       from the Apple-signed back-deployment copies of the referenced /usr/lib/swift
-       libswift* dylibs, then grow-appends that folder onto a scratch copy of the IPA
-       and swaps it over the original atomically (Payload/ and any other top-level
-       members stay byte-for-byte untouched). We depend only on the public-ish
-       $(IpaPackagePath) + the CreateIpa target name — far more robust to workload
-       churn than reaching into the internal _ZipIpa / _IpaPackageSource item
-       (Strategy A). The opt-in swiftsupport binding-tests gate guards this
-       against a workload bump silently breaking the hook.
-
-       Gating: only on a device IPA publish ($(BuildIpa) == 'true', which the
-       workload sets for device iOS/tvOS publish — never sim, never a plain
-       `dotnet build`). Consumers opt out with
-       <EnableSwiftSupportFolder>false</EnableSwiftSupportFolder>. The script is a
-       no-op (exit 0, IPA untouched) when no embeddable Swift dylibs are
-       referenced, so a consumer that references the Runtime without actually
-       linking Swift is unaffected. -->
-  <PropertyGroup>
-    <EnableSwiftSupportFolder Condition="'$(EnableSwiftSupportFolder)' == ''">true</EnableSwiftSupportFolder>
-  </PropertyGroup>
-
-  <Target Name="_SwiftBindingsAddSwiftSupportFolder"
-          AfterTargets="CreateIpa"
-          Condition="'$(BuildIpa)' == 'true'
-                     AND '$(EnableSwiftSupportFolder)' == 'true'
-                     AND !$(RuntimeIdentifier.Contains('simulator'))
-                     AND ($(TargetFramework.Contains('ios')) OR $(TargetFramework.Contains('tvos')))
-                     AND !$(TargetFramework.Contains('maccatalyst'))">
-
-    <!-- SwiftSupport platform subdir: iphoneos for iOS, appletvos for tvOS.
-         (maccatalyst is excluded above; macOS never sets BuildIpa.) -->
-    <PropertyGroup>
-      <_SwiftSupportPlatformDir Condition="$(TargetFramework.Contains('tvos'))">appletvos</_SwiftSupportPlatformDir>
-      <_SwiftSupportPlatformDir Condition="'$(_SwiftSupportPlatformDir)' == '' AND $(TargetFramework.Contains('ios'))">iphoneos</_SwiftSupportPlatformDir>
-    </PropertyGroup>
-
-    <Warning Condition="'$(IpaPackagePath)' == '' OR !Exists('$(IpaPackagePath)')"
-             Text="SwiftBindings: BuildIpa is true but the finished IPA was not found at IpaPackagePath ('$(IpaPackagePath)') — skipping SwiftSupport injection. The App Store may reject the upload (ITMS-90426)." />
-
-    <!-- $(_SdkDevPath) is the active Xcode developer dir resolved by the .NET iOS
-         workload; the script falls back to `xcode-select -p` if it is empty. -->
-    <Exec Condition="'$(IpaPackagePath)' != '' AND Exists('$(IpaPackagePath)') AND '$(_SwiftSupportPlatformDir)' != ''"
-          Command="bash &quot;$(MSBuildThisFileDirectory)add-swiftsupport-folder.sh&quot; --mode ipa &quot;$(IpaPackagePath)&quot; &quot;$(_SwiftSupportPlatformDir)&quot; &quot;$(_SdkDevPath)&quot;"
-          StandardOutputImportance="high"
-          StandardErrorImportance="high" />
-  </Target>
-
-  <!-- Archive distribution path (issue #42, the reporter's actual flow).
-
-       The IPA target above only fires when the .NET workload itself builds and zips the .ipa
-       ($(BuildIpa) == 'true' — `dotnet publish`, VS "Distribute"). The recommended VS/MAUI App
-       Store flow does NOT go through it: VS "Publish" runs the workload's Archive target
-       ($(ArchiveOnBuild) == 'true') to produce a .xcarchive, then the user distributes that
-       archive through Xcode's Organizer ("Distribute App → App Store Connect") or
-       `xcodebuild -exportArchive`, which assembles and uploads the IPA. $(BuildIpa) is never set,
-       so the IPA hook never runs, and the workload's Archive task does not populate SwiftSupport
-       — so the exported IPA is missing it → ITMS-90426.
-
-       The fix mirrors the IPA target on the archive: write SwiftSupport/<platform> at the
-       .xcarchive ROOT (sibling of Products/), where Xcode's App Store export carries it into the
-       IPA verbatim. This is the exact anchor Microsoft's own Xamarin.iOS.SwiftRuntimeSupport
-       package used ($(ArchiveDir)/SwiftSupport, AfterTargets="Archive"), honored by Apple's
-       distribution for years. Running as part of the archive build on the Mac host means it works
-       identically for local Mac builds and VS-from-Windows "Pair to Mac" remote builds — the
-       reporter's setup — with no manual step and no flow change.
-
-       Gating mirrors the IPA target but keys on $(ArchiveOnBuild) instead of $(BuildIpa); the two
-       switches are mutually exclusive per invocation. The script hard-fails if a non-weak Swift
-       runtime dylib has no Apple-signed toolchain copy, and is a no-op when no embeddable Swift
-       dylibs are referenced. -->
-  <Target Name="_SwiftBindingsAddSwiftSupportFolderToArchive"
-          AfterTargets="Archive"
-          Condition="'$(ArchiveOnBuild)' == 'true'
-                     AND '$(EnableSwiftSupportFolder)' == 'true'
-                     AND !$(RuntimeIdentifier.Contains('simulator'))
-                     AND ($(TargetFramework.Contains('ios')) OR $(TargetFramework.Contains('tvos')))
-                     AND !$(TargetFramework.Contains('maccatalyst'))">
-
-    <!-- SwiftSupport platform subdir: iphoneos for iOS, appletvos for tvOS. -->
-    <PropertyGroup>
-      <_SwiftSupportPlatformDir Condition="$(TargetFramework.Contains('tvos'))">appletvos</_SwiftSupportPlatformDir>
-      <_SwiftSupportPlatformDir Condition="'$(_SwiftSupportPlatformDir)' == '' AND $(TargetFramework.Contains('ios'))">iphoneos</_SwiftSupportPlatformDir>
-      <!-- $(ArchiveDir) is the Archive task's output property (authoritative); $(ArchivePath) is
-           the workload's own archive-location property, used as a defensive fallback. -->
-      <_SwiftSupportArchiveDir Condition="'$(ArchiveDir)' != ''">$(ArchiveDir)</_SwiftSupportArchiveDir>
-      <_SwiftSupportArchiveDir Condition="'$(_SwiftSupportArchiveDir)' == ''">$(ArchivePath)</_SwiftSupportArchiveDir>
-    </PropertyGroup>
-
-    <Warning Condition="'$(_SwiftSupportArchiveDir)' == '' OR !Exists('$(_SwiftSupportArchiveDir)/Products/Applications')"
-             Text="SwiftBindings: ArchiveOnBuild is true but the finished .xcarchive (with Products/Applications) was not found at ArchiveDir/ArchivePath ('$(_SwiftSupportArchiveDir)') — skipping SwiftSupport injection. A later App Store distribution of this archive may be rejected (ITMS-90426)." />
-
-    <Exec Condition="'$(_SwiftSupportArchiveDir)' != '' AND Exists('$(_SwiftSupportArchiveDir)/Products/Applications') AND '$(_SwiftSupportPlatformDir)' != ''"
-          Command="bash &quot;$(MSBuildThisFileDirectory)add-swiftsupport-folder.sh&quot; --mode archive &quot;$(_SwiftSupportArchiveDir)&quot; &quot;$(_SwiftSupportPlatformDir)&quot; &quot;$(_SdkDevPath)&quot;"
-          StandardOutputImportance="high"
-          StandardErrorImportance="high" />
-  </Target>
+  <!-- NOTE: there is deliberately no SwiftSupport-folder injection here. Apple's
+       SwiftSupport/ requirement (ITMS-90426) applies to apps that embed loose
+       /usr/lib/swift back-deployment dylibs. This runtime now ships as a signed dynamic
+       framework inside an xcframework and links the OS-resident stable Swift ABI
+       (/usr/lib/swift), so a compliant app embeds zero libswift*.dylib and needs no
+       SwiftSupport/ folder. Re-introducing the injector would re-create the bloat the
+       reporter saw (issue #42: .xcarchive 138MB → 185MB) for no benefit. The
+       appstore-hygiene binding-tests gate asserts this hygiene holds. -->
 
 </Project>

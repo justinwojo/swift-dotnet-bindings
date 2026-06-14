@@ -39,7 +39,7 @@ public static class SwiftFrameworkResolver
         RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
 
         // Wire the C# free trampoline that fires from Swift's _SBClosureCtx deinit
-        // (defined in libSwiftBindingsRuntime.dylib). Must run before any wrapper
+        // (defined in the SwiftBindingsRuntime native framework). Must run before any wrapper
         // emits a closure-context box; the wrapper's first allocation can happen
         // on the very first P/Invoke from a consumer assembly.
         SwiftClosureContext.EnsureRegistered();

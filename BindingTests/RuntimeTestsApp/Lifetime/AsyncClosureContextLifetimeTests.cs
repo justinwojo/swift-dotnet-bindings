@@ -87,7 +87,7 @@ public class AsyncClosureContextLifetimeTests : TestBase
     /// The delegate's captured target must then become collectible. Pre-fix the
     /// handle was never freed, so the weak reference stayed alive forever.
     /// </summary>
-    [SkipOnSimulator("Async-closure owner-token box lives in libSwiftBindingsRuntime.dylib. " +
+    [SkipOnSimulator("Async-closure owner-token box lives in the SwiftBindingsRuntime native framework. " +
         "RuntimeTestsApp sets IncludeSwiftBindingsRuntimeNative=false, so on the Mono simulator the " +
         "async wrapper falls back to _SBClosureCtxFallback — a no-deinit class that intentionally " +
         "preserves the prior leak (see ClosureContextHelperEmitter.cs and SwiftClosureContext.cs " +
@@ -134,7 +134,7 @@ public class AsyncClosureContextLifetimeTests : TestBase
     /// the live count grew linearly with the number of calls; post-fix it collapses to a
     /// small constant (conservative-stack-scan noise floor).
     /// </summary>
-    [SkipOnSimulator("Async-closure owner-token box lives in libSwiftBindingsRuntime.dylib; " +
+    [SkipOnSimulator("Async-closure owner-token box lives in the SwiftBindingsRuntime native framework; " +
         "RuntimeTestsApp omits the dylib via IncludeSwiftBindingsRuntimeNative=false, so the async " +
         "wrapper's no-deinit _SBClosureCtxFallback preserves the prior per-call leak on the simulator " +
         "by design. The NativeAOT device build loads the framework via NativeReference and this " +

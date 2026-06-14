@@ -21,7 +21,7 @@ namespace RuntimeTestsApp.ErrorHandling;
 /// surface at all. The closure-context owner-token mechanism wraps the C#
 /// <see cref="System.Runtime.InteropServices.GCHandle"/>
 /// in a Swift-ARC-owned <c>_SBClosureCtx</c> box exported from
-/// <c>libSwiftBindingsRuntime.dylib</c>, so the MCB pipeline now emits a
+/// the SwiftBindingsRuntime native framework, so the MCB pipeline now emits a
 /// stable <c>@_cdecl</c> wrapper for these closure-arg methods.
 ///
 /// Each test pins a different end-to-end property:

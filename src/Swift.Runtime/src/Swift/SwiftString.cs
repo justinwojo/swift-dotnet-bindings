@@ -107,7 +107,7 @@ public class SwiftString : ISwiftObject, ISwiftStruct, ISwiftMovesPayloadOnConst
 
             throw new SwiftRuntimeException(
                 "Unable to get type metadata for SwiftString. " +
-                "Ensure either libSwiftBindingsRuntime.dylib or libswiftCore.dylib is available.");
+                "Ensure the SwiftBindingsRuntime native framework (or the system libswiftCore) is available.");
         });
     }
 
@@ -292,7 +292,7 @@ public class SwiftString : ISwiftObject, ISwiftStruct, ISwiftMovesPayloadOnConst
     {
         throw new SwiftRuntimeException(
             "SwiftString operations require the SwiftBindingsRuntime native library. " +
-            "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.", inner);
+            "Ensure the SwiftBindings.Runtime package is referenced so its native SwiftBindingsRuntime.framework is embedded in your app bundle.", inner);
     }
 
     /// <summary>

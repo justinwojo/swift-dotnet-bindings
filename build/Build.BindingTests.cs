@@ -789,25 +789,25 @@ partial class Build
         {
             RejectSkipBuildWithActiveSmokeFlags();
 
-            // The opt-in heavyweight legs (--mixed-pack, --mixed-direct, --swiftsupport) and
+            // The opt-in heavyweight legs (--mixed-pack, --mixed-direct, --appstore-hygiene) and
             // --compile-only are mutually exclusive: --compile-only is a no-app-build compile-check
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
             // The --compile-only early return below would otherwise silently swallow the requested
             // leg. Fail loud rather than skip it.
-            if ((MixedPack || MixedDirect || Swiftsupport) && CompileOnly)
+            if ((MixedPack || MixedDirect || AppstoreHygiene) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct/--swiftsupport and --compile-only cannot be combined: --compile-only is a "
+                    "--mixed-pack/--mixed-direct/--appstore-hygiene and --compile-only cannot be combined: --compile-only is a "
                     + "compile-check gate with no app build or test run, while the opt-in legs build a real app and run/inspect "
                     + "it. Pass exactly one.");
 
             // The opt-in legs each exercise a DIFFERENT consumption/packaging mode (--mixed-pack: a
             // single packed PackageReference; --mixed-direct: SDK-direct, the app IS the binding;
-            // --swiftsupport: a device IPA's App Store SwiftSupport folder) and each is a focused,
+            // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, Swiftsupport }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, and --swiftsupport cannot be combined: each is a focused, exclusive leg "
+                    "--mixed-pack, --mixed-direct, and --appstore-hygiene cannot be combined: each is a focused, exclusive leg "
                     + "that builds its own app and returns. Pass exactly one.");
 
             // --compile-only: run the binding pipeline + compile-check only (no app build,
@@ -884,16 +884,17 @@ partial class Build
                 return;
             }
 
-            // --swiftsupport: the opt-in App Store SwiftSupport-folder gate (issue #42). Packs the
+            // --appstore-hygiene: the opt-in App Store TN2435-hygiene gate (issue #42). Packs the
             // Runtime, publishes a device IPA through a single-PackageReference consumer, and asserts
-            // the injected SwiftSupport/iphoneos folder is compliant. Builds + inspects on the host
-            // (a code-signing identity is required, but no connected device or simulator), so it
-            // composes with no platform flag.
-            if (Swiftsupport)
+            // the runtime embeds as a signed SwiftBindingsRuntime.framework (not a loose dylib), the
+            // app embeds zero libswift*.dylib, and no SwiftSupport/ folder is present. Builds +
+            // inspects on the host (a code-signing identity is required, but no connected device or
+            // simulator), so it composes with no platform flag.
+            if (AppstoreHygiene)
             {
                 if (Sim || Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
-                    Log.Warning("--swiftsupport builds + inspects a device IPA on the host; platform flags are ignored.");
-                RunSwiftSupportLeg();
+                    Log.Warning("--appstore-hygiene builds + inspects a device IPA on the host; platform flags are ignored.");
+                RunAppStoreHygieneLeg();
                 return;
             }
 

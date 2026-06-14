@@ -50,67 +50,25 @@
     </Content>
   </ItemGroup>
 
-  <!-- Include pre-built native runtime library when available.
-       ALL item conditions gate on '$(RuntimeIdentifier)' != '' so they only fire at
-       consumer publish/run time (when the RID is known), never during the assembly's
-       own compile or during NuGet pack (RID is empty). Without this gate, a Content
-       item like `!RuntimeIdentifier.Contains('simulator')` evaluates TRUE when RID is
-       empty, causing the .NET iOS workload to bake the dylib into the managed DLL as
-       a BundleResource (monotouch_content_Frameworks_s...) which then extracts into
-       consumer app bundles and overrides the RID-correct slice selected by
-       buildTransitive/SwiftBindings.Runtime.targets. Empirically this shipped the
-       iphoneos device slice into iossimulator-arm64 bundles and broke sim load.
-       iOS device vs simulator is distinguished by RuntimeIdentifier, not TargetFramework
-       (both use net10.0-ios). -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('macos')) AND !$(TargetFramework.Contains('maccatalyst')) AND '$(RuntimeIdentifier)' != ''"
-             Pack="false">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('ios')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('ios-'))"
-             Pack="false">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('ios')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('iossimulator-'))"
-             Pack="false">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
-  <!-- Mac Catalyst: maccatalyst TFM -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib')">
-    <NativeReference Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib"
-                     Condition="$(TargetFramework.Contains('maccatalyst')) AND '$(RuntimeIdentifier)' != ''"
-                     Pack="false">
-      <Kind>Dynamic</Kind>
+  <!-- Embed the pre-built native runtime as a signed dynamic framework via a single
+       <NativeReference Kind="Framework"> to the committed xcframework. The .NET Apple
+       workload selects the right per-platform/-arch slice, embeds the .framework into the
+       consumer app bundle, and re-signs it — the TN2435-compliant shape. (A loose runtime
+       dylib dropped into App.app/Frameworks/ is rejected on iOS/tvOS, which was the root
+       cause of the App Store ITMS-90426/90429 rejections in issue #42.)
+       Gated to Apple TFMs (NativeReference is invalid on the base net10.0 TFM) and to the
+       artifact's existence. No RuntimeIdentifier gate is needed: unlike a <Content> dylib,
+       a framework NativeReference is NOT baked into the managed DLL as a BundleResource —
+       the workload defers slice selection to publish time. Mirrors SBApple.targets and
+       every generated binding's ConsumerTargets emission. NativeReference does not
+       propagate across ProjectReference; in-tree ProjectReference consumers set
+       IncludeSwiftBindingsRuntimeNative=false and inject the framework themselves. -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                        AND ($(TargetFramework.Contains('ios')) OR $(TargetFramework.Contains('macos')) OR $(TargetFramework.Contains('maccatalyst')) OR $(TargetFramework.Contains('tvos')))
+                        AND Exists('$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework')">
+    <NativeReference Include="$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework">
+      <Kind>Framework</Kind>
     </NativeReference>
-  </ItemGroup>
-  <!-- tvOS device -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('tvos')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('tvos-'))"
-             Pack="false">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
-  </ItemGroup>
-  <!-- tvOS simulator -->
-  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('tvos')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('tvossimulator-'))"
-             Pack="false">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
   </ItemGroup>
 
   <!-- Roslyn analyzer: build as analyzer, pack into NuGet for consumers.
@@ -142,19 +100,24 @@
     </EmbeddedResource>
   </ItemGroup>
 
-  <!-- NuGet pack items: native dylibs, .targets, and README -->
+  <!-- NuGet pack items: native runtime xcframework, .targets, and README -->
   <ItemGroup>
-    <None Include="../native/macos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/macos" />
-    <None Include="../native/ios/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/ios" />
-    <None Include="../native/iossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/iossimulator" />
-    <None Include="../native/maccatalyst/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/maccatalyst" />
-    <None Include="../native/tvos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvos" />
-    <None Include="../native/tvossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvossimulator" />
+    <!-- Pack the whole framework xcframework recursively, preserving its directory tree
+         (slice dirs, each .framework's binary + Info.plist + _CodeSignature). PackagePath is the
+         fixed destination FOLDER (trailing slash, no %(RecursiveDir) token): NuGet appends each
+         source file's own %(RecursiveDir)%(Filename)%(Extension) under it, reproducing the tree.
+         Do NOT fold %(RecursiveDir) (or an explicit filename) into PackagePath — NuGet treats any
+         PackagePath ending in a separator, OR one with no file extension, as a folder and then
+         re-appends the source's recursive path, doubling every segment
+         (".../ios-arm64.../SwiftBindingsRuntime.framework/ios-arm64.../SwiftBindingsRuntime.framework/...")
+         and failing the pack with NU5123 (path too long). The explicit-filename form fails the same
+         way for the xcframework's extensionless members (the Mach-O binary, _CodeSignature/CodeResources),
+         which NuGet still classifies as folders. buildTransitive/SwiftBindings.Runtime.targets
+         resolves the slice from this location via a single <NativeReference Kind="Framework">. -->
+    <None Include="../native/SwiftBindingsRuntime.xcframework/**/*"
+          Pack="true"
+          PackagePath="native/SwiftBindingsRuntime.xcframework/" />
     <None Include="build/SwiftBindings.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
-    <!-- App Store SwiftSupport folder injector (issue #42), invoked by the .targets above
-         after the workload's CreateIpa. Packed adjacent to the targets so it resolves via
-         $(MSBuildThisFileDirectory)add-swiftsupport-folder.sh in the consuming app's build. -->
-    <None Include="build/add-swiftsupport-folder.sh" Pack="true" PackagePath="buildTransitive" />
     <!-- Pack the descriptor adjacent to the targets file so consumer projects can resolve
          it via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml. The same file is also
          consumed as <EmbeddedResource> above for the IL trimmer's auto-discovery path —

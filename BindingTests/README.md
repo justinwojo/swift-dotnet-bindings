@@ -30,11 +30,11 @@ Use Nuke from the repository root. Do not use the old shell-script workflow.
 | `nuke binding-tests --strict` | Fail on non-zero generator exit (implied by `--compile-only`). Composes with any mode. |
 | `nuke binding-tests --mixed-pack` | **Opt-in, heavyweight.** Pack a mixed (ObjC+Swift) binding into one nupkg, consume it via a single `PackageReference`, and run on iOS sim/device (defaults sim). |
 | `nuke binding-tests --mixed-direct` | **Opt-in, heavyweight, sim-only.** Build a mixed (ObjC+Swift) binding in SDK-direct mode (the app's own csproj imports the SDK) and run it on the simulator. |
-| `nuke binding-tests --swiftsupport` | **Opt-in, heavyweight, host-only.** Pack the Runtime, build a single-`PackageReference` consumer, and assert the App Store `SwiftSupport/iphoneos` folder is compliant across both the IPA (`BuildIpa`) and `.xcarchive` (`Archive`) flows (issue #42). No device/sim. |
+| `nuke binding-tests --appstore-hygiene` | **Opt-in, heavyweight, host-only.** TN2435 App Store hygiene gate (issue #42). Pack the Runtime, assert the nupkg ships the `SwiftBindingsRuntime.xcframework` slices (no loose `libSwiftBindingsRuntime.dylib`), then build a single-`PackageReference` consumer and assert the finished `.ipa` embeds a signed `SwiftBindingsRuntime.framework`, zero `libswift*.dylib`, and no `SwiftSupport/` folder. No device/sim. |
 
 Platform flags compose. For example, `nuke binding-tests --sim --device` runs both simulator and device paths.
 
-The `--mixed-pack`, `--mixed-direct`, and `--swiftsupport` gates are opt-in and heavyweight (minutes, native packaging) — never in the default run or `--compile-only`. Run them before a release and after changes to native packaging policy, the ObjC companion build/reference path, calling conventions, or struct/P-Invoke marshalling. See `CLAUDE.md` for the full when/why guidance.
+The `--mixed-pack`, `--mixed-direct`, and `--appstore-hygiene` gates are opt-in and heavyweight (minutes, native packaging) — never in the default run or `--compile-only`. Run them before a release and after changes to native packaging policy, the ObjC companion build/reference path, calling conventions, or struct/P-Invoke marshalling. See `CLAUDE.md` for the full when/why guidance.
 
 For generator, parser, emitter, or marshaler changes, the usual sequence is:
 

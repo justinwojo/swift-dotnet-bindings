@@ -436,7 +436,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             // Wrapper unavailable or returned zero.
             throw new SwiftRuntimeException(
                 $"Failed to get existential metadata for {type.Name} ({numProtocols} protocol(s)). " +
-                "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
+                "Ensure the SwiftBindings.Runtime package is referenced so its native SwiftBindingsRuntime.framework is embedded in your app bundle.");
         }
 
         // Handle CoreGraphics struct types (CGPoint, CGRect, CGSize).
@@ -735,7 +735,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
 
         throw new SwiftRuntimeException(
             $"Failed to get existential metadata for {numProtocols} protocol(s). " +
-            "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
+            "Ensure the SwiftBindings.Runtime package is referenced so its native SwiftBindingsRuntime.framework is embedded in your app bundle.");
     }
 
     /// <summary>

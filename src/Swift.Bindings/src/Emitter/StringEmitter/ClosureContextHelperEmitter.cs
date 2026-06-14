@@ -5,8 +5,8 @@ namespace BindingsGeneration;
 
 /// <summary>
 /// Emits the wrapper-side helpers that wrap an escaping closure's GCHandle
-/// pointer in a Swift-ARC-owned <c>_SBClosureCtx</c> box (defined in
-/// <c>libSwiftBindingsRuntime.dylib</c>). When Swift releases the closure,
+/// pointer in a Swift-ARC-owned <c>_SBClosureCtx</c> box (defined in the
+/// SwiftBindingsRuntime native framework). When Swift releases the closure,
 /// the box's deinit upcalls the C# free callback registered by
 /// <c>SwiftClosureContext.EnsureRegistered</c> and the GCHandle is freed
 /// exactly once.
@@ -48,7 +48,7 @@ public static class ClosureContextHelperEmitter
 
         // The closure that initializes _sbNewClosureContextSymbol runs lazily on
         // first access. By that point Swift.Runtime's [ModuleInitializer] has
-        // typically dlopen'd / NativeLibrary.TryLoad'd libSwiftBindingsRuntime
+        // typically dlopen'd / NativeLibrary.TryLoad'd SwiftBindingsRuntime
         // and `dlsym(RTLD_DEFAULT, ...)` resolves the symbol from the in-memory
         // module. RTLD_DEFAULT is dlopen(nil, 0).
         //
@@ -68,8 +68,8 @@ public static class ClosureContextHelperEmitter
             // Restricted to escaping closures — non-escaping closures still free in
             // the C# wrapper's `finally`.
             //
-            // The factory symbol is exported by libSwiftBindingsRuntime.dylib and
-            // resolved here via dlsym. We deliberately do NOT use
+            // The factory symbol is exported by the SwiftBindingsRuntime native framework
+            // and resolved here via dlsym. We deliberately do NOT use
             // `-undefined dynamic_lookup` — this is a runtime symbol lookup against
             // a real exported symbol of an already-loaded dylib. When the dylib is
             // intentionally absent (BindingTests simulator), the helper falls back

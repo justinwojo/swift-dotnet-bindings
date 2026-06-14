@@ -373,7 +373,7 @@ public class OwnershipGCStressTests : TestBase
     /// adapter ARC-releases.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
+    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_EphemeralRepeatCall()
     {
         if (!TestRunFlags.Lifetime)
@@ -454,7 +454,7 @@ public class OwnershipGCStressTests : TestBase
     /// allocation counters that we don't track today.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
+    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_HeapAllocShapeMatrix()
     {
         if (!TestRunFlags.Lifetime)
@@ -552,7 +552,7 @@ public class OwnershipGCStressTests : TestBase
     /// closure storage and free the GCHandle rooting the prior C# delegate.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
+    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_PropertySetterReplace()
     {
         if (!TestRunFlags.Lifetime)
@@ -639,7 +639,7 @@ public class OwnershipGCStressTests : TestBase
     /// across rapid GC churn.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
+    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_GCPressureDuringCall()
     {
         if (!TestRunFlags.Lifetime)

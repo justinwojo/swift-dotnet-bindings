@@ -133,6 +133,10 @@
           "type": "string",
           "description": "Package version for SwiftBindings.Apple (defaults to --version when unset)"
         },
+        "AppstoreHygiene": {
+          "type": "boolean",
+          "description": "Opt-in: through a Runtime-referencing consumer, build a device App Store IPA and assert TN2435 hygiene — the native runtime embeds as a signed SwiftBindingsRuntime.framework (not a loose dylib), the app embeds zero libswift*.dylib, no SwiftSupport/ folder is present, and the app signature verifies. Also asserts the runtime nupkg preserves the framework xcframework. Builds + inspects on the host; needs a code-signing identity but no connected device. Never part of the default run or --compile-only"
+        },
         "Catalyst": {
           "type": "boolean",
           "description": "Run on Mac Catalyst"
@@ -297,10 +301,6 @@
         "Strict": {
           "type": "boolean",
           "description": "Fail on non-zero generator exit"
-        },
-        "Swiftsupport": {
-          "type": "boolean",
-          "description": "Opt-in: through a Swift-binding consumer, build BOTH App Store artifacts — a device IPA (BuildIpa) and a .xcarchive (ArchiveOnBuild) — and assert each carries a compliant SwiftSupport/iphoneos folder (issue #42). Builds + inspects on the host; needs a code-signing identity but no connected device. Never part of the default run or --compile-only"
         },
         "Tier": {
           "type": "integer",
