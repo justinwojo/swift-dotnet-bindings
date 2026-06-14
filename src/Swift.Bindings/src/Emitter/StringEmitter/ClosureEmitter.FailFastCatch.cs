@@ -30,12 +30,8 @@ public static partial class ClosureEmitter
     /// </summary>
     public static void EmitNonThrowingFailFastCatch(CSharpWriter csWriter)
     {
-        csWriter.WriteLine("catch (global::System.Exception __ex)");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("SwiftClosureMarshaller.FailFastUnhandledClosureException(__ex);");
-        csWriter.WriteLine("throw;");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
+        // Thin shim over the unified UCO guard (the FailFast policy). The unqualified marshaller
+        // reference and the __ex variable name reproduce this site's historical output byte-for-byte.
+        UcoGuardEmitter.EmitFailFastCatch(csWriter, exceptionVar: "__ex", fullyQualified: false);
     }
 }

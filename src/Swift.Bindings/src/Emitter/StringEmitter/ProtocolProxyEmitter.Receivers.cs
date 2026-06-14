@@ -1117,13 +1117,23 @@ public partial class ProtocolProxyEmitter
         }
 
         // Async protocol requirements are satisfied via the SYNC-ABI witness slot (the async witness
-        // ABI hits the Mono reverse-async assertion, Issue 1), so the C# impl returns Task<T> (or
-        // Task) while the Swift witness reads the unwrapped T (or void). Block on the Task so the
+        // ABI hits the Mono reverse-async assertion, upstream Issue 1), so the C# impl returns Task<T>
+        // (or Task) while the Swift witness reads the unwrapped T (or void). Block on the Task so the
         // sync witness body marshals T, not the Task object — without this the receiver would
         // MarshalToSwiftBuffer(Task<T>) and silently corrupt the return ABI. Mirrors the
-        // forward-closure async-bridge idiom (Func<Task<T>> → .GetAwaiter().GetResult()). UCO
-        // receivers carry no SynchronizationContext, so blocking cannot self-deadlock. Async is
+        // forward-closure async-bridge idiom (Func<Task<T>> → .GetAwaiter().GetResult()). Async is
         // gated out of the sibling-fallback path above, so the unwrap is only needed below.
+        //
+        // Blocking this slot is NOT deadlock-free in general — the earlier "no SynchronizationContext,
+        // so blocking cannot self-deadlock" claim was too narrow. There is no SynchronizationContext
+        // to re-enter, but the conformance can still self-deadlock by awaiting work that needs THIS
+        // thread to make progress: a continuation pinned to the blocked thread (e.g. another
+        // @MainActor hop reaching back to the main thread this witness is blocking), or cooperative
+        // thread-pool starvation when many witnesses block pool threads at once. Those are inherent to
+        // the sync-blocked Issue-1 workaround and only the real async witness (Session 13) removes
+        // them. What this seam DOES guarantee: an exception escaping the awaited work cannot silently
+        // corrupt the boundary — the async UCO close below converts any escape (cancellation or other)
+        // into a member-named FailFast, because the sync slot has no Swift error channel to carry it.
         string asyncResultUnwrap = method.IsAsync ? ".GetAwaiter().GetResult()" : string.Empty;
 
         if (useMethodSiblingFallback)
@@ -1170,7 +1180,14 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"impl.{pascalMethodName}({argsString}){asyncResultUnwrap};");
         }
 
-        EmitUcoGuardCloseFailFast(writer);
+        // Async receivers block the Task on the sync-ABI slot (Issue 1) and have no Swift error
+        // channel, so any escape — cancellation or otherwise — is process-terminating. Use the
+        // member-named async close (Finding 36) so the FailFast is attributable rather than anonymous;
+        // sync receivers keep the plain FailFast close.
+        if (method.IsAsync)
+            EmitUcoGuardCloseAsyncWitnessFailFast(writer, $"{protocolDecl.Name}.{method.Name}");
+        else
+            EmitUcoGuardCloseFailFast(writer);
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -2063,9 +2080,7 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private static void EmitUcoGuardOpen(CSharpWriter writer)
     {
-        writer.WriteLine("try");
-        writer.WriteLine("{");
-        writer.Indent++;
+        UcoGuardEmitter.EmitOpen(writer);
     }
 
     /// <summary>
@@ -2075,15 +2090,23 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private static void EmitUcoGuardCloseFailFast(CSharpWriter writer)
     {
-        writer.Indent--;
-        writer.WriteLine("}");
-        writer.WriteLine("catch (global::System.Exception __uco_ex)");
-        writer.WriteLine("{");
-        writer.Indent++;
-        writer.WriteLine("global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__uco_ex);");
-        writer.WriteLine("throw;");
-        writer.Indent--;
-        writer.WriteLine("}");
+        UcoGuardEmitter.EmitClose(writer, UcoGuardEmitter.UcoFaultPolicy.FailFast,
+            exceptionVar: "__uco_ex", fullyQualified: true);
+    }
+
+    /// <summary>
+    /// Closes the <c>try</c> opened by <see cref="EmitUcoGuardOpen"/> for an <b>async</b>
+    /// protocol-requirement receiver with a member-named FailFast (Finding 36). Same fail-closed
+    /// policy as <see cref="EmitUcoGuardCloseFailFast"/> — the async witness blocks on the
+    /// synchronously-blocked reverse-dispatch slot (upstream Issue 1) and has no Swift error channel,
+    /// so any escape is process-terminating — but it names <paramref name="member"/> and splits out
+    /// <see cref="System.OperationCanceledException"/> so a cancellation token wired into the
+    /// conformance produces an attributable diagnostic instead of an anonymous Swift-library crash.
+    /// </summary>
+    private static void EmitUcoGuardCloseAsyncWitnessFailFast(CSharpWriter writer, string member)
+    {
+        UcoGuardEmitter.EmitCloseAsyncWitnessFailFast(writer, member,
+            exceptionVar: "__uco_ex", fullyQualified: true);
     }
 
     /// <summary>

@@ -140,6 +140,9 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLines(foregroundCleanup);
                 csWriter.WriteLine("handle.Free();");
+                // The wrapper never launched, so its `defer { _sbwUnregisterTask }` will not run.
+                // Reclaim any WINDOW A cancellation tombstone left for this id (no-op if none).
+                csWriter.WriteLine($"{AsyncCallbackPrefix}SBW_UnregisterTask(_sbwCancelKey);");
                 csWriter.WriteLine("throw;");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

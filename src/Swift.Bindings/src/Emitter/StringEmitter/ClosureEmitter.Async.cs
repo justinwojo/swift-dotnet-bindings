@@ -93,6 +93,21 @@ public static partial class ClosureEmitter
                 + "widen DataAsyncClosureHelper first.");
         }
 
+        // Fail closed: non-throwing async closures only carry blittable-primitive returns
+        // (enforced upstream by ClosureHandler.IsBaselineAsyncNonThrowingClosure). String/Data
+        // returns route exclusively through the throwing continuation helpers — RunStringAsync /
+        // RunDataAsync bind an AsyncThrowingClosureState, not the non-throwing AsyncClosureState
+        // this path would build. If that upstream gate is ever widened without teaching this
+        // emitter a non-throwing String/Data shape, refuse at generation time rather than emit a
+        // state-type mismatch (non-compiling) or wire an error channel a non-throwing closure
+        // does not have.
+        if ((isDataReturn || isStringReturn) && !isThrowing)
+        {
+            throw new NotSupportedException(
+                "Non-throwing async closures with String or Data returns are not supported; "
+                + "the String/Data continuation helpers require a throwing continuation state.");
+        }
+
         // Build the Start thunk's param list: (ctx, box, a0_raw, a1_raw, …, successFP, errorFP).
         var paramLines = new List<string>
         {
@@ -129,78 +144,88 @@ public static partial class ClosureEmitter
         else
             helperName = hasReturn ? "RunAsync" : "RunVoidAsync";
 
+        // Finding 37 — mechanical resume-once. Every exit from this Start thunk resumes the Swift
+        // continuation box exactly once: the success/error completion delegates each claim a shared
+        // resume guard, and the two synchronous failure paths (the should-never-happen context-type
+        // mismatch and any arg-marshalling exception) resume the box with an error — for throwing
+        // closures the ResumeBoxError policy via AsyncClosureHelper.ReportError, for non-throwing
+        // closures a loud FailFast (they have no Swift error channel) — instead of returning
+        // silently and leaving the Swift task awaiting forever.
+        var contextDesc = $"{methodName}.{parameterName}";
+        var mismatchMsg = $"[SwiftBindings] async closure context for '{contextDesc}' did not contain the "
+            + "expected state type; resuming the Swift continuation with an error instead of dropping it.";
+        string targetMismatchBody;
+        string ucoCatchBody;
+        if (isThrowing)
+        {
+            targetMismatchBody = "global::Swift.Runtime.AsyncClosureHelper.ReportError("
+                + $"new global::System.InvalidOperationException(\"{mismatchMsg}\"), continuationBoxPtr, errorAction);";
+            ucoCatchBody = "global::Swift.Runtime.AsyncClosureHelper.ReportError(__uco_ex, continuationBoxPtr, errorAction);";
+        }
+        else
+        {
+            targetMismatchBody = "global::Swift.Runtime.AsyncClosureHelper.FailFastNonThrowing("
+                + $"new global::System.InvalidOperationException(\"{mismatchMsg}\"));";
+            ucoCatchBody = "global::Swift.Runtime.AsyncClosureHelper.FailFastNonThrowing(__uco_ex);";
+        }
+
+        // Stage 1 — signature + shared preamble: the single resume guard that every resume path
+        // (success, error, and the synchronous failure paths below) claims. The context handle is
+        // resolved INSIDE the guarded body (Stage 3), not here: GCHandle.FromIntPtr throws on a
+        // zero/corrupt contextPtr, and resolving it before the try would let that escape the
+        // [UnmanagedCallersOnly] boundary with the box never resumed. The guard and the success/
+        // error delegates must be constructed before the try because the catch resumes through
+        // errorAction; their allocation is not wrapped (a resume requires the delegate that resumes).
         csWriter.WriteLines($$"""
             /// <summary>
             /// [UnmanagedCallersOnly] start function for async+throwing closure parameter '{{parameterName}}'.
             /// Called synchronously by Swift, marshals args, spawns Task.Run to execute the async delegate.
+            /// Every exit — bad context handle, context mismatch, marshalling fault, or async
+            /// completion — resumes the Swift continuation box exactly once via __resumeGuard,
+            /// never silently (Finding 37).
             /// </summary>
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             private static unsafe void {{callbackName}}(
                 {{paramList}}
             {
-                var handle = GCHandle.FromIntPtr(contextPtr);
-                if (handle.Target is not {{stateType}} state)
-                    return;
-
-            {{marshalBlock}}    // Convert function pointers to delegates while we're in the unsafe context.
-                // These delegates can then be called from the async code without unsafe blocks.
+                var __resumeGuard = new global::Swift.Runtime.AsyncResumeGuard();
             """);
 
-        if (isDataReturn)
+        // Stage 2 — branch-specific success/error callback delegates. Each delegate claims the
+        // shared guard before invoking its Swift @_cdecl symbol, so a success and an error (or a
+        // racing duplicate) can never both consume the same continuation box. Declared before the
+        // guarded body so the ResumeBoxError catch below can reach errorAction.
+        if (isDataReturn || isStringReturn)
         {
-            // Data return type — baseline shape, no args.
-            csWriter.WriteLines($$"""
-                    var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
-                    {
-                        var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, nint, void>)successFuncPtr;
-                        fp(box, dataPtr, len);
-                    });
-                    var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
-                    {
-                        var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
-                        fp(box, errPtr);
-                    });
-
-                    Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-                }
-                """);
-        }
-        else if (isStringReturn)
-        {
-            // String return type — UTF-8 (bytesPtr, length) success callback, matching the
-            // Data shape. Unlike Data, String supports full arity (0–MaxAsyncThrowingClosureArity).
+            // Data / String success callback carries (box, bytesPtr, length) of pinned UTF-8 bytes.
+            // Data is arity-0; String supports full arity (0–MaxAsyncThrowingClosureArity).
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr, nint>((box, bytesPtr, len) =>
                     {
+                        if (!__resumeGuard.TryClaim()) return;
                         var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, nint, void>)successFuncPtr;
                         fp(box, bytesPtr, len);
                     });
                     var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
                     {
+                        if (!__resumeGuard.TryClaim()) return;
                         var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
                         fp(box, errPtr);
                     });
-
-                    Swift.Runtime.StringAsyncClosureHelper.RunStringAsync(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
-                }
                 """);
         }
         else if (hasReturn && !isThrowing)
         {
-            // Non-throwing: success-only helper, no error channel.
-            // errorFuncPtr param stays in the Start signature (uniform ABI with
-            // the throwing variant) but is intentionally unused —
-            // the Swift adapter passes a sentinel pointer for it.
+            // Non-throwing: success-only helper, no error channel. errorFuncPtr stays in the ABI
+            // signature (uniform with the throwing variant) but is unused — failures FailFast.
             csWriter.WriteLines($$"""
-                    _ = errorFuncPtr; // unused on the non-throwing path — FailFast handles exceptions
+                    _ = errorFuncPtr; // unused on the non-throwing path — failures FailFast
                     var successAction = new Action<IntPtr, IntPtr>((box, resultPtr) =>
                     {
+                        if (!__resumeGuard.TryClaim()) return;
                         var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)successFuncPtr;
                         fp(box, resultPtr);
                     });
-
-                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction);
-                }
                 """);
         }
         else if (hasReturn)
@@ -208,17 +233,16 @@ public static partial class ClosureEmitter
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr>((box, resultPtr) =>
                     {
+                        if (!__resumeGuard.TryClaim()) return;
                         var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)successFuncPtr;
                         fp(box, resultPtr);
                     });
                     var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
                     {
+                        if (!__resumeGuard.TryClaim()) return;
                         var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
                         fp(box, errPtr);
                     });
-
-                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
-                }
                 """);
         }
         else
@@ -226,19 +250,71 @@ public static partial class ClosureEmitter
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr>((box) =>
                     {
+                        if (!__resumeGuard.TryClaim()) return;
                         var fp = (delegate* unmanaged[Cdecl]<IntPtr, void>)successFuncPtr;
                         fp(box);
                     });
                     var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
                     {
+                        if (!__resumeGuard.TryClaim()) return;
                         var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
                         fp(box, errPtr);
                     });
-
-                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
-                }
                 """);
         }
+
+        // Stage 3 — open the guarded body: resolve the context handle (GCHandle.FromIntPtr throws on
+        // a zero/corrupt contextPtr — caught below and resumed with an error / FailFast, never an
+        // escape past the UCO boundary), verify it carries the expected state (resuming with an
+        // error if not, never returning silently), then marshal the args.
+        csWriter.WriteLines($$"""
+                try
+                {
+                    var handle = GCHandle.FromIntPtr(contextPtr);
+                    if (handle.Target is not {{stateType}} state)
+                    {
+                        {{targetMismatchBody}}
+                        return;
+                    }
+            {{marshalBlock}}
+            """);
+
+        // Stage 4 — branch-specific helper invocation (spawns Task.Run and returns synchronously).
+        if (isDataReturn)
+        {
+            csWriter.WriteLines($$"""
+                    Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
+            """);
+        }
+        else if (isStringReturn)
+        {
+            csWriter.WriteLines($$"""
+                    Swift.Runtime.StringAsyncClosureHelper.RunStringAsync(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
+            """);
+        }
+        else if (hasReturn && !isThrowing)
+        {
+            csWriter.WriteLines($$"""
+                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction);
+            """);
+        }
+        else
+        {
+            csWriter.WriteLines($$"""
+                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
+            """);
+        }
+
+        // Stage 5 — close the guarded body. A synchronous escape resumes the box once with an error
+        // (throwing closures) or FailFasts (non-throwing). Closes the generated method.
+        csWriter.WriteLines($$"""
+                }
+                catch (global::System.Exception __uco_ex)
+                {
+                    {{ucoCatchBody}}
+                }
+            }
+            """);
     }
 
     /// <summary>

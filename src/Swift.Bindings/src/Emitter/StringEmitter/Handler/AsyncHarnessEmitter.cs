@@ -178,16 +178,23 @@ namespace BindingsGeneration
             var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
             var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleDecl.Name);
+            var unregisterSymbolName = CancellationTaskEmitter.GetUnregisterSymbolName(moduleDecl.Name);
             var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
             if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey, _emissionContext))
             {
                 CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, _emissionContext);
-                // SBW_CancelTask P/Invoke: hoist to helper for generic types, emit inline otherwise
+                // SBW_CancelTask / SBW_UnregisterTask P/Invokes: hoist to helper for generic types, emit inline otherwise
                 var cancelWriter = _env.PInvokeHelperContext != null ? callbackWriter : csWriter;
                 cancelWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 cancelWriter.WriteLines($"""
                     [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                     {AsyncFieldVisibility} static partial void SBW_CancelTask(long taskId);
+
+                    """);
+                cancelWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                cancelWriter.WriteLines($"""
+                    [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{unregisterSymbolName}")]
+                    {AsyncFieldVisibility} static partial void SBW_UnregisterTask(long taskId);
 
                     """);
             }
@@ -407,6 +414,16 @@ namespace BindingsGeneration
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(&rawResult));";
             }
 
+            // Callback-ownership contract: the emitted Swift wrapper (WrapperEmitter.Async.cs) is a
+            // single `Task { do { … callback(_sbwTask) } catch { errorCallback(_sbwTask) } }`, so exactly
+            // ONE of {success, error} fires exactly ONCE per `task` GCHandle cookie — the success call is
+            // the last `do` statement, a @convention(c) callback cannot throw a Swift error into the `do`,
+            // and cancellation is cooperative (task.cancel() sets a flag, it does not re-invoke a callback).
+            // The GCHandle therefore has a SINGLE freer (this finally), so handle.Free() is intentionally
+            // NOT idempotent — unlike the TCS, which genuinely has two writers (the C# token registration's
+            // TrySetCanceled and this callback's TrySetResult) and so uses the Try* idempotent setters.
+            // Do not add speculative resume-once guarding to the free: it would mask a genuine future
+            // double-callback regression instead of surfacing it through the fault catch.
             var text = $$"""
                         {{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]

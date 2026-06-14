@@ -606,7 +606,7 @@ public static class AsyncMethodGenericBridgeEmitter
         swiftWriter.WriteLine($"    let _entry = _SBWTaskEntry()");
         swiftWriter.WriteLine($"    _sbwRegisterTask(_sbwCancelKey, _entry)");
         var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
-        swiftWriter.WriteLine($"    _entry.task = {taskOpen}");
+        swiftWriter.WriteLine($"    let _sbwLaunchedTask = {taskOpen}");
         swiftWriter.WriteLine($"        defer {{");
         swiftWriter.WriteLine($"            _sbwUnregisterTask(_sbwCancelKey)");
         swiftWriter.WriteLine($"        }}");
@@ -625,6 +625,8 @@ public static class AsyncMethodGenericBridgeEmitter
         }
 
         swiftWriter.WriteLine($"    }}");
+        // Finding 39: assign under the registry lock and replay an early cancel (see _sbwAssignTask).
+        swiftWriter.WriteLine($"    if _sbwAssignTask(_entry, _sbwLaunchedTask) {{ _sbwLaunchedTask.cancel() }}");
         swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
     }
@@ -722,8 +724,9 @@ public static class AsyncMethodGenericBridgeEmitter
 
         bool throws = methodDecl.Throws;
 
-        // SBW_CancelTask P/Invoke (per-type dedup).
+        // SBW_CancelTask / SBW_UnregisterTask P/Invokes (per-type dedup).
         var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleDecl.Name);
+        var unregisterSymbolName = CancellationTaskEmitter.GetUnregisterSymbolName(moduleDecl.Name);
         var typeKey = parentDecl.SwiftTypeName.ModuleQualifiedName;
         if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey, ctx))
         {
@@ -732,6 +735,12 @@ public static class AsyncMethodGenericBridgeEmitter
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                 private static partial void SBW_CancelTask(long taskId);
+
+                """);
+            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLines($"""
+                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{unregisterSymbolName}")]
+                private static partial void SBW_UnregisterTask(long taskId);
 
                 """);
         }
@@ -1404,6 +1413,9 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.Indent++;
         csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", "    "));
         csWriter.WriteLine("handle.Free();");
+        // The wrapper never launched, so its `defer { _sbwUnregisterTask }` will not run.
+        // Reclaim any WINDOW A cancellation tombstone left for this id (no-op if none).
+        csWriter.WriteLine("SBW_UnregisterTask(_sbwCancelKey);");
         csWriter.WriteLine("throw;");
         csWriter.Indent--;
         csWriter.WriteLine("}");

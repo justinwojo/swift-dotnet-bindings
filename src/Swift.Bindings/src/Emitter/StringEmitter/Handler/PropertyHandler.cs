@@ -105,6 +105,20 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
+        // Reject AsyncThrowingStream BEFORE the AsyncStream branch. The bridge models a
+        // non-throwing AsyncStream as IAsyncEnumerable<T>; the throwing variant's terminal
+        // iteration error has no representation across the channel bridge, so it fails closed
+        // rather than emitting a stream that can never surface its error. IsAsyncStream
+        // deliberately does NOT match the throwing variant, so without this guard the property
+        // would fall through to the generic property path and emit an unusable binding.
+        if (propertyEnv.AsyncStreamHandler.IsThrowingStream(propertyDecl.SwiftTypeSpec))
+        {
+            _logger.LogWarning($"PropertyHandler: Skipping AsyncThrowingStream property {propertyDecl.Name} — throwing streams are not supported.");
+            SkipProperty(SkipReason.UnsupportedThrowingAsyncStream,
+                "AsyncThrowingStream is not supported: the terminal iteration error has no representation across the AsyncStream channel bridge.");
+            return;
+        }
+
         // Handle AsyncStream properties - emit as IAsyncEnumerable<T>
         bool isAsyncStream = propertyEnv.AsyncStreamHandler.IsAsyncStream(propertyDecl.SwiftTypeSpec);
         if (isAsyncStream)

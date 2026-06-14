@@ -171,6 +171,69 @@ public static class SwiftClosureMarshaller
     }
 
     /// <summary>
+    /// Terminates the process with a member-named diagnostic when an
+    /// <see cref="OperationCanceledException"/> escapes an <b>async</b> Swift protocol-requirement
+    /// witness on the reverse-dispatch (EveryProtocol) path. Such a requirement is satisfied through
+    /// the synchronously-blocked witness slot — the async witness ABI hits the Mono reverse-async
+    /// assertion (upstream Issue 1), so the receiver runs the C# conformance and blocks the resulting
+    /// <c>Task</c> with <c>.GetAwaiter().GetResult()</c>. That slot exposes no Swift error channel
+    /// (the Issue-1 workaround does not thread one through even for an <c>async throws</c>
+    /// requirement), so cancellation thrown by the conformance (e.g. from <c>await x(token)</c> or
+    /// <c>Task.Delay(t, token)</c>) cannot be carried back across the boundary.
+    /// <para>This is a controlled <see cref="Environment.FailFast(string, Exception)"/>: the absence
+    /// of an error channel makes any escape process-terminating, but naming the protocol member and
+    /// the cancellation-specific cause keeps the fault from being misdiagnosed as an anonymous
+    /// Swift-library crash (the <c>FailFastUnhandledClosureException</c> path would). The C#
+    /// conformance must not propagate a cancellation token into an async requirement until the real
+    /// async/error witness lands (Session 13).</para>
+    /// </summary>
+    /// <param name="ex">The cancellation exception thrown by the user's async conformance.</param>
+    /// <param name="member">A human-readable protocol-member descriptor (e.g. <c>Protocol.method</c>).</param>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    public static void FailFastAsyncWitnessCancellation(OperationCanceledException ex, string member)
+    {
+        Environment.FailFast(
+            $"[SwiftBindings] A C# conformance threw OperationCanceledException from the async " +
+            $"requirement '{member}'. The reverse-dispatch async witness runs on the synchronously-" +
+            $"blocked slot (Mono reverse-async assertion, upstream Issue 1) and exposes no Swift error " +
+            $"channel to carry cancellation back across the boundary, so the conformance must not " +
+            $"propagate a cancellation token into this member (the real async/error witness is " +
+            $"Session 13): {ex}",
+            ex);
+    }
+
+    /// <summary>
+    /// Terminates the process with a member-named diagnostic when any non-cancellation exception
+    /// escapes an <b>async</b> Swift protocol-requirement witness on the reverse-dispatch
+    /// (EveryProtocol) path. Companion to <see cref="FailFastAsyncWitnessCancellation"/>: the async
+    /// witness is satisfied through the synchronously-blocked slot (upstream Issue 1), which has no
+    /// Swift error channel — so a thrown error has nowhere to go even when the Swift requirement is
+    /// declared <c>async throws</c> (the Issue-1 workaround does not wire the error channel through
+    /// the sync slot). Letting the exception unwind into native Swift frames would abort the process
+    /// uncontrolled; this converts that into a controlled
+    /// <see cref="Environment.FailFast(string, Exception)"/> that names the member and the broken
+    /// contract instead of presenting as an anonymous Swift-library crash.
+    /// <para>An <c>async throws</c> requirement therefore round-trips only on its non-throwing path
+    /// today; a thrown error is process-terminating until the real async/error witness lands
+    /// (Session 13). Carrying the error back across the boundary additionally needs the reverse-
+    /// dispatch vtable consolidation (Finding 8) before the requirement could be failed closed at
+    /// generation instead.</para>
+    /// </summary>
+    /// <param name="ex">The unhandled exception from the user's async conformance.</param>
+    /// <param name="member">A human-readable protocol-member descriptor (e.g. <c>Protocol.method</c>).</param>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    public static void FailFastAsyncWitnessException(Exception ex, string member)
+    {
+        Environment.FailFast(
+            $"[SwiftBindings] An unhandled managed exception escaped the async requirement '{member}'. " +
+            $"The reverse-dispatch async witness runs on the synchronously-blocked slot (Mono reverse-" +
+            $"async assertion, upstream Issue 1) and exposes no Swift error channel, so a thrown error " +
+            $"cannot be carried back across the boundary — even for an 'async throws' requirement, whose " +
+            $"throwing path is unsupported until the real async/error witness lands (Session 13): {ex}",
+            ex);
+    }
+
+    /// <summary>
     /// Extracts the delegate from an escaping closure's context.
     /// </summary>
     /// <typeparam name="TDelegate">The expected delegate type.</typeparam>

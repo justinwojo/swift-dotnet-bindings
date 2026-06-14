@@ -429,20 +429,33 @@ public class DisposeSafetyTests
         stream.Dispose();
     }
 
+    // DeliverElement is the Swift-executor entry point: it MUST NOT throw across the native
+    // boundary, so after Dispose it returns false (stop iteration) rather than throwing. The
+    // structural guard fires before any pointer dereference, so IntPtr.Zero is safe here.
     [Fact]
-    public void SwiftAsyncStream_GetElementCallback_ThrowsAfterDispose()
+    public void SwiftAsyncStream_DeliverElement_ReturnsFalseAfterDispose_NoThrow()
     {
         var stream = new SwiftAsyncStream<int>();
         stream.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => stream.GetElementCallback());
+        Assert.False(stream.DeliverElement(IntPtr.Zero));
+    }
+
+    // Complete/FaultChannel are completion-path callbacks. Calling them after Dispose is a no-op
+    // (the channel is already completed by Dispose's SignalProducerStop) and must not throw.
+    [Fact]
+    public void SwiftAsyncStream_Complete_AfterDispose_NoThrow()
+    {
+        var stream = new SwiftAsyncStream<int>();
+        stream.Dispose();
+        stream.Complete();
     }
 
     [Fact]
-    public void SwiftAsyncStream_GetCompletionCallback_ThrowsAfterDispose()
+    public void SwiftAsyncStream_FaultChannel_AfterDispose_NoThrow()
     {
         var stream = new SwiftAsyncStream<int>();
         stream.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => stream.GetCompletionCallback());
+        stream.FaultChannel(new InvalidOperationException("late fault"));
     }
 
     [Fact]
@@ -459,6 +472,51 @@ public class DisposeSafetyTests
         var stream = new SwiftAsyncStream<int>();
         stream.Dispose();
         Assert.Throws<ObjectDisposedException>(() => stream.Cancel());
+    }
+
+    // Completion-owns-free invariant: GetContext allocates the rooting handle; Complete (the last
+    // Swift→C# callback) frees it. After completion the instance is no longer self-rooted.
+    [Fact]
+    public void SwiftAsyncStream_Complete_FreesContextHandle()
+    {
+        var stream = new SwiftAsyncStream<int>();
+        stream.GetContext();
+        Assert.True(stream.IsContextHandleAllocated);
+        stream.Complete();
+        Assert.False(stream.IsContextHandleAllocated);
+    }
+
+    // A channel fault deliberately does NOT free the rooting handle. FaultChannel is reachable from
+    // a non-last element trampoline (a mid-stream marshal fault), and the emitted Swift wrapper always
+    // calls completionCallback after the consume loop — so completion still runs on this context after
+    // the fault. Freeing here would reopen the GCHandle cookie-recycling window between the fault and
+    // that trailing completion; completion (Complete) remains the sole free site.
+    [Fact]
+    public void SwiftAsyncStream_FaultChannel_DoesNotFreeContextHandle_CompletionDoes()
+    {
+        var stream = new SwiftAsyncStream<int>();
+        stream.GetContext();
+        Assert.True(stream.IsContextHandleAllocated);
+        stream.FaultChannel(new InvalidOperationException("boom"));
+        Assert.True(stream.IsContextHandleAllocated);
+        // The trailing completion callback frees it.
+        stream.Complete();
+        Assert.False(stream.IsContextHandleAllocated);
+    }
+
+    // Dispose deliberately does NOT free the context handle: an in-flight Swift callback could
+    // still resolve it, and freeing early engages the GCHandle cookie-recycling hazard. The free
+    // is owned by the producer's completion path.
+    [Fact]
+    public void SwiftAsyncStream_Dispose_DoesNotFreeContextHandle()
+    {
+        var stream = new SwiftAsyncStream<int>();
+        stream.GetContext();
+        stream.Dispose();
+        Assert.True(stream.IsContextHandleAllocated);
+        // Completion still frees it after Dispose (idempotent one-shot).
+        stream.Complete();
+        Assert.False(stream.IsContextHandleAllocated);
     }
 
     #endregion

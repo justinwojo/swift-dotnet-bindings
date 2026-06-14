@@ -586,6 +586,35 @@ public class AsyncMethodGenericBridgeEmitterTests
         Assert.Contains("(long)(IntPtr)handle", csResult);
     }
 
+    [Fact]
+    public void TryEmit_CSharpHarness_ForegroundCatchReclaimsTombstone()
+    {
+        // Finding 39 WINDOW A leak closure (generic-bridge path): when the foreground throws
+        // before the P/Invoke launches the Swift task, the Swift `defer { _sbwUnregisterTask }`
+        // never runs, so a cancel that landed in the register window would strand its tombstone.
+        // The catch declares + calls the unregister entry point (keyed by the monotonic key) to
+        // reclaim it after freeing the GCHandle.
+        var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
+
+        var csResult = csOutput.ToString();
+        Assert.Contains("private static partial void SBW_UnregisterTask(long taskId)", csResult);
+        Assert.Contains("SBW_UnregisterTask(_sbwCancelKey)", csResult);
+
+        int handleFreeIdx = csResult.IndexOf("handle.Free();", StringComparison.Ordinal);
+        int unregisterIdx = csResult.IndexOf("SBW_UnregisterTask(_sbwCancelKey)", StringComparison.Ordinal);
+        Assert.True(handleFreeIdx >= 0 && unregisterIdx > handleFreeIdx, "reclaim runs after handle.Free() on the catch path");
+    }
+
     #endregion
 
     #region TryEmit: throws path

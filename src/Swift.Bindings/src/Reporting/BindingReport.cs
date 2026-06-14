@@ -70,6 +70,13 @@ public enum SkipReason
     UnsupportedExistential,
     UnsupportedClosure,
     UnsupportedAsyncStream,
+    /// <summary>
+    /// Property is an <c>AsyncThrowingStream</c>. The bridge models a non-throwing
+    /// <c>AsyncStream</c> as <c>IAsyncEnumerable&lt;T&gt;</c>; the throwing variant's iteration error
+    /// has no representation across the current channel bridge, so it fails closed with this reason
+    /// rather than half-binding (emitting a stream that can never surface its terminal error).
+    /// </summary>
+    UnsupportedThrowingAsyncStream,
     DuplicateSignature,
     MissingHandler,
     SwiftUIView,

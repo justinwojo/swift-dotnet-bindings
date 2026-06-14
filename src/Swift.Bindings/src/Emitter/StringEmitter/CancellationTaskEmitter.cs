@@ -34,11 +34,16 @@ public static class CancellationTaskEmitter
 
         ctx.CancellationCurrentModuleName = moduleName;
         var symbolName = GetCancelSymbolName(moduleName);
+        var unregisterSymbolName = GetUnregisterSymbolName(moduleName);
 
         swiftWriter.WriteLines($$"""
             // Task cancellation infrastructure for async method cancellation support
             private final class _SBWTaskEntry {
                 var task: Task<Void, Never>?
+                // Replay flag: a cancel that arrives before the launching site assigns `task`
+                // would otherwise be lost (nil?.cancel()). The cancel path records the intent
+                // here under the lock; the launching site replays it via _sbwAssignTask.
+                var wasCancelled = false
             }
             private var _sbwActiveTasks: [Int64: _SBWTaskEntry] = [:]
             private let _sbwTaskLock = NSLock()
@@ -48,6 +53,14 @@ public static class CancellationTaskEmitter
             // inside Task {} are errors in the Swift 6 language mode.
             private func _sbwRegisterTask(_ taskId: Int64, _ entry: _SBWTaskEntry) {
                 _sbwTaskLock.lock()
+                // WINDOW A carry-forward: _sbw_cancelTask may have run before this wrapper
+                // reached registration (cancel landed between the C# token registration and
+                // the P/Invoke entry). It left a tombstone marked wasCancelled under this id;
+                // adopt its intent so _sbwAssignTask replays the cancel onto the launched task.
+                // Recycle-safe: ids come from a process-monotonic counter, never reused.
+                if let existing = _sbwActiveTasks[taskId], existing.wasCancelled {
+                    entry.wasCancelled = true
+                }
                 _sbwActiveTasks[taskId] = entry
                 _sbwTaskLock.unlock()
             }
@@ -58,12 +71,46 @@ public static class CancellationTaskEmitter
                 _sbwTaskLock.unlock()
             }
 
+            // Assigns the launched task to the entry under the registry lock and reports
+            // whether a cancel already arrived in the register→assign window. The single lock
+            // gives a happens-before with _sbw_cancelTask in both directions, closing the
+            // lost-cancel race that a bare unlocked `_entry.task =` would leave open.
+            private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: Task<Void, Never>) -> Bool {
+                _sbwTaskLock.lock()
+                entry.task = task
+                let cancelledEarly = entry.wasCancelled
+                _sbwTaskLock.unlock()
+                return cancelledEarly
+            }
+
             @_cdecl("{{symbolName}}")
             public func _sbw_cancelTask(_ taskId: Int64) {
                 _sbwTaskLock.lock()
                 let entry = _sbwActiveTasks[taskId]
+                let task = entry?.task
+                if let entry {
+                    // WINDOW B: the wrapper has registered but not yet assigned the task.
+                    // Record the intent so _sbwAssignTask replays it.
+                    if task == nil { entry.wasCancelled = true }
+                } else {
+                    // WINDOW A: cancel arrived before the wrapper registered at all. Leave a
+                    // tombstone so the imminent _sbwRegisterTask carries the cancel forward.
+                    // If the wrapper never registers (the foreground C# threw before the
+                    // P/Invoke), the catch path calls _sbw_unregisterTask to reclaim it.
+                    let tombstone = _SBWTaskEntry()
+                    tombstone.wasCancelled = true
+                    _sbwActiveTasks[taskId] = tombstone
+                }
                 _sbwTaskLock.unlock()
-                entry?.task?.cancel()
+                task?.cancel()
+            }
+
+            // Reclaims a registry entry from the C# foreground catch path. Covers the WINDOW A
+            // tombstone whose wrapper never launched (so the task's `defer { _sbwUnregisterTask }`
+            // never runs); a no-op for any id with no entry.
+            @_cdecl("{{unregisterSymbolName}}")
+            public func _sbw_unregisterTask(_ taskId: Int64) {
+                _sbwUnregisterTask(taskId)
             }
 
             """);
@@ -79,6 +126,17 @@ public static class CancellationTaskEmitter
     public static string GetCancelSymbolName(string moduleName)
     {
         return $"SBW_CancelTask_{moduleName}";
+    }
+
+    /// <summary>
+    /// Gets the module-specific symbol name for SBW_UnregisterTask, the foreground-catch
+    /// reclaim entry point that frees a WINDOW A cancellation tombstone whose wrapper never launched.
+    /// </summary>
+    /// <param name="moduleName">The module name.</param>
+    /// <returns>The symbol name in the format "SBW_UnregisterTask_ModuleName".</returns>
+    public static string GetUnregisterSymbolName(string moduleName)
+    {
+        return $"SBW_UnregisterTask_{moduleName}";
     }
 
     /// <summary>

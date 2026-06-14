@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Runtime.InteropServices;
+using System.Threading;
 using Swift.Runtime.InteropServices;
 
 namespace Swift.Runtime;
@@ -409,7 +410,14 @@ public static class AsyncClosureHelper
         });
     }
 
-    private static void FailFastNonThrowing(Exception ex)
+    /// <summary>
+    /// Crashes the process loudly for an unhandled exception on a non-throwing async closure
+    /// boundary, which has no Swift error channel to resume with. Public because the generated
+    /// async Start thunk for non-throwing closures routes its synchronous failure paths
+    /// (context-type mismatch, arg-marshalling exception) here rather than returning silently and
+    /// leaving the Swift task awaiting forever (Finding 37).
+    /// </summary>
+    public static void FailFastNonThrowing(Exception ex)
     {
         Environment.FailFast(
             $"Unhandled exception in non-throwing async closure: {ex}", ex);
@@ -441,11 +449,42 @@ public static class AsyncClosureHelper
         }
         finally
         {
-            (result as IDisposable)?.Dispose();
+            // Finding 37 — dispose AFTER the continuation has been resumed (success path),
+            // and NEVER let a post-resume cleanup failure escape into the caller's catch. If a
+            // result's Dispose() threw here it would propagate up to RunAsync's catch, which would
+            // then call ReportError on the SAME continuation box that successAction already
+            // consumed (takeRetainedValue) — a double-resume: use-after-free of the freed box plus
+            // a Swift fatalError for resuming a continuation twice. On the marshal-failure path
+            // the box has NOT been resumed, so the exception still propagates to the caller's catch
+            // to resume the box once with the error; only the best-effort Dispose is swallowed.
+            DisposeResultQuietly(result);
         }
     }
 
-    private static void ReportError(Exception ex, IntPtr continuationBoxPtr, Action<IntPtr, IntPtr> errorAction)
+    internal static void DisposeResultQuietly<T>(T result)
+    {
+        try
+        {
+            (result as IDisposable)?.Dispose();
+        }
+        catch (Exception disposeEx)
+        {
+            // The continuation was already resumed successfully; this is best-effort cleanup of
+            // the consumer's result. A failure here must not abort the process or trigger a second
+            // resume of the box. Surface it for diagnosis without rethrowing.
+            System.Diagnostics.Debug.WriteLine(
+                $"[SwiftBindings] Ignoring exception while disposing async closure result: {disposeEx}");
+        }
+    }
+
+    /// <summary>
+    /// Pins <paramref name="ex"/>'s UTF-8 message and resumes the Swift continuation box with an
+    /// error. Public because the generated async Start thunk routes its synchronous failure paths
+    /// (context-type mismatch, arg-marshalling exception) here so the Swift task never hangs
+    /// (Finding 37). The scope-guarded <paramref name="errorAction"/> ensures the box is resumed
+    /// at most once even if the async path also completes.
+    /// </summary>
+    public static void ReportError(Exception ex, IntPtr continuationBoxPtr, Action<IntPtr, IntPtr> errorAction)
     {
         var errorBytes = System.Text.Encoding.UTF8.GetBytes(ex.Message + "\0");
         var pinnedBytes = GCHandle.Alloc(errorBytes, GCHandleType.Pinned);
@@ -458,4 +497,27 @@ public static class AsyncClosureHelper
             pinnedBytes.Free();
         }
     }
+}
+
+/// <summary>
+/// Serializes the resume of a single Swift async-closure continuation box to exactly one call.
+/// Each Swift <c>_success</c>/<c>_error</c> <c>@_cdecl</c> symbol consumes the box's <c>+1</c>
+/// retain (<c>takeRetainedValue()</c>) and resumes a <c>CheckedContinuation</c>, so invoking
+/// either one a second time is a use-after-free plus a Swift <c>fatalError</c> for resuming a
+/// continuation twice. The Swift box deliberately carries no once-flag — a flag stored inside the
+/// box cannot guard the box's own liveness — so this C#-side guard is the SOLE guarantee. Every
+/// resume path routes through the same guard instance: the async success/error completion delegates
+/// AND the generated Start thunk's synchronous failure paths (context-type mismatch, arg-marshalling
+/// exception). The first claim wins; every later caller becomes a no-op. See Finding 37.
+/// </summary>
+public sealed class AsyncResumeGuard
+{
+    private int _resumed;
+
+    /// <summary>
+    /// Atomically claims the single resume slot. Returns <see langword="true"/> exactly once (the
+    /// winner, which must perform the resume); every later caller gets <see langword="false"/> and
+    /// must not touch the continuation box.
+    /// </summary>
+    public bool TryClaim() => Interlocked.Exchange(ref _resumed, 1) == 0;
 }

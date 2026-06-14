@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
 using SwiftBindingsTestLib;
@@ -155,5 +156,50 @@ public class AsyncStreamOwnershipTests : TestBase
 
         DrainFinalizers();
         TestLogger.Info("AsyncStream<large String>: 3 heap-backed elements round-tripped without over-release");
+    }
+
+    /// <summary>
+    /// Context-handle lifetime regression (Defect I). <c>GetContext</c> pins the
+    /// <c>SwiftAsyncStream&lt;T&gt;</c> with a STRONG <see cref="System.Runtime.InteropServices.GCHandle"/>
+    /// so Swift can resolve it across callbacks — that handle is the instance's only managed root while
+    /// the producer runs. The completion callback (the last Swift→C# callback) must free it; otherwise the
+    /// handle roots the instance forever and a consumer that drains via <c>await foreach</c> (which never
+    /// calls <c>Dispose</c>) leaks one stream per property read. Pre-fix the handle was freed only in
+    /// <c>Dispose</c>, so this probe stayed alive → leak. Post-fix completion frees it, so after a full
+    /// drain + finalizer drain the instance is collectable.
+    /// </summary>
+    public async Task TestAsyncStreamContextHandleFreedAfterDrain_NoLeak()
+    {
+        DrainFinalizers();
+
+        using var source = new AsyncValueSource();
+        var (weak, sum) = await WithTimeout(DrainCountsAndWeakRef(source), DefaultAsyncTimeout);
+
+        AssertEqual(60L, sum, "AsyncStream<Int32> Counts must drain 10+20+30 = 60");
+
+        DrainFinalizers();
+        AssertFalse(weak.IsAlive,
+            "completion must free the rooting GCHandle so a fully-drained SwiftAsyncStream is collectable " +
+            "(await-foreach never calls Dispose — pre-fix this leaked one stream per property read)");
+        TestLogger.Info("AsyncStream context handle: freed at completion, drained stream collected (no await-foreach leak)");
+    }
+
+    // NoInlining so the drained stream lives only in this frame's (state machine's) locals and is not
+    // pinned by a stale slot in the caller once the returned Task completes.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async Task<(System.WeakReference Weak, long Sum)> DrainCountsAndWeakRef(AsyncValueSource source)
+    {
+        var stream = source.Counts;                 // fresh SwiftAsyncStream<int> as IAsyncEnumerable<int>
+        var weak = new System.WeakReference(stream);
+        long sum = 0;
+        await foreach (var v in stream)
+        {
+            sum += v;
+        }
+        stream = null;
+        // Let the Swift producer Task return from completionCallback (which frees the context handle on
+        // the Swift executor thread immediately after completing the channel) before we measure.
+        await Task.Delay(100);
+        return (weak, sum);
     }
 }

@@ -183,6 +183,17 @@ public static class MemberEmissionValidator
             return SkipReason.SwiftUIConstraint;
         }
 
+        // Reject AsyncThrowingStream BEFORE the AsyncStream check. The bridge models a
+        // non-throwing AsyncStream as IAsyncEnumerable<T>; the throwing variant's terminal
+        // iteration error has no representation across the channel bridge, so it fails closed
+        // here rather than falling through to the generic property path (IsAsyncStream does not
+        // match the throwing variant). Mirror of the PropertyHandler guard.
+        if (asyncStreamHandler.IsThrowingStream(property.SwiftTypeSpec))
+        {
+            skipDetails = "AsyncThrowingStream is not supported: the terminal iteration error has no representation across the AsyncStream channel bridge.";
+            return SkipReason.UnsupportedThrowingAsyncStream;
+        }
+
         // Check AsyncStream properties
         if (asyncStreamHandler.IsAsyncStream(property.SwiftTypeSpec))
         {

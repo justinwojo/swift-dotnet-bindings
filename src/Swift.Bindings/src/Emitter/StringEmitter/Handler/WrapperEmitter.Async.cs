@@ -1545,7 +1545,7 @@ namespace BindingsGeneration
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(_sbwCancelKey, _entry)
-            {{i}}    _entry.task = {{taskOpen}}
+            {{i}}    let _sbwLaunchedTask = {{taskOpen}}
             {{i}}        defer {
             {{i}}            _sbwUnregisterTask(_sbwCancelKey)
             {{i}}        }
@@ -1557,6 +1557,7 @@ namespace BindingsGeneration
             {{i}}            {{catchBody}}
             {{i}}        }
             {{i}}    }
+            {{i}}    if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }
             {{i}}}
             """;
             }
@@ -1567,7 +1568,7 @@ namespace BindingsGeneration
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(_sbwCancelKey, _entry)
-            {{i}}    _entry.task = {{taskOpen}}
+            {{i}}    let _sbwLaunchedTask = {{taskOpen}}
             {{i}}        defer {
             {{i}}            _sbwUnregisterTask(_sbwCancelKey)
             {{i}}        }
@@ -1575,6 +1576,7 @@ namespace BindingsGeneration
             {{i}}        {{stringMarshalCode}}
             {{i}}        callback({{callbackResultArgs}}_sbwTask)
             {{i}}    }
+            {{i}}    if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }
             {{i}}}
             """;
             }

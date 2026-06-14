@@ -24,21 +24,26 @@ public static class AsyncStreamEmitter
         string callbackName)
     {
         // Channel storage type — preserves SwiftArray<T> etc. so SwiftMarshal.MarshalFromSwift<T>
-        // in SwiftAsyncStream.OnElement can deserialize the Swift payload. The public-API
+        // in SwiftAsyncStream.DeliverElement can deserialize the Swift payload. The public-API
         // IAsyncEnumerable<T> uses the boundary projection type and resolves via
         // IAsyncEnumerable<out T> covariance at the property getter return.
         var elementType = asyncStreamHandler.GetCSharpInternalChannelElementType(propertyDecl.SwiftTypeSpec);
 
-        csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-            private static unsafe byte {{callbackName}}_OnElement(void* elementPtr, long context)
-            {
-                var stream = SwiftAsyncStream<{{elementType}}>.FromContext(context);
-                if (stream == null) return 0;
-
-                return stream.GetElementCallback()(new IntPtr(elementPtr), context) ? (byte)1 : (byte)0;
-            }
-            """);
+        // [UnmanagedCallersOnly] body guarded by the StreamFault policy: a marshalling failure inside
+        // DeliverElement faults the channel (the consumer observes the exception) rather than unwinding
+        // across the Swift boundary (undefined behaviour) or silently truncating the stream.
+        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine($"private static unsafe byte {callbackName}_OnElement(void* elementPtr, long context)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"var stream = SwiftAsyncStream<{elementType}>.FromContext(context);");
+        csWriter.WriteLine("if (stream == null) return 0;");
+        UcoGuardEmitter.EmitOpen(csWriter);
+        csWriter.WriteLine("return stream.DeliverElement(new IntPtr(elementPtr)) ? (byte)1 : (byte)0;");
+        UcoGuardEmitter.EmitClose(csWriter, UcoGuardEmitter.UcoFaultPolicy.StreamFault,
+            streamFaultBody: new[] { "stream.FaultChannel(__uco_ex);", "return 0;" });
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 
     /// <summary>
@@ -46,10 +51,11 @@ public static class AsyncStreamEmitter
     /// This callback signals when the Swift stream has completed.
     /// </summary>
     /// <remarks>
-    /// Mirrors the element-callback shape: resolve the stream from <c>context</c>, then
-    /// invoke the instance completion callback. The previous emission was a no-op that
-    /// left the channel writer open forever — any C# consumer iterating with <c>await
-    /// foreach</c> after the Swift sequence ended would hang on <c>ReadAllAsync</c>.
+    /// Mirrors the element-callback shape: resolve the stream from <c>context</c>, then signal
+    /// completion. <see cref="SwiftAsyncStream{TElement}.Complete"/> closes the channel writer (a
+    /// no-op completion would leave it open forever and hang any C# consumer iterating with
+    /// <c>await foreach</c>) and, because completion is the LAST Swift→C# callback for this context,
+    /// frees the context handle. The body is StreamFault-guarded for parity with the element callback.
     /// </remarks>
     /// <param name="csWriter">The C# writer.</param>
     /// <param name="propertyDecl">The property declaration.</param>
@@ -66,16 +72,18 @@ public static class AsyncStreamEmitter
         // and a mismatch between the OnElement and OnComplete <T> would break the cast.
         var elementType = asyncStreamHandler.GetCSharpInternalChannelElementType(propertyDecl.SwiftTypeSpec);
 
-        csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-            private static void {{callbackName}}_OnComplete(long context)
-            {
-                var stream = SwiftAsyncStream<{{elementType}}>.FromContext(context);
-                if (stream == null) return;
-
-                stream.GetCompletionCallback()(context);
-            }
-            """);
+        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine($"private static void {callbackName}_OnComplete(long context)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"var stream = SwiftAsyncStream<{elementType}>.FromContext(context);");
+        csWriter.WriteLine("if (stream == null) return;");
+        UcoGuardEmitter.EmitOpen(csWriter);
+        csWriter.WriteLine("stream.Complete();");
+        UcoGuardEmitter.EmitClose(csWriter, UcoGuardEmitter.UcoFaultPolicy.StreamFault,
+            streamFaultBody: new[] { "stream.FaultChannel(__uco_ex);" });
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 
     /// <summary>

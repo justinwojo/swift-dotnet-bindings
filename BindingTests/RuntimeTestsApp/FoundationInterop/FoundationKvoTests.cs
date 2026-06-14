@@ -99,4 +99,21 @@ public class FoundationKvoTests : TestBase
         AssertTrue(!observed[1], "Second mutation observed as false");
         AssertTrue(observed[2], "Third mutation observed as true");
     }
+
+    /// <summary>
+    /// A KVO change handler is a non-throwing UnmanagedCallersOnly callback with no error
+    /// channel (Finding 38). An unhandled managed exception escaping it must trigger
+    /// <c>Environment.FailFast</c> — loud and attributable — rather than the previous
+    /// print-and-continue, which silently swallowed a consumer bug and kept observing.
+    /// Asserting an actual FailFast requires running the offending code in a subprocess so the
+    /// host survives; the in-process iOS runtime-test runner cannot do that (mirrors
+    /// <c>AsyncClosureTests.TestAsyncClosure_UnhandledException_FailsFast</c>). The emission is
+    /// pinned at the unit layer by
+    /// <c>UcoGuardEmitterTests.KvoDispatchTrampoline_FailFastsOnEscapingException_NotSwallowed</c>;
+    /// tracked here so coverage shows the runtime behaviour is intentionally policy-only.
+    /// </summary>
+    [Skip("FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner.")]
+    public void TestObserveCounter_HandlerThrows_FailsFast()
+    {
+    }
 }

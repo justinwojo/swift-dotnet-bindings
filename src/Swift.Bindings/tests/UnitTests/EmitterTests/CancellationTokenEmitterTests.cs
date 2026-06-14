@@ -72,7 +72,8 @@ public class CancellationTokenEmitterTests
         Assert.Contains("_sbwTaskLock.lock()", output);
         Assert.Contains("_sbwActiveTasks[taskId]", output);
         Assert.Contains("_sbwTaskLock.unlock()", output);
-        Assert.Contains("entry?.task?.cancel()", output);
+        // The task is read into a local under the lock and cancelled after unlock (Finding 39).
+        Assert.Contains("task?.cancel()", output);
     }
 
     [Fact]
@@ -89,6 +90,143 @@ public class CancellationTokenEmitterTests
         // from async contexts (Swift 6 marks NSLock.lock/unlock as @available(*, noasync))
         Assert.Contains("private func _sbwRegisterTask(_ taskId: Int64, _ entry: _SBWTaskEntry)", output);
         Assert.Contains("private func _sbwUnregisterTask(_ taskId: Int64)", output);
+    }
+
+    [Fact]
+    public void EmitIfNeeded_TaskEntryHasWasCancelledReplayFlag()
+    {
+        // Finding 39: a cancel that arrives in the window between register and task
+        // assignment would otherwise be lost (nil?.cancel()). The entry carries a replay
+        // flag so the launching site can re-apply the cancellation once the task exists.
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var output = sw.ToString();
+
+        Assert.Contains("var wasCancelled", output);
+    }
+
+    [Fact]
+    public void EmitIfNeeded_EmitsLockedAssignTaskHelper()
+    {
+        // Finding 39: the task assignment and the wasCancelled read must share one
+        // happens-before. A locked _sbwAssignTask helper centralizes the assignment so every
+        // registration site is ordered by the registry lock — an unlocked `_entry.task =`
+        // establishes no ordering with the locked cancel reader.
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var output = sw.ToString();
+
+        Assert.Contains(
+            "private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: Task<Void, Never>) -> Bool",
+            output);
+    }
+
+    [Fact]
+    public void EmitIfNeeded_CancelFunctionRecordsWasCancelledWhenTaskNotYetAssigned()
+    {
+        // Finding 39: when the task is still nil, cancel records the intent under the registry
+        // lock so the assigning site can replay it; the actual cancel() still happens outside
+        // the lock (NSLock is noasync and cancel() must not be held under the lock).
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var output = sw.ToString();
+
+        Assert.Contains("entry.wasCancelled = true", output);
+
+        int cancelFuncIdx = output.IndexOf("func _sbw_cancelTask", StringComparison.Ordinal);
+        // Anchor inside the cancel function: `entry.wasCancelled = true` also appears in
+        // _sbwRegisterTask (the WINDOW A carry-forward), which is emitted earlier.
+        int setIdx = output.IndexOf("entry.wasCancelled = true", cancelFuncIdx, StringComparison.Ordinal);
+        int unlockAfterSet = output.IndexOf("_sbwTaskLock.unlock()", setIdx, StringComparison.Ordinal);
+        int cancelCallIdx = output.IndexOf("task?.cancel()", cancelFuncIdx, StringComparison.Ordinal);
+
+        Assert.True(cancelFuncIdx >= 0 && setIdx > cancelFuncIdx, "wasCancelled set lives in the cancel function");
+        Assert.True(unlockAfterSet > setIdx, "wasCancelled is set before unlock (under the lock)");
+        Assert.True(cancelCallIdx > unlockAfterSet, "task?.cancel() runs after the unlock");
+    }
+
+    [Fact]
+    public void EmitIfNeeded_CancelFunctionLeavesTombstoneWhenNoEntryExists()
+    {
+        // Finding 39 WINDOW A: a cancel can arrive before the wrapper has registered any entry
+        // (between the C# token registration and the P/Invoke reaching _sbwRegisterTask). With no
+        // entry to flag, the cancel would be lost. The cancel path instead leaves a pre-marked
+        // tombstone keyed by the (monotonic, never-recycled) task id so the imminent register
+        // carries the cancel forward.
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var output = sw.ToString();
+
+        int cancelFuncIdx = output.IndexOf("func _sbw_cancelTask", StringComparison.Ordinal);
+        Assert.True(cancelFuncIdx >= 0);
+
+        // A tombstone entry is created and inserted under the same id, all before the unlock.
+        int tombstoneIdx = output.IndexOf("_SBWTaskEntry()", cancelFuncIdx, StringComparison.Ordinal);
+        int tombstoneFlagIdx = output.IndexOf(".wasCancelled = true", tombstoneIdx, StringComparison.Ordinal);
+        int tombstoneInsertIdx = output.IndexOf("_sbwActiveTasks[taskId] =", cancelFuncIdx, StringComparison.Ordinal);
+        int unlockIdx = output.IndexOf("_sbwTaskLock.unlock()", tombstoneInsertIdx, StringComparison.Ordinal);
+
+        Assert.True(tombstoneIdx > cancelFuncIdx, "cancel creates a tombstone entry when none exists");
+        Assert.True(tombstoneFlagIdx > tombstoneIdx, "tombstone is pre-marked wasCancelled");
+        Assert.True(tombstoneInsertIdx > tombstoneFlagIdx, "tombstone is inserted into the registry");
+        Assert.True(unlockIdx > tombstoneInsertIdx, "tombstone insert happens under the registry lock");
+    }
+
+    [Fact]
+    public void EmitIfNeeded_RegisterCarriesForwardEarlyCancelTombstone()
+    {
+        // Finding 39 WINDOW A: when the wrapper finally registers, it must adopt any cancel
+        // intent a prior _sbw_cancelTask left as a tombstone under this id, so _sbwAssignTask
+        // replays it onto the launched task.
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var output = sw.ToString();
+
+        int registerFuncIdx = output.IndexOf("func _sbwRegisterTask", StringComparison.Ordinal);
+        int registerBodyEndIdx = output.IndexOf("func _sbwUnregisterTask", StringComparison.Ordinal);
+        Assert.True(registerFuncIdx >= 0 && registerBodyEndIdx > registerFuncIdx);
+
+        var registerBody = output.Substring(registerFuncIdx, registerBodyEndIdx - registerFuncIdx);
+        Assert.Contains("if let existing = _sbwActiveTasks[taskId], existing.wasCancelled", registerBody);
+        Assert.Contains("entry.wasCancelled = true", registerBody);
+    }
+
+    [Fact]
+    public void EmitIfNeeded_EmitsUnregisterCdeclEntryPoint()
+    {
+        // Finding 39 WINDOW A leak closure: the foreground C# catch path reclaims a tombstone
+        // whose wrapper never launched via an exported unregister entry point.
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        CancellationTaskEmitter.EmitIfNeeded(writer, "TestModule", ctx);
+        var output = sw.ToString();
+
+        Assert.Contains("@_cdecl(\"SBW_UnregisterTask_TestModule\")", output);
+        Assert.Contains("public func _sbw_unregisterTask(_ taskId: Int64)", output);
+    }
+
+    [Fact]
+    public void GetUnregisterSymbolName_ReturnsModuleSpecificName()
+    {
+        Assert.Equal("SBW_UnregisterTask_ImagePipeline", CancellationTaskEmitter.GetUnregisterSymbolName("ImagePipeline"));
+        Assert.Equal("SBW_UnregisterTask_TestModule", CancellationTaskEmitter.GetUnregisterSymbolName("TestModule"));
     }
 
     [Fact]
@@ -170,10 +308,23 @@ public class CancellationTokenEmitterTests
         var (_, swiftOutput) = GenerateAsyncMethod();
 
         int entryIdx = swiftOutput.IndexOf("let _entry = _SBWTaskEntry()");
-        int taskIdx = swiftOutput.IndexOf("_entry.task = Task {");
+        int taskIdx = swiftOutput.IndexOf("let _sbwLaunchedTask = Task {");
         Assert.True(entryIdx >= 0, "Should create _SBWTaskEntry");
-        Assert.True(taskIdx >= 0, "Should assign task to entry");
-        Assert.True(entryIdx < taskIdx, "_SBWTaskEntry should be created before Task assignment");
+        Assert.True(taskIdx >= 0, "Should launch the task into a local before assigning");
+        Assert.True(entryIdx < taskIdx, "_SBWTaskEntry should be created before the task is launched");
+    }
+
+    [Fact]
+    public void AsyncWrapper_AssignsTaskViaLockedHelperAndReplaysCancel()
+    {
+        // Finding 39: the registration site must route the assignment through the locked
+        // _sbwAssignTask helper and replay an early cancel — never a bare unlocked
+        // `_entry.task =` that races the locked cancel reader.
+        var (_, swiftOutput) = GenerateAsyncMethod();
+        Assert.Contains(
+            "if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }",
+            swiftOutput);
+        Assert.DoesNotContain("_entry.task = Task {", swiftOutput);
     }
 
     [Fact]
@@ -231,6 +382,34 @@ public class CancellationTokenEmitterTests
     {
         var (csOutput, _) = GenerateAsyncMethod();
         Assert.Contains("CancellationRegistrationHolder(_cancelRegistration, cancellationToken)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncMethod_EmitsSBWUnregisterTaskPInvoke()
+    {
+        // Finding 39 WINDOW A leak closure: the unregister entry point is declared alongside
+        // SBW_CancelTask (same per-type dedup) so the catch path can reclaim a stranded tombstone.
+        var (csOutput, _) = GenerateAsyncMethod();
+        Assert.Contains("SBW_UnregisterTask_TestModule", csOutput);
+        Assert.Contains("private static partial void SBW_UnregisterTask(long taskId)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncMethod_ForegroundCatchReclaimsTombstone()
+    {
+        // Finding 39 WINDOW A leak closure: if the foreground C# throws before the P/Invoke
+        // launches the Swift task, the wrapper's `defer { _sbwUnregisterTask }` never runs, so a
+        // cancel that landed in the window would strand its tombstone. The foreground catch frees
+        // the GCHandle and then unregisters the (monotonic) cancel key to reclaim it.
+        var (csOutput, _) = GenerateAsyncMethod();
+        Assert.Contains("SBW_UnregisterTask(_sbwCancelKey)", csOutput);
+
+        // The reclaim sits on the catch/throw path, after the handle is freed.
+        int handleFreeIdx = csOutput.IndexOf("handle.Free();", StringComparison.Ordinal);
+        int unregisterIdx = csOutput.IndexOf("SBW_UnregisterTask(_sbwCancelKey)", StringComparison.Ordinal);
+        int throwIdx = csOutput.IndexOf("throw;", handleFreeIdx, StringComparison.Ordinal);
+        Assert.True(handleFreeIdx >= 0 && unregisterIdx > handleFreeIdx, "reclaim runs after handle.Free()");
+        Assert.True(throwIdx > unregisterIdx, "reclaim runs before the rethrow");
     }
 
     #endregion

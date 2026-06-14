@@ -27,17 +27,23 @@ public class AsyncStreamHandler
     }
 
     /// <summary>
-    /// Determines whether the specified type is an AsyncStream or AsyncThrowingStream.
+    /// Determines whether the specified type is a (non-throwing) <c>AsyncStream</c>.
     /// </summary>
+    /// <remarks>
+    /// <c>AsyncThrowingStream</c> is deliberately NOT matched here: its iteration can throw, which the
+    /// current bridge has no channel to surface, so it is rejected with a dedicated diagnostic
+    /// (<see cref="SkipReason.UnsupportedThrowingAsyncStream"/>) at member emission. Use
+    /// <see cref="IsThrowingStream"/> to detect the throwing variant. Matching it here would let it
+    /// flow into the supported-stream emission path and half-bind.
+    /// </remarks>
     /// <param name="typeSpec">The type specification.</param>
-    /// <returns><c>true</c> if the type is an AsyncStream; otherwise, <c>false</c>.</returns>
+    /// <returns><c>true</c> if the type is a non-throwing AsyncStream; otherwise, <c>false</c>.</returns>
     public bool IsAsyncStream(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec namedType)
             return false;
 
-        return namedType.Name == AsyncStreamTypeName ||
-               namedType.Name == AsyncThrowingStreamTypeName;
+        return namedType.Name == AsyncStreamTypeName;
     }
 
     /// <summary>

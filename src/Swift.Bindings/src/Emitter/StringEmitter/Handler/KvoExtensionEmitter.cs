@@ -159,18 +159,18 @@ internal static class KvoExtensionEmitter
             csWriter.WriteLine($"private static partial global::System.IntPtr Observe{propPascal}Native(global::System.IntPtr self, nuint options, global::System.IntPtr fn, global::System.IntPtr ctx);");
             csWriter.WriteLine();
 
-            // UnmanagedCallersOnly dispatch trampoline. Any managed exception thrown
-            // from `handler` would unwind across the Swift→C# unmanaged boundary and
-            // terminate the process, so the body is wrapped in a fail-soft try/catch
-            // that prints the exception and continues. This matches the standard
-            // UnmanagedCallersOnly pattern across the runtime.
+            // UnmanagedCallersOnly dispatch trampoline. The handler is a non-throwing callback
+            // with no error channel, so a managed exception escaping it cannot be reported — and
+            // letting it unwind across the Swift→C# unmanaged boundary is undefined behaviour that
+            // aborts the process with a corrupted stack. The body is guarded by the shared UCO
+            // envelope's FailFast policy: an escaping exception becomes a controlled, attributable
+            // Environment.FailFast rather than being swallowed. A KVO change handler throwing is a
+            // consumer bug that must be loud, not silently dropped mid-observation.
             csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"private static void Dispatch{propPascal}(global::System.IntPtr selfPtr, {csType} newValue, global::System.IntPtr ctx)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
+            UcoGuardEmitter.EmitOpen(csWriter);
             csWriter.WriteLine("var gch = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
             csWriter.WriteLine($"var handler = (global::System.Action<{className}, {csType}>)gch.Target!;");
             // The observed object is surfaced to the user's handler and is always a class reference.
@@ -179,14 +179,7 @@ internal static class KvoExtensionEmitter
             // a borrowed handle on NativeAOT. See ClosureHandler.BorrowedCallbackArgMarshal.
             csWriter.WriteLine($"var obj = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalBorrowedClassFromSwift<{className}>(selfPtr);");
             csWriter.WriteLine("handler(obj, newValue);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("catch (global::System.Exception ex)");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine($"global::System.Console.Error.WriteLine($\"[KVO] Unhandled exception in {className}.{propPascal} change handler: {{ex}}\");");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
+            UcoGuardEmitter.EmitClose(csWriter, UcoGuardEmitter.UcoFaultPolicy.FailFast);
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();

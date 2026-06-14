@@ -36,6 +36,8 @@ public static class WorkaroundRecommendations
             "Write a Swift wrapper that converts to a supported closure shape.",
         SkipReason.UnsupportedAsyncStream =>
             "Write a Swift wrapper that converts stream elements to a supported type.",
+        SkipReason.UnsupportedThrowingAsyncStream =>
+            "AsyncThrowingStream's iteration error has no channel across the current bridge. Expose the sequence as a non-throwing AsyncStream<Element> via a Swift wrapper that catches the error and terminates the stream (or surfaces it through a separate result property).",
         SkipReason.DuplicateSignature =>
             "Rename one member via a Swift extension to disambiguate.",
         SkipReason.GenericTypeCallback =>
@@ -97,6 +99,8 @@ public static class WorkaroundRecommendations
             "closure signature not yet supported",
         SkipReason.UnsupportedAsyncStream =>
             "async stream element type not supported",
+        SkipReason.UnsupportedThrowingAsyncStream =>
+            "AsyncThrowingStream iteration error not representable across the bridge",
         SkipReason.DuplicateSignature =>
             "C# signature collides with another member",
         SkipReason.GenericTypeCallback =>

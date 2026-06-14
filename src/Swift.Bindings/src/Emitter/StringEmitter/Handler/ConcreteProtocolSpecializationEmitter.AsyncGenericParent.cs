@@ -902,8 +902,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
             $"public static unsafe global::System.Threading.Tasks.Task<{returnCsType}> {csMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        // Finding 39: RunContinuationsAsynchronously so the continuation does not run inline on
+        // Swift's executor (the textbook reverse-deadlock setup); matches every other async TCS site.
         csWriter.WriteLine(
-            $"var {tcsName} = new global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>();");
+            $"var {tcsName} = new global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);");
         // Size source diverges by return shape:
         //   SafeHandle-backed (non-frozen struct):
         //     `SwiftMarshal.GetSwiftTypeSize<T>()` queries Swift TypeMetadata.Size — required

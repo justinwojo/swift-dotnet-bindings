@@ -72,6 +72,20 @@ public class AsyncProjection : ITypeProjection
 
     public bool RequiresSwiftWrapper => true;
 
+    /// <summary>
+    /// Legacy Swift async-wrapper template. <b>Not on the production async-emission path</b>: no
+    /// generator code path invokes <see cref="GetSwiftWrapperCode"/> or <see cref="CallbackDeclarations"/>
+    /// (only <see cref="GetReturnPlan"/> — the C# TCS/holder/GCHandle setup — is consumed, by
+    /// <c>WrapperEmitter.Return</c>). The live async Swift wrappers are emitted by the dedicated
+    /// emitters (<c>WrapperEmitter.Async</c>, <c>AsyncHarnessEmitter</c>,
+    /// <c>AsyncMethodGenericBridgeEmitter</c>), which thread a separate process-monotonic registry
+    /// key (<c>_sbwCancelKey</c>) distinct from the recyclable GCHandle callback context
+    /// (<c>_sbwTask</c>). This template is retained only because the marshaler unit tests pin its
+    /// shape. Before it is ever made live again it MUST adopt that <c>_sbwTask</c>/<c>_sbwCancelKey</c>
+    /// separation: registering on the GCHandle id (as below) would reintroduce the key-reuse race
+    /// the live path avoids — a freed/re-alloc'd handle value could collide with another call's
+    /// registry entry.
+    /// </summary>
     public string? GetSwiftWrapperCode(SwiftWrapperContext context)
     {
         var wrapperName = !string.IsNullOrEmpty(context.MangledName)
@@ -107,7 +121,7 @@ public class AsyncProjection : ITypeProjection
         sb.AppendLine($"    _ task: Int64) {{");
         sb.AppendLine($"    let _entry = _SBWTaskEntry()");
         sb.AppendLine($"    _sbwRegisterTask(task, _entry)");
-        sb.AppendLine($"    _entry.task = Task {{");
+        sb.AppendLine($"    let _sbwLaunchedTask = Task {{");
         sb.AppendLine($"        defer {{");
         sb.AppendLine($"            _sbwUnregisterTask(task)");
         sb.AppendLine($"        }}");
@@ -132,6 +146,8 @@ public class AsyncProjection : ITypeProjection
         }
 
         sb.AppendLine($"    }}");
+        // Finding 39: assign under the registry lock and replay an early cancel (see _sbwAssignTask).
+        sb.AppendLine($"    if _sbwAssignTask(_entry, _sbwLaunchedTask) {{ _sbwLaunchedTask.cancel() }}");
         sb.AppendLine($"}}");
 
         return sb.ToString();

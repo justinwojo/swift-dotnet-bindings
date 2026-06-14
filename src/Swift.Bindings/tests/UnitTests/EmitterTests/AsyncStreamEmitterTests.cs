@@ -199,12 +199,12 @@ public class AsyncStreamEmitterTests
     }
 
     [Fact]
-    public void EmitCompletionCallback_InvokesStreamCompletionCallback()
+    public void EmitCompletionCallback_InvokesStreamComplete()
     {
-        // Regression guard: the completion callback must resolve the stream
-        // from context and call GetCompletionCallback()(context). A previous
-        // emission left this empty, leaving the channel writer open forever
-        // and hanging any C# consumer iterating via `await foreach`.
+        // Regression guard: the completion callback must resolve the stream from context and call
+        // stream.Complete(). Complete() closes the channel writer (a no-op completion would leave it
+        // open forever and hang any C# consumer iterating via `await foreach`) and frees the context
+        // handle, since completion is the last Swift→C# callback for this context.
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateClassDecl("Sensor", moduleDecl);
         var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
@@ -216,7 +216,39 @@ public class AsyncStreamEmitterTests
         AsyncStreamEmitter.EmitCompletionCallback(csWriter, property, asyncStreamHandler, "Sensor_readings");
 
         var cs = csOutput.ToString();
-        Assert.Contains("stream.GetCompletionCallback()(context)", cs);
+        Assert.Contains("stream.Complete();", cs);
+        // The UCO body is guarded: a managed exception faults the channel instead of unwinding
+        // across the Swift boundary.
+        Assert.Contains("catch (global::System.Exception __uco_ex)", cs);
+        Assert.Contains("stream.FaultChannel(__uco_ex);", cs);
+        // Null-context guard so a stale/freed cookie does not NRE inside the trampoline.
+        Assert.Contains("if (stream == null) return;", cs);
+    }
+
+    [Fact]
+    public void EmitElementCallback_DeliversElementAndGuardsWithStreamFault()
+    {
+        // The element callback resolves the stream, delivers the borrowed element pointer, and is
+        // wrapped in the StreamFault envelope so a marshalling failure faults the channel (the
+        // consumer observes the exception) rather than unwinding across the Swift boundary or
+        // silently truncating the stream. It returns a byte (1 continue / 0 stop).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Sensor", moduleDecl);
+        var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        AsyncStreamEmitter.EmitElementCallback(csWriter, property, asyncStreamHandler, "Sensor_readings");
+
+        var cs = csOutput.ToString();
+        Assert.Contains("stream.DeliverElement(new IntPtr(elementPtr))", cs);
+        Assert.Contains("catch (global::System.Exception __uco_ex)", cs);
+        Assert.Contains("stream.FaultChannel(__uco_ex);", cs);
+        // On a marshal fault the trampoline returns 0 (stop) after faulting the channel.
+        Assert.Contains("return 0;", cs);
+        Assert.Contains("if (stream == null) return 0;", cs);
     }
 
     [Fact]
@@ -236,6 +268,26 @@ public class AsyncStreamEmitterTests
 
         Assert.Null(skipReason);
         Assert.Equal("long", projectedTypeName);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_RejectsAsyncThrowingStream()
+    {
+        // AsyncThrowingStream's terminal iteration error has no representation across the channel
+        // bridge, so it fails closed with a dedicated reason rather than falling through to the
+        // generic property path and emitting an unusable binding.
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Feed", moduleDecl);
+
+        var property = CreateAsyncThrowingStreamProperty("events", classDecl, moduleDecl);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out _);
+
+        Assert.Equal(SkipReason.UnsupportedThrowingAsyncStream, skipReason);
+        Assert.Contains("AsyncThrowingStream", skipDetails);
     }
 
     #region Helpers
@@ -284,6 +336,25 @@ public class AsyncStreamEmitterTests
         {
             Name = name,
             SwiftTypeSpec = asyncStreamType,
+            IsStatic = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Accessors = new List<AccessorDecl>(),
+            HasStorage = false,
+        };
+    }
+
+    private static PropertyDecl CreateAsyncThrowingStreamProperty(string name, TypeDecl parentDecl, ModuleDecl moduleDecl)
+    {
+        // AsyncThrowingStream<Element, any Error> — the handler keys off the type name, so the
+        // element type is enough to exercise the throwing-stream rejection path.
+        var asyncThrowingStreamType = new NamedTypeSpec("_Concurrency.AsyncThrowingStream",
+            new TypeSpec[] { new NamedTypeSpec("Swift.Int") });
+
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = asyncThrowingStreamType,
             IsStatic = false,
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,

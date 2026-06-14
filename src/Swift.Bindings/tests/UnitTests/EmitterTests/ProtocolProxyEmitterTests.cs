@@ -1865,6 +1865,87 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_AsyncReceiver_FailFastsWithMemberName_SyncReceiverKeepsPlainFailFast()
+    {
+        // Finding 36: the async receiver blocks the Task on the synchronously-blocked reverse-dispatch
+        // slot (upstream Issue 1) and has no Swift error channel, so any escape — cancellation or
+        // otherwise — is process-terminating. The async close must therefore be member-named (loud,
+        // attributable) and split the cancellation case out, while a SIBLING sync receiver in the same
+        // proxy keeps the anonymous plain FailFast. This pins the `method.IsAsync` close selection so a
+        // refactor can't silently regress either receiver onto the other's policy.
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetchValue",
+            MangledName = "$sfetchValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Visibility = Visibility.Public
+        });
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "refresh",
+            MangledName = "$srefresh",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        var asyncBody = ExtractMethodBody(output, "private static IntPtr Receive_fetchValue_0(");
+        // Member-named, both arms, cancellation split out.
+        Assert.Contains("FailFastAsyncWitnessCancellation", asyncBody);
+        Assert.Contains("FailFastAsyncWitnessException", asyncBody);
+        Assert.Contains("\"TestProtocol.fetchValue\"", asyncBody);
+        Assert.Contains("catch (global::System.OperationCanceledException", asyncBody);
+        // The async receiver must NOT fall back to the anonymous sync FailFast.
+        Assert.DoesNotContain("FailFastUnhandledClosureException", asyncBody);
+
+        var syncBody = ExtractMethodBody(output, "private static IntPtr Receive_refresh_1(");
+        // The sync receiver keeps the plain (anonymous) FailFast and never adopts the async policy.
+        Assert.Contains("FailFastUnhandledClosureException", syncBody);
+        Assert.DoesNotContain("FailFastAsyncWitness", syncBody);
+        Assert.DoesNotContain("OperationCanceledException", syncBody);
+    }
+
+    [Fact]
     public void EmitProxyClass_ThrowingVoidMethod_EmitsErrorOutCheck()
     {
         var protocolDecl = CreateSimpleProtocol("TestProtocol");

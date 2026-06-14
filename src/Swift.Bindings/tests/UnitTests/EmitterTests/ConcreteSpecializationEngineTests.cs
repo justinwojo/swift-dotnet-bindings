@@ -662,6 +662,48 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncMethod_TcsCarriesRunContinuationsAsynchronously()
+    {
+        // Finding 39: the parent-only async CSM specialization is the one async TCS site that
+        // historically lacked TaskCreationOptions.RunContinuationsAsynchronously. Without it the
+        // continuation runs inline on Swift's executor (reverse-deadlock setup). This guard drives
+        // the async-parent emission and asserts the flag is present, matching every other async
+        // TCS site (WrapperEmitter.Async, MethodHandler, AsyncMethodGenericBridge).
+        // The parent-only async CSM surface is hint-driven (HasKnownHintConformers gate), so the
+        // protocol must be one registered in specialization-hints.json. SwiftBindingsTestLib.AsyncBagItem
+        // is the test-lib async hint protocol; its conformers (MockStringItem/MockIntItem) are global.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), "System", "Int64");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        // `func produce() async -> Int` on a generic parent constrained to the hint protocol —
+        // a parent-only async method with a blittable primitive return (owns-buffer shape).
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncMethod(
+            "Producer", "produce", "SwiftBindingsTestLib.AsyncBagItem", "Swift.Int");
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        // Parent-generic specs are routed away from EmitConcreteSpecializations (it skips any
+        // spec with an IsParentGeneric param) to the dedicated parent-generic entry point, which
+        // reaches TryEmitParentOnlyAsyncOverload — the site that allocates the parent-only TCS.
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        // The parent-only async overload must have been emitted...
+        Assert.Contains("global::System.Threading.Tasks.TaskCompletionSource<", cs);
+        // ...and every TaskCompletionSource it allocates must carry the flag.
+        foreach (var line in cs.Split('\n').Where(l => l.Contains("new global::System.Threading.Tasks.TaskCompletionSource<")))
+        {
+            Assert.Contains("global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously", line);
+        }
+    }
+
+    [Fact]
     public void ComputePairingCount_SingleParam_ReturnsConformerCount()
     {
         var specParams = new List<ConcreteSpecializationEngine.SpecializableParam>
@@ -1953,6 +1995,64 @@ public class ConcreteSpecializationEngineTests
             ParentDecl = null,
             ModuleDecl = null,
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl> { parentGenericParam },
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        method.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    private static StructDecl CreateGenericStructWithParentOnlyAsyncMethod(
+        string typeName, string methodName, string protocolName, string returnType)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+
+        var parentConformance = new GenericParameterConformance(
+            new[] { "τ_0_0" }, protocolTypeName, ConformanceKind.Protocol);
+
+        var parentGenericParam = new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance> { parentConformance },
+            new List<GenericParameterConformance>());
+
+        // Parent-only async method with no own generics and a non-void primitive return
+        // (`func produce() async -> Int`). Drives EmitConcreteSpecializationsForGenericParent's
+        // async branch (TryEmitParentOnlyAsyncOverload), which allocates the parent-only TCS.
+        var method = new MethodDecl
+        {
+            Name = methodName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{methodName}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec(returnType), IsGeneric = false }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            // SwiftBindingsTestLib so the module matches the hint protocol's registry scope.
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"SwiftBindingsTestLib.{typeName}"),
             MangledName = "",
             IsFrozen = true,
             GenericParameters = new List<GenericArgumentDecl> { parentGenericParam },

@@ -165,3 +165,37 @@ public final class TrackedRefStreamSource {
         }
     }
 }
+
+// MARK: - AsyncThrowingStream rejection (Defect I)
+// AsyncThrowingStream's terminal iteration error has no representation across the channel bridge
+// (the bridge models a non-throwing AsyncStream as IAsyncEnumerable<T>), so the generator must
+// reject it with SkipReason.UnsupportedThrowingAsyncStream rather than half-binding. Pre-fix the
+// throwing variant matched IsAsyncStream and flowed into the supported-stream emission path, which
+// emitted a Swift wrapper iterating it with a bare `for await` (no `try`) — a Swift compile error
+// that the harness silently strips, leaving a C# property bound to a missing symbol. This fixture
+// pins the rejection against the REAL parser output (the ABI/swiftinterface must name the type
+// `_Concurrency.AsyncThrowingStream` for IsThrowingStream to fire) and proves the rejection is
+// property-scoped: the sibling non-throwing `safeEvents` on the same type must still be emitted.
+public final class ThrowingStreamSource {
+    public init() {}
+
+    /// MUST be skipped: AsyncThrowingStream is unsupported (UnsupportedThrowingAsyncStream).
+    public var throwingEvents: AsyncThrowingStream<Int32, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(1)
+            continuation.yield(2)
+            continuation.finish()
+        }
+    }
+
+    /// Sibling non-throwing stream — must still be emitted and round-trip at runtime, proving the
+    /// throwing-stream rejection does not poison the whole type.
+    public var safeEvents: AsyncStream<Int32> {
+        AsyncStream { continuation in
+            continuation.yield(7)
+            continuation.yield(8)
+            continuation.yield(9)
+            continuation.finish()
+        }
+    }
+}

@@ -355,4 +355,34 @@ public class AsyncComplexTypeTests : TestBase
 #pragma warning restore CS0219
 
     #endregion
+
+    #region AsyncThrowingStream rejection (Defect I)
+    // ThrowingStreamSource pins the throwing-stream rejection against the real parser/emitter pipeline:
+    // `throwingEvents` (AsyncThrowingStream) MUST be skipped (UnsupportedThrowingAsyncStream) while the
+    // sibling non-throwing `safeEvents` MUST still emit and round-trip. The absence of `throwingEvents`
+    // is structurally enforced too — referencing `source.ThrowingEvents` below would not compile if the
+    // generator regressed to emitting it (the line is intentionally NOT present; the sibling working is
+    // the positive signal that the rejection is property-scoped, not whole-type).
+
+    public async Task TestThrowingStreamSourceSafeSiblingStillEmits()
+    {
+        using var source = new ThrowingStreamSource();
+
+        var sum = await WithTimeout(Task.Run(async () =>
+        {
+            long acc = 0;
+            await foreach (var v in source.SafeEvents)
+            {
+                acc += v;
+            }
+            return acc;
+        }), DefaultAsyncTimeout);
+
+        AssertEqual(24L, sum,
+            "ThrowingStreamSource.SafeEvents must drain 7+8+9 = 24 — the AsyncThrowingStream sibling " +
+            "rejection must not poison the rest of the type");
+        TestLogger.Info("ThrowingStreamSource: throwing property skipped, non-throwing SafeEvents round-trips to 24");
+    }
+
+    #endregion
 }
