@@ -978,9 +978,13 @@ namespace BindingsGeneration
                     continue;
                 if (arg.SwiftTypeSpec.IsEmptyTuple)
                     continue;
+                // inout maps to a C# `ref` parameter. The concrete conforming class emits `ref`
+                // (MethodSignature.HandleArguments), so the interface declaration MUST match or
+                // every conformer fails CS0535. Keep this in lockstep with the proxy + receiver sites.
+                var inoutModifier = arg.IsInOut ? "ref " : "";
                 var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var argName = NameProvider.GetCSharpParameterName(arg);
-                parameters.Add($"{argTypeName} {argName}");
+                parameters.Add($"{inoutModifier}{argTypeName} {argName}");
             }
 
             // Capture hasReturnValue BEFORE async conversion turns void → Task
@@ -1500,9 +1504,13 @@ namespace BindingsGeneration
                 }
                 else
                 {
+                    // inout params are never nint-narrowed (NativeIntOverloadEmitter skips them),
+                    // so they fall here — preserve `ref` on both the DIM signature and its forward
+                    // to the primary interface method, which is also `ref`.
+                    var inoutModifier = arg.IsInOut ? "ref " : "";
                     var typeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
-                    paramParts.Add($"{typeName} {paramName}");
-                    callArgs.Add(paramName);
+                    paramParts.Add($"{inoutModifier}{typeName} {paramName}");
+                    callArgs.Add($"{inoutModifier}{paramName}");
                 }
             }
 

@@ -272,9 +272,11 @@ public partial class ProtocolProxyEmitter
                     continue;
                 if (param.SwiftTypeSpec.IsEmptyTuple)
                     continue;
+                // Match the interface slot's `ref` on inout params (CS0535).
+                var inoutModifier = param.IsInOut ? "ref " : "";
                 var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
                 var paramName = NameProvider.GetCSharpParameterName(param);
-                parameters.Add($"{paramTypeName} {paramName}");
+                parameters.Add($"{inoutModifier}{paramTypeName} {paramName}");
             }
             if (method.IsAsync)
                 parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
@@ -508,9 +510,12 @@ public partial class ProtocolProxyEmitter
                 continue;
             if (param.SwiftTypeSpec.IsEmptyTuple)
                 continue;
+            // Match the inherited interface's `ref` on inout params so this explicit stub
+            // satisfies the C# interface slot (CS0535).
+            var inoutModifier = param.IsInOut ? "ref " : "";
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
-            parameters.Add($"{paramTypeName} {paramName}");
+            parameters.Add($"{inoutModifier}{paramTypeName} {paramName}");
         }
         if (method.IsAsync)
             parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
@@ -605,10 +610,13 @@ public partial class ProtocolProxyEmitter
                 continue;
             if (param.SwiftTypeSpec.IsEmptyTuple)
                 continue;
+            // inout → `ref` on both the explicit-impl signature and the forward to the refined
+            // method (which is also `ref`); argNames is only consumed by that forwarder call below.
+            var inoutModifier = param.IsInOut ? "ref " : "";
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
-            parameters.Add($"{paramTypeName} {paramName}");
-            argNames.Add(paramName);
+            parameters.Add($"{inoutModifier}{paramTypeName} {paramName}");
+            argNames.Add($"{inoutModifier}{paramName}");
         }
         if (inheritedMethod.IsAsync)
             parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
@@ -1207,6 +1215,11 @@ public partial class ProtocolProxyEmitter
         // Build parameter list
         var parameters = new List<string>();
         var argNames = new List<string>();
+        // Delegation args for the `_csharpImpl.{method}(...)` fast path. inout params project to
+        // `ref` on the interface method, so the delegation must pass `ref name`; the native
+        // marshalling path below uses the raw `argNames` instead (it builds arg{i}Slice locals),
+        // so the two lists deliberately diverge for inout.
+        var csharpImplArgs = new List<string>();
         var projectedParamTypes = new List<string>();
         var paramSwiftTypeSpecs = new List<TypeSpec?>();
         int argIndex = 0;
@@ -1217,10 +1230,12 @@ public partial class ProtocolProxyEmitter
                 continue;
             if (param.SwiftTypeSpec.IsEmptyTuple)
                 continue;
+            var inoutModifier = param.IsInOut ? "ref " : "";
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
-            parameters.Add($"{paramTypeName} {paramName}");
+            parameters.Add($"{inoutModifier}{paramTypeName} {paramName}");
             argNames.Add(paramName);
+            csharpImplArgs.Add($"{inoutModifier}{paramName}");
             projectedParamTypes.Add(paramTypeName);
             paramSwiftTypeSpecs.Add(param.SwiftTypeSpec);
             argIndex++;
@@ -1230,10 +1245,13 @@ public partial class ProtocolProxyEmitter
         {
             parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
             argNames.Add("cancellationToken");
+            csharpImplArgs.Add("cancellationToken");
         }
 
         var parametersString = string.Join(", ", parameters);
-        var argsString = string.Join(", ", argNames);
+        // argsString feeds the `_csharpImpl.{method}(argsString)` delegations exclusively (the native
+        // dispatch path uses argNames), so it carries the `ref` modifier for inout params.
+        var argsString = string.Join(", ", csharpImplArgs);
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
@@ -2558,8 +2576,13 @@ public partial class ProtocolProxyEmitter
                 continue;
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
             var paramName = NameProvider.GetCSharpParameterName(param);
-            parameters.Add($"{paramTypeName} {paramName}");
-            argNames.Add(paramName);
+            // The interface declares inout params with `ref`; this stub must match that signature
+            // to satisfy the interface slot (else CS0535). argNames here feeds ONLY the managed
+            // `_csharpImpl.{method}(...)` delegation below — there is no native marshalling path
+            // in this NotSupported stub — so `ref` belongs on the delegation args too.
+            var inoutModifier = param.IsInOut ? "ref " : "";
+            parameters.Add($"{inoutModifier}{paramTypeName} {paramName}");
+            argNames.Add($"{inoutModifier}{paramName}");
         }
         if (method.IsAsync)
         {

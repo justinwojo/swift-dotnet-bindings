@@ -52,6 +52,16 @@ public sealed class ClangAstInvoker
                    $"-isysroot \"{sdkPath}\" " +
                    $"-F \"{frameworkSearchPath}\" ";
 
+        // XCTest (and other test-support frameworks pulled in by libraries like Quick/Nimble)
+        // does NOT ship in the SDK — it lives under the platform's Developer/Library/Frameworks.
+        // Add that directory so a header doing `@import XCTest;` / `#import <XCTest/XCTest.h>`
+        // resolves; without it clang fails with "'XCTest/XCTest.h' file not found" and the whole
+        // module fails to build. Best-effort: if the platform-path lookup fails or the directory
+        // is absent we just omit the extra -F, leaving non-test-importing libraries unaffected.
+        var platformFrameworks = ResolvePlatformDeveloperFrameworks(sdkName);
+        if (platformFrameworks != null)
+            baseArgs += $"-F \"{platformFrameworks}\" ";
+
         if (additionalFrameworkSearchPaths != null)
         {
             foreach (var path in additionalFrameworkSearchPaths)
@@ -89,6 +99,30 @@ public sealed class ClangAstInvoker
         }
 
         return stdout;
+    }
+
+    /// <summary>
+    /// Resolves the platform's <c>Developer/Library/Frameworks</c> directory (where XCTest and
+    /// other test-support frameworks live) for the given SDK, or null if it can't be located.
+    /// Best-effort by design: a missing platform path simply means the extra <c>-F</c> is omitted.
+    /// </summary>
+    private string? ResolvePlatformDeveloperFrameworks(string sdkName)
+    {
+        var (exit, platformPath, _) = _commandRunner.Run("xcrun", $"--sdk {sdkName} --show-sdk-platform-path");
+        if (exit != 0 || string.IsNullOrWhiteSpace(platformPath))
+        {
+            _logger.LogInformation("Could not locate platform path for SDK '{Sdk}'; skipping Developer/Library/Frameworks search path.", sdkName);
+            return null;
+        }
+
+        var frameworks = Path.Combine(platformPath.Trim(), "Developer", "Library", "Frameworks");
+        if (!Directory.Exists(frameworks))
+        {
+            _logger.LogInformation("Platform frameworks directory '{Path}' not found; skipping.", frameworks);
+            return null;
+        }
+
+        return frameworks;
     }
 
     /// <summary>

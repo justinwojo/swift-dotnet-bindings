@@ -217,6 +217,81 @@ public class ProtocolHandlerOutputTests
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(csOutput, "void Refresh();"));
     }
 
+    [Fact]
+    public void Emit_ProtocolMethodWithInoutParam_EmitsRefModifierOnInterfaceAndProxy()
+    {
+        // Regression: an `inout` Swift parameter must carry the C# `ref` modifier on the
+        // protocol INTERFACE declaration (and the proxy's public method), not just on the
+        // concrete conformer. When the interface omitted `ref`, concrete classes that emit
+        // `ref` failed to satisfy the interface contract → CS0535 (the GRDB failure).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // A non-frozen struct → ClassWithOpaquePayload, matching the real GRDB `Row`/statement shape.
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Row"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Row"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Row"),
+                MetadataAccessor = "$s10TestModule3RowVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var inoutArg = CreateArgument("row", new NamedTypeSpec("TestModule.Row"), moduleDecl);
+        inoutArg.IsInOut = true;
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "RowWriter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RowWriter"),
+            MangledName = "$s10TestModule9RowWriterP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "writeRow",
+                    MangledName = "$s10TestModule9RowWriterP8writeRowyAA0F0Vz_tF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        inoutArg
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface declaration must carry `ref` on the inout parameter.
+        var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class RowWriterProxy"));
+        Assert.Contains("ref TestModule.Row row", interfacePart);
+        // Proxy's public (reverse-dispatch) method must mirror the interface signature.
+        var proxyPart = csOutput.Substring(csOutput.IndexOf("class RowWriterProxy"));
+        Assert.Contains("ref TestModule.Row row", proxyPart);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

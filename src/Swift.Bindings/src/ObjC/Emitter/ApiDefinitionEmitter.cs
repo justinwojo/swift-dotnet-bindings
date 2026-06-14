@@ -54,11 +54,20 @@ public static class ApiDefinitionEmitter
         foreach (var proto in module.Protocols)
             EmitProtocol(sb, proto, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, protocolsByName, logger, diagnostics, platformInfo);
 
+        // Drop classes whose base-type chain isn't resolvable in the binding context (e.g. an
+        // external superclass with no .NET binding). Computed as a fixpoint BEFORE emission so a
+        // subclass of a dropped class is also dropped: every class name was seeded into knownTypes
+        // above, so a dropped class still satisfies the per-class resolvability check for its
+        // descendants — only the precomputed transitive set catches MySpec : MyBaseSpec :
+        // XCTestCase. A category on a dropped class must also be skipped — its
+        // [BaseType(typeof(X))] would otherwise reference a missing type.
+        var droppedClassReasons = ComputeUnresolvableBaseClasses(module, knownTypes, appleSdkTypes);
+        var droppedClassNames = new HashSet<string>(droppedClassReasons.Keys, StringComparer.Ordinal);
         foreach (var cls in module.Classes)
-            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, delegateProtocolNames, enumNames, logger, diagnostics, platformInfo);
+            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, delegateProtocolNames, enumNames, droppedClassReasons, logger, diagnostics, platformInfo);
 
         foreach (var cat in module.Categories)
-            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, logger, diagnostics, platformInfo);
+            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, droppedClassNames, logger, diagnostics, platformInfo);
 
         sb.AppendLine("}");
 
@@ -86,6 +95,48 @@ public static class ApiDefinitionEmitter
         return filePath;
     }
 
+    /// <summary>
+    /// Computes the transitive closure of classes that must be dropped because their base-type
+    /// chain isn't resolvable in the binding context, mapping each dropped class to a human-readable
+    /// drop reason. A class is dropped when its mapped superclass isn't resolvable (an external
+    /// superclass with no .NET binding, e.g. a Swift test framework's QuickSpec : XCTestCase) OR
+    /// when its raw superclass is itself an already-dropped class. The transitive case can't be
+    /// caught by the per-class base-type check alone: every class name is seeded into
+    /// <paramref name="knownTypes"/> before emission, so a dropped class still satisfies
+    /// IsApiDefinitionTypeResolvable for its subclasses — only this precomputed set catches
+    /// MySpec : MyBaseSpec : XCTestCase. Iterated to a fixpoint so a chain drops top-to-bottom
+    /// regardless of declaration order. The transitive check keys on the RAW superclass name (not
+    /// the mapped/resolvability form) precisely because the dropped base is still "known".
+    /// </summary>
+    static Dictionary<string, string> ComputeUnresolvableBaseClasses(ObjCModule module, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes)
+    {
+        var dropped = new Dictionary<string, string>(StringComparer.Ordinal);
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var cls in module.Classes)
+            {
+                if (dropped.ContainsKey(cls.Name))
+                    continue;
+                var superName = cls.SuperclassName ?? "NSObject";
+                if (dropped.ContainsKey(superName))
+                {
+                    dropped[cls.Name] = $"base class '{superName}' was dropped (unresolvable base type)";
+                    changed = true;
+                    continue;
+                }
+                var baseType = ObjCTypeMapper.MapClassName(superName);
+                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(baseType, knownTypes, appleSdkTypes))
+                {
+                    dropped[cls.Name] = $"unresolvable base type '{baseType}'";
+                    changed = true;
+                }
+            }
+        }
+        return dropped;
+    }
+
     static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, Dictionary<string, ObjCProtocolDecl>? protocolsByName, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
     {
         if (EmitAvailabilityAttributes(sb, proto.Availability, "    ", platformInfo))
@@ -108,9 +159,12 @@ public static class ApiDefinitionEmitter
         sb.AppendLine("    [BaseType(typeof(NSObject))]");
 
         // Filter out implicit protocols from inheritance — NSObject is implicit in .NET MAUI bindings,
-        // NSFastEnumeration maps to IEnumerable but isn't a binding interface
+        // NSFastEnumeration maps to IEnumerable but isn't a binding interface. Also drop any
+        // inherited protocol whose interface isn't resolvable in the binding context (external
+        // protocol with no .NET binding) — emitting `: IExternalProto` would fail with CS0246.
         var filteredInherited = proto.InheritedProtocolNames
             .Where(n => n != "NSObject" && n != "NSFastEnumeration")
+            .Where(n => ObjCTypeMapper.IsApiDefinitionTypeResolvable($"I{ObjCTypeMapper.MapProtocolName(n)}", knownTypes, appleSdkTypes))
             .ToList();
         var inheritList = filteredInherited.Count > 0
             ? $" : {string.Join(", ", filteredInherited.Select(n => $"I{ObjCTypeMapper.MapProtocolName(n)}"))}"
@@ -155,13 +209,27 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
+    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, IReadOnlyDictionary<string, string>? droppedClassReasons, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
     {
         if (EmitAvailabilityAttributes(sb, cls.Availability, "    ", platformInfo))
         {
             diagnostics?.RecordSkip("Class", cls.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
             return;
         }
+
+        // Resolvability gate (must run before any emission): drop the class if it's in the
+        // precomputed unresolvable-base-class set — the fixpoint closure of classes whose base type
+        // isn't resolvable in the binding context (e.g. a Swift test framework's
+        // QuickSpec : XCTestCase) PLUS their transitive subclasses (MySpec : QuickSpec). Emitting
+        // [BaseType(typeof(QuickSpec))] for a dropped QuickSpec would dangle → CS0246.
+        if (droppedClassReasons != null && droppedClassReasons.TryGetValue(cls.Name, out var dropReason))
+        {
+            logger.LogDebug("Skipping class {Name}: {Reason}", cls.Name, dropReason);
+            diagnostics?.RecordSkip("Class", cls.Name, ObjCSkipReason.UnresolvableType, dropReason);
+            return;
+        }
+        var baseType = ObjCTypeMapper.MapClassName(cls.SuperclassName ?? "NSObject");
+
         ObjCDocCommentEmitter.EmitDocComment(sb, cls.DocComment, null, "    ");
 
         // Disable default constructor if the class declares any parameterless init
@@ -177,11 +245,14 @@ public static class ApiDefinitionEmitter
         if (disableDefaultCtor)
             sb.AppendLine("    [DisableDefaultCtor]");
 
-        var baseType = ObjCTypeMapper.MapClassName(cls.SuperclassName ?? "NSObject");
         sb.AppendLine($"    [BaseType(typeof({baseType}))]");
 
+        // Drop conformances to NSObject/NSFastEnumeration (implicit / non-binding) and to any
+        // protocol whose interface isn't resolvable in the binding context — emitting
+        // `: IExternalProto` for an unbound protocol would fail with CS0246.
         var filteredProtocols = cls.ProtocolNames
             .Where(n => n != "NSObject" && n != "NSFastEnumeration")
+            .Where(n => ObjCTypeMapper.IsApiDefinitionTypeResolvable($"I{ObjCTypeMapper.MapProtocolName(n)}", knownTypes, appleSdkTypes))
             .ToList();
         var protocols = filteredProtocols.Count > 0
             ? $" : {string.Join(", ", filteredProtocols.Select(n => $"I{ObjCTypeMapper.MapProtocolName(n)}"))}"
@@ -234,11 +305,19 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
+    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? droppedClassNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
     {
         if (EmitAvailabilityAttributes(sb, cat.Availability, "    ", platformInfo))
         {
             diagnostics?.RecordSkip("Category", $"{cat.ClassName}.{cat.CategoryName}", ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
+            return;
+        }
+
+        // Skip categories whose base class was dropped for an unresolvable base type — a
+        // [Category][BaseType(typeof(X))] on a removed class X would dangle (CS0246).
+        if (droppedClassNames != null && droppedClassNames.Contains(cat.ClassName))
+        {
+            diagnostics?.RecordSkip("Category", $"{cat.ClassName}.{cat.CategoryName}", ObjCSkipReason.UnresolvableType, $"base class '{cat.ClassName}' was dropped (unresolvable base type)");
             return;
         }
 

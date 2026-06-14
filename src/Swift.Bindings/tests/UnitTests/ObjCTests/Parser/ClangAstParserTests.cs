@@ -3577,4 +3577,26 @@ public class ClangAstParserTests
         var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
         Assert.Equal(2, module.Classes.Count);
     }
+
+    // --- IsAppleSdkPath: which header paths count as bindable Apple SDK types ---
+
+    [Theory]
+    // The real SDK lives under <Platform>.platform/Developer/SDKs/<Platform>.sdk — bindable.
+    [InlineData("/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSObject.h", true)]
+    [InlineData("/usr/include/objc/objc.h", true)]
+    // The platform's Developer-tools frameworks (XCTest/Testing/XCUIAutomation) are NOT bindable:
+    // Microsoft.iOS binds none of them. A binding that treated XCTestCase as resolvable would emit
+    // [BaseType(typeof(XCTestCase))] → CS0246. These sit under Developer/Library/Frameworks.
+    [InlineData("/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework/Headers/XCTest.h", false)]
+    [InlineData("/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/Frameworks/Testing.framework/Headers/Testing.h", false)]
+    // The platform's clang builtins under Developer/usr are tooling, not bindable SDK types.
+    [InlineData("/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/lib/clang/include/stdint.h", false)]
+    // A third-party header (not under any SDK path) is never an Apple SDK type.
+    [InlineData("/Users/me/Build/Quick.framework/Headers/Quick.h", false)]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    public void IsAppleSdkPath_ClassifiesPathsCorrectly(string filePath, bool expected)
+    {
+        Assert.Equal(expected, ClangAstParser.IsAppleSdkPath(filePath));
+    }
 }

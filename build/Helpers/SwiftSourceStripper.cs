@@ -42,6 +42,14 @@ public static class SwiftSourceStripper
         "TaskDescriptor", "StringProcessor",
         "StatusHandler", "PriorityHandler",
         "URLProcessorDelegate",
+        // Inout non-frozen-struct protocol dispatch (InoutStructDispatch.swift):
+        // PointMutator's requirement takes an `inout NonFrozenPoint`. The reverse-dispatch
+        // runtime test (InoutStructDispatchTests.TestReverseInoutNonFrozenStructDispatch) is
+        // currently [Skip]-ped pending a fix to the opaque-payload receiver marshalling, but the
+        // conformance + witness-table getter (Get_EveryProtocol_PointMutator_WitnessTable) is
+        // kept so the wrapper's `extension EveryProtocol: PointMutator` compiles and the reverse
+        // path is ready to exercise once that gap is closed.
+        "PointMutator",
         "EventDelegate",
         // Optional<ClosedRange<Float>> proxy-getter regression: OptionalClosedRangeProviderTests
         // has a C# conformer whose AllowedRange getter is read back by Swift through the

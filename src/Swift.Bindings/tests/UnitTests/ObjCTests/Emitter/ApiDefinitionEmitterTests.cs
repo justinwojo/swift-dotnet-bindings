@@ -3832,4 +3832,216 @@ public class ApiDefinitionEmitterTests
         Assert.DoesNotContain("[Wrap(\"WeakDelegate\")]", result);
         Assert.DoesNotContain("MyViewDelegate Delegate { get; set; }", result);
     }
+
+    // ──────────────────────────────────────────────
+    // Unresolvable base/conformance degradation
+    // (a mixed binding whose surface references an external/cross-boundary type)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_ClassWithUnresolvableBaseType_Dropped_ResolvableSiblingKept()
+    {
+        // A Swift test framework like Quick declares `QuickSpec : XCTestCase`. XCTestCase is NOT a
+        // bindable Apple SDK type (it lives under the platform Developer-tools frameworks, so it is
+        // absent from AppleSdkTypeNames), so emitting [BaseType(typeof(XCTestCase))] would fail with
+        // CS0246. Degrade gracefully: drop QuickSpec but keep QuickConfiguration : NSObject.
+        var module = new ObjCModule
+        {
+            ModuleName = "Quick",
+            // Non-empty → engages the precise oracle. NSString is a real SDK type; XCTestCase is
+            // deliberately absent (mirroring the IsAppleSdkPath fix that excludes it).
+            AppleSdkTypeNames = new HashSet<string> { "NSString", "NSObject" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "QuickSpec",
+                    SuperclassName = "XCTestCase",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "spec",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "QuickConfiguration",
+                    SuperclassName = "NSObject",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "configure",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // Unresolvable-base class dropped entirely — no dangling [BaseType(typeof(XCTestCase))].
+        Assert.DoesNotContain("XCTestCase", result);
+        Assert.DoesNotContain("partial interface QuickSpec", result);
+        // Resolvable sibling kept.
+        Assert.Contains("partial interface QuickConfiguration", result);
+        Assert.Contains("[BaseType(typeof(NSObject))]", result);
+    }
+
+    [Fact]
+    public void Emit_TransitiveSubclassOfDroppedClass_AlsoDropped()
+    {
+        // A test framework commonly subclasses its own base spec: MySpec : MyBaseSpec : XCTestCase.
+        // MyBaseSpec drops because XCTestCase is unresolvable. MySpec must ALSO drop — its base type
+        // MyBaseSpec was removed, so [BaseType(typeof(MyBaseSpec))] would dangle (CS0246). The
+        // per-class base check can't catch this on its own: every class name is seeded into
+        // knownTypes before emission, so MyBaseSpec still reads as "known" for MySpec — only the
+        // fixpoint pre-pass over the drop set catches the transitive chain. Declaration order is
+        // intentionally leaf-before-base to prove the fixpoint converges regardless of order.
+        var module = new ObjCModule
+        {
+            ModuleName = "Quick",
+            AppleSdkTypeNames = new HashSet<string> { "NSString", "NSObject" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MySpec",
+                    SuperclassName = "MyBaseSpec",
+                    Methods = [new ObjCMethodDecl { Selector = "spec", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "MyBaseSpec",
+                    SuperclassName = "XCTestCase",
+                    Methods = [new ObjCMethodDecl { Selector = "baseSpec", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "QuickConfiguration",
+                    SuperclassName = "NSObject",
+                    Methods = [new ObjCMethodDecl { Selector = "configure", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true }]
+                }
+            ],
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "MySpec",
+                    Methods = [new ObjCMethodDecl { Selector = "doExtra", ReturnType = new ObjCTypeRef { Name = "void" }, IsInstanceMethod = true }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // Both the unresolvable-base class and its subclass are dropped.
+        Assert.DoesNotContain("XCTestCase", result);
+        Assert.DoesNotContain("partial interface MyBaseSpec", result);
+        Assert.DoesNotContain("partial interface MySpec", result);
+        // Critically: no dangling base type referencing the dropped intermediate class.
+        Assert.DoesNotContain("[BaseType(typeof(MyBaseSpec))]", result);
+        // A category on the transitively-dropped subclass is skipped too.
+        Assert.DoesNotContain("MySpec_Extras", result);
+        // The resolvable sibling is unaffected.
+        Assert.Contains("partial interface QuickConfiguration", result);
+    }
+
+    [Fact]
+    public void Emit_CategoryOnDroppedClass_Skipped()
+    {
+        // A category whose base class was dropped (unresolvable base type) would emit
+        // [Category][BaseType(typeof(QuickSpec))] against a removed class → CS0246. It must be
+        // skipped too. A category on a kept class is unaffected.
+        var module = new ObjCModule
+        {
+            ModuleName = "Quick",
+            AppleSdkTypeNames = new HashSet<string> { "NSString", "NSObject" },
+            Classes =
+            [
+                new ObjCClassDecl { Name = "QuickSpec", SuperclassName = "XCTestCase" },
+                new ObjCClassDecl { Name = "QuickConfiguration", SuperclassName = "NSObject" }
+            ],
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "QuickSpec",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "doExtra",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                },
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Helpers",
+                    ClassName = "QuickConfiguration",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "help",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // Category on the dropped class is skipped.
+        Assert.DoesNotContain("QuickSpec_Extras", result);
+        // Category on the kept class survives.
+        Assert.Contains("QuickConfiguration_Helpers", result);
+    }
+
+    [Fact]
+    public void Emit_ClassConformingToUnresolvableProtocol_DropsThatConformance()
+    {
+        // A class may conform to a mix of a bindable Apple protocol (NSCoding) and a third-party
+        // protocol with no .NET binding. Emitting `: IThirdPartyProto` would fail with CS0246, so
+        // only the resolvable conformance is kept.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "NSObject", "NSCoding" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    SuperclassName = "NSObject",
+                    ProtocolNames = ["NSCoding", "ThirdPartyProto"]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface MyClass : INSCoding", result);
+        Assert.DoesNotContain("IThirdPartyProto", result);
+    }
+
+    [Fact]
+    public void Emit_ProtocolInheritingUnresolvableProtocol_DropsThatInheritance()
+    {
+        // Same gate on the protocol inheritance list: an inherited third-party protocol with no
+        // .NET binding is dropped, the resolvable one is kept.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNames = new HashSet<string> { "NSObject", "NSCoding" },
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "MyDelegate",
+                    InheritedProtocolNames = ["NSCoding", "ThirdPartyBase"]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface IMyDelegate : INSCoding", result);
+        Assert.DoesNotContain("IThirdPartyBase", result);
+    }
 }

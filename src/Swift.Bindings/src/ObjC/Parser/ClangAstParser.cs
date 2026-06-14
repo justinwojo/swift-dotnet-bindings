@@ -1293,6 +1293,17 @@ public static class ClangAstParser
     internal static bool IsAppleSdkPath(string? filePath)
     {
         if (string.IsNullOrEmpty(filePath)) return false;
+        // The platform's Developer-tools frameworks (XCTest, Testing, XCUIAutomation) live at
+        // <Platform>.platform/Developer/Library/Frameworks, and the platform's clang builtins at
+        // <Platform>.platform/Developer/usr. These are test/tooling frameworks that are NOT part
+        // of the bindable Apple SDK — Microsoft.iOS binds none of them — so they must not be
+        // treated as resolvable SDK types. Otherwise a binding whose surface references one (e.g.
+        // a Swift test framework whose base class is XCTestCase) would emit
+        // [BaseType(typeof(XCTestCase))] and fail to compile with CS0246. The real SDK lives under
+        // <Platform>.platform/Developer/SDKs/<Platform>.sdk, which the /SDKs/ check below matches.
+        if (filePath.Contains("/Developer/Library/Frameworks/", StringComparison.Ordinal)
+            || filePath.Contains("/Developer/usr/", StringComparison.Ordinal))
+            return false;
         return filePath.Contains("/SDKs/", StringComparison.Ordinal)
             || filePath.Contains("/usr/include/", StringComparison.Ordinal)
             || filePath.Contains("/Platforms/", StringComparison.Ordinal);

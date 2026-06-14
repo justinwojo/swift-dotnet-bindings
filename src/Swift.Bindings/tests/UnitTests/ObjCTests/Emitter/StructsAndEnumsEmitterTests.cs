@@ -1068,6 +1068,263 @@ public class StructsAndEnumsEmitterTests
     private static (string main, string? bgenDelegates) EmitBothFiles(ObjCModule module, string ns = "TestLib.Binding") =>
         EmitStructsAndEnumsBoth(module, ns);
 
+    /// <summary>Emit through StructsAndEnumsEmitter passing the cross-boundary excluded Swift type
+    /// names (the Swift-side types not re-emitted into the ObjC binding).</summary>
+    private static string EmitWithExclusions(ObjCModule module, HashSet<string> excludeTypeNames, string ns = "TestLib.Binding")
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
+        try
+        {
+            var result = StructsAndEnumsEmitter.Emit(module, tempDir, ns, Logger, diagnostics: null, platformInfo: null, excludeTypeNames: excludeTypeNames);
+            Assert.NotNull(result);
+            return File.ReadAllText(result!.FilePath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void Emit_CrossBoundaryDelegateAndDependentFunction_DroppedWhenExcluded()
+    {
+        // A mixed (ObjC+Swift) binding passes the Swift-emitted type names as exclusions so the ObjC
+        // side doesn't re-emit them. A block-typedef delegate whose signature references such a type
+        // (here ExampleMetadata) has no C# definition in the ObjC assembly, so it — and any C
+        // function that takes/returns it, or that references the excluded type directly — must be
+        // dropped (else CS0246). Clean delegates/functions are unaffected.
+        var module = new ObjCModule
+        {
+            ModuleName = "Quick",
+            Typedefs =
+            [
+                // Tainted: a block param references the excluded Swift type.
+                new ObjCTypedefDecl
+                {
+                    Name = "ExampleMetadataBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "ExampleMetadata", IsPointer = true }]
+                    }
+                },
+                // Clean: references only resolvable types.
+                new ObjCTypedefDecl
+                {
+                    Name = "CleanBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "NSInteger" }]
+                    }
+                }
+            ],
+            Functions =
+            [
+                // Dropped: takes the tainted (dropped) delegate.
+                new ObjCFunctionDecl
+                {
+                    Name = "qck_beforeEachWithMetadata",
+                    ReturnType = SimpleType("void"),
+                    Parameters = [new ObjCParameterDecl { Name = "block", Type = SimpleType("ExampleMetadataBlock") }]
+                },
+                // Dropped: references the excluded Swift type directly.
+                new ObjCFunctionDecl
+                {
+                    Name = "qck_directMetadata",
+                    ReturnType = SimpleType("void"),
+                    Parameters = [new ObjCParameterDecl { Name = "meta", Type = SimpleType("ExampleMetadata", isPointer: true) }]
+                },
+                // Kept: takes the clean delegate.
+                new ObjCFunctionDecl
+                {
+                    Name = "qck_clean",
+                    ReturnType = SimpleType("void"),
+                    Parameters = [new ObjCParameterDecl { Name = "block", Type = SimpleType("CleanBlock") }]
+                }
+            ]
+        };
+
+        // Baseline (no exclusions): everything emits, including the cross-boundary references.
+        var baseline = EmitAndRead(module);
+        Assert.Contains("ExampleMetadataBlock", baseline);
+        Assert.Contains("qck_beforeEachWithMetadata", baseline);
+        Assert.Contains("qck_directMetadata", baseline);
+
+        // With the Swift-side type excluded: tainted delegate + dependent functions drop, clean kept.
+        var output = EmitWithExclusions(module, new HashSet<string> { "ExampleMetadata" });
+        Assert.DoesNotContain("ExampleMetadata", output);
+        Assert.DoesNotContain("ExampleMetadataBlock", output);
+        Assert.DoesNotContain("qck_beforeEachWithMetadata", output);
+        Assert.DoesNotContain("qck_directMetadata", output);
+        Assert.Contains("public delegate void CleanBlock(nint arg0);", output);
+        Assert.Contains("qck_clean", output);
+    }
+
+    [Fact]
+    public void Emit_TransitiveCrossBoundaryDelegate_DroppedViaFixpoint()
+    {
+        // A delegate that references ANOTHER (already-dropped) cross-boundary delegate must also be
+        // dropped — the fixpoint pass catches the transitive case. WrapperBlock takes a parameter
+        // typed as the tainted ExampleMetadataBlock, so it drops on the second iteration.
+        var module = new ObjCModule
+        {
+            ModuleName = "Quick",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "ExampleMetadataBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "ExampleMetadata", IsPointer = true }]
+                    }
+                },
+                new ObjCTypedefDecl
+                {
+                    Name = "WrapperBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "ExampleMetadataBlock" }]
+                    }
+                }
+            ]
+        };
+
+        var output = EmitWithExclusions(module, new HashSet<string> { "ExampleMetadata" });
+        Assert.DoesNotContain("ExampleMetadataBlock", output);
+        Assert.DoesNotContain("WrapperBlock", output);
+    }
+
+    [Fact]
+    public void Emit_TransitiveDelegateViaAliasOfDroppedDelegate_AlsoDropped()
+    {
+        // The transitive drop must also resolve typedef aliases: a second delegate whose param is a
+        // typedef alias of an already-dropped block-typedef delegate is itself unbindable. The alias
+        // name passes a raw membership check, but ObjCTypeMapper.MapType resolves it back to the
+        // dropped delegate at emit time, so the fixpoint's dropped-delegate test must walk the alias
+        // chain. (ExampleMetadataBlock drops for its excluded param; AliasToDroppedBlock aliases it;
+        // WrapperViaAliasBlock takes the alias and must drop too — otherwise it emits a reference to
+        // the missing delegate, CS0246.)
+        var module = new ObjCModule
+        {
+            ModuleName = "Quick",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "ExampleMetadataBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "ExampleMetadata", IsPointer = true }]
+                    }
+                },
+                // Non-block typedef alias of the (to-be-dropped) block-typedef delegate.
+                new ObjCTypedefDecl
+                {
+                    Name = "AliasToDroppedBlock",
+                    UnderlyingType = new ObjCTypeRef { Name = "ExampleMetadataBlock" }
+                },
+                // Second delegate whose param is the ALIAS, not the dropped delegate's raw name.
+                new ObjCTypedefDecl
+                {
+                    Name = "WrapperViaAliasBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "AliasToDroppedBlock" }]
+                    }
+                }
+            ]
+        };
+
+        // Baseline (no exclusions): both delegates emit; the alias resolves cleanly.
+        var baseline = EmitAndRead(module);
+        Assert.Contains("ExampleMetadataBlock", baseline);
+        Assert.Contains("WrapperViaAliasBlock", baseline);
+
+        // With the Swift-side type excluded: the dropped delegate AND the alias-dependent delegate
+        // both drop — the alias never re-introduces a reference to the missing delegate.
+        var output = EmitWithExclusions(module, new HashSet<string> { "ExampleMetadata" });
+        Assert.DoesNotContain("ExampleMetadata", output);
+        Assert.DoesNotContain("WrapperViaAliasBlock", output);
+    }
+
+    [Fact]
+    public void Emit_TypedefAliasOfExcludedType_DropsDependentDelegateAndFunction()
+    {
+        // A typedef alias of an excluded Swift type (typedef ExampleMetadata *ExampleMetadataAlias;)
+        // must not slip past the cross-boundary exclusion. A raw-name check sees only the alias name
+        // and lets the delegate/function through, but ObjCTypeMapper.MapType resolves the alias at
+        // emit time and re-emits the excluded ExampleMetadata — producing a reference to an undefined
+        // type (CS0246). Both the delegate-drop fixpoint and the function taint check must resolve
+        // the typedef chain.
+        var module = new ObjCModule
+        {
+            ModuleName = "Quick",
+            Typedefs =
+            [
+                // Non-block alias of the excluded Swift type.
+                new ObjCTypedefDecl
+                {
+                    Name = "ExampleMetadataAlias",
+                    UnderlyingType = new ObjCTypeRef { Name = "ExampleMetadata", IsPointer = true }
+                },
+                // A block whose param is the ALIAS (not the raw excluded name) → exercises the
+                // delegate-drop fixpoint's alias resolution.
+                new ObjCTypedefDecl
+                {
+                    Name = "AliasMetadataBlock",
+                    UnderlyingType = new ObjCTypeRef
+                    {
+                        Name = "Block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "ExampleMetadataAlias" }]
+                    }
+                }
+            ],
+            Functions =
+            [
+                // A function param typed on the alias → exercises EmitFunction's taint resolution.
+                new ObjCFunctionDecl
+                {
+                    Name = "qck_aliasMetadata",
+                    ReturnType = SimpleType("void"),
+                    Parameters = [new ObjCParameterDecl { Name = "meta", Type = SimpleType("ExampleMetadataAlias") }]
+                }
+            ]
+        };
+
+        // Baseline (no exclusions): both the alias-typed delegate and function emit.
+        var baseline = EmitAndRead(module);
+        Assert.Contains("AliasMetadataBlock", baseline);
+        Assert.Contains("qck_aliasMetadata", baseline);
+
+        // With the Swift-side type excluded: alias resolution catches both — neither the dropped
+        // delegate nor the dependent function survives, and the resolved excluded name never appears.
+        var output = EmitWithExclusions(module, new HashSet<string> { "ExampleMetadata" });
+        Assert.DoesNotContain("ExampleMetadata", output);
+        Assert.DoesNotContain("AliasMetadataBlock", output);
+        Assert.DoesNotContain("qck_aliasMetadata", output);
+    }
+
     [Fact]
     public void EmitBlockDelegate_SkipsProtocolMethodBlockParams()
     {

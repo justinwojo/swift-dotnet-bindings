@@ -67,6 +67,54 @@ public class ClangAstInvokerTests
     }
 
     [Fact]
+    public void InvokeClangAstDump_AddsPlatformDeveloperFrameworks_WhenPresent()
+    {
+        // XCTest and friends live under <platform>/Developer/Library/Frameworks, not in the SDK.
+        // When that directory exists, the clang invocation must include it as a -F search path so
+        // a header doing `@import XCTest;` (e.g. Quick) resolves.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_platform_{Guid.NewGuid():N}");
+        try
+        {
+            var platformPath = Path.Combine(tempDir, "iPhoneSimulator.platform");
+            var devFrameworks = Path.Combine(platformPath, "Developer", "Library", "Frameworks");
+            Directory.CreateDirectory(devFrameworks);
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("--show-sdk-path", 0, "/path/to/iPhoneSimulator.sdk");
+            runner.SetResponse("--show-sdk-platform-path", 0, platformPath);
+            runner.SetResponse("-ast-dump=json", 0, "{\"kind\":\"TranslationUnitDecl\",\"inner\":[]}");
+
+            var invoker = new ClangAstInvoker(runner, Logger);
+            invoker.InvokeClangAstDump("/tmp/test.h", "/tmp/frameworks", isSimulator: true);
+
+            var clangInvocation = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-ast-dump=json"));
+            Assert.Contains($"-F \"{devFrameworks}\"", clangInvocation.Arguments);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void InvokeClangAstDump_OmitsPlatformFrameworks_WhenLookupEmpty()
+    {
+        // Best-effort: if the platform-path lookup yields nothing, the generation must still
+        // proceed (libraries that don't import test frameworks are unaffected) — just without
+        // the extra -F. The MockCommandRunner returns ("",0) for the unset platform-path key.
+        var runner = new MockCommandRunner();
+        runner.SetResponse("--show-sdk-path", 0, "/path/to/iPhoneSimulator.sdk");
+        runner.SetResponse("-ast-dump=json", 0, "{\"kind\":\"TranslationUnitDecl\",\"inner\":[]}");
+
+        var invoker = new ClangAstInvoker(runner, Logger);
+        invoker.InvokeClangAstDump("/tmp/test.h", "/tmp/frameworks", isSimulator: true);
+
+        var clangInvocation = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-ast-dump=json"));
+        Assert.DoesNotContain("Developer/Library/Frameworks", clangInvocation.Arguments);
+    }
+
+    [Fact]
     public void FindUmbrellaHeader_ConventionHeader_ReturnsPath()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"objc_test_{Guid.NewGuid():N}");

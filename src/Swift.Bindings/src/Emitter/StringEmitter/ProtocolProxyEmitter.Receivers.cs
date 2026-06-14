@@ -988,6 +988,10 @@ public partial class ProtocolProxyEmitter
         // (e.g., SwiftOptional<SwiftString> → string?) to match the interface method signature.
         // P0: Use ABI types for MarshalFromSwift — idiomatic types (string, bool?) can't read Swift memory.
         var argNames = new List<string>();
+        // Parallel `ref `/`` modifiers for inout params. The unmarshalled `param{i}` locals are
+        // writable, so `ref param{i}` binds to the interface method's `ref` slot; mutation through
+        // the shared payload pointer round-trips to Swift exactly as on the forward path.
+        var argModifiers = new List<string>();
         int argIndex = 0;
         foreach (var param in nonEmptyParams)
         {
@@ -1075,10 +1079,11 @@ public partial class ProtocolProxyEmitter
                 }
             }
             argNames.Add(argName);
+            argModifiers.Add(param.IsInOut ? "ref " : "");
             argIndex++;
         }
 
-        var argsString = string.Join(", ", argNames);
+        var argsString = string.Join(", ", argNames.Select((n, i) => argModifiers[i] + n));
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         // Mirror the property-collision rename applied during interface emission

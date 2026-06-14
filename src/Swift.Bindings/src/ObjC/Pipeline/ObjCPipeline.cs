@@ -148,7 +148,7 @@ public static class ObjCPipeline
         }
 
         var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);
-        var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);
+        var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi, excludeTypeNames);
         var structsPath = structsResult?.FilePath;
 
         // Emit .csproj:
