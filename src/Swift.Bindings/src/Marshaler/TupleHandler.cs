@@ -347,10 +347,13 @@ public class TupleHandler
     /// <summary>
     /// True when any tuple element needs per-element marshalling conversion that the converted-tuple
     /// call-argument path does NOT yet implement — i.e. its P/Invoke element type differs from its C#
-    /// element type. The only WORKING tuple-PARAMETER paths are (a) all-cdecl-primitive tuples
-    /// (PInvokeEmitter's <c>IsCdeclSafeTuple</c> stackalloc-buffer path) and (b) tuples whose every
-    /// element's P/Invoke type already equals its C# type (frozen-blittable structs, pointer types),
-    /// passed as a raw <c>ValueTuple</c> with no conversion. Every other element makes the standard
+    /// element type. The WORKING tuple-PARAMETER paths are (a) buffer-marshallable tuples
+    /// (<see cref="IsCdeclBufferMarshallableTuple"/>: cdecl-primitive and/or pure-Swift-class elements,
+    /// via the @_cdecl stackalloc-buffer path) and (b) tuples whose every element's P/Invoke type
+    /// already equals its C# type (frozen-blittable structs, pointer types), passed as a raw
+    /// <c>ValueTuple</c> with no conversion. NOTE: this predicate still returns true for a class
+    /// element (its IntPtr P/Invoke type differs from the C# wrapper), so the validator pairs it with
+    /// <c>!IsCdeclBufferMarshallableTuple</c> to let class tuples through. Every other element makes the standard
     /// <c>ValueTuple</c> path hand Swift a raw tuple of public C# types against a P/Invoke expecting
     /// differing element types — e.g. an existential element's P/Invoke <c>ExistentialContainerN</c> vs
     /// its <c>I{Composition}</c> interface, a simple enum's underlying-int vs the enum type, a
@@ -374,6 +377,161 @@ public class TupleHandler
         }
         return false;
     }
+
+    /// <summary>
+    /// True when EVERY element of this tuple can be marshalled into the @_cdecl tuple's raw ABI
+    /// buffer — the <c>stackalloc</c> + per-element <c>Unsafe.Write</c>-at-tuple-metadata-offset path
+    /// in <see cref="WrapperEmitter"/>. A non-empty tuple PARAMETER always forces a @_cdecl wrapper
+    /// that receives the tuple as <c>UnsafeRawPointer</c>
+    /// (<see cref="WrapperValidation.IsParamTypeCdeclRequired"/>) — ValueTuple's StructLayout.Auto is
+    /// incompatible with by-value P/Invoke — so the offset-keyed buffer is the only correct transport,
+    /// NOT a converted <c>ValueTuple</c> call argument. This predicate is the single source of truth
+    /// shared by the validator gate (which lets such a member emit instead of fail-closing), the
+    /// PInvoke tuple-type selection, the buffer-emission gate, and the unsafe-body flag.
+    ///
+    /// Supported element kinds (each has a fixed-size, ABI-faithful slot representation):
+    ///  - cdecl primitive scalars (Int*, Float/Double, Bool, CGFloat, …) — written by value;
+    ///  - pure Swift reference types (class) — one pointer-width slot, written as the borrowed object
+    ///    handle (the source tuple is GC.KeepAlive'd past the call);
+    ///  - Swift.String — a 16-byte (2-word) frozen value; the element is already projected as a
+    ///    Swift.SwiftString owning its storage, so its borrowed 16-byte value is bit-copied straight
+    ///    into the slot and the source tuple is GC.KeepAlive'd past the call (same lifetime model as a
+    ///    class slot). (Unlike the @_cdecl String-PARAMETER fast path, which passes utf8 ptr+len —
+    ///    inside a tuple the slot IS a Swift.String value.)
+    ///  - composition existentials (any P &amp; Q, two or more non-marker protocols → EC2+) — a
+    ///    fixed-stride multi-word container, bit-copied into the slot as a +0 BORROWED container
+    ///    (GetExistentialContainer never boxes) with the source tuple kept alive; the slot metadata is
+    ///    sized by the count-based GetExistentialTypeMetadata(N).
+    /// Deliberately UNSUPPORTED (stay fail-closed): simple enums (tag-width vs underlying-type risk),
+    /// non-frozen / frozen-with-memory-management structs (Swift stores them INLINE at value size, so a
+    /// handle write corrupts the slot), and single-protocol (EC1, may box a value-type conformer at +1)
+    /// / bare-Any (EC0) existentials — those require per-element owned-payload teardown, so they remain
+    /// caught by <see cref="HasUnmarshalledTupleElements"/> and skipped.
+    /// </summary>
+    public bool IsCdeclBufferMarshallableTuple(TupleTypeSpec tupleTypeSpec) =>
+        !tupleTypeSpec.IsEmptyTuple &&
+        // Preserve IsSupportedTuple's arity boundary: TypeMetadata.GetTupleTypeMetadataFromElements
+        // throws above 7 elements, so an over-arity tuple must stay fail-closed at generation (the
+        // all-primitive case already did via the ValueTuple ceiling) rather than throw at runtime.
+        tupleTypeSpec.Elements.Count <= MaxSupportedTupleElements &&
+        tupleTypeSpec.Elements.All(IsCdeclBufferMarshallableElement);
+
+    /// <summary>
+    /// True when a single tuple element has a fixed-size representation that can be written into the
+    /// @_cdecl tuple buffer at its runtime-metadata offset without corrupting adjacent slots. See
+    /// <see cref="IsCdeclBufferMarshallableTuple"/> for the supported/unsupported element taxonomy.
+    /// </summary>
+    public bool IsCdeclBufferMarshallableElement(TypeSpec element)
+    {
+        // Blittable primitive scalar — its C# representation is byte-for-byte the Swift element slot
+        // and is written by value at the metadata offset. (The original all-primitive buffer path.)
+        if (CdeclParamMapper.IsCdeclPrimitive(element))
+            return true;
+
+        // Swift.String — a 16-byte frozen value. The element is projected as a Swift.SwiftString that
+        // owns its storage; its borrowed 16-byte value is bit-copied into the slot and the source tuple
+        // is kept alive across the call. See the String branch in the WrapperEmitter buffer-write loop.
+        if (MarshallingHelpers.IsSwiftString(element))
+            return true;
+
+        // Composition (EC2+) existential: a fixed-stride multi-word container (3 payload + 1 metadata +
+        // N witness-table words). The element is bit-copied into the slot as a +0 BORROWED container
+        // (GetExistentialContainer never boxes — owns is always false for EC2+), so the source tuple is
+        // kept alive and no destroy/free runs. See the existential branch in the buffer-write loop.
+        if (IsCompositionExistentialElement(element))
+            return true;
+
+        // Pure Swift reference type (class): the element occupies a single pointer-width slot and is
+        // written as the object handle (an IntPtr). Excludes value types projected as C# classes
+        // (non-frozen / frozen-with-memory structs), which Swift stores INLINE at value size — a handle
+        // write there would corrupt the slot — and ObjC bridged/rooted classes, whose handle accessor
+        // differs. Those stay fail-closed.
+        if (IsBorrowedClassElement(element))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// True for a tuple element that is a SUPPORTED composition existential of two or more non-marker
+    /// protocols (e.g. <c>any Nameable &amp; Ageable</c> → <c>ExistentialContainer2</c>). Such an element
+    /// is marshalled through the always-borrowed <c>GetExistentialContainer()</c> path (owns == false —
+    /// only the single-protocol EC1 boxing branch can own a +1), so its fixed-stride container is
+    /// bit-copied into the slot as a +0 alias of the source and kept valid by the source tuple's
+    /// keep-alive. Single-protocol (EC1, may box a value-type conformer at +1) and bare-Any (EC0)
+    /// existentials are deliberately EXCLUDED — they require per-element owned-payload teardown and stay
+    /// fail-closed at the validator.
+    /// </summary>
+    public bool IsCompositionExistentialElement(TypeSpec element)
+    {
+        if (!_existentialHandler.IsExistential(element))
+            return false;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(element);
+        if (protocolList == null
+            || !_existentialHandler.IsSupportedExistential(protocolList)
+            || ExistentialHandler.GetNonMarkerProtocols(protocolList).Count < 2)
+            return false;
+        // Parity with ExistentialHandler.GetEffectiveProtocols (per-module ObjC-prefix gate): a mixed
+        // ObjC+Swift composition (e.g. any NSItemProviderWriting & SwiftP) projects its PUBLIC element
+        // type through GetEffectiveProtocols, which drops the ObjC protocol and collapses to a single
+        // interface whose proxy implements ISwiftExistentialConvertible<ExistentialContainer1>; the ABI
+        // slot/cast here keep the unfiltered EC{nonMarker} count, so stride and witness-table count
+        // disagree → cast/size mismatch. Same guard the EC2+ paths in BoundGenericsHandler and
+        // ClosureHandler apply. If ObjC filtering would drop a protocol, stay fail-closed.
+        var filteredCount = protocolList.Protocols.Keys
+            .Count(p => !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p));
+        return filteredCount == protocolList.Protocols.Count;
+    }
+
+    /// <summary>
+    /// The borrowed-container conversion expression for a composition existential tuple element —
+    /// <c>((Swift.Runtime.ISwiftExistentialConvertible&lt;ExistentialContainerN&gt;){elementVar}).GetExistentialContainer()</c>.
+    /// Mirrors the EC2+ branch of <see cref="ExistentialProjection.GetParameterElementConversion"/>; the
+    /// returned container is +0 borrowed from the source element.
+    /// </summary>
+    public string GetCompositionExistentialElementConversion(TypeSpec element, string elementVar)
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(element)!;
+        var containerType = _existentialHandler.GetCSharpExistentialType(protocolList);
+        return $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){elementVar}).GetExistentialContainer()";
+    }
+
+    /// <summary>
+    /// The non-marker protocol count for a composition existential tuple element — the argument to
+    /// <c>TypeMetadata.GetExistentialTypeMetadata(int)</c>, which sizes the slot (the opaque existential
+    /// stride is determined by the count alone, independent of the specific protocol identities).
+    /// </summary>
+    public int GetCompositionExistentialElementProtocolCount(TypeSpec element)
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(element)!;
+        return ExistentialHandler.GetNonMarkerProtocols(protocolList).Count;
+    }
+
+    /// <summary>
+    /// True for a tuple element whose buffer slot holds a BORROWED copy that aliases the SOURCE tuple's
+    /// ARC root — a pure Swift class written as its +0 object handle, a Swift.String written as the
+    /// borrowed 16-byte value read through the source element's payload handle, or a composition
+    /// existential written as its +0 borrowed container. Such elements require the source tuple to be
+    /// <c>GC.KeepAlive</c>'d past the native call so the backing SafeHandle cannot finalize and release
+    /// the value mid-call. Primitives (written by value) do NOT need this. Pairs with the buffer-write
+    /// loop's per-element classification.
+    /// </summary>
+    public bool TupleElementNeedsBorrowKeepAlive(TypeSpec element) =>
+        IsBorrowedClassElement(element)
+        || MarshallingHelpers.IsSwiftString(element)
+        || IsCompositionExistentialElement(element);
+
+    /// <summary>
+    /// A pure Swift reference type (class) eligible for the borrowed-object-handle tuple slot — excludes
+    /// value types projected as C# classes (non-frozen / frozen-with-memory structs) and ObjC
+    /// bridged/rooted classes.
+    /// </summary>
+    private bool IsBorrowedClassElement(TypeSpec element) =>
+        element is NamedTypeSpec named &&
+        _typeDatabase.TryGetTypeRecord(named, out var record) &&
+        record.Kind == TypeRecordKind.Class &&
+        !MarshallingHelpers.IsObjCBridged(record) &&
+        !MarshallingHelpers.IsObjCRooted(record);
 
     /// <summary>
     /// Translates a TypeSpec element to its C# equivalent type.

@@ -1212,17 +1212,38 @@ namespace BindingsGeneration
                     .Where(a => _env.TupleHandler.IsTuple(a)))
                 {
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(arg)!;
-                    // Only emit buffer marshalling for blittable-primitive tuples.
-                    // Non-blittable elements need per-element marshalling (not yet implemented).
-                    if (!tupleTypeSpec.Elements.All(e => CdeclParamMapper.IsCdeclPrimitive(e)))
+                    // Only emit buffer marshalling for tuples every element of which has a fixed-size,
+                    // ABI-faithful slot representation: blittable primitives (written by value) and pure
+                    // Swift class elements (written as their object handle). Other element kinds need
+                    // per-element marshalling that doesn't exist yet — they fail closed at the validator.
+                    if (!_env.TupleHandler.IsCdeclBufferMarshallableTuple(tupleTypeSpec))
                         continue;
                     var csName = NameProvider.GetCSharpParameterName(arg);
                     var elements = tupleTypeSpec.Elements;
 
-                    // Build metadata accessor calls for each element type
+                    // Build metadata accessor calls for each element type. For a class element the
+                    // translated C# type is its ISwiftObject wrapper, whose GetTypeMetadataOrThrow<T>()
+                    // resolves the Swift class metadata — so the tuple metadata sizes that slot as a
+                    // single pointer (8 bytes) and GetElementOffset(i) is the ABI-correct slot offset.
+                    // A Swift.String element projects to C# `string` (no Swift metadata accessor), so it
+                    // is sized via the SwiftString runtime metadata (a 16-byte / two-word value slot).
                     var metadataArgs = new List<string>();
                     for (int i = 0; i < elements.Count; i++)
                     {
+                        if (MarshallingHelpers.IsSwiftString(elements[i]))
+                        {
+                            metadataArgs.Add("TypeMetadata.GetTypeMetadataOrThrow<global::Swift.SwiftString>()");
+                            continue;
+                        }
+                        if (_env.TupleHandler.IsCompositionExistentialElement(elements[i]))
+                        {
+                            // Composition existential (any P & Q, EC2+): the tuple slot is an opaque
+                            // existential container whose stride is determined by the non-marker protocol
+                            // count (EC2 = 48 bytes / 6 words). GetExistentialTypeMetadata(count) sizes it.
+                            var protocolCount = _env.TupleHandler.GetCompositionExistentialElementProtocolCount(elements[i]);
+                            metadataArgs.Add($"TypeMetadata.GetExistentialTypeMetadata({protocolCount})");
+                            continue;
+                        }
                         var elemType = _env.TupleHandler.TranslateElementTypeToCSharp(elements[i]);
                         metadataArgs.Add($"TypeMetadata.GetTypeMetadataOrThrow<{elemType}>()");
                     }
@@ -1232,7 +1253,49 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"byte* {csName}Buf = stackalloc byte[(int){csName}TupleMeta.Size];");
                     for (int i = 0; i < elements.Count; i++)
                     {
-                        csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({csName}Buf + (int){csName}TupleMeta.AsTupleMetadata()->GetElementOffset({i}), {csName}.Item{i + 1});");
+                        var itemAccess = $"{csName}.Item{i + 1}";
+                        var slotExpr = $"{csName}Buf + (int){csName}TupleMeta.AsTupleMetadata()->GetElementOffset({i})";
+                        if (CdeclParamMapper.IsCdeclPrimitive(elements[i]))
+                        {
+                            // Primitive scalar: the C# value is byte-for-byte the slot, written by value.
+                            csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, {itemAccess});");
+                        }
+                        else if (MarshallingHelpers.IsSwiftString(elements[i]))
+                        {
+                            // Swift.String element: the tuple slot is a 16-byte (two-word) value, NOT a
+                            // pointer. The element is already projected as a Swift.SwiftString that owns
+                            // its 16-byte storage, so bit-copy that borrowed value (Read<Buffer> through
+                            // the payload handle) straight into the slot — no fresh materialization, no
+                            // UTF-8 round-trip. The copy is a +0 alias of the source element's storage:
+                            // the owning ValueTuple is GC.KeepAlive'd past the call (the same source
+                            // keep-alive the class slot relies on) so the SwiftString's SafeHandle cannot
+                            // finalize and release the value mid-call, and the Swift wrapper's typed
+                            // `.pointee` load retains it for the call's duration.
+                            csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, System.Runtime.CompilerServices.Unsafe.Read<global::Swift.SwiftString.Buffer>((void*){itemAccess}.Payload.DangerousGetHandle()));");
+                        }
+                        else if (_env.TupleHandler.IsCompositionExistentialElement(elements[i]))
+                        {
+                            // Composition existential element (any P & Q, EC2+): project the element to its
+                            // ExistentialContainerN via ISwiftExistentialConvertible.GetExistentialContainer()
+                            // — for a composition (≥2 protocols) this is ALWAYS a borrowed (+0) container
+                            // (owns=false, keep-alive = the source). CopyTo bit-copies the container struct
+                            // into the slot (`*(ECN*)slot = container`). The owning ValueTuple is
+                            // GC.KeepAlive'd past the call (see EmitTupleParamKeepAlive) so the borrowed
+                            // payload/witness-tables survive; the stackalloc buffer IS the transport, and
+                            // because the container is +0 there is no per-element teardown to do.
+                            var containerVar = $"{csName}Container{i}";
+                            var conversion = _env.TupleHandler.GetCompositionExistentialElementConversion(elements[i], itemAccess);
+                            csWriter.WriteLine($"var {containerVar} = {conversion};");
+                            csWriter.WriteLine($"{containerVar}.CopyTo((IntPtr)({slotExpr}));");
+                        }
+                        else
+                        {
+                            // Class element: write the raw object handle (IntPtr) into the pointer-width
+                            // slot. The handle is borrowed (+0) — the owning ValueTuple is GC.KeepAlive'd
+                            // past the native call (see EmitTupleParamKeepAlive) so the SafeHandle backing
+                            // it cannot be finalized and release the Swift object mid-call.
+                            csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, {itemAccess}.Payload.DangerousGetHandle());");
+                        }
                     }
                     csWriter.WriteLine($"var {csName}Ptr = (IntPtr){csName}Buf;");
                 }

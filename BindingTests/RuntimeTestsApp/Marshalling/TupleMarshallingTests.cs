@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 using Swift.Runtime;
@@ -190,6 +191,161 @@ public class TupleMarshallingTests : TestBase
         AssertEqual(4.0, result.point.Y, "MakePointWithTag point.Y");
         AssertEqual(7, result.tag, "MakePointWithTag tag");
         TestLogger.Info($"MakePointWithTag(3, 4, 7) = (({result.point.X}, {result.point.Y}), {result.tag})");
+    }
+
+    #endregion
+
+    #region Tuple-of-class-element parameters — @_cdecl buffer marshalling (borrowed handle + keep-alive)
+
+    // A tuple PARAMETER whose elements include pure Swift classes is marshalled through the raw
+    // @_cdecl buffer: each class element is written as its borrowed (+0) object handle at the
+    // element's ABI offset, and the owning ValueTuple is kept alive past the native call. The
+    // Swift wrapper retains each element via a typed `.pointee` load, so the borrowed handle
+    // survives the call. Value oracles below grade on the round-tripped result, not just liveness.
+
+    public void TestSumBoxedPair_TwoClassElements()
+    {
+        // Two pointer-width class slots written as borrowed handles at distinct offsets. Both
+        // elements' stored values must reach Swift intact.
+        var a = new TupleBoxedInt(value: 10);
+        var b = new TupleBoxedInt(value: 32);
+        var sum = TestLibFunctions.SumBoxedPair((a, b));
+        AssertEqual(42, sum, "SumBoxedPair(10, 32)");
+        TestLogger.Info($"SumBoxedPair((10, 32)) = {sum}");
+    }
+
+    public void TestCombineBoxAndScalar_ClassPlusPrimitive()
+    {
+        // Mixed element-mix: the class element is written as a borrowed handle (and kept alive),
+        // the trailing primitive is written by value. Both must round-trip.
+        var box = new TupleBoxedInt(value: 100);
+        var combined = TestLibFunctions.CombineBoxAndScalar((box, 23));
+        AssertEqual(123, combined, "CombineBoxAndScalar(100, 23)");
+        TestLogger.Info($"CombineBoxAndScalar((100, 23)) = {combined}");
+    }
+
+    public void TestSumBoxedPair_KeepAliveUnderGCPressure()
+    {
+        // The borrowed handle is only safe because the owning ValueTuple is GC.KeepAlive'd past
+        // the call. Constructing the elements inline (no surviving local reference besides the
+        // tuple argument) and forcing a collection on another thread before the call returns is
+        // the shape that would surface a missing keep-alive as a use-after-free. A clean
+        // round-trip across repeated iterations is the durable no-crash/correct-value oracle.
+        for (int i = 0; i < 50; i++)
+        {
+            var sum = TestLibFunctions.SumBoxedPair((new TupleBoxedInt(value: i), new TupleBoxedInt(value: i + 1)));
+            AssertEqual(2 * i + 1, sum, $"SumBoxedPair keep-alive iteration {i}");
+            GC.Collect();
+        }
+        TestLogger.Info("SumBoxedPair keep-alive stress passed");
+    }
+
+    #endregion
+
+    #region Tuple-of-String-element parameters — @_cdecl buffer marshalling (16-byte borrowed value)
+
+    // A Swift.String tuple element occupies a 16-byte (two-word) value slot — NOT the @_cdecl
+    // String-parameter fast path (utf8 ptr+len). The element is projected as a Swift.SwiftString
+    // that owns its storage, so its borrowed 16-byte value is bit-copied into the slot and the
+    // owning ValueTuple is GC.KeepAlive'd past the call (same source keep-alive as a class slot).
+    // The Swift wrapper's typed `.pointee` load retains each string for the call's duration. Value
+    // oracles below grade on the round-tripped string content, not just liveness.
+
+    public void TestJoinStringPair_TwoStringElements()
+    {
+        // Two 16-byte String slots written as borrowed copies at distinct offsets. Both elements'
+        // full UTF-8 content must reach Swift intact (not just a prefix or pointer).
+        var joined = TestLibFunctions.JoinStringPair(("hello", "world"));
+        AssertEqual("hello|world", joined, "JoinStringPair(hello, world)");
+        TestLogger.Info($"JoinStringPair((hello, world)) = {joined}");
+    }
+
+    public void TestDescribeLabeledBox_StringPrimitiveClassMix()
+    {
+        // All three @_cdecl buffer write modes in one allocation: a 16-byte borrowed String value,
+        // a by-value primitive, and a borrowed class handle (kept alive). All three must round-trip.
+        var box = new TupleBoxedInt(value: 7);
+        var described = TestLibFunctions.DescribeLabeledBox(("count", 5, box));
+        AssertEqual("count=5+7", described, "DescribeLabeledBox(count, 5, 7)");
+        TestLogger.Info($"DescribeLabeledBox((count, 5, 7)) = {described}");
+    }
+
+    public void TestJoinStringPair_UnderGCPressure()
+    {
+        // Each slot holds a borrowed 16-byte copy aliasing the SwiftString element the tuple owns;
+        // the owning ValueTuple is the only root, kept alive by the generated GC.KeepAlive. Forcing a
+        // collection each iteration is the shape that would surface a missing keep-alive as a
+        // use-after-free of the 16-byte borrowed value. A clean round-trip with distinct per-iteration
+        // content is the durable no-crash/correct-value oracle. Multi-byte UTF-8 (é) confirms the full
+        // two-word value — not an ASCII small-string prefix — round-trips.
+        for (int i = 0; i < 50; i++)
+        {
+            var joined = TestLibFunctions.JoinStringPair(($"kéy{i}", $"val{i}"));
+            AssertEqual($"kéy{i}|val{i}", joined, $"JoinStringPair using-lifetime iteration {i}");
+            GC.Collect();
+        }
+        TestLogger.Info("JoinStringPair using-lifetime stress passed");
+    }
+
+    #endregion
+
+    #region Tuple-of-composition-existential parameters — @_cdecl buffer marshalling (EC2 borrowed container)
+
+    // A composition existential element (any P & Q, EC2 — two non-marker protocols) occupies a
+    // 48-byte (six-word) opaque-existential slot sized by TypeMetadata.GetExistentialTypeMetadata(2).
+    // The element is projected as the public composition interface (IAgeableAndNameable), whose only
+    // implementer is the Swift-vended {Composition}Proxy. The buffer writer projects each element to
+    // its ExistentialContainer2 via ISwiftExistentialConvertible.GetExistentialContainer() — for a
+    // composition this is ALWAYS a borrowed (+0) container aliasing the proxy's sole construction +1 —
+    // and bit-copies that container into the slot. The owning ValueTuple is GC.KeepAlive'd past the
+    // call (same source keep-alive as the class/String slots) so a mid-call finalizer can't release a
+    // proxy whose container Swift is still borrowing. The Swift wrapper's typed `.pointee` load
+    // reconstructs the tuple of existentials for the call's duration.
+
+    public void TestDescribeNameableAgeablePair_TwoExistentialElements()
+    {
+        // Two 48-byte EC2 slots written as borrowed containers at distinct metadata offsets. Both
+        // composition existentials must round-trip their `name`/`age` fields intact.
+        var first = TestLibFunctions.MakeTrackedNameableAgeable(1);
+        var second = TestLibFunctions.MakeTrackedNameableAgeable(2);
+        var described = TestLibFunctions.DescribeNameableAgeablePair((first, second));
+        AssertEqual("Tracked1:1 & Tracked2:2", described, "DescribeNameableAgeablePair(Tracked1, Tracked2)");
+        TestLogger.Info($"DescribeNameableAgeablePair((Tracked1, Tracked2)) = {described}");
+        (first as IDisposable)?.Dispose();
+        (second as IDisposable)?.Dispose();
+    }
+
+    public void TestDescribeNameableAgeablePair_UnderGCPressure()
+    {
+        // Each slot holds a borrowed 48-byte EC2 container aliasing its source proxy's sole +1; the
+        // owning ValueTuple is the only root, kept alive by the generated GC.KeepAlive. Forcing a
+        // collection right before each borrow is the shape that would surface a missing keep-alive as
+        // a use-after-free of the borrowed container. Like the EC2 single-arg probe, this cannot go
+        // deterministically red (the caller already roots both proxies to pass and Dispose them), so
+        // the oracle is correct round-trip + no leak under induced GC pressure across iterations.
+        LifetimeTracker.Reset();
+        PassBorrowedExistentialTupleUnderGcPressure(40);
+        for (int i = 0; i < 4; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+        GC.Collect();
+        LifetimeTracker.AssertNoLeaks("borrowed EC2 tuple args: each proxy must deinit after Dispose; no UAF, no leak");
+        TestLogger.Info("DescribeNameableAgeablePair: 40 borrowed EC2 tuple-arg pairs round-tripped under GC pressure; no crash, no leak");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void PassBorrowedExistentialTupleUnderGcPressure(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var first = TestLibFunctions.MakeTrackedNameableAgeable(i);
+            var second = TestLibFunctions.MakeTrackedNameableAgeable(i + 1);
+            GC.Collect();
+            var described = TestLibFunctions.DescribeNameableAgeablePair((first, second));
+            var expected = $"Tracked{i}:{i} & Tracked{i + 1}:{i + 1}";
+            if (described != expected)
+                throw new AssertionException($"borrowed EC2 tuple arg: expected '{expected}', got '{described}'");
+            (first as IDisposable)?.Dispose();
+            (second as IDisposable)?.Dispose();
+        }
     }
 
     #endregion

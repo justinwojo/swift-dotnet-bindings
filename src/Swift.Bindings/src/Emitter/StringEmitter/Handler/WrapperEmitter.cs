@@ -132,6 +132,37 @@ namespace BindingsGeneration
             _env.MethodDecl.UsesCdeclWrapper &&
             _env.MethodDecl.CSSignature.Skip(1).Any(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec));
 
+        /// <summary>
+        /// True when a @_cdecl tuple PARAMETER carries a Swift class element written into the ABI
+        /// buffer as a bare object handle (see the tuple-buffer build in <c>EmitSafeHandleAddRef</c>).
+        /// The handle is a borrowed (+0) raw pointer with no retain, so the owning ValueTuple — and
+        /// thus the class wrapper's backing SafeHandle — must be <c>GC.KeepAlive</c>'d across the
+        /// native call (<see cref="EmitTupleParamKeepAlive"/>) or a concurrent finalize could release
+        /// the Swift object mid-call (use-after-free). All-primitive tuples need no keep-alive (their
+        /// slots are value copies). Structural (not list-populated) so it agrees with the try/finally
+        /// decision computed BEFORE marshalling emits.
+        /// </summary>
+        private bool HasCdeclTupleClassKeepAlive =>
+            _env.MethodDecl.UsesCdeclWrapper &&
+            _env.MethodDecl.CSSignature.Skip(1).Any(TupleParamNeedsKeepAlive);
+
+        /// <summary>
+        /// True for a single argument that is a buffer-marshallable @_cdecl tuple with at least one
+        /// borrow-aliasing element — a Swift class written as its +0 object handle, or a Swift.String
+        /// written as the borrowed 16-byte value read through the source element — that
+        /// <see cref="HasCdeclTupleClassKeepAlive"/> must pin past the call. Both alias the source
+        /// tuple's ARC root, so the source must be kept alive until the native call returns.
+        /// </summary>
+        private bool TupleParamNeedsKeepAlive(ArgumentDecl arg)
+        {
+            if (!_env.TupleHandler.IsTuple(arg))
+                return false;
+            var tts = _env.TupleHandler.GetTupleTypeSpec(arg);
+            return tts != null
+                && _env.TupleHandler.IsCdeclBufferMarshallableTuple(tts)
+                && tts.Elements.Any(_env.TupleHandler.TupleElementNeedsBorrowKeepAlive);
+        }
+
         internal WrapperEmitter(
             MethodEnvironment methodEnv,
             SignatureHandler signatureHandler,
@@ -261,12 +292,13 @@ namespace BindingsGeneration
                 _needsUnsafeBody = true;
             }
 
-            // @_cdecl blittable tuple params use stackalloc + pointer casts which require unsafe context
+            // @_cdecl buffer-marshallable tuple params use stackalloc + pointer casts which require
+            // unsafe context (primitive-by-value and/or class-handle elements).
             if (_env.MethodDecl.UsesCdeclWrapper &&
                 _env.MethodDecl.CSSignature.Skip(1).Any(arg =>
                     _env.TupleHandler.IsTuple(arg) &&
                     _env.TupleHandler.GetTupleTypeSpec(arg) is TupleTypeSpec tts &&
-                    tts.Elements.All(e => CdeclParamMapper.IsCdeclPrimitive(e))))
+                    _env.TupleHandler.IsCdeclBufferMarshallableTuple(tts)))
             {
                 _needsUnsafeBody = true;
             }
@@ -390,7 +422,7 @@ namespace BindingsGeneration
 
             bool isGeneric = _env.MethodDecl.IsGeneric;
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
-            bool needsTryFinally = isGeneric || hasClosures || HasExistentialHeapAllocations;
+            bool needsTryFinally = isGeneric || hasClosures || HasExistentialHeapAllocations || HasCdeclTupleClassKeepAlive;
 
             // Emit closure callbacks and error helper P/Invokes before constructor body
             EmitErrorHelperPInvokes(csWriter);
@@ -471,7 +503,7 @@ namespace BindingsGeneration
         {
             bool isGeneric = _env.MethodDecl.IsGeneric;
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
-            bool needsTryFinally = isGeneric || hasClosures || HasExistentialHeapAllocations;
+            bool needsTryFinally = isGeneric || hasClosures || HasExistentialHeapAllocations || HasCdeclTupleClassKeepAlive;
 
             // Emit closure callbacks and error helper P/Invokes before constructor
             EmitErrorHelperPInvokes(csWriter);
@@ -852,7 +884,33 @@ namespace BindingsGeneration
             EmitSafeHandleRelease(csWriter);
             EmitCdeclIndirectResultCleanup(csWriter);
             EmitExistentialContainerCleanup(csWriter);
+            EmitTupleParamKeepAlive(csWriter);
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Pins each @_cdecl tuple parameter that carries a Swift class element (written into the ABI
+        /// buffer as a borrowed object handle) with <c>GC.KeepAlive</c> past the native call. The
+        /// stackalloc buffer holds the raw handle with no +1 retain; without this the JIT could treat
+        /// the ValueTuple as dead after the buffer is built (the tuple is not referenced again), letting
+        /// the GC finalize the class wrapper's SafeHandle and release the Swift object while Swift is
+        /// still reading the borrowed slot — a use-after-free. Structural and gated identically to
+        /// <see cref="HasCdeclTupleClassKeepAlive"/>, so it is emitted iff the try/finally was. Runs in
+        /// the foreground finally even for async: the tuple is a synchronous +0 borrow consumed before
+        /// the @_cdecl wrapper returns (the stackalloc buffer cannot outlive the wrapper frame anyway).
+        /// </summary>
+        private void EmitTupleParamKeepAlive(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return;
+
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (!TupleParamNeedsKeepAlive(arg))
+                    continue;
+                var csName = NameProvider.GetCSharpParameterName(arg);
+                csWriter.WriteLine($"global::System.GC.KeepAlive({csName});");
+            }
         }
 
         /// <summary>
@@ -1041,6 +1099,11 @@ namespace BindingsGeneration
             // (see EmitExistentialContainerMarshalling); a foreground finally would
             // dangle Swift's pointer once the continuation runs on its own thread.
             if (HasExistentialHeapAllocations && !_requiresSwiftAsync)
+                return true;
+
+            // @_cdecl tuple param with a class element written as a borrowed handle needs the
+            // owning ValueTuple GC.KeepAlive'd in the finally past the native call.
+            if (HasCdeclTupleClassKeepAlive)
                 return true;
 
             return false;

@@ -487,11 +487,14 @@ in the cleanup `finally`) for the borrowed branch — the EC2 analogue of the EC
 
 **Fail-closed tuple-of-convertible-element parameter gate.** See the E2 correction above: the prior gate
 was fail-open and emitted CS1503 for a tuple param containing an existential (or any element whose P/Invoke
-type differs from its C# type). Now gated by `HasUnmarshalledTupleElements` → skipped with
-`UnsupportedSignature`. The fixture `describeNameableAgeablePair` is kept as a "correctly rejected"
-assertion (emits an `// Unsupported:` comment + `UnsupportedSignature` in `binding-report.json`); the
-predicate is pinned by `TupleHandlerTests.HasUnmarshalledTupleElements_*` (existential superset vs the
-IntPtr-subset gate, plus class / non-frozen-struct positives and primitive / pointer negatives).
+type differs from its C# type). Gated by `HasUnmarshalledTupleElements` → skipped with `UnsupportedSignature`
+for elements still out of scope. **This gate was the safe interim; the buffer-marshal path that supersedes
+it for the supported element kinds is now implemented — see "Tuple-of-convertible-element parameter
+marshalling (Option A)" below.** `describeNameableAgeablePair` is now MARSHALLED (no longer a "correctly
+rejected" fixture); the validator lets a tuple through whenever `IsCdeclBufferMarshallableTuple` covers
+every element (the gate is `HasUnmarshalledTupleElements && !IsCdeclBufferMarshallableTuple`). The
+`HasUnmarshalledTupleElements` predicate itself is unchanged and still pinned by
+`TupleHandlerTests.HasUnmarshalledTupleElements_*`.
 
 **Coverage.** EC2 lifetime sites are gated by `CompositionArgLifetimeProbeTests` (sim Mono-JIT + device
 NativeAOT): closure-return mint, reverse-dispatch-getter mint (deterministic double-free probes around a
@@ -500,11 +503,14 @@ surviving owner — assert live==1 through the call, ==0 after Dispose), and bor
 `NameableAgeableProvider` added to `SwiftSourceStripper.PreservedProtocols`.
 
 **Deferred / split-out units.**
-- **Full tuple-of-convertible-element parameter marshalling** (the 4-layer never-implemented path:
-  conversion gate in `MarshallingHelpers.IsConvertibleType` + call-arg threading in `GetCallArgumentString`
-  to use `plan.PInvokeExpression` + validator + the unsafe flag, **plus** per-element existential keepAlive
-  — keepAlive, not owned-carrier, since a tuple direct-arg has no container teardown and the Swift param is
-  +0 borrowed). Its own tracked unit; the fail-closed gate is the safe interim.
+- **Full tuple-of-convertible-element parameter marshalling** — ✅ **DONE** (Option A; see the dedicated
+  subsection below). The originally-imagined "4-layer" path (`IsConvertibleType` gate + `GetCallArgumentString`
+  threading `plan.PInvokeExpression` + validator + unsafe flag) turned out to be the WRONG ABI model — a
+  tuple parameter always forces a `@_cdecl` `UnsafeRawPointer` buffer and `ValueTuple` is `StructLayout.Auto`,
+  so the convertible-call-arg path it described is never reached. The correct implementation extends the
+  dedicated `@_cdecl` stackalloc buffer block instead. Shipped incrementally: v1 pure Swift class elements,
+  v2 `Swift.String`, v3 composition (EC2+) existentials. Single-protocol (EC1) / bare-Any (EC0) existentials,
+  simple enums, and non-frozen / frozen-mem-mgmt struct elements stay fail-closed.
 - **EC2+ composition collection-element carrier owned-mint** (`[any P & Q]` / `Set<any P & Q>` /
   `Dict<K, any P & Q>` params + reverse-dispatch returns). `ExistentialProjection.GetArrayElementCarrierConversion`
   still routes EC2+ composition elements to the borrowed `GetParameterElementConversion` fallback. Reachability
@@ -571,3 +577,63 @@ auxiliary reads (`PublicType` in tombstone dedup / the member validator / async-
 those never invoke the lambda-builder, so no borrow is ever emitted through it. The misleading "no R0 aliasing"
 rationale in both files' comments was corrected to state the accurate reason (no `GetOrCreate` overload) and to
 point at the live `ClosureEmitter.GetSwiftInvokeArgExpression` keepAlive.
+
+## Tuple-of-convertible-element parameter marshalling (Option A) — 2026-06-14
+
+Implements the deferred "Full tuple-of-convertible-element parameter marshalling" unit. The literal "4-layer"
+framing in the deferral note is the WRONG ABI model and was deliberately NOT followed.
+
+**Why not the 4-layer / `IsConvertibleType` path.** A non-empty tuple PARAMETER always forces a `@_cdecl`
+wrapper: the Swift side receives the tuple as an `UnsafeRawPointer` and reconstructs it with
+`pointer.assumingMemoryBound(to: (T1, T2, …).self).pointee`. The C# side therefore never passes a `ValueTuple`
+through P/Invoke (it is `StructLayout.Auto`, which is not blittable), so flipping `MarshallingHelpers.IsConvertibleType`
+and threading `plan.PInvokeExpression` through `GetCallArgumentString` — the "convertible call-arg" path the
+deferral imagined — is never reached for a tuple param. The correct seam is the **dedicated `@_cdecl` tuple
+buffer block** already in `WrapperEmitter.Marshalling.cs`: allocate `stackalloc byte[tupleMeta.Size]`, write
+each element at `tupleMeta.AsTupleMetadata()->GetElementOffset(i)`, and pass `(IntPtr)buf`. Extending that
+block per element kind is Option A.
+
+**Supported element kinds (incremental).**
+- **v1 — pure Swift class** (`TypeRecordKind.Class`, non-ObjC): an 8-byte pointer slot written as the borrowed
+  (+0) object handle (`.Payload.DangerousGetHandle()`). Metadata `GetTypeMetadataOrThrow<Wrapper>()`.
+- **v2 — `Swift.String`**: a 16-byte (two-word) value slot. The element is projected as a `Swift.SwiftString`
+  that owns its storage, so its borrowed 16-byte value is bit-copied (`Unsafe.Read<SwiftString.Buffer>` through
+  the payload handle) into the slot — no fresh mint, no UTF-8 round-trip, no `Dispose`. Metadata
+  `GetTypeMetadataOrThrow<Swift.SwiftString>()`.
+- **v3 — composition existential (EC2+, ≥2 non-marker protocols, e.g. `any Nameable & Ageable`)**: a fixed-stride
+  opaque-existential container slot (EC2 = 48 bytes / 6 words). The element is projected to its
+  `ExistentialContainerN` via `((ISwiftExistentialConvertible<ExistentialContainerN>)elem).GetExistentialContainer()`
+  — for a composition this is ALWAYS a +0 BORROWED container (`owns == false`; only the EC1 boxing branch can
+  own a +1) — and `CopyTo`'d into the slot. Metadata `GetExistentialTypeMetadata(count)` (the opaque-existential
+  stride is determined by the non-marker protocol count alone).
+
+**Shared lifetime model — borrow + source keep-alive, no per-element teardown.** Class, String, and composition
+slots all hold a +0 borrow that aliases the *source tuple's* ARC root. The stackalloc buffer is pure transport;
+nothing in it is owned. The single safety obligation is to root the owning `ValueTuple` past the native call,
+emitted once as `GC.KeepAlive(<param>)` in the wrapper's cleanup `finally` (`WrapperEmitter.EmitTupleParamKeepAlive`,
+fired when any element returns true from `TupleHandler.TupleElementNeedsBorrowKeepAlive`). The Swift wrapper's
+typed `.pointee` load retains each element for the call's duration, so the +0 alias is valid throughout. Primitive
+scalars are written by value and need no keep-alive.
+
+**Deliberately fail-closed (require a different mechanism).** Single-protocol (EC1) and bare-Any (EC0) existentials
+can box a value-type conformer at +1, so they need per-element owned-payload teardown — out of scope for the
+borrowed buffer. Simple enums (underlying-int vs enum type), non-frozen structs and frozen-mem-mgmt structs
+(stored inline at value size; a handle write would corrupt the slot) also stay fail-closed. **Mixed ObjC+Swift
+compositions** (e.g. `any NSCopying & SwiftP`) are fail-closed too: the public element type filters ObjC protocols
+out (`GetEffectiveProtocols`) and collapses to a single interface backed by `ExistentialContainer1`, while the ABI
+slot/cast keep the unfiltered EC2+ count — the same filtered-count mismatch the EC2+ guards in `BoundGenericsHandler`
+and `ClosureHandler` reject, now mirrored in `IsCompositionExistentialElement` (`filteredCount == Protocols.Count`).
+**Over-arity tuples** (>7 elements) stay fail-closed in `IsCdeclBufferMarshallableTuple` (parity with
+`IsSupportedTuple`'s `MaxSupportedTupleElements`), since `TypeMetadata.GetTupleTypeMetadataFromElements` throws above 7.
+These remain gated by `HasUnmarshalledTupleElements && !IsCdeclBufferMarshallableTuple` → `UnsupportedSignature`.
+
+**Surface.** `TupleHandler.IsCdeclBufferMarshallableElement` is the per-element predicate (primitive / String /
+composition existential / borrowed class); `IsCdeclBufferMarshallableTuple` is its all-elements lift;
+`IsCompositionExistentialElement` + `GetCompositionExistentialElementConversion` +
+`GetCompositionExistentialElementProtocolCount` drive the EC2+ arm. The `WrapperEmitter.Marshalling.cs` metadata-args
+and buffer-write loops branch per kind. **Tests.** Unit: `TupleHandlerTests` (per-element + per-tuple predicate
+coverage, the combined-gate `…IsAlsoUnmarshalledButNowBufferable` cases, the `…MixedObjCSwiftComposition_ReturnsFalse`
+parity guard, and the `…OverArityWithBufferableElements_ReturnsFalse` arity guard). Runtime (BindingTests sim + device):
+`TupleMarshallingTests` value-oracle + GC-pressure tests over `sumBoxedPair`/`combineBoxAndScalar` (v1),
+`joinStringPair`/`describeLabeledBox` (v2), `describeNameableAgeablePair` (v3). Swift fixtures in
+`Tuples/TupleOfClassParam.swift` and `Protocols/CompositionArgLifetime.swift`.

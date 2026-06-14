@@ -545,6 +545,306 @@ public class TupleHandlerTests
 
     #endregion
 
+    #region IsCdeclBufferMarshallableTuple (class-element @_cdecl buffer path)
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithAllPrimitives_ReturnsTrue()
+    {
+        // The original all-primitive buffer path — every element is a cdecl scalar.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Double")
+        });
+
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithClassAndPrimitive_ReturnsTrue()
+    {
+        // (Class, primitive) — the v1 extension. The class element occupies a single pointer-width
+        // slot written as its object handle; the primitive is written by value.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("ImagePipeline.ImageTask"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_ClassTuple_IsAlsoUnmarshalledButNowBufferable()
+    {
+        // The combined validator gate is (HasUnmarshalledTupleElements && !IsCdeclBufferMarshallableTuple).
+        // A (Class, primitive) tuple trips the unmarshalled gate (class P/Invoke IntPtr != C# wrapper),
+        // but is now buffer-marshallable — so the AND is false and the member emits instead of skipping.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("ImagePipeline.ImageTask"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        Assert.True(_tupleHandler.HasUnmarshalledTupleElements(tuple));
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithNonFrozenStructElement_ReturnsFalse()
+    {
+        // Non-frozen struct (ClassWithOpaquePayload) is projected as a C# class but Swift stores it
+        // INLINE at resilient value size — a handle/IntPtr write would corrupt the slot. Stays fail-closed.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("ImagePipeline.ImageResponse"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithSingleProtocolExistentialElement_ReturnsFalse()
+    {
+        // Single-protocol (EC1) existential `any P` may BOX a value-type conformer at +1 and so needs
+        // per-element owned-payload teardown — out of scope for the borrowed buffer path. Bare-Any (EC0)
+        // is excluded for the same reason. Only composition (EC2+) existentials, which are always +0
+        // borrowed via GetExistentialContainer, are bufferable (see the composition test below).
+        var existentialElement = new NamedTypeSpec("TestModule.SomeProtocol") { IsAny = true };
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            existentialElement,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithCompositionExistentialElement_ReturnsTrue()
+    {
+        // Composition (EC2+) existential `any P & Q` is sized by a fixed-stride container
+        // (GetExistentialTypeMetadata(count)) and projected through the ALWAYS-borrowed
+        // GetExistentialContainer() path — no boxing, no per-element teardown — so its container is
+        // bit-copied into the slot and kept valid by the source tuple's keep-alive.
+        var composition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Nameable"),
+            new NamedTypeSpec("TestModule.Ageable")
+        });
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            composition,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithStringElement_ReturnsTrue()
+    {
+        // Swift.String is a 16-byte frozen value projected as a Swift.SwiftString that owns its storage;
+        // its borrowed 16-byte value is bit-copied into the slot and the source tuple is kept alive
+        // across the call (the v2 extension — no fresh mint, no Dispose, same borrow model as a class).
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_CompositionExistentialTuple_IsAlsoUnmarshalledButNowBufferable()
+    {
+        // Same combined gate for a composition-existential element: unmarshalled (ExistentialContainerN
+        // P/Invoke form != C# composition interface) yet buffer-marshallable, so the member emits.
+        var composition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Nameable"),
+            new NamedTypeSpec("TestModule.Ageable")
+        });
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            composition,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.True(_tupleHandler.HasUnmarshalledTupleElements(tuple));
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_OverArityWithBufferableElements_ReturnsFalse()
+    {
+        // Eight String elements are each individually buffer-marshallable, but
+        // TypeMetadata.GetTupleTypeMetadataFromElements throws above 7 — so an over-arity tuple must
+        // stay fail-closed at generation (parity with IsSupportedTuple's MaxSupportedTupleElements),
+        // not slip through to throw at runtime.
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.String")
+        });
+
+        Assert.Equal(8, tuple.Elements.Count);
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithOptionalElement_ReturnsFalse()
+    {
+        // Optional<Int> projects to SwiftOptional<T> (a multi-field carrier), not a pointer slot.
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            optionalInt,
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableTuple(tuple));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableTuple_WithEmptyTuple_ReturnsFalse()
+    {
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableTuple(TupleTypeSpec.Empty));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableElement_PrimitiveScalar_ReturnsTrue()
+    {
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableElement(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableElement_PureSwiftClass_ReturnsTrue()
+    {
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableElement(new NamedTypeSpec("ImagePipeline.ImageTask")));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableElement_NonFrozenStruct_ReturnsFalse()
+    {
+        // Kind=Struct (not Class) — even though projected as a C# class, stored inline by Swift.
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableElement(new NamedTypeSpec("ImagePipeline.ImageResponse")));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableElement_UnknownType_ReturnsFalse()
+    {
+        // Not in the database → no TypeRecord → not bufferable.
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableElement(new NamedTypeSpec("SomeModule.Unknown")));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableElement_SwiftString_ReturnsTrue()
+    {
+        // Swift.String — 16-byte borrowed value slot (v2).
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableElement(new NamedTypeSpec("Swift.String")));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableElement_CompositionExistential_ReturnsTrue()
+    {
+        // EC2 composition — always-borrowed fixed-stride container (v3).
+        var composition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Nameable"),
+            new NamedTypeSpec("TestModule.Ageable")
+        });
+        Assert.True(_tupleHandler.IsCdeclBufferMarshallableElement(composition));
+    }
+
+    [Fact]
+    public void IsCdeclBufferMarshallableElement_SingleProtocolExistential_ReturnsFalse()
+    {
+        // EC1 single-protocol existential may box a value-type conformer — stays fail-closed.
+        var existential = new NamedTypeSpec("TestModule.SomeProtocol") { IsAny = true };
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableElement(existential));
+    }
+
+    #endregion
+
+    #region IsCompositionExistentialElement / TupleElementNeedsBorrowKeepAlive
+
+    [Fact]
+    public void IsCompositionExistentialElement_TwoProtocols_ReturnsTrue()
+    {
+        var composition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Nameable"),
+            new NamedTypeSpec("TestModule.Ageable")
+        });
+        Assert.True(_tupleHandler.IsCompositionExistentialElement(composition));
+        Assert.Equal(2, _tupleHandler.GetCompositionExistentialElementProtocolCount(composition));
+    }
+
+    [Fact]
+    public void IsCompositionExistentialElement_SingleProtocol_ReturnsFalse()
+    {
+        // One non-marker protocol → EC1, not a composition.
+        var single = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Nameable") });
+        Assert.False(_tupleHandler.IsCompositionExistentialElement(single));
+    }
+
+    [Fact]
+    public void IsCompositionExistentialElement_NonExistential_ReturnsFalse()
+    {
+        Assert.False(_tupleHandler.IsCompositionExistentialElement(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsCompositionExistentialElement_MixedObjCSwiftComposition_ReturnsFalse()
+    {
+        // any Foundation.NSCopying & TestModule.Nameable: IsSupportedExistential admits it (both are
+        // protocols, neither an ObjC root class), and GetNonMarkerProtocols keeps both (count 2). But the
+        // PUBLIC element type filters the ObjC protocol out (GetEffectiveProtocols), collapsing to a
+        // single INameable whose proxy is ISwiftExistentialConvertible<ExistentialContainer1> — while the
+        // ABI slot/cast would use EC2. That filtered-count mismatch must stay fail-closed.
+        var mixed = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSCopying"),
+            new NamedTypeSpec("TestModule.Nameable")
+        });
+        Assert.False(_tupleHandler.IsCompositionExistentialElement(mixed));
+        Assert.False(_tupleHandler.IsCdeclBufferMarshallableElement(mixed));
+    }
+
+    [Fact]
+    public void TupleElementNeedsBorrowKeepAlive_BorrowedKinds_ReturnTrue()
+    {
+        // Class, String, and composition existential all alias the source's ARC root.
+        Assert.True(_tupleHandler.TupleElementNeedsBorrowKeepAlive(new NamedTypeSpec("ImagePipeline.ImageTask")));
+        Assert.True(_tupleHandler.TupleElementNeedsBorrowKeepAlive(new NamedTypeSpec("Swift.String")));
+        var composition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Nameable"),
+            new NamedTypeSpec("TestModule.Ageable")
+        });
+        Assert.True(_tupleHandler.TupleElementNeedsBorrowKeepAlive(composition));
+    }
+
+    [Fact]
+    public void TupleElementNeedsBorrowKeepAlive_Primitive_ReturnsFalse()
+    {
+        // Written by value — no borrowed alias, no keep-alive needed.
+        Assert.False(_tupleHandler.TupleElementNeedsBorrowKeepAlive(new NamedTypeSpec("Swift.Int")));
+    }
+
+    #endregion
+
     #region TupleTypeSpec Kind Tests
 
     [Fact]

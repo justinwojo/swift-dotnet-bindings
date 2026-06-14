@@ -406,19 +406,23 @@ public class MemberValidationPipeline
         // struct) — no per-element conversion is threaded to the call site, so the standard
         // ValueTuple path passes the raw public-typed tuple and CS1503s (fail-open today).
         //
-        // The CdeclTuple buffer path (PInvokeEmitter ~L557) already handles the all-primitive
-        // case via IsCdeclSafeTuple; frozen-blittable/pointer tuples pass raw with no conversion
-        // (P/Invoke type == C# type). HasUnmarshalledTupleElements flags exactly the remainder —
-        // the convertible-element tuples whose per-element conversion + call-arg threading is not
-        // yet implemented (tracked as its own work unit). Broader than the closure-side
-        // HasClosureUnsafeTupleElements (IntPtr subset only); applied here at the method/ctor level.
+        // The CdeclTuple buffer path (PInvokeEmitter ~L557) handles tuples whose every element has a
+        // fixed-size, ABI-faithful slot representation — IsCdeclBufferMarshallableTuple: all-primitive
+        // (written by value) and pure-Swift-class elements (written as their object handle into the
+        // pointer-width slot). Frozen-blittable/pointer tuples also pass raw with no conversion
+        // (P/Invoke type == C# type, so HasUnmarshalledTupleElements is already false for them).
+        // The remainder — existential / simple-enum / non-frozen-or-frozen-mem struct elements, whose
+        // per-element conversion + lifetime is not yet implemented — is flagged by
+        // HasUnmarshalledTupleElements AND NOT buffer-marshallable, and fails closed here. Broader than
+        // the closure-side HasClosureUnsafeTupleElements (IntPtr subset only); at the method/ctor level.
         var tupleHandler = new TupleHandler(_typeDatabase);
         foreach (var argument in methodDecl.CSSignature.Skip(1))
         {
             if (!tupleHandler.IsTuple(argument))
                 continue;
             var tupleSpec = tupleHandler.GetTupleTypeSpec(argument)!;
-            if (tupleHandler.HasUnmarshalledTupleElements(tupleSpec))
+            if (tupleHandler.HasUnmarshalledTupleElements(tupleSpec) &&
+                !tupleHandler.IsCdeclBufferMarshallableTuple(tupleSpec))
             {
                 return ValidationResult.Skip(SkipReason.UnsupportedSignature,
                     $"Tuple parameter '{argument.Name}' has elements whose P/Invoke type differs from the C# type — per-element marshalling for convertible-element tuple parameters is not yet implemented.");

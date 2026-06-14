@@ -551,10 +551,12 @@ namespace BindingsGeneration
                     // @_cdecl wrappers receive tuples as UnsafeRawPointer (IntPtr).
                     // ValueTuple has StructLayout.Auto which is incompatible with P/Invoke marshalling.
                     // The marshalling code creates a buffer with tuple elements at ABI offsets using
-                    // Unsafe.Write — only safe for blittable-primitive elements. Non-blittable elements
-                    // (existentials, bound generics, non-frozen types) need per-element marshalling
-                    // that doesn't exist yet, so they fall through to the standard tuple path.
-                    if (_env.MethodDecl.UsesCdeclWrapper && IsCdeclSafeTuple(tupleTypeSpec))
+                    // Unsafe.Write — safe for blittable-primitive elements (written by value) and pure
+                    // Swift class elements (written as their object handle into the single pointer-width
+                    // slot). Other element kinds (existentials, bound generics, non-frozen/frozen-mem
+                    // structs, simple enums) need per-element marshalling that doesn't exist yet, so
+                    // IsCdeclBufferMarshallableTuple excludes them and they fall through / fail closed.
+                    if (_env.MethodDecl.UsesCdeclWrapper && _env.TupleHandler.IsCdeclBufferMarshallableTuple(tupleTypeSpec))
                     {
                         var csTupleType = _env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext);
                         AddParameter(new MarshalledType.CdeclTuple(csTupleType), csName);
@@ -919,17 +921,6 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsProtocolAvailableForConstraint(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
             => MethodValidationGates.IsProtocolAvailableForConstraint(protocolTypeName, typeDatabase);
-
-        /// <summary>
-        /// Returns true if all tuple elements are blittable primitives that can be safely
-        /// written to a raw ABI buffer with Unsafe.Write. Non-primitive elements (existentials,
-        /// bound generics, non-frozen structs, closures, strings) require per-element marshalling
-        /// that the CdeclTuple path doesn't support.
-        /// </summary>
-        private static bool IsCdeclSafeTuple(TupleTypeSpec tupleTypeSpec)
-        {
-            return tupleTypeSpec.Elements.All(element => CdeclParamMapper.IsCdeclPrimitive(element));
-        }
 
         /// <summary>
         /// Handles the SwiftSelf parameter of the method.
