@@ -563,7 +563,7 @@ public static class ProtocolExtensionEmitter
             if (braceIdx >= 0)
                 afterParen = afterParen.Substring(0, braceIdx).Trim();
 
-            var arrowIdx = afterParen.IndexOf("->", StringComparison.Ordinal);
+            var arrowIdx = SwiftTypeListText.IndexOfTopLevelArrow(afterParen);
             if (arrowIdx >= 0)
             {
                 var returnTypeStr = afterParen.Substring(arrowIdx + 2).Trim();
@@ -571,7 +571,14 @@ public static class ProtocolExtensionEmitter
                 {
                     try
                     {
-                        returnTypeSpec = TypeSpecParser.Parse(returnTypeStr);
+                        // ParsePrefix, not the EOF-strict Parse: this slice is everything after the
+                        // top-level "->" and can legitimately carry a trailing method-level "where"
+                        // clause (e.g. "T where T: Equatable"). The return type IS the leading prefix;
+                        // the where-tail is part of the signature, not garbage. (The closure-only path
+                        // rejects method-level where clauses via HasMethodLevelWhereClause, but the
+                        // non-closure path does not — so prefix parsing is what preserves the historical
+                        // lenient behavior here rather than silently skipping the method.)
+                        returnTypeSpec = TypeSpecParser.ParsePrefix(returnTypeStr);
                     }
                     catch
                     {
@@ -1237,7 +1244,7 @@ public static class ProtocolExtensionEmitter
         if (parenEnd < 0) return null;
 
         var afterParen = rawSignature.Substring(parenEnd + 1);
-        var arrowIdx = afterParen.IndexOf("->", StringComparison.Ordinal);
+        var arrowIdx = SwiftTypeListText.IndexOfTopLevelArrow(afterParen);
         var braceIdx = afterParen.IndexOf('{');
         var endIdx = afterParen.Length;
         if (arrowIdx >= 0) endIdx = Math.Min(endIdx, arrowIdx);
@@ -2830,27 +2837,11 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
-    /// Splits a parameter list string by commas, respecting nested angle brackets,
-    /// parentheses, and square brackets.
+    /// Splits a parameter list string by commas at top-level nesting depth. Delegates to the
+    /// shared <see cref="SwiftTypeListText.SplitTopLevelParameters"/> implementation (Finding 49
+    /// grammar consolidation), which adds the closure-arrow guard and string-literal tracking
+    /// this local clone previously lacked.
     /// </summary>
     private static List<string> SplitParameters(string paramStr)
-    {
-        var result = new List<string>();
-        int depth = 0;
-        int start = 0;
-
-        for (int i = 0; i < paramStr.Length; i++)
-        {
-            char c = paramStr[i];
-            if (c == '<' || c == '(' || c == '[') depth++;
-            if (c == '>' || c == ')' || c == ']') depth--;
-            if (c == ',' && depth == 0)
-            {
-                result.Add(paramStr.Substring(start, i - start));
-                start = i + 1;
-            }
-        }
-        result.Add(paramStr.Substring(start));
-        return result;
-    }
+        => SwiftTypeListText.SplitTopLevelParameters(paramStr);
 }

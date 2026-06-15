@@ -1836,9 +1836,22 @@ namespace BindingsGeneration
                                     {
                                         if (tupleElement.Kind == kNominal)
                                         {
-                                            var typeSpec = TypeSpecParser.Parse(tupleElement.PrintedName);
-                                            if (typeSpec != null)
-                                                enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                            try
+                                            {
+                                                var typeSpec = TypeSpecParser.Parse(tupleElement.PrintedName);
+                                                if (typeSpec != null)
+                                                    enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                            }
+                                            catch (TypeSpecParseException ex)
+                                            {
+                                                // Never DROP a tuple element on parse failure: a missing element
+                                                // undersizes the enum payload (Alamofire SIGSEGV root cause). Record
+                                                // a placeholder, mirroring the non-nominal fallback below. EOF-strict
+                                                // Parse makes a malformed printedName throw here rather than
+                                                // prefix-accept; the throw must not escape and drop the whole enum.
+                                                _logger.LogDebug($"Failed to parse nominal tuple associated value '{tupleElement.PrintedName}' for enum case '{enumCaseDecl.Name}': {ex.Message}");
+                                                enumCaseDecl.AssociatedValues.Add(new NamedTypeSpec(tupleElement.PrintedName));
+                                            }
                                         }
                                         else
                                         {
@@ -1858,10 +1871,21 @@ namespace BindingsGeneration
                             else if (assocValuesNode.Kind == kNominal)
                             {
                                 // Single associated value
-                                var typeSpec = TypeSpecParser.Parse(assocValuesNode.PrintedName);
-                                if (typeSpec != null)
+                                try
                                 {
-                                    enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                    var typeSpec = TypeSpecParser.Parse(assocValuesNode.PrintedName);
+                                    if (typeSpec != null)
+                                    {
+                                        enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                    }
+                                }
+                                catch (TypeSpecParseException ex)
+                                {
+                                    // Never DROP the payload on parse failure: a missing associated value
+                                    // undersizes the enum (Alamofire SIGSEGV root cause). Record a placeholder
+                                    // rather than letting an EOF-strict throw escape and drop the whole enum.
+                                    _logger.LogDebug($"Failed to parse nominal associated value '{assocValuesNode.PrintedName}' for enum case '{enumCaseDecl.Name}': {ex.Message}");
+                                    enumCaseDecl.AssociatedValues.Add(new NamedTypeSpec(assocValuesNode.PrintedName));
                                 }
                             }
                             else
@@ -2426,7 +2450,18 @@ namespace BindingsGeneration
 
                 if (errorTypeName != null)
                 {
-                    methodDecl.ThrownErrorType = TypeSpecParser.Parse(errorTypeName);
+                    // EOF-strict Parse throws on a malformed/over-captured error-type string (the
+                    // typed-throws extractor is not depth-aware). Leave ThrownErrorType null on failure
+                    // so the method still emits — just without the typed-error refinement — rather than
+                    // dropping the entire declaration via HandleNode's catch.
+                    try
+                    {
+                        methodDecl.ThrownErrorType = TypeSpecParser.Parse(errorTypeName);
+                    }
+                    catch (TypeSpecParseException ex)
+                    {
+                        _logger.LogDebug($"Failed to parse typed-throws error type '{errorTypeName}' for '{node.PrintedName}': {ex.Message}");
+                    }
                 }
             }
 

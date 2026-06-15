@@ -3127,40 +3127,13 @@ public static class SwiftInterfaceAccessParser
     }
 
     /// <summary>
-    /// Splits a parameter list string by commas, respecting nested angle brackets,
-    /// parentheses, and square brackets.
+    /// Splits a parameter list string by commas at top-level nesting depth. Delegates to the
+    /// shared <see cref="SwiftTypeListText.SplitTopLevelParameters"/> implementation (Finding 49
+    /// grammar consolidation). This was the canonical arrow-guarded clone the shared helper is
+    /// modeled on byte-for-byte, so behavior is unchanged.
     /// </summary>
     private static List<string> SplitParameters(string paramStr)
-    {
-        var result = new List<string>();
-        int depth = 0;
-        int start = 0;
-        bool inString = false;
-
-        for (int i = 0; i < paramStr.Length; i++)
-        {
-            char c = paramStr[i];
-            // Track string literals — skip commas inside "..."
-            if (c == '"' && (i == 0 || paramStr[i - 1] != '\\'))
-            {
-                inString = !inString;
-                continue;
-            }
-            if (inString)
-                continue;
-            if (c == '<' || c == '(' || c == '[') depth++;
-            // Don't treat '>' in '->' (closure return arrow) as a closing bracket
-            if (c == '>' && !(i > 0 && paramStr[i - 1] == '-')) depth--;
-            else if (c == ')' || c == ']') depth--;
-            if (c == ',' && depth == 0)
-            {
-                result.Add(paramStr.Substring(start, i - start));
-                start = i + 1;
-            }
-        }
-        result.Add(paramStr.Substring(start));
-        return result;
-    }
+        => SwiftTypeListText.SplitTopLevelParameters(paramStr);
 
     /// <summary>
     /// Finds the first colon at depth 0 (not inside brackets, parens, or angle brackets).

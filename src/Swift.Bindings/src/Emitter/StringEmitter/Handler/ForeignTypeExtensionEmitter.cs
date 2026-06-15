@@ -1113,13 +1113,19 @@ public static class ForeignTypeExtensionEmitter
         if (braceIdx >= 0)
             afterParen = afterParen.Substring(0, braceIdx).Trim();
 
-        var arrowIdx = afterParen.IndexOf("->", StringComparison.Ordinal);
+        var arrowIdx = SwiftTypeListText.IndexOfTopLevelArrow(afterParen);
         if (arrowIdx >= 0)
         {
             var returnTypeStr = afterParen.Substring(arrowIdx + 2).Trim();
             try
             {
-                returnTypeSpec = TypeSpecParser.Parse(returnTypeStr);
+                // ParsePrefix, not the EOF-strict Parse: this slice is everything after the
+                // top-level "->" and can legitimately carry a trailing method-level "where" clause
+                // (e.g. "T where T: Equatable"). The return type IS the leading prefix; the where-tail
+                // is not trailing garbage. Unlike the protocol-extension path there is no upstream
+                // where-clause gate here, so using the strict Parse would skip such a method that the
+                // old lenient parse emitted — a behavior change the prefix variant deliberately avoids.
+                returnTypeSpec = TypeSpecParser.ParsePrefix(returnTypeStr);
             }
             catch
             {
@@ -1220,27 +1226,13 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
-    /// Splits parameters respecting nested brackets.
+    /// Splits a parameter list string by commas at top-level nesting depth. Delegates to the
+    /// shared <see cref="SwiftTypeListText.SplitTopLevelParameters"/> implementation (Finding 49
+    /// grammar consolidation), which adds the closure-arrow guard and string-literal tracking
+    /// this local clone previously lacked.
     /// </summary>
     private static List<string> SplitParameters(string paramStr)
-    {
-        var result = new List<string>();
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i < paramStr.Length; i++)
-        {
-            char c = paramStr[i];
-            if (c == '<' || c == '(' || c == '[') depth++;
-            if (c == '>' || c == ')' || c == ']') depth--;
-            if (c == ',' && depth == 0)
-            {
-                result.Add(paramStr.Substring(start, i - start));
-                start = i + 1;
-            }
-        }
-        result.Add(paramStr.Substring(start));
-        return result;
-    }
+        => SwiftTypeListText.SplitTopLevelParameters(paramStr);
 
     private static string FlattenQualifiedName(string qualifiedName)
     {

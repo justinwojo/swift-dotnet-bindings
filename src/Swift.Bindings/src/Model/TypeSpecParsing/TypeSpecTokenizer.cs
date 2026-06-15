@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -173,7 +174,7 @@ public class TypeSpecTokenizer
                 return TypeSpecToken.Arrow;
             }
         }
-        throw new Exception($"Unexpected character in arrow token: {(char)reader.Peek()}");
+        throw new TypeSpecParseException($"Unexpected character in arrow token: {(char)reader.Peek()}");
     }
 
     /// <summary>
@@ -243,7 +244,7 @@ public class TypeSpecTokenizer
                 }
                 if (IsInvalidNameCharacter(c))
                 {
-                    throw new Exception($"Unexpected/illegal char {c}");
+                    throw new TypeSpecParseException($"Unexpected/illegal char {c}");
                 }
                 state = State.InName;
                 return null;

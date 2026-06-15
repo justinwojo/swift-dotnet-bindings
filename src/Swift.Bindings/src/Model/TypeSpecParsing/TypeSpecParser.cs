@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -105,8 +106,10 @@ public class TypeSpecParser
         else if (token.Kind == TypeTokenKind.TypeName)
         { // name
             tokenizer.Next();
-            var tokenValue = token.Value.StartsWith("ObjectiveC.", StringComparison.Ordinal) ?
-                            "Foundation" + token.Value.Substring("ObjectiveC".Length) : token.Value;
+            // Module-alias normalization (e.g. legacy ObjectiveC.* -> Foundation.*) is a named,
+            // testable concern rather than an inline rewrite buried in the grammar. See
+            // SwiftModuleAliases for the rationale and the longer-term home (type resolver, Finding 10).
+            var tokenValue = SwiftModuleAliases.NormalizeTypeName(token.Value);
             if (tokenValue == "Swift.Void")
                 type = TupleTypeSpec.Empty;
             else if (tokenValue == "Any")
@@ -123,7 +126,7 @@ public class TypeSpecParser
         }
         else
         { // illegal
-            throw new Exception($"Unexpected token {token.Value}.");
+            throw new TypeSpecParseException($"Unexpected token {token.Value}.");
         }
 
         if (tokenizer.NextIs("async"))
@@ -151,7 +154,7 @@ public class TypeSpecParser
         else if (expectClosure)
         {
             var errorCase = asyncClosure && throwsClosure ? "'async throws'" : asyncClosure ? "'async'" : "'throws'";
-            throw new Exception($"Unexpected token {tokenizer.Peek().Value} after {errorCase} in a closure.");
+            throw new TypeSpecParseException($"Unexpected token {tokenizer.Peek().Value} after {errorCase} in a closure.");
         }
         else if (tokenizer.Peek().Kind == TypeTokenKind.LeftAngle)
         {
@@ -164,10 +167,10 @@ public class TypeSpecParser
             tokenizer.Next();
             var currType = type as NamedTypeSpec;
             if (currType is null)
-                throw new Exception($"In parsing an inner type (type.type), first element is a {type.Kind} instead of a NamedTypeSpec.");
+                throw new TypeSpecParseException($"In parsing an inner type (type.type), first element is a {type.Kind} instead of a NamedTypeSpec.");
             var nextType = Parse() as NamedTypeSpec;
             if (nextType is null)
-                throw new Exception($"In parsing an inner type (type.type), the second element is a {type.Kind} instead of a NamedTypeSpec");
+                throw new TypeSpecParseException($"In parsing an inner type (type.type), the second element is a {type.Kind} instead of a NamedTypeSpec");
             currType.InnerType = nextType;
         }
 
@@ -181,7 +184,7 @@ public class TypeSpecParser
             }
             else
             {
-                throw new Exception($"In parsing a protocol list type, expected a NamedTypeSpec but got a {type.GetType().Name}");
+                throw new TypeSpecParseException($"In parsing a protocol list type, expected a NamedTypeSpec but got a {type.GetType().Name}");
             }
         }
 
@@ -238,7 +241,7 @@ public class TypeSpecParser
             tokenizer.Next();
             if (tokenizer.Peek().Kind != TypeTokenKind.TypeName)
             {
-                throw new Exception($"Unexpected token {tokenizer.Peek().Value}, expected a name while parsing an attribute.");
+                throw new TypeSpecParseException($"Unexpected token {tokenizer.Peek().Value}, expected a name while parsing an attribute.");
             }
             string name = tokenizer.Next().Value;
             TypeSpecAttribute attr = new TypeSpecAttribute(name);
@@ -272,7 +275,7 @@ public class TypeSpecParser
             var value = tokenizer.Next();
             if (value.Kind != TypeTokenKind.TypeName)
             {
-                throw new Exception($"Unexpected token {value.Value} while parsing attribute parameter.");
+                throw new TypeSpecParseException($"Unexpected token {value.Value} while parsing attribute parameter.");
             }
             parameters.Add(value.Value);
             if (tokenizer.Peek().Kind == TypeTokenKind.Comma)
@@ -296,7 +299,7 @@ public class TypeSpecParser
             tokenizer.Next();
             var nextName = tokenizer.Next();
             if (nextName.Kind != TypeTokenKind.TypeName)
-                throw new Exception($"Unexpected token '{nextName.Value}' with kind {nextName.Kind} while parsing a protocol list");
+                throw new TypeSpecParseException($"Unexpected token '{nextName.Value}' with kind {nextName.Kind} while parsing a protocol list");
             protocols.Add(new NamedTypeSpec(nextName.Value));
         }
         return new ProtocolListTypeSpec(protocols);
@@ -317,7 +320,7 @@ public class TypeSpecParser
             }
             var next = Parse();
             if (next is null)
-                throw new Exception($"Unexpected end while parsing a {typeImParsing}");
+                throw new TypeSpecParseException($"Unexpected end while parsing a {typeImParsing}");
             elements.Add(next);
             if (tokenizer.Peek().Kind == TypeTokenKind.Comma)
             {
@@ -365,16 +368,16 @@ public class TypeSpecParser
         var keyType = Parse();
         TypeSpec? valueType = null;
         if (keyType is null)
-            throw new Exception("Unexpected end while parsing an array or dictionary.");
+            throw new TypeSpecParseException("Unexpected end while parsing an array or dictionary.");
         if (tokenizer.Peek().Kind == TypeTokenKind.Colon)
         {
             tokenizer.Next();
             valueType = Parse();
             if (valueType is null)
-                throw new Exception("Unexpected end while parsing a dictionary value type.");
+                throw new TypeSpecParseException("Unexpected end while parsing a dictionary value type.");
         }
         else if (tokenizer.Peek().Kind != TypeTokenKind.RightBracket)
-            throw new Exception("Expected a right bracket after an array or dictionary.");
+            throw new TypeSpecParseException("Expected a right bracket after an array or dictionary.");
 
         tokenizer.Next();
 
@@ -398,7 +401,7 @@ public class TypeSpecParser
     {
         var returnType = Parse();
         if (returnType is null)
-            throw new Exception("Unexpected end while parsing a closure.");
+            throw new TypeSpecParseException("Unexpected end while parsing a closure.");
         var closure = new ClosureTypeSpec();
         closure.Arguments = arg;
         closure.ReturnType = returnType;
@@ -408,10 +411,43 @@ public class TypeSpecParser
     }
 
     /// <summary>
-    /// Parse a string representing a Swift type specification into a TypeSpec.
-    /// Returns null on empty string and throws on a parse error.
+    /// Canonical, EOF-strict entry point: parses a string representing a Swift type
+    /// specification into a <see cref="TypeSpec"/> and requires that the <em>entire</em> string
+    /// is a single type. If a complete type is followed by any trailing tokens (e.g.
+    /// <c>"Int garbage"</c>), this throws <see cref="TypeSpecParseException"/> rather than
+    /// silently returning the leading prefix. Throws <see cref="TypeSpecParseException"/> on any
+    /// parse error.
+    ///
+    /// Callers that intentionally parse a type out of the <em>start</em> of a larger string must
+    /// use <see cref="ParsePrefix(string)"/> explicitly — strictness is the default so that an
+    /// accidental trailing tail (a malformed input, an un-stripped modifier) becomes an
+    /// observable failure instead of a wrong-type-emitted-silently bug.
     /// </summary>
     public static TypeSpec? Parse(string typeName)
+    {
+        TypeSpecParser parser = new TypeSpecParser(new StringReader(typeName));
+        var result = parser.Parse();
+
+        // EOF check belongs ONLY here, at the top-level entry — the recursive Parse() legitimately
+        // returns at nested terminators (',', ')', '>', ']'), which are not Done. After a complete
+        // top-level type the next token must be Done; anything else is trailing garbage.
+        var trailing = parser.tokenizer.Peek();
+        if (trailing.Kind != TypeTokenKind.Done)
+        {
+            throw new TypeSpecParseException(
+                $"Unexpected trailing token '{trailing.Value}' after a complete type while parsing \"{typeName}\". " +
+                $"If a leading-prefix parse is intended, call {nameof(ParsePrefix)} instead.");
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Non-strict variant of <see cref="Parse(string)"/>: parses a Swift type from the start of
+    /// the string and ignores any trailing tokens. This preserves the historical lenient
+    /// behavior for the few callers that legitimately parse a type prefix out of a larger string.
+    /// Throws <see cref="TypeSpecParseException"/> on a parse error within the prefix.
+    /// </summary>
+    public static TypeSpec? ParsePrefix(string typeName)
     {
         TypeSpecParser parser = new TypeSpecParser(new StringReader(typeName));
         return parser.Parse();

@@ -567,34 +567,14 @@ internal sealed class SwiftInterfaceContextTracker
         return $"subscript({string.Join("", labels)})";
     }
 
+    /// <summary>
+    /// Splits a parameter list string by commas at top-level nesting depth. Delegates to the
+    /// shared <see cref="SwiftTypeListText.SplitTopLevelParameters"/> implementation (Finding 49
+    /// grammar consolidation), which adds the closure-arrow guard this local clone previously
+    /// lacked.
+    /// </summary>
     private static List<string> SplitParameters(string paramContent)
-    {
-        var result = new List<string>();
-        int depth = 0;
-        int start = 0;
-        bool inString = false;
-        for (int i = 0; i < paramContent.Length; i++)
-        {
-            var c = paramContent[i];
-            // Track string literals — skip commas inside "..."
-            if (c == '"' && (i == 0 || paramContent[i - 1] != '\\'))
-            {
-                inString = !inString;
-                continue;
-            }
-            if (inString)
-                continue;
-            if (c == '(' || c == '<' || c == '[') depth++;
-            else if (c == ')' || c == '>' || c == ']') depth--;
-            else if (c == ',' && depth == 0)
-            {
-                result.Add(paramContent.Substring(start, i - start));
-                start = i + 1;
-            }
-        }
-        result.Add(paramContent.Substring(start));
-        return result;
-    }
+        => SwiftTypeListText.SplitTopLevelParameters(paramContent);
 
     private LineKind ClassifyCompletedLine(string completedLine, string rawLine)
     {

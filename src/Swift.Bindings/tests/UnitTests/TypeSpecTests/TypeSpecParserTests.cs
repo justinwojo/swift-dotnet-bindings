@@ -340,61 +340,61 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
     [Fact]
     public static void TestThrowBadArrow()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("(Swift.Int)-=>(Swift.Int)"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("(Swift.Int)-=>(Swift.Int)"); });
     }
 
     [Fact]
     public static void TestIllegalNameChar()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("Swift#Int"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("Swift#Int"); });
     }
 
     [Fact]
     public static void TestBadStartToken()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse(")"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse(")"); });
     }
 
     [Fact]
     public static void TestBadClosureToken()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("() throws ? -> )"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("() throws ? -> )"); });
     }
 
     [Fact]
     public static void TestInnerClass1()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("().Foo"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("().Foo"); });
     }
 
     [Fact]
     public static void TestProtoListFail()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("Foo & ()"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("Foo & ()"); });
     }
 
     [Fact]
     public static void TestAttributeFail()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("@&Foo"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("@&Foo"); });
     }
 
     [Fact]
     public static void TestListFail()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("Swift.Foo<A, &>"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("Swift.Foo<A, &>"); });
     }
 
     [Fact]
     public static void TestArrayFail1()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("[&]"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("[&]"); });
     }
 
     [Fact]
     public static void TestArrayFail2()
     {
-        Assert.Throws<Exception>(() => { TypeSpecParser.Parse("[Swift.Int : ?]"); });
+        Assert.Throws<TypeSpecParseException>(() => { TypeSpecParser.Parse("[Swift.Int : ?]"); });
     }
 
     [Fact]
@@ -460,5 +460,109 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
         Assert.Equal("Swift.Error", ns.Name);
         Assert.True(ns.IsAny);
         Assert.Equal("error", ns.TypeLabel);
+    }
+
+    // --- Finding 49: EOF-strict canonical entry point ---
+
+    [Theory]
+    [InlineData("Swift.Int garbage")]      // the canonical example from the finding
+    [InlineData("Swift.Int Swift.Float")]  // two complete types, no separator
+    [InlineData("(Swift.Int) trailing")]   // trailing token after a tuple
+    [InlineData("Swift.Int, Swift.Float")] // top-level comma is trailing at the entry point
+    [InlineData("Swift.Array<Swift.Int> extra")]
+    public static void Parse_RejectsTrailingTokens(string input)
+    {
+        // The canonical entry point must reject a complete type followed by anything else,
+        // rather than silently returning the leading prefix.
+        Assert.Throws<TypeSpecParseException>(() => TypeSpecParser.Parse(input));
+    }
+
+    [Theory]
+    [InlineData("Swift.Int")]
+    [InlineData("Swift.Array<Swift.Int>")]
+    [InlineData("(Swift.Int, Swift.Float)")]
+    [InlineData("() -> ()")]
+    [InlineData("c & b & a")]
+    [InlineData("any Swift.Error")]
+    public static void Parse_AcceptsCompleteType(string input)
+    {
+        // A complete, single type with no trailing tokens must parse cleanly.
+        var ts = TypeSpecParser.Parse(input);
+        Assert.NotNull(ts);
+    }
+
+    [Fact]
+    public static void ParsePrefix_IgnoresTrailingTokens()
+    {
+        // The explicit non-strict variant preserves the historical lenient behavior:
+        // it parses the leading type and ignores whatever follows.
+        var ts = TypeSpecParser.ParsePrefix("Swift.Int garbage") as NamedTypeSpec;
+        Assert.NotNull(ts);
+        Assert.Equal("Swift.Int", ts.Name);
+    }
+
+    [Fact]
+    public static void ParsePrefix_MatchesParse_ForCompleteType()
+    {
+        // For a well-formed complete type, the strict and non-strict entry points agree.
+        var strict = TypeSpecParser.Parse("Swift.Array<Swift.Int>") as NamedTypeSpec;
+        var prefix = TypeSpecParser.ParsePrefix("Swift.Array<Swift.Int>") as NamedTypeSpec;
+        Assert.NotNull(strict);
+        Assert.NotNull(prefix);
+        Assert.Equal(strict.ToString(), prefix.ToString());
+    }
+
+    [Fact]
+    public static void ParsePrefix_StillThrowsOnMalformedPrefix()
+    {
+        // Lenience is only about trailing tokens — a malformed prefix still throws.
+        Assert.Throws<TypeSpecParseException>(() => TypeSpecParser.ParsePrefix("Swift#Int"));
+    }
+
+    [Theory]
+    [InlineData("T where T : Swift.Equatable", "T")]
+    [InlineData("Swift.Array<Element> where Element : Swift.Hashable", "Swift.Array")]
+    public static void ParsePrefix_ExtractsReturnTypeBeforeWhereClause(string returnTypeSlice, string expectedName)
+    {
+        // The production contract for the extension-emitter return-type slices
+        // (ProtocolExtensionEmitter / ForeignTypeExtensionEmitter): the slice after the
+        // top-level "->" can carry a trailing method-level "where" clause. ParsePrefix must
+        // extract the leading return type and ignore the where-tail, exactly as the historical
+        // lenient parse did — switching those sites to the EOF-strict Parse would instead throw
+        // and silently skip the method.
+        var ts = TypeSpecParser.ParsePrefix(returnTypeSlice) as NamedTypeSpec;
+        Assert.NotNull(ts);
+        Assert.Equal(expectedName, ts.Name);
+    }
+
+    [Fact]
+    public static void ParsePrefix_ExtractsClosureReturnTypeBeforeWhereClause()
+    {
+        // Same return-type-slice contract for a closure return type: a method like
+        // "func f<T>() -> (T) -> Swift.Bool where T : Swift.Equatable" yields the slice
+        // "(T) -> Swift.Bool where T : Swift.Equatable". ParsePrefix must return the closure
+        // type and ignore the trailing where-clause, not throw on it.
+        var ts = TypeSpecParser.ParsePrefix("(T) -> Swift.Bool where T : Swift.Equatable") as ClosureTypeSpec;
+        Assert.NotNull(ts);
+    }
+
+    // --- Finding 49: ObjectiveC.* -> Foundation.* module alias (relocated out of the grammar) ---
+
+    [Theory]
+    [InlineData("ObjectiveC.NSString", "Foundation.NSString")]
+    [InlineData("ObjectiveC.NSObject", "Foundation.NSObject")]
+    [InlineData("Swift.Int", "Swift.Int")]            // unrelated module — unchanged
+    [InlineData("ObjectiveCThing", "ObjectiveCThing")] // not the "ObjectiveC." prefix — unchanged
+    public static void SwiftModuleAliases_NormalizeTypeName(string input, string expected)
+    {
+        Assert.Equal(expected, SwiftModuleAliases.NormalizeTypeName(input));
+    }
+
+    [Fact]
+    public static void Parse_AppliesObjectiveCToFoundationAlias()
+    {
+        var ns = TypeSpecParser.Parse("ObjectiveC.NSString") as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("Foundation.NSString", ns.Name);
     }
 }
