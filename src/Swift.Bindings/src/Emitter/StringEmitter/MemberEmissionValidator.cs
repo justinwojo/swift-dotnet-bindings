@@ -658,6 +658,11 @@ public static class MemberEmissionValidator
         // B21: Check for unsupported closure return types.
         // Methods returning closures where IsSupportedClosure is false will crash in
         // EmitReturnMethod (fallthrough to GetTypeRecordOrThrow on ClosureTypeSpec).
+        // CanInvokeReturnedClosure additionally rejects closures whose param/return shapes
+        // the received-closure invoker cannot reduce to void* — including NON-throwing
+        // returned closures with bound-generic returns (e.g. `() -> Optional<enum>`), which
+        // IsSupportedClosure approves for the passed (indirect-return) direction but the
+        // received `return _fp(...)` fallback cannot marshal.
         if (method.CSSignature.Count > 0)
         {
             var returnArg = method.CSSignature[0];
@@ -669,9 +674,9 @@ public static class MemberEmissionValidator
                     skipDetails = "Return type is an unsupported closure type.";
                     return SkipReason.UnsupportedClosure;
                 }
-                if (!closureHandler.CanInvokeReturnedThrowingClosure(closureTypeSpec))
+                if (!closureHandler.CanInvokeReturnedClosure(closureTypeSpec))
                 {
-                    skipDetails = "Return type is a throwing closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
+                    skipDetails = "Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
                     return SkipReason.UnsupportedClosure;
                 }
             }
@@ -973,20 +978,21 @@ public static class MemberEmissionValidator
             }
         }
 
-        // B21 (return position): Methods returning a throwing closure whose param/return shapes
-        // cannot be reduced to void* by ClosureEmitter.GetSwiftInvokeArgExpression produce broken
-        // C# (CS1503/CS0019 cannot-convert-to-void* errors at the _fp(...) invocation site, plus
-        // string-vs-void* mismatch on the FromSuccess return). Pruning here keeps the binding
-        // honest until full marshaling for those shapes lands. Mirrors the parameter-side check above.
+        // B21 (return position): Methods returning a closure (throwing OR non-throwing) whose
+        // param/return shapes cannot be reduced to void* by ClosureEmitter.GetSwiftInvokeArgExpression
+        // / the received-return fallback produce broken C# (CS1503/CS0029/CS0019 cannot-convert
+        // errors at the _fp(...) invocation site, plus string-vs-void* mismatch on the FromSuccess
+        // return). Pruning here keeps the binding honest until full marshaling for those shapes
+        // lands. Mirrors the parameter-side check above.
         if (method.CSSignature.Count > 0)
         {
             var returnArg = method.CSSignature[0];
             if (closureHandler.IsClosure(returnArg))
             {
                 var returnClosureSpec = closureHandler.GetClosureTypeSpec(returnArg);
-                if (returnClosureSpec != null && !closureHandler.CanInvokeReturnedThrowingClosure(returnClosureSpec))
+                if (returnClosureSpec != null && !closureHandler.CanInvokeReturnedClosure(returnClosureSpec))
                 {
-                    skipDetails = "Return type is a throwing closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
+                    skipDetails = "Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
                     return SkipReason.UnsupportedClosure;
                 }
             }

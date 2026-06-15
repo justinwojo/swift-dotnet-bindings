@@ -194,6 +194,65 @@ public struct SimdDefaultCtorStruct {
     }
 }
 
+// MARK: - Mixed-bindability SIMD enum payload (RealityFoundation MaterialParameters.Value shape)
+//
+// Mirrors RealityFoundation's `MaterialParameters.Value`: an enum whose associated-value
+// cases mix a BINDABLE simd matrix (`simd_float4x4` → System.Numerics.Matrix4x4) with one
+// that has NO managed equivalent (`simd_float2x2` — System.Numerics has no 2×2 matrix) plus
+// a plain scalar case. The 2×2 case must resolve to a direct `Swift.AnyType` payload and be
+// cleanly SKIPPED — no factory, no TryGet, and critically no reference to the C `simd`
+// namespace — while the bindable 4×4 case and the scalar case still emit and round-trip.
+//
+// This is the in-repo durable gate for the regression where `simd_float2x2` was mis-routed
+// through ObjC auto-bridging and the enum case emitted an undefined `simd.simd_float2x2`
+// reference (CS0246 at consumer compile, exactly the RealityFoundation pre-flight failure).
+// The compile gate (`nuke binding-tests --compile-only`) catches a reverted fix: if the
+// `simd` module's `"valueTypesOnly": true` flag is dropped from apple-frameworks.json, every
+// simd type not hand-listed re-bridges through ObjC and this enum re-emits an undefined
+// `simd.simd_float2x2`, failing to compile.
+//
+// Why this is reproducible now (it was previously documented as unreproducible in
+// DirectAnyTypePayloadSkip.swift): the `simd` module is flagged `valueTypesOnly`, so
+// simd_float2x2 is a KNOWN value type and is NOT ObjC-auto-bridged; and it has no
+// SimdDatabase.xml managed binding, so it falls through to AnyType — the exact direct-
+// AnyType single-payload shape the `HasUnsupportedAnyTypeInPayload` skip-gate targets.
+// (valueTypesOnly is the module-level successor to the old per-type `valueTypes` allow-list,
+// which omitted simd_float2x2 and other simd permutations such as the integer/packed vectors.)
+public enum SimdMatrixPayload {
+    /// No managed 2×2 equivalent → direct `Swift.AnyType` payload → case is skipped.
+    case affine2x2(simd_float2x2)
+    /// Bindable: `simd_float4x4` → `System.Numerics.Matrix4x4`.
+    case transform4x4(simd_float4x4)
+    /// Plain scalar companion case — must keep emitting alongside the skipped 2×2 case.
+    case untextured(Bool)
+}
+
+/// Builds the bindable `.transform4x4` case from a 4×4 — lets the C# side construct a
+/// payload whose case factory the generator could not synthesize from a managed type.
+public func makeTransform4x4Payload(_ m: simd_float4x4) -> SimdMatrixPayload {
+    return .transform4x4(m)
+}
+
+/// Extracts the 4×4 transform's diagonal as a vector (all-zeros for other cases), so the
+/// C# side can verify the bindable `simd_float4x4` case survived the round-trip.
+public func transform4x4Diagonal(_ payload: SimdMatrixPayload) -> simd_float4 {
+    switch payload {
+    case .transform4x4(let m):
+        return simd_float4(m.columns.0.x, m.columns.1.y, m.columns.2.z, m.columns.3.w)
+    default:
+        return simd_float4(0, 0, 0, 0)
+    }
+}
+
+/// Returns the Bool of the `.untextured` case (false otherwise) — proves the scalar
+/// companion case still round-trips alongside the skipped 2×2 case.
+public func untexturedFlag(_ payload: SimdMatrixPayload) -> Bool {
+    switch payload {
+    case .untextured(let flag): return flag
+    default: return false
+    }
+}
+
 // Control: the same multi-SIMD initializer WITHOUT default arguments. Isolates whether
 // the wrapper-bypass is triggered by the SIMD parameter types or by the default args.
 public class SimdNoDefaultCtorHolder {

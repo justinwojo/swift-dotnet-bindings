@@ -1596,7 +1596,15 @@ namespace BindingsGeneration
 
                                 if (!parsedFromTuplePrintedName)
                                 {
-                                    // Fallback: parse individual children (previous behavior, no labels)
+                                    // Fallback: parse individual children (no labels). Reached only
+                                    // when the primary printedName parse above throws — in practice
+                                    // rare, since TypeSpecParser handles closures-in-tuples (e.g. the
+                                    // `case labeled(label: String, handler: ((Int32,String)->Bool)?)`
+                                    // fixture). It must still never DROP a non-nominal element: a
+                                    // skipped closure/function tuple element undersizes the enum the
+                                    // same way the single-payload case did (Alamofire SIGSEGV root
+                                    // cause below), so route non-nominal children through CreateTypeSpec
+                                    // and, on failure, record a placeholder rather than discarding it.
                                     foreach (var tupleElement in assocValuesNode.Children)
                                     {
                                         if (tupleElement.Kind == kNominal)
@@ -1604,6 +1612,18 @@ namespace BindingsGeneration
                                             var typeSpec = TypeSpecParser.Parse(tupleElement.PrintedName);
                                             if (typeSpec != null)
                                                 enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                        }
+                                        else
+                                        {
+                                            try
+                                            {
+                                                enumCaseDecl.AssociatedValues.Add(CreateTypeSpec(tupleElement));
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.LogDebug($"Failed to create TypeSpec for tuple associated value of enum case '{enumCaseDecl.Name}' (kind={tupleElement.Kind}): {ex.Message}");
+                                                enumCaseDecl.AssociatedValues.Add(new NamedTypeSpec(tupleElement.PrintedName));
+                                            }
                                         }
                                     }
                                 }
@@ -1615,6 +1635,41 @@ namespace BindingsGeneration
                                 if (typeSpec != null)
                                 {
                                     enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                }
+                            }
+                            else
+                            {
+                                // Single associated value that is neither a tuple nor a plain
+                                // nominal — most commonly a function/closure payload such as
+                                // `case custom((String, Int) -> String)`, which swift-api-digester
+                                // encodes as a TypeFunc node in the payload-application position
+                                // (it can also be a TypeNameAlias). Earlier code matched only
+                                // kTuple/kNominal here, so a closure-payload case recorded ZERO
+                                // associated values; the enum was then misclassified as a simple
+                                // (Int32-backed) enum, the parameter was marshalled as a 4-byte
+                                // tag, and the Swift wrapper loaded the real (multi-word,
+                                // closure-carrying) enum out of that undersized buffer — an
+                                // out-of-bounds read whose garbage non-trivial payload crashed on
+                                // ARC release (Alamofire URLEncoding.ArrayEncoding SIGSEGV). Route
+                                // the node through CreateTypeSpec so the payload type is recorded
+                                // and the enum is correctly treated as having associated values.
+                                try
+                                {
+                                    var typeSpec = CreateTypeSpec(assocValuesNode);
+                                    if (typeSpec != null)
+                                    {
+                                        enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    // Even if we cannot model the payload type, record that this
+                                    // case HAS an associated value so the enum is never lowered to
+                                    // a simple Int32 enum. A placeholder spec is enough for the
+                                    // HasAssociatedValueCases classification; downstream emission
+                                    // skips members it cannot marshal rather than mis-sizing them.
+                                    _logger.LogDebug($"Failed to create TypeSpec for associated value of enum case '{enumCaseDecl.Name}' (kind={assocValuesNode.Kind}): {ex.Message}");
+                                    enumCaseDecl.AssociatedValues.Add(new NamedTypeSpec(assocValuesNode.PrintedName ?? assocValuesNode.Kind));
                                 }
                             }
 

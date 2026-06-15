@@ -269,9 +269,12 @@ partial class Build
     // when the new divergences are intentional and reviewed.
     //
     // The .After(...) edges give Nuke `--strict` a total order over the otherwise
-    // co-equal sinks; the body observes none of them.
+    // co-equal sinks; the body observes none of them. SeedSkipSurfaceBaseline is the
+    // sibling manual reseeder with the identical .After set, so without an edge between
+    // the two, strict mode rejects the plan ("Incomplete target definition order") —
+    // peel this one last so the two reseed sinks are totally ordered.
     Target SeedParityBaseline => _ => _
-        .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate)
+        .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate, SeedSkipSurfaceBaseline)
         .Executes(() =>
         {
             var inputs = ResolveParityInputs();

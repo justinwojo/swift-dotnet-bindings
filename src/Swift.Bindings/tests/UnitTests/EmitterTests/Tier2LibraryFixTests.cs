@@ -191,6 +191,83 @@ public class Tier2LibraryFixTests
         Assert.Null(result); // null means valid — not blocked by closure gate
     }
 
+    [Fact]
+    public void CanInvokeReturnedClosure_NonThrowingBoundGenericReturn_ReturnsFalse()
+    {
+        // Problem C (XMLCoder regression): a method RETURNING a closure whose own return is
+        // a bound generic (Optional<enum>) — e.g. `nodeEncodings(...) -> (any CodingKey) ->
+        // NodeEncoding?`. The received-closure invoker emits `return _fp(...)`, where the
+        // function pointer returns void* but the delegate returns the bound-generic shape;
+        // that produces CS0029/CS1503 (cannot convert void* -> NodeEncoding?). The gate must
+        // reject it REGARDLESS of Throws — the bug was a `!Throws` short-circuit that left
+        // non-throwing returned closures ungated, so this closure has Throws=false.
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var nonThrowingBoundGenericReturn = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int")));
+
+        Assert.False(nonThrowingBoundGenericReturn.Throws);
+        Assert.False(closureHandler.CanInvokeReturnedClosure(nonThrowingBoundGenericReturn));
+    }
+
+    [Fact]
+    public void CanInvokeReturnedClosure_NonThrowingPrimitiveReturn_ReturnsTrue()
+    {
+        // Counterpart to the bound-generic case: a non-throwing returned closure whose return
+        // is a blittable primitive marshals fine through the `return _fp(...)` fallback, so the
+        // gate must still ADMIT it. Pins that the fix is additive — it prunes only the broken
+        // shapes, it does not over-prune every non-throwing returned closure.
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var nonThrowingPrimitiveReturn = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+
+        Assert.False(nonThrowingPrimitiveReturn.Throws);
+        Assert.True(closureHandler.CanInvokeReturnedClosure(nonThrowingPrimitiveReturn));
+    }
+
+    [Fact]
+    public void CanEmitMethod_NonThrowingReturnedClosureBoundGenericReturn_Pruned()
+    {
+        // Integration pin for Problem C at the B21 gate: a NON-throwing method returning a
+        // closure `() -> Optional<Int>` (resolvable inner types, so the only reason to skip is
+        // the received-closure return gate — not an unresolvable-type prune). IsSupportedClosure
+        // approves the bound-generic return for the PASSED (indirect-return) direction, so the
+        // method must be pruned by CanInvokeReturnedClosure, not the IsSupportedClosure check.
+        // (Swift.Optional must be in the DB, else IsSupportedClosureReturnType rejects the bound
+        // generic at line 672 and the gate at 677 is never reached.)
+        var typeDatabase = CreateTypeDatabaseWithOptional();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var closureReturn = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int")));
+        closureReturn.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = new MethodDecl
+        {
+            Name = "nodeEncodings",
+            MangledName = "$s8XmlCodec13nodeEncodingsyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, closureReturn),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var skipDetails, out _);
+
+        Assert.Equal(SkipReason.UnsupportedClosure, result);
+        Assert.Contains("cannot be invoked from C# without a function-pointer marshaler", skipDetails);
+    }
+
     #endregion
 
     #region Fix 5: Self resolution on generic classes
@@ -650,6 +727,29 @@ public class Tier2LibraryFixTests
     {
         var typeDatabase = CreateTypeDatabase();
         // QuartzCore module is ObjC — types are resolved via synthetic ObjCBridged records
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// DB with Swift.Optional registered so that IsSupportedClosureReturnType APPROVES a bound
+    /// generic closure return (e.g. Optional&lt;Int&gt;) for the passed/indirect-return direction —
+    /// the precondition for reaching the B21 CanInvokeReturnedClosure gate (Problem C / XMLCoder).
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithOptional()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("SwiftOptional", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
         return typeDatabase;
     }
 

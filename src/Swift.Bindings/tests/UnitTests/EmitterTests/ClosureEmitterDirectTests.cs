@@ -1021,6 +1021,19 @@ public class ClosureEmitterDirectTests
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = "Int"  // ABI JSON uses unqualified names
             });
+        // Tag-only enum: payload-less with NO raw value. hasRawValue is false, so the invoke
+        // thunk has no .rawValue to use and must copy the enum's tag bytes through a scalar.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.PlainMode"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PlainMode"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PlainMode"),
+                MetadataAccessor = "$s10TestModule9PlainModeOMa",
+                Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+                // RawValueTypeName omitted → tag-only
+            });
         typeDatabase.AddModuleDatabase(testModule);
 
         return typeDatabase;
@@ -1550,6 +1563,67 @@ public class ClosureEmitterDirectTests
 
         var result = output.ToString();
         Assert.Contains("-> Bool", result);
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_SimpleEnumArgAndReturn_ConvertsThroughRawValue()
+    {
+        // Closure: (ActionStatus) -> ActionStatus. ActionStatus is a numeric-raw simple enum
+        // (RawValueTypeName "Int" → csUnderlying long → swiftScalar Int64). The @_cdecl thunk
+        // declares the Int64 scalar on BOTH sides, so it must reconstruct the enum arg via
+        // init(rawValue:) and lower the enum result via .rawValue. Without these conversions
+        // the Swift wrapper would not compile (Int64 ↔ ActionStatus type mismatch).
+        var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ActionStatus"),
+            new NamedTypeSpec("TestModule.ActionStatus"));
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        // Scalar declared on both arg and return.
+        Assert.Contains("arg0: Int64", result);
+        Assert.Contains("-> Int64", result);
+        // Arg reconstructed via init(rawValue:) (scalar cast bridges Int vs Int64).
+        Assert.Contains("ActionStatus(rawValue: Int(arg0))!", result);
+        // Result lowered to the scalar via .rawValue — NOT returned as the bare enum.
+        Assert.Contains("return Int64(_result.rawValue)", result);
+        Assert.DoesNotContain("return _result", result);
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_TagOnlyEnumArgAndReturn_CopiesTagBytes()
+    {
+        // Closure: (PlainMode) -> PlainMode. PlainMode is a tag-only simple enum (no raw value),
+        // so there is no .rawValue. The thunk must copy the enum's tag bytes through a
+        // zero-initialised scalar in both directions (load on the arg side, byte copy on return).
+        var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.PlainMode"),
+            new NamedTypeSpec("TestModule.PlainMode"));
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        // Tag-only enums have no rawValue — must NOT emit init(rawValue:) or .rawValue.
+        Assert.DoesNotContain("rawValue", result);
+        // Arg side: load the enum from the incoming scalar's bytes.
+        Assert.Contains("load(as: PlainMode.self)", result);
+        // Return side: byte-copy the enum into a zero-initialised scalar.
+        Assert.Contains("var __scalar: Int32 = 0", result);
+        Assert.Contains("MemoryLayout<TestModule.PlainMode>.size", result);
     }
 
     [Fact]

@@ -1966,7 +1966,16 @@ public partial class ProtocolProxyEmitter
         // first-wins latch and no priming step in the ctor.
         var containerInitLines = useClassBoundContainerLayout
             ? "_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;"
-            : "_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";
+            : _isReadOnlyProxy
+                // Read-only (Swift-vended-only) proxy that nonetheless lands on the opaque layout
+                // (class-superclass requirement not surfaced as TypeRecordFlags.ClassBound): the
+                // eager s_everyProtocolMetadata field is suppressed for these proxies, so route
+                // through GetTypeMetadata() — which fails clean with NotSupportedException. This
+                // whole impl-ctor is the unsupported C#→Swift synthesis direction for a read-only
+                // proxy anyway (ProtocolWitnessTableHandle / CreateEveryProtocol are dangling),
+                // so throwing here is the correct behaviour, not a regression.
+                ? "_swiftContainer.ObjectMetadata = GetTypeMetadata();\n                _swiftContainer[0] = ProtocolWitnessTableHandle;"
+                : "_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";
 
         // Constructor for C# implementation
         writer.WriteLines($$"""

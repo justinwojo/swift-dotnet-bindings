@@ -133,6 +133,16 @@ public static partial class ClosureEmitter
                 var swiftTypeName = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
                 callArgs.Add($"arg{argIndex}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
             }
+            else if (closureHandler.IsSimpleEnum(arg))
+            {
+                // Simple enum: @_cdecl receives the underlying integer scalar (GetSwiftCdeclParamType
+                // lowers a simple enum to enumInfo.swiftScalar), but the closure expects the enum
+                // case. Reconstruct it via the same scalar→enum path GetSwiftReturnConversion uses
+                // for callback args (init(rawValue:) for numeric-raw enums, a byte load for
+                // tag-only/String-raw enums). Without this the thunk passes a bare Int where the
+                // closure's enum parameter is required, which fails to compile.
+                callArgs.Add(GetSwiftReturnConversion(arg, $"arg{argIndex}", closureHandler));
+            }
             else
             {
                 callArgs.Add($"arg{argIndex}");
@@ -171,20 +181,9 @@ public static partial class ClosureEmitter
                 // Primitive: use 0-initialised value. C# discards the result on error.
                 defaultReturnExpr = $"return {swiftReturnType}(0)";
 
-            string successReturn;
-            if (returnsVoid)
-            {
-                successReturn = "_ = ()";
-            }
-            else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
-                     closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
-            {
-                successReturn = "return Unmanaged.passRetained(_result).toOpaque()";
-            }
-            else
-            {
-                successReturn = "return _result";
-            }
+            string successReturn = returnsVoid
+                ? "_ = ()"
+                : $"return {BuildSwiftInvokeThunkReturnExpr(closureHandler, closureTypeSpec.ReturnType, swiftReturnType, "_result")}";
 
             // do { try _closure(...) } catch { marshal error; return default }
             if (returnsVoid)
@@ -215,23 +214,78 @@ public static partial class ClosureEmitter
         {
             swiftWriter.WriteLine($"_closure({callArgsString})");
         }
-        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
-                 closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
-        {
-            // Class/ObjC return: retain the result and return as opaque pointer.
-            // The caller (C#) wraps the IntPtr in SwiftClassHandle.
-            swiftWriter.WriteLines($$"""
-                let _result = _closure({{callArgsString}})
-                return Unmanaged.passRetained(_result).toOpaque()
-                """);
-        }
         else
         {
-            swiftWriter.WriteLine($"return _closure({callArgsString})");
+            // Non-void return: convert the closure result to the @_cdecl scalar/pointer the
+            // thunk declares (class/ObjC → +1 retained opaque pointer, simple enum → raw scalar,
+            // primitive/Bool → as-is). Returning the Swift value directly would not compile when
+            // a conversion is required — e.g. a simple enum case where the thunk's return type is
+            // its Int scalar.
+            var returnExpr = BuildSwiftInvokeThunkReturnExpr(
+                closureHandler, closureTypeSpec.ReturnType, swiftReturnType, "_result");
+            if (returnExpr == "_result")
+            {
+                // Primitive/Bool: the result already has the scalar type — return it directly.
+                swiftWriter.WriteLine($"return _closure({callArgsString})");
+            }
+            else
+            {
+                swiftWriter.WriteLines($$"""
+                    let _result = _closure({{callArgsString}})
+                    return {{returnExpr}}
+                    """);
+            }
         }
 
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Builds the Swift expression that converts a returned-closure result (bound to
+    /// <paramref name="resultExpr"/>, typed as the closure's Swift return type) into the
+    /// scalar/pointer value the @_cdecl invoke thunk must return. This is the inverse of
+    /// <see cref="GetSwiftReturnConversion"/> (which converts a cdecl scalar back to a Swift
+    /// value on the arg/callback side). Caller guarantees the return type is non-void.
+    /// </summary>
+    private static string BuildSwiftInvokeThunkReturnExpr(
+        ClosureHandler closureHandler,
+        TypeSpec returnType,
+        string swiftReturnType,
+        string resultExpr)
+    {
+        // Bool: swiftReturnType is "Bool"; @_cdecl bridges Swift Bool to C _Bool directly.
+        if (MarshallingHelpers.IsBoolType(returnType))
+            return resultExpr;
+
+        // Class/ObjC: hand back a +1 retained opaque pointer; C# wraps it in a SwiftHandle.
+        if (closureHandler.IsClassType(returnType) || closureHandler.IsObjCBridgedClass(returnType))
+            return $"Unmanaged.passRetained({resultExpr}).toOpaque()";
+
+        // Simple enum: the thunk declares the underlying integer scalar (e.g. Int64), but the
+        // closure yields an enum case. Numeric-raw enums convert via .rawValue, cast to the
+        // scalar because the enum's Swift raw type (e.g. Int) is a distinct type from the scalar
+        // (e.g. Int64). Tag-only / String-raw enums have no integer rawValue, so copy the enum's
+        // tag bytes into a zero-initialised scalar — the inverse of the load(as:) reconstruction
+        // GetSwiftReturnConversion emits on the arg side. The enum's MemoryLayout size never
+        // exceeds the scalar's, so copyMemory's source-fits-destination precondition holds.
+        var enumInfo = closureHandler.GetSimpleEnumInfo(returnType);
+        if (enumInfo != null)
+        {
+            if (enumInfo.Value.hasRawValue)
+                return $"{swiftReturnType}({resultExpr}.rawValue)";
+            // Mirror the forward enum→scalar byte copy at NestedClosureBridge (tag-only path):
+            // copy MemoryLayout<Enum>.size tag bytes into a zero-initialised scalar.
+            var enumSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnType);
+            return $"{{ var __scalar: {swiftReturnType} = 0; var __e = {resultExpr}; "
+                 + $"withUnsafeMutablePointer(to: &__scalar) {{ __dst in "
+                 + $"withUnsafePointer(to: &__e) {{ __src in "
+                 + $"UnsafeMutableRawPointer(__dst).copyMemory(from: UnsafeRawPointer(__src), byteCount: MemoryLayout<{enumSwiftType}>.size) }} }}; "
+                 + $"return __scalar }}()";
+        }
+
+        // Primitive (Int/Double/pointer/…): the closure result already has the scalar type.
+        return resultExpr;
     }
 
     /// <summary>

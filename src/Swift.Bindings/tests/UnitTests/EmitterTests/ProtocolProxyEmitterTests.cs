@@ -99,6 +99,52 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_ReadOnlyProxy_OmitsEagerEveryProtocolMetadataField()
+    {
+        // RealityKit EntityGestureRecognizer regression: a read-only (Swift-vended-only)
+        // proxy lives in a module that may export NO EveryProtocol scaffolding (zero suitable
+        // protocols), so the SBW_GetMetadata_EveryProtocol accessor does not exist. An eager
+        // `s_everyProtocolMetadata` static initializer P/Invokes that missing symbol in the
+        // type's cctor — even on the wrap-only path that never needs it — and throws
+        // TypeInitializationException the first time the proxy type is touched. The field must
+        // be suppressed for read-only proxies.
+        var protocolDecl = CreateSimpleProtocol("EntityGestureRecognizer");
+        var ctx = new ModuleEmissionContext();
+        ctx.MarkReadOnlyProxy(protocolDecl.Name);
+
+        var output = EmitProxyClassWithContext(protocolDecl, ctx);
+
+        // No eager static field initializer that would P/Invoke the (absent) metadata accessor.
+        // Target the field DECLARATION specifically — comments elsewhere legitimately name the
+        // field, so a bare substring check would false-positive on those.
+        Assert.DoesNotContain("static readonly TypeMetadata s_everyProtocolMetadata", output);
+        // Sanity: an unmarked proxy of the same shape DOES emit the field — proving the
+        // suppression is keyed on the read-only marking, not on the protocol shape.
+        var unmarked = EmitProxyClass(CreateSimpleProtocol("EntityGestureRecognizer"));
+        Assert.Contains("static readonly TypeMetadata s_everyProtocolMetadata", unmarked);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ReadOnlyProxy_GetTypeMetadataFailsCleanInsteadOfTouchingMissingAccessor()
+    {
+        // The C#-implements-protocol (synthesis) direction is unsupported for a read-only
+        // proxy — its existential cannot be synthesized from a managed implementation. With
+        // the eager metadata field suppressed, GetTypeMetadata() must fail clean
+        // (NotSupportedException) rather than reference the removed field or P/Invoke an
+        // accessor the wrapper never exported.
+        var protocolDecl = CreateSimpleProtocol("EntityGestureRecognizer");
+        var ctx = new ModuleEmissionContext();
+        ctx.MarkReadOnlyProxy(protocolDecl.Name);
+
+        var output = EmitProxyClassWithContext(protocolDecl, ctx);
+
+        var body = ExtractMethodBody(output, "public static TypeMetadata GetTypeMetadata()");
+        Assert.Contains("throw new global::System.NotSupportedException", body);
+        Assert.DoesNotContain("s_everyProtocolMetadata", body);
+        Assert.DoesNotContain("NativeMethods.GetEveryProtocolMetadata()", body);
+    }
+
+    [Fact]
     public void EmitProxyClass_InheritsAvailabilityFromProtocol()
     {
         // The proxy class declaration should inherit the source protocol's

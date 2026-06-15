@@ -309,4 +309,93 @@ public class SimdProjectionTests : TestBase
     }
 
     #endregion
+
+    #region Mixed-bindability SIMD enum payload (RealityFoundation MaterialParameters.Value shape)
+
+    // SimdMatrixPayload mirrors RealityFoundation's MaterialParameters.Value: an enum mixing a
+    // bindable simd_float4x4 case (→ Matrix4x4), a scalar Bool case, and a simd_float2x2 case that
+    // has no managed 2×2 equivalent. The 2×2 case resolves to a direct Swift.AnyType payload and
+    // must be SKIPPED — no factory, no TryGet, and no `simd.simd_float2x2` reference (which would be
+    // a CS0246 consumer-compile failure, the exact RealityFoundation regression). The compile gate
+    // (`nuke binding-tests --compile-only`) is the durable guard against a reverted
+    // apple-frameworks.json fix; these runtime tests prove the bindable cases still round-trip and
+    // that skipping the 2×2 case did NOT shift the discriminator slots of the surviving cases.
+
+    public void TestSimdMatrixPayloadTagSlotsPreservedAcrossSkip()
+    {
+        // The skipped affine2x2 case still occupies discriminator slot 0; the bindable cases keep
+        // their original Swift tags. A skip that renumbered slots would corrupt every Tag read.
+        AssertEqual(0, (int)SimdMatrixPayload.CaseTag.Affine2x2, "Affine2x2 keeps discriminator slot 0 even though its factory is skipped");
+        AssertEqual(1, (int)SimdMatrixPayload.CaseTag.Transform4x4, "Transform4x4 discriminator slot");
+        AssertEqual(2, (int)SimdMatrixPayload.CaseTag.Untextured, "Untextured discriminator slot");
+    }
+
+    public void TestSimdMatrixPayloadTransform4x4FactoryRoundTrips()
+    {
+        var m = Matrix4x4.Identity;
+        m.M11 = 2.0f;
+        m.M22 = 3.0f;
+        m.M33 = 5.0f;
+        m.M44 = 7.0f;
+
+        using var payload = SimdMatrixPayload.Transform4x4(m);
+        AssertEqual(SimdMatrixPayload.CaseTag.Transform4x4, payload.Tag, "Transform4x4 factory sets the Transform4x4 tag");
+
+        // Read the diagonal back through a Swift free function that switches on the case.
+        Vector4 diag = TestLibFunctions.Transform4x4Diagonal(payload);
+        AssertFloatEqual(2.0f, diag.X, "Transform4x4 diagonal[0] survives round-trip");
+        AssertFloatEqual(3.0f, diag.Y, "Transform4x4 diagonal[1] survives round-trip");
+        AssertFloatEqual(5.0f, diag.Z, "Transform4x4 diagonal[2] survives round-trip");
+        AssertFloatEqual(7.0f, diag.W, "Transform4x4 diagonal[3] survives round-trip");
+    }
+
+    public void TestSimdMatrixPayloadTransform4x4TryGetReturnsMatrix()
+    {
+        var m = Matrix4x4.Identity;
+        m.M11 = 9.0f;
+        m.M44 = 11.0f;
+
+        using var payload = SimdMatrixPayload.Transform4x4(m);
+        bool ok = payload.TryGetTransform4x4(out Matrix4x4 readBack);
+        AssertTrue(ok, "TryGetTransform4x4 succeeds for the transform4x4 case");
+        AssertFloatEqual(9.0f, readBack.M11, "TryGetTransform4x4 M11 survives");
+        AssertFloatEqual(11.0f, readBack.M44, "TryGetTransform4x4 M44 survives");
+    }
+
+    public void TestSimdMatrixPayloadMakeViaFreeFunction()
+    {
+        // A Swift free function returns the bindable case — exercises a case constructor the
+        // generator could not synthesize purely from managed types.
+        var m = Matrix4x4.Identity;
+        m.M22 = 4.0f;
+        m.M33 = 6.0f;
+        using var payload = TestLibFunctions.MakeTransform4x4Payload(m);
+        AssertEqual(SimdMatrixPayload.CaseTag.Transform4x4, payload.Tag, "MakeTransform4x4Payload returns the transform4x4 case");
+
+        Vector4 diag = TestLibFunctions.Transform4x4Diagonal(payload);
+        AssertFloatEqual(1.0f, diag.X, "diagonal[0] from free-function-built payload");
+        AssertFloatEqual(4.0f, diag.Y, "diagonal[1] from free-function-built payload");
+        AssertFloatEqual(6.0f, diag.Z, "diagonal[2] from free-function-built payload");
+    }
+
+    public void TestSimdMatrixPayloadUntexturedTrueRoundTrips()
+    {
+        using var payload = SimdMatrixPayload.Untextured(true);
+        AssertEqual(SimdMatrixPayload.CaseTag.Untextured, payload.Tag, "Untextured factory sets the Untextured tag");
+
+        bool ok = payload.TryGetUntextured(out bool flag);
+        AssertTrue(ok, "TryGetUntextured succeeds for the untextured case");
+        AssertTrue(flag, "Untextured(true) payload survives via TryGet");
+
+        AssertTrue(TestLibFunctions.UntexturedFlag(payload), "Untextured(true) survives via free function");
+    }
+
+    public void TestSimdMatrixPayloadUntexturedFalseRoundTrips()
+    {
+        using var payload = SimdMatrixPayload.Untextured(false);
+        AssertEqual(SimdMatrixPayload.CaseTag.Untextured, payload.Tag, "Untextured(false) tag");
+        AssertFalse(TestLibFunctions.UntexturedFlag(payload), "Untextured(false) survives via free function");
+    }
+
+    #endregion
 }

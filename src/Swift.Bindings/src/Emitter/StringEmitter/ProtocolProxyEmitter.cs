@@ -72,6 +72,22 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private bool _useEntityBase;
 
+    /// <summary>
+    /// True when this protocol is emitted as a READ-ONLY (Swift-vended-only) proxy: it carries a
+    /// class-superclass requirement that is NOT Entity-rooted, so neither EveryProtocol nor
+    /// EveryEntityProtocol can synthesize a conformance for it (ModuleHandler marks these via
+    /// <c>MarkReadOnlyProxy</c>). Such a proxy only WRAPS Swift-vended <c>any P</c> values; the
+    /// C#-implements-protocol (synthesis) direction is unsupported. Critically, the module may
+    /// emit NO EveryProtocol scaffolding at all (when it has zero suitable protocols), so the
+    /// <c>SBW_GetMetadata_EveryProtocol</c> accessor does not exist. The proxy must therefore NOT
+    /// emit the eager <c>s_everyProtocolMetadata</c> static field (its initializer P/Invokes that
+    /// missing symbol and throws <see cref="TypeInitializationException"/> on first proxy use,
+    /// even on the wrap path) and <c>GetTypeMetadata()</c> must fail clean instead of reading it —
+    /// the wrap path never needs the helper metadata (it reads the existential's own metadata word).
+    /// Keyed on the simple name to match <c>ModuleHandler.MarkReadOnlyProxy(p.Name)</c>.
+    /// </summary>
+    private bool _isReadOnlyProxy;
+
     /// <summary>Name of the C# Swift-side factory P/Invoke used to allocate the helper instance.</summary>
     private string CreateHelperMethodName => _useEntityBase
         ? "CreateEveryEntityProtocol"
@@ -219,6 +235,12 @@ public partial class ProtocolProxyEmitter
             && _emissionContext.UsesObjCBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
         _useEntityBase = _emissionContext != ModuleEmissionContext.Default
             && _emissionContext.UsesEntityBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
+        // Read-only (Swift-vended-only) proxy: no synthesizable EveryProtocol conformance, and the
+        // module may export no EveryProtocol metadata accessor at all. Keyed on the SIMPLE name to
+        // match ModuleHandler.MarkReadOnlyProxy(p.Name). The unit-test path (no ModuleEmissionContext)
+        // keeps the legacy non-read-only behaviour so existing proxy tests stay green.
+        _isReadOnlyProxy = _emissionContext != ModuleEmissionContext.Default
+            && _emissionContext.IsReadOnlyProxy(protocolDecl.Name);
 
         // Inherited protocol requirements are now handled: the proxy emits implementations
         // for inherited interface members (see EmitInheritedInterfaceImplementations).

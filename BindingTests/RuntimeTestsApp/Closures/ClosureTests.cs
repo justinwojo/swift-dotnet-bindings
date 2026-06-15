@@ -139,6 +139,71 @@ public class ClosureTests : TestBase
         TestLogger.Info("ClosureFactory tests passed");
     }
 
+    // Returned closures whose args/returns are simple enums exercise the @_cdecl invoke-thunk
+    // simple-enum conversion: the thunk declares the enum's integer scalar, so it must convert
+    // the closure result to .rawValue (return) and reconstruct the enum from the scalar (arg).
+    public void TestMakeProbeClassifierEnumReturn()
+    {
+        // Returned closure: (ProbePoint) -> ProbeQuadrant. The invoke thunk lowers the enum
+        // return to Int64(rawValue); the C# invoker casts the scalar back to the enum.
+        int logged = -1;
+        var classify = TestLibFunctions.MakeProbeClassifier(x => logged = x);
+        AssertNotNull(classify, "MakeProbeClassifier returned delegate");
+        AssertEqual(ProbeQuadrant.One, classify!(new ProbePoint(5, 5)), "x>=0 -> .one");
+        AssertEqual(5, logged, "log callback fired with p.x");
+        AssertEqual(ProbeQuadrant.Two, classify!(new ProbePoint(-3, 0)), "x<0 -> .two");
+        TestLogger.Info("MakeProbeClassifier enum-return round-trip passed");
+    }
+
+    public void TestMakeProbeScorerEnumArg()
+    {
+        // Returned closure: (ProbeQuadrant) -> Int32. The invoke thunk reconstructs the enum
+        // from its incoming Int scalar via init(rawValue:) before invoking the closure.
+        var score = TestLibFunctions.MakeProbeScorer(_ => { });
+        AssertNotNull(score, "MakeProbeScorer returned delegate");
+        AssertEqual(0, score!(ProbeQuadrant.One), "score(.one) = 0");
+        AssertEqual(30, score!(ProbeQuadrant.Four), "score(.four=3) = 30");
+        TestLogger.Info("MakeProbeScorer enum-arg round-trip passed");
+    }
+
+    public void TestMakeProbeModeFlipperTagOnlyEnum()
+    {
+        // Returned closure: (ProbeMode) -> ProbeMode over a tag-only enum (no integer rawValue).
+        // Both the arg reconstruction and the return lowering copy the enum's tag bytes through
+        // a zero-initialised scalar.
+        var flip = TestLibFunctions.MakeProbeModeFlipper(_ => { });
+        AssertNotNull(flip, "MakeProbeModeFlipper returned delegate");
+        AssertEqual(ProbeMode.Slow, flip!(ProbeMode.Fast), "fast -> slow");
+        AssertEqual(ProbeMode.Idle, flip!(ProbeMode.Slow), "slow -> idle");
+        AssertEqual(ProbeMode.Fast, flip!(ProbeMode.Idle), "idle -> fast");
+        TestLogger.Info("MakeProbeModeFlipper tag-only enum round-trip passed");
+    }
+
+    // Adversarial invoke-thunk SELECTION probes: closure-returning methods with NO closure
+    // parameter, whose returned closure is invoke-thunk-compatible (struct arg + simple-enum
+    // return / tag-only enum both directions). These confirm the returned closure routes through
+    // the cdecl invoke thunk (with its scalar<->enum conversion) regardless of whether the outer
+    // method has a closure parameter. A selection regression would emit uncompilable C# (raw
+    // scalar into an enum delegate) or — if pruned — drop the member; both fail this round-trip.
+    public void TestMakeQuadrantClassifierNoLog()
+    {
+        var classify = TestLibFunctions.MakeQuadrantClassifier();
+        AssertNotNull(classify, "MakeQuadrantClassifier returned delegate");
+        AssertEqual(ProbeQuadrant.One, classify!(new ProbePoint(7, 0)), "x>=0 -> .one");
+        AssertEqual(ProbeQuadrant.Two, classify!(new ProbePoint(-1, 9)), "x<0 -> .two");
+        TestLogger.Info("MakeQuadrantClassifier (no-closure-param) enum-return round-trip passed");
+    }
+
+    public void TestMakeModeFlipperNoLog()
+    {
+        var flip = TestLibFunctions.MakeModeFlipperNoLog();
+        AssertNotNull(flip, "MakeModeFlipperNoLog returned delegate");
+        AssertEqual(ProbeMode.Slow, flip!(ProbeMode.Fast), "fast -> slow");
+        AssertEqual(ProbeMode.Idle, flip!(ProbeMode.Slow), "slow -> idle");
+        AssertEqual(ProbeMode.Fast, flip!(ProbeMode.Idle), "idle -> fast");
+        TestLogger.Info("MakeModeFlipperNoLog (no-closure-param) tag-only round-trip passed");
+    }
+
     // B7 closure return tests — Optional<String> and [String] closure returns
     // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
     // Indirect return callbacks use SwiftOptional<SwiftString>/SwiftArray<SwiftString> marshalling.

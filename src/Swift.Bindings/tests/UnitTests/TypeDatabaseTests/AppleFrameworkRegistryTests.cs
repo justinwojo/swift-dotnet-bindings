@@ -214,6 +214,31 @@ public class AppleFrameworkRegistryTests
     // CoreMotion ObjC classes stay off the value-type list (NSObject subclasses).
     [InlineData("CoreMotion.CMMotionManager", false)]
     [InlineData("CoreMotion.CMGyroData", false)]
+    // simd matrices/quaternions/vectors are C value-type structs, never ObjC classes. The
+    // `simd` module is autoBridge:true, so without intervention any simd type is treated as
+    // an ObjC class — CreateObjCBridgedTypeRecord then fabricates a bogus `simd.simd_floatNxM`
+    // class record whose C# type does not exist, emitting CS0246 wherever the type surfaces
+    // (the RealityFoundation MaterialParameters.Value .float2x2 enum-case regression). simd
+    // is flagged valueTypesOnly so EVERY type it declares classifies as a value type — robust
+    // to the module's full surface (integer/packed vectors below) rather than an exhaustive
+    // hand-list that omitted simd_float2x2 and reintroduced the bug. The bindable shapes
+    // (float4x4→Matrix4x4, quatf→Quaternion, float vectors) still get real records from
+    // SimdDatabase.xml via DatabaseLookupStrategy; the rest fall through to a clean skip.
+    [InlineData("simd.simd_float2x2", true)]
+    [InlineData("simd.simd_float3x3", true)]
+    [InlineData("simd.simd_float4x4", true)]
+    [InlineData("simd.simd_double4x4", true)]
+    [InlineData("simd.simd_double2", true)]
+    [InlineData("simd.simd_quatf", true)]
+    [InlineData("simd.simd_quatd", true)]
+    // Integer/packed vectors were NEVER on the old hand-list — under it these mis-bridged to
+    // CS0246. valueTypesOnly closes the whole class, not just the float matrix permutations.
+    [InlineData("simd.simd_int4", true)]
+    [InlineData("simd.simd_uint3", true)]
+    [InlineData("simd.simd_packed_float4", true)]
+    // Alias-shaped qualified name (the parser unwraps `simd.float4x4` → `simd.simd_float4x4`,
+    // but the module-segment extraction must classify either spelling as a simd value type).
+    [InlineData("simd.float4x4", true)]
     [InlineData("PassKit.PKPayment", false)]   // Class (NSObject subclass)
     [InlineData("UIKit.UIImage", false)]       // Class, not value type
     [InlineData("Foundation.NSObject", false)]  // Class
@@ -222,6 +247,29 @@ public class AppleFrameworkRegistryTests
     public void IsKnownValueType_ReturnsExpected(string name, bool expected)
     {
         Assert.Equal(expected, AppleFrameworkRegistry.IsKnownValueType(name));
+    }
+
+    [Theory]
+    [InlineData("simd", true)]      // wired up in apple-frameworks.json
+    [InlineData("CoreMotion", false)]  // autoBridge with a per-type valueTypes list, not value-types-only
+    [InlineData("UIKit", false)]       // real ObjC classes
+    [InlineData("Unknown", false)]
+    [InlineData("", false)]
+    public void IsValueTypesOnlyModule_ReturnsExpected(string moduleName, bool expected)
+    {
+        Assert.Equal(expected, AppleFrameworkRegistry.IsValueTypesOnlyModule(moduleName));
+    }
+
+    [Fact]
+    public void IsObjCBridgedTypeName_ValueTypesOnlyModule_NeverBridges()
+    {
+        // Regression guard for the RealityFoundation simd_float2x2 CS0246: a valueTypesOnly
+        // module must never produce an ObjC-bridged record, even for a type that is neither
+        // hand-listed nor mapped in SimdDatabase.xml (the integer/packed vectors). Without the
+        // module flag these would fall through autoBridge → ObjCBridgingStrategy → bogus class.
+        Assert.False(AppleFrameworkRegistry.IsObjCBridgedTypeName("simd", "simd.simd_float2x2"));
+        Assert.False(AppleFrameworkRegistry.IsObjCBridgedTypeName("simd", "simd.simd_int4"));
+        Assert.False(AppleFrameworkRegistry.IsObjCBridgedTypeName("simd", "simd.simd_packed_float4"));
     }
 
     // --- MapModuleToNetNamespace ---

@@ -16,9 +16,21 @@ public partial class ProtocolProxyEmitter
         // Swift type's metadata — so they read directly from the EveryObjCProtocol accessor.
         // Opaque proxies return the per-module s_everyProtocolMetadata field (Finding 33),
         // sourced from this module's own metadata accessor rather than a process-global latch.
-        var getTypeMetadataBody = _useObjCBase
-            ? $"return TypeMetadata.FromHandle(NativeMethods.{GetMetadataMethodName}());"
-            : "// Per-module EveryProtocol metadata (Finding 33) — see s_everyProtocolMetadata.\n                return s_everyProtocolMetadata;";
+        // Read-only (Swift-vended-only) proxies have NO helper metadata to return: their module
+        // may export no EveryProtocol scaffolding, and they never synthesize a conformance — so
+        // they fail clean here, exactly as GetWitnessTableFromSwift does for the same proxies.
+        // GetTypeMetadata is only reached on the C#-implements-protocol (synthesis) direction;
+        // the Swift-vended wrap path reads the existential's own metadata word and never calls it.
+        var getTypeMetadataBody = _isReadOnlyProxy
+            ? "// Read-only (Swift-vended-only) proxy: no synthesizable EveryProtocol conformance,\n"
+                + "                // so there is no helper type metadata to return. Only the C#-implements-protocol\n"
+                + "                // (synthesis) direction reaches this method; fail clean rather than reading a\n"
+                + "                // metadata accessor the wrapper never exported.\n"
+                + "                throw new global::System.NotSupportedException(\n"
+                + "                    \"Type metadata is not available for the read-only protocol proxy '" + protocolDecl.Name + "': its existential cannot be synthesized from a managed implementation (it carries a class-superclass or cross-module constraint the generator cannot satisfy). Use a Swift-vended instance instead.\");"
+            : _useObjCBase
+                ? $"return TypeMetadata.FromHandle(NativeMethods.{GetMetadataMethodName}());"
+                : "// Per-module EveryProtocol metadata (Finding 33) — see s_everyProtocolMetadata.\n                return s_everyProtocolMetadata;";
 
         // NewFromPayload: Swift→C# wrap factory. Symmetric to the receiver-side fix —
         // for class-bound proxies (AnyObject-rooted OR NSObjectProtocol-rooted EveryObjCProtocol),

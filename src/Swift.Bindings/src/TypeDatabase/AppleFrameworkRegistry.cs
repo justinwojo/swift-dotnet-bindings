@@ -18,6 +18,15 @@ internal static class AppleFrameworkRegistry
     // --- Loaded Data ---
 
     private static readonly HashSet<string> _autoBridgeModules;
+    // Modules that contain ZERO ObjC classes — every type they declare is a Swift
+    // value type (struct/enum). `simd` is the canonical case: vectors, matrices, and
+    // quaternions are all value types, so the broad autoBridge default ("unknown type
+    // ⇒ ObjC class") is wrong for it. Listing this at module granularity makes the
+    // classification robust to the module's full type surface (e.g. simd's integer and
+    // packed vectors) instead of depending on an exhaustive hand-maintained valueTypes
+    // allow-list — an omission there silently mis-bridges the type to a non-existent
+    // `<module>.<Type>` wrapper class (CS0246).
+    private static readonly HashSet<string> _valueTypesOnlyModules;
     private static readonly HashSet<string> _optionalFallbackModules;
     private static readonly HashSet<string> _concreteClassFallbackModules;
     private static readonly HashSet<string> _unsupportedModules;
@@ -68,6 +77,9 @@ internal static class AppleFrameworkRegistry
         [JsonProperty("autoBridge")]
         public bool AutoBridge { get; set; }
 
+        [JsonProperty("valueTypesOnly")]
+        public bool ValueTypesOnly { get; set; }
+
         [JsonProperty("optionalFallback")]
         public bool OptionalFallback { get; set; }
 
@@ -115,6 +127,7 @@ internal static class AppleFrameworkRegistry
         var definitions = LoadFrameworkDefinitions();
 
         _autoBridgeModules = new HashSet<string>(StringComparer.Ordinal);
+        _valueTypesOnlyModules = new HashSet<string>(StringComparer.Ordinal);
         _optionalFallbackModules = new HashSet<string>(StringComparer.Ordinal);
         _concreteClassFallbackModules = new HashSet<string>(StringComparer.Ordinal);
         _unsupportedModules = new HashSet<string>(StringComparer.Ordinal);
@@ -141,6 +154,9 @@ internal static class AppleFrameworkRegistry
 
             if (def.AutoBridge)
                 _autoBridgeModules.Add(def.Module);
+
+            if (def.ValueTypesOnly)
+                _valueTypesOnlyModules.Add(def.Module);
 
             if (def.OptionalFallback)
                 _optionalFallbackModules.Add(def.Module);
@@ -306,7 +322,26 @@ internal static class AppleFrameworkRegistry
     /// </summary>
     public static bool IsKnownModule(string moduleName) => _allKnownModules.Contains(moduleName);
 
-    public static bool IsKnownValueType(string moduleQualifiedName) => _valueTypes.Contains(moduleQualifiedName);
+    public static bool IsKnownValueType(string moduleQualifiedName)
+    {
+        if (_valueTypes.Contains(moduleQualifiedName))
+            return true;
+
+        // A valueTypesOnly module (e.g. simd) has no ObjC classes, so any type it
+        // declares is a value type regardless of whether it was hand-listed in
+        // valueTypes. Extract the leading module segment ("simd.simd_float2x2" → "simd";
+        // "Foundation.NSAttributedString.Key" → "Foundation") and honor the module flag.
+        var dotIndex = moduleQualifiedName.IndexOf('.');
+        if (dotIndex > 0 &&
+            _valueTypesOnlyModules.Contains(moduleQualifiedName.Substring(0, dotIndex)))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>True when a module declares no ObjC classes — every type it exports is a
+    /// Swift value type. See <see cref="_valueTypesOnlyModules"/>.</summary>
+    public static bool IsValueTypesOnlyModule(string moduleName) => _valueTypesOnlyModules.Contains(moduleName);
 
     /// <summary>Module-level only remapping (ObjectiveC→Foundation, QuartzCore→CoreAnimation, etc.)</summary>
     public static string MapModuleToNetNamespace(string swiftModule)
@@ -485,7 +520,7 @@ internal static class AppleFrameworkRegistry
             return false;
         if (!_autoBridgeModules.Contains(moduleName))
             return false;
-        if (_valueTypes.Contains(moduleQualifiedName))
+        if (_valueTypesOnlyModules.Contains(moduleName) || _valueTypes.Contains(moduleQualifiedName))
             return false;
 
         // Explicit Swift→.NET typeRemaps entry — Apple's Foundation overlay drops NS

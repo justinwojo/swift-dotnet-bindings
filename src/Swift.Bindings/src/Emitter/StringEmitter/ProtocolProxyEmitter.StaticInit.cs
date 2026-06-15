@@ -27,7 +27,14 @@ public partial class ProtocolProxyEmitter
         // opaque proxies never read module A's metadata — the failure mode of the old
         // process-global first-wins EveryProtocol latch. Class-bound (EveryObjCProtocol)
         // carriers use a 2-word layout that never consults ObjectMetadata, so they emit none.
-        if (!_useObjCBase)
+        //
+        // Read-only (Swift-vended-only) proxies emit none either: their module may export no
+        // EveryProtocol scaffolding (zero suitable protocols), so SBW_GetMetadata_EveryProtocol
+        // does not exist. An eager field initializer would P/Invoke that missing symbol and throw
+        // TypeInitializationException the first time the proxy type is touched — even on the
+        // wrap-only path that never needs the helper metadata. GetTypeMetadata() fails clean for
+        // these proxies instead (see EmitISwiftObjectImplementation), mirroring GetWitnessTableFromSwift.
+        if (!_useObjCBase && !_isReadOnlyProxy)
         {
             writer.WriteLines($$"""
                 private static readonly TypeMetadata s_everyProtocolMetadata = TypeMetadata.FromHandle(NativeMethods.{{GetMetadataMethodName}}());

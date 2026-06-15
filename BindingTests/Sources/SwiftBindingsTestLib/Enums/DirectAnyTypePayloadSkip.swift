@@ -1,44 +1,35 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// SKIP: Cannot reproduce direct-AnyType enum payload in BindingTests.
+// NOTE: Direct-AnyType enum payloads ARE now reproduced in BindingTests.
 //
-// The skip-gates in EnumHandler.CaseInspection.cs (lines 138 and 312) suppress
-// TryGet emission when an enum case's resolved C# payload type contains
-// "Swift.AnyType". This happens when the ABI parser cannot fully resolve a
-// referenced Swift type — the TypeDatabase falls through to AnyType.
+// The skip-gates in EnumHandler.CaseConstruction.cs (the `HasUnsupportedAnyTypeInPayload`
+// factory gate) and EnumHandler.CaseInspection.cs (lines 138 and 312) suppress the case
+// factory and TryGet emission when an enum case's resolved C# payload type is
+// "Swift.AnyType". This happens when a referenced Swift type cannot be resolved to a
+// concrete managed binding and the TypeDatabase falls through to AnyType.
+//
+// Live BindingTests reproduction: `SimdMatrixPayload` in `Types/SimdFixtures.swift` has a
+// `case affine2x2(simd_float2x2)`. The `simd` module is flagged `"valueTypesOnly": true` in
+// apple-frameworks.json (simd declares zero ObjC classes), so EVERY simd type — including
+// simd_float2x2 — is a KNOWN value type and is NOT ObjC-auto-bridged; and simd_float2x2 has
+// no managed binding in SimdDatabase.xml (there is no System.Numerics 2×2 matrix), so it
+// resolves to a direct `Swift.AnyType` single payload. The generator therefore emits the
+// `CaseTag.Affine2x2` slot but skips its factory and TryGet — and critically emits NO
+// `simd.simd_float2x2` reference (which would be CS0246). The sibling
+// `case transform4x4(simd_float4x4)` (→ System.Numerics.Matrix4x4) and `case untextured(Bool)`
+// still emit and round-trip. The compile gate (`nuke binding-tests --compile-only`) fails if
+// the apple-frameworks.json fix is reverted.
+//
+// This was previously documented here as unreproducible because every Apple framework type
+// the bindings could reference was auto-bridged. That changed once the `simd` module was
+// classified `valueTypesOnly`: a known value type with no XML binding (simd_float2x2) is
+// exactly the direct-AnyType shape, with no need for an unregistered or inaccessible Swift
+// type. (Reverting `valueTypesOnly` on simd re-bridges simd_float2x2 to a non-existent
+// `simd.simd_float2x2` class and re-breaks the compile gate.)
 //
 // The unit tests `Emit_EnumCaseWithDirectAnyTypePayload_SkipsTryGetMethod` and
-// `Emit_EnumCaseWithTupleContainingAnyType_SkipsTryGetMethod` reproduce both
-// gates by registering a stub module with no types and pointing a NamedTypeSpec
-// at an unregistered type in a registered module.
-//
-// In BindingTests, every type in `SwiftBindingsTestLib` and
-// `SwiftBindingsTestLibDependency` IS registered (the generator consumes both
-// modules' xcframeworks via `--xcframework` and `--framework-dependency`), and
-// every Apple framework type the bindings can reference is auto-bridged via
-// `apple-frameworks.json`. To force a direct AnyType, the payload would have to
-// reference a Swift type that:
-//   1. Is publicly visible (so Swift's access checker accepts it in a public
-//      enum case payload), AND
-//   2. Fails to resolve in the generator's TypeDatabase at codegen time.
-//
-// Tried / ruled out:
-//   - Cross-module reference to `SwiftBindingsTestLibDependency` types: the
-//     dependency xcframework is wired in, so these resolve to their concrete
-//     C# types (no AnyType).
-//   - `Any` / unconstrained-protocol existential payload: routes through the
-//     existential code path (returns `ExistentialContainer0`), not the
-//     fallback path that produces "Swift.AnyType".
-//   - Internal/private type as payload: rejected by the Swift compiler — a
-//     public enum case cannot expose an internal type.
-//   - Apple-framework type from a less-common framework: auto-bridged via
-//     `apple-frameworks.json`, so still resolves.
-//
-// Coverage decision: rely on the unit tests for the gate. They directly assert
-// the absence of the dangerous emitted code (TryGet method and
-// `out Swift.AnyType value` parameter) and confirmed they catch a reverted
-// gate. A runtime repro would only add value if it triggered a real Swift
-// codegen path that the unit tests can't simulate — and the unit fixture
-// (an unregistered type in a registered module) is already an exact
-// reproduction of the real-world AnyType scenario at the TypeDatabase level.
+// `Emit_EnumCaseWithTupleContainingAnyType_SkipsTryGetMethod` remain the direct gate-level
+// assertions (they register a stub module with an unregistered type to force AnyType and
+// assert the absence of the dangerous emitted code); the SimdMatrixPayload fixture is the
+// end-to-end runtime-and-compile reproduction. See `Types/SimdProjectionTests.cs`.

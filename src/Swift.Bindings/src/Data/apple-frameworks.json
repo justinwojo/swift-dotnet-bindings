@@ -1074,14 +1074,7 @@
       "module": "simd",
       "autoBridge": true,
       "wrapperImportable": true,
-      "valueTypes": [
-        "simd_float4x4",
-        "simd_float3x3",
-        "simd_float2",
-        "simd_float3",
-        "simd_float4",
-        "simd_quatf"
-      ]
+      "valueTypesOnly": true
     }
   ]
 }

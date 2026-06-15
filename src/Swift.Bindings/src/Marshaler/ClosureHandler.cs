@@ -1563,42 +1563,129 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Checks if a closure RETURNED from Swift can be safely invoked from C# via a direct
-    /// Swift function pointer call. Currently the throwing-closure return path
-    /// (<see cref="Emitter.StringEmitter.ClosureEmitter"/> EmitThrowingClosureReturnMarshalling)
-    /// emits <c>_fp(_arg0, _arg1, ...)</c> using <see cref="Emitter.StringEmitter.ClosureEmitter"/>'s
-    /// <c>GetSwiftInvokeArgExpression</c>. That helper only knows how to convert a fixed set
-    /// of types into the void* that the function pointer expects (primitives, enums, classes,
-    /// ObjC bridged classes, well-known/known protocols). Anything else (Swift.String, frozen
-    /// structs, generic structs, tuples) falls through as the bare C# expression and produces
-    /// CS1503 cannot-convert-to-void* errors.
-    /// Until full marshaling for those shapes lands, throwing closures whose params include
-    /// such types must be pruned at the boundary, otherwise the binding emits broken C#.
-    /// Mirror the branch list in <c>GetSwiftInvokeArgExpression</c> exactly — keeping these
-    /// in sync is load-bearing.
+    /// Checks if a closure RETURNED from Swift can be reconstructed into a C#-callable delegate
+    /// without emitting uncompilable code. A returned closure is emittable iff the ONE emitter the
+    /// dispatch in <c>WrapperEmitter.Return.cs</c> selects for it can produce compilable C#. That
+    /// dispatch picks among FOUR emitters carrying only TWO distinct return-capability matrices, so
+    /// this gate routes on the same conditions the dispatch does — applying a single matrix
+    /// uniformly is wrong in one direction (the rich matrix over-accepts on the narrow paths; the
+    /// narrow matrix over-prunes on the bare path):
+    ///
+    ///   1. Invoke-thunk invoker (preferred whenever <see cref="Emitter.StringEmitter.ClosureEmitter.CanUseInvokeThunk"/>
+    ///      holds — args are cdecl primitives / simple+complex enums / by-value structs INCLUDING
+    ///      Swift.String + Foundation.Data via the metadata-remap buffer; return is a cdecl
+    ///      primitive / simple enum / class / ObjC class; not async). EVERY other emitter below
+    ///      routes through the pre-generated invoker class when a thunk exists, so this is checked
+    ///      first and short-circuits. (This is why <c>makeStringLength() -> (String) -> Int32</c>
+    ///      and <c>makeByteCount() -> (Data) -> Int32</c> are emittable.)
+    ///   2. NARROW return matrix — the throwing emitter (<c>EmitThrowingClosureReturnMarshalling</c>,
+    ///      chosen for any throwing closure) and the struct / non-frozen param emitters
+    ///      (<c>EmitClosureReturnMarshallingWith(Struct|NonFrozen)Params</c>, chosen when a by-value
+    ///      struct arg is present). All three marshal frozen / non-frozen struct args through a
+    ///      buffer, so their ARG set is <see cref="IsDirectInvokeArgSupported"/> PLUS by-value
+    ///      structs — but their RETURN handling is narrow: bool, well-known protocol, proxy,
+    ///      existential, then a bare <c>return _fp(...)</c> / <c>FromSuccess(_rawResult)</c> that
+    ///      compiles ONLY for void / blittable primitives. They have NO simple-enum cast, NO
+    ///      class/ObjC SwiftHandle wrap, and NO tuple conversion — modeled by
+    ///      <see cref="IsNarrowEmitterReturnSupported"/>.
+    ///   3. RICH return matrix — the bare fallback (<c>EmitClosureReturnMarshalling</c>: no thunk,
+    ///      non-throwing, no struct arg). ARG set is <see cref="IsDirectInvokeArgSupported"/> only
+    ///      (a struct arg would have routed to (2)). Its RETURN handling adds the simple-enum cast,
+    ///      class/ObjC SwiftHandle wrap, and tuple-element conversion on top of the narrow set —
+    ///      modeled by <see cref="IsDirectInvokeReturnSupported"/>.
+    ///
+    /// A return outside the chosen path's matrix falls to a bare <c>return _fp(...)</c> the C#
+    /// compiler rejects: <c>nodeEncodings(...) -> (any CodingKey) -> NodeEncoding?</c>
+    /// (Optional&lt;enum&gt;) is pruned on the bare path (void* -> typed nullable, CS0029/CS1662),
+    /// and a struct-arg closure returning a simple enum / class is pruned on the narrow path (raw
+    /// integer / void* -> typed enum / class, CS0266/CS0029). Keep each matrix in sync with its
+    /// emitter's branch list — this is load-bearing.
     /// </summary>
-    public bool CanInvokeReturnedThrowingClosure(ClosureTypeSpec closureTypeSpec)
+    public bool CanInvokeReturnedClosure(ClosureTypeSpec closureTypeSpec)
     {
-        if (!closureTypeSpec.Throws)
+        // Path 1: invoke-thunk invoker. When a thunk exists the dispatch emits the pre-generated
+        // invoker class regardless of throwing / struct-arg shape, so the raw matrices below do
+        // not apply. Self-consistent arg+return capability (incl. String/Data via the remap buffer).
+        if (ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, this))
             return true;
 
+        // No thunk. A throwing closure routes to the throwing emitter; a closure carrying a by-value
+        // struct arg routes to a struct / non-frozen emitter. Those three share the SAME narrow
+        // return matrix (no simple-enum / class / ObjC / tuple branch) and the SAME arg set
+        // (IsDirectInvokeArgSupported plus by-value frozen / non-frozen structs). Everything else
+        // falls to the bare fallback, whose richer return matrix adds simple-enum / class / tuple.
+        bool usesNarrowEmitter = closureTypeSpec.Throws
+            || RequiresNonFrozenMarshalling(closureTypeSpec)
+            || RequiresStructMarshalling(closureTypeSpec);
+
+        if (usesNarrowEmitter)
+        {
+            if (!IsNarrowEmitterReturnSupported(closureTypeSpec.ReturnType))
+                return false;
+            foreach (var arg in closureTypeSpec.EachArgument())
+            {
+                if (IsDirectInvokeArgSupported(arg))
+                    continue;
+                if (IsFrozenStruct(arg) || IsNonFrozenStruct(arg))
+                    continue;
+                return false;
+            }
+            return true;
+        }
+
+        // Bare fallback: rich return matrix, IsDirectInvokeArgSupported-only args (no struct arg is
+        // present here — one would have set usesNarrowEmitter via RequiresStructMarshalling).
+        if (!IsDirectInvokeReturnSupported(closureTypeSpec.ReturnType))
+            return false;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             if (!IsDirectInvokeArgSupported(arg))
                 return false;
         }
 
-        if (!IsDirectInvokeReturnSupported(closureTypeSpec.ReturnType))
-            return false;
-
         return true;
     }
 
     /// <summary>
-    /// Checks if a returned throwing closure's RETURN type is correctly handled by
-    /// <see cref="Emitter.StringEmitter.ClosureEmitter.EmitClosureReturnMarshalling"/>'s
-    /// fallback emission path. The default branch there emits a bare
-    /// <c>return _fp(...)</c>, which only compiles when the function pointer's P/Invoke
+    /// The RETURN capability shared by the throwing emitter and the struct / non-frozen param
+    /// emitters (<c>EmitThrowingClosureReturnMarshalling</c>,
+    /// <c>EmitClosureReturnMarshallingWith(Struct|NonFrozen)Params</c>). These three handle bool,
+    /// well-known protocol, proxy, and existential returns explicitly, then fall to a bare
+    /// <c>return _fp(...)</c> / <c>FromSuccess(_rawResult)</c> that compiles ONLY for void or a
+    /// blittable primitive (the function-pointer return type equals the delegate's there). Unlike
+    /// <see cref="IsDirectInvokeReturnSupported"/> they have NO simple-enum cast, NO class/ObjC
+    /// SwiftHandle wrap, and NO tuple-element conversion — a simple-enum return would emit the raw
+    /// integer (CS0266) and a class return would emit void* (CS0029). Mirror their branch lists.
+    /// </summary>
+    private bool IsNarrowEmitterReturnSupported(TypeSpec typeSpec)
+    {
+        // void return: emitter omits the return / returns FromSuccess(SwiftVoid).
+        if (typeSpec.IsEmptyTuple)
+            return true;
+        if (MarshallingHelpers.IsBoolType(typeSpec))
+            return true;
+        if (NeedsWellKnownProtocolWrapping(typeSpec, out _))
+            return true;
+        if (NeedsProxyWrapping(typeSpec, out _))
+            return true;
+        if (IsExistentialParam(typeSpec))
+            return true;
+        // Blittable primitive: the bare `return _fp(...)` compiles because the function-pointer
+        // return type equals the delegate's. Pointers are excluded for the same IntPtr/void*
+        // mismatch reason as IsDirectInvokeReturnSupported; simple enums / classes / ObjC classes
+        // / tuples are excluded because these emitters have no conversion branch for them.
+        if (typeSpec is NamedTypeSpec namedType && GetBlittablePrimitiveType(namedType.Name) != null)
+            return true;
+        return false;
+    }
+
+    /// <summary>
+    /// The RICH RETURN capability of the bare fallback emitter
+    /// <see cref="Emitter.StringEmitter.ClosureEmitter.EmitClosureReturnMarshalling"/> (chosen when
+    /// there is no thunk, the closure does not throw, and it has no by-value struct arg). On top of
+    /// the narrow set (<see cref="IsNarrowEmitterReturnSupported"/>) it adds an explicit simple-enum
+    /// cast, a class/ObjC SwiftHandle wrap, and tuple-element conversion. Anything outside it falls
+    /// to a bare <c>return _fp(...)</c>, which only compiles when the function pointer's P/Invoke
     /// return type matches the delegate's declared C# return type. Bound generics, frozen
     /// structs with reference fields, complex enums, ObjC-bridged classes, etc. translate
     /// to <c>void*</c> in the function pointer but stay as their C# shape in the delegate
