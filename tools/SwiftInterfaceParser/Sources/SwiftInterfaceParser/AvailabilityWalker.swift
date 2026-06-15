@@ -843,6 +843,31 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// distinguished only by their generic specialization (`Array<Int>` vs
     /// `Array<String>`) keep distinct signatures — stripping the generics outright
     /// would reintroduce the Family-F broadcast / merge bug.
+    ///
+    /// LOAD-BEARING CROSS-LANGUAGE PARITY POINT (Finding 46). This function and its
+    /// helpers (`splitTopLevelCommas`, `canonicalizeCollectionSugar`) are a hand-written
+    /// parallel implementation of the C# `MemberSignatureNormalizer.NormalizeParamType`.
+    /// The contract is that both sides emit byte-identical output keys on every input
+    /// that actually reaches them — not that the two are character-for-character
+    /// identical: the C# side carries a variadic `...` pre-strip and quoted-string
+    /// tracking in its generic-arg splitter that this Swift side omits, because the
+    /// structured `param.type` text fed here never carries a trailing `...` or a
+    /// string-literal-bearing type (those extra C# defenses are no-ops on these inputs).
+    /// This Swift tool cannot call into the .NET generator, so the two implementations
+    /// are duplicated by hand and their output keys must stay byte-identical — if they
+    /// drift, the availability annotation this producer stages under `"Type.printedName|sig"`
+    /// lands under a key the .NET ABI consumer never looks up, and the `@available`
+    /// floor silently detaches from its member. Any edit here MUST be mirrored verbatim
+    /// in `MemberSignatureNormalizer.cs` (and vice versa) and re-proven by the
+    /// cross-producer corpus in `InterfaceFactsProducerParityTests`. The drift is
+    /// enforced-by-test, not enforced-by-construction: the C# side deliberately does NOT
+    /// route this through its unified `TypeSpecParser` grammar, because that grammar
+    /// reprints differently (spaced generic commas, `Optional<Int>`, `()` for `Void`,
+    /// EOF-strict) and would desync this unchanged mirror. The clean fix that would
+    /// delete this duplication entirely is to key availability on a stable identity
+    /// (usr / mangled name) instead of a normalized textual signature — but a
+    /// `.swiftinterface` carries no usr/mangled name, so that is out-of-scope
+    /// Session 15 / Finding 3 work.
     static func normalizeParamType(_ raw: String) -> String {
         var s = raw.trimmingCharacters(in: .whitespaces)
         let prefixes = ["inout", "borrowing", "consuming", "some", "any", "__owned", "__shared"]
@@ -956,9 +981,12 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// Splits `text` on commas at depth-0 with respect to `(`, `[`, and `<`.
-    /// Mirrors `MemberSignatureNormalizer.SplitTopLevelCommas` — necessary because
+    /// Mirrors `MemberSignatureNormalizer.SplitGenericArgsTopLevel` — necessary because
     /// `Dictionary<String, Array<Int>>`'s outer comma must split, but the inner
-    /// args of `Array<Int>` must not.
+    /// args of `Array<Int>` must not. (The C# side is intentionally the *unguarded*
+    /// generic-arg splitter — NOT the arrow-guarded `SwiftTypeListText.SplitTopLevelParameters`
+    /// — so this Swift mirror must stay byte-equal; see the parity block above
+    /// `normalizeParamType`.)
     private static func splitTopLevelCommas(_ text: String) -> [String] {
         var results: [String] = []
         var depth = 0

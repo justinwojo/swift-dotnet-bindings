@@ -66,9 +66,79 @@ public class MemberSignatureNormalizerTests
     [InlineData("AppShortcut...", "AppShortcut")]
     [InlineData("[AppShortcut]...", "Array<AppShortcut>")]
     [InlineData("AppIntents.AppShortcut...", "AppShortcut")]
+    // Finding 46 — PIN the mirror-locked legacy behavior on the param-type spellings the
+    // grammar-consolidation consult flagged (closures, tuples, compositions, nested
+    // generics, ObjC-bridged, opaque). These outputs are intentionally quirky in places
+    // (a tuple collapses to its last `.`-segment + a stray `)`; a closure-bearing generic
+    // arg is NOT comma-split because the splitter is unguarded). They MUST stay exactly
+    // these strings: AvailabilityWalker.swift produces the same bytes, and any "cleanup"
+    // that routed this through the structural TypeSpecParser grammar (which would yield
+    // `Array<Int>`, spaced commas, `Optional<>`, `()`) would silently desync that mirror.
+    [InlineData("Foo<(A) -> B, C>", "Foo<(A) -> B, C>")]   // closure generic arg: unsplit
+    [InlineData("(Swift.Int, Foundation.URL)", "URL)")]    // tuple: last-dot + stray ')'
+    [InlineData("(Swift.Int) -> Swift.Void", "Void")]      // closure type: last-dot of head
+    [InlineData("any Mod.P & Other.Q", "Q")]               // composition: last-dot
+    [InlineData("some Mod.P<Swift.Int>", "P<Int>")]        // opaque + generic
+    [InlineData("Swift.Dictionary<Swift.String, Swift.Array<Foundation.URL>>", "Dictionary<String,Array<URL>>")]
+    [InlineData("Wrapper<(Swift.Int, Swift.String), Swift.Bool>", "Wrapper<String),Bool>")]
+    [InlineData("ObjectiveC.NSString", "NSString")]
+    [InlineData("[() -> Swift.Int]", "Int]")]              // sugar w/ closure: NOT folded
+    [InlineData("Mod.`class`", "class")]                   // qualified backtick
     public void NormalizeParamType_CollapsesEquivalentForms(string input, string expected)
     {
         Assert.Equal(expected, MemberSignatureNormalizer.NormalizeParamType(input));
+    }
+
+    /// <summary>
+    /// Finding 46 — producer ⇄ ABI-consumer convergence at the per-type level. The
+    /// swiftinterface producer normalizes the source spelling (module-qualified, sugar,
+    /// no variadic ellipsis); the ABI consumer normalizes <c>printedName</c> (often bare,
+    /// nominal, ellipsis-bearing). For the disamb-key lookup to hit, both spellings of the
+    /// SAME logical type MUST reduce to the same canonical tail. A drift here is the silent
+    /// failure mode that detaches @available from its member.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation.URL", "URL")]                              // qualified ⇄ bare
+    [InlineData("Swift.Array<Swift.Int>", "Array<Int>")]               // qualified ⇄ bare generic
+    [InlineData("[Swift.Int]", "Array<Int>")]                          // sugar ⇄ nominal
+    [InlineData("[Swift.String : Swift.Int]", "Dictionary<String,Int>")] // dict sugar ⇄ nominal
+    [InlineData("AppShortcut", "AppShortcut...")]                      // interface (no `...`) ⇄ ABI variadic
+    [InlineData("UIKit.UIViewController", "UIViewController")]         // ObjC-bridged qualified ⇄ bare
+    [InlineData("Swift.Optional<Swift.Int>", "Optional<Int>")]        // explicit Optional both sides
+    public void NormalizeParamType_ProducerAndAbiSpellings_ConvergeToSameKey(
+        string interfaceSpelling, string abiSpelling)
+    {
+        Assert.Equal(
+            MemberSignatureNormalizer.NormalizeParamType(interfaceSpelling),
+            MemberSignatureNormalizer.NormalizeParamType(abiSpelling));
+    }
+
+    /// <summary>
+    /// Finding 46 — the regex producer string-splits the parameter clause, while the
+    /// SwiftSyntax producer and the ABI consumer walk STRUCTURED parameters. The two paths
+    /// must yield the same disamb signature. The non-final closure parameter is the case
+    /// that requires the arrow-guarded shared grammar splitter
+    /// (<c>SwiftTypeListText.SplitTopLevelParameters</c>); the old unguarded split drove the
+    /// depth counter negative at <c>-&gt;</c> and mis-merged the trailing parameters into
+    /// one mangled segment, diverging from the structured producers.
+    /// </summary>
+    [Fact]
+    public void ExtractParamTypesFromSwiftClause_NonFinalClosure_MatchesStructuredProducer()
+    {
+        var clause = "transform: (Swift.Int) -> Swift.Void, flag: Swift.Bool";
+        var structured = new[] { "(Swift.Int) -> Swift.Void", "Swift.Bool" };
+
+        var regexSig = MemberSignatureNormalizer.BuildSignature(
+            MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(clause));
+        Assert.Equal(MemberSignatureNormalizer.BuildSignature(structured), regexSig);
+        Assert.Equal("Void,Bool", regexSig);
+
+        var clause3 = "handler: (Swift.String) -> Swift.Bool, x: Swift.Int, y: Foundation.URL";
+        var structured3 = new[] { "(Swift.String) -> Swift.Bool", "Swift.Int", "Foundation.URL" };
+        var regexSig3 = MemberSignatureNormalizer.BuildSignature(
+            MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(clause3));
+        Assert.Equal(MemberSignatureNormalizer.BuildSignature(structured3), regexSig3);
+        Assert.Equal("Bool,Int,URL", regexSig3);
     }
 
     /// <summary>

@@ -46,6 +46,42 @@ namespace BindingsGeneration;
 /// Producers / consumers join the per-parameter tails with <c>,</c>. An empty list
 /// produces an empty string (no-parameter members like vars / enum cases never need
 /// disambiguation).
+/// <para/>
+/// <b>Home + single-sourcing (Finding 46).</b> This type lives in the unified
+/// type-string grammar library (<c>Model/TypeSpecParsing/</c>) alongside
+/// <see cref="TypeSpecParser"/> rather than as a stand-alone parser component. The
+/// parameter-clause split now delegates to the shared
+/// <c>SwiftTypeListText.SplitTopLevelParameters</c> (the same arrow-guarded splitter
+/// every other <c>SplitParameters</c> caller uses — Finding 49 consolidation), so
+/// there is one clause-splitting grammar.
+/// <para/>
+/// <b>Load-bearing cross-language parity residual — do NOT "simplify" this.</b>
+/// The <em>core</em> reduction below (the ownership/optional/variadic pre-strips,
+/// <see cref="CanonicalizeCollectionSugar"/>, the first-<c>&lt;</c> peel, the
+/// generic-argument splitter <see cref="SplitGenericArgsTopLevel"/>, the no-space
+/// <c>","</c> rejoin and last-dot rule) is a hand-maintained <b>parallel
+/// implementation</b> of <c>AvailabilityWalker.normalizeParamType</c> in the Swift
+/// SwiftSyntax tool (<c>tools/SwiftInterfaceParser/.../AvailabilityWalker.swift</c>).
+/// The contract is that the two emit <b>byte-identical output keys on every input that
+/// actually reaches them</b> — not that the two are character-for-character identical:
+/// this C# side carries a variadic <c>...</c> pre-strip and quoted-string tracking in
+/// <see cref="SplitGenericArgsTopLevel"/> that the Swift side omits, because the Swift
+/// producer feeds <em>structured</em> <c>param.type</c> text that never carries a
+/// trailing <c>...</c> or a string-literal-bearing type. Those extra C# defenses are
+/// no-ops on the inputs the Swift side sees, so the keys still converge. The Swift
+/// producer cannot call into this C#, so the two are duplicated by hand and must emit
+/// byte-identical keys or availability silently detaches from its member. That mirror
+/// CANNOT be replaced
+/// by routing through <see cref="TypeSpecParser"/>: the structural grammar deliberately
+/// reprints differently (space after a generic comma, <c>Int?</c>→<c>Optional&lt;Int&gt;</c>,
+/// <c>Void</c>→<c>()</c>, structural closure/tuple parsing, EOF-strictness), which would
+/// desync the unchanged Swift side. True identity-anchoring (keying on usr / mangled
+/// name instead of a normalized textual signature) would remove this residual entirely,
+/// but <c>.swiftinterface</c> carries no usr/mangled name — that is out-of-scope
+/// Session 15 / Finding 3 work. Until then the parity is enforced <b>by test</b>
+/// (the cross-producer corpus in <c>InterfaceFactsProducerParityTests</c> +
+/// <c>MemberSignatureNormalizerTests</c>), not by construction. Any edit here MUST be
+/// mirrored verbatim in <c>AvailabilityWalker.swift</c> and proven by those tests.
 /// </summary>
 internal static class MemberSignatureNormalizer
 {
@@ -147,8 +183,16 @@ internal static class MemberSignatureNormalizer
         // Recursively normalize each comma-split argument, then reassemble with
         // the outer head. The recursion guarantees nested generics + qualifiers
         // collapse to the same canonical shape regardless of input source.
+        //
+        // MIRROR-LOCKED: this generic-argument split uses SplitGenericArgsTopLevel
+        // (unguarded `>`, brackets+strings), NOT the shared arrow-guarded
+        // SwiftTypeListText.SplitTopLevelParameters, because AvailabilityWalker.swift's
+        // splitTopLevelCommas is the same unguarded splitter and its output must stay
+        // byte-equal. Swapping in the arrow-guarded grammar splitter here would change
+        // the key for closure-bearing generic args (e.g. `Foo<(A)->B, C>`) on the C#
+        // side only and silently desync the Swift producer.
         var parts = new List<string>();
-        foreach (var part in SplitTopLevelCommas(argsInner))
+        foreach (var part in SplitGenericArgsTopLevel(argsInner))
             parts.Add(NormalizeParamType(part));
         return outer + "<" + string.Join(",", parts) + ">";
     }
@@ -238,19 +282,27 @@ internal static class MemberSignatureNormalizer
     /// is the substring between the matched outer parens of the parameter clause —
     /// caller responsibility to identify those bounds.
     /// <para/>
-    /// Splits on top-level commas (respecting nested parens / brackets / angle brackets
-    /// and quoted strings — same logic the existing
-    /// <c>SwiftInterfaceContextTracker.SplitParameters</c> uses), then for each
-    /// segment extracts the substring AFTER the LAST <c>:</c> whose colon is at depth 0
-    /// (the type sits after the final label colon — <c>label1 internalName: Type</c>).
-    /// Returns an empty list if the clause is empty or malformed.
+    /// Splits on top-level commas via the shared <c>SwiftTypeListText.SplitTopLevelParameters</c>
+    /// grammar splitter (the same arrow-guarded splitter every other <c>SplitParameters</c>
+    /// caller uses — Finding 49/46 consolidation), then for each segment extracts the
+    /// substring AFTER the LAST <c>:</c> whose colon is at depth 0 (the type sits after the
+    /// final label colon — <c>label1 internalName: Type</c>). Returns an empty list if the
+    /// clause is empty or malformed.
+    /// <para/>
+    /// This is the one piece of the normalizer that is safe to route through the unified
+    /// grammar: clause-splitting is C#-only (the SwiftSyntax producer and the ABI consumer
+    /// both walk <em>structured</em> parameters and never string-split a clause), so it has
+    /// no Swift mirror to desync. The shared splitter is byte-identical to the former private
+    /// splitter on every current input and additionally guards the closure return arrow, which
+    /// only matters for the latent shape <c>f(cb: (A)->B, x: Int)</c> — where guarding makes
+    /// this regex-producer path agree with the structured producers instead of mis-merging.
     /// </summary>
     public static List<string> ExtractParamTypesFromSwiftClause(string paramClauseText)
     {
         var types = new List<string>();
         if (string.IsNullOrWhiteSpace(paramClauseText)) return types;
 
-        foreach (var segment in SplitTopLevelCommas(paramClauseText))
+        foreach (var segment in SwiftTypeListText.SplitTopLevelParameters(paramClauseText))
         {
             var seg = segment.Trim();
             if (seg.Length == 0) continue;
@@ -276,7 +328,23 @@ internal static class MemberSignatureNormalizer
         return types;
     }
 
-    private static IEnumerable<string> SplitTopLevelCommas(string text)
+    /// <summary>
+    /// Splits a generic-argument list on top-level commas, tracking <c>()</c>/<c>[]</c>/<c>&lt;&gt;</c>
+    /// and quoted strings. <b>Intentionally unguarded</b> on the closure return arrow: a
+    /// <c>&gt;</c> always decrements depth, including the <c>&gt;</c> of a <c>-&gt;</c>.
+    /// <para/>
+    /// <b>MIRROR-LOCKED to <c>AvailabilityWalker.splitTopLevelCommas</c></b> (the Swift
+    /// SwiftSyntax producer). This is deliberately NOT the shared, arrow-guarded
+    /// <c>SwiftTypeListText.SplitTopLevelParameters</c>: the Swift mirror uses the same
+    /// unguarded split for generic args, so the two must stay byte-equal or the
+    /// availability key the Swift producer stages and the key the C# consumer looks up
+    /// diverge for closure-bearing generic args (e.g. <c>Foo&lt;(A)-&gt;B, C&gt;</c>) and
+    /// availability silently detaches. Renamed (was <c>SplitTopLevelCommas</c>) to avoid
+    /// confusion with the angle-only <c>SwiftTypeListText.SplitTopLevelCommas</c>, which is
+    /// a different splitter. Do not "consolidate" this without changing the Swift mirror in
+    /// lockstep and re-proving the cross-producer parity corpus.
+    /// </summary>
+    private static IEnumerable<string> SplitGenericArgsTopLevel(string text)
     {
         int depth = 0;
         int start = 0;

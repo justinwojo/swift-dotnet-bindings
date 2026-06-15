@@ -838,6 +838,146 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region Finding 46 — ABI-consumer availability-signature parity
+
+    // The availability disamb signature has THREE producers that MUST converge byte-equal:
+    // the regex interface producer and the SwiftSyntax interface producer (both asserted in
+    // InterfaceFactsProducerParityTests), and the ABI consumer — SwiftABIParser's own
+    // ComputeAbiParamSignature, which reads STRUCTURED ABI children rather than interface
+    // text. The cross-producer corpus (regex ⇄ SwiftSyntax) cannot reach the consumer; the
+    // tests below close that third leg by driving the real ComputeAbiParamSignature.
+
+    [Theory]
+    // (abi return printedName, abi param printedNames '|'-joined, interface param printedNames '|'-joined).
+    // Rows 1–2 differ in ABI vs interface spelling on purpose (module-qualified interface
+    // text vs bare/last-component ABI printedName) so a normalization drift that stops
+    // collapsing them to the same key goes red through the real consumer. Rows 3–6 hold the
+    // spelling constant to confirm the consumer reads each parameter's printedName and skips
+    // the index-0 return child for the arrow-, nested-generic-, tuple-, and optional-bearing
+    // shapes a naive join could otherwise mishandle.
+    [InlineData("Swift.Int", "URL|Swift.Bool", "Foundation.URL|Swift.Bool")]
+    [InlineData("()", "NSString|UIViewController", "ObjectiveC.NSString|UIKit.UIViewController")]
+    [InlineData("()", "(Swift.Int) -> Swift.Void|Swift.Bool", "(Swift.Int) -> Swift.Void|Swift.Bool")]
+    [InlineData("()", "Swift.Array<(Swift.Int) -> Swift.Void>|Swift.Bool", "Swift.Array<(Swift.Int) -> Swift.Void>|Swift.Bool")]
+    [InlineData("Swift.Int", "(Swift.Int, Swift.String)", "(Swift.Int, Swift.String)")]
+    [InlineData("()", "Swift.String?", "Swift.String?")]
+    public void ComputeAbiParamSignature_MatchesInterfaceProducerSignature(
+        string abiReturnPrinted, string abiParamsPipe, string interfaceParamsPipe)
+    {
+        var abiParams = abiParamsPipe.Split('|');
+        var interfaceParams = interfaceParamsPipe.Split('|');
+
+        var node = MakeAbiFunctionNode("m", "m(_:)", abiReturnPrinted, abiParams);
+
+        // The ABI consumer's real signature computation (index-0 return skip + per-child
+        // printedName normalization + join) must equal the signature the interface producers
+        // stage for the SAME logical parameters via the shared BuildSignature primitive. This
+        // exercises the consumer leg + the normalization convergence on ABI-vs-interface
+        // spellings; it does NOT drive the full interface-producer text extraction (regex
+        // clause parse / SwiftSyntax structured walk) — that leg is covered by the
+        // RegexAndSwiftSyntaxProducers_ProduceIdenticalAvailabilityFacts corpus.
+        var consumer = SwiftABIParser.ComputeAbiParamSignature(node);
+        var producerPrimitive = MemberSignatureNormalizer.BuildSignature(interfaceParams);
+
+        Assert.Equal(producerPrimitive, consumer);
+    }
+
+    [Fact]
+    public void ComputeAbiParamSignature_SkipsIndexZeroReturnChild()
+    {
+        // A distinctive return type that, if NOT skipped, would appear in the signature.
+        var node = MakeAbiFunctionNode("m", "m(_:)", "Swift.Double", "Swift.Int");
+
+        var sig = SwiftABIParser.ComputeAbiParamSignature(node);
+
+        Assert.Equal("Int", sig);              // only the parameter contributes
+        Assert.DoesNotContain("Double", sig);  // the return child at index 0 is dropped
+    }
+
+    [Fact]
+    public void ComputeAbiParamSignature_NoParameters_ReturnsEmpty()
+    {
+        // A function whose only child is the return type has zero parameters → empty
+        // signature, so ComposeKey yields the bare key (never a spurious "|"-suffixed one).
+        var node = MakeAbiFunctionNode("m", "m()", "Swift.Int");
+
+        Assert.Equal(string.Empty, SwiftABIParser.ComputeAbiParamSignature(node));
+    }
+
+    [Fact]
+    public void ParseModule_OverloadedMembers_AvailabilityAppliesOnlyToMatchingSignature()
+    {
+        // Two overloads share printedName pick(_:) (hence the SAME bare key) and differ only
+        // in their single parameter type. The producer stages @available under the disamb
+        // key for the Int overload ONLY. ApplyMemberAvailability must compute each overload's
+        // signature via ComputeAbiParamSignature, compose the disamb key, and land the
+        // annotation on the Int overload — leaving the String overload (whose computed sig
+        // never matches the staged key, and whose bare key was deliberately left empty)
+        // unannotated. This is the consumer-side disambiguation path exercised end-to-end
+        // through the real parser; the staged key is composed from the consumer's own
+        // ComputeAbiParamSignature (below), so it pins the real lookup + misattribution
+        // behavior, not an independent interface-producer run.
+        const string intMangled = "$s10TestModule6PickerC4pickyySiF";
+        const string strMangled = "$s10TestModule6PickerC4pickyySSF";
+
+        var intReturn = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        intReturn.PrintedName = "()";
+        var intParam = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        intParam.PrintedName = "Swift.Int";
+        var intOverload = CreateFunctionNode("pick", "pick(_:)", funcSelfKind: null,
+            children: new[] { intReturn, intParam });
+        intOverload.MangledName = intMangled;
+        intOverload.DeclAttributes = new[] { "AccessControl" };
+
+        var strReturn = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        strReturn.PrintedName = "()";
+        var strParam = CreateNode(kind: "TypeNominal", name: "String", mangledName: "$sSS");
+        strParam.PrintedName = "Swift.String";
+        var strOverload = CreateFunctionNode("pick", "pick(_:)", funcSelfKind: null,
+            children: new[] { strReturn, strParam });
+        strOverload.MangledName = strMangled;
+        strOverload.DeclAttributes = new[] { "AccessControl" };
+
+        var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "Picker",
+            mangledName: "$s10TestModule6PickerCN");
+        classNode.DeclAttributes = new[] { "Final", "AccessControl" };
+        classNode.Children = new[] { intOverload, strOverload };
+
+        // Stage @available under EXACTLY the disamb key the consumer composes for the Int
+        // overload — built from the consumer's own ComputeAbiParamSignature so the test pins
+        // the real lookup path, not a hand-spelled key. The bare key is left empty.
+        var intSig = SwiftABIParser.ComputeAbiParamSignature(intOverload);
+        Assert.Equal("Int", intSig);
+        var disambKey = MemberSignatureNormalizer.ComposeKey("Picker.pick(_:)", intSig);
+        var availability = new Dictionary<string, List<AvailabilityAnnotation>>
+        {
+            [disambKey] = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "17.0", null, null, false, false, null, null),
+            },
+        };
+
+        using var fixture = CreateParserWithNodes(availability, classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var classDecl = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal(2, classDecl.Methods.Count);
+
+        var intMethod = classDecl.Methods.Single(m => m.MangledName == intMangled);
+        var strMethod = classDecl.Methods.Single(m => m.MangledName == strMangled);
+
+        // Lands on the matching overload...
+        Assert.NotNull(intMethod.AvailabilityAnnotations);
+        Assert.Single(intMethod.AvailabilityAnnotations!);
+        Assert.Equal("iOS", intMethod.AvailabilityAnnotations![0].Platform);
+        Assert.Equal("17.0", intMethod.AvailabilityAnnotations![0].IntroducedVersion);
+
+        // ...and NOT on the sibling whose computed signature never composes the staged key.
+        Assert.Null(strMethod.AvailabilityAnnotations);
+    }
+
+    #endregion
+
     #region Parameter Value Ownership Tests
 
     [Theory]
@@ -2009,5 +2149,31 @@ public class SwiftABIParserRuntimeTests
             Conformances = [],
             Accessors = []
         };
+    }
+
+    /// <summary>
+    /// Builds a bare type-child node carrying only a <c>printedName</c> — the single field
+    /// <see cref="SwiftABIParser.ComputeAbiParamSignature"/> reads. Used to assemble ABI
+    /// function nodes for the Finding 46 ABI-consumer parity tests without resolving real
+    /// type metadata (the signature computation is pure string work on the printedName).
+    /// </summary>
+    private static Node MakeTypeNode(string printedName)
+    {
+        var n = CreateNode(kind: "TypeNominal", name: "T", mangledName: "$s");
+        n.PrintedName = printedName;
+        return n;
+    }
+
+    /// <summary>
+    /// Builds an ABI function node whose children are [return, params...] — the exact shape
+    /// <see cref="SwiftABIParser.ComputeAbiParamSignature"/> walks (index 0 = return type).
+    /// </summary>
+    private static Node MakeAbiFunctionNode(
+        string name, string printedName, string returnPrinted, params string[] paramPrinted)
+    {
+        var children = new List<Node> { MakeTypeNode(returnPrinted) };
+        foreach (var p in paramPrinted)
+            children.Add(MakeTypeNode(p));
+        return CreateFunctionNode(name, printedName, funcSelfKind: null, children: children);
     }
 }

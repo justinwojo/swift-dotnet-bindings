@@ -263,6 +263,76 @@ public class InterfaceFactsProducerParityTests
                 "  public func f(_ xs: [Swift.Int]) -> Swift.Int\n" +
                 "  public func f(_ xs: Swift.Set<Swift.Int>) -> Swift.Int\n" +
                 "}\n" },
+            // Finding 46 — the disamb signature is produced two ways: the regex
+            // producer string-splits the parameter clause, while the SwiftSyntax
+            // producer walks STRUCTURED parameters. These overload corpora exercise
+            // the param-type spellings most likely to expose a split / normalize
+            // divergence between the two producers (constrained generics, ObjC-bridged,
+            // optionals, tuples, closures, compositions). A silent drift here detaches
+            // the @available floor from the overload it belongs to.
+            // Both overloads in each case are annotated so BOTH disamb keys (not just
+            // the first overload's) are cross-producer parity-asserted — a normalization
+            // drift on either spelling now goes red.
+            new object[] { "OverloadedAvailableTupleVsScalar",
+                "public struct Box {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public func g(_ pair: (Swift.Int, Swift.String)) -> Swift.Int\n" +
+                "  @available(iOS 18.0, *)\n" +
+                "  public func g(_ value: Swift.Int) -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "OverloadedAvailableClosureParamNonFinal",
+                // The regression guard: a closure-typed parameter that is NOT the last
+                // parameter. The regex producer must split the clause with the
+                // arrow-guarded grammar splitter (so the `>` of `->` is not mistaken
+                // for a generic close) to land the same two parameters the structured
+                // SwiftSyntax producer sees. Pre-fix this clause mis-merged on the C#
+                // regex side and the two producers diverged.
+                "public struct Reg {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public func on(_ transform: (Swift.Int) -> Swift.Void, flag: Swift.Bool)\n" +
+                "  @available(iOS 18.0, *)\n" +
+                "  public func on(_ value: Swift.Int, flag: Swift.Bool)\n" +
+                "}\n" },
+            new object[] { "OverloadedAvailableClosureInGenericArgNonFinal",
+                // The second regression guard: a closure-typed parameter that lives INSIDE
+                // a generic argument list AND is NOT the last parameter. The clause splitter
+                // must (a) not mistake the `>` of the inner `->` for a generic close and
+                // (b) keep depth tracking through the enclosing `Swift.Array<...>` so the
+                // top-level comma before `flag:` still separates the two parameters. With
+                // the UNGUARDED generic-arg splitter the `->`'s `>` decrements depth, the
+                // real generic close then drives depth negative, the top-level comma is
+                // missed, and the two params mis-merge into one — diverging from the
+                // structured SwiftSyntax producer. This case is what makes the routing of
+                // `ExtractParamTypesFromSwiftClause` through the arrow-guarded
+                // `SwiftTypeListText.SplitTopLevelParameters` byte-safe: it goes red on a
+                // regression to the unguarded splitter, not green by today's-corpus luck.
+                "public struct Gen {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public func k(_ handlers: Swift.Array<(Swift.Int) -> Swift.Void>, flag: Swift.Bool)\n" +
+                "  @available(iOS 18.0, *)\n" +
+                "  public func k(_ value: Swift.Int, flag: Swift.Bool)\n" +
+                "}\n" },
+            new object[] { "OverloadedAvailableNestedGenericVsComposition",
+                "public struct Svc {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public func h(_ map: Swift.Dictionary<Swift.String, Swift.Array<Swift.Int>>)\n" +
+                "  @available(iOS 18.0, *)\n" +
+                "  public func h(_ p: any Mod.P & Mod.Q)\n" +
+                "}\n" },
+            new object[] { "OverloadedAvailableOptionalVsVariadic",
+                "public struct Coll {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public func add(_ items: Swift.Int...)\n" +
+                "  @available(iOS 18.0, *)\n" +
+                "  public func add(_ item: Swift.String?)\n" +
+                "}\n" },
+            new object[] { "OverloadedAvailableObjCBridgedQualified",
+                "public struct V {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public func use(_ s: ObjectiveC.NSString)\n" +
+                "  @available(iOS 18.0, *)\n" +
+                "  public func use(_ v: UIKit.UIViewController)\n" +
+                "}\n" },
         };
 
     /// <summary>
@@ -951,6 +1021,75 @@ public class InterfaceFactsProducerParityTests
                 regex.Facts.AvailabilityAnnotations, swiftSyntax.Facts.AvailabilityAnnotations);
             AssertPositionsParity(label, "AvailabilityAnnotationPositions",
                 regex.Facts.AvailabilityAnnotationPositions, swiftSyntax.Facts.AvailabilityAnnotationPositions);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// Finding 46 producer ⇄ consumer-key convergence (binary-free): a known
+    /// <c>@available</c> on an overloaded member must be staged by the producer under
+    /// exactly the disamb key the ABI consumer will later look up. This complements the
+    /// cross-producer parity corpus (regex ⇄ SwiftSyntax) by checking the regex producer
+    /// against the <em>consumer</em>-side key.
+    /// <para/>
+    /// This is the <em>binary-free</em> leg: it re-composes the lookup key from ABI-style
+    /// bare <c>printedName</c>s using the exact same public primitives the consumer feeds
+    /// those names into — <c>ComposeKey(bareKey, BuildSignature(abiPrintedNames))</c>. The
+    /// value is the <em>spelling convergence</em>: if the producer-side normalization (from
+    /// interface text, e.g. <c>Foundation.URL</c>) and the ABI-side normalization (from a
+    /// bare <c>printedName</c>, e.g. <c>URL</c>) ever drift, the annotation lands under a
+    /// key the consumer never composes, the <c>@available</c> floor silently detaches,
+    /// and this goes red.
+    /// <para/>
+    /// The third producer — the ABI consumer's real <c>SwiftABIParser.ComputeAbiParamSignature</c>
+    /// (index-0 return-child skip + per-child normalization) — is asserted, for the same
+    /// parameters, byte-equal to the signature the interface producers stage via the shared
+    /// <c>BuildSignature</c> primitive in
+    /// <c>SwiftABIParserRuntimeTests.ComputeAbiParamSignature_MatchesInterfaceProducerSignature</c>,
+    /// and the consumer-side disambiguation path (the <c>@available</c> floor landing on
+    /// exactly the matching overload and not its sibling) end-to-end in
+    /// <c>SwiftABIParserRuntimeTests.ParseModule_OverloadedMembers_AvailabilityAppliesOnlyToMatchingSignature</c>.
+    /// </summary>
+    [Fact]
+    public void KnownAvailableOverload_ProducerKey_MatchesConsumerComposedKey()
+    {
+        // Two overloads share printedName f(_:); only the URL overload is @available.
+        var iface =
+            "public struct Holder {\n" +
+            "  @available(iOS 17.0, *)\n" +
+            "  public func f(_ url: Foundation.URL) -> Swift.Int\n" +
+            "  public func f(_ request: ImagePipeline.ImageRequest) -> Swift.Int\n" +
+            "}\n";
+        var path = WriteTempFile(iface);
+        try
+        {
+            var facts = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var dict = facts.Facts.AvailabilityAnnotations;
+            Assert.NotNull(dict);
+
+            // Overloaded -> producer stages under the disamb key and leaves the bare key
+            // empty, so exactly one f(...) annotation is present, under its |sig key.
+            var fKeys = dict!.Keys.Where(k => k.Contains(".f(")).ToList();
+            Assert.Single(fKeys);
+            var producedKey = fKeys[0];
+            Assert.Contains("|", producedKey); // disambiguated, not the bare key
+
+            // Consumer-side key: the URL parameter's ABI printedName is "URL". Re-compose
+            // the lookup key from that bare printedName using the same public primitives
+            // SwiftABIParser.ApplyMemberAvailability feeds ComputeAbiParamSignature's
+            // output into — BuildSignature + ComposeKey. BuildSignature(new[]{"URL"})
+            // matches the per-child printedName collection ComputeAbiParamSignature
+            // performs; that real node traversal (return-child skip + join) is asserted
+            // separately in SwiftABIParserRuntimeTests against this same primitive.
+            var bareKey = producedKey.Substring(0, producedKey.IndexOf('|'));
+            var consumerSig = MemberSignatureNormalizer.BuildSignature(new[] { "URL" });
+            var consumerKey = MemberSignatureNormalizer.ComposeKey(bareKey, consumerSig);
+
+            Assert.Equal(producedKey, consumerKey);
+            Assert.NotEmpty(dict[consumerKey]);
         }
         finally
         {

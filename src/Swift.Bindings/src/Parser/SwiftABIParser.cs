@@ -430,8 +430,16 @@ namespace BindingsGeneration
         /// normalized through <see cref="MemberSignatureNormalizer.NormalizeParamType"/>
         /// so it matches the producer-side normalization. Returns an empty string when
         /// the node has no parameter children.
+        /// <para/>
+        /// Exposed to the test assembly via <c>InternalsVisibleTo</c> (same precedent as
+        /// <see cref="MergeAccessorAvailability"/>) so the third producer of the
+        /// availability disamb signature — the ABI consumer — can be asserted byte-equal
+        /// to the two interface-text producers (regex + SwiftSyntax) without staging a
+        /// full ABI-JSON fixture. The index-0 return-type skip and the per-child
+        /// <c>printedName</c> normalization are the consumer-specific behavior the
+        /// cross-producer parity corpus (regex ⇄ SwiftSyntax) cannot reach (Finding 46).
         /// </summary>
-        private static string ComputeAbiParamSignature(Node node)
+        internal static string ComputeAbiParamSignature(Node node)
         {
             if (node.Children == null) return string.Empty;
             var raw = new List<string>();
