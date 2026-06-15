@@ -177,7 +177,19 @@ public class AsyncStreamOwnershipTests : TestBase
 
         AssertEqual(60L, sum, "AsyncStream<Int32> Counts must drain 10+20+30 = 60");
 
+        // Completion frees the rooting GCHandle (Complete → FreeContextHandleOnce) on the Swift executor
+        // thread, ordered AFTER the channel completion that unblocks our await-foreach. That free is
+        // therefore concurrent with the consumer's resumption — observing collectability at one fixed
+        // instant is a cross-thread race a loaded runner can lose. Poll for collectability on a bounded
+        // budget instead: a genuine leak (handle never freed) still fails because the budget is exhausted
+        // with the instance permanently rooted, while the expected case settles within an iteration or two.
         DrainFinalizers();
+        for (int attempt = 0; attempt < 50 && weak.IsAlive; attempt++)
+        {
+            await Task.Delay(50);
+            DrainFinalizers();
+        }
+
         AssertFalse(weak.IsAlive,
             "completion must free the rooting GCHandle so a fully-drained SwiftAsyncStream is collectable " +
             "(await-foreach never calls Dispose — pre-fix this leaked one stream per property read)");
