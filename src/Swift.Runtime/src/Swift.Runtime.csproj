@@ -23,9 +23,9 @@
          against the last shipped version to fail a non-additive patch — is deliberately NOT set
          here. A baseline forces NuGet to PackageDownload that baseline nupkg, which breaks
          offline and `release/**-dryrun.N` packs, and pinning the baseline IS the version-window
-         end-state decision the architecture review reserves for the project owner. Until that
-         decision lands, src/docs/version-coexistence-policy.md is the written contract; this
-         property is the enforcement seam the baseline will later plug into. -->
+         end-state decision the architecture review reserves for the project owner (tracked in
+         src/docs/roadmap.md). The written contract of record is RuntimeVersionRange's <remarks> in
+         the generator; this property is the enforcement seam the baseline will later plug into. -->
     <EnablePackageValidation>true</EnablePackageValidation>
     <!-- NuGet package metadata -->
     <PackageId>SwiftBindings.Runtime</PackageId>

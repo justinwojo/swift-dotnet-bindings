@@ -19,7 +19,7 @@
   <!-- Copy the SwiftBindingsRuntime native binary so SwiftString tests can run on macOS.
        Without it, Create/ToString/Length fail because CallConvSwift fallbacks are removed.
        The runtime ships as SwiftBindingsRuntime.xcframework (Apple TN2435; see
-       src/docs/runtime-framework-packaging.md); we copy the universal macos slice's
+       the runtime-framework packaging note in CLAUDE.md Known Issues); we copy the universal macos slice's
        framework binary under the loose libSwiftBindingsRuntime.dylib name the resolver
        probes via @executable_path on a console test host. -->
   <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework/macos-arm64_x86_64/SwiftBindingsRuntime.framework/SwiftBindingsRuntime')">

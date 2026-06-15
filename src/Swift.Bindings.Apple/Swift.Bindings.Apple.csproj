@@ -27,7 +27,8 @@
          supplement nupkg. PackageValidationBaselineVersion (the cross-version ABI-additivity check)
          is deliberately omitted: a baseline forces an offline-breaking PackageDownload, and the
          supplement's cross-major-additive contract + floor-only Runtime range is the version-window
-         end-state decision reserved for the project owner. See src/docs/version-coexistence-policy.md. -->
+         end-state decision reserved for the project owner (tracked in src/docs/roadmap.md). The
+         coexistence contract of record is RuntimeVersionRange's <remarks> in the generator. -->
     <EnablePackageValidation>true</EnablePackageValidation>
     <AssemblyName>SwiftBindings.Apple</AssemblyName>
     <RootNamespace>Swift</RootNamespace>

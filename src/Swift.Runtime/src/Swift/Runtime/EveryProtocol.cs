@@ -60,7 +60,7 @@ public sealed class EveryProtocol : ISwiftObject
     /// held in a process-global latch here; each generated protocol proxy now sources its
     /// EveryProtocol metadata from its OWN module's <c>NativeMethods.GetEveryProtocolMetadata</c>
     /// accessor (the per-proxy <c>s_everyProtocolMetadata</c> static field — "Finding 33" in
-    /// <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>). The old first-wins latch
+    /// <c>src/docs/Design/reverse-dispatch-lifetime.md</c>). The old first-wins latch
     /// returned whichever binding initialized first, so module B's opaque proxies could read
     /// module A's metadata in a multi-binding app. There is no module-agnostic metadata to
     /// return from this shared runtime type, so this throws rather than silently handing back a

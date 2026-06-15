@@ -34,7 +34,7 @@ Nuke build ≈ 19.3k LOC; `Sdk.targets` 3,211 lines / 43 targets; BindingTests �
 | 1 | Extract `Sdk.targets` shell logic into the generator CLI | Very high | Medium | **Do first** |
 | 2 | Retire the generate-then-strip wrapper pipeline | Very high | Medium | **Do** |
 | 3 | Finish the swiftinterface parser migration; delete the regex parser | High | Low–Med | **Do** |
-| 4 | ABI-layout drift tripwire + pin the generated-code↔runtime contract | High | Low | **Do** |
+| 4 | ABI-layout drift tripwire + pin the generated-code↔runtime contract | High | Low | **Tripwire shipped 0.15.0**; contract-pinning open |
 | 5 | Mechanize `constraints.md` (convert prose invariants to enforced structure) | High (compounding) | Low | **Standing program** |
 | 6 | Single-source versioning; stop regex-stamping source files | Medium | Low | Do opportunistically |
 | 7 | Unify artifact-staleness fingerprinting in the harness | Medium | Low | Do opportunistically |
@@ -257,6 +257,21 @@ already true of every other stage of the pipeline.
 ---
 
 ## Finding 4 — ABI-layout tripwire + pin the generated-code↔runtime contract
+
+> **Status — tripwire shipped in 0.15.0 (2026-06-14).** Part 1 (the ABI conformance gate) landed
+> in `1fc81403`: an `AbiLayoutTripwire.swift` fixture exports live `MemoryLayout`/type-metadata
+> ground truth and `AbiLayoutTripwireTests.cs` asserts the C# mirrors against it on **both** the
+> Mono-JIT simulator and NativeAOT device legs — existential-container sizes (arity 0–8) + inline
+> buffer, VWT size/stride probed through live metadata, metadata-kind discriminators (including the
+> `> 0x7ff` class heuristic), tuple element offsets, and the frozen `String` buffer size. This is the
+> same tripwire elaborated below as Finding 59. A complementary cross-artifact parity gate
+> (generated C# ↔ built Swift libraries: symbol existence both directions, struct-mirror arity,
+> vtable parity, ratchet baseline) shipped in `40af815b`. **Still open:** part 2 as written —
+> explicitly pinning the generated-code↔*managed-runtime* surface (the ~30 `SwiftMarshal.*` /
+> `TypeMetadata.*` entry points) so an out-of-contract emission fails at build rather than as a
+> consumer `MissingMethodException` — plus the remaining Finding 59 inventory corners (VWT flag-bit
+> positions, symbolic-reference byte ranges, Optional extra-inhabitant rules, the `MaxSelfSize` /
+> `MaxParamSize` calling-convention thresholds).
 
 ### Evidence (verified)
 
@@ -1984,6 +1999,13 @@ Apple's Darwin ABI-stability commitment; a decade brings new platforms and new c
 each mirrored stdlib type and asserting size/stride/flags/extra-inhabitant facts against
 the constants and XML, run in every BindingTests platform leg.
 
+> **Status — core shipped in 0.15.0 (`1fc81403`; see the Finding 4 status note).** The
+> mirror-vs-live-truth self-test runs in the simulator and device BindingTests legs and covers VWT
+> size/stride, existential arity 0–8 sizes, metadata-kind discriminators (incl. the `> 0x7ff` class
+> heuristic), tuple element offsets, and the frozen `String` buffer size. **Not yet pinned:** VWT
+> flag-bit positions, symbolic-reference byte ranges, Optional extra-inhabitant rules, and the
+> `MaxSelfSize` / `MaxParamSize` calling-convention thresholds.
+
 ## Finding 60 [V] — Async-ness and conformance eligibility are decided by string-concatenating
 mangling suffixes onto compiler-owned symbol names, in the main parser path
 
@@ -2185,8 +2207,7 @@ on staleness (Finding 7's discipline) and the validate version-stamp churn (Find
   the entire binding-tests flag table 1:1, mixed-pack/direct narrative); roadmap beyond its
   posture line; the modern Design/ docs (overview, functions, properties, closures, VWT,
   memory-management, abi-coverage-grid …); all `.claude/rules/` content; RELEASE-NOTES
-  claims spot-verified against code; `swiftsupport-app-store-fix.md` is the status-stamped
-  model other docs should copy [A, headline pairs V].
+  claims spot-verified against code [A, headline pairs V].
 
 # Final consolidated backlog (all six waves)
 
@@ -2318,9 +2339,9 @@ metadata fixture, the optional-before-required protocol fixture).
 The existential-lifetime fold-in (owned-mint + borrowed-keepAlive for `any P & Q…`
 composition existentials, plus a fail-closed tuple-of-convertible-element parameter gate)
 shipped under this session and spun off two tracked follow-up units — full
-tuple-of-convertible-element parameter marshalling, and the EC2+ composition
-collection-element carrier owned-mint — recorded in
-`session1-reverse-dispatch-lifetime-vtable.md` under "Deferred / split-out units".
+tuple-of-convertible-element parameter marshalling (**shipped 0.15.0, `6f37a8dc`**), and the
+EC2+ composition collection-element carrier owned-mint (still deferred) — recorded in
+`Design/reverse-dispatch-lifetime.md` under "Deferred / split-out units".
 
 **Session 2 — Async boundary correctness** ⚠device 🔍design.
 Defect I tactical fix (handle lifecycle owned by completion, producer cancel registration,
@@ -2411,7 +2432,15 @@ async-emitter merge — this is NOT that. It extracts the *invariant layer* (TCS
 policy, cancel registration, resume-once box, wire-format single source) consumed by the
 existing emitters where they stand. The wave-5 evidence (6 TCS misses, lost-cancel,
 resume-once holes — every one in a re-derived copy) is precisely the "new motivating
-signal" the roadmap's rejection said to wait for.
+signal" the roadmap's rejection said to wait for. **Session 2 (the tactical pass) deferred
+four items into this session** (this is their durable home now that the Session 2 doc is
+retired): Defect I's full redesign (throwing-stream *support* rather than rejection; first-class
+async shape on the shared harness), Finding 36's permanent answer (real async witness on the
+continuation-handoff machinery — executor-starvation + MainActor-reentry hazards), the CSM
+parent-only async specialization's missing cancellation wiring (no `CancellationToken` / registry
+registration today — only `RunContinuationsAsynchronously` was fixed tactically), and Finding 38's
+full error-channel/TCS-fault policy unification (all UCO/fault sites through one structural
+envelope), if the Session 2 enum consolidation proves insufficient.
 
 **Session 14 — SDK simplification** ∥ Session 13. Finding 1 (Sdk.targets logic → generator
 CLI verbs) + Finding 62 (hook-wiring tripwire — fewer hooks survive Session 14, so the
@@ -2422,8 +2451,9 @@ authoritative, regex demoted to cross-check; parity inversion).
 
 **Session 16 — Upstream resilience** ∥ Session 15. Findings 58 (toolchain identity +
 committed supported-matrix + golden censuses), 59 (live ABI tripwire in every BindingTests
-platform leg), 60 (`ManglingProbes` module + golden grammar test), 61 (App Store pipeline
-loudness: hook-fired stamp, script tri-state, Mach-O reader).
+platform leg — **core shipped early in 0.15.0 via `1fc81403`; remaining inventory corners
+listed in the Finding 59 status note**), 60 (`ManglingProbes` module + golden grammar test),
+61 (App Store pipeline loudness: hook-fired stamp, script tri-state, Mach-O reader).
 
 **Session 17 — Consumer contract & semantics.** Findings 34 (object identity — owner
 decision at session start), 51 (version-window end-state — owner decision), 52 (public-API

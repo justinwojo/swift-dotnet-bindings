@@ -1650,7 +1650,7 @@ namespace BindingsGeneration.Tests
     /// (<see href="https://developer.apple.com/library/archive/technotes/tn2435/">Apple TN2435</see>),
     /// never as loose per-platform <c>libSwiftBindingsRuntime.dylib</c> items, and the old
     /// SwiftSupport-folder injection must be gone (issue #42; see
-    /// src/docs/runtime-framework-packaging.md).
+    /// the runtime-framework packaging note in CLAUDE.md Known Issues).
     /// </summary>
     public class RuntimeNativeAssetConditionTests
     {

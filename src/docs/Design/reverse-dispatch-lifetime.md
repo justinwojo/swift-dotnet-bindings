@@ -1,9 +1,18 @@
-# Session 1 — Reverse-dispatch lifetime & vtable correctness (implementation plan)
+# Reverse-dispatch lifetime & vtable correctness (design & as-built record)
 
-Status: **DESIGN — pre-implementation.** This plan is the 🔍design deliverable for Session 1
-of `architecture-review-2026-06.md`. It must clear a Grok/Codex design review before any code
-is written (the four items are all in the CallConvSwift/ARC ABI-risk surface). ⚠device: the
-runtime fixtures must run on `--sim` (Mono JIT) **and** `--device` (NativeAOT).
+Status: **IMPLEMENTED + reviewed (Phase 1, Session 1 of `architecture-review-2026-06.md`;
+shipped 2026-06-13/14).** All four items below shipped — Design B2 lifetime model, EveryProtocol
+per-module metadata, the `@objc optional`-before-required slot fix, and the flag-matrix
+invariant — plus the existential-lifetime fold-in (owned-mint + borrowed-keepAlive) and
+tuple-of-convertible-element parameter marshalling; each cleared its Grok/Codex design review and
+post-hoc pair review. **This doc is now the permanent design reference for the runtime's
+reverse-dispatch lifetime model** — cited from `ProxyLifetimeTracker.cs`, `EveryProtocol.cs`,
+`AsyncHelpers.cs`, and `ExistentialContainer.cs` as the home for "Design B2" and design change 4,
+so it is kept (not archived), not a disposable session log. ⚠device: the runtime fixtures run on
+`--sim` (Mono JIT) **and** `--device` (NativeAOT). One residual unit stays deferred (latent, no
+reachable fixture today): the EC2+ composition collection-element carrier owned-mint — tracked in
+`roadmap.md` (*Latent* → "Owned existential collection-element carrier fall-through") and under
+"Deferred / split-out units" below.
 
 Scope (four items from the Session 1 gameplan):
 

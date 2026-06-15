@@ -11,7 +11,7 @@ namespace RuntimeTestsApp.Lifetime;
 /// <summary>
 /// End-to-end invariants for the Design B2 reverse-dispatch lifetime model
 /// (Defect G) and the per-module EveryProtocol metadata fix (Finding 33). See
-/// <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>.
+/// <c>src/docs/Design/reverse-dispatch-lifetime.md</c>.
 ///
 /// <list type="bullet">
 /// <item><b>R1 cross-talk</b>: one C# object implementing two unrelated opaque

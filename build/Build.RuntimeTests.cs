@@ -2462,7 +2462,7 @@ partial class Build
     /// <summary>
     /// Injects the native SwiftBindingsRuntime into the app bundle. The runtime ships as a
     /// signed dynamic framework inside SwiftBindingsRuntime.xcframework (Apple TN2435; see
-    /// src/docs/runtime-framework-packaging.md), so the source is now a per-slice
+    /// the runtime-framework packaging note in CLAUDE.md Known Issues), so the source is now a per-slice
     /// SwiftBindingsRuntime.framework rather than a loose per-platform dylib.
     ///
     /// For the simulator runtimes the caller passes the app's Frameworks/ dir, and the
@@ -3186,7 +3186,7 @@ partial class Build
         Log.Information("=== Staging SwiftBindingsRuntime device slice (from committed xcframework) ===");
 
         // The runtime ships prebuilt as SwiftBindingsRuntime.xcframework (Apple TN2435; see
-        // src/docs/runtime-framework-packaging.md). Its ios-arm64 slice already carries the
+        // the runtime-framework packaging note in CLAUDE.md Known Issues). Its ios-arm64 slice already carries the
         // correct install_name (@rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime)
         // and an ad-hoc signature, so the device test app just consumes that slice instead of
         // rebuilding it from a loose dylib (the old native/ios/libSwiftBindingsRuntime.dylib

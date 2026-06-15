@@ -19,11 +19,29 @@ namespace BindingsGeneration
     /// as a minimum-only float, which would happily resolve a future-
     /// incompatible 0.9.0 cached locally.
     /// <para>
-    /// The patch-must-be-additive contract this range encodes is written up in
-    /// <c>src/docs/version-coexistence-policy.md</c> and its enforcement seam is
-    /// <c>EnablePackageValidation</c> on the Runtime/Apple csprojs (a baseline
-    /// version, the cross-version ABI check, is a deferred owner decision — see
-    /// that doc). This comment is no longer the only thing standing behind the rule.
+    /// This <c>&lt;remarks&gt;</c> is the contract of record for version coexistence (there is no
+    /// separate design doc). The three packages relate as follows: <c>SwiftBindings.Runtime</c>
+    /// <em>is</em> the runtime; <c>SwiftBindings.Sdk</c> and every generated binding carry a
+    /// bounded <c>[X.Y.Z, X.(Y+1).0)</c> Runtime range (this method); the <c>SwiftBindings.Apple</c>
+    /// supplement carries a floor-only <c>[A.B.C,)</c> range (<see cref="BuildMinimumOnly"/>),
+    /// which is safe <em>only</em> because the supplement is always brokered by the SDK, whose own
+    /// bounded range supplies the ceiling. Patch is ABI-additive only (no struct-layout,
+    /// P/Invoke-signature, calling-convention, or public-API removal/change); a minor is allowed to
+    /// break ABI, which is exactly why the window slams shut at the next minor.
+    /// </para>
+    /// <para>
+    /// Consumer-visible consequence: two bindings built one Runtime-minor apart are mutually
+    /// uninstallable in one project (NuGet <c>NU1107</c>). That is intended protection — strictly
+    /// better than silently loading an ABI-incompatible runtime and crashing — but it is a real
+    /// fracture boundary, so keep Runtime-minor bumps rare and batch ABI breaks into them.
+    /// </para>
+    /// <para>
+    /// Enforcement seam: <c>EnablePackageValidation</c> on the Runtime/Apple csprojs runs NuGet's
+    /// offline compatible-framework / compatible-RID validators at pack time. The cross-version
+    /// ApiCompat check (<c>PackageValidationBaselineVersion</c>) and the minor-window end-state are
+    /// a single coupled, deferred owner decision — tracked in <c>src/docs/roadmap.md</c>, not set
+    /// here (a baseline would force an offline-breaking <c>PackageDownload</c>). This range is no
+    /// longer the only thing standing behind the rule.
     /// </para>
     /// </remarks>
     internal static class RuntimeVersionRange

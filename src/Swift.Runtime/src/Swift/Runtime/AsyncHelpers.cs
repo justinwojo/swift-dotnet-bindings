@@ -121,7 +121,7 @@ namespace Swift.Runtime
         /// <summary>
         /// The proxy that owns the borrowed container's EveryProtocol construction +1 (R0), or
         /// <c>null</c> for an owned/boxable container (design change 4 — see
-        /// <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>). The async analog of the
+        /// <c>src/docs/Design/reverse-dispatch-lifetime.md</c>). The async analog of the
         /// synchronous <c>GC.KeepAlive</c>: because this struct is stored in the GCHandle-rooted async
         /// holder array, holding the proxy reference here keeps it (and therefore R0) alive across the
         /// Swift suspension, so an otherwise-unrooted auto-wrapped proxy cannot be finalized — and

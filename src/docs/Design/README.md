@@ -17,6 +17,7 @@ These docs are useful for contributors who need to understand the internals of t
 
 ### Runtime
 - [memory-management.md](memory-management.md) — Native memory ownership at the Swift–C# boundary
+- [reverse-dispatch-lifetime.md](reverse-dispatch-lifetime.md) — "Design B2" lifetime/identity model for reverse dispatch (C#-implemented protocols carried across the ABI as `EveryProtocol`); proxy/impl rooting, R0 release, per-module metadata
 
 ### Internals
 - [demangling.md](demangling.md) — Swift symbol name demangling

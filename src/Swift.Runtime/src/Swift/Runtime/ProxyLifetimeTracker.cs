@@ -14,7 +14,7 @@ namespace Swift.Runtime;
 /// <summary>
 /// Lifetime broker for an auto-wrapped C#-implementation protocol proxy and the
 /// Swift <c>EveryProtocol</c> instance that carries it across the ABI boundary.
-/// Implements "Design B2" (see <c>src/docs/session1-reverse-dispatch-lifetime-vtable.md</c>),
+/// Implements "Design B2" (see <c>src/docs/Design/reverse-dispatch-lifetime.md</c>),
 /// which fixes the inverted-lifetime / silent-value-fabrication defect (Defect G).
 ///
 /// <para>
