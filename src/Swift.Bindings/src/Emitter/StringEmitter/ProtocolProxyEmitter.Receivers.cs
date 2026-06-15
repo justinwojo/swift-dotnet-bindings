@@ -165,31 +165,12 @@ public partial class ProtocolProxyEmitter
                 // *(ExistentialContainer1*)selfContainer, which over-reads stack memory when
                 // Swift passes a class-bound (2-word) existential for EveryObjCProtocol.
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                // nullReturnStr sizes the all-siblings-missed fallback buffer on the sibling
-                // fan-out path (it must match the carrier the success path marshals). The
-                // no-sibling path no longer returns it: under Design B2 reverse dispatch resolves
-                // the impl from ProxyLifetimeTracker's strong root — alive for exactly as long as
-                // Swift holds the proxy — so a missing impl is an invariant violation that trips
-                // Environment.FailFast, not a fabricated zero buffer.
-                //
-                // The buffer size MUST match the carrier the success path uses
-                // for MarshalToSwiftBuffer<T>(...). When a getter conversion is present the
-                // carrier is e.g. SwiftOptional<bool>, NOT bool? — using the idiomatic type
-                // here would hand Swift a too-small buffer and corrupt the receiver boundary.
-                // Use the projection-derived carrier when available, fall back to the public
-                // (idiomatic) interface property type for the no-conversion branch.
-                var publicPropertyTypeName = GetCSharpTypeName(property.SwiftTypeSpec);
-                var carrierTypeName = getterConversion != null
-                    ? (GetReceiverGetterCarrierType(property.SwiftTypeSpec) ?? publicPropertyTypeName)
-                    : publicPropertyTypeName;
-                // For reference-type wrapper carriers (SwiftOptional<U>, SwiftArray<U>, ...)
-                // Unsafe.SizeOf<T> is only a pointer, so a zero-filled buffer of that size would
-                // be smaller than the native Swift value and Swift would read past it. Size the
-                // fallback buffer from the type metadata for those carriers (value types keep
-                // the managed size). Mirrors the success-path MarshalToSwiftBuffer<T>.
-                var nullReturnStr = isStringReturn
-                    ? "MarshalStringToUtf8Slice(string.Empty)"
-                    : BuildReceiverNullFallbackExpr(carrierTypeName);
+                // Both branches resolve the C# impl from ProxyLifetimeTracker's strong root
+                // (Design B2): the no-sibling path via EmitResolveImplOrFailFast, the sibling
+                // fan-out path via per-interface lookups. When every proxy misses, the impl was
+                // collected while Swift still held the proxy — a lifetime-invariant violation —
+                // so the terminal FailFasts (EmitSiblingFanOutFailFast) rather than fabricating a
+                // zero/empty buffer (Defect G's silent data-corruption failure mode).
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
                     EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter");
@@ -218,7 +199,7 @@ public partial class ProtocolProxyEmitter
                         EmitGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, getterConversion, isStringReturn);
                         siblingIdx++;
                     }
-                    writer.WriteLine($"return {nullReturnStr};");
+                    EmitSiblingFanOutFailFast(writer, protocolDecl, $"{pascalPropertyName} getter");
                 }
                 EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
@@ -274,7 +255,7 @@ public partial class ProtocolProxyEmitter
                                 // rather than silently dropping the write.
                                 var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{{interfaceName}}>(handle);
                                 if (impl is null)
-                                    global::System.Environment.FailFast("Swift reverse-dispatch on {{protocolDecl.Name}}.{{pascalPropertyName}} setter resolved no live C# implementation for EveryProtocol handle 0x" + handle.ToString("X") + ". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).");
+                                    throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl("Swift reverse-dispatch on {{protocolDecl.Name}}.{{pascalPropertyName}} setter resolved no live C# implementation for EveryProtocol handle 0x" + handle.ToString("X") + ". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).");
                                 var value = {{marshalExpr}};
                                 impl.{{pascalPropertyName}} = {{assignmentExpr}};
                             }
@@ -629,24 +610,14 @@ public partial class ProtocolProxyEmitter
                 EmitUcoGuardOpen(writer);
 
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                // subscriptNullReturnStr sizes the all-siblings-missed fallback buffer on the
-                // sibling fan-out path. The no-sibling path resolves the impl from
-                // ProxyLifetimeTracker's strong root (Design B2) and FailFasts on a null resolve
-                // instead of returning it. Size the fallback by the carrier the success path uses
-                // for MarshalToSwiftBuffer<T>(...), not by the idiomatic interface type.
+                // subscriptIsString / subscriptGetterConv are shared by the no-sibling path and
+                // every sibling lookup-hit below. The all-siblings-missed terminal no longer
+                // fabricates a fallback buffer: like the no-sibling Design B2 path it FailFasts
+                // (EmitSiblingFanOutFailFast), since an unresolved impl across all proxies is a
+                // lifetime-invariant violation, not a value to fake.
                 var subscriptIsString = IsStringTypeSpec(subscript.ReturnTypeSpec);
                 var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
                     ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
-                var subscriptPublicReturnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
-                var subscriptCarrierTypeName = subscriptGetterConv != null
-                    ? (GetReceiverGetterCarrierType(subscript.ReturnTypeSpec) ?? subscriptPublicReturnTypeName)
-                    : subscriptPublicReturnTypeName;
-                // Reference-type wrapper carriers need a metadata-sized fallback buffer (see the
-                // property getter null-return note above); AllocZeroedSwiftBuffer<T> matches the
-                // success-path MarshalToSwiftBuffer<T> size for both value and reference carriers.
-                var subscriptNullReturnStr = subscriptIsString
-                    ? "MarshalStringToUtf8Slice(string.Empty)"
-                    : BuildReceiverNullFallbackExpr(subscriptCarrierTypeName);
 
                 // Unmarshal index parameters once — same indexes used for every sibling lookup.
                 // P0: use ABI types for MarshalFromSwift.
@@ -697,7 +668,7 @@ public partial class ProtocolProxyEmitter
                         EmitSubscriptGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
                         siblingIdx++;
                     }
-                    writer.WriteLine($"return {subscriptNullReturnStr};");
+                    EmitSiblingFanOutFailFast(writer, protocolDecl, "subscript getter");
                 }
 
                 EmitUcoGuardCloseFailFast(writer);
@@ -922,57 +893,14 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
 
-        // Optional-existential returns fall through to the normal marshalling path.
+        // Optional-existential returns fall through to the normal marshalling path:
         // GetReceiverExistentialGetterConversion's Optional<existential> arm builds a valid
-        // SwiftOptional<ExistentialContainerN> (NewSome/NewNone) from the C# proxy, and
-        // GetReceiverGetterCarrierTypeCore sizes the dead-impl null path to the same carrier.
-        // The old "return zeroed buffer (None)" stub silently dropped every non-nil return.
+        // SwiftOptional<ExistentialContainerN> (NewSome/NewNone) from the C# proxy on the success
+        // path below. A vanished impl no longer returns a fabricated buffer (the old "zeroed
+        // buffer (None)" stub silently dropped every non-nil return); it FailFasts (Design B2).
 
         EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-        // Dead-impl safe: use TryGetProxy + impl null check. A throw across
-        // the [UnmanagedCallersOnly] boundary is process-terminating, so a GC'd impl or
-        // unregistered proxy silently returns a default value instead.
-        //
-        // Size the null-path buffer by the SAME carrier the success path
-        // marshals via MarshalToSwiftBuffer<T>(...). When a return conversion is present
-        // the carrier is e.g. SwiftOptional<bool> (8 bytes) — using `Unsafe.SizeOf<bool?>`
-        // (2 bytes) here would hand Swift a too-small buffer and corrupt the boundary.
-        // Async receivers run the SYNC-ABI witness slot: the Swift witness reads the unwrapped
-        // value T, and the success path blocks the Task to produce T (see asyncResultUnwrap below).
-        // So size the dead-impl null buffer by the SAME unwrapped-T carrier the success path
-        // marshals — async is treated exactly like sync here, not special-cased to skip the
-        // conversion sizing (which would desync the null buffer from the success carrier for an
-        // existential/ObjC async return, as the invariant guarded here requires).
-        bool isStringMethodReturnForNullPath = hasReturn && IsStringTypeSpec(returnType!);
-        string? methodReturnConvForSizing = null;
-        if (hasReturn)
-        {
-            methodReturnConvForSizing = GetReceiverExistentialGetterConversion("result", returnType!)
-                ?? GetReceiverGetterConversion("result", returnType!);
-        }
-        var methodCarrierTypeName = methodReturnConvForSizing != null
-            ? (GetReceiverGetterCarrierType(returnType!) ?? returnTypeName)
-            : returnTypeName;
-
-        string methodNullReturnExpr;
-        if (!hasReturn)
-        {
-            methodNullReturnExpr = "return;";
-        }
-        else if (isStringMethodReturnForNullPath)
-        {
-            methodNullReturnExpr = "return MarshalStringToUtf8Slice(string.Empty);";
-        }
-        else
-        {
-            // SwiftOptional<U> carriers return the canonical .none (not a zeroed buffer, which a
-            // tag-byte payload would decode as .some); plain collection carriers return a valid
-            // empty collection (a zeroed buffer is a null storage pointer); other reference-type
-            // wrapper carriers get a metadata-sized zero buffer matching the success-path
-            // MarshalToSwiftBuffer<T>. See BuildReceiverNullFallbackExpr.
-            methodNullReturnExpr = $"return {BuildReceiverNullFallbackExpr(methodCarrierTypeName)};";
-        }
         // No-sibling path resolves the impl from ProxyLifetimeTracker's strong root (Design B2);
         // a null resolve trips Environment.FailFast (the impl cannot be collected while Swift holds
         // the proxy). The sibling path skips this and instead does per-interface lookups after
@@ -1161,7 +1089,7 @@ public partial class ProtocolProxyEmitter
                 EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, argsString, hasReturn, isStringMethodReturn, returnConv);
                 siblingIdx++;
             }
-            writer.WriteLine(methodNullReturnExpr);
+            EmitSiblingFanOutFailFast(writer, protocolDecl, $"{method.Name}()");
         }
         else if (hasReturn)
         {
@@ -1603,135 +1531,6 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Returns the C# type name that the success-path
-    /// <c>MarshalToSwiftBuffer&lt;T&gt;(swiftResult)</c> call would use as <c>T</c>, or
-    /// <c>null</c> if the success path takes the no-conversion branch
-    /// (<c>MarshalToSwiftBuffer(result)</c> with the idiomatic interface type).
-    /// <para>
-    /// This MUST stay in lockstep with <see cref="GetReceiverGetterConversion"/> and
-    /// <see cref="GetReceiverExistentialGetterConversion"/> — the dead-impl null path
-    /// (<see cref="BuildReceiverNullFallbackExpr"/>) allocates a fallback buffer sized from
-    /// this carrier's type metadata to match what the success path would emit. If the carrier
-    /// here drifts from the success path's carrier, the fallback buffer is the wrong size and
-    /// Swift reads garbage memory across the receiver boundary.
-    /// </para>
-    /// </summary>
-    private string? GetReceiverGetterCarrierType(TypeSpec? typeSpec)
-    {
-        if (typeSpec == null) return null;
-        return GetReceiverGetterCarrierTypeCore(typeSpec);
-    }
-
-    /// <summary>
-    /// Builds the dead-impl fallback return expression for a receiver (proxy unregistered, or
-    /// the user impl GC'd while Swift still holds a strong retain on the proxy). The
-    /// <c>[UnmanagedCallersOnly]</c> boundary must not let an exception escape, so we return a
-    /// default value rather than throwing.
-    /// <para>
-    /// For a <c>SwiftOptional&lt;U&gt;</c> carrier a zero-filled buffer is NOT <c>nil</c>: a
-    /// tag-byte payload (<c>Optional&lt;ClosedRange&lt;Float&gt;&gt;</c>, <c>Optional&lt;Int&gt;</c>,
-    /// any frozen/non-frozen struct inner) stores the discriminator as a trailing byte where
-    /// <c>0 = Some</c>, so an all-zero buffer decodes to <c>.some(zeroed-payload)</c> — a fake
-    /// value handed back to Swift instead of <c>nil</c>. Produce the canonical <c>.none</c> via
-    /// <c>SwiftOptional&lt;U&gt;.NewNone()</c> marshalled through the same
-    /// <c>MarshalToSwiftBuffer</c> path the success branch uses for <c>.some</c>; NewNone already
-    /// encodes every inner representation correctly (tag-byte, bool, simple enum, class
-    /// nil-pointer, and the value-witness fallback).
-    /// </para>
-    /// <para>
-    /// A Swift collection carrier (<c>SwiftArray&lt;U&gt;</c>, <c>SwiftDictionary&lt;K,V&gt;</c>,
-    /// <c>SwiftSet&lt;U&gt;</c>) is a single storage pointer, so a zero-filled buffer is a
-    /// <em>null</em> pointer — not a valid empty collection. A caller that reads it (Count /
-    /// iterate) dereferences null. Construct the canonical empty collection (<c>Array.init</c> /
-    /// the empty-dictionary singleton / <c>Set.init</c>) via the wrapper's public parameterless
-    /// ctor and marshal it through the same <c>MarshalToSwiftBuffer</c> path the success branch
-    /// uses. This ctor shares the success path's construction surface: every collection carrier
-    /// reaching this fallback is paired with a success path in the same receiver that builds the
-    /// same <c>{carrier}</c> via <c>{carrier}.From*</c>, which chains to this same parameterless
-    /// ctor — element <c>TypeMetadata</c>, the Set Hashable witness, the empty-dictionary
-    /// singleton, and the storage allocation are resolved identically on both paths. So
-    /// <c>new {carrier}()</c> cannot fail to resolve element metadata the success path resolves —
-    /// including existential-container element carriers such as
-    /// <c>SwiftDictionary&lt;…, ExistentialContainer0&gt;</c> for <c>[String: Any]</c>. This is
-    /// not a no-throw guarantee: the ctor can still throw (unresolvable metadata/witness, OOM),
-    /// but only for an element type whose <c>From*</c> success path would throw identically — a
-    /// collection member that is non-functional regardless of which branch runs. That throw
-    /// fail-fasts the boundary, which is strictly preferable to the prior null storage pointer
-    /// Swift would dereference.
-    /// </para>
-    /// <para>
-    /// All other non-optional carriers (existential containers, value types, <c>IntPtr</c>) have
-    /// no <c>nil</c>/empty case to construct, so they keep the metadata-sized zero buffer — the
-    /// least-bad default for a vanished impl.
-    /// </para>
-    /// </summary>
-    private static string BuildReceiverNullFallbackExpr(string carrierTypeName)
-    {
-        if (carrierTypeName.StartsWith("SwiftOptional<", System.StringComparison.Ordinal))
-            return $"MarshalToSwiftBuffer({carrierTypeName}.NewNone())";
-        if (carrierTypeName.StartsWith("SwiftArray<", System.StringComparison.Ordinal) ||
-            carrierTypeName.StartsWith("SwiftDictionary<", System.StringComparison.Ordinal) ||
-            carrierTypeName.StartsWith("SwiftSet<", System.StringComparison.Ordinal))
-            return $"MarshalToSwiftBuffer(new {carrierTypeName}())";
-        return $"AllocZeroedSwiftBuffer<{carrierTypeName}>()";
-    }
-
-    private string? GetReceiverGetterCarrierTypeCore(TypeSpec? typeSpec)
-    {
-        if (typeSpec == null) return null;
-
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
-        if (projection == null) return null;
-
-        // Existential carriers — must mirror GetReceiverExistentialGetterConversion's order.
-        if (projection is ExistentialProjection existProj)
-            return existProj.PInvokeType;
-
-        if (projection is OptionalProjection optExist && optExist.InnerProjection is ExistentialProjection innerExist)
-            return $"SwiftOptional<{innerExist.PInvokeType}>";
-
-        if (projection is ArrayProjection arrExistProj && arrExistProj.ElementProjection is ExistentialProjection arrExist)
-            return $"SwiftArray<{arrExist.ArrayElementCarrierType}>";
-
-        if (projection is SetProjection setExistProj && setExistProj.ElementProjection is ExistentialProjection setExist)
-            return $"SwiftSet<{setExist.ArrayElementCarrierType}>";
-
-        if (projection is DictionaryProjection dictExistProj && dictExistProj.ValueProjection is ExistentialProjection dictExist)
-        {
-            var abiKeyType = dictExistProj.KeyProjection.SwiftContainerGenericType;
-            // Class-bound existential value strides at the 16-byte ClassExistentialContainer1 (matching
-            // the array element fix and DictionaryProjection.ContainerTypeName); opaque values stay on
-            // the 40-byte carrier. The 16-byte form also feeds the setter's MarshalFromSwift<T> via
-            // GetCSharpTypeName(forAbiMarshalling) → DictionaryProjection.MarshalFromSwiftType.
-            return $"SwiftDictionary<{abiKeyType}, {dictExist.ArrayElementCarrierType}>";
-        }
-
-        // Non-existential carriers — must mirror GetReceiverGetterConversion's switch.
-        return projection switch
-        {
-            // StringProjection is special-cased to Utf8Slice in the receiver — never reaches MarshalToSwiftBuffer.
-            DataProjection => "Swift.Foundation.Data",
-            DateProjection => "double",
-            NativeRemappedProjection nrp => nrp.SwiftWrapperType,
-            ObjCBridgedProjection => "IntPtr",
-            ObjCBridgeableProjection => "IntPtr",
-            ObjCRootedClassProjection => "IntPtr",
-            ArrayProjection arr => $"SwiftArray<{arr.ElementProjection.SwiftContainerGenericType}>",
-            DictionaryProjection dict => $"SwiftDictionary<{dict.KeyProjection.SwiftContainerGenericType}, {dict.ValueProjection.SwiftContainerGenericType}>",
-            SetProjection set => $"SwiftSet<{set.ElementProjection.SwiftContainerGenericType}>",
-            // FrozenWithMemory inner: SwiftContainerGenericType is the nonexistent by-value `.Buffer`;
-            // use the wrapper type so this carrier matches the SwiftOptional<wrapper> built in the getter
-            // conversion above. Every other inner keeps SwiftContainerGenericType — in particular class
-            // inners stay nil-pointer-optimized (SwiftOptional<IntPtr>).
-            OptionalProjection opt => $"SwiftOptional<{(opt.InnerProjection is FrozenWithMemoryProjection ? opt.InnerProjection.MarshalFromSwiftType : opt.InnerProjection.SwiftContainerGenericType)}>",
-            // No conversion → success path uses MarshalToSwiftBuffer(result) with the idiomatic type.
-            // Caller falls back to that type for sizing.
-            _ => null
-        };
-    }
-
-    /// <summary>
     /// Gets a conversion expression for existential types in getter returns (C# idiomatic → Swift ABI).
     /// Uses TypeProjectionFactory to project the type, then extracts parameter element conversions
     /// (public → ABI direction) for each existential composition pattern.
@@ -1785,8 +1584,8 @@ public partial class ProtocolProxyEmitter
 
         // Dictionary<K, existential>. Carrier + per-value conversion must agree on stride, exactly like
         // the array path above: a class-bound single-protocol VALUE uses the 16-byte
-        // ClassExistentialContainer1 (matching DictionaryProjection's carrier and the read-direction
-        // GetReceiverGetterCarrierType), with the value narrowed via the owned CreateOwnedClassCarrier;
+        // ClassExistentialContainer1 (matching DictionaryProjection's carrier), with the value narrowed
+        // via the owned CreateOwnedClassCarrier;
         // opaque/composition values stay on the 40-byte carrier (no-op). Keys are never class-bound
         // existentials (`any P` is not Hashable), so only the value carrier changes.
         if (projection is DictionaryProjection dictProj && dictProj.ValueProjection is ExistentialProjection dictExist)
@@ -2131,8 +1930,9 @@ public partial class ProtocolProxyEmitter
     /// as Swift references the proxy, so a null resolve here cannot happen in the canonical pattern;
     /// it signals that the impl was collected while Swift still held the proxy — a lifetime-invariant
     /// violation. Rather than silently fabricating a return value (Defect G's data-corruption failure
-    /// mode), we trip the loud backstop <see cref="System.Environment.FailFast(string)"/>, which is
-    /// <c>[DoesNotReturn]</c> so the downstream body sees <c>impl</c> as non-null.
+    /// mode), we trip the loud backstop <see cref="SwiftClosureMarshaller.FailFastDeadProxyImpl"/> via
+    /// <c>throw</c> (the helper <see cref="System.Environment.FailFast(string)"/>s; the <c>throw</c> is
+    /// unreachable but makes the compiler see <c>impl</c> as non-null downstream).
     /// <paramref name="memberDescription"/> names the protocol member for the crash diagnostic.
     /// </summary>
     private static void EmitResolveImplOrFailFast(CSharpWriter writer, string interfaceName,
@@ -2141,8 +1941,29 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle);");
         writer.WriteLine("if (impl is null)");
         writer.Indent++;
-        writer.WriteLine($"global::System.Environment.FailFast(\"Swift reverse-dispatch on {protocolDecl.Name}.{memberDescription} resolved no live C# implementation for EveryProtocol handle 0x\" + handle.ToString(\"X\") + \". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).\");");
+        writer.WriteLine($"throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(\"Swift reverse-dispatch on {protocolDecl.Name}.{memberDescription} resolved no live C# implementation for EveryProtocol handle 0x\" + handle.ToString(\"X\") + \". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).\");");
         writer.Indent--;
+    }
+
+    /// <summary>
+    /// Emits the all-siblings-missed terminal of a sibling-fan-out receiver: the primary proxy and
+    /// every recorded sibling proxy failed to resolve a live C# implementation from
+    /// <c>ProxyLifetimeTracker</c>. This is the same Design B2 lifetime-invariant violation the
+    /// no-sibling path catches in <see cref="EmitResolveImplOrFailFast"/> — the implementation was
+    /// collected while Swift still held the proxy. Rather than fabricating a zero/empty return value
+    /// (Defect G's silent data-corruption failure mode) it trips the loud
+    /// <see cref="SwiftClosureMarshaller.FailFastDeadProxyImpl"/> backstop, emitted as
+    /// <c>throw FailFastDeadProxyImpl(...)</c>. The helper <see cref="System.Environment.FailFast(string)"/>s
+    /// (the process is gone before it returns) and the <c>throw</c> token supplies the receiver's
+    /// terminal control-flow exit — required because C#'s definite-return analysis (CS0161) is purely
+    /// syntactic and does NOT consult <c>[DoesNotReturn]</c>, so a bare helper call would leave a
+    /// value-returning receiver short a terminal return even if the helper were so annotated.
+    /// <paramref name="memberDescription"/> names the protocol member for the crash diagnostic.
+    /// </summary>
+    private static void EmitSiblingFanOutFailFast(CSharpWriter writer, ProtocolDecl protocolDecl,
+        string memberDescription)
+    {
+        writer.WriteLine($"throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(\"Swift reverse-dispatch on {protocolDecl.Name}.{memberDescription} resolved no live C# implementation for EveryProtocol handle 0x\" + handle.ToString(\"X\") + \" across the primary proxy and all sibling proxies. The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).\");");
     }
 
     /// <summary>

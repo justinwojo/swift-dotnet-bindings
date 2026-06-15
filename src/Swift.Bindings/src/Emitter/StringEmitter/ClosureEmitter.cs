@@ -10,6 +10,23 @@ namespace BindingsGeneration;
 public static partial class ClosureEmitter
 {
     /// <summary>
+    /// Finding 53: project the public existential type for <paramref name="typeSpec"/>, or — when
+    /// the resolver can't (it returns <c>null</c> or the bare <c>object</c> fallback) — record a
+    /// SWIFTBIND026 object-degradation and return <c>"object"</c>. Replaces the silent
+    /// <c>?? "object"</c> fallbacks at closure parameter/return positions so a member that ends up
+    /// typed as bare <c>object</c> is observable rather than invisible.
+    /// </summary>
+    private static string ResolveClosureExistentialOrDegrade(ClosureHandler closureHandler, TypeSpec typeSpec)
+    {
+        var publicType = closureHandler.GetPublicExistentialType(typeSpec);
+        if (!string.IsNullOrEmpty(publicType) && publicType != "object")
+            return publicType;
+
+        ReportCollector.RecordObjectDegradation(typeSpec?.ToString() ?? "<unknown>");
+        return "object";
+    }
+
+    /// <summary>
     /// Emits an [UnmanagedCallersOnly] callback function that can be used as a Swift closure's
     /// function pointer. The callback extracts the delegate from the context and invokes it.
     /// </summary>
@@ -460,7 +477,7 @@ public static partial class ClosureEmitter
         {
             if (closureHandler.ShouldUseGetOrCreate(returnType))
             {
-                var pt = closureHandler.GetPublicExistentialType(returnType) ?? "object";
+                var pt = ResolveClosureExistentialOrDegrade(closureHandler, returnType);
                 var qp = closureHandler.GetQualifiedProxyClassName(returnType);
                 // A closure return is +1-owned by Swift, so mint an independent reference rather
                 // than borrow the proxy's construction +1 (R0). After this callback returns the
@@ -483,7 +500,7 @@ public static partial class ClosureEmitter
             if (ExistentialHandler.IsOwnedExistentialContainerType(ct) &&
                 ct != "Swift.Runtime.ExistentialContainer1")
             {
-                var pt = closureHandler.GetPublicExistentialType(returnType) ?? "object";
+                var pt = ResolveClosureExistentialOrDegrade(closureHandler, returnType);
                 return $"return Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{pt}, {ct}>({resultExpr});";
             }
             return $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){resultExpr}).GetExistentialContainer();";
@@ -536,7 +553,7 @@ public static partial class ClosureEmitter
                 {
                     if (closureHandler.ShouldUseGetOrCreate(elem))
                     {
-                        var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
+                        var pt = ResolveClosureExistentialOrDegrade(closureHandler, elem);
                         var qp = closureHandler.GetQualifiedProxyClassName(elem);
                         // Returned tuple element is +1-owned by Swift — mint an independent
                         // reference (see the scalar-return case above for the full rationale).
@@ -552,7 +569,7 @@ public static partial class ClosureEmitter
                         if (ExistentialHandler.IsOwnedExistentialContainerType(ct) &&
                             ct != "Swift.Runtime.ExistentialContainer1")
                         {
-                            var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
+                            var pt = ResolveClosureExistentialOrDegrade(closureHandler, elem);
                             elems.Add($"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{pt}, {ct}>({acc})");
                         }
                         else
@@ -1213,7 +1230,7 @@ public static partial class ClosureEmitter
         {
             if (closureHandler.ShouldUseGetOrCreate(typeSpec))
             {
-                var pt = closureHandler.GetPublicExistentialType(typeSpec) ?? "object";
+                var pt = ResolveClosureExistentialOrDegrade(closureHandler, typeSpec);
                 var qp = closureHandler.GetQualifiedProxyClassName(typeSpec);
                 if (qp != null)
                 {
@@ -1271,7 +1288,7 @@ public static partial class ClosureEmitter
                     {
                         if (closureHandler.ShouldUseGetOrCreate(elem))
                         {
-                            var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
+                            var pt = ResolveClosureExistentialOrDegrade(closureHandler, elem);
                             var qp = closureHandler.GetQualifiedProxyClassName(elem);
                             if (qp != null && keepAliveVars != null)
                             {

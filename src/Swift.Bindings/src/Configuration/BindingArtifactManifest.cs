@@ -30,6 +30,16 @@ public sealed class BindingArtifactManifest
 
     public GenerationSection? Generation { get; set; }
     public EmissionSection? Emission { get; set; }
+
+    /// <summary>
+    /// Finding 50: per-generation input-resolution report. Records every slice/arch/artifact
+    /// decision and degraded dependency the input edge made, so a silently-substituted input
+    /// (device→sim slice fallback, missing swiftinterface, ABI-JSON fallback, ambiguous TBD,
+    /// degraded auto-detected dependency) is observable after the fact and can fail a CI gate.
+    /// Null for partial manifests written before resolution ran.
+    /// </summary>
+    public InputResolutionSection? InputResolution { get; set; }
+
     public ProxyCoGatingSection? ProxyCoGating { get; set; }
     public ContractCoGatingSection? ContractCoGating { get; set; }
     public WrapperSection? Wrapper { get; set; }
@@ -78,7 +88,31 @@ public sealed class GenerationSection
     public List<ThemeBridgedItem> ThemeBridgedProperties { get; init; } = new();
     public BridgeSummary? BridgeSummary { get; init; }
 
-    public static GenerationSection From(BindingReport report)
+    /// <summary>
+    /// Finding 14a: node-level parse reconciliation (<c>Parsed == Emitted + SkippedWithReason +
+    /// DroppedWithError</c>). Turns the parser's previously invisible <c>HandleNode</c> swallow
+    /// channel into a durable count so a regression that drops declarations surfaces as a number.
+    /// Null for legacy/partial manifests written before this field existed.
+    /// </summary>
+    public ParseReconciliation? ParseReconciliation { get; init; }
+
+    /// <summary>
+    /// Finding 53: distinct <c>// Unsupported:</c> comment-drops emitted this run, each surfaced as a
+    /// <c>SWIFTBIND025</c> diagnostic. Carried on the manifest so it survives into the rederived
+    /// <c>binding-report.json</c> (<see cref="BindingReportProjection"/>) — the SWIFTBIND025 message
+    /// promises the drop is "recorded under unsupportedCommentDrops in binding-report.json", and the
+    /// report is projected from this manifest, so the list must round-trip or that claim is false.
+    /// </summary>
+    public List<string> UnsupportedCommentDrops { get; init; } = new();
+
+    /// <summary>
+    /// Finding 53: distinct Swift types that degraded to bare <c>object</c>, each surfaced as a
+    /// <c>SWIFTBIND026</c> diagnostic. Carried on the manifest for the same round-trip reason as
+    /// <see cref="UnsupportedCommentDrops"/>.
+    /// </summary>
+    public List<string> ObjectDegradations { get; init; } = new();
+
+    public static GenerationSection From(BindingReport report, ParseReconciliation? parseReconciliation = null)
     {
         ArgumentNullException.ThrowIfNull(report);
         var section = new GenerationSection
@@ -91,6 +125,7 @@ public sealed class GenerationSection
             SkippedMembers = report.SkippedMembers,
             SynthesizedMembers = report.SynthesizedMembers,
             BridgeSummary = report.BridgeSummary,
+            ParseReconciliation = parseReconciliation,
         };
         foreach (var kv in report.EmittedMembersByKind)
             section.EmittedMembersByKind[kv.Key] = kv.Value;
@@ -100,6 +135,8 @@ public sealed class GenerationSection
         section.WrappedItems.AddRange(report.WrappedItems);
         section.BridgedViews.AddRange(report.BridgedViews);
         section.ThemeBridgedProperties.AddRange(report.ThemeBridgedProperties);
+        section.UnsupportedCommentDrops.AddRange(report.UnsupportedCommentDrops);
+        section.ObjectDegradations.AddRange(report.ObjectDegradations);
         return section;
     }
 }
@@ -118,7 +155,18 @@ public sealed class EmissionSection
     public ConformanceDecisionsSummary ConformanceDecisions { get; init; } = new();
     public List<string> SilentTombstones { get; init; } = new();
 
-    public static EmissionSection From(EmissionReport report)
+    /// <summary>
+    /// Finding 14c: the Apple supplement references this module accrued during emission, each with
+    /// the resolution mechanism(s) that recorded it. These are the references that drive the
+    /// consumer csproj's <c>SwiftBindings.Apple</c> <c>PackageReference</c>; surfacing them with
+    /// provenance turns the previously opaque <c>[ThreadStatic]</c> side-channel into an auditable
+    /// manifest record.
+    /// </summary>
+    public List<AppleSupplementReferenceEntry> AppleSupplementReferences { get; init; } = new();
+
+    public static EmissionSection From(
+        EmissionReport report,
+        IReadOnlyList<(string Identity, IReadOnlyList<string> Provenance)>? appleSupplementReferences = null)
     {
         ArgumentNullException.ThrowIfNull(report);
         var section = new EmissionSection
@@ -135,9 +183,69 @@ public sealed class EmissionSection
         foreach (var kv in report.SkipReasons)
             section.SkipReasons[kv.Key] = kv.Value;
         section.SilentTombstones.AddRange(report.SilentTombstones);
+        if (appleSupplementReferences != null)
+        {
+            foreach (var entry in appleSupplementReferences)
+                section.AppleSupplementReferences.Add(
+                    new AppleSupplementReferenceEntry(entry.Identity, entry.Provenance.ToList()));
+        }
         return section;
     }
 }
+
+/// <summary>
+/// Finding 14c: one Apple supplement reference accrued during emission, with the aggregated
+/// provenance (caller hints) explaining why it was recorded.
+/// </summary>
+public sealed record AppleSupplementReferenceEntry(string Identity, List<string> Provenance);
+
+/// <summary>
+/// Finding 50: input-resolution snapshot. Captures the ordered list of decisions
+/// <see cref="InputResolutionReport"/> accumulated during <see cref="XCFrameworkResolver"/>
+/// resolution and dependency parsing. <see cref="PhaseStatus.Warning"/> when at least one
+/// decision was a degradation (a fallback substituted a different input than requested);
+/// <see cref="PhaseStatus.Success"/> when every input was found and used as-is.
+/// </summary>
+public sealed class InputResolutionSection
+{
+    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public PhaseStatus Status { get; init; } = PhaseStatus.Success;
+
+    public int DecisionCount { get; init; }
+    public int DegradationCount { get; init; }
+    public List<InputResolutionDecisionEntry> Decisions { get; init; } = new();
+
+    public static InputResolutionSection From(IReadOnlyList<InputResolutionDecision> decisions)
+    {
+        ArgumentNullException.ThrowIfNull(decisions);
+        var entries = new List<InputResolutionDecisionEntry>(decisions.Count);
+        var degradationCount = 0;
+        foreach (var decision in decisions)
+        {
+            if (decision.Severity == InputResolutionSeverity.Degradation)
+                degradationCount++;
+            entries.Add(new InputResolutionDecisionEntry(
+                decision.Category, decision.Severity, decision.Detail));
+        }
+        return new InputResolutionSection
+        {
+            Status = degradationCount > 0 ? PhaseStatus.Warning : PhaseStatus.Success,
+            DecisionCount = decisions.Count,
+            DegradationCount = degradationCount,
+            Decisions = entries,
+        };
+    }
+}
+
+/// <summary>
+/// Finding 50: one input-resolution decision serialized onto the manifest. Mirrors
+/// <see cref="InputResolutionDecision"/> as a manifest-owned record so the on-disk shape is
+/// independent of the in-memory collector type.
+/// </summary>
+public sealed record InputResolutionDecisionEntry(
+    InputResolutionCategory Category,
+    InputResolutionSeverity Severity,
+    string Detail);
 
 /// <summary>
 /// Records the proxy-suppression co-gating pass that runs at the end of the main

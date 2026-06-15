@@ -44,6 +44,7 @@ public static class BindingsGeneratorCommand
         var bridgeHints = parseResult.GetValueForOption(options.BridgeHints);
         var namespacePattern = parseResult.GetValueForOption(options.NamespacePattern);
         var sdkMode = parseResult.GetValueForOption(options.SdkMode);
+        var strictInputs = parseResult.GetValueForOption(options.StrictInputs);
         var packageId = parseResult.GetValueForOption(options.PackageId);
         var assemblyNameOverride = parseResult.GetValueForOption(options.AssemblyName);
         var swiftRuntimeVersion = parseResult.GetValueForOption(options.SwiftRuntimeVersion);
@@ -397,6 +398,12 @@ public static class BindingsGeneratorCommand
         var asyncLibraryAutoWired = false;
         var platformTarget = XCFrameworkPlatformTarget.Simulator;
 
+        // Finding 50: clear the ambient input-resolution collector at the start of every
+        // generation so slice/arch/artifact/dependency decisions accumulate from a clean slate.
+        // Placed ahead of both the xcframework-resolution path (below) and the direct-input
+        // path, since either can record decisions (e.g. a degraded auto-detected dependency).
+        InputResolutionReport.Reset();
+
         if (hasXcframework)
         {
             Directory.CreateDirectory(outputDirectory);
@@ -418,11 +425,20 @@ public static class BindingsGeneratorCommand
             // If --objc forced, skip Swift resolution entirely
             if (objcForced)
             {
+                // Pure-ObjC primary generation: record the slice choice (recordResolution: true) so a
+                // silent device→simulator fallback is caught by the --strict-inputs gate below.
                 var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
-                    xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
+                    xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo,
+                    recordResolution: true);
                 if (objcResolution == null)
                 {
                     logger.LogError("Failed to resolve ObjC framework from '{Path}'.", xcframeworkPath);
+                    context.ExitCode = 1;
+                    return;
+                }
+                // Finding 50: fail-close before emitting a silently-degraded pure-ObjC binding.
+                if (EmitStrictInputsFailureIfDegraded(strictInputs, logger))
+                {
                     context.ExitCode = 1;
                     return;
                 }
@@ -460,11 +476,20 @@ public static class BindingsGeneratorCommand
                 // Auto-detect ObjC fallback (covers pure ObjC frameworks and static libraries)
                 var reason = ex is StaticLibraryException ? "Static library" : "No Swift module found";
                 logger.LogInformation("{Reason} — attempting ObjC framework detection...", reason);
+                // Swift resolution failed and we fell back to a pure-ObjC binding: this ObjC slice
+                // choice is now the PRIMARY input, so record it (recordResolution: true) for the gate.
                 var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
-                    xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
+                    xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo,
+                    recordResolution: true);
                 if (objcResolution == null)
                 {
                     logger.LogError("Framework has no ObjC module.modulemap and no Swift module.");
+                    context.ExitCode = 1;
+                    return;
+                }
+                // Finding 50: fail-close before emitting a silently-degraded pure-ObjC binding.
+                if (EmitStrictInputsFailureIfDegraded(strictInputs, logger))
+                {
                     context.ExitCode = 1;
                     return;
                 }
@@ -534,11 +559,11 @@ public static class BindingsGeneratorCommand
                 foreach (var dep in autoDetectedDeps)
                     logger.LogInformation("Auto-detected dependency: {Module} ({Path})",
                         dep.ModuleName, dep.XCFrameworkPath);
-                foreach (var unresolved in analysisResult.UnresolvedDependencies)
-                {
-                    logger.LogWarning("{Message}",
-                        BindingsGenerator.FormatDependencyWarning(unresolved.FrameworkName, unresolved.UnresolvedReason ?? "missing-xcframework"));
-                }
+                RecordUnresolvedDependencyDegradations(analysisResult.UnresolvedDependencies, logger);
+            }
+            else
+            {
+                RecordSystemicDependencyAnalysisFailure(logger);
             }
         }
 
@@ -678,6 +703,21 @@ public static class BindingsGeneratorCommand
         var factsAggregator = BuildInterfaceFactsAggregator(interfaceFactsProducer, logger);
         var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, factsAggregator: factsAggregator, descriptorAssemblyNameOverride: assemblyNameOverride);
         if (!success)
+        {
+            context.ExitCode = 1;
+            return;
+        }
+
+        // Finding 50: fail-closed on a degraded input edge under --strict-inputs (the CI compile
+        // gate). The input-resolution report (slice fallback, missing swiftinterface, ABI-JSON
+        // fallback, ambiguous/synthesized TBD, degraded auto-detected dependency) was recorded
+        // during XCFrameworkResolver.Resolve and dependency parsing; surfacing it as a fatal
+        // error here closes the "graceful-to-a-fault" gap where a silently-substituted input
+        // shrank the API surface but still exited 0. On this Swift path GenerateBindings (above)
+        // has already persisted the full decision list (Info plus degradations) to the
+        // inputResolution section of binding-artifact-manifest.json; this gate logs each
+        // degradation as a SWIFTBIND027 line and escalates only the *degradations* to a failure.
+        if (EmitStrictInputsFailureIfDegraded(strictInputs, logger))
         {
             context.ExitCode = 1;
             return;
@@ -1196,19 +1236,9 @@ public static class BindingsGeneratorCommand
                 // resulting csproj path flows into binding-metadata.props for the SDK's
                 // _InjectAppleSupplementPrototype target to consume. No-op when the generator
                 // didn't resolve any supplement types or the consumer didn't pass the flag.
-                string? appleSupplementPrototypeCsproj = null;
-                if (!string.IsNullOrWhiteSpace(appleSupplementPrototypeDir) && AppleSupplementReferences.Any)
-                {
-                    var protoResult = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
-                    {
-                        PrototypeDirectory = appleSupplementPrototypeDir!,
-                        ReferencedIdentities = AppleSupplementReferences.Current,
-                        PlatformInfo = platformInfo,
-                        SwiftRuntimeVersion = swiftRuntimeVersion,
-                        MinimumOSVersion = metadata.EffectiveMinimumOSVersion,
-                    }, logger);
-                    appleSupplementPrototypeCsproj = protoResult.CsprojPath;
-                }
+                string? appleSupplementPrototypeCsproj = EmitAppleSupplementPrototype(
+                    appleSupplementPrototypeDir, platformInfo, swiftRuntimeVersion,
+                    metadata.EffectiveMinimumOSVersion, logger);
 
                 // Always emit metadata props (used by SDK and standalone)
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
@@ -1316,25 +1346,18 @@ public static class BindingsGeneratorCommand
             // SDK's heredoc can <Import> it and the _SwiftBindingNeedsAppleSupplement signal
             // reaches the PackageReference injection in target 4f. Prototype mode also routes
             // through here: the csproj path flows into the aux file alongside the version.
+            // SDK mode pins a fixed "15.0" min-OS floor (Apple-supplement decoupling) and catches a
+            // prototype failure: the apple-supplement.props version signal emitted below drives the
+            // SDK's PackageReference injection and must still run even if the prototype can't be built.
             string? directSdkPrototypeCsproj = null;
-            if (!string.IsNullOrWhiteSpace(appleSupplementPrototypeDir) && AppleSupplementReferences.Any)
+            try
             {
-                try
-                {
-                    var protoResult = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
-                    {
-                        PrototypeDirectory = appleSupplementPrototypeDir!,
-                        ReferencedIdentities = AppleSupplementReferences.Current,
-                        PlatformInfo = platformInfo,
-                        SwiftRuntimeVersion = swiftRuntimeVersion,
-                        MinimumOSVersion = "15.0",
-                    }, logger);
-                    directSdkPrototypeCsproj = protoResult.CsprojPath;
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning("Failed to emit Apple-supplement prototype: {Message}", ex.Message);
-                }
+                directSdkPrototypeCsproj = EmitAppleSupplementPrototype(
+                    appleSupplementPrototypeDir, platformInfo, swiftRuntimeVersion, "15.0", logger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Failed to emit Apple-supplement prototype: {Message}", ex.Message);
             }
             XCFrameworkMetadataExtractor.EmitAppleSupplementPropsFragment(
                 outputDirectory,
@@ -1379,19 +1402,9 @@ public static class BindingsGeneratorCommand
 
                 // Direct mode has no binding-metadata.props, so the prototype csproj only feeds
                 // the generator-emitted consumer csproj path below — no SDK-target handoff.
-                string? directPrototypeCsproj = null;
-                if (!string.IsNullOrWhiteSpace(appleSupplementPrototypeDir) && AppleSupplementReferences.Any)
-                {
-                    var protoResult = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
-                    {
-                        PrototypeDirectory = appleSupplementPrototypeDir!,
-                        ReferencedIdentities = AppleSupplementReferences.Current,
-                        PlatformInfo = platformInfo,
-                        SwiftRuntimeVersion = swiftRuntimeVersion,
-                        MinimumOSVersion = metadata.EffectiveMinimumOSVersion,
-                    }, logger);
-                    directPrototypeCsproj = protoResult.CsprojPath;
-                }
+                string? directPrototypeCsproj = EmitAppleSupplementPrototype(
+                    appleSupplementPrototypeDir, platformInfo, swiftRuntimeVersion,
+                    metadata.EffectiveMinimumOSVersion, logger);
 
                 BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
                 {
@@ -1436,6 +1449,39 @@ public static class BindingsGeneratorCommand
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Emits the Apple-supplement prototype csproj for the resolved supplement references and
+    /// returns its path, or <c>null</c> when prototype emission wasn't requested (no
+    /// <c>--apple-supplement-prototype-dir</c>) or nothing referenced a supplement type.
+    /// Centralizes the three otherwise byte-identical emit blocks (xcframework, SDK, direct) so
+    /// their <see cref="AppleSupplementPrototypeEmitter.Options"/> can no longer silently drift
+    /// apart. The minimum-OS floor differs per mode (SDK mode pins a fixed floor by design — see
+    /// the Apple-supplement decoupling), so it stays an explicit caller-supplied parameter rather
+    /// than being baked in. Error handling is the caller's choice: the xcframework/direct paths let
+    /// a failure propagate (loud), while the SDK path catches it to preserve the version-signal
+    /// props emission that must still run.
+    /// </summary>
+    private static string? EmitAppleSupplementPrototype(
+        string? appleSupplementPrototypeDir,
+        PlatformInfo platformInfo,
+        string? swiftRuntimeVersion,
+        string? minimumOSVersion,
+        ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(appleSupplementPrototypeDir) || !AppleSupplementReferences.Any)
+            return null;
+
+        var protoResult = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+        {
+            PrototypeDirectory = appleSupplementPrototypeDir!,
+            ReferencedIdentities = AppleSupplementReferences.Current,
+            PlatformInfo = platformInfo,
+            SwiftRuntimeVersion = swiftRuntimeVersion,
+            MinimumOSVersion = minimumOSVersion,
+        }, logger);
+        return protoResult.CsprojPath;
     }
 
     /// <summary>
@@ -1586,6 +1632,98 @@ public static class BindingsGeneratorCommand
     /// </summary>
     internal static bool ShouldAbortForFailedMixedObjC(ObjCPipelineResult? mixedObjcResult)
         => mixedObjcResult != null && mixedObjcResult.ExitCode != 0;
+
+    /// <summary>
+    /// Finding 50 fail-closed gate: under <c>--strict-inputs</c> (the CI compile gate's strict
+    /// mode), a generation whose input edge degraded — a device→simulator slice fallback, a
+    /// missing swiftinterface, an ABI-JSON fallback, an ambiguous TBD pick, or a degraded
+    /// auto-detected dependency — must fail rather than ship a silently-shrunk API surface. The
+    /// degradations are recorded on the ambient <see cref="InputResolutionReport"/> during
+    /// resolution and dependency parsing; this predicate is the single decision point so a future
+    /// refactor of <c>Execute</c> can't quietly turn the gate back into warn-and-continue.
+    /// </summary>
+    internal static bool ShouldFailClosedOnDegradedInputs(bool strictInputs, bool hasDegradations)
+        => strictInputs && hasDegradations;
+
+    /// <summary>
+    /// Finding 50: when <c>--strict-inputs</c> is set and at least one input-resolution degradation
+    /// was recorded, logs the SWIFTBIND027 diagnostics (one per degradation plus a summary) and
+    /// returns <c>true</c> so the caller aborts the generation with a non-zero exit rather than
+    /// reporting success on a silently-narrowed binding. Returns <c>false</c> otherwise (the
+    /// graceful, exit-0 path). Every generation route calls this, so the fail-closed guarantee has
+    /// no per-path holes, but the gate sits at a different point per route: the <c>--objc</c>-forced
+    /// pure-ObjC path and the Swift-resolution-failed ObjC fallback gate BEFORE emission (before
+    /// <c>ObjCPipeline.Run</c>), whereas the Swift path gates AFTER <c>GenerateBindings</c> has
+    /// already emitted the C# and persisted the manifest — but still before the downstream
+    /// compilation/packaging phases that would consume and ship it, so a degraded Swift binding is
+    /// never built or packed. The per-degradation SWIFTBIND027 error lines (not a persisted file)
+    /// are the authoritative decision list the summary line points to, because not every route
+    /// writes a manifest: the pure-ObjC routes emit no <see cref="BindingArtifactManifest"/>, so
+    /// only the Swift path also persists the inputResolution section to binding-artifact-manifest.json.
+    /// </summary>
+    internal static bool EmitStrictInputsFailureIfDegraded(bool strictInputs, ILogger logger)
+    {
+        if (!ShouldFailClosedOnDegradedInputs(strictInputs, InputResolutionReport.HasDegradations))
+            return false;
+
+        foreach (var decision in InputResolutionReport.Decisions)
+        {
+            if (decision.Severity == InputResolutionSeverity.Degradation)
+                logger.LogError("SWIFTBIND027: degraded input resolution ({Category}): {Detail}", decision.Category, decision.Detail);
+        }
+        logger.LogError("SWIFTBIND027: input resolution degraded under --strict-inputs; failing the generation. Each degraded input is listed in the SWIFTBIND027 entries above.");
+        return true;
+    }
+
+    /// <summary>
+    /// Finding 50: records every auto-detected-but-unresolved companion dependency as a
+    /// <see cref="InputResolutionCategory.Dependency"/> degradation and emits the consumer-facing
+    /// warning. An unresolved dependency shrinks the API surface exactly like one that resolves but
+    /// fails to parse (<see cref="Program"/> records that case) — its types resolve to
+    /// <c>AnyType</c> and secondary gates prune the members that reference them — so it must be a
+    /// recorded degradation that <c>--strict-inputs</c> can escalate to a hard failure (SWIFTBIND027)
+    /// rather than a silent exit-0 on a narrowed binding. This recording happens before the
+    /// fail-closed gate at the call site so the degradation is counted. Only genuine <c>@rpath</c>
+    /// companion frameworks reach here: <see cref="BinaryDependencyAnalyzer.ParseOtoolOutput"/>
+    /// already filters system/OS-resident frameworks (absolute <c>/System/...</c> paths and
+    /// <c>/usr/lib/swift</c>), so this does not fire on Apple SDK linkage. Returns the count recorded.
+    /// </summary>
+    internal static int RecordUnresolvedDependencyDegradations(
+        IReadOnlyList<DetectedDependency> unresolvedDependencies, ILogger logger)
+    {
+        foreach (var unresolved in unresolvedDependencies)
+        {
+            var reason = unresolved.UnresolvedReason ?? "missing-xcframework";
+            InputResolutionReport.RecordDegradation(
+                InputResolutionCategory.Dependency,
+                $"Auto-detected dependency '{unresolved.FrameworkName}' could not be resolved to an xcframework " +
+                $"({reason}); its types will resolve to AnyType and dependent members will be pruned.");
+            logger.LogWarning("{Message}",
+                BindingsGenerator.FormatDependencyWarning(unresolved.FrameworkName, reason));
+        }
+        return unresolvedDependencies.Count;
+    }
+
+    /// <summary>
+    /// Finding 50: records a <see cref="InputResolutionCategory.Dependency"/> degradation when
+    /// automatic dependency analysis failed systemically. <see cref="BinaryDependencyAnalyzer.Analyze"/>
+    /// returns <c>null</c> ONLY on a non-zero <c>otool -L</c> exit (an empty-but-successful scan
+    /// returns a non-null result with empty lists), so a <c>null</c> result means EVERY companion
+    /// dependency is invisible and the API surface silently shrinks (dependent types resolve to
+    /// <c>AnyType</c>). Mirroring Finding 63's tri-state probe philosophy, a systemic analysis failure
+    /// is itself a degradation — not a clean "no dependencies" — so <c>--strict-inputs</c> fails closed
+    /// instead of exiting 0 on a silently-narrowed binding.
+    /// </summary>
+    internal static void RecordSystemicDependencyAnalysisFailure(ILogger logger)
+    {
+        InputResolutionReport.RecordDegradation(
+            InputResolutionCategory.Dependency,
+            "Automatic dependency analysis failed (otool -L returned non-zero); companion " +
+            "dependencies could not be detected and any dependent types will resolve to AnyType, " +
+            "pruning dependent members.");
+        logger.LogWarning(
+            "Automatic dependency analysis failed; dependent members may be silently pruned.");
+    }
 
     /// <summary>
     /// Classifies a framework as "Mixed" (Swift API + an embedded ObjC companion) iff the ObjC

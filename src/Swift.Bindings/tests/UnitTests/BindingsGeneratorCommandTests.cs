@@ -3,8 +3,13 @@
 
 #nullable enable
 
+using System;
+using System.Collections.Generic;
 using System.CommandLine;
+using System.Linq;
 using BindingsGeneration.ObjC;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -431,6 +436,71 @@ public class DeriveModuleNameFromSwiftInterfacePathTests
 
 #endregion
 
+#region --strict-inputs CLI option + fail-closed gate
+
+/// <summary>
+/// Finding 50: <c>--strict-inputs</c> escalates a degraded input edge (slice fallback, missing
+/// swiftinterface, ABI-JSON fallback, ambiguous TBD, degraded auto-detected dependency) to a fatal
+/// generator exit. The flag must (a) parse off the CLI, (b) default to false so existing callers
+/// are unaffected, and (c) be registered on the root command so System.CommandLine binds it.
+/// </summary>
+public class StrictInputsCliOptionTests
+{
+    [Fact]
+    public void StrictInputsOption_Parses_FromCommandLine()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(new[] { "--strict-inputs" });
+        Assert.True(parsed.GetValueForOption(opts.StrictInputs));
+    }
+
+    [Fact]
+    public void StrictInputsOption_DefaultsToFalse_WhenNotSupplied()
+    {
+        // False default is load-bearing: a normal (non-strict) generation must keep degrading
+        // gracefully — the report still records the degradation, but the run exits 0.
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(Array.Empty<string>());
+        Assert.False(parsed.GetValueForOption(opts.StrictInputs));
+    }
+
+    [Fact]
+    public void StrictInputsOption_IsRegisteredOnRootCommand()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        Assert.Contains(opts.StrictInputs, root.Options);
+    }
+}
+
+/// <summary>
+/// Finding 50: the fail-closed decision is its own predicate so a future refactor of
+/// <c>Execute</c> can't silently turn the gate back into warn-and-continue. The gate fires iff
+/// BOTH <c>--strict-inputs</c> is set AND at least one input degradation was recorded.
+/// </summary>
+public class ShouldFailClosedOnDegradedInputsTests
+{
+    [Fact]
+    public void StrictAndDegraded_FailsClosed()
+    {
+        Assert.True(BindingsGeneratorCommand.ShouldFailClosedOnDegradedInputs(
+            strictInputs: true, hasDegradations: true));
+    }
+
+    [Theory]
+    [InlineData(false, true)]   // not strict: degrade gracefully, exit 0
+    [InlineData(true, false)]   // strict but every input resolved cleanly
+    [InlineData(false, false)]  // neither
+    public void OtherwiseDoesNotFailClosed(bool strict, bool degraded)
+    {
+        Assert.False(BindingsGeneratorCommand.ShouldFailClosedOnDegradedInputs(strict, degraded));
+    }
+}
+
+#endregion
+
 #region Mixed-framework ObjC fail-closed decision
 
 /// <summary>
@@ -536,6 +606,190 @@ public class IsMixedFrameworkTests
         // gate (ShouldAbortForFailedMixedObjC) fires first, so emission never reaches here.
         var result = new ObjCPipelineResult(1, ModuleWith(withClass: true), "synthetic failure");
         Assert.False(BindingsGeneratorCommand.IsMixedFramework(result));
+    }
+}
+
+#endregion
+
+#region RecordUnresolvedDependencyDegradations
+
+/// <summary>
+/// Finding 50: an auto-detected companion dependency the analyzer cannot resolve to an xcframework
+/// shrinks the binding's API surface (its types resolve to <c>AnyType</c> and dependent members are
+/// pruned), so each one must be recorded as a <see cref="InputResolutionCategory.Dependency"/>
+/// degradation — the recording <c>--strict-inputs</c> escalates to SWIFTBIND027 — not merely logged.
+/// The loop runs before the fail-closed gate at the call site, so the degradation is counted.
+/// </summary>
+public class RecordUnresolvedDependencyDegradationsTests
+{
+    [Fact]
+    public void EachUnresolvedDependency_RecordsADependencyDegradation()
+    {
+        InputResolutionReport.Reset();
+        var unresolved = new List<DetectedDependency>
+        {
+            new() { FrameworkName = "Alpha", InstallName = "@rpath/Alpha.framework/Alpha", UnresolvedReason = "no-xcframework" },
+            new() { FrameworkName = "Beta", InstallName = "@rpath/Beta.framework/Beta", UnresolvedReason = "missing-slice" },
+        };
+
+        var count = BindingsGeneratorCommand.RecordUnresolvedDependencyDegradations(unresolved, NullLogger.Instance);
+
+        Assert.Equal(2, count);
+        var decisions = InputResolutionReport.Decisions;
+        Assert.Equal(2, decisions.Count);
+        Assert.All(decisions, d => Assert.Equal(InputResolutionCategory.Dependency, d.Category));
+        Assert.All(decisions, d => Assert.Equal(InputResolutionSeverity.Degradation, d.Severity));
+        Assert.True(InputResolutionReport.HasDegradations);
+        Assert.Contains(decisions, d => d.Detail.Contains("Alpha") && d.Detail.Contains("no-xcframework"));
+        Assert.Contains(decisions, d => d.Detail.Contains("Beta") && d.Detail.Contains("missing-slice"));
+
+        InputResolutionReport.Reset();
+    }
+
+    [Fact]
+    public void NullUnresolvedReason_FallsBackToMissingXcframework()
+    {
+        InputResolutionReport.Reset();
+        var unresolved = new List<DetectedDependency>
+        {
+            new() { FrameworkName = "Gamma", InstallName = "@rpath/Gamma.framework/Gamma" }, // UnresolvedReason null
+        };
+
+        BindingsGeneratorCommand.RecordUnresolvedDependencyDegradations(unresolved, NullLogger.Instance);
+
+        var decision = Assert.Single(InputResolutionReport.Decisions);
+        Assert.Contains("missing-xcframework", decision.Detail);
+
+        InputResolutionReport.Reset();
+    }
+
+    [Fact]
+    public void EmptyList_RecordsNothing()
+    {
+        InputResolutionReport.Reset();
+
+        var count = BindingsGeneratorCommand.RecordUnresolvedDependencyDegradations(
+            new List<DetectedDependency>(), NullLogger.Instance);
+
+        Assert.Equal(0, count);
+        Assert.Empty(InputResolutionReport.Decisions);
+        Assert.False(InputResolutionReport.HasDegradations);
+    }
+}
+
+#endregion
+
+#region RecordSystemicDependencyAnalysisFailure
+
+/// <summary>
+/// Finding 50 (Codex round 2): a systemic <c>otool -L</c> failure makes
+/// <see cref="BinaryDependencyAnalyzer.Analyze"/> return null, hiding every companion dependency and
+/// silently shrinking the API. That must be recorded as a Dependency degradation — not treated as a
+/// clean "no dependencies" — so <c>--strict-inputs</c> fails closed.
+/// </summary>
+public class RecordSystemicDependencyAnalysisFailureTests
+{
+    [Fact]
+    public void RecordsExactlyOneDependencyDegradation()
+    {
+        InputResolutionReport.Reset();
+
+        BindingsGeneratorCommand.RecordSystemicDependencyAnalysisFailure(NullLogger.Instance);
+
+        var decision = Assert.Single(InputResolutionReport.Decisions);
+        Assert.Equal(InputResolutionCategory.Dependency, decision.Category);
+        Assert.Equal(InputResolutionSeverity.Degradation, decision.Severity);
+        Assert.True(InputResolutionReport.HasDegradations);
+
+        InputResolutionReport.Reset();
+    }
+}
+
+#endregion
+
+#region EmitStrictInputsFailureIfDegraded gate
+
+/// <summary>
+/// Finding 50 (Codex round 2): the SWIFTBIND027 fail-closed gate is shared by every generation route
+/// (Swift, --objc-forced pure-ObjC, and the Swift-resolution-failed ObjC fallback) so the
+/// fail-closed guarantee has no per-path holes. It returns true (abort) only when --strict-inputs is
+/// set AND a degradation was recorded.
+/// </summary>
+public class EmitStrictInputsFailureIfDegradedTests
+{
+    [Fact]
+    public void StrictAndDegraded_ReturnsTrue()
+    {
+        InputResolutionReport.Reset();
+        InputResolutionReport.RecordDegradation(
+            InputResolutionCategory.SliceSelection, "device slice absent; fell back to simulator");
+
+        Assert.True(BindingsGeneratorCommand.EmitStrictInputsFailureIfDegraded(strictInputs: true, NullLogger.Instance));
+
+        InputResolutionReport.Reset();
+    }
+
+    [Fact]
+    public void StrictButClean_ReturnsFalse()
+    {
+        InputResolutionReport.Reset();
+        InputResolutionReport.RecordInfo(InputResolutionCategory.SliceSelection, "selected simulator slice");
+
+        Assert.False(BindingsGeneratorCommand.EmitStrictInputsFailureIfDegraded(strictInputs: true, NullLogger.Instance));
+
+        InputResolutionReport.Reset();
+    }
+
+    [Fact]
+    public void NotStrictButDegraded_ReturnsFalse()
+    {
+        InputResolutionReport.Reset();
+        InputResolutionReport.RecordDegradation(
+            InputResolutionCategory.SliceSelection, "device slice absent; fell back to simulator");
+
+        Assert.False(BindingsGeneratorCommand.EmitStrictInputsFailureIfDegraded(strictInputs: false, NullLogger.Instance));
+
+        InputResolutionReport.Reset();
+    }
+
+    [Fact]
+    public void StrictAndDegraded_LogsEachDegradationAndPointsAtThoseEntries_NotABogusFile()
+    {
+        // Finding 50 (Codex round 3): the summary line must not direct users to a file. There is no
+        // "input-resolution.json" — the real artifact is binding-artifact-manifest.json (and the
+        // pure-ObjC routes abort before any manifest is written). Every degradation is logged as its
+        // own SWIFTBIND027 line, so the summary points at those entries — accurate on every path.
+        InputResolutionReport.Reset();
+        InputResolutionReport.RecordDegradation(
+            InputResolutionCategory.SliceSelection, "device slice absent; fell back to simulator");
+        var logger = new CapturingLogger();
+
+        Assert.True(BindingsGeneratorCommand.EmitStrictInputsFailureIfDegraded(strictInputs: true, logger));
+
+        var all = string.Join("\n", logger.Messages);
+        Assert.Contains("SWIFTBIND027", all);
+        Assert.Contains("device slice absent; fell back to simulator", all); // the per-degradation line
+        Assert.Contains("entries above", all);                              // summary points at those lines
+        Assert.DoesNotContain("input-resolution.json", all);               // never the fabricated filename
+
+        InputResolutionReport.Reset();
+    }
+
+    /// <summary>Captures emitted log messages for assertion.</summary>
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<string> Messages { get; } = new();
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+            => Messages.Add(formatter(state, exception));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 }
 

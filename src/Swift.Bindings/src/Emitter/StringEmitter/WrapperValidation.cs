@@ -253,11 +253,13 @@ public static class WrapperValidation
 
     /// <summary>
     /// Returns true when the generator is running in xcframework mode, where the wrapper
-    /// library exists. This is a prerequisite for all @_cdecl wrapper emission.
+    /// library exists. This is a prerequisite for all @_cdecl wrapper emission. This is the
+    /// single chokepoint for the mode decision — it consults the explicit
+    /// <see cref="GenerationMode"/> rather than re-deriving the <c>AsyncLibraryName</c> sentinel.
     /// </summary>
     public static bool IsXCFrameworkMode(ITypeDatabase db)
     {
-        return !string.IsNullOrEmpty(db.AsyncLibraryName);
+        return db.GenerationMode == GenerationMode.XCFramework;
     }
 
     /// <summary>
@@ -990,7 +992,7 @@ public static class WrapperValidation
     public static bool HasCdeclCompatibleFunctionShape(MethodEnvironment env)
     {
         // Guard 4: xcframework mode required
-        if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
+        if (!IsXCFrameworkMode(env.TypeDatabase))
             return false;
         // Guard 5b: Generic parent type — allow non-final class instance methods with concrete signatures
         var parentTypeDecl = env.ParentDecl as TypeDecl;

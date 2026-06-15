@@ -3,137 +3,14 @@
 
 namespace BindingsGeneration;
 
-/// <summary>
-/// A complete marshalling plan for a Swift method call from C#.
-/// Composes per-parameter MarshalPlans (from TypeProjectionFactory) with
-/// method-level concerns (SwiftSelf, SwiftError, generic metadata, etc.).
-/// Consumed by the plan-driven emitters.
-/// </summary>
-public record MethodMarshalPlan
-{
-    /// <summary>The C# public method signature.</summary>
-    public required MethodSignatureInfo PublicSignature { get; init; }
-
-    /// <summary>The [LibraryImport] P/Invoke declaration.</summary>
-    public required PInvokeDeclarationInfo PInvokeDeclaration { get; init; }
-
-    /// <summary>Per-parameter marshalling plans, in order.</summary>
-    public required IReadOnlyList<ParameterMarshalInfo> ParameterPlans { get; init; }
-
-    /// <summary>Return value marshalling plan (null for void methods).</summary>
-    public MarshalPlan? ReturnPlan { get; init; }
-
-    /// <summary>SwiftSelf setup for instance methods (null for static/free functions).</summary>
-    public SwiftSelfSetup? SwiftSelf { get; init; }
-
-    /// <summary>SwiftError setup for throwing methods (null for non-throwing).</summary>
-    public SwiftErrorSetup? SwiftError { get; init; }
-
-    /// <summary>Generic type metadata setup (null for non-generic methods).</summary>
-    public GenericMetadataSetup? GenericMetadata { get; init; }
-
-    /// <summary>Indirect result allocation for large return types (null for direct returns).</summary>
-    public IndirectResultSetup? IndirectResult { get; init; }
-
-    /// <summary>Async infrastructure: TCS, callbacks, Swift wrapper (null for sync methods).</summary>
-    public AsyncMethodSetup? Async { get; init; }
-
-    /// <summary>Optional pointer wrapper for large Optional returns (null when not needed).</summary>
-    public OptionalPointerWrapperSetup? OptionalPointerWrapper { get; init; }
-
-    /// <summary>Whether the method body requires an unsafe block.</summary>
-    public bool RequiresUnsafe { get; init; }
-
-    /// <summary>Whether the method requires a fixed block (frozen struct pointer pinning).</summary>
-    public bool RequiresFixed { get; init; }
-
-    /// <summary>Generated Swift wrapper code (null when no wrapper needed).</summary>
-    public string? SwiftWrapperCode { get; init; }
-
-    /// <summary>Callback declarations to emit alongside the method (closures, async callbacks).</summary>
-    public IReadOnlyList<CallbackDeclaration> CallbackDeclarations { get; init; } = Array.Empty<CallbackDeclaration>();
-}
-
-/// <summary>
-/// Information about the public C# method signature.
-/// </summary>
-public record MethodSignatureInfo
-{
-    /// <summary>The method name.</summary>
-    public required string Name { get; init; }
-
-    /// <summary>The return type string.</summary>
-    public required string ReturnType { get; init; }
-
-    /// <summary>The parameter declarations (type + name pairs).</summary>
-    public required IReadOnlyList<(string Type, string Name)> Parameters { get; init; }
-
-    /// <summary>Generic type parameters (e.g., "T0", "T1").</summary>
-    public IReadOnlyList<string> GenericTypeParameters { get; init; } = Array.Empty<string>();
-
-    /// <summary>Access modifier (public, internal, etc.).</summary>
-    public string AccessModifier { get; init; } = "public";
-
-    /// <summary>Whether the method is static.</summary>
-    public bool IsStatic { get; init; }
-}
-
-/// <summary>
-/// Information about the [LibraryImport] P/Invoke declaration.
-/// </summary>
-public record PInvokeDeclarationInfo
-{
-    /// <summary>The P/Invoke method name (mangled or @_silgen_name).</summary>
-    public required string EntryPoint { get; init; }
-
-    /// <summary>The library name for the DllImport.</summary>
-    public required string LibraryName { get; init; }
-
-    /// <summary>The P/Invoke return type.</summary>
-    public required string ReturnType { get; init; }
-
-    /// <summary>Whether the return is bool (needs [return: MarshalAs(UnmanagedType.U1)]).</summary>
-    public bool ReturnIsBool { get; init; }
-
-    /// <summary>The P/Invoke parameters.</summary>
-    public required IReadOnlyList<PInvokeParameterInfo> Parameters { get; init; }
-
-    /// <summary>Calling convention types (always CallConvCdecl).</summary>
-    public IReadOnlyList<string> CallingConventions { get; init; } = new[] { "typeof(CallConvCdecl)" };
-}
-
-/// <summary>
-/// A single P/Invoke parameter with type and optional marshalling attribute.
-/// </summary>
-public record PInvokeParameterInfo
-{
-    /// <summary>The P/Invoke type string.</summary>
-    public required string Type { get; init; }
-
-    /// <summary>The parameter name.</summary>
-    public required string Name { get; init; }
-
-    /// <summary>Optional marshalling attribute (e.g., "[MarshalAs(UnmanagedType.U1)]").</summary>
-    public string? MarshalAttribute { get; init; }
-}
-
-/// <summary>
-/// Per-parameter marshalling info combining the type projection with the parameter name.
-/// </summary>
-public record ParameterMarshalInfo
-{
-    /// <summary>The parameter name in the public API.</summary>
-    public required string PublicName { get; init; }
-
-    /// <summary>The parameter name in the P/Invoke call.</summary>
-    public required string PInvokeName { get; init; }
-
-    /// <summary>The marshalling plan for this parameter.</summary>
-    public required MarshalPlan Plan { get; init; }
-
-    /// <summary>The type projection that produced this plan.</summary>
-    public required ITypeProjection Projection { get; init; }
-}
+// NOTE: The former `MethodMarshalPlan` aggregate and its exclusively-owned support records
+// (MethodSignatureInfo, PInvokeDeclarationInfo, PInvokeParameterInfo, ParameterMarshalInfo,
+// GenericMetadataSetup, GenericParameterMetadata, AsyncMethodSetup) were deleted: they had
+// zero production references, described a consumption topology that does not exist, and
+// `PInvokeDeclarationInfo` shadowed the live `PInvokeDeclaration` class in
+// PInvokeHelperEmitter.cs. The live plan type is `SyncMethodPlan` (built by
+// MethodMarshalPlanBuilder, consumed by WrapperEmitter); the setup records below are the
+// shared building blocks it actually uses.
 
 /// <summary>
 /// SwiftSelf creation for instance methods.
@@ -209,30 +86,6 @@ public record SwiftErrorSetup
 }
 
 /// <summary>
-/// Generic type metadata extraction for generic methods.
-/// </summary>
-public record GenericMetadataSetup
-{
-    /// <summary>Per-generic-parameter metadata extraction.</summary>
-    public required IReadOnlyList<GenericParameterMetadata> Parameters { get; init; }
-
-    /// <summary>Protocol witness table extraction statements.</summary>
-    public IReadOnlyList<string> WitnessTableStatements { get; init; } = Array.Empty<string>();
-}
-
-/// <summary>
-/// Metadata for a single generic type parameter.
-/// </summary>
-public record GenericParameterMetadata
-{
-    /// <summary>The C# generic parameter name (e.g., "T0").</summary>
-    public required string ParameterName { get; init; }
-
-    /// <summary>The metadata variable declaration code.</summary>
-    public required string MetadataCode { get; init; }
-}
-
-/// <summary>
 /// Indirect result setup for large return types.
 /// </summary>
 public record IndirectResultSetup
@@ -251,24 +104,6 @@ public record IndirectResultSetup
     /// Null when no cleanup is needed (stack-based SwiftIndirectResult, constructor paths).
     /// </summary>
     public string? CleanupCode { get; init; }
-}
-
-/// <summary>
-/// Async method infrastructure (Task, callbacks, Swift wrapper).
-/// </summary>
-public record AsyncMethodSetup
-{
-    /// <summary>TaskCompletionSource type string.</summary>
-    public required string TaskCompletionSourceType { get; init; }
-
-    /// <summary>The success callback declaration.</summary>
-    public required CallbackDeclaration SuccessCallback { get; init; }
-
-    /// <summary>The error callback declaration (null for non-throwing async).</summary>
-    public CallbackDeclaration? ErrorCallback { get; init; }
-
-    /// <summary>The generated Swift async wrapper code.</summary>
-    public required string SwiftWrapperCode { get; init; }
 }
 
 /// <summary>

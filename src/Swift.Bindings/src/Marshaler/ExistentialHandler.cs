@@ -526,7 +526,7 @@ public class ExistentialHandler
         {
             // AnyError is hand-rolled in SwiftBindings.Apple; record the reference so the
             // consumer csproj adds the supplement PackageReference.
-            AppleSupplementReferences.Record("Foundation.AnyError");
+            AppleSupplementReferences.Record("Foundation.AnyError", "ExistentialHandler:AnyError");
             csharpType = "Swift.Foundation.AnyError";
             return true;
         }
@@ -566,7 +566,7 @@ public class ExistentialHandler
             // Well-known stdlib protocols → direct runtime type (no proxy needed)
             if (firstProtocol.Name == "Swift.Error")
             {
-                AppleSupplementReferences.Record("Foundation.AnyError");
+                AppleSupplementReferences.Record("Foundation.AnyError", "ExistentialHandler:CompositionAnyError");
                 return "Swift.Foundation.AnyError";
             }
 

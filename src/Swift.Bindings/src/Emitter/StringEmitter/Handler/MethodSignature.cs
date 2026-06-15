@@ -910,7 +910,12 @@ namespace BindingsGeneration
                 {
                     var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
                     if (publicType == "object")
+                    {
+                        // Finding 53: the existential collapsed to AnyType — record the loud
+                        // SWIFTBIND026 degradation rather than letting the member silently go untyped.
+                        ReportCollector.RecordObjectDegradation(protocolList?.ToString() ?? "<unknown>");
                         return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                    }
                     return publicType;
                 }
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;

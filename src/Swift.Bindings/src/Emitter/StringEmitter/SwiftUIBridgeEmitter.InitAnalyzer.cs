@@ -781,7 +781,7 @@ public static partial class SwiftUIBridgeEmitter
         // CodableJsonEmitter.Emit hard-skips EncodeToJson/DecodeFromJson emission when the
         // wrapper library name is empty (xcframework-less mode). The bridge would then emit
         // C# call sites referencing those nonexistent members; mirror the gate here.
-        if (string.IsNullOrEmpty(context.TypeDatabase?.AsyncLibraryName))
+        if (context.TypeDatabase is null || !WrapperValidation.IsXCFrameworkMode(context.TypeDatabase))
             return false;
 
         var qualifiedName = namedSpec.Name;

@@ -14,11 +14,40 @@ using Newtonsoft.Json;
 namespace BindingsGeneration
 {
     /// <summary>
+    /// Typed node-level reconciliation of a module parse (Finding 14a). Every ABI declaration node
+    /// the parser visits lands in exactly one bucket, so the invariant
+    /// <c>Parsed == Emitted + SkippedWithReason + DroppedWithError</c> holds. This is the parser
+    /// analog of the emission skip-attribution work: it turns the previously invisible
+    /// <see cref="SwiftABIParser.HandleNode"/> swallow channel (a bug under a TypeDecl silently
+    /// deletes the whole type) into a durable count surfaced on the artifact manifest, so a
+    /// regression that drops declarations shows up as a number instead of greener logs.
+    /// </summary>
+    /// <param name="Parsed">Total declaration nodes the parser attempted (the sum of the others).</param>
+    /// <param name="Emitted">Nodes that produced a declaration.</param>
+    /// <param name="SkippedWithReason">Nodes deliberately not bound (e.g. imports, no mangled name,
+    /// unsupported declaration kind) — a handler returned null without throwing.</param>
+    /// <param name="DroppedWithError">Nodes lost to a caught exception in <c>HandleNode</c> — the
+    /// silent-failure channel this finding exists to expose.</param>
+    public sealed record ParseReconciliation(
+        int Parsed,
+        int Emitted,
+        int SkippedWithReason,
+        int DroppedWithError)
+    {
+        /// <summary>True when the buckets sum to the total — always expected to hold.</summary>
+        public bool IsBalanced => Parsed == Emitted + SkippedWithReason + DroppedWithError;
+    }
+
+    /// <summary>
     /// Represents the result of parsing a module.
     /// </summary>
     /// <param name="ModuleDecl">The module declaration.</param>
     /// <param name="TypeDecls">The type declarations.</param>
-    public sealed record ModuleParsingResult(ModuleDecl ModuleDecl, Dictionary<NamedTypeSpec, TypeDecl> TypeDecls);
+    /// <param name="Reconciliation">Node-level parse reconciliation counts (Finding 14a).</param>
+    public sealed record ModuleParsingResult(
+        ModuleDecl ModuleDecl,
+        Dictionary<NamedTypeSpec, TypeDecl> TypeDecls,
+        ParseReconciliation Reconciliation);
 
     /// <summary>
     /// Represents the root node of the ABI.
@@ -136,6 +165,17 @@ namespace BindingsGeneration
         /// Types declared in the module.
         /// </summary>
         private readonly Dictionary<NamedTypeSpec, TypeDecl> _moduleTypes = new();
+
+        /// <summary>
+        /// Finding 14a: node-level parse reconciliation counters, accumulated at the single
+        /// <see cref="HandleNode"/> chokepoint and packaged into <see cref="ParseReconciliation"/>
+        /// by <see cref="ParseModule"/>. Counts the whole declaration tree (HandleTypeDecl recurses
+        /// through CollectDeclarations → HandleNode for nested types and members).
+        /// </summary>
+        private int _nodesSeen;
+        private int _nodesEmitted;
+        private int _nodesSkippedWithReason;
+        private int _nodesDroppedWithError;
 
         /// <summary>
         /// TypeWitness mappings from conformance entries.
@@ -819,7 +859,13 @@ namespace BindingsGeneration
 
             moduleDecl.ConformanceGraph = _conformanceGraph;
 
-            return new ModuleParsingResult(moduleDecl, _moduleTypes);
+            var reconciliation = new ParseReconciliation(
+                Parsed: _nodesSeen,
+                Emitted: _nodesEmitted,
+                SkippedWithReason: _nodesSkippedWithReason,
+                DroppedWithError: _nodesDroppedWithError);
+
+            return new ModuleParsingResult(moduleDecl, _moduleTypes, reconciliation);
         }
 
         /// <summary>
@@ -851,6 +897,7 @@ namespace BindingsGeneration
         private BaseDecl? HandleNode(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
             BaseDecl? result = null;
+            bool droppedWithError = false;
             try
             {
                 switch (node.Kind)
@@ -883,12 +930,25 @@ namespace BindingsGeneration
             }
             catch (NotImplementedException e)
             {
+                droppedWithError = true;
                 _logger.LogWarning($"Not implemented '{node.Name}' ({node.MangledName}): {e.Message}");
             }
             catch (Exception e)
             {
+                droppedWithError = true;
                 _logger.LogWarning($"Error while processing node '{node.Name} ({node.MangledName})': {e.Message}");
             }
+
+            // Finding 14a: classify this node's outcome into exactly one reconciliation bucket. A
+            // caught exception is the silent-failure channel (dropped-with-error); a null result with
+            // no exception is a deliberate handler skip; a non-null result was emitted.
+            _nodesSeen++;
+            if (droppedWithError)
+                _nodesDroppedWithError++;
+            else if (result is not null)
+                _nodesEmitted++;
+            else
+                _nodesSkippedWithReason++;
 
             return result;
         }

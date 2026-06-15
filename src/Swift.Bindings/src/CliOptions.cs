@@ -156,6 +156,15 @@ public class CliOptions
         description: "Disable automatic dependency detection from binary linkage.",
         getDefaultValue: () => false);
 
+    public Option<bool> StrictInputs { get; } = new(
+        aliases: new[] { "--strict-inputs" },
+        description: "Finding 50: fail-closed on input-edge degradation. When set, any resolver " +
+                     "fallback that substitutes a different input than requested (device slice -> " +
+                     "simulator slice, arch-specific artifact -> any, degraded auto-detected " +
+                     "dependency, etc.) becomes a fatal SWIFTBIND027 error instead of a warning. " +
+                     "Wired from the CI compile gate (nuke binding-tests --compile-only / --strict).",
+        getDefaultValue: () => false);
+
     public Option<bool> KeepBuiltinDatabase { get; } = new(
         aliases: new[] { "--keep-builtin-database" },
         description: "Disable Apple-framework target mode auto-detection. By default, when the input " +
@@ -366,6 +375,7 @@ public class CliOptions
             LinkLibrary,
             ModuleDatabase,
             NoAutoDetect,
+            StrictInputs,
             KeepBuiltinDatabase,
             ObjC,
             SkipWrapperCompilation,

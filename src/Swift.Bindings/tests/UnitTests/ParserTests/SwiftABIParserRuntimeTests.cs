@@ -1743,6 +1743,84 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region Finding 14a — Parse reconciliation
+
+    [Fact]
+    public void ParseModule_Reconciliation_IsBalancedAndAccountsForEveryNode()
+    {
+        // A mix of outcomes: one emitted type, one deliberate skip (no mangled name), one
+        // dropped-with-error (unsupported node kind throws and is swallowed by HandleNode).
+        var emitted = CreateNode(
+            kind: "TypeDecl", declKind: "Class", moduleName: "TestModule",
+            name: "Good", mangledName: "$s10TestModule4GoodCN");
+        var skipped = CreateNode(
+            kind: "TypeDecl", declKind: "Struct", moduleName: "TestModule",
+            name: "NoMangle", mangledName: string.Empty);
+        var dropped = CreateNode(
+            kind: "UnknownKind", moduleName: "TestModule", name: "Mystery");
+
+        using var fixture = CreateParserWithNodes(emitted, skipped, dropped);
+        var recon = fixture.Parser.ParseModule().Reconciliation;
+
+        Assert.True(recon.IsBalanced,
+            $"Parsed({recon.Parsed}) must equal Emitted({recon.Emitted}) + " +
+            $"SkippedWithReason({recon.SkippedWithReason}) + DroppedWithError({recon.DroppedWithError}).");
+        Assert.Equal(3, recon.Parsed);
+        Assert.Equal(1, recon.Emitted);
+        Assert.Equal(1, recon.SkippedWithReason);
+        Assert.Equal(1, recon.DroppedWithError);
+    }
+
+    [Fact]
+    public void ParseModule_UnsupportedNodeKind_CountsAsDroppedWithError()
+    {
+        // HandleNode's catch-all is the silent-failure channel this finding exists to expose:
+        // an unsupported node throws NotImplementedException, is swallowed, and must be counted
+        // as dropped-with-error (not a deliberate skip).
+        using var fixture = CreateParserWithNodes(
+            CreateNode(kind: "UnknownKind", moduleName: "TestModule", name: "Mystery"));
+        var recon = fixture.Parser.ParseModule().Reconciliation;
+
+        Assert.Equal(1, recon.DroppedWithError);
+        Assert.Equal(0, recon.Emitted);
+        Assert.Equal(0, recon.SkippedWithReason);
+        Assert.True(recon.IsBalanced);
+    }
+
+    [Fact]
+    public void ParseModule_DeliberateSkip_CountsAsSkippedWithReason_NotDropped()
+    {
+        // A handler returning null without throwing (here: a TypeDecl with no mangled name) is a
+        // deliberate skip — it must NOT inflate the dropped-with-error bucket.
+        using var fixture = CreateParserWithNodes(
+            CreateNode(
+                kind: "TypeDecl", declKind: "Struct", moduleName: "TestModule",
+                name: "NoMangle", mangledName: string.Empty));
+        var recon = fixture.Parser.ParseModule().Reconciliation;
+
+        Assert.Equal(1, recon.SkippedWithReason);
+        Assert.Equal(0, recon.DroppedWithError);
+        Assert.Equal(0, recon.Emitted);
+        Assert.True(recon.IsBalanced);
+    }
+
+    [Fact]
+    public void ParseModule_ValidType_CountsAsEmitted()
+    {
+        using var fixture = CreateParserWithNodes(
+            CreateNode(
+                kind: "TypeDecl", declKind: "Class", moduleName: "TestModule",
+                name: "Good", mangledName: "$s10TestModule4GoodCN"));
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal(1, result.Reconciliation.Emitted);
+        Assert.Equal(0, result.Reconciliation.DroppedWithError);
+        Assert.True(result.Reconciliation.IsBalanced);
+    }
+
+    #endregion
+
     private static ParserFixture CreateParserWithFacts(SwiftInterfaceFacts facts, params Node[] nodes)
     {
         var root = new ABIRootNode

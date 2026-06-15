@@ -171,8 +171,12 @@ namespace BindingsGeneration
             var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
             var slices = ParseInfoPlist(plistPath);
 
-            // 3. Select platform slice
-            var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
+            // 3. Select platform slice. This is the PRIMARY generation target, so record its slice
+            //    decision into the input-resolution report (Finding 50) — a fallback here genuinely
+            //    shrinks the bound API and must be escalatable under --strict-inputs. Secondary
+            //    callers (ObjC detection, search-paths-only, sibling search paths) leave
+            //    recordResolution at its default of false.
+            var slice = SelectSlice(slices, platformTarget, logger, platformInfo, recordResolution: true);
 
             // 4. Locate the Modules directory. Frameworks ("Foo.framework") wrap
             //    Modules/ under the bundle; bare-binary slices (libFoo.a /
@@ -253,10 +257,17 @@ namespace BindingsGeneration
                 ?? FindSwiftInterface(swiftModuleDir, selectedArch);
             if (swiftInterfacePath != null)
             {
+                InputResolutionReport.RecordInfo(
+                    InputResolutionCategory.SwiftInterface, $"Found swiftinterface '{swiftInterfacePath}'.");
                 logger.LogInformation("Found Swift interface: {Path}", swiftInterfacePath);
             }
             else
             {
+                // Finding 50: a missing swiftinterface silently limits internal-member detection
+                // (@usableFromInline internal members may not be filtered) — a degraded input.
+                InputResolutionReport.RecordDegradation(
+                    InputResolutionCategory.SwiftInterface,
+                    "No swiftinterface found; internal-member detection will be limited.");
                 logger.LogInformation("No swiftinterface found; internal member detection will be limited.");
             }
 
@@ -409,7 +420,8 @@ namespace BindingsGeneration
             string xcframeworkPath,
             XCFrameworkPlatformTarget platformTarget,
             ILogger logger,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            bool recordResolution = false)
         {
             try
             {
@@ -417,7 +429,12 @@ namespace BindingsGeneration
                 ValidateXCFramework(xcframeworkPath);
                 var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
                 var slices = ParseInfoPlist(plistPath);
-                var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
+                // Finding 50: for a PURE-ObjC binding (the --objc-forced path and the
+                // Swift-resolution-failed fallback) this slice choice is the PRIMARY input — record it
+                // so a device→simulator fallback is visible and --strict-inputs can fail-close. The
+                // mixed-framework secondary detection caller passes recordResolution at its default of
+                // false (the Swift slice is primary there and already records).
+                var slice = SelectSlice(slices, platformTarget, logger, platformInfo, recordResolution);
 
                 var sliceDir = Path.Combine(xcframeworkPath, slice.LibraryIdentifier);
 
@@ -1011,7 +1028,8 @@ namespace BindingsGeneration
             List<XCFrameworkSlice> slices,
             XCFrameworkPlatformTarget platformTarget,
             ILogger logger,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            bool recordResolution = false)
         {
             var plistPlatform = platformInfo?.PlistPlatformString ?? "ios";
             var isCatalyst = platformInfo?.Platform == ApplePlatform.MacCatalyst;
@@ -1056,7 +1074,13 @@ namespace BindingsGeneration
                 .ToList();
 
             if (preferred.Count > 0)
+            {
+                if (recordResolution)
+                    InputResolutionReport.RecordInfo(
+                        InputResolutionCategory.SliceSelection,
+                        $"Selected {(preferSimulator ? "simulator" : "device")} slice '{preferred[0].LibraryIdentifier}'.");
                 return preferred[0];
+            }
 
             // Fallback: use whatever platform slice is available
             var platformName2 = platformInfo?.Platform.ToString() ?? "iOS";
@@ -1064,6 +1088,20 @@ namespace BindingsGeneration
             var requestedKind = preferSimulator ? "simulator" : "device";
             var actualKind = string.IsNullOrEmpty(fallback.SupportedPlatformVariant)
                 ? "device" : fallback.SupportedPlatformVariant;
+            // Finding 50: a requested slice that falls back to a different kind is an input
+            // substitution — record it as a degradation so --strict-inputs can fail-close. Only the
+            // PRIMARY generation target's resolution feeds the input-resolution report
+            // (recordResolution: true at the Resolve call site); the ObjC-detection, search-paths-only,
+            // and best-effort sibling-search-path callers pass it through transitively and must NOT
+            // record — a sibling `-F` path's slice fallback is benign and would otherwise (a) trip a
+            // false-positive SWIFTBIND027 under --strict-inputs and (b) pollute the manifest's
+            // input-resolution snapshot with non-primary-target decisions, including ones recorded
+            // after the strict gate already ran (mixed sibling resolution) or on a path that returns
+            // before the gate (pure-ObjC).
+            if (recordResolution)
+                InputResolutionReport.RecordDegradation(
+                    InputResolutionCategory.SliceSelection,
+                    $"No {platformName2} {requestedKind} slice found; fell back to {actualKind} slice '{fallback.LibraryIdentifier}'.");
             logger.LogWarning(
                 "No {Platform} {Requested} slice found. Falling back to {Actual} slice '{Id}'.",
                 platformName2, requestedKind, actualKind, fallback.LibraryIdentifier);
@@ -1196,6 +1234,8 @@ namespace BindingsGeneration
 
             if (candidates.Count > 0)
             {
+                InputResolutionReport.RecordInfo(
+                    InputResolutionCategory.AbiJson, $"Found arch-specific ABI JSON '{candidates[0]}' for '{selectedArch}'.");
                 logger.LogInformation("Found ABI JSON: {Path}", candidates[0]);
                 return candidates[0];
             }
@@ -1207,6 +1247,11 @@ namespace BindingsGeneration
 
             if (allAbi.Count > 0)
             {
+                // Finding 50: no ABI JSON for the selected arch; using a non-arch-specific one is an
+                // input substitution (the ABI may describe a different arch's layout).
+                InputResolutionReport.RecordDegradation(
+                    InputResolutionCategory.AbiJson,
+                    $"No ABI JSON for arch '{selectedArch}'; fell back to non-arch-specific '{allAbi[0]}'.");
                 logger.LogInformation("Found ABI JSON (non-arch-specific): {Path}", allAbi[0]);
                 return allAbi[0];
             }
@@ -1322,10 +1367,27 @@ namespace BindingsGeneration
             ICommandRunner commandRunner,
             ILogger logger)
         {
-            // Search for existing TBD in swiftmodule directory
-            var tbdFiles = Directory.GetFiles(swiftModuleDir, "*.tbd");
+            // Search for existing TBD in swiftmodule directory.
+            // Finding 50: order deterministically — the previous unsorted GetFiles()[0] picked an
+            // arbitrary file when more than one .tbd was present, so the same inputs could resolve
+            // to different TBDs across runs.
+            var tbdFiles = Directory.GetFiles(swiftModuleDir, "*.tbd")
+                .OrderBy(f => f, StringComparer.Ordinal)
+                .ToArray();
             if (tbdFiles.Length > 0)
             {
+                if (tbdFiles.Length > 1)
+                {
+                    // Ambiguous input: multiple TBDs, only one is consumed.
+                    InputResolutionReport.RecordDegradation(
+                        InputResolutionCategory.Tbd,
+                        $"{tbdFiles.Length} TBD files present; deterministically picked '{tbdFiles[0]}'.");
+                }
+                else
+                {
+                    InputResolutionReport.RecordInfo(
+                        InputResolutionCategory.Tbd, $"Found TBD '{tbdFiles[0]}'.");
+                }
                 logger.LogInformation("Found TBD: {Path}", tbdFiles[0]);
                 return tbdFiles[0];
             }

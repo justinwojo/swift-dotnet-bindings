@@ -762,6 +762,10 @@ namespace BindingsGeneration
                 var asyncProtocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(asyncReturnSpec)!;
                 var asyncContainerType = _env.ExistentialHandler.GetCSharpExistentialType(asyncProtocolList);
                 var asyncPublicType = _env.ExistentialHandler.GetPublicExistentialType(asyncProtocolList);
+                // Finding 53: an async existential that collapses to bare `object` returns the
+                // untyped __existentialResult below — record the loud SWIFTBIND026 degradation.
+                if (asyncPublicType == "object")
+                    ReportCollector.RecordObjectDegradation(asyncProtocolList.ToString() ?? "<unknown>");
                 // Owned-return ctor arg (`, ownsContainer: true`) for EC1/EC2+ proxies, mirroring
                 // WrapperEmitter.OwnedExistentialCtorArg; gated on the container TYPE via the shared
                 // ExistentialHandler predicate (not protocol count — ObjC filtering can drop protocols).

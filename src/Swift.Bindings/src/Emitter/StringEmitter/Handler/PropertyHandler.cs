@@ -93,7 +93,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // Does NOT touch propertyDecl.WasEmitted — that flag is only set after successful
             // accessor emission downstream (line ~808 sync, ~1308 async).
             ReportCollector.RecordMemberSkipped(propertyDecl, reason, details);
-            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, reason, details);
+            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, reason, details, containingDecl: propertyDecl.ParentDecl);
         }
 
         // Pipeline: property-level bound generic gates (bare generic, non-ISwiftObject, unsatisfied constraint)
@@ -1310,7 +1310,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // the output. Does NOT touch WasEmitted (set only on the successful-emission
             // path at the tail of this method).
             ReportCollector.RecordMemberSkipped(propertyDecl, reason, details);
-            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, reason, details);
+            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, reason, details, containingDecl: propertyDecl.ParentDecl);
         }
 
         // Async methods require [UnmanagedCallersOnly] callbacks which are illegal inside

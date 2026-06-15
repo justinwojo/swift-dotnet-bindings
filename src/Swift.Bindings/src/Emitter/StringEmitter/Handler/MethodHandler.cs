@@ -171,7 +171,8 @@ namespace BindingsGeneration
                     "has no synchronous-entry mechanism for foreign runtimes.");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
                     BindingItemKind.Method, SkipReason.ActorIsolatedConstructor,
-                    $"parent type '{actorIsolatedParent.Name}' is isolated to a custom global actor (SWIFTBIND022)");
+                    $"parent type '{actorIsolatedParent.Name}' is isolated to a custom global actor (SWIFTBIND022)",
+                    containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
@@ -365,7 +366,8 @@ namespace BindingsGeneration
                     "Constructor has a variadic parameter (T...) that cannot be wrapped: Swift rejects passing an Array where a variadic is expected.");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
                     BindingItemKind.Method, SkipReason.UnsupportedSignature,
-                    "variadic parameter cannot be wrapped (Swift rejects Array for T...)");
+                    "variadic parameter cannot be wrapped (Swift rejects Array for T...)",
+                    containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
@@ -427,7 +429,8 @@ namespace BindingsGeneration
                         "Constructor has generic container parameters (Array/Dictionary/Set) that crash without @_cdecl wrapper.");
                     UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
                         BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
-                        "generic container parameters require @_cdecl wrapper (ABI mismatch)");
+                        "generic container parameters require @_cdecl wrapper (ABI mismatch)",
+                        containingDecl: methodEnv.MethodDecl.ParentDecl);
                     return;
                 }
             }
@@ -438,7 +441,7 @@ namespace BindingsGeneration
             {
                 _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
                 ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Constructor signature contains unsupported placeholder type.");
-                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type in constructor");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type in constructor", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
@@ -565,7 +568,8 @@ namespace BindingsGeneration
                     "raw generic init symbol is not ABI-correct. Any satisfying concrete-conformer forms are emitted via CSM.");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
                     BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
-                    "generic-class constructor inadmissible for open dispatch (CSM emits concrete forms)");
+                    "generic-class constructor inadmissible for open dispatch (CSM emits concrete forms)",
+                    containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
@@ -1270,7 +1274,7 @@ namespace BindingsGeneration
             if (!isAccessor && WrapperValidation.HasUnbridgeableAsyncThrowingClosure(methodEnv))
             {
                 ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Async-throwing closure parameter cannot be bridged (non-baseline shape or outer method is not a @_cdecl async-throws wrapper).");
-                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unbridgeable async-throwing closure");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unbridgeable async-throwing closure", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
@@ -1286,7 +1290,7 @@ namespace BindingsGeneration
             {
                 ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature,
                     "Async method without @_cdecl wrapper — direct CallConvSwift on Swift async ABI is unsafe.");
-                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "wrapper not emitted; direct call would be ABI-unsafe");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "wrapper not emitted; direct call would be ABI-unsafe", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
@@ -1298,7 +1302,7 @@ namespace BindingsGeneration
                 if (!isAccessor)
                 {
                     ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
-                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type");
+                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 }
                 return;
             }

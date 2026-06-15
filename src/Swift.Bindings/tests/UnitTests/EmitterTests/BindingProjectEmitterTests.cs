@@ -2017,14 +2017,23 @@ namespace BindingsGeneration.Tests
             // the Record/Reset round-trip behaviour itself.
             Assert.False(AppleSupplementReferences.Any);
 
-            AppleSupplementReferences.Record("Foundation.Locale.Language");
-            AppleSupplementReferences.Record("Foundation.Locale.Language"); // dedup
-            AppleSupplementReferences.Record("CryptoKit.P256.Signing.ECDSASignature");
+            AppleSupplementReferences.Record("Foundation.Locale.Language", "test:A");
+            AppleSupplementReferences.Record("Foundation.Locale.Language", "test:B"); // dedup identity, second hint
+            AppleSupplementReferences.Record("CryptoKit.P256.Signing.ECDSASignature", "test:C");
             Assert.True(AppleSupplementReferences.Any);
             Assert.Equal(2, AppleSupplementReferences.Current.Count);
 
+            // Finding 14c: provenance is aggregated per identity — the deduped identity carries
+            // both caller hints, sorted; the snapshot is sorted by identity.
+            var snapshot = AppleSupplementReferences.Snapshot();
+            Assert.Equal(2, snapshot.Count);
+            Assert.Equal("CryptoKit.P256.Signing.ECDSASignature", snapshot[0].Identity);
+            Assert.Equal("Foundation.Locale.Language", snapshot[1].Identity);
+            Assert.Equal(new[] { "test:A", "test:B" }, snapshot[1].Provenance);
+
             AppleSupplementReferences.Reset();
             Assert.False(AppleSupplementReferences.Any);
+            Assert.Empty(AppleSupplementReferences.Snapshot());
         }
     }
 

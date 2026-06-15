@@ -349,6 +349,14 @@ partial class Build
         if (platformOverride != null && platformOverride.Name != "ios")
             genArgs.Add($"--platform {platformOverride.Name}");
 
+        // Finding 50: in strict mode (explicit --strict or --compile-only's fail-closed
+        // default), make the generator fail-closed on a degraded input edge — a device→sim
+        // slice fallback, a missing swiftinterface, an ABI-JSON fallback, an ambiguous TBD,
+        // or a degraded auto-detected dependency. Mirrors how `strict` already escalates a
+        // non-zero generator exit to a thrown build error below.
+        if (strict)
+            genArgs.Add("--strict-inputs");
+
         if (Directory.Exists(BtSymbolgraphDir))
         {
             var sgCount = Directory.GetFiles(BtSymbolgraphDir, "*.symbols.json").Length;
@@ -403,6 +411,8 @@ partial class Build
             };
             if (platformOverride != null && platformOverride.Name != "ios")
                 depArgs.Add($"--platform {platformOverride.Name}");
+            if (strict)
+                depArgs.Add("--strict-inputs");
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),

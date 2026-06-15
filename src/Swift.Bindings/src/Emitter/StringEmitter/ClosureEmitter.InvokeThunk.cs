@@ -696,7 +696,7 @@ public static partial class ClosureEmitter
         // (TypeProjectionFactory:324). Record it here so a module whose ONLY Foundation.Data use
         // is a returned-closure argument still emits the SwiftBindings.Apple PackageReference;
         // otherwise the generated invoker references Swift.Foundation.Data with no project ref.
-        AppleSupplementReferences.Record("Foundation.Data");
+        AppleSupplementReferences.Record("Foundation.Data", "ClosureEmitter.InvokeThunk:FoundationData");
         return ($"Swift.Foundation.Data.FromByteArray(_arg{argIndex})", "Swift.Foundation.Data");
     }
 

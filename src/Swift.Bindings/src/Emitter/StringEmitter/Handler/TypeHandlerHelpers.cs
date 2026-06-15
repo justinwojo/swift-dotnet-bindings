@@ -93,7 +93,7 @@ namespace BindingsGeneration
                 pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _structDecl.MetadataAccessor);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
-                     !string.IsNullOrEmpty(_typeDatabase.AsyncLibraryName))
+                     WrapperValidation.IsXCFrameworkMode(_typeDatabase))
             {
                 // Xcframework mode: emit @_cdecl metadata wrapper.
                 // Internal types are inaccessible by name — fall back to CallConvSwift.

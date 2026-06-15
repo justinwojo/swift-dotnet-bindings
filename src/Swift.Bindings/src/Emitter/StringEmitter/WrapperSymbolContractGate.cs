@@ -55,7 +55,7 @@ internal static class WrapperSymbolContractGate
         var details = $"wrapper symbol '{exception.EntryPoint}' not registered by wrapper-emit";
 
         UnsupportedCommentEmitter.EmitMemberSkipped(
-            csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingWrapperSymbol, details);
+            csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingWrapperSymbol, details, containingDecl: methodDecl.ParentDecl);
         ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.MissingWrapperSymbol, details);
         // Stash both shapes of the rejected symbol + the qualified containing-type
         // path on the module's emission context so the post-emit cogater can find

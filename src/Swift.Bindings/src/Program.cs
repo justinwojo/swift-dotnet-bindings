@@ -107,7 +107,7 @@ namespace BindingsGeneration
                         return;
                     }
                 }
-                typeDatabase.LoadModuleDatabaseFromFile(dbPath).Wait();
+                typeDatabase.LoadModuleDatabaseFromFile(dbPath, logger).Wait();
             }
 
             // Platform-aware database loading: skip databases for frameworks that are
@@ -144,7 +144,7 @@ namespace BindingsGeneration
 
                     try
                     {
-                        typeDatabase.LoadModuleDatabaseFromFile(dbPath).Wait();
+                        typeDatabase.LoadModuleDatabaseFromFile(dbPath, logger).Wait();
                     }
                     catch (Exception ex)
                     {
@@ -227,7 +227,14 @@ namespace BindingsGeneration
                     {
                         if (dep.IsAutoDetected)
                         {
-                            // Auto-detected dependencies are best-effort — warn and continue
+                            // Auto-detected dependencies are best-effort — warn and continue.
+                            // Finding 50: this shrinks the API surface (dependency types resolve to
+                            // AnyType, secondary gates then prune members), so record it as a degraded
+                            // input that --strict-inputs can escalate to a hard failure.
+                            InputResolutionReport.RecordDegradation(
+                                InputResolutionCategory.Dependency,
+                                $"Auto-detected dependency '{dep.ModuleName}' failed to parse; its types will resolve to AnyType " +
+                                $"({ex.InnerException?.Message ?? ex.Message}).");
                             logger.LogWarning(
                                 "Could not load dependency types for auto-detected module '{Module}': {Message}. " +
                                 "Dependency types will resolve to AnyType.",
@@ -294,7 +301,7 @@ namespace BindingsGeneration
             if (!typeDatabase.IsModuleProcessed(moduleName))
             {
                 // Parse the Swift ABI file and generate declarations
-                var (decl, moduleTypes) = swiftParser.ParseModule();
+                var (decl, moduleTypes, parseReconciliation) = swiftParser.ParseModule();
                 decl.ExportedSymbols = demangledTbdFile.AllSymbols;
                 if (dependencyModuleNames != null)
                     decl.DependencyModuleNames = dependencyModuleNames;
@@ -581,13 +588,23 @@ namespace BindingsGeneration
                 // rejects orphaned reports because they own only their own section.
                 if (report != null)
                 {
+                    // Finding 53: surface the two previously-silent degradation mechanisms loudly
+                    // (SWIFTBIND025 comment-drops, SWIFTBIND026 object degradations) from the report
+                    // the ambient collector populated during emission.
+                    EmissionReportEmitter.EmitDegradationDiagnostics(report, logger);
+
                     var emissionReport = EmissionReportEmitter.BuildReport(emissionContext, moduleName);
                     var manifest = new BindingArtifactManifest
                     {
                         Module = moduleName,
                         GeneratorVersion = BindingArtifactManifestStore.GetGeneratorVersion(),
-                        Generation = GenerationSection.From(report),
-                        Emission = EmissionSection.From(emissionReport),
+                        Generation = GenerationSection.From(report, parseReconciliation),
+                        Emission = EmissionSection.From(emissionReport, AppleSupplementReferences.Snapshot()),
+                        // Finding 50: the input-resolution decisions accumulated during
+                        // XCFrameworkResolver.Resolve (slice/arch/artifact selection) and
+                        // dependency parsing on this same call chain, captured before the
+                        // ambient collector is reset for the next generation.
+                        InputResolution = InputResolutionSection.From(InputResolutionReport.Decisions),
                         ProxyCoGating = new ProxyCoGatingSection
                         {
                             Status = PhaseStatus.Success,

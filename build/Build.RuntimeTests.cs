@@ -2642,6 +2642,12 @@ partial class Build
             $"-o \"{BtOutputDir}\"",
         };
 
+        // Finding 50: fail-closed on a degraded input edge in strict mode (see the iOS
+        // RunRegenerateBindings path for the rationale). Mirrors the non-zero-exit escalation
+        // already gated on `strict` below.
+        if (strict)
+            genArgs.Add("--strict-inputs");
+
         // Note: --async-library, --framework-dependency, and --symbolgraph are
         // intentionally not passed for macOS/Catalyst. All three cause the
         // generator to produce no C# output when combined with desktop-class
@@ -2705,6 +2711,8 @@ partial class Build
                 $"--platform {platform.Name}",
                 $"-o \"{depOutputDir}\"",
             };
+            if (strict)
+                depArgs.Add("--strict-inputs");
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),

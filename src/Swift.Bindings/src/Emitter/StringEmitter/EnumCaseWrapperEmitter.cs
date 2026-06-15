@@ -27,7 +27,7 @@ public static class EnumCaseWrapperEmitter
         ITypeDatabase typeDatabase)
     {
         // 1. xcframework mode required (wrapper library must exist)
-        if (string.IsNullOrEmpty(typeDatabase.AsyncLibraryName))
+        if (!WrapperValidation.IsXCFrameworkMode(typeDatabase))
             return false;
 
         // 2. Skip generic enums AND enums nested in a generic parent — type-metadata

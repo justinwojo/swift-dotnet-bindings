@@ -45,6 +45,15 @@ public interface ITypeDatabase
     public string? AsyncLibraryName { get; }
 
     /// <summary>
+    /// The explicit <see cref="BindingsGeneration.GenerationMode"/> for this run, derived once
+    /// from whether a companion wrapper library is configured. Prefer reading this (or
+    /// <c>WrapperValidation.IsXCFrameworkMode</c>) over re-checking <see cref="AsyncLibraryName"/>
+    /// emptiness at call sites — it names the single decision rather than copying the sentinel.
+    /// </summary>
+    public GenerationMode GenerationMode =>
+        string.IsNullOrEmpty(AsyncLibraryName) ? GenerationMode.Direct : GenerationMode.XCFramework;
+
+    /// <summary>
     /// Updates a type record in the database (e.g., to rename a nested type's C# name).
     /// </summary>
     /// <param name="name">The Swift type name.</param>

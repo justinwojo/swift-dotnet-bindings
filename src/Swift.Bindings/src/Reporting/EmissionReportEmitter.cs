@@ -174,6 +174,40 @@ public static class EmissionReportEmitter
     }
 
     /// <summary>
+    /// Finding 53: emits the loud per-degradation diagnostics for the two mechanisms that were
+    /// previously fully silent — <c>SWIFTBIND025</c> once per distinct <c>// Unsupported:</c>
+    /// comment-drop, and <c>SWIFTBIND026</c> once per distinct Swift type that degraded to bare
+    /// <c>object</c> with no <c>[UnsupportedSwiftType]</c> marker. Mirrors the SWIFTBIND023
+    /// one-warning-per-distinct-entry shape above, but reads the <see cref="BindingReport"/> (where
+    /// <see cref="ReportCollector"/> flowed the ambient accumulators) rather than the
+    /// <see cref="ModuleEmissionContext"/>, since the emission sites have no context in scope.
+    /// </summary>
+    public static void EmitDegradationDiagnostics(BindingReport report, ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        foreach (var drop in report.UnsupportedCommentDrops)
+        {
+            logger.LogWarning(
+                "SWIFTBIND025: {Drop} was left unbound and emitted as a `// Unsupported:` comment. "
+                + "The declaration is absent from the generated bindings; this is recorded under "
+                + "unsupportedCommentDrops in binding-report.json.",
+                drop);
+        }
+
+        foreach (var degraded in report.ObjectDegradations)
+        {
+            logger.LogWarning(
+                "SWIFTBIND026: Swift type '{SwiftType}' could not be projected to a concrete C# type "
+                + "and degraded to bare `object` with no [UnsupportedSwiftType] marker. The member is "
+                + "still usable but loses static type fidelity; this is recorded under "
+                + "objectDegradations in binding-report.json.",
+                degraded);
+        }
+    }
+
+    /// <summary>
     /// Verifies that every silent tombstone the registrar pre-pass recorded was actually
     /// emitted as a <c>[OpaqueSwiftType]</c> declaration by a handler. A break means
     /// <see cref="SilentTombstoneRegistrar.WouldEmitAsOpaqueTombstone"/> returned <c>true</c>

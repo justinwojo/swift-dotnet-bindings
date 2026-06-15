@@ -699,16 +699,21 @@ public class ProtocolProxyEmitterTests
         // Design B2: the impl is strong-rooted by ProxyLifetimeTracker for exactly as long as
         // Swift holds the proxy, so on the canonical (no-sibling) path a null resolve is an
         // invariant violation — not a recoverable "GC'd while Swift held it" state. The receiver
-        // therefore trips the LOUD backstop (Environment.FailFast naming the member + handle)
-        // rather than fabricating a default and silently corrupting the boundary. The fabrication
-        // branch is DELETED on this path (the carrier-sized fallback survives only on the
-        // sibling-fan-out path, a genuine cross-protocol miss).
+        // therefore trips the LOUD backstop via `throw FailFastDeadProxyImpl(...)` (naming the member
+        // + handle) rather than fabricating a default and silently corrupting the boundary. The
+        // fabrication branch is DELETED on this path (the carrier-sized fallback survives only on the
+        // sibling-fan-out path, a genuine cross-protocol miss). The backstop is reached via `throw`,
+        // not a bare call: C#'s definite-return analysis (CS0161) is purely syntactic and does NOT
+        // consult [DoesNotReturn], so a bare call would leave the value-returning receiver short a
+        // terminal return.
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<ITestProtocol>(handle);", output);
         Assert.Contains("if (impl is null)", output);
-        Assert.Contains("global::System.Environment.FailFast(", output);
+        Assert.Contains("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", output);
+        // Never the bare (non-throw) form that fails CS0161.
+        Assert.DoesNotContain("global::System.Environment.FailFast(", output);
         // Dispatch uses the rooted local `impl` — never the proxy's weak field (the bang-deref
         // and the proxy.UserImpl read are both gone on the canonical path).
         Assert.DoesNotContain("proxy._csharpImpl!", output);
@@ -716,13 +721,15 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_OptionalBoolGetter_ReturnsNone()
+    public void EmitProxyClass_SiblingFanoutAllMiss_PropertyGetter_FailFasts()
     {
-        // On the sibling-fan-out path, when this interface AND every recorded sibling miss the
-        // per-handle lookup, an Optional-returning getter must hand Swift the canonical .none.
-        // A zero-filled buffer is NOT nil: Optional<Bool>'s extra-inhabitant encoding reads
-        // all-zero as Some(false), so the terminal fallback must marshal SwiftOptional<bool>.NewNone()
-        // (the carrier the success path also uses), not AllocZeroedSwiftBuffer.
+        // Finding 14(b): on the sibling-fan-out path, when this interface AND every recorded sibling
+        // miss the per-handle lookup, the impl was collected while Swift still held the proxy — the
+        // same Design B2 lifetime-invariant violation the no-sibling path catches. The terminal must
+        // trip the LOUD FailFastDeadProxyImpl backstop, NOT fabricate a carrier-sized .none/zero buffer
+        // (the old silent data-corruption failure mode). It is emitted as `throw FailFastDeadProxyImpl(...)`:
+        // the `throw` token supplies the receiver's terminal control-flow exit (CS0161 is syntactic and
+        // does NOT consult [DoesNotReturn], so a bare call would not stand in for the terminal return).
         var optionalBool = new NamedTypeSpec("Swift.Optional");
         optionalBool.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
         var protocolDecl = CreateProtocolWithProperty("OptBoolDeadProto", "flag", hasGetter: true, hasSetter: false, optionalBool);
@@ -731,28 +738,29 @@ public class ProtocolProxyEmitterTests
         // Find the getter receiver function definition (not the vtable assignment).
         var receiverIdx = output.IndexOf("private static IntPtr Receive_flag_get(");
         Assert.True(receiverIdx >= 0, "Receive_flag_get function definition not found in output");
-        // Bound the receiver body so we don't accidentally match the success path's
-        // SwiftOptional<bool> elsewhere in the file.
         var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        // The dead-impl fallback marshals the .none of the SAME carrier the success path uses
-        // (SwiftOptional<bool>). The success path marshals a local (MarshalToSwiftBuffer(swiftResult)),
-        // so this NewNone() form is unique to the fallback.
-        Assert.Contains("MarshalToSwiftBuffer(SwiftOptional<bool>.NewNone())", receiverBody);
-        // It must NOT zero-fill (decodes to Some(false)) nor use the idiomatic bool? type.
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftOptional<bool>>()", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<bool?>()", receiverBody);
+        // The all-siblings-missed terminal throws the FailFastDeadProxyImpl backstop, naming the member
+        // and the "all sibling proxies" exhaustion (unique to EmitSiblingFanOutFailFast — the no-sibling
+        // backstop says nothing about siblings). Reached via `throw`, never a bare CS0161 call.
+        Assert.Contains("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", receiverBody);
+        Assert.DoesNotContain("global::System.Environment.FailFast(", receiverBody);
+        Assert.Contains("across the primary proxy and all sibling proxies", receiverBody);
+        // No fabrication: the old terminal `return MarshalToSwiftBuffer(SwiftOptional<bool>.NewNone())`
+        // and the carrier-sized zero buffer are both gone (NewNone still appears INSIDE the success
+        // lookup-hit's conversion, but never wrapped directly by MarshalToSwiftBuffer here).
+        Assert.DoesNotContain("MarshalToSwiftBuffer(SwiftOptional<bool>.NewNone())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer", receiverBody);
     }
 
     [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_OptionalIntMethod_ReturnsNone()
+    public void EmitProxyClass_SiblingFanoutAllMiss_Method_FailFasts()
     {
-        // Same .none terminal fallback, exercised on the method-receiver emit site (separate code
-        // path from EmitPropertyReceivers) when this interface and every recorded sibling miss.
-        // Optional<Int32> uses a trailing tag byte where 0 = Some, so a zero buffer would decode to
-        // Some(0); the fallback must marshal .none.
+        // Same throw-FailFast terminal, exercised on the method-receiver emit site (separate code path
+        // from EmitPropertyReceivers) when this interface and every recorded sibling miss. The old code
+        // fabricated SwiftOptional<int>.NewNone(); Finding 14(b) replaces it with a loud throw-FailFast.
         RegisterSwiftInt32();
         var optionalInt = new NamedTypeSpec("Swift.Optional");
         optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
@@ -777,18 +785,41 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        // SwiftOptional<int> is the carrier the success path marshals; the dead-impl path returns
-        // that carrier's .none rather than a zero buffer (which would decode to Some(0)).
-        Assert.Contains("MarshalToSwiftBuffer(SwiftOptional<int>.NewNone())", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftOptional<int>>()", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<int?>()", receiverBody);
+        Assert.Contains("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", receiverBody);
+        Assert.DoesNotContain("global::System.Environment.FailFast(", receiverBody);
+        Assert.Contains("across the primary proxy and all sibling proxies", receiverBody);
+        Assert.DoesNotContain("MarshalToSwiftBuffer(SwiftOptional<int>.NewNone())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer", receiverBody);
     }
 
     [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_OptionalSubscriptGetter_ReturnsNone()
+    public void EmitProxyClass_SiblingFanoutAllMiss_VoidMethod_FailFasts()
+    {
+        // A void sibling-method all-miss previously emitted a silent `return;`. Finding 14(b): a
+        // dropped side-effect is the same lifetime-invariant violation as a dropped value, so the
+        // void terminal throws the FailFast backstop too (`throw FailFastDeadProxyImpl(...)` is
+        // well-formed for a void method and is the terminal control-flow exit).
+        var protocolDecl = CreateSimpleProtocol("VoidMethodDeadProto");
+        var method = CreateMethodDecl("doWork");
+        protocolDecl.Methods.Add(method);
+        var output = EmitProxyClassWithMethodSibling(protocolDecl, method);
+
+        var receiverIdx = output.IndexOf("private static void Receive_doWork_0(");
+        Assert.True(receiverIdx >= 0, "Receive_doWork_0 function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        Assert.Contains("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", receiverBody);
+        Assert.DoesNotContain("global::System.Environment.FailFast(", receiverBody);
+        Assert.Contains("across the primary proxy and all sibling proxies", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SiblingFanoutAllMiss_SubscriptGetter_FailFasts()
     {
         // Third emit site: the subscript getter receiver is a separate code path from
-        // property getters and method returns, so it gets its own sibling-miss .none-fallback test.
+        // property getters and method returns, so it gets its own sibling-miss FailFast test.
         RegisterSwiftInt32();
         var optionalInt = new NamedTypeSpec("Swift.Optional");
         optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
@@ -829,157 +860,13 @@ public class ProtocolProxyEmitterTests
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
-        // The subscript dead-impl fallback returns the carrier's .none (the success path marshals a
-        // local, so this NewNone() form is unique to the fallback), never a zero buffer.
-        Assert.Contains("MarshalToSwiftBuffer(SwiftOptional<int>.NewNone())", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftOptional<int>>()", receiverBody);
-    }
-
-    /// <summary>
-    /// <c>GetReceiverGetterCarrierType</c> is a second switch that must stay aligned with
-    /// <c>GetReceiverGetterConversion</c> and <c>GetReceiverExistentialGetterConversion</c>. A
-    /// future projection added to the conversion switch but not the carrier helper would silently
-    /// reintroduce a buffer-size mismatch on the one receiver path that still fabricates a fallback
-    /// buffer: the sibling-fan-out terminal reached when every candidate interface misses the
-    /// per-handle lookup. (Design B2 deleted the fabrication branch on the canonical no-sibling
-    /// path, which now FailFasts — see <c>ReceiverGuardsAgainstDeadImpl</c>.) The tests below drive
-    /// that fan-out path via the <c>EmitProxyClassWith*Sibling</c> harness and pin one example per
-    /// major projection family: every Swift collection carrier (including protocol/existential
-    /// element variants) constructs a valid empty collection rather than a null storage pointer, and
-    /// every Optional carrier marshals its canonical <c>.none</c> rather than a zero buffer. Any
-    /// drift in the carrier type or the empty-collection/<c>.none</c> decision fails immediately.
-    /// </summary>
-    [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_ArrayGetter_ReturnsEmptyCollection()
-    {
-        // Array<String> getter — success path: MarshalToSwiftBuffer<SwiftArray<SwiftString>>(swiftResult).
-        // A zero-filled buffer is a null storage pointer, NOT a valid empty array (a caller that
-        // reads Count/iterates dereferences null). The sibling-miss terminal must construct the
-        // canonical empty SwiftArray<SwiftString> (carrier-typed, not IReadOnlyList<string>) and
-        // marshal it through the same MarshalToSwiftBuffer path the success branch uses.
-        RegisterSwiftString();
-        var arrayString = new NamedTypeSpec("Swift.Array");
-        arrayString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var protocolDecl = CreateProtocolWithProperty("ArrayCarrierProto", "items", hasGetter: true, hasSetter: false, arrayString);
-        var output = EmitProxyClassWithPropertySibling(protocolDecl, "items");
-
-        var receiverIdx = output.IndexOf("private static IntPtr Receive_items_get(");
-        Assert.True(receiverIdx >= 0, "Receive_items_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
-        if (receiverEnd < 0) receiverEnd = output.Length;
-        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
-
-        Assert.Contains("MarshalToSwiftBuffer(new SwiftArray<SwiftString>())", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftArray<SwiftString>>()", receiverBody);
-    }
-
-    [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_DictionaryGetter_ReturnsEmptyCollection()
-    {
-        // Dictionary<String, Int> getter — success path: MarshalToSwiftBuffer<SwiftDictionary<SwiftString, nint>>.
-        // Sibling-miss terminal must construct an empty SwiftDictionary carrier (its empty form is the
-        // _swiftEmptyDictionarySingleton, not a null pointer).
-        RegisterSwiftString();
-        RegisterSwiftInt();
-        RegisterSwiftDictionary();
-        var dictType = new NamedTypeSpec("Swift.Dictionary");
-        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
-        var protocolDecl = CreateProtocolWithProperty("DictCarrierProto", "lookup", hasGetter: true, hasSetter: false, dictType);
-        var output = EmitProxyClassWithPropertySibling(protocolDecl, "lookup");
-
-        var receiverIdx = output.IndexOf("private static IntPtr Receive_lookup_get(");
-        Assert.True(receiverIdx >= 0, "Receive_lookup_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
-        if (receiverEnd < 0) receiverEnd = output.Length;
-        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
-
-        Assert.Contains("MarshalToSwiftBuffer(new SwiftDictionary<SwiftString, nint>())", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftDictionary<SwiftString, nint>>()", receiverBody);
-    }
-
-    [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_SetGetter_ReturnsEmptyCollection()
-    {
-        // Set<Int32> getter — success path: MarshalToSwiftBuffer<SwiftSet<int>>.
-        // Sibling-miss terminal must construct an empty SwiftSet carrier (Set.init), not a null buffer.
-        RegisterSwiftInt32();
-        var setType = new NamedTypeSpec("Swift.Set");
-        setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
-        var protocolDecl = CreateProtocolWithProperty("SetCarrierProto", "ids", hasGetter: true, hasSetter: false, setType);
-        var output = EmitProxyClassWithPropertySibling(protocolDecl, "ids");
-
-        var receiverIdx = output.IndexOf("private static IntPtr Receive_ids_get(");
-        Assert.True(receiverIdx >= 0, "Receive_ids_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
-        if (receiverEnd < 0) receiverEnd = output.Length;
-        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
-
-        Assert.Contains("MarshalToSwiftBuffer(new SwiftSet<int>())", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftSet<int>>()", receiverBody);
-    }
-
-    [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_ProtocolElementArrayGetter_ReturnsEmptyCollection()
-    {
-        // Array<some-protocol> getter: the carrier is a protocol/existential element collection
-        // (here SwiftArray<TestModule.IDrawable>). Empty construction is still safe — the success
-        // path constructs the same carrier via SwiftArray<…>.FromEnumerable (the same ctor), so
-        // new SwiftArray<…>() resolves no element metadata the success path doesn't. The sibling-miss
-        // terminal must therefore construct the canonical empty collection here too, not a null buffer.
-        RegisterProtocol("Drawable");
-        var arrayOfProto = new NamedTypeSpec("Swift.Array");
-        arrayOfProto.GenericParameters.Add(new NamedTypeSpec("TestModule.Drawable"));
-        var protocolDecl = CreateProtocolWithProperty("ExistentialArrayCarrierProto", "shapes", hasGetter: true, hasSetter: false, arrayOfProto);
-        var output = EmitProxyClassWithPropertySibling(protocolDecl, "shapes");
-
-        var receiverIdx = output.IndexOf("private static IntPtr Receive_shapes_get(");
-        Assert.True(receiverIdx >= 0, "Receive_shapes_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
-        if (receiverEnd < 0) receiverEnd = output.Length;
-        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
-
-        Assert.Contains("MarshalToSwiftBuffer(new SwiftArray<TestModule.IDrawable>())", receiverBody);
-        Assert.DoesNotContain("AllocZeroedSwiftBuffer<SwiftArray<", receiverBody);
-    }
-
-    [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_ObjCBridgedGetter_SizesByCarrier()
-    {
-        // ObjC-bridged getter — success path: MarshalToSwiftBuffer<IntPtr>(value.Handle).
-        // Sibling-miss terminal must AllocZeroed by IntPtr (carrier), NOT by the public
-        // .NET wrapper class type (Foundation.NSUrlSession).
-        RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
-        var protocolDecl = CreateProtocolWithProperty("ObjCCarrierProto", "session",
-            hasGetter: true, hasSetter: false, new NamedTypeSpec("Foundation.NSURLSession"));
-        var output = EmitProxyClassWithPropertySibling(protocolDecl, "session");
-
-        var receiverIdx = output.IndexOf("private static IntPtr Receive_session_get(");
-        Assert.True(receiverIdx >= 0, "Receive_session_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
-        if (receiverEnd < 0) receiverEnd = output.Length;
-        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
-
-        Assert.Contains("AllocZeroedSwiftBuffer<IntPtr>()", receiverBody);
-    }
-
-    [Fact]
-    public void EmitProxyClass_SiblingFanoutAllMiss_NativeRemappedGetter_SizesByCarrier()
-    {
-        // NativeRemapped getter — success path: MarshalToSwiftBuffer<SwiftWrapperType>(value.ToWrapper()).
-        // Sibling-miss terminal must AllocZeroed by the Swift wrapper type, NOT the .NET native type.
-        RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
-        var protocolDecl = CreateProtocolWithProperty("RemappedCarrierProto", "endpoint",
-            hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.CustomValue"));
-        var output = EmitProxyClassWithPropertySibling(protocolDecl, "endpoint");
-
-        var receiverIdx = output.IndexOf("private static IntPtr Receive_endpoint_get(");
-        Assert.True(receiverIdx >= 0, "Receive_endpoint_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
-        if (receiverEnd < 0) receiverEnd = output.Length;
-        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
-
-        Assert.Contains("AllocZeroedSwiftBuffer<Swift.CustomValue>()", receiverBody);
+        // The subscript all-siblings-missed terminal throws the FailFast backstop (Finding 14(b)), never
+        // fabricating a carrier .none or a zero buffer.
+        Assert.Contains("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", receiverBody);
+        Assert.DoesNotContain("global::System.Environment.FailFast(", receiverBody);
+        Assert.Contains("across the primary proxy and all sibling proxies", receiverBody);
+        Assert.DoesNotContain("MarshalToSwiftBuffer(SwiftOptional<int>.NewNone())", receiverBody);
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer", receiverBody);
     }
 
     #endregion
@@ -5290,16 +5177,13 @@ public class ProtocolProxyEmitterTests
 
     // ---- Sibling-fan-out receiver harness (Design B2) --------------------------------
     //
-    // Under Design B2 the carrier-sized null fallback (BuildReceiverNullFallbackExpr /
-    // GetReceiverGetterCarrierType) survives on EXACTLY ONE receiver path: the
-    // sibling-fan-out path, reached after every candidate-interface lookup misses. The
-    // canonical no-sibling path resolves the impl from ProxyLifetimeTracker and FailFasts
-    // on null — it never fabricates a carrier buffer (that is what ReceiverGuardsAgainstDeadImpl
-    // pins). So the carrier-sizing-alignment invariant is observable only when a sibling
-    // fallback is recorded for the member. These helpers seed a one-entry sibling map (a
-    // distinct dummy sibling protocol) keyed exactly as the receiver looks it up, so emission
-    // takes the fan-out path: the primary + sibling lookup-hit blocks emit ahead of the
-    // asserted terminal carrier fallback.
+    // The sibling-fan-out path is reached after every candidate-interface lookup misses. Both it
+    // and the canonical no-sibling path resolve the impl from ProxyLifetimeTracker and FailFast on
+    // an all-miss (Finding 14(b) — see EmitProxyClass_SiblingFanoutAllMiss_*_FailFasts and
+    // ReceiverGuardsAgainstDeadImpl); neither fabricates a carrier-sized fallback buffer anymore.
+    // These helpers seed a one-entry sibling map (a distinct dummy sibling protocol) keyed exactly
+    // as the receiver looks it up, so emission takes the fan-out path: the primary + sibling
+    // lookup-hit blocks emit ahead of the asserted FailFast terminal.
     private string EmitProxyClassWithContext(ProtocolDecl protocolDecl, ModuleEmissionContext ctx)
     {
         var emitter = new ProtocolProxyEmitter(_typeDatabase, NullLogger.Instance, "TestModule", ctx);

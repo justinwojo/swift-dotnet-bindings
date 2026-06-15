@@ -578,6 +578,101 @@ public class ReportCollectorTests
         }
     }
 
+    [Fact]
+    public void RecordUnsupportedCommentDrop_FlowsOntoReport_DedupedAndSorted()
+    {
+        // Finding 53: every // Unsupported: comment-drop emitted by UnsupportedCommentEmitter is
+        // recorded on the ambient session and surfaces on the report (the SWIFTBIND025 channel),
+        // deduplicated by comment text and emitted in Ordinal order.
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+
+        var writer = new CSharpWriter(new StringWriter());
+        UnsupportedCommentEmitter.EmitTypeSkipped(writer, "Widget", SkipReason.UnsupportedType);
+        UnsupportedCommentEmitter.EmitMemberSkipped(writer, "Fetch", BindingItemKind.Method, SkipReason.UnsupportedExistential);
+        // Re-emitting the identical type-skip must not produce a second entry.
+        UnsupportedCommentEmitter.EmitTypeSkipped(writer, "Widget", SkipReason.UnsupportedType);
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(2, report!.UnsupportedCommentDrops.Count);
+        // Entries are the comment text minus the leading "// " (so they begin with "Unsupported:").
+        Assert.All(report.UnsupportedCommentDrops, d => Assert.StartsWith("Unsupported:", d));
+        Assert.Contains(report.UnsupportedCommentDrops, d => d.Contains("type 'Widget'"));
+        Assert.Contains(report.UnsupportedCommentDrops, d => d.Contains("'Fetch'"));
+        // Sorted Ordinal.
+        var sorted = report.UnsupportedCommentDrops.OrderBy(d => d, StringComparer.Ordinal).ToList();
+        Assert.Equal(sorted, report.UnsupportedCommentDrops);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordObjectDegradation_FlowsOntoReport_DedupedAndSorted()
+    {
+        // Finding 53: a Swift type that degraded to bare `object` (no [UnsupportedSwiftType] marker)
+        // is recorded once per distinct type on the ambient session, surfacing the SWIFTBIND026 channel.
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+
+        ReportCollector.RecordObjectDegradation("any Shape");
+        ReportCollector.RecordObjectDegradation("any AttributeKind");
+        ReportCollector.RecordObjectDegradation("any Shape"); // duplicate — dedup
+        ReportCollector.RecordObjectDegradation(""); // ignored
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(new[] { "any AttributeKind", "any Shape" }, report!.ObjectDegradations);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordUnsupportedCommentDrop_SameMemberNameDifferentTypes_RecordedDistinctly()
+    {
+        // Finding 53 (Codex Low): the SWIFTBIND025 dedup key is the comment text. A member's simple
+        // name is not unique across types, so two distinct types each dropping a same-named member for
+        // the same reason must produce TWO entries — collapsing them would under-count drops in a
+        // diagnostic whose whole purpose is "never silent". The qualified Type.member name keeps them apart.
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+
+        var writer = new CSharpWriter(new StringWriter());
+        var typeA = new BaseDecl { Name = "Alpha", ParentDecl = null, ModuleDecl = null };
+        var typeB = new BaseDecl { Name = "Beta", ParentDecl = null, ModuleDecl = null };
+        UnsupportedCommentEmitter.EmitMemberSkipped(writer, "configure", BindingItemKind.Method, SkipReason.UnsupportedSignature, containingDecl: typeA);
+        UnsupportedCommentEmitter.EmitMemberSkipped(writer, "configure", BindingItemKind.Method, SkipReason.UnsupportedSignature, containingDecl: typeB);
+        // Same type + same member emitted twice still dedups to one entry.
+        UnsupportedCommentEmitter.EmitMemberSkipped(writer, "configure", BindingItemKind.Method, SkipReason.UnsupportedSignature, containingDecl: typeA);
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(2, report!.UnsupportedCommentDrops.Count);
+        Assert.Contains(report.UnsupportedCommentDrops, d => d.Contains("'Alpha.configure'"));
+        Assert.Contains(report.UnsupportedCommentDrops, d => d.Contains("'Beta.configure'"));
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordDegradations_OutsideActiveSession_AreNoOps()
+    {
+        // No ambient session: both Finding 53 recorders must be silent no-ops (no throw), and a
+        // subsequent clean session must not inherit anything.
+        ReportCollector.RecordUnsupportedCommentDrop("Unsupported: stray");
+        ReportCollector.RecordObjectDegradation("any Stray");
+
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+        var report = ReportCollector.Complete();
+
+        Assert.NotNull(report);
+        Assert.Empty(report!.UnsupportedCommentDrops);
+        Assert.Empty(report.ObjectDegradations);
+
+        ReportCollector.Reset();
+    }
+
     private static ModuleDecl CreateModuleDecl()
     {
         var moduleDecl = new ModuleDecl

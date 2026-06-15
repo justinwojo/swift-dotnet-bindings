@@ -321,7 +321,7 @@ public class TypeProjectionFactory
         // explicitly so the consumer's csproj picks up the PackageReference.
         if (name == "Foundation.Data")
         {
-            AppleSupplementReferences.Record("Foundation.Data");
+            AppleSupplementReferences.Record("Foundation.Data", "TypeProjectionFactory:FoundationData");
             return new DataProjection();
         }
 

@@ -1829,7 +1829,11 @@ namespace BindingsGeneration
                 commandRunner != null && logger != null)
             {
                 var scan = NativeSymbolProbe.ScanUndefinedSymbols(forceLoadedArchives, commandRunner, logger);
-                if (scan.GatheredEvidence)
+                // Advisory hint only: act solely on a positive read. A systemic probe failure
+                // (AllFailed) or no archive to read (NothingToProbe) simply leaves Source 1's
+                // result in place — this is an error-path completeness aid, not the over-binding
+                // guard, so it must never hard-fail.
+                if (scan.Outcome == NativeSymbolProbeOutcome.Gathered)
                 {
                     foreach (var sym in scan.UndefinedSymbols)
                     {

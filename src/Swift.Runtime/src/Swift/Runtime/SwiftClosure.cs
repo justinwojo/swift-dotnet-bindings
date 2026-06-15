@@ -171,6 +171,33 @@ public static class SwiftClosureMarshaller
     }
 
     /// <summary>
+    /// Terminates the process when a Swift reverse-dispatch (EveryProtocol) receiver cannot resolve a
+    /// live C# implementation from <c>ProxyLifetimeTracker</c> — neither the primary proxy nor (on the
+    /// sibling fan-out path) any recorded sibling proxy. Under Design B2 the implementation is rooted
+    /// by Swift-liveness for as long as Swift holds the proxy, so a null resolution means that
+    /// invariant was violated (the impl was collected while Swift still held the proxy). Fabricating a
+    /// zero/empty return value here would silently corrupt the boundary (Defect G), so this trips a
+    /// controlled <see cref="Environment.FailFast(string)"/> instead.
+    /// <para>This is a "throw-helper": it always <see cref="Environment.FailFast(string)"/>s (the
+    /// process is gone before this method returns), and the trailing <c>return</c> is unreachable. It
+    /// returns the <see cref="Exception"/> — rather than being <c>[DoesNotReturn]</c> <c>void</c> — so
+    /// emitters can write <c>throw FailFastDeadProxyImpl(...)</c> at a receiver's all-missed terminal.
+    /// The <c>throw</c> token is what satisfies C#'s definite-return analysis (CS0161): that analysis
+    /// is purely syntactic control flow and does <b>not</b> consult <c>[DoesNotReturn]</c>, so a bare
+    /// call — even to a <c>[DoesNotReturn]</c> method — would leave a value-returning receiver short a
+    /// terminal return. (<see cref="Environment.FailFast(string)"/> is not <c>[DoesNotReturn]</c>
+    /// either, but that is the lesser of the two reasons a bare call does not compile here.)</para>
+    /// </summary>
+    /// <param name="message">The fully-formed, member-named dead-impl diagnostic.</param>
+    /// <returns>An <see cref="Exception"/> for the caller to <c>throw</c>; never actually reached
+    /// because <see cref="Environment.FailFast(string)"/> terminates the process first.</returns>
+    public static Exception FailFastDeadProxyImpl(string message)
+    {
+        Environment.FailFast(message);
+        return new InvalidOperationException(message); // unreachable: FailFast terminated the process
+    }
+
+    /// <summary>
     /// Terminates the process with a member-named diagnostic when an
     /// <see cref="OperationCanceledException"/> escapes an <b>async</b> Swift protocol-requirement
     /// witness on the reverse-dispatch (EveryProtocol) path. Such a requirement is satisfied through

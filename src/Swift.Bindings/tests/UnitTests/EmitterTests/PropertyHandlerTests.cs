@@ -193,7 +193,9 @@ public class PropertyHandlerTests
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
         AssertSkippedWithTombstone(csOutput, swiftOutput);
-        Assert.Contains("'count'", csOutput);
+        // Finding 53: the dropped member is qualified by its declaring type (Counter.count) so the
+        // SWIFTBIND025 entry is distinct from a same-named member on another type.
+        Assert.Contains("'Counter.count'", csOutput);
     }
 
     [Fact]

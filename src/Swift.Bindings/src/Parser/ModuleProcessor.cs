@@ -54,7 +54,7 @@ namespace BindingsGeneration
             _dylibPath = dylibPath;
             _typeDatabase = typeDatabase;
             // Use runtimeLibraryName for DllImport in generated code
-            _moduleDatabase = new ModuleTypeDatabase(module, runtimeLibraryName);
+            _moduleDatabase = new ModuleTypeDatabase(module, runtimeLibraryName, logger);
             _typeDecls = typeDecls;
             _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
             _logger = logger;

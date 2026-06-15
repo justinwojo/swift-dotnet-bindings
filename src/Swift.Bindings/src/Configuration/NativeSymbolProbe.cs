@@ -13,45 +13,100 @@ namespace BindingsGeneration
     /// complete the system-framework link-failure hint — so the tricky <c>nm</c>
     /// output parsing lives in one place.
     /// </summary>
+    /// <summary>
+    /// Tri-state outcome of a native-symbol probe over a set of candidate binaries
+    /// (Finding 63). Distinguishes three situations a single "did we gather evidence?"
+    /// boolean conflated:
+    /// <list type="bullet">
+    /// <item><see cref="Gathered"/> — at least one candidate binary was read successfully.
+    /// The returned symbol set is real (though it may legitimately be empty).</item>
+    /// <item><see cref="AllFailed"/> — one or more candidate binaries existed but
+    /// <em>every</em> <c>nm</c> invocation failed. This is a <em>systemic</em> failure (e.g.
+    /// <c>nm</c> unavailable or its output format changed), not "no evidence": callers that
+    /// would otherwise fail open must instead fail loud, because a probe that silently
+    /// gathers nothing degrades to the same code path as "everything is fine".</item>
+    /// <item><see cref="NothingToProbe"/> — no candidate binary existed to probe. Genuinely
+    /// nothing to do; callers fail open.</item>
+    /// </list>
+    /// </summary>
+    public enum NativeSymbolProbeOutcome
+    {
+        /// <summary>At least one candidate binary was read successfully.</summary>
+        Gathered,
+
+        /// <summary>Candidate binaries existed but every <c>nm</c> invocation failed (systemic).</summary>
+        AllFailed,
+
+        /// <summary>No candidate binary existed to probe.</summary>
+        NothingToProbe,
+    }
+
     internal static class NativeSymbolProbe
     {
         private const string ObjCClassSymbolPrefix = "_OBJC_CLASS_$_";
 
         /// <summary>
+        /// Computes the tri-state <see cref="NativeSymbolProbeOutcome"/> from the number of
+        /// candidate binaries that existed on disk versus the number <c>nm</c> read successfully.
+        /// </summary>
+        private static NativeSymbolProbeOutcome ClassifyOutcome(int existed, int read) =>
+            existed == 0 ? NativeSymbolProbeOutcome.NothingToProbe
+            : read == 0 ? NativeSymbolProbeOutcome.AllFailed
+            : NativeSymbolProbeOutcome.Gathered;
+
+        /// <summary>
+        /// A candidate path is probeable only if it names an existing, non-empty file. A zero-byte
+        /// file is not a Mach-O/archive binary: <c>nm</c> will always fail on it, and that failure
+        /// is not evidence of a systemic toolchain breakage — so it must NOT count toward the
+        /// "existed" tally that drives <see cref="NativeSymbolProbeOutcome.AllFailed"/>. Skipping it
+        /// keeps an empty placeholder slice from masquerading as a broken probe (a false-positive
+        /// SWIFTBIND028); a present-but-corrupt <em>non-empty</em> binary that <c>nm</c> cannot read
+        /// still counts and still trips <see cref="NativeSymbolProbeOutcome.AllFailed"/> as intended.
+        /// </summary>
+        private static bool IsProbeableBinaryFile(string path) =>
+            !string.IsNullOrEmpty(path) && File.Exists(path) && new FileInfo(path).Length > 0;
+
+        /// <summary>
         /// Result of probing one or more native binaries for defined ObjC class symbols.
-        /// <see cref="GatheredEvidence"/> is false when no binary could be read (every
-        /// <c>nm</c> invocation failed or no binary existed) — callers must fail open and
-        /// not filter, because absence of evidence is not evidence of absence.
+        /// <see cref="Outcome"/> is the tri-state evidence verdict: callers must fail open on
+        /// <see cref="NativeSymbolProbeOutcome.NothingToProbe"/> (absence of evidence is not
+        /// evidence of absence) but fail loud on <see cref="NativeSymbolProbeOutcome.AllFailed"/>
+        /// (a systemic probe breakage, not a clean "no binaries" result).
         /// </summary>
         public readonly record struct ObjCClassSymbolScan(
             IReadOnlySet<string> DefinedClassNames,
-            bool GatheredEvidence);
+            NativeSymbolProbeOutcome Outcome);
 
         /// <summary>
         /// Runs <c>nm -gU</c> on each binary path that exists, unions the
         /// <c>_OBJC_CLASS_$_&lt;Name&gt;</c> symbols across all of them, and returns the
-        /// set of defined ObjC class names plus whether any binary was successfully read.
-        /// Non-existent paths and per-binary <c>nm</c> failures are skipped (logged at
-        /// debug), so a multi-slice / multi-dependency union degrades gracefully to the
-        /// binaries that resolve.
+        /// set of defined ObjC class names plus the tri-state probe <see cref="NativeSymbolProbeOutcome"/>.
+        /// Non-existent and zero-byte paths are skipped silently (see <see cref="IsProbeableBinaryFile"/>);
+        /// per-binary <c>nm</c> failures are logged at
+        /// debug and skipped, so a multi-slice / multi-dependency union degrades gracefully to the
+        /// binaries that resolve — but if binaries existed and <em>all</em> of them failed, the
+        /// outcome is <see cref="NativeSymbolProbeOutcome.AllFailed"/> so the caller can fail loud
+        /// rather than mistake a systemic <c>nm</c> breakage for "no symbols".
         /// </summary>
         public static ObjCClassSymbolScan ScanObjCClassSymbols(
             IEnumerable<string> binaryPaths, ICommandRunner commandRunner, ILogger logger)
         {
             var classNames = new HashSet<string>(StringComparer.Ordinal);
-            var gathered = false;
+            var existed = 0;
+            var read = 0;
             foreach (var path in binaryPaths)
             {
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                if (!IsProbeableBinaryFile(path))
                 {
                     continue;
                 }
+                existed++;
                 var symbols = ReadDefinedSymbols(path, commandRunner, logger);
                 if (symbols == null)
                 {
                     continue; // nm failed on this binary — keep the others
                 }
-                gathered = true;
+                read++;
                 foreach (var sym in symbols)
                 {
                     if (sym.StartsWith(ObjCClassSymbolPrefix, StringComparison.Ordinal))
@@ -60,7 +115,7 @@ namespace BindingsGeneration
                     }
                 }
             }
-            return new ObjCClassSymbolScan(classNames, gathered);
+            return new ObjCClassSymbolScan(classNames, ClassifyOutcome(existed, read));
         }
 
         /// <summary>
@@ -96,36 +151,42 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Runs <c>nm -u</c> on each existing binary path and unions the undefined
-        /// (externally-referenced) symbol names across all of them. The returned flag mirrors
-        /// <see cref="ObjCClassSymbolScan.GatheredEvidence"/>: false means every probe failed
-        /// (or no binary existed), so callers must not read an empty set as "no undefined
-        /// symbols". Non-existent paths and per-binary <c>nm</c> failures are skipped (logged at
-        /// debug). Used to complete the system-framework link-failure hint independently of how
-        /// much of its undefined-symbol list the linker chose to print.
+        /// (externally-referenced) symbol names across all of them. The returned
+        /// <see cref="NativeSymbolProbeOutcome"/> mirrors <see cref="ObjCClassSymbolScan.Outcome"/>:
+        /// <see cref="NativeSymbolProbeOutcome.NothingToProbe"/> means no binary existed and
+        /// <see cref="NativeSymbolProbeOutcome.AllFailed"/> means every probe failed, so callers
+        /// must not read an empty set as "no undefined symbols". Non-existent and zero-byte paths
+        /// (see <see cref="IsProbeableBinaryFile"/>) and per-binary
+        /// <c>nm</c> failures are skipped (logged at debug). Used to complete the system-framework
+        /// link-failure hint independently of how much of its undefined-symbol list the linker
+        /// chose to print — this consumer stays advisory and acts only on
+        /// <see cref="NativeSymbolProbeOutcome.Gathered"/>.
         /// </summary>
-        public static (IReadOnlySet<string> UndefinedSymbols, bool GatheredEvidence) ScanUndefinedSymbols(
+        public static (IReadOnlySet<string> UndefinedSymbols, NativeSymbolProbeOutcome Outcome) ScanUndefinedSymbols(
             IEnumerable<string> binaryPaths, ICommandRunner commandRunner, ILogger logger)
         {
             var symbols = new HashSet<string>(StringComparer.Ordinal);
-            var gathered = false;
+            var existed = 0;
+            var read = 0;
             foreach (var path in binaryPaths)
             {
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                if (!IsProbeableBinaryFile(path))
                 {
                     continue;
                 }
+                existed++;
                 var found = ReadUndefinedSymbols(path, commandRunner, logger);
                 if (found == null)
                 {
                     continue; // nm failed on this binary — keep the others
                 }
-                gathered = true;
+                read++;
                 foreach (var sym in found)
                 {
                     symbols.Add(sym);
                 }
             }
-            return (symbols, gathered);
+            return (symbols, ClassifyOutcome(existed, read));
         }
 
         /// <summary>

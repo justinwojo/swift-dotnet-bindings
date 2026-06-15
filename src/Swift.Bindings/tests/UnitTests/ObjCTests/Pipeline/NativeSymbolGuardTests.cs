@@ -30,8 +30,9 @@ public class NativeSymbolGuardTests
             Categories = categories ?? [],
         };
 
-    private static NativeSymbolProbe.ObjCClassSymbolScan Scan(bool gathered, params string[] classNames) =>
-        new(new HashSet<string>(classNames), gathered);
+    private static NativeSymbolProbe.ObjCClassSymbolScan Scan(
+        NativeSymbolProbeOutcome outcome, params string[] classNames) =>
+        new(new HashSet<string>(classNames), outcome);
 
     // ---- FilterToNativeSymbolBackedClasses ----
 
@@ -42,7 +43,7 @@ public class NativeSymbolGuardTests
         var diag = new ObjCBindingDiagnostics();
 
         var filtered = ObjCPipeline.FilterToNativeSymbolBackedClasses(
-            module, Scan(gathered: true, "RealClass"), Logger, diag);
+            module, Scan(NativeSymbolProbeOutcome.Gathered, "RealClass"), Logger, diag);
 
         Assert.Single(filtered.Classes);
         Assert.Equal("RealClass", filtered.Classes[0].Name);
@@ -64,7 +65,7 @@ public class NativeSymbolGuardTests
         var diag = new ObjCBindingDiagnostics();
 
         var filtered = ObjCPipeline.FilterToNativeSymbolBackedClasses(
-            module, Scan(gathered: true, "SomethingElse"), Logger, diag);
+            module, Scan(NativeSymbolProbeOutcome.Gathered, "SomethingElse"), Logger, diag);
 
         Assert.Single(filtered.Classes);
         Assert.Equal("PublicName", filtered.Classes[0].Name);
@@ -80,7 +81,7 @@ public class NativeSymbolGuardTests
         var diag = new ObjCBindingDiagnostics();
 
         var filtered = ObjCPipeline.FilterToNativeSymbolBackedClasses(
-            module, Scan(gathered: true, "A", "B"), Logger, diag);
+            module, Scan(NativeSymbolProbeOutcome.Gathered, "A", "B"), Logger, diag);
 
         Assert.Equal(2, filtered.Classes.Count);
         Assert.Empty(diag.SkippedSymbols);
@@ -88,18 +89,34 @@ public class NativeSymbolGuardTests
     }
 
     [Fact]
-    public void Guard_FailsOpen_WhenNoEvidenceGathered()
+    public void Guard_FailsOpen_WhenNothingToProbe()
     {
-        // nm could not read any binary (header-only slice, nm failure): keep everything.
+        // No binary existed to read (header-only slice): keep everything.
         var module = Module(classes: [new() { Name = "HeaderOnly" }]);
         var diag = new ObjCBindingDiagnostics();
 
         var filtered = ObjCPipeline.FilterToNativeSymbolBackedClasses(
-            module, Scan(gathered: false), Logger, diag);
+            module, Scan(NativeSymbolProbeOutcome.NothingToProbe), Logger, diag);
 
         Assert.Single(filtered.Classes);
         Assert.Empty(diag.SkippedSymbols);
         Assert.Same(module, filtered);
+    }
+
+    [Fact]
+    public void Guard_HardErrors_WhenProbeSystemicallyFailed()
+    {
+        // Binaries existed but every nm invocation failed (Finding 63): a systemic probe
+        // breakage must fail loud, not silently keep all classes (which would defeat the guard
+        // under exactly the broken-nm condition it exists to catch).
+        var module = Module(classes: [new() { Name = "Whatever" }]);
+        var diag = new ObjCBindingDiagnostics();
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ObjCPipeline.FilterToNativeSymbolBackedClasses(
+                module, Scan(NativeSymbolProbeOutcome.AllFailed), Logger, diag));
+
+        Assert.Contains("SWIFTBIND028", ex.Message);
     }
 
     [Fact]
@@ -110,7 +127,7 @@ public class NativeSymbolGuardTests
         var diag = new ObjCBindingDiagnostics();
 
         var filtered = ObjCPipeline.FilterToNativeSymbolBackedClasses(
-            module, Scan(gathered: true /* empty */), Logger, diag);
+            module, Scan(NativeSymbolProbeOutcome.Gathered /* empty */), Logger, diag);
 
         Assert.Single(filtered.Classes);
         Assert.Empty(diag.SkippedSymbols);
@@ -131,7 +148,7 @@ public class NativeSymbolGuardTests
         var diag = new ObjCBindingDiagnostics();
 
         var filtered = ObjCPipeline.FilterToNativeSymbolBackedClasses(
-            module, Scan(gathered: true, "Present"), Logger, diag);
+            module, Scan(NativeSymbolProbeOutcome.Gathered, "Present"), Logger, diag);
 
         Assert.Single(filtered.Classes);
         Assert.Equal("Present", filtered.Classes[0].Name);
@@ -152,7 +169,7 @@ public class NativeSymbolGuardTests
         var diag = new ObjCBindingDiagnostics();
 
         var filtered = ObjCPipeline.FilterToNativeSymbolBackedClasses(
-            module, Scan(gathered: true, "OtherClass"), Logger, diag);
+            module, Scan(NativeSymbolProbeOutcome.Gathered, "OtherClass"), Logger, diag);
 
         Assert.Empty(filtered.Classes);
         Assert.Single(filtered.Protocols);
@@ -175,7 +192,7 @@ public class NativeSymbolGuardTests
         var scan = NativeSymbolProbe.ScanObjCClassSymbols(
             [fixture["simSlice"], fixture["deviceSlice"]], runner, Logger);
 
-        Assert.True(scan.GatheredEvidence);
+        Assert.Equal(NativeSymbolProbeOutcome.Gathered, scan.Outcome);
         Assert.Contains("FBLPromise", scan.DefinedClassNames);
         Assert.Contains("DeviceOnly", scan.DefinedClassNames);
         Assert.DoesNotContain("someFunc", scan.DefinedClassNames); // non-class symbol ignored
@@ -192,19 +209,36 @@ public class NativeSymbolGuardTests
         var scan = NativeSymbolProbe.ScanObjCClassSymbols(
             [fixture["good"], fixture["bad"]], runner, Logger);
 
-        Assert.True(scan.GatheredEvidence); // at least one binary read
+        Assert.Equal(NativeSymbolProbeOutcome.Gathered, scan.Outcome); // at least one binary read
         Assert.Contains("GoodClass", scan.DefinedClassNames);
     }
 
     [Fact]
-    public void Scan_ReportsNoEvidence_WhenNoBinaryReadable()
+    public void Scan_ReportsNothingToProbe_WhenNoBinaryExists()
     {
-        // Path that does not exist on disk → skipped → no evidence.
+        // Path that does not exist on disk → skipped → nothing to probe (fail-open territory).
         var scan = NativeSymbolProbe.ScanObjCClassSymbols(
             [Path.Combine(Path.GetTempPath(), $"nonexistent_{Guid.NewGuid():N}")],
             new SymbolRunner(), Logger);
 
-        Assert.False(scan.GatheredEvidence);
+        Assert.Equal(NativeSymbolProbeOutcome.NothingToProbe, scan.Outcome);
+        Assert.Empty(scan.DefinedClassNames);
+    }
+
+    [Fact]
+    public void Scan_ReportsAllFailed_WhenBinariesExistButEveryNmFails()
+    {
+        // Binaries are present on disk but every nm invocation fails → systemic (AllFailed),
+        // distinct from "nothing to probe": the guard must hard-error on this, not fail open.
+        using var fixture = new TempBinaries("a", "b");
+        var runner = new SymbolRunner();
+        runner.SetFailure(fixture["a"]);
+        runner.SetFailure(fixture["b"]);
+
+        var scan = NativeSymbolProbe.ScanObjCClassSymbols(
+            [fixture["a"], fixture["b"]], runner, Logger);
+
+        Assert.Equal(NativeSymbolProbeOutcome.AllFailed, scan.Outcome);
         Assert.Empty(scan.DefinedClassNames);
     }
 

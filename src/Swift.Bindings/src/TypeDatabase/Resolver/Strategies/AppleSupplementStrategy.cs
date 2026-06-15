@@ -35,7 +35,7 @@ internal sealed class AppleSupplementStrategy : IResolutionStrategy
             var typeName = SwiftTypeName.FromTypeSpec(named);
             if (AppleSupplementResolver.TryResolve(typeName, context.CurrentlyGeneratingModule, out var record))
             {
-                AppleSupplementReferences.Record(typeName.ModuleQualifiedName);
+                AppleSupplementReferences.Record(typeName.ModuleQualifiedName, $"strategy:{Name}");
                 result = new TypeResolutionResult(
                     Record: record,
                     SupplementReference: typeName.ModuleQualifiedName,

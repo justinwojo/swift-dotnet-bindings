@@ -287,20 +287,6 @@ public partial class ProtocolProxyEmitter
                 return ptr;
             }
 
-            private static IntPtr AllocZeroedSwiftBuffer<T>()
-            {
-                // Error-path fallback (proxy unregistered / impl already GC'd): hand Swift a
-                // correctly sized, zero-filled buffer instead of crossing the UnmanagedCallersOnly
-                // boundary with a throw. For ISwiftObject reference wrappers the managed size is
-                // only a pointer, smaller than the native Swift value, so size from the type
-                // metadata to match the success path and avoid an out-of-bounds read on the Swift
-                // side. Value-type carriers keep the managed (== native) size.
-                nuint size = typeof(T).IsValueType
-                    ? (nuint)Unsafe.SizeOf<T>()
-                    : Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>().Size;
-                return (IntPtr)NativeMemory.AllocZeroed(size == 0 ? 1 : size);
-            }
-
             private static T MarshalFromSwift<T>(IntPtr ptr)
             {
                 // Use direct memory operations for all types

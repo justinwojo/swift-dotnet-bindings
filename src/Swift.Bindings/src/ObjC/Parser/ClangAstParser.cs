@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration.ObjC;
 
@@ -11,9 +12,49 @@ namespace BindingsGeneration.ObjC;
 public static class ClangAstParser
 {
     /// <summary>
+    /// The vocabulary of top-level Clang AST node kinds this parser recognizes — either parsed
+    /// into the model (the eight handled <c>switch</c> cases) or knowingly skipped (forward decls,
+    /// C/C++ scaffolding and builtins clang emits for system-header expansions). This is the
+    /// in-code "golden" for the node-kind census (Finding 63): any top-level kind <em>not</em> in
+    /// this set is surfaced via <c>SWIFTBIND029</c> so a future Clang schema change that introduces
+    /// a new declaration kind can no longer silently drop bindable API. Update this set
+    /// <em>deliberately</em> (together with the census golden test) when teaching the parser a new
+    /// kind — the guard test <c>KnownTopLevelNodeKinds_CoversEveryHandledSwitchCase</c> fails if a
+    /// parsed kind is missing here.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> KnownTopLevelNodeKinds = new HashSet<string>(StringComparer.Ordinal)
+    {
+        // Parsed into the model (must mirror the top-level switch in Parse):
+        "ObjCInterfaceDecl", "ObjCProtocolDecl", "ObjCCategoryDecl",
+        "EnumDecl", "RecordDecl", "FunctionDecl", "VarDecl", "TypedefDecl",
+
+        // Seen at translation-unit scope and deliberately ignored (no bindable surface, or
+        // implementation-only): C/ObjC scaffolding…
+        "EmptyDecl", "StaticAssertDecl", "FileScopeAsmDecl", "IndirectFieldDecl",
+        "ObjCImplementationDecl", "ObjCCategoryImplDecl", "ImportDecl",
+        "PragmaCommentDecl", "PragmaDetectMismatchDecl",
+        // …and C++ constructs that arrive via included system headers (we bind ObjC/C, not C++):
+        "LinkageSpecDecl", "NamespaceDecl", "UsingDecl", "UsingDirectiveDecl",
+        "UsingShadowDecl", "TypeAliasDecl", "TypeAliasTemplateDecl",
+        "CXXRecordDecl", "ClassTemplateDecl", "ClassTemplateSpecializationDecl",
+        "FunctionTemplateDecl", "VarTemplateDecl", "BuiltinTemplateDecl",
+        "FriendDecl", "AccessSpecDecl", "NamespaceAliasDecl",
+    };
+
+    /// <summary>
     /// Parses a Clang AST JSON string into an ObjCModule.
     /// </summary>
-    public static ObjCModule Parse(string json, string moduleName, string frameworkHeadersPath)
+    /// <param name="logger">
+    /// Optional logger for the node-kind census (Finding 63). When supplied, the parser logs the
+    /// full top-level node-kind census at debug and raises <c>SWIFTBIND029</c> for any kind outside
+    /// <see cref="KnownTopLevelNodeKinds"/>. Null in tests that don't assert on it.
+    /// </param>
+    /// <exception cref="InvalidOperationException">
+    /// The clang AST is empty or malformed — zero top-level nodes from a non-empty header set. This
+    /// is a systemic parse failure (<c>SWIFTBIND029</c>), surfaced as a hard error rather than a
+    /// silently-empty binding.
+    /// </exception>
+    public static ObjCModule Parse(string json, string moduleName, string frameworkHeadersPath, ILogger? logger = null)
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -32,13 +73,21 @@ public static class ClangAstParser
         // Normalize headers path for comparison
         frameworkHeadersPath = frameworkHeadersPath.TrimEnd('/');
 
-        if (!root.TryGetProperty("inner", out var inner))
+        // Systemic-failure hard error (Finding 63): zero top-level AST nodes from a non-empty
+        // header set. ObjCPipeline only calls Parse after locating a real umbrella header, so an
+        // absent/empty `inner` means clang ran on a real header and produced nothing — a malformed
+        // dump or a header that failed to compile, NOT "this framework has no declarations" (a real
+        // umbrella always expands at least system builtins). Failing open here would silently emit
+        // an empty binding; fail loud instead.
+        if (!root.TryGetProperty("inner", out var inner)
+            || inner.ValueKind != JsonValueKind.Array
+            || inner.GetArrayLength() == 0)
         {
-            return new ObjCModule
-            {
-                ModuleName = moduleName,
-                FrameworkPath = frameworkHeadersPath
-            };
+            throw new InvalidOperationException(
+                $"SWIFTBIND029: Clang produced zero top-level AST nodes for module '{moduleName}'. " +
+                "This is a systemic parse failure — the clang AST dump is empty or malformed (e.g. " +
+                "the umbrella header failed to compile, or the AST flags/output schema changed), not " +
+                "an empty framework. Refusing to emit an empty binding silently.");
         }
 
         // Pre-scan: collect ObjC class names that declare lightweight generic type parameters.
@@ -60,6 +109,10 @@ public static class ClangAstParser
         bool lastAnonymousHasUnsafeLayout = false;
         string? lastAnonymousUnsafeReason = null;
 
+        // Node-kind census (Finding 63): tally every top-level kind so silent skips become loud.
+        // Reported after the pass; out-of-vocabulary kinds raise SWIFTBIND029.
+        var nodeKindCensus = new Dictionary<string, int>(StringComparer.Ordinal);
+
         // Pass 1: Parse all top-level declarations
         foreach (var node in inner.EnumerateArray())
         {
@@ -69,6 +122,8 @@ public static class ClangAstParser
             var kind = kindProp.GetString();
             if (kind == null)
                 continue;
+
+            nodeKindCensus[kind] = nodeKindCensus.TryGetValue(kind, out var kindCount) ? kindCount + 1 : 1;
 
             // Update current file tracking and filter by framework headers path.
             // IsPublicDeclaration always updates currentFile tracking (side-effect),
@@ -183,6 +238,9 @@ public static class ClangAstParser
             }
         }
 
+        // Census report (Finding 63): full census at debug, SWIFTBIND029 for unrecognized kinds.
+        ReportNodeKindCensus(nodeKindCensus, moduleName, logger);
+
         // Pass 2: Merge categories onto their owning classes.
         // Merge onto ALL matching duplicates so Pass 3 dedup doesn't discard category members.
         // Also merge category-adopted protocols onto the class's ProtocolNames.
@@ -286,6 +344,41 @@ public static class ClangAstParser
         finally
         {
             ObjCTypeRefParser.SetAdditionalGenericContainers(null);
+        }
+    }
+
+    /// <summary>
+    /// Reports the top-level node-kind census (Finding 63). Logs the full kind→count tally at debug,
+    /// then raises <c>SWIFTBIND029</c> (warning) for any kind outside
+    /// <see cref="KnownTopLevelNodeKinds"/> — those are silently skipped by the parser's switch, so
+    /// surfacing them prevents a future Clang schema change from dropping bindable API unnoticed.
+    /// No-op when no logger is supplied.
+    /// </summary>
+    internal static void ReportNodeKindCensus(
+        IReadOnlyDictionary<string, int> census, string moduleName, ILogger? logger)
+    {
+        if (logger == null || census.Count == 0)
+            return;
+
+        logger.LogDebug(
+            "Clang AST node-kind census for '{Module}': {Census}",
+            moduleName,
+            string.Join(", ", census.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => $"{kv.Key}={kv.Value}")));
+
+        var novel = census
+            .Where(kv => !KnownTopLevelNodeKinds.Contains(kv.Key))
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .ToList();
+        if (novel.Count > 0)
+        {
+            logger.LogWarning(
+                "SWIFTBIND029: Clang AST for module '{Module}' contains {Count} top-level node " +
+                "kind(s) this parser does not recognize and silently skips: {Kinds}. If any carry " +
+                "bindable API, the binding is incomplete. After confirming whether they need " +
+                "handling, update ClangAstParser.KnownTopLevelNodeKinds (and its census golden test).",
+                moduleName, novel.Count,
+                string.Join(", ", novel.Select(kv => $"{kv.Key}({kv.Value})")));
         }
     }
 

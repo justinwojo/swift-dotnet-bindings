@@ -26,7 +26,7 @@ public static class ObjCOverridePropertyWrapperEmitter
     public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
     {
         // Must be in xcframework mode (wrapper library available)
-        if (string.IsNullOrEmpty(accessorEnv.TypeDatabase.AsyncLibraryName))
+        if (!WrapperValidation.IsXCFrameworkMode(accessorEnv.TypeDatabase))
             return false;
 
         // Must be a non-static instance property on a class

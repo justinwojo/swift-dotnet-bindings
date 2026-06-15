@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Collections.Generic;
 using System.IO;
 using Xunit;
 
@@ -95,4 +96,82 @@ public class UnsupportedCommentEmitterTests
         Assert.Contains("// Unsupported: type 'MyType'", output);
         Assert.DoesNotContain("()", output);
     }
+
+    [Fact]
+    public void EmitMemberSkipped_WithContainingType_QualifiesMemberName()
+    {
+        // Finding 53 (Codex Low): a non-module containing decl qualifies the member as Type.member,
+        // both in the human-readable comment and (downstream) the SWIFTBIND025 dedup key.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var owner = new BaseDecl { Name = "Loader", ParentDecl = null, ModuleDecl = null };
+
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "fetch", BindingItemKind.Method, SkipReason.UnsupportedSignature, containingDecl: owner);
+
+        var output = sw.ToString();
+        Assert.Contains("// Unsupported: method 'Loader.fetch'", output);
+        Assert.DoesNotContain("'fetch'", output); // never the bare, unqualified form
+    }
+
+    [Fact]
+    public void EmitMemberSkipped_WithModuleDeclParent_StaysUnqualified()
+    {
+        // A module-level free function has no declaring type and cannot name-collide across types,
+        // so a ModuleDecl parent is treated as "no containing type" — the member stays unqualified.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var module = NewModuleDecl();
+
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "topLevelFunc", BindingItemKind.Method, SkipReason.UnsupportedSignature, containingDecl: module);
+
+        var output = sw.ToString();
+        Assert.Contains("// Unsupported: method 'topLevelFunc'", output);
+        Assert.DoesNotContain("'TestModule.topLevelFunc'", output);
+    }
+
+    [Fact]
+    public void EmitMemberSkipped_NestedContainingType_UsesFullPath()
+    {
+        // Finding 53 (Codex round 2): qualify by the FULL declaring-type path so a member of
+        // A.Inner stays distinct from one of B.Inner. The walk stops at the module.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var module = NewModuleDecl();
+        var outer = new BaseDecl { Name = "Outer", ParentDecl = module, ModuleDecl = module };
+        var inner = new BaseDecl { Name = "Inner", ParentDecl = outer, ModuleDecl = module };
+
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "foo", BindingItemKind.Method, SkipReason.UnsupportedSignature, containingDecl: inner);
+
+        var output = sw.ToString();
+        Assert.Contains("// Unsupported: method 'Outer.Inner.foo'", output);
+    }
+
+    [Fact]
+    public void EmitMemberSkipped_NullContainingDecl_StaysUnqualified()
+    {
+        // Backward-compatible default: a null containing decl leaves the member unqualified.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "doStuff", BindingItemKind.Method, SkipReason.UnsupportedSignature);
+
+        var output = sw.ToString();
+        Assert.Contains("// Unsupported: method 'doStuff'", output);
+    }
+
+    private static ModuleDecl NewModuleDecl() => new()
+    {
+        Name = "TestModule",
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Dependencies = new List<string>(),
+        Protocols = new List<ProtocolDecl>(),
+        ParentDecl = null,
+        ModuleDecl = null
+    };
 }

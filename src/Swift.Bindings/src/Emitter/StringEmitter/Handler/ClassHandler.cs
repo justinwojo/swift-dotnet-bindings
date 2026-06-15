@@ -303,7 +303,7 @@ namespace BindingsGeneration
                         // Mirror PropertyHandler's SkipProperty: leave a `// Unsupported:` tombstone
                         // so consumers can grep the file. The outer gate skips PropertyHandler.Emit
                         // entirely, so this is the only place the omission can be made visible.
-                        UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, skipReason.Value, skipDetails);
+                        UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, skipReason.Value, skipDetails, containingDecl: propertyDecl.ParentDecl);
                         continue;
                     }
 
@@ -731,7 +731,7 @@ namespace BindingsGeneration
                 _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, metadataAccessor);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
-                     !string.IsNullOrEmpty(_typeDatabase.AsyncLibraryName))
+                     WrapperValidation.IsXCFrameworkMode(_typeDatabase))
             {
                 // Xcframework mode: emit @_cdecl metadata wrapper.
                 // Internal types (both @usableFromInline and truly internal) are inaccessible

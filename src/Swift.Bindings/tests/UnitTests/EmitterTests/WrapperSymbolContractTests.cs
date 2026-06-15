@@ -243,7 +243,8 @@ public class WrapperSymbolContractTests
             Assert.Contains("SBW_PaymentSdkReproModule_FlowController_create_xyz", skipped.Details ?? "");
 
             var output = sw.ToString();
-            Assert.Contains("// Unsupported: method 'create'", output);
+            // Finding 53: the comment qualifies the member by its declaring type (Loader.create).
+            Assert.Contains("// Unsupported: method 'Loader.create'", output);
             Assert.Contains("SBW_PaymentSdkReproModule_FlowController_create_xyz", output);
             Assert.DoesNotContain("LibraryImport", output);
             Assert.DoesNotContain("EntryPoint", output);

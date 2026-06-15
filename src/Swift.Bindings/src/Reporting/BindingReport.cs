@@ -36,6 +36,22 @@ public sealed class BindingReport
     public List<ThemeBridgedItem> ThemeBridgedProperties { get; } = new();
 
     /// <summary>
+    /// Distinct <c>// Unsupported:</c> comment-drops emitted this run (Finding 53) — a type or
+    /// member the generator could not bind and left as a comment in the generated C#. Each is
+    /// surfaced as a loud <c>SWIFTBIND025</c> diagnostic at report time so a dropped declaration is
+    /// never silent. Populated by <see cref="ReportCollector"/> from the ambient comment chokepoint.
+    /// </summary>
+    public List<string> UnsupportedCommentDrops { get; } = new();
+
+    /// <summary>
+    /// Distinct Swift types that degraded to bare <c>object</c> with no <c>[UnsupportedSwiftType]</c>
+    /// marker (Finding 53) — e.g. an existential the resolver could not project at a closure
+    /// parameter/return position. Each is surfaced as a loud <c>SWIFTBIND026</c> diagnostic so the
+    /// otherwise-silent collapse to an untyped value is observable.
+    /// </summary>
+    public List<string> ObjectDegradations { get; } = new();
+
+    /// <summary>
     /// Summary of SwiftUI bridge coverage for this module.
     /// Null when the module has no SwiftUI views.
     /// </summary>

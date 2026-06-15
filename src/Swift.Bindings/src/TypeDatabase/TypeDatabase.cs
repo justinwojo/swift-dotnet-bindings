@@ -5,6 +5,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Xml;
+using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration
 {
@@ -94,7 +95,7 @@ namespace BindingsGeneration
         /// Loads a module database from a specified file.
         /// </summary>
         /// <param name="file">The file path of the module database to load.</param>
-        public async Task LoadModuleDatabaseFromFile(string file)
+        public async Task LoadModuleDatabaseFromFile(string file, ILogger? logger = null)
         {
             var fileContent = await File.ReadAllTextAsync(file);
 
@@ -106,7 +107,7 @@ namespace BindingsGeneration
             var version = xmlDoc.DocumentElement?.Attributes?["version"]?.Value;
             var moduleDatabase = version switch
             {
-                "1.0" => ReadVersion1_0(xmlDoc),
+                "1.0" => ReadVersion1_0(xmlDoc, logger),
                 _ => throw new Exception($"Unsupported database version {version} in {file}.")
             };
 
@@ -335,7 +336,7 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="xmlDoc">The XML document to read.</param>
         /// <returns>The module database.</returns>
-        private static ModuleTypeDatabase ReadVersion1_0(XmlDocument xmlDoc)
+        private static ModuleTypeDatabase ReadVersion1_0(XmlDocument xmlDoc, ILogger? logger = null)
         {
             XmlNode? rootNode = xmlDoc.SelectSingleNode("//swifttypedatabase");
             if (rootNode == null)
@@ -344,7 +345,7 @@ namespace BindingsGeneration
             var databaseModuleName = rootNode.Attributes?["moduleName"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'moduleName' attribute.");
             var databaseModulePath = rootNode.Attributes?["modulePath"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'modulePath' attribute.");
 
-            var moduleDatabase = new ModuleTypeDatabase(databaseModuleName, databaseModulePath);
+            var moduleDatabase = new ModuleTypeDatabase(databaseModuleName, databaseModulePath, logger);
 
             XmlNode? entitiesNode = xmlDoc.SelectSingleNode("//swifttypedatabase/entities");
 
@@ -611,7 +612,7 @@ namespace BindingsGeneration
             // stay consistent.
             if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplementRecord))
             {
-                AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName);
+                AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName, "TypeDatabase.TryGetTypeRecord:AppleSupplementResolver");
                 record = supplementRecord;
                 return true;
             }
@@ -647,7 +648,7 @@ namespace BindingsGeneration
             // supplement PackageReference alongside.
             if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
             {
-                AppleSupplementReferences.Record("Foundation.AnyError");
+                AppleSupplementReferences.Record("Foundation.AnyError", "TypeDatabase.TryGetTypeRecord:SwiftError");
                 record = TypeDatabaseExtensions.SwiftErrorType;
                 return true;
             }

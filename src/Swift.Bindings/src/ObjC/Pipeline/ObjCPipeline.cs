@@ -76,7 +76,7 @@ public static class ObjCPipeline
         ObjCModule module;
         try
         {
-            module = ClangAstParser.Parse(json, resolution.ModuleName, headersPath);
+            module = ClangAstParser.Parse(json, resolution.ModuleName, headersPath, logger);
         }
         catch (Exception ex)
         {
@@ -130,7 +130,16 @@ public static class ObjCPipeline
         symbolBinaries.AddRange(XCFrameworkResolver.EnumerateObjCSliceNativeBinaries(xcframeworkPath, logger));
         symbolBinaries.AddRange(XCFrameworkResolver.EnumerateFrameworkBinariesUnder(additionalFrameworkSearchPaths, logger));
         var symbolScan = NativeSymbolProbe.ScanObjCClassSymbols(symbolBinaries, commandRunner, logger);
-        module = FilterToNativeSymbolBackedClasses(module, symbolScan, logger, diagnostics);
+        try
+        {
+            module = FilterToNativeSymbolBackedClasses(module, symbolScan, logger, diagnostics);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Systemic native-symbol probe failure (SWIFTBIND028): fail loud instead of silently
+            // keeping every header-declared class. Surfaced as a non-zero pipeline result.
+            return new ObjCPipelineResult(1, null, ex.Message);
+        }
 
         // 5. Emit bindings
         var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
@@ -257,24 +266,44 @@ public static class ObjCPipeline
     /// <c>[Category][BaseType(typeof(X))]</c> on a removed class X fails to compile/link.
     /// Protocols are never touched (they use <c>_OBJC_PROTOCOL_$_</c>/section metadata).
     /// <para>
-    /// Fail-open: returns the module unchanged when no binary was readable
-    /// (<see cref="NativeSymbolProbe.ObjCClassSymbolScan.GatheredEvidence"/> is false), or
-    /// when the scan found no class symbols at all — absence of evidence is not evidence of
-    /// absence, and this guard only ever removes with positive proof.
+    /// Tri-state evidence handling (Finding 63): a
+    /// <see cref="NativeSymbolProbeOutcome.AllFailed"/> scan — binaries existed but every
+    /// <c>nm</c> invocation failed — is a <em>systemic</em> failure and is a hard error
+    /// (<c>SWIFTBIND028</c>, thrown), because silently failing open there would let header-only
+    /// over-bindings through under the very condition (broken/absent <c>nm</c>) the guard exists to
+    /// catch. By contrast, <see cref="NativeSymbolProbeOutcome.NothingToProbe"/> (no binary to
+    /// read) or a gathered-but-empty scan (no <c>_OBJC_CLASS_$_</c> symbols at all) fails open and
+    /// returns the module unchanged — absence of evidence is not evidence of absence, and this
+    /// guard only ever removes with positive proof.
     /// </para>
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The probe outcome is <see cref="NativeSymbolProbeOutcome.AllFailed"/> (systemic <c>nm</c>
+    /// failure). <see cref="Run"/> converts this to a non-zero <see cref="ObjCPipelineResult"/>.
+    /// </exception>
     internal static ObjCModule FilterToNativeSymbolBackedClasses(
         ObjCModule module,
         NativeSymbolProbe.ObjCClassSymbolScan scan,
         ILogger logger,
         ObjCBindingDiagnostics diagnostics)
     {
-        if (!scan.GatheredEvidence || scan.DefinedClassNames.Count == 0)
+        if (scan.Outcome == NativeSymbolProbeOutcome.AllFailed)
+        {
+            throw new InvalidOperationException(
+                "SWIFTBIND028: native-symbol probe systemic failure — one or more framework/" +
+                "dependency binaries were present but every `nm` invocation failed, so the ObjC " +
+                "over-binding guard cannot establish which classes are link-backed. This usually " +
+                "means `nm` is unavailable or its output format changed. Refusing to silently keep " +
+                "all classes (which would let header-only over-bindings through under exactly the " +
+                "condition this guard exists to catch). Fix the toolchain and re-run.");
+        }
+
+        if (scan.Outcome == NativeSymbolProbeOutcome.NothingToProbe || scan.DefinedClassNames.Count == 0)
         {
             logger.LogDebug(
                 "Native-symbol guard: {Reason} — keeping all classes (fail-open).",
-                !scan.GatheredEvidence
-                    ? "no slice/dependency binary was readable"
+                scan.Outcome == NativeSymbolProbeOutcome.NothingToProbe
+                    ? "no slice/dependency binary existed to probe"
                     : "nm found no _OBJC_CLASS_$_ symbols");
             return module;
         }

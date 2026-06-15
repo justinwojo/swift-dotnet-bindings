@@ -325,7 +325,8 @@ public static class ConstrainedExtensionEmitter
                 UnsupportedCommentEmitter.EmitMemberSkipped(
                     csWriter, property.Name, BindingItemKind.Property,
                     SkipReason.UnsupportedSignature,
-                    $"on {typeDecl.Name}<{concreteTypeName.Name}>: open-generic return substitution unsupported");
+                    $"on {typeDecl.Name}<{concreteTypeName.Name}>: open-generic return substitution unsupported",
+                    containingDecl: property.ParentDecl);
                 logger.LogDebug(
                     "ConstrainedExtensionEmitter: Skipping open-generic-return property {Name} on {Parent}<{Concrete}> — substitution unsupported.",
                     property.Name, typeDecl.Name, concreteTypeName.Name);
@@ -426,7 +427,8 @@ public static class ConstrainedExtensionEmitter
             UnsupportedCommentEmitter.EmitMemberSkipped(
                 csWriter, property.Name, BindingItemKind.Property,
                 SkipReason.UnsupportedSignature,
-                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: constrained static property emission not yet supported");
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: constrained static property emission not yet supported",
+                containingDecl: property.ParentDecl);
             logger.LogDebug(
                 "ConstrainedExtensionEmitter: Skipping static property {Name} on {Parent}<{Concrete}> — static-property emission not yet supported.",
                 property.Name, parentTypeDecl.Name, concreteTypeName.Name);
@@ -451,7 +453,8 @@ public static class ConstrainedExtensionEmitter
             UnsupportedCommentEmitter.EmitMemberSkipped(
                 csWriter, property.Name, BindingItemKind.Property,
                 SkipReason.UnsupportedSignature,
-                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: bound-generic return ({substitutedPropNamed.Name}) not yet supported");
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: bound-generic return ({substitutedPropNamed.Name}) not yet supported",
+                containingDecl: property.ParentDecl);
             logger.LogDebug(
                 "ConstrainedExtensionEmitter: Skipping property {Name} on {Parent}<{Concrete}> — bound-generic return ({ReturnType}) is not yet supported.",
                 property.Name, parentTypeDecl.Name, concreteTypeName.Name, substitutedPropNamed.Name);
@@ -464,7 +467,8 @@ public static class ConstrainedExtensionEmitter
             UnsupportedCommentEmitter.EmitMemberSkipped(
                 csWriter, property.Name, BindingItemKind.Property,
                 SkipReason.UnsupportedSignature,
-                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: unsupported return type");
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: unsupported return type",
+                containingDecl: property.ParentDecl);
             logger.LogDebug(
                 "ConstrainedExtensionEmitter: Skipping property {Name} on {Parent}<{Concrete}> — unsupported return type.",
                 property.Name, parentTypeDecl.Name, concreteTypeName.Name);
@@ -856,7 +860,7 @@ public static class ConstrainedExtensionEmitter
             // PackageReference when something records a reference. This emitter
             // bypasses TypeProjectionFactory (which records the Foundation.Data
             // identity itself), so record explicitly here.
-            AppleSupplementReferences.Record("Foundation.Data");
+            AppleSupplementReferences.Record("Foundation.Data", "ConstrainedExtensionEmitter:FoundationData");
             return (CEReturnShape.FoundationData, "byte[]");
         }
 
@@ -1237,7 +1241,8 @@ public static class ConstrainedExtensionEmitter
                     UnsupportedCommentEmitter.EmitMemberSkipped(
                         csWriter, method.Name, BindingItemKind.Method,
                         SkipReason.UnsupportedSignature,
-                        $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: open-generic return substitution unsupported");
+                        $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: open-generic return substitution unsupported",
+                        containingDecl: method.ParentDecl);
                     logger.LogDebug(
                         "ConstrainedExtensionEmitter: Skipping method {Name} on {Parent}<{Concrete}> — open-generic return substitution unsupported.",
                         method.Name, parentTypeDecl.Name, concreteTypeName.Name);
@@ -1257,7 +1262,8 @@ public static class ConstrainedExtensionEmitter
             UnsupportedCommentEmitter.EmitMemberSkipped(
                 csWriter, method.Name, BindingItemKind.Method,
                 SkipReason.UnsupportedSignature,
-                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: bound-generic return ({substitutedNamed.Name}) not yet supported");
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: bound-generic return ({substitutedNamed.Name}) not yet supported",
+                containingDecl: method.ParentDecl);
             logger.LogDebug(
                 "ConstrainedExtensionEmitter: Skipping method {Name} on {Parent}<{Concrete}> — bound-generic return ({ReturnType}) is not yet supported.",
                 method.Name, parentTypeDecl.Name, concreteTypeName.Name, substitutedNamed.Name);
@@ -1275,7 +1281,8 @@ public static class ConstrainedExtensionEmitter
             UnsupportedCommentEmitter.EmitMemberSkipped(
                 csWriter, method.Name, BindingItemKind.Method,
                 SkipReason.UnsupportedSignature,
-                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: unsupported return type");
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: unsupported return type",
+                containingDecl: method.ParentDecl);
             logger.LogDebug(
                 "ConstrainedExtensionEmitter: Skipping method {Name} on {Parent}<{Concrete}> — unsupported return type {ReturnType}.",
                 method.Name, parentTypeDecl.Name, concreteTypeName.Name, effectiveReturnTypeSpec);

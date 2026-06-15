@@ -27,6 +27,15 @@ public static class ReportCollector
     private static readonly HashSet<MemberDiagnosticIdentity> SkippedMemberIdentities = new();
     private static readonly HashSet<MemberDiagnosticIdentity> SynthesizedMemberIdentities = new();
 
+    // Finding 53: ambient accumulators for the two previously-silent degradation mechanisms.
+    // They live here (not on ModuleEmissionContext like SWIFTBIND023) because their emission sites
+    // — the `// Unsupported:` comment chokepoint and the scattered closure `?? "object"` fallbacks —
+    // have no ModuleEmissionContext in scope, but ReportCollector is already the ambient
+    // (AsyncLocal-session) sink they all reach without threading. Dedup keeps the loud diagnostic to
+    // one warning per distinct drop / degraded type.
+    private static readonly HashSet<string> UnsupportedCommentDropEntries = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> ObjectDegradationEntries = new(StringComparer.Ordinal);
+
     public static bool IsActive => SessionActive.Value && _report != null;
 
     /// <summary>
@@ -84,6 +93,14 @@ public static class ReportCollector
             _report.EmittedMembers = EmittedMemberIdentities.Count;
             _report.SkippedMembers = SkippedMemberIdentities.Count;
             _report.SynthesizedMembers = SynthesizedMemberIdentities.Count;
+
+            // Finding 53: flow the ambient degradation accumulators onto the report (sorted for
+            // deterministic output) so they survive Reset() and drive the loud SWIFTBIND025/026
+            // diagnostics emitted from the report block.
+            _report.UnsupportedCommentDrops.AddRange(
+                UnsupportedCommentDropEntries.OrderBy(x => x, StringComparer.Ordinal));
+            _report.ObjectDegradations.AddRange(
+                ObjectDegradationEntries.OrderBy(x => x, StringComparer.Ordinal));
 
             // Per-kind breakdown: read directly from each identity's Kind field.
             ComputePerKindCounts(_report);
@@ -502,6 +519,44 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>
+    /// Records a <c>// Unsupported:</c> comment-drop (Finding 53): a type/member that could not be
+    /// bound and was left as a comment in the generated C#. <paramref name="description"/> is the
+    /// comment text minus its leading <c>// </c>, used as the dedup key so the loud SWIFTBIND025
+    /// diagnostic fires once per distinct drop. No-op outside an active report session.
+    /// </summary>
+    public static void RecordUnsupportedCommentDrop(string description)
+    {
+        if (!SessionActive.Value || _report == null || string.IsNullOrEmpty(description))
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+            UnsupportedCommentDropEntries.Add(description);
+        }
+    }
+
+    /// <summary>
+    /// Records a Swift type that degraded to bare <c>object</c> with no <c>[UnsupportedSwiftType]</c>
+    /// marker (Finding 53) — e.g. an existential the resolver could not project at a closure
+    /// parameter/return position. Surfaced as one loud SWIFTBIND026 per distinct type. No-op outside
+    /// an active report session.
+    /// </summary>
+    public static void RecordObjectDegradation(string swiftType)
+    {
+        if (!SessionActive.Value || _report == null || string.IsNullOrEmpty(swiftType))
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+            ObjectDegradationEntries.Add(swiftType);
+        }
+    }
+
     private static void ResetUnsafe()
     {
         _report = null;
@@ -510,6 +565,8 @@ public static class ReportCollector
         EmittedMemberIdentities.Clear();
         SkippedMemberIdentities.Clear();
         SynthesizedMemberIdentities.Clear();
+        UnsupportedCommentDropEntries.Clear();
+        ObjectDegradationEntries.Clear();
     }
 
     private static (int totalTypes, int totalMembers) CalculateTotals(ModuleDecl moduleDecl)

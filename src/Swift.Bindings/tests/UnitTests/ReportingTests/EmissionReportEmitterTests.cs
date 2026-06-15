@@ -220,6 +220,59 @@ public class EmissionReportEmitterTests
         Assert.Contains(swiftbind023, e => e.Message.Contains("any Shape"));
     }
 
+    [Fact]
+    public void EmitDegradationDiagnostics_LogsSwiftbind025OncePerCommentDrop()
+    {
+        // Finding 53: every // Unsupported: comment-drop the report carries surfaces as exactly one
+        // loud SWIFTBIND025 warning naming the dropped declaration.
+        var report = new BindingReport { ModuleName = "TestModule" };
+        report.UnsupportedCommentDrops.Add("Unsupported: type 'Widget' — unsupported type");
+        report.UnsupportedCommentDrops.Add("Unsupported: method 'Fetch' — unsupported existential");
+        var logger = new CapturingLogger();
+
+        EmissionReportEmitter.EmitDegradationDiagnostics(report, logger);
+
+        var sb025 = logger.Entries
+            .Where(e => e.Level == LogLevel.Warning && e.Message.Contains("SWIFTBIND025"))
+            .ToList();
+        Assert.Equal(2, sb025.Count);
+        Assert.Contains(sb025, e => e.Message.Contains("type 'Widget'"));
+        Assert.Contains(sb025, e => e.Message.Contains("method 'Fetch'"));
+    }
+
+    [Fact]
+    public void EmitDegradationDiagnostics_LogsSwiftbind026OncePerObjectDegradation()
+    {
+        // Finding 53: every Swift type that degraded to bare `object` surfaces as exactly one loud
+        // SWIFTBIND026 warning naming the Swift type.
+        var report = new BindingReport { ModuleName = "TestModule" };
+        report.ObjectDegradations.Add("any AttributeKind");
+        report.ObjectDegradations.Add("any Shape");
+        var logger = new CapturingLogger();
+
+        EmissionReportEmitter.EmitDegradationDiagnostics(report, logger);
+
+        var sb026 = logger.Entries
+            .Where(e => e.Level == LogLevel.Warning && e.Message.Contains("SWIFTBIND026"))
+            .ToList();
+        Assert.Equal(2, sb026.Count);
+        Assert.Contains(sb026, e => e.Message.Contains("any AttributeKind"));
+        Assert.Contains(sb026, e => e.Message.Contains("any Shape"));
+    }
+
+    [Fact]
+    public void EmitDegradationDiagnostics_EmptyReport_LogsNothing()
+    {
+        // No degradations recorded → no SB025/SB026 noise.
+        var report = new BindingReport { ModuleName = "TestModule" };
+        var logger = new CapturingLogger();
+
+        EmissionReportEmitter.EmitDegradationDiagnostics(report, logger);
+
+        Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("SWIFTBIND025"));
+        Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("SWIFTBIND026"));
+    }
+
     private sealed class CapturingLogger : ILogger
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = new();

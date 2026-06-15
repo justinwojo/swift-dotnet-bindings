@@ -92,7 +92,7 @@ public static partial class ClosureEmitter
                 // Known protocol: extract container from interface for function pointer
                 if (closureHandler.ShouldUseGetOrCreate(arg))
                 {
-                    var pt = closureHandler.GetPublicExistentialType(arg) ?? "object";
+                    var pt = ResolveClosureExistentialOrDegrade(closureHandler, arg);
                     var qp = closureHandler.GetQualifiedProxyClassName(arg);
                     invokeArgs.Add(qp != null
                         ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i}, static __v => new {qp}(__v))"
@@ -292,7 +292,7 @@ public static partial class ClosureEmitter
                 // Known protocol: extract container from interface for function pointer
                 if (closureHandler.ShouldUseGetOrCreate(arg))
                 {
-                    var pt = closureHandler.GetPublicExistentialType(arg) ?? "object";
+                    var pt = ResolveClosureExistentialOrDegrade(closureHandler, arg);
                     var qp = closureHandler.GetQualifiedProxyClassName(arg);
                     invokeArgs.Add(qp != null
                         ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i}, static __v => new {qp}(__v))"

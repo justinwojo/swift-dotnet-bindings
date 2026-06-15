@@ -195,7 +195,7 @@ namespace BindingsGeneration
                                 }
                                 ReportCollector.RecordMemberSkipped(methodDecl,
                                     validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details ?? "");
-                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details);
+                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details, containingDecl: methodDecl.ParentDecl);
                                 csWriter.WriteLine();
                                 continue;
                             }
@@ -207,7 +207,7 @@ namespace BindingsGeneration
                         {
                             _logger.LogDebug($"Skipping duplicate free function '{methodDecl.Name}' with signature: {signatureKey}");
                             ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, signatureKey);
-                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
+                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature, containingDecl: methodDecl.ParentDecl);
                             csWriter.WriteLine();
                             continue;
                         }
@@ -246,7 +246,7 @@ namespace BindingsGeneration
                         {
                             _logger.LogWarning($"No handler found for method {methodDecl.Name}");
                             ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.MissingHandler, "No method handler found for top-level method.");
-                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingHandler);
+                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingHandler, containingDecl: methodDecl.ParentDecl);
                         }
                         csWriter.WriteLine();
                     }

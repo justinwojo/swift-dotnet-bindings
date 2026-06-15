@@ -165,7 +165,8 @@ namespace BindingsGeneration
                     enumDecl.Name, caseName);
                 UnsupportedCommentEmitter.EmitMemberSkipped(
                     csWriter, capitalizedName, BindingItemKind.Method, SkipReason.MissingWrapperSymbol,
-                    "generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.");
+                    "generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.",
+                    containingDecl: caseDecl.ParentDecl);
                 return false;
             }
 

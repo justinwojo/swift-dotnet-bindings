@@ -432,6 +432,66 @@ namespace BindingsGeneration.Tests
             Assert.Contains("tvos", ex.Message);
             Assert.Contains("macos", ex.Message);
         }
+
+        [Fact]
+        public void SelectSlice_DefaultRecordResolution_RecordsNothing()
+        {
+            // Finding 50 (Codex High): only the PRIMARY generation target records to the ambient
+            // input-resolution report. Secondary callers (ObjC-detection, search-paths-only, sibling
+            // search) pass recordResolution at its default of false and must record NOTHING — even on
+            // a fallback — or they trip false-positive SWIFTBIND027 and pollute the manifest snapshot.
+            InputResolutionReport.Reset();
+            var slices = new List<XCFrameworkSlice> { MakeSlice("ios", "simulator", "arm64") };
+
+            // Device requested but only a simulator slice exists -> this is a fallback.
+            var result = XCFrameworkResolver.SelectSlice(slices, XCFrameworkPlatformTarget.Device, Logger);
+
+            Assert.Equal("simulator", result.SupportedPlatformVariant);
+            Assert.Empty(InputResolutionReport.Decisions);
+            Assert.False(InputResolutionReport.HasDegradations);
+        }
+
+        [Fact]
+        public void SelectSlice_RecordResolutionTrue_PreferredSlice_RecordsInfoNotDegradation()
+        {
+            // The primary target found the requested slice as-is: an Info SliceSelection decision,
+            // never a degradation.
+            InputResolutionReport.Reset();
+            var slices = new List<XCFrameworkSlice>
+            {
+                MakeSlice("ios", null, "arm64"),
+                MakeSlice("ios", "simulator", "arm64", "x86_64")
+            };
+
+            var result = XCFrameworkResolver.SelectSlice(
+                slices, XCFrameworkPlatformTarget.Simulator, Logger, platformInfo: null, recordResolution: true);
+
+            Assert.Equal("simulator", result.SupportedPlatformVariant);
+            var decision = Assert.Single(InputResolutionReport.Decisions);
+            Assert.Equal(InputResolutionCategory.SliceSelection, decision.Category);
+            Assert.Equal(InputResolutionSeverity.Info, decision.Severity);
+            Assert.False(InputResolutionReport.HasDegradations);
+        }
+
+        [Fact]
+        public void SelectSlice_RecordResolutionTrue_Fallback_RecordsDegradation()
+        {
+            // The primary target's requested slice was absent and a different kind was substituted:
+            // a SliceSelection degradation that --strict-inputs escalates (SWIFTBIND027).
+            InputResolutionReport.Reset();
+            var slices = new List<XCFrameworkSlice> { MakeSlice("ios", "simulator", "arm64") };
+
+            var result = XCFrameworkResolver.SelectSlice(
+                slices, XCFrameworkPlatformTarget.Device, Logger, platformInfo: null, recordResolution: true);
+
+            Assert.Equal("simulator", result.SupportedPlatformVariant);
+            var decision = Assert.Single(InputResolutionReport.Decisions);
+            Assert.Equal(InputResolutionCategory.SliceSelection, decision.Category);
+            Assert.Equal(InputResolutionSeverity.Degradation, decision.Severity);
+            Assert.True(InputResolutionReport.HasDegradations);
+
+            InputResolutionReport.Reset();
+        }
     }
 
     #endregion
@@ -745,6 +805,70 @@ namespace BindingsGeneration.Tests
             Assert.Contains("Lib.tbd", result.TbdPath);
             // tapi should NOT have been invoked
             Assert.DoesNotContain(runner.Invocations, i => i.Arguments.Contains("tapi"));
+        }
+
+        [Fact]
+        public void Resolve_MultipleTbds_PicksOrdinalFirst_Deterministically_AndRecordsDegradation()
+        {
+            // Finding 50: the previous unsorted Directory.GetFiles()[0] could pick a different
+            // .tbd across runs when more than one was present. Resolution now sorts ordinally and
+            // surfaces the ambiguity as an input-resolution degradation.
+            using var fixture = new XCFrameworkFixture();
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Lib"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Lib.framework", "Lib.framework/Lib");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Lib.framework", "Lib");
+            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            // Two TBDs, planted out of order. Ordinal-first is "Alpha.tbd".
+            fixture.CreateTbd(moduleDir, "Zulu");
+            fixture.CreateTbd(moduleDir, "Alpha");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
+
+            InputResolutionReport.Reset();
+            var result = XCFrameworkResolver.Resolve(
+                fixture.RootPath, fixture.OutputPath,
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+            Assert.EndsWith("Alpha.tbd", result.TbdPath);
+            Assert.DoesNotContain(runner.Invocations, i => i.Arguments.Contains("tapi"));
+
+            var tbdDecisions = InputResolutionReport.Decisions
+                .Where(d => d.Category == InputResolutionCategory.Tbd)
+                .ToList();
+            var degradation = Assert.Single(
+                tbdDecisions, d => d.Severity == InputResolutionSeverity.Degradation);
+            Assert.Contains("2 TBD files", degradation.Detail);
+            Assert.Contains("Alpha.tbd", degradation.Detail);
+        }
+
+        [Fact]
+        public void Resolve_SingleTbd_RecordsInfo_NotDegradation()
+        {
+            // Finding 50: the unambiguous single-TBD case is an Info decision, never a degradation,
+            // so it does not trip the --strict-inputs fail-closed gate.
+            using var fixture = new XCFrameworkFixture();
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Lib"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Lib.framework", "Lib.framework/Lib");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Lib.framework", "Lib");
+            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateTbd(moduleDir, "Lib");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
+
+            InputResolutionReport.Reset();
+            XCFrameworkResolver.Resolve(
+                fixture.RootPath, fixture.OutputPath,
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+            var tbdDecisions = InputResolutionReport.Decisions
+                .Where(d => d.Category == InputResolutionCategory.Tbd)
+                .ToList();
+            Assert.All(tbdDecisions, d => Assert.Equal(InputResolutionSeverity.Info, d.Severity));
+            Assert.Contains(tbdDecisions, d => d.Detail.Contains("Lib.tbd"));
         }
 
         [Fact]

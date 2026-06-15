@@ -74,7 +74,7 @@ namespace BindingsGeneration
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
                 EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
             }
-            else if (!enumDecl.IsFrozen && !string.IsNullOrEmpty(typeDatabase.AsyncLibraryName))
+            else if (!enumDecl.IsFrozen && WrapperValidation.IsXCFrameworkMode(typeDatabase))
             {
                 // Non-frozen blittable enum: emit @_cdecl wrapper for init(rawValue:) to avoid
                 // CallConvSwift + SwiftIndirectResult crash on Mono JIT.
@@ -88,7 +88,7 @@ namespace BindingsGeneration
             // - Non-string enums: when wrapper library exists (ABI JSON lacks actual raw values,
             //   so ordinal-based FromRawValue(i) fails for enums like Unit: TimeInterval where seconds=1)
             // CaseByIndex constructs cases directly (.seconds, .milliseconds) without needing raw values.
-            if (isStringRawType || !string.IsNullOrEmpty(typeDatabase.AsyncLibraryName))
+            if (isStringRawType || WrapperValidation.IsXCFrameworkMode(typeDatabase))
             {
                 caseByIndexSymbol = $"SBW_{sanitizedName}_CaseByIndex";
                 EmitCaseByIndexSwiftWrapper(swiftWriter, enumDecl, simpleCases, caseByIndexSymbol, ctx);

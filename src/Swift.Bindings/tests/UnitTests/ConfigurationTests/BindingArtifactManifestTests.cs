@@ -332,6 +332,202 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void GenerationSection_From_ThreadsParseReconciliation()
+    {
+        // Finding 14a: the optional reconciliation flows onto the GenerationSection; omitting it
+        // (legacy callers) leaves the field null.
+        var recon = new ParseReconciliation(Parsed: 10, Emitted: 7, SkippedWithReason: 2, DroppedWithError: 1);
+
+        var with = GenerationSection.From(NewReport(), recon);
+        Assert.NotNull(with.ParseReconciliation);
+        Assert.Equal(10, with.ParseReconciliation!.Parsed);
+        Assert.Equal(1, with.ParseReconciliation.DroppedWithError);
+        Assert.True(with.ParseReconciliation.IsBalanced);
+
+        var without = GenerationSection.From(NewReport());
+        Assert.Null(without.ParseReconciliation);
+    }
+
+    [Fact]
+    public void EmissionSection_From_ThreadsAppleSupplementProvenance()
+    {
+        // Finding 14c: the per-identity provenance snapshot flows onto the EmissionSection and
+        // survives a JSON round-trip, so the consumer's SwiftBindings.Apple PackageReference is
+        // auditable from the manifest rather than opaque.
+        var emissionReport = EmissionReportEmitter.BuildReport(new ModuleEmissionContext(), "Demo");
+        var snapshot = new List<(string Identity, IReadOnlyList<string> Provenance)>
+        {
+            ("Foundation.AnyError", new[] { "ExistentialHandler:AnyError", "TypeDatabase.TryGetTypeRecord:SwiftError" }),
+            ("Foundation.Data", new[] { "TypeProjectionFactory:FoundationData" }),
+        };
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(NewReport()),
+            Emission = EmissionSection.From(emissionReport, snapshot),
+        };
+
+        var settings = new JsonSerializerSettings
+        {
+            Formatting = Formatting.Indented,
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        var refs = parsed.Emission!.AppleSupplementReferences;
+        Assert.Equal(2, refs.Count);
+        Assert.Equal("Foundation.AnyError", refs[0].Identity);
+        Assert.Equal(
+            new[] { "ExistentialHandler:AnyError", "TypeDatabase.TryGetTypeRecord:SwiftError" },
+            refs[0].Provenance);
+        Assert.Equal("Foundation.Data", refs[1].Identity);
+        Assert.Equal(new[] { "TypeProjectionFactory:FoundationData" }, refs[1].Provenance);
+
+        // Omitting the snapshot (legacy callers) leaves the list empty, not null.
+        var without = EmissionSection.From(emissionReport);
+        Assert.Empty(without.AppleSupplementReferences);
+    }
+
+    [Fact]
+    public void GenerationSection_And_Projection_RoundTripCommentDropsAndObjectDegradations()
+    {
+        // Finding 53 (Codex Medium): binding-report.json is rederived from the manifest via
+        // BindingReportProjection.Project — NOT written directly from the live report. So the
+        // SWIFTBIND025 comment-drops and SWIFTBIND026 object-degradations must survive both
+        // GenerationSection.From (report -> manifest) AND Project (manifest -> projected report),
+        // or the diagnostics' "recorded in binding-report.json" promise silently breaks.
+        var report = NewReport();
+        report.UnsupportedCommentDrops.Add("Unsupported: method 'Loader.fetch' — closure param");
+        report.ObjectDegradations.Add("any Shape");
+        report.ObjectDegradations.Add("any AttributeKind");
+
+        var section = GenerationSection.From(report);
+        Assert.Equal(report.UnsupportedCommentDrops, section.UnsupportedCommentDrops);
+        Assert.Equal(report.ObjectDegradations, section.ObjectDegradations);
+
+        // Survives a JSON round-trip on the manifest, then the projected report restores both lists.
+        var manifest = new BindingArtifactManifest { Module = "Demo", Generation = section };
+        var settings = new JsonSerializerSettings
+        {
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        var projected = BindingReportProjection.Project(parsed);
+        Assert.Equal(
+            new[] { "Unsupported: method 'Loader.fetch' — closure param" },
+            projected.UnsupportedCommentDrops);
+        Assert.Equal(new[] { "any Shape", "any AttributeKind" }, projected.ObjectDegradations);
+
+        // Legacy: a report with no degradations projects to empty (not null) lists.
+        var emptyProjected = BindingReportProjection.Project(
+            new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(NewReport()) });
+        Assert.Empty(emptyProjected.UnsupportedCommentDrops);
+        Assert.Empty(emptyProjected.ObjectDegradations);
+    }
+
+    [Fact]
+    public void JsonRoundTrip_PreservesParseReconciliation()
+    {
+        // Finding 14a: the reconciliation counts survive serialization so the manifest is the
+        // durable, gate-able signal for parser-side emitted-surface loss.
+        var recon = new ParseReconciliation(Parsed: 42, Emitted: 40, SkippedWithReason: 1, DroppedWithError: 1);
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(NewReport(), recon),
+        };
+
+        var settings = new JsonSerializerSettings
+        {
+            Formatting = Formatting.Indented,
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        Assert.NotNull(parsed.Generation!.ParseReconciliation);
+        Assert.Equal(42, parsed.Generation.ParseReconciliation!.Parsed);
+        Assert.Equal(40, parsed.Generation.ParseReconciliation.Emitted);
+        Assert.Equal(1, parsed.Generation.ParseReconciliation.SkippedWithReason);
+        Assert.Equal(1, parsed.Generation.ParseReconciliation.DroppedWithError);
+    }
+
+    [Fact]
+    public void InputResolutionSection_From_CountsAndStatusReflectDegradations()
+    {
+        // Finding 50: a section built from decisions that include at least one degradation reports
+        // Warning status and a non-zero degradation count; an all-Info list reports Success.
+        var degraded = InputResolutionSection.From(new List<InputResolutionDecision>
+        {
+            new(InputResolutionCategory.SliceSelection, InputResolutionSeverity.Info, "preferred slice"),
+            new(InputResolutionCategory.Tbd, InputResolutionSeverity.Degradation, "2 TBD files present"),
+        });
+        Assert.Equal(PhaseStatus.Warning, degraded.Status);
+        Assert.Equal(2, degraded.DecisionCount);
+        Assert.Equal(1, degraded.DegradationCount);
+
+        var clean = InputResolutionSection.From(new List<InputResolutionDecision>
+        {
+            new(InputResolutionCategory.SliceSelection, InputResolutionSeverity.Info, "preferred slice"),
+            new(InputResolutionCategory.AbiJson, InputResolutionSeverity.Info, "arch-specific abi"),
+        });
+        Assert.Equal(PhaseStatus.Success, clean.Status);
+        Assert.Equal(2, clean.DecisionCount);
+        Assert.Equal(0, clean.DegradationCount);
+
+        var empty = InputResolutionSection.From(System.Array.Empty<InputResolutionDecision>());
+        Assert.Equal(PhaseStatus.Success, empty.Status);
+        Assert.Equal(0, empty.DecisionCount);
+        Assert.Empty(empty.Decisions);
+    }
+
+    [Fact]
+    public void JsonRoundTrip_PreservesInputResolution()
+    {
+        // Finding 50: the input-resolution decisions (category, severity, detail) survive
+        // serialization so a degraded input edge is durable + auditable on the manifest.
+        var section = InputResolutionSection.From(new List<InputResolutionDecision>
+        {
+            new(InputResolutionCategory.SliceSelection, InputResolutionSeverity.Degradation,
+                "device slice absent; fell back to simulator"),
+            new(InputResolutionCategory.SwiftInterface, InputResolutionSeverity.Info, "found interface"),
+        });
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(NewReport()),
+            InputResolution = section,
+        };
+
+        var settings = new JsonSerializerSettings
+        {
+            Formatting = Formatting.Indented,
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        // Enum members must serialize as names (StringEnumConverter), not integers.
+        Assert.Contains("Degradation", json);
+        Assert.Contains("SliceSelection", json);
+
+        var ir = parsed.InputResolution!;
+        Assert.Equal(PhaseStatus.Warning, ir.Status);
+        Assert.Equal(2, ir.DecisionCount);
+        Assert.Equal(1, ir.DegradationCount);
+        Assert.Equal(2, ir.Decisions.Count);
+        Assert.Equal(InputResolutionCategory.SliceSelection, ir.Decisions[0].Category);
+        Assert.Equal(InputResolutionSeverity.Degradation, ir.Decisions[0].Severity);
+        Assert.Equal("device slice absent; fell back to simulator", ir.Decisions[0].Detail);
+        Assert.Equal(InputResolutionCategory.SwiftInterface, ir.Decisions[1].Category);
+        Assert.Equal(InputResolutionSeverity.Info, ir.Decisions[1].Severity);
+    }
+
+    [Fact]
     public void Store_WriteThenRead_ProducesEquivalentManifest()
     {
         using var temp = new TempDirectory();
