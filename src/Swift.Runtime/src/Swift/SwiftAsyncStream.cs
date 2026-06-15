@@ -12,6 +12,16 @@ using System.Threading.Tasks;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
 
+// RuntimeTestsApp's end-to-end AsyncStream lifetime probe reads IsContextHandleAllocated to assert that
+// completion frees the rooting GCHandle deterministically — Mono's conservative stack scan makes
+// weak-reference collectability an unreliable proxy for handle-freedom on the simulator. Mirrors the
+// internal access the Swift.Runtime unit tests already use for the same invariant. The Mac/Catalyst/tvOS
+// runner projects compile the same Async/**/*.cs sources into their own assemblies, so each needs access.
+[assembly: InternalsVisibleTo("RuntimeTestsApp")]
+[assembly: InternalsVisibleTo("RuntimeTestsApp.Mac")]
+[assembly: InternalsVisibleTo("RuntimeTestsApp.MacCatalyst")]
+[assembly: InternalsVisibleTo("RuntimeTestsApp.tvOS")]
+
 namespace Swift;
 
 /// <summary>

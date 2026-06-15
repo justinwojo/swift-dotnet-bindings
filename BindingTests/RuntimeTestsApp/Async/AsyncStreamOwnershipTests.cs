@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Runtime.CompilerServices;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
 using SwiftBindingsTestLib;
@@ -163,55 +162,57 @@ public class AsyncStreamOwnershipTests : TestBase
     /// <c>SwiftAsyncStream&lt;T&gt;</c> with a STRONG <see cref="System.Runtime.InteropServices.GCHandle"/>
     /// so Swift can resolve it across callbacks — that handle is the instance's only managed root while
     /// the producer runs. The completion callback (the last Swift→C# callback) must free it; otherwise the
-    /// handle roots the instance forever and a consumer that drains via <c>await foreach</c> (which never
-    /// calls <c>Dispose</c>) leaks one stream per property read. Pre-fix the handle was freed only in
-    /// <c>Dispose</c>, so this probe stayed alive → leak. Post-fix completion frees it, so after a full
-    /// drain + finalizer drain the instance is collectable.
+    /// handle roots the instance forever and a consumer that drains via <c>await foreach</c> (which disposes
+    /// only the generated enumerator, never <c>SwiftAsyncStream.Dispose</c>) leaks one stream per property
+    /// read. Pre-fix the handle was freed only in <c>Dispose</c>, so a fully-drained never-disposed stream
+    /// kept its handle allocated forever; post-fix <c>Complete</c> frees it.
+    ///
+    /// The assertion reads the handle's allocation state directly (<c>IsContextHandleAllocated</c>) rather
+    /// than GC collectability of a WeakReference: Mono's conservative stack scan on the simulator can pin a
+    /// fully-drained instance via a stale register/stack reference, so collectability is an unreliable proxy
+    /// for handle-freedom even when the runtime has correctly freed the handle. The deterministic probe
+    /// observes the exact invariant — handle freed at completion — with no GC dependency.
     /// </summary>
     public async Task TestAsyncStreamContextHandleFreedAfterDrain_NoLeak()
     {
-        DrainFinalizers();
-
         using var source = new AsyncValueSource();
-        var (weak, sum) = await WithTimeout(DrainCountsAndWeakRef(source), DefaultAsyncTimeout);
 
+        // Read the property once and hold the concrete instance for the whole test so the assertion can
+        // observe its handle state. await foreach disposes only the generated enumerator (running
+        // SignalProducerStop, which does NOT free the context handle), never the stream itself — so the
+        // ONLY path that can free the handle here is the completion callback.
+        var stream = (SwiftAsyncStream<int>)source.Counts;
+
+        long sum = await WithTimeout(DrainCounts(stream), DefaultAsyncTimeout);
         AssertEqual(60L, sum, "AsyncStream<Int32> Counts must drain 10+20+30 = 60");
 
-        // Completion frees the rooting GCHandle (Complete → FreeContextHandleOnce) on the Swift executor
-        // thread, ordered AFTER the channel completion that unblocks our await-foreach. That free is
-        // therefore concurrent with the consumer's resumption — observing collectability at one fixed
-        // instant is a cross-thread race a loaded runner can lose. Poll for collectability on a bounded
-        // budget instead: a genuine leak (handle never freed) still fails because the budget is exhausted
-        // with the instance permanently rooted, while the expected case settles within an iteration or two.
-        DrainFinalizers();
-        for (int attempt = 0; attempt < 50 && weak.IsAlive; attempt++)
+        // Complete() completes the channel (unblocking our await-foreach) and THEN frees the handle, both
+        // on the Swift executor thread — so the free is concurrent with the consumer's resumption. Poll
+        // the handle's allocation state on a bounded budget: the expected case settles within an iteration
+        // or two, while a genuine leak (the pre-fix shape — freed only in Dispose, never called by
+        // await-foreach) exhausts the budget with the handle still allocated.
+        for (int attempt = 0; attempt < 200 && stream.IsContextHandleAllocated; attempt++)
         {
-            await Task.Delay(50);
-            DrainFinalizers();
+            await Task.Delay(10);
         }
 
-        AssertFalse(weak.IsAlive,
-            "completion must free the rooting GCHandle so a fully-drained SwiftAsyncStream is collectable " +
-            "(await-foreach never calls Dispose — pre-fix this leaked one stream per property read)");
-        TestLogger.Info("AsyncStream context handle: freed at completion, drained stream collected (no await-foreach leak)");
+        AssertFalse(stream.IsContextHandleAllocated,
+            "completion must free the rooting GCHandle so a fully-drained, never-disposed SwiftAsyncStream " +
+            "is not leaked (await-foreach disposes only the enumerator, never SwiftAsyncStream.Dispose — " +
+            "pre-fix the handle was freed only in Dispose, rooting one stream per property read)");
+        TestLogger.Info("AsyncStream context handle freed at completion on a fully-drained, never-disposed stream (no await-foreach leak)");
     }
 
-    // NoInlining so the drained stream lives only in this frame's (state machine's) locals and is not
-    // pinned by a stale slot in the caller once the returned Task completes.
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static async Task<(System.WeakReference Weak, long Sum)> DrainCountsAndWeakRef(AsyncValueSource source)
+    // Drains the concrete stream via await foreach — which disposes only the generated enumerator, never
+    // SwiftAsyncStream.Dispose — and returns the summed elements. Split out only so WithTimeout can wrap
+    // the drain Task; the test method keeps its own reference to the stream across the post-drain poll.
+    private static async Task<long> DrainCounts(SwiftAsyncStream<int> stream)
     {
-        var stream = source.Counts;                 // fresh SwiftAsyncStream<int> as IAsyncEnumerable<int>
-        var weak = new System.WeakReference(stream);
         long sum = 0;
         await foreach (var v in stream)
         {
             sum += v;
         }
-        stream = null;
-        // Let the Swift producer Task return from completionCallback (which frees the context handle on
-        // the Swift executor thread immediately after completing the channel) before we measure.
-        await Task.Delay(100);
-        return (weak, sum);
+        return sum;
     }
 }
