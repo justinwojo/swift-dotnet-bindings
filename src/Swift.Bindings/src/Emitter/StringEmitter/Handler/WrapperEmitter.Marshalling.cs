@@ -733,18 +733,27 @@ namespace BindingsGeneration
                 return true;
             }
 
-            MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
-
-            // SwiftString ABI decomposition for @_cdecl constructor/method wrappers:
-            // Extract two nint words from the Buffer struct. The local variable names
-            // ({csName}_w0, {csName}_w1) match the P/Invoke parameter names emitted by
-            // PInvokeEmitter, so GetCallArgumentString returns them directly.
+            // SwiftString ABI decomposition for @_cdecl constructor/method wrappers (Finding 56d
+            // string by-value fast path): build the transient Swift String directly into a 16-byte
+            // STACK buffer via EphemeralSwiftString instead of the heap SwiftString + SafeHandle +
+            // PayloadBuffer the general parameter path (plan.SetupStatements) would allocate. The
+            // two extracted words are byte-identical to the heap path's {csName}Disposable.Buffer
+            // (same SBW_SwiftString_Create output), the borrowed (+0) value lives across the call,
+            // and the +1 is released by the `using` Dispose (SBW_SwiftString_Destroy) exactly once —
+            // identical ABI and lifetime, no observable change. The local variable names
+            // ({csName}_w0, {csName}_w1) match the P/Invoke parameter names emitted by PInvokeEmitter,
+            // so GetCallArgumentString returns them directly; the heap setup is intentionally skipped
+            // because the decompose path never references {csName}Disposable.
             if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argumentDecl.SwiftTypeSpec))
             {
-                csWriter.WriteLine($"var {csName}Buf = {csName}Disposable.Buffer;");
+                csWriter.WriteLine($"using var {csName}Swift = new SwiftString.EphemeralSwiftString({csName});");
+                csWriter.WriteLine($"var {csName}Buf = {csName}Swift.Buffer;");
                 csWriter.WriteLine($"nint {csName}_w0 = Unsafe.As<SwiftString.Buffer, nint>(ref {csName}Buf);");
                 csWriter.WriteLine($"nint {csName}_w1 = Unsafe.Add(ref Unsafe.As<SwiftString.Buffer, nint>(ref {csName}Buf), 1);");
+                return true;
             }
+
+            MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
 
             // Foundation.Data ABI decomposition for @_cdecl constructor/method wrappers:
             // Extract two nint words from the 16-byte Swift.Foundation.Data struct (mirrors the

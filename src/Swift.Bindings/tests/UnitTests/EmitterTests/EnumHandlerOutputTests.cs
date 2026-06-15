@@ -111,6 +111,14 @@ public class EnumHandlerOutputTests
 
         Assert.Contains("class Result", csOutput);
         Assert.DoesNotContain("public enum Result", csOutput);
+        // Finding 56b: no wrapper ~Result() finalizer — the _payload SwiftSafeHandle is itself a
+        // CriticalFinalizerObject whose own finalizer releases the Swift value. A second finalizer
+        // would only double the GC work. Dispose still guards cached singletons, forwards to the
+        // payload, and suppresses — matching the struct/class-wrapper pattern.
+        Assert.DoesNotContain("~Result()", csOutput);
+        Assert.Contains("if (_isCachedSingleton) return;", csOutput);
+        Assert.Contains("_payload.Dispose();", csOutput);
+        Assert.Contains("GC.SuppressFinalize(this);", csOutput);
     }
 
     [Fact]
@@ -1645,9 +1653,9 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_ComplexEnum_EmitsFinalizer()
+    public void Emit_ComplexEnum_NoFinalizer_DisposesPayload()
     {
-        // Complex enum with associated values that need memory management → finalizer
+        // Complex enum with associated values that need memory management → class emission.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Result", moduleDecl, isFrozen: false);
@@ -1658,8 +1666,13 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Non-frozen complex enum → class emission with finalizer
-        Assert.Contains("~Result()", csOutput);
+        // Finding 56(b): no per-wrapper ~Result() finalizer — the payload SafeHandle releases the
+        // Swift value. The cached-singleton guard must stay (Lazy<T>-held singletons are never
+        // finalized, so Dispose must early-return for them before touching the payload).
+        Assert.DoesNotContain("~Result()", csOutput);
+        Assert.Contains("if (_isCachedSingleton) return;", csOutput);
+        Assert.Contains("_payload.Dispose();", csOutput);
+        Assert.Contains("GC.SuppressFinalize(this);", csOutput);
     }
 
     [Fact]
@@ -2751,10 +2764,12 @@ public class EnumHandlerOutputTests
         // Should emit the _isCachedSingleton field (with pragma to suppress CS0649 when not cached)
         Assert.Contains("internal bool _isCachedSingleton;", csOutput);
         Assert.Contains("#pragma warning disable CS0649", csOutput);
-        // Dispose should check _isCachedSingleton
+        // Dispose should check _isCachedSingleton and early-return for cached singletons.
         Assert.Contains("if (_isCachedSingleton) return;", csOutput);
-        // Finalizer should check _isCachedSingleton
-        Assert.Contains("if (!_isCachedSingleton)", csOutput);
+        // Finding 56(b): no per-wrapper ~Status() finalizer (the payload SafeHandle releases the
+        // value); the singleton guard now lives solely in Dispose, which delegates to the payload.
+        Assert.DoesNotContain("~Status()", csOutput);
+        Assert.Contains("_payload.Dispose();", csOutput);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithStringAndProtocol(string protocolModule, string protocolName)

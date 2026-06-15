@@ -411,6 +411,11 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_jwsRepresentation_instance", csOutput);
         Assert.Contains("SwiftMarshal.ReadUtf8Slice(resultPtr)", csOutput);
         Assert.Contains("(IntPtr resultPtr, IntPtr _self)", csOutput);
+        // Finding 56c: the 2-word (SBW_Utf8Slice) scratch buffer is stackalloc'd, not heap-allocated.
+        // ReadUtf8Slice copies the bytes out before return, so no per-call NativeMemory.Alloc/Free.
+        Assert.Contains("stackalloc byte[nint.Size * 2]", csOutput);
+        Assert.DoesNotContain("NativeMemory.Alloc", csOutput);
+        Assert.DoesNotContain("NativeMemory.Free", csOutput);
 
         // Swift wrapper hands back via Utf8Slice; @_cdecl + indirect-buffer shape.
         Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_jwsRepresentation_instance\")", swiftOutput);
@@ -501,11 +506,14 @@ public class ConstrainedExtensionEmitterTests
 
         Assert.Contains("public static System.Guid GetDeviceVerificationNonce(this Wrapper<TestModule.ConcreteA> self)", csOutput);
         Assert.Contains("(SwiftIndirectResult indirectResult, IntPtr _self)", csOutput);
-        Assert.Contains("NativeMemory.Alloc(16)", csOutput);
-        // Buffer is freed in finally — value is copied out before the buffer is released.
+        // Finding 56c: the fixed 16-byte scratch buffer is stackalloc'd, not heap-allocated.
+        // The Guid value is copied out (*(System.Guid*)buffer) before the frame exits, so the
+        // former NativeMemory.Alloc(16)/Free pair (which only reclaimed the container) is gone
+        // entirely — the stack reclaims the buffer identically, including the exceptional path.
+        Assert.Contains("stackalloc byte[16]", csOutput);
         Assert.Contains("*(System.Guid*)buffer", csOutput);
-        Assert.Contains("finally", csOutput);
-        Assert.Contains("NativeMemory.Free((void*)buffer)", csOutput);
+        Assert.DoesNotContain("NativeMemory.Alloc", csOutput);
+        Assert.DoesNotContain("NativeMemory.Free", csOutput);
 
         // Swift wrapper writes the UUID into the caller buffer.
         Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_deviceVerificationNonce_instance\")", swiftOutput);
@@ -525,10 +533,12 @@ public class ConstrainedExtensionEmitterTests
 
         Assert.Contains("public static byte[] GetHeaderData(this Wrapper<TestModule.ConcreteA> self)", csOutput);
         Assert.Contains("(SwiftIndirectResult indirectResult, IntPtr _self)", csOutput);
-        Assert.Contains("NativeMemory.Alloc(16)", csOutput);
+        // Finding 56c: the 16-byte scratch buffer is stackalloc'd; ToByteArray() copies the
+        // underlying bytes out before return, so the per-call heap alloc/free is removed.
+        Assert.Contains("stackalloc byte[16]", csOutput);
         Assert.Contains("(*(Swift.Foundation.Data*)(void*)buffer).ToByteArray()", csOutput);
-        Assert.Contains("finally", csOutput);
-        Assert.Contains("NativeMemory.Free((void*)buffer)", csOutput);
+        Assert.DoesNotContain("NativeMemory.Alloc", csOutput);
+        Assert.DoesNotContain("NativeMemory.Free", csOutput);
 
         // Swift wrapper writes the Data into the caller buffer (it's a 16-byte struct).
         Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_headerData_instance\")", swiftOutput);

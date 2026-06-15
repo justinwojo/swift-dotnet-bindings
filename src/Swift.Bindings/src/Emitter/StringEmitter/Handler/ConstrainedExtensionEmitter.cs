@@ -529,26 +529,19 @@ public static class ConstrainedExtensionEmitter
         switch (shape)
         {
             case CEReturnShape.String:
-                // String: allocate Utf8Slice buffer, call P/Invoke, marshal Utf8Slice to string
+                // String: stackalloc a fixed 2-word (SBW_Utf8Slice) scratch buffer to receive
+                // the slice (pointer + length), call the P/Invoke, then marshal the slice to a
+                // managed string. ReadUtf8Slice copies the bytes out before we return, so the
+                // buffer never escapes the frame — no per-call malloc/free needed. (The former
+                // NativeMemory.Alloc/Free only reclaimed this 16-byte container; stackalloc
+                // reclaims it identically on frame exit, including the exceptional path.)
                 csWriter.WriteLine("unsafe");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine("void* _cdeclBuf = null;");
-                csWriter.WriteLine("try");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine("_cdeclBuf = System.Runtime.InteropServices.NativeMemory.Alloc((nuint)(nint.Size * 2));");
+                csWriter.WriteLine("byte* _cdeclBuf = stackalloc byte[nint.Size * 2];");
                 csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
                 csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr, self.Payload.DangerousGetHandle());");
                 csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine("finally");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine("System.Runtime.InteropServices.NativeMemory.Free(_cdeclBuf);");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 break;
@@ -606,23 +599,18 @@ public static class ConstrainedExtensionEmitter
 
             case CEReturnShape.FoundationUUID:
                 // UUID is a frozen 16-byte tuple of UInt8s. Mirror the existing
-                // BlittableProjection("System.Guid") shape: read 16 bytes from the
-                // indirect-result buffer as a System.Guid, free the buffer in finally
-                // (the value is copied out before we leave the try block).
+                // BlittableProjection("System.Guid") shape: stackalloc a 16-byte indirect-result
+                // buffer, read it back as a System.Guid (value-copied out before the frame
+                // exits), so no per-call malloc/free is needed. (The former NativeMemory.Alloc/
+                // Free only reclaimed this 16-byte container; stackalloc reclaims it identically,
+                // including the exceptional path — Guid is frozen, no ARC/ownership in the buffer.)
                 csWriter.WriteLines($$"""
                     unsafe
                     {
-                        IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
-                        try
-                        {
-                            var indirectResult = new SwiftIndirectResult((void*)buffer);
-                            NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
-                            return *(System.Guid*)buffer;
-                        }
-                        finally
-                        {
-                            System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
-                        }
+                        byte* buffer = stackalloc byte[16];
+                        var indirectResult = new SwiftIndirectResult((void*)buffer);
+                        NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                        return *(System.Guid*)buffer;
                     }
                     """);
                 break;
@@ -632,22 +620,18 @@ public static class ConstrainedExtensionEmitter
                 // 16-byte Swift layout (long _flags + IntPtr _object). Mirror the
                 // (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray() pattern used by
                 // WrapperEmitter.Return.cs:1316. The Data struct is value-copied out of the
-                // buffer before we free it; ToByteArray() then copies the underlying bytes
-                // via Swift's CopyBytes P/Invoke before returning.
+                // buffer and ToByteArray() copies the underlying bytes via Swift's CopyBytes
+                // P/Invoke before we return — so the 16-byte container can be a stackalloc
+                // (reclaimed on frame exit) instead of a per-call malloc/free. The free only
+                // ever reclaimed the container (the copied-out Data value carries the _object
+                // pointer independently); stackalloc reclaims it identically.
                 csWriter.WriteLines($$"""
                     unsafe
                     {
-                        IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
-                        try
-                        {
-                            var indirectResult = new SwiftIndirectResult((void*)buffer);
-                            NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
-                            return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
-                        }
-                        finally
-                        {
-                            System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
-                        }
+                        byte* buffer = stackalloc byte[16];
+                        var indirectResult = new SwiftIndirectResult((void*)buffer);
+                        NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                        return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
                     }
                     """);
                 break;
@@ -1360,28 +1344,20 @@ public static class ConstrainedExtensionEmitter
                 break;
 
             case CEReturnShape.String:
+                // stackalloc the 2-word (SBW_Utf8Slice) scratch buffer; ReadUtf8Slice copies the
+                // bytes out before return, so the buffer never escapes the frame. The former
+                // NativeMemory.Alloc/Free only reclaimed this 16-byte container; stackalloc
+                // reclaims it identically on frame exit (including the exceptional path).
                 csWriter.WriteLine("unsafe");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine("void* _cdeclBuf = null;");
-                csWriter.WriteLine("try");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine("_cdeclBuf = System.Runtime.InteropServices.NativeMemory.Alloc((nuint)(nint.Size * 2));");
+                csWriter.WriteLine("byte* _cdeclBuf = stackalloc byte[nint.Size * 2];");
                 csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
                 if (isStatic)
                     csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr);");
                 else
                     csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr, {pinvokeSelfArg});");
                 csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine("finally");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine("System.Runtime.InteropServices.NativeMemory.Free(_cdeclBuf);");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 break;
@@ -1430,20 +1406,16 @@ public static class ConstrainedExtensionEmitter
                 {
                     var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
                     var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    // stackalloc a 16-byte indirect-result buffer; the Guid is value-copied out
+                    // before the frame exits (Guid is frozen, no ARC/ownership in the buffer), so
+                    // the former Alloc/Free container is replaced by an equivalent stack reclaim.
                     csWriter.WriteLines($$"""
                         unsafe
                         {
-                            IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
-                            try
-                            {
-                                var indirectResult = new SwiftIndirectResult((void*)buffer);
-                                NativeMethods.{{symbolName}}({{pinvokeArg}});
-                                return *(System.Guid*)buffer;
-                            }
-                            finally
-                            {
-                                System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
-                            }
+                            byte* buffer = stackalloc byte[16];
+                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            NativeMethods.{{symbolName}}({{pinvokeArg}});
+                            return *(System.Guid*)buffer;
                         }
                         """);
                 }
@@ -1453,20 +1425,18 @@ public static class ConstrainedExtensionEmitter
                 {
                     var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
                     var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    // stackalloc the 16-byte container; the Data value is copied out and
+                    // ToByteArray() copies the underlying bytes via Swift's CopyBytes P/Invoke
+                    // before return (the copied-out value carries the _object pointer
+                    // independently), so the free only ever reclaimed the container — stackalloc
+                    // reclaims it identically on frame exit.
                     csWriter.WriteLines($$"""
                         unsafe
                         {
-                            IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
-                            try
-                            {
-                                var indirectResult = new SwiftIndirectResult((void*)buffer);
-                                NativeMethods.{{symbolName}}({{pinvokeArg}});
-                                return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
-                            }
-                            finally
-                            {
-                                System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
-                            }
+                            byte* buffer = stackalloc byte[16];
+                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            NativeMethods.{{symbolName}}({{pinvokeArg}});
+                            return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
                         }
                         """);
                 }

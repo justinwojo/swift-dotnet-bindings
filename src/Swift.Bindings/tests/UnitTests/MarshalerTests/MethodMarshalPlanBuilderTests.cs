@@ -369,9 +369,14 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void IndirectResult_CdeclUtf8SliceReturn_CleanupCodeIsNotNull()
+    public void IndirectResult_CdeclUtf8SliceReturn_StackAllocsNoCleanup()
     {
-        // Inverse case: @_cdecl method returning Utf8Slice MUST free the buffer.
+        // Finding 56c: a @_cdecl method returning Swift.String (lowered to SBW_Utf8Slice) has its
+        // two words read out via ReadUtf8Slice before the wrapper returns, so the fixed 2-word
+        // scratch buffer never escapes the frame. It is now stackalloc'd (StackAllocByteCount set),
+        // NOT NativeMemory.Alloc'd — so there is NO CleanupCode. The stack reclaims the container on
+        // frame exit, exactly as the former NativeMemory.Free reclaimed the heap container. The
+        // observable return value (the marshalled string) is unchanged.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Fetcher", moduleDecl);
         var method = new MethodDecl
@@ -401,7 +406,83 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod!.CleanupCode);
+        Assert.Equal("nint.Size * 2", plan.IndirectResultMethod!.StackAllocByteCount);
+        Assert.Null(plan.IndirectResultMethod.CleanupCode);
+        // AllocationCode only derives resultPtr from the stack buffer — no heap allocation.
+        Assert.DoesNotContain("NativeMemory.Alloc", plan.IndirectResultMethod.AllocationCode);
+        Assert.Contains("(IntPtr)_cdeclBuf", plan.IndirectResultMethod.AllocationCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclClosureReturn_StackAllocsNoCleanup()
+    {
+        // Finding 56c (closure-return arm): a @_cdecl method returning a closure lowers to a fixed
+        // 2-word SwiftClosureData (funcPtr + context) written into the result buffer. The wrapper
+        // reads both words out into a managed delegate before returning, so the scratch buffer never
+        // escapes the frame. It is now stackalloc'd (StackAllocByteCount set), NOT NativeMemory.Alloc'd
+        // — no CleanupCode. The two-word size and the observable returned delegate are unchanged.
+        var plan = BuildClosureReturnPlan(
+            new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32")),
+            "Func<int>");
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Equal("SwiftClosureData", plan.IndirectResultMethod!.ReturnTypeName);
+        Assert.Equal("nint.Size * 2", plan.IndirectResultMethod.StackAllocByteCount);
+        Assert.Null(plan.IndirectResultMethod.CleanupCode);
+        // resultPtr is derived from the stack buffer only — no heap allocation, no value-witness free.
+        Assert.DoesNotContain("NativeMemory.Alloc", plan.IndirectResultMethod.AllocationCode);
+        Assert.Contains("(IntPtr)_cdeclBuf", plan.IndirectResultMethod.AllocationCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclOptionalClosureReturn_StackAllocsNoCleanup()
+    {
+        // Optional<Closure> return uses extra-inhabitant encoding (nil = zero funcPtr), so it has the
+        // SAME fixed 2-word layout as a plain closure return — it takes the same stackalloc arm (the
+        // gate ORs ClosureTypeSpec with IsOptionalClosure). Assert the optional path also stackallocs
+        // and frees nothing, so neither closure form regresses to a per-call NativeMemory.Alloc/Free.
+        var optionalClosure = new NamedTypeSpec(
+            "Swift.Optional",
+            new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32")));
+        var plan = BuildClosureReturnPlan(optionalClosure, "Func<int>?");
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Equal("SwiftClosureData", plan.IndirectResultMethod!.ReturnTypeName);
+        Assert.Equal("nint.Size * 2", plan.IndirectResultMethod.StackAllocByteCount);
+        Assert.Null(plan.IndirectResultMethod.CleanupCode);
+        Assert.DoesNotContain("NativeMemory.Alloc", plan.IndirectResultMethod.AllocationCode);
+        Assert.Contains("(IntPtr)_cdeclBuf", plan.IndirectResultMethod.AllocationCode);
+    }
+
+    private static SyncMethodPlan BuildClosureReturnPlan(TypeSpec returnSpec, string wrapperReturnType)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Factory", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "makeCallback",
+            MangledName = "SBW_TestModule_Factory_makeCallback",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", returnSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Factory");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature(wrapperReturnType, Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        return BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
     }
 
     [Fact]
@@ -441,10 +522,13 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        // Must use fixed Utf8Slice allocation, not TypeMetadata.GetTypeMetadataOrThrow<string>()
-        Assert.Contains("nint.Size * 2", plan.IndirectResultMethod!.AllocationCode);
+        // Must use the fixed 2-pointer (Utf8Slice) size, NOT TypeMetadata.GetTypeMetadataOrThrow<string>()
+        // (C# string has no Swift type metadata — that would crash at runtime). Finding 56c stackallocs
+        // this fixed buffer: the 2-word size lives in StackAllocByteCount and there is no per-call free.
+        Assert.Equal("nint.Size * 2", plan.IndirectResultMethod!.StackAllocByteCount);
         Assert.DoesNotContain("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod.AllocationCode);
-        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
+        Assert.DoesNotContain("NativeMemory.Alloc", plan.IndirectResultMethod.AllocationCode);
+        Assert.Null(plan.IndirectResultMethod.CleanupCode);
     }
 
     [Fact]

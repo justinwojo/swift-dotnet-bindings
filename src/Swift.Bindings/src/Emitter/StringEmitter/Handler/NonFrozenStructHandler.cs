@@ -455,20 +455,19 @@ namespace BindingsGeneration
             csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
             csWriter.WriteLine("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_payload);");
             csWriter.WriteLine();
-            var simpleName = typeNameWithGenerics.Contains('<')
-                ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
-                : typeNameWithGenerics;
+            // No wrapper finalizer: the _payload SwiftSafeHandle is itself a
+            // CriticalFinalizerObject whose own finalizer releases the Swift value
+            // (Cdecl VWT-destroy trampoline) — a separate ~T() would only re-do that
+            // release and make every instance a second finalizable object (two-cycle
+            // GC promotion). Matches the class-wrapper pattern (handle owns finalization).
+            // Borrowed (+0) marshals suppress the payload finalizer independently via
+            // ISwiftObject.SuppressPayloadFinalizer, so removing ~T() is ABI-neutral.
             var disposeMethods = $$"""
             /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
             public void Dispose()
             {
                 _payload.Dispose();
                 GC.SuppressFinalize(this);
-            }
-
-            ~{{simpleName}}()
-            {
-                Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
             }
             """;
             csWriter.WriteLines(disposeMethods);

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Swift;
 using Xunit;
@@ -242,4 +243,85 @@ public class SwiftStringWrapperTests : IClassFixture<SwiftStringWrapperTests.Wra
         Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_GetMetadata", out _),
             "SBW_SwiftString_GetMetadata should be exported");
     }
+
+    #region EphemeralSwiftString (Finding 56d) by-value fast path
+
+    private static unsafe (nint w0, nint w1) ReadWords(SwiftString.Buffer buffer)
+    {
+        nint w0 = Unsafe.As<SwiftString.Buffer, nint>(ref buffer);
+        nint w1 = Unsafe.Add(ref Unsafe.As<SwiftString.Buffer, nint>(ref buffer), 1);
+        return (w0, w1);
+    }
+
+    [Fact]
+    public void Ephemeral_ShortAscii_TwoWordsMatchHeapPath()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        // The whole point of the fast path: the stack-built buffer must produce the EXACT same two
+        // ABI words the heap SwiftString + PayloadBuffer path would hand the @_cdecl wrapper. A short
+        // ASCII string uses Swift's inline small-string form, so both words are deterministic from the
+        // input bytes — byte-identical across allocations. This is the behavior-preservation proof.
+        const string s = "fast-path";
+
+        using var heap = new SwiftString(s);
+        var (hw0, hw1) = ReadWords(heap.PayloadBuffer.Buffer);
+
+        using var ephemeral = new SwiftString.EphemeralSwiftString(s);
+        var (ew0, ew1) = ReadWords(ephemeral.Buffer);
+
+        Assert.Equal(hw0, ew0);
+        Assert.Equal(hw1, ew1);
+    }
+
+    [Fact]
+    public void Ephemeral_EmptyString_TwoWordsMatchHeapPath()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        using var heap = new SwiftString("");
+        var (hw0, hw1) = ReadWords(heap.PayloadBuffer.Buffer);
+
+        using var ephemeral = new SwiftString.EphemeralSwiftString("");
+        var (ew0, ew1) = ReadWords(ephemeral.Buffer);
+
+        Assert.Equal(hw0, ew0);
+        Assert.Equal(hw1, ew1);
+    }
+
+    [Fact]
+    public void Ephemeral_UnicodeShort_TwoWordsMatchHeapPath()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        // "héllo" is 6 UTF-8 bytes — still inline small-string form, so deterministic across allocations.
+        const string s = "héllo";
+
+        using var heap = new SwiftString(s);
+        var (hw0, hw1) = ReadWords(heap.PayloadBuffer.Buffer);
+
+        using var ephemeral = new SwiftString.EphemeralSwiftString(s);
+        var (ew0, ew1) = ReadWords(ephemeral.Buffer);
+
+        Assert.Equal(hw0, ew0);
+        Assert.Equal(hw1, ew1);
+    }
+
+    [Fact]
+    public void Ephemeral_DoubleDispose_DoesNotThrow()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        // Dispose releases the +1 (SBW_SwiftString_Destroy) exactly once; a second Dispose is a no-op
+        // (the `_created` guard), mirroring the `using`-declaration disposal the emitter relies on.
+        var ephemeral = new SwiftString.EphemeralSwiftString("dispose-twice");
+        ephemeral.Dispose();
+        ephemeral.Dispose();
+    }
+
+    #endregion
 }

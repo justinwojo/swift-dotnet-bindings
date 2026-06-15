@@ -104,6 +104,20 @@ public record IndirectResultSetup
     /// Null when no cleanup is needed (stack-based SwiftIndirectResult, constructor paths).
     /// </summary>
     public string? CleanupCode { get; init; }
+
+    /// <summary>
+    /// When non-null, the indirect-result scratch buffer is a constant-size, non-escaping
+    /// copy-out buffer that <see cref="MethodMarshalPlan"/>'s emitter <c>stackalloc</c>s
+    /// (<c>byte* _cdeclBuf = stackalloc byte[StackAllocByteCount]</c>) instead of
+    /// <c>NativeMemory.Alloc</c>-ing. Used for returns whose value is copied out of the buffer
+    /// before the wrapper returns (a 2-word <c>SBW_Utf8Slice</c> for String, a 2-word
+    /// <c>SwiftClosureData</c> for closures), so the buffer never escapes the stack frame. In
+    /// that mode <see cref="AllocationCode"/> only derives <c>resultPtr</c> from <c>_cdeclBuf</c>
+    /// (no allocation) and <see cref="CleanupCode"/> is null — the stack reclaims the buffer on
+    /// frame exit, exactly as the former <c>NativeMemory.Free</c> reclaimed the heap container.
+    /// The value is a C# expression of type <c>int</c> (e.g. <c>"nint.Size * 2"</c>).
+    /// </summary>
+    public string? StackAllocByteCount { get; init; }
 }
 
 /// <summary>

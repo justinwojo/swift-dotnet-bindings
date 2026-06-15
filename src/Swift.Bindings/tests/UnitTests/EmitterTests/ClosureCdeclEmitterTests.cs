@@ -308,6 +308,77 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void Emit_CdeclMethodReturningClosure_StackAllocsScratchBufferAndCopiesOutNoFree()
+    {
+        // Finding 56(c) closure-return arm, asserted at the EMISSION layer (the marshal-plan unit
+        // test asserts the plan; this asserts the WrapperEmitter actually renders it). A @_cdecl
+        // method returning a closure writes a fixed 2-word SwiftClosureData (funcPtr + context) into
+        // the indirect-result buffer; the wrapper copies both words out into a managed delegate
+        // BEFORE returning (`*(SwiftClosureData*)resultPtr`), so the scratch buffer never escapes the
+        // frame. It must therefore be a stackalloc'd 2-word buffer with NO per-call NativeMemory
+        // Alloc/Free — the stack reclaims it on frame exit, behavior-identical to the former
+        // NativeMemory.Free of the same 16-byte container. The observable returned delegate is
+        // unchanged. Mirrors the generated MakeAlwaysThrowingIntClosure/makeAdder-shaped wrappers,
+        // which run end-to-end on the iOS Simulator (Mono JIT) and device (NativeAOT).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Method returns `(Int32) -> Int32` — the simplest supported closure-return shape.
+        var closureReturn = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var method = CreateMethodDecl("makeTransform", parentDecl, moduleDecl,
+            returnType: closureReturn, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.UsesCdeclMethodWrapper = true;
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Stack scratch buffer (2 words) instead of a per-call heap allocation.
+        Assert.Contains("stackalloc byte[nint.Size * 2]", csOutput);
+        Assert.Contains("(IntPtr)_cdeclBuf", csOutput);
+        // Two words copied out of the buffer into the managed delegate before the wrapper returns.
+        Assert.Contains("*(SwiftClosureData*)", csOutput);
+        // No per-call heap allocation and — the crux of 56(c) — no finally that frees the buffer.
+        Assert.DoesNotContain("NativeMemory.Alloc", csOutput);
+        Assert.DoesNotContain("NativeMemory.Free", csOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclMethodReturningString_StackAllocsScratchBufferAndReadsUtf8SliceNoFree()
+    {
+        // Finding 56(c) string-return arm, asserted at the EMISSION layer — the symmetric sibling of
+        // the closure-return test above. A @_cdecl method returning Swift.String lowers the result to
+        // an SBW_Utf8Slice (pointer + length) written into the indirect-result buffer; the wrapper
+        // copies the bytes out via ReadUtf8Slice BEFORE returning, so the fixed 2-word scratch buffer
+        // never escapes the frame. It must be a stackalloc'd 2-word buffer with NO per-call
+        // NativeMemory Alloc/Free — the stack reclaims it on frame exit, behavior-identical to the
+        // former NativeMemory.Free of the same 16-byte container. The returned string is unchanged.
+        // No parameters, so any NativeMemory.* would have to come from the return path itself.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var method = CreateMethodDecl("getName", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.UsesCdeclMethodWrapper = true;
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Stack scratch buffer (2 words) instead of a per-call heap allocation.
+        Assert.Contains("stackalloc byte[nint.Size * 2]", csOutput);
+        Assert.Contains("(IntPtr)_cdeclBuf", csOutput);
+        // String bytes copied out of the buffer before the wrapper returns.
+        Assert.Contains("ReadUtf8Slice(resultPtr)", csOutput);
+        // No per-call heap allocation and no finally that frees the buffer.
+        Assert.DoesNotContain("NativeMemory.Alloc", csOutput);
+        Assert.DoesNotContain("NativeMemory.Free", csOutput);
+    }
+
+    [Fact]
     public void Emit_FuncPtrType_UsesCdeclWithIntPtr()
     {
         var typeDatabase = CreateTypeDatabase();

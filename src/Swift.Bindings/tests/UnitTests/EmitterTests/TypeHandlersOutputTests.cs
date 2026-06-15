@@ -240,6 +240,14 @@ public class TypeHandlersOutputTests
         Assert.Contains("public SwiftSafeHandle<CacheKey> Payload => _payload;", csOutput);
         // Finding 56a: non-reflective borrowed-marshal finalizer suppression — the SafeHandle payload field.
         Assert.Contains("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_payload);", csOutput);
+        // Finding 56b: NO wrapper ~CacheKey() finalizer — the _payload SwiftSafeHandle is itself a
+        // CriticalFinalizerObject whose own finalizer releases the Swift value (Cdecl VWT-destroy
+        // trampoline). A second wrapper finalizer would only re-do that release and make every
+        // instance a second finalizable object. Dispose forwards to the payload and suppresses,
+        // matching the class-wrapper pattern.
+        Assert.DoesNotContain("~CacheKey()", csOutput);
+        Assert.Contains("_payload.Dispose();", csOutput);
+        Assert.Contains("GC.SuppressFinalize(this);", csOutput);
     }
 
     [Fact]
@@ -267,6 +275,11 @@ public class TypeHandlersOutputTests
         Assert.Contains("public partial class Blob : ISwiftObject, ISwiftStruct, IDisposable", csOutput);
         Assert.Contains("public struct Buffer {", csOutput);
         Assert.Contains("public unsafe PayloadBuffer<Blob.Buffer> PayloadBuffer => new PayloadBuffer<Blob.Buffer>(_payload);", csOutput);
+        // Finding 56b: no wrapper ~Blob() finalizer — the _payload SwiftSafeHandle's own critical
+        // finalizer releases the Swift value; a second finalizer is redundant.
+        Assert.DoesNotContain("~Blob()", csOutput);
+        Assert.Contains("_payload.Dispose();", csOutput);
+        Assert.Contains("GC.SuppressFinalize(this);", csOutput);
     }
 
     [Fact]
@@ -719,21 +732,24 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
-    public void Emit_FrozenStructHandler_ClassProjection_EmitsFinalizer()
+    public void Emit_FrozenStructHandler_ClassProjection_NoFinalizer_DisposesPayload()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
-        // Frozen struct with memory management → class projection with finalizer
+        // Frozen struct with memory management → class projection. Finding 56(b): no per-wrapper
+        // ~Blob() finalizer — the payload SwiftSafeHandle is itself a CriticalFinalizerObject that
+        // releases the Swift value, so a second wrapper finalizer would only re-do that work.
         var structDecl = CreateStructDecl("Blob", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
 
-        Assert.Contains("~Blob()", csOutput);
-        Assert.Contains("GC.SuppressFinalize", csOutput);
+        Assert.DoesNotContain("~Blob()", csOutput);
+        Assert.Contains("_payload.Dispose();", csOutput);
+        Assert.Contains("GC.SuppressFinalize(this);", csOutput);
     }
 
     [Fact]
-    public void Emit_NonFrozenStructHandler_EmitsFinalizer()
+    public void Emit_NonFrozenStructHandler_NoFinalizer_DisposesPayload()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -741,8 +757,10 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
 
-        Assert.Contains("~CacheKey()", csOutput);
-        Assert.Contains("GC.SuppressFinalize", csOutput);
+        // Finding 56(b): no ~CacheKey() finalizer; disposal delegates to the payload SafeHandle.
+        Assert.DoesNotContain("~CacheKey()", csOutput);
+        Assert.Contains("_payload.Dispose();", csOutput);
+        Assert.Contains("GC.SuppressFinalize(this);", csOutput);
     }
 
     [Fact]

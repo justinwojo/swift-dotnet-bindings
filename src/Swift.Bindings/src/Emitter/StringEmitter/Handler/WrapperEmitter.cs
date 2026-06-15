@@ -1140,8 +1140,19 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitCdeclPayloadDeclaration(CSharpWriter csWriter)
         {
-            if (_syncPlan?.IndirectResultMethod?.CleanupCode != null ||
-                _syncPlan?.IndirectResultMethod?.AllocationCode != null)
+            var ir = _syncPlan?.IndirectResultMethod;
+            if (ir?.StackAllocByteCount != null)
+            {
+                // Constant-size, non-escaping copy-out scratch buffer (e.g. a 2-word Utf8Slice or
+                // SwiftClosureData): stackalloc instead of a per-call NativeMemory.Alloc/Free. Like
+                // the heap variant it is declared before the try block so it stays in scope for the
+                // whole body (AllocationCode derives resultPtr from it inside the try). The return
+                // value is copied out before the wrapper returns, so the stack reclaim on frame exit
+                // suffices — CleanupCode is null for this path, so no finally frees it.
+                csWriter.WriteLine($"byte* _cdeclBuf = stackalloc byte[{ir.StackAllocByteCount}];");
+                return;
+            }
+            if (ir?.CleanupCode != null || ir?.AllocationCode != null)
             {
                 csWriter.WriteLine("void* _cdeclBuf = null;");
             }

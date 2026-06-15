@@ -607,23 +607,36 @@ internal class MethodMarshalPlanBuilder
                 if (returnArg.SwiftTypeSpec is ClosureTypeSpec ||
                     _env.ClosureHandler.IsOptionalClosure(returnArg.SwiftTypeSpec))
                 {
+                    // SwiftClosureData (funcPtr + context) is read out into a managed delegate
+                    // wrapper before the @_cdecl wrapper returns — the two words are copied, the
+                    // buffer is not retained — so the fixed 2-word scratch buffer never escapes
+                    // the frame. stackalloc it instead of a per-call NativeMemory.Alloc/Free (the
+                    // former free only reclaimed this 16-byte container).
                     return new IndirectResultSetup
                     {
                         IsConstructor = false,
                         ReturnTypeName = "SwiftClosureData",
-                        AllocationCode = $$"""
-                            _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
-                            var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
-                            """,
-                        CleanupCode = "NativeMemory.Free(_cdeclBuf);"
+                        StackAllocByteCount = "nint.Size * 2",
+                        AllocationCode = $"var {_env.SyntheticLocals.ResultPtr} = (IntPtr)_cdeclBuf;",
+                        CleanupCode = null
                     };
                 }
 
                 // @_cdecl String returns: the Swift wrapper converts the String to SBW_Utf8Slice
-                // (pointer + length), not a Swift.String value. Use fixed Utf8Slice allocation.
+                // (pointer + length). ReadUtf8Slice copies the bytes out before the wrapper
+                // returns, so the fixed 2-word scratch buffer never escapes the frame — stackalloc
+                // it instead of a per-call NativeMemory.Alloc/Free (the former free only reclaimed
+                // this 16-byte container; String's from-handle path copies out, never adopts).
                 if (returnArg.SwiftTypeSpec is NamedTypeSpec strRetNts && strRetNts.Name == "Swift.String")
                 {
-                    allocTypeName = "Utf8Slice";
+                    return new IndirectResultSetup
+                    {
+                        IsConstructor = false,
+                        ReturnTypeName = "Utf8Slice",
+                        StackAllocByteCount = "nint.Size * 2",
+                        AllocationCode = $"var {_env.SyntheticLocals.ResultPtr} = (IntPtr)_cdeclBuf;",
+                        CleanupCode = null
+                    };
                 }
                 // Projected types: C# wrapper uses the public type (IReadOnlyList<T>, double?,
                 // IReadOnlyDictionary<K,V>, etc.) but allocation needs a type with valid TypeMetadata.
@@ -631,7 +644,7 @@ internal class MethodMarshalPlanBuilder
                 // ContainerTypeName is "Foo.Buffer" (ABI struct without metadata), while
                 // MarshalFromSwiftType is the real type name that has TypeMetadata.
                 // Skip Optional<reference-type> which uses IntPtr (no indirect result buffer).
-                else if (!(MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
+                if (!(MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
                     CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase)))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
@@ -644,13 +657,12 @@ internal class MethodMarshalPlanBuilder
                 }
 
                 // Determine allocation strategy based on the return type:
-                // - Utf8Slice: fixed 2-pointer size (C# struct, no Swift metadata)
                 // - Frozen blittable structs (CGSize, CGPoint, CGRect): plain C# structs,
                 //   no ISwiftObject/TypeMetadata. Use Unsafe.SizeOf for allocation.
                 // - All other types: use TypeMetadata for correct size.
-                var isUtf8Slice = allocTypeName == "Utf8Slice";
+                // (String/Utf8Slice returns already returned above via the stackalloc fast path.)
                 bool isFrozenBlittable = false;
-                if (!isUtf8Slice && returnArg.SwiftTypeSpec is NamedTypeSpec allocNts && allocNts.HasModule())
+                if (returnArg.SwiftTypeSpec is NamedTypeSpec allocNts && allocNts.HasModule())
                 {
                     var allocSwiftName = SwiftTypeName.FromTypeSpec(allocNts);
                     if (_env.TypeDatabase.TryGetTypeRecord(allocSwiftName, out var allocRecord))
@@ -662,14 +674,7 @@ internal class MethodMarshalPlanBuilder
                 }
 
                 string allocCode;
-                if (isUtf8Slice)
-                {
-                    allocCode = $$"""
-                        _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
-                        var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
-                        """;
-                }
-                else if (isFrozenBlittable)
+                if (isFrozenBlittable)
                 {
                     // Frozen blittable structs (CGSize, CGPoint, CGRect): plain C# structs with
                     // no ISwiftObject implementation. Use Unsafe.SizeOf instead of TypeMetadata.

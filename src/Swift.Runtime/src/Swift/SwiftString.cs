@@ -330,6 +330,91 @@ public class SwiftString : ISwiftObject, ISwiftStruct, ISwiftMovesPayloadOnConst
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     /// <summary>
+    /// A stack-only, transient <see cref="SwiftString"/> for passing a C# <see cref="string"/>
+    /// by value into a Cdecl wrapper as a borrowed (+0) two-word argument — the string by-value
+    /// fast path. It avoids the heap <see cref="SwiftString"/> + <see cref="SwiftSafeHandle{T}"/>
+    /// + finalizer that the general parameter path allocates for every transient string argument.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Constructs a <c>+1</c> Swift String directly into an inline 16-byte <see cref="Buffer"/>
+    /// on the stack via <c>SBW_SwiftString_Create</c>, exposes it through <see cref="Buffer"/>,
+    /// and releases the String's ARC storage via <c>SBW_SwiftString_Destroy</c> on
+    /// <see cref="Dispose"/>. The two-word value produced is byte-identical to the heap path's
+    /// <see cref="SwiftString.PayloadBuffer"/><c>.Buffer</c>; only the buffer's backing storage
+    /// differs (stack vs. <see cref="System.Runtime.InteropServices.NativeMemory"/>).
+    /// </para>
+    /// <para>
+    /// Stack storage is safe because <c>SBW_SwiftString_Destroy</c> deinitializes the String
+    /// value <i>in place</i> and does NOT deallocate the buffer pointer — the frame reclaims the
+    /// 16-byte container on exit. As a <c>ref struct</c> it can never escape to the heap, so the
+    /// borrowed two-word value never outlives the call that borrows it.
+    /// </para>
+    /// <para>
+    /// <b>Ownership: single-use, do not copy.</b> This is a move-style owning handle — exactly like
+    /// the existing <see cref="PayloadBuffer{T}"/> <c>ref struct</c> it replaces on the fast path.
+    /// It owns the <c>+1</c> and releases it once on <see cref="Dispose"/>; a value-copy of the
+    /// struct (e.g. <c>var b = a;</c>) would carry <c>_created = true</c> into the copy and let two
+    /// instances each call <c>SBW_SwiftString_Destroy</c> on the same String — an over-release for
+    /// heap-backed (large-form) strings. Always bind it with <c>using</c> and never copy or pass it
+    /// by value; read its words through <see cref="Buffer"/> (which copies the 16 inert bytes, not
+    /// the owning handle). The generator emits exactly this shape:
+    /// <c>using var s = new SwiftString.EphemeralSwiftString(arg); var b = s.Buffer; …</c>, so the
+    /// owning handle is never duplicated.
+    /// </para>
+    /// </remarks>
+    public unsafe ref struct EphemeralSwiftString
+    {
+        private Buffer _buffer;
+        private bool _created;
+
+        /// <summary>
+        /// Builds a transient Swift String from <paramref name="str"/> into the inline stack
+        /// buffer. Requires the SwiftBindingsRuntime native library.
+        /// </summary>
+        public EphemeralSwiftString(string str)
+        {
+            byte[] utf8Bytes = Encoding.UTF8.GetBytes(str);
+            _buffer = default;
+            _created = false;
+            fixed (Buffer* bufferPtr = &_buffer)
+            fixed (byte* utf8BytesPtr = utf8Bytes)
+            {
+                try
+                {
+                    RuntimeNativeMethods.SwiftString_Create(
+                        (IntPtr)utf8BytesPtr, utf8Bytes.Length, (IntPtr)bufferPtr);
+                    _created = true;
+                }
+                catch (DllNotFoundException ex) { ThrowMissingRuntime(ex); }
+                catch (EntryPointNotFoundException ex) { ThrowMissingRuntime(ex); }
+            }
+        }
+
+        /// <summary>
+        /// The two-word Swift.String raw representation. Pass it borrowed (+0) into the wrapper;
+        /// this instance owns the <c>+1</c> and releases it on <see cref="Dispose"/>.
+        /// </summary>
+        public readonly Buffer Buffer => _buffer;
+
+        /// <summary>
+        /// Releases the transient String's ARC storage. The 16-byte buffer container is reclaimed
+        /// by the stack frame; this only deinitializes the String value, never frees the buffer.
+        /// </summary>
+        public void Dispose()
+        {
+            if (_created)
+            {
+                _created = false;
+                fixed (Buffer* bufferPtr = &_buffer)
+                {
+                    RuntimeNativeMethods.SwiftString_Destroy((IntPtr)bufferPtr);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// P/Invoke declarations for the SwiftBindingsRuntime library.
     /// Uses CallingConvention.Cdecl to avoid the Mono JIT CallConvSwift assertion.
     /// </summary>
