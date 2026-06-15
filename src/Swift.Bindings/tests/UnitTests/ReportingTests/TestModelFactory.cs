@@ -139,7 +139,7 @@ internal static class TestModelFactory
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = parent,
             ModuleDecl = parent?.ModuleDecl,
         };

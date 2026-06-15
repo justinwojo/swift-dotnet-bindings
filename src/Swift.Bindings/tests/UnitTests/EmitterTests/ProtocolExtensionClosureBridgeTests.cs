@@ -225,7 +225,7 @@ public class ProtocolExtensionClosureBridgeTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateClassDecl("MyProtocol"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = CreateMethodEnvironment(method);
 
@@ -436,7 +436,7 @@ public class ProtocolExtensionClosureBridgeTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = classDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -462,7 +462,7 @@ public class ProtocolExtensionClosureBridgeTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = classDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

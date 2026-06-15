@@ -659,7 +659,7 @@ public class NativeIntOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -682,7 +682,7 @@ public class NativeIntOverloadEmitterTests
                 ModuleDecl = moduleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Public
+                IsSynthesizedAccessor = false
             }});
         if (hasSetter)
             accessors.Add(new SetAccessorDecl { Method = new MethodDecl
@@ -697,7 +697,7 @@ public class NativeIntOverloadEmitterTests
                 ModuleDecl = moduleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Public
+                IsSynthesizedAccessor = false
             }});
 
         return new SubscriptDecl
@@ -775,7 +775,7 @@ public class NativeIntOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -842,7 +842,7 @@ public class NativeIntOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

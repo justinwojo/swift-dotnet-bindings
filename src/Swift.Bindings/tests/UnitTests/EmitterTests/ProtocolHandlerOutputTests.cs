@@ -47,7 +47,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -123,7 +123,7 @@ public class ProtocolHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -166,7 +166,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = true,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -274,7 +274,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -356,7 +356,7 @@ public class ProtocolHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -654,7 +654,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -794,7 +794,7 @@ public class ProtocolHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -883,7 +883,7 @@ public class ProtocolHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var protocolDecl = new ProtocolDecl
@@ -1053,7 +1053,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = true,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1106,7 +1106,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = true,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1171,7 +1171,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1242,7 +1242,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1653,7 +1653,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = true,
                     IsAsync = true,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1705,7 +1705,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1781,7 +1781,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = true,
                     IsAsync = true,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1851,7 +1851,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1911,7 +1911,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -2109,7 +2109,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -2213,7 +2213,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -2339,7 +2339,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -2556,7 +2556,7 @@ public class ProtocolHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2577,7 +2577,7 @@ public class ProtocolHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2862,7 +2862,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -2947,7 +2947,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -3239,7 +3239,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -3333,7 +3333,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         },
                         new SetAccessorDecl
@@ -3353,7 +3353,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -3447,7 +3447,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         },
                         new SetAccessorDecl
@@ -3467,7 +3467,7 @@ public class ProtocolHandlerOutputTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -3856,7 +3856,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -3892,7 +3892,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -3916,7 +3916,7 @@ public class ProtocolHandlerOutputTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -3950,7 +3950,7 @@ public class ProtocolHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -3971,7 +3971,7 @@ public class ProtocolHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -4252,7 +4252,7 @@ public class ProtocolHandlerOutputTests
             Throws = false,
             IsAsync = false,
             IsObjCOptional = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var protocolDecl = new ProtocolDecl
@@ -4311,7 +4311,7 @@ public class ProtocolHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -4369,7 +4369,7 @@ public class ProtocolHandlerOutputTests
             Throws = false,
             IsAsync = true,
             IsObjCOptional = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var protocolDecl = new ProtocolDecl

@@ -1562,7 +1562,7 @@ public class PInvokeEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;

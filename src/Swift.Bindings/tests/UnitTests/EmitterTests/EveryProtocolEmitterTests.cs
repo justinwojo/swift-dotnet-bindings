@@ -2273,7 +2273,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2308,7 +2308,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2358,7 +2358,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2404,7 +2404,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2450,7 +2450,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2883,7 +2883,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -3287,7 +3287,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -3358,7 +3358,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -3400,7 +3400,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -3565,7 +3565,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -3652,7 +3652,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -3707,7 +3707,7 @@ public class EveryProtocolEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

@@ -355,7 +355,7 @@ public class SilentTombstoneRegistrarTests
         IsConstructor = false,
         Throws = false,
         IsAsync = false,
-        Visibility = Visibility.Public,
+        IsSynthesizedAccessor = false,
         CSSignature = new()
         {
             new ArgumentDecl

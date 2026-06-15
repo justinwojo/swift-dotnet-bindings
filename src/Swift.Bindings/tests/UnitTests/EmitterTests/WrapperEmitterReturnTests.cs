@@ -836,7 +836,7 @@ public class WrapperEmitterReturnTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         if (parentDecl is ClassDecl cd)
             cd.Methods.Add(method);

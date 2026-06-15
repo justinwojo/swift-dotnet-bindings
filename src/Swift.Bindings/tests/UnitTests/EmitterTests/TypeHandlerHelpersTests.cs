@@ -1822,7 +1822,7 @@ public class TypeHandlerHelpersTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null!,
             ModuleDecl = moduleDecl
         };

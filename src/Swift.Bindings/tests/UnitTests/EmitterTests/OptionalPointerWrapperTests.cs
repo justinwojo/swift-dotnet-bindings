@@ -288,7 +288,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -426,7 +426,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(constructor);
 
@@ -693,7 +693,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -1101,7 +1101,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         method.CSSignature.Add(CreateArgument("handler", closureType, moduleDecl));
 
@@ -1151,7 +1151,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         method.CSSignature.Add(CreateArgument("callback", optionalClosureType, moduleDecl));
 
@@ -1549,7 +1549,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
     }
 
@@ -1873,7 +1873,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         if (parentDecl is ClassDecl classDecl)
             classDecl.Methods.Add(method);
@@ -1908,7 +1908,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1940,7 +1940,7 @@ public class OptionalPointerWrapperTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;

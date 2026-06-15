@@ -375,7 +375,7 @@ namespace BindingsGeneration
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 };
                 var wrapperEnv = new MethodEnvironment(dummyMethod, typeDatabase);
 

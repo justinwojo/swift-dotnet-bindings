@@ -497,10 +497,11 @@ namespace BindingsGeneration
             // Inherited requirements are added in a post-emission fixup pass
             // (FixupProtocolInheritedRequirements) to avoid order-dependent miscounting
             // when a child protocol is emitted before its parent in the same module.
-            if (env.TypeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName!, out var protoRecord))
+            if (env.TypeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName!, out _))
             {
-                env.TypeDatabase.UpdateTypeRecord(protocolDecl.SwiftTypeName!,
-                    protoRecord with { EmittedMemberCount = emittedInterfaceMemberCount });
+                // Finding 47: stamp the direct member count via the emission-result path.
+                env.TypeDatabase.ApplyEmissionResult(protocolDecl.SwiftTypeName!,
+                    new TypeEmissionResult { EmittedMemberCount = emittedInterfaceMemberCount });
             }
 
             // Skip proxy class if protocol has members with unsupported module types (SwiftUI, Combine).
@@ -1577,8 +1578,9 @@ namespace BindingsGeneration
                     if (typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var currentRecord)
                         && currentRecord.EmittedMemberCount != totalRequirements)
                     {
-                        typeDatabase.UpdateTypeRecord(protocolDecl.SwiftTypeName,
-                            currentRecord with { EmittedMemberCount = totalRequirements });
+                        // Finding 47: stamp the inherited-inclusive count via the emission-result path.
+                        typeDatabase.ApplyEmissionResult(protocolDecl.SwiftTypeName,
+                            new TypeEmissionResult { EmittedMemberCount = totalRequirements });
                         changed = true;
                     }
                 }

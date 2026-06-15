@@ -247,7 +247,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
 
@@ -287,7 +287,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
 
@@ -929,7 +929,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -979,7 +979,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1045,7 +1045,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             HasVariadicParameter = true // Set by demangler during parsing
         };
 
@@ -1100,7 +1100,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             HasVariadicParameter = true
         };
 
@@ -1154,7 +1154,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             HasVariadicParameter = true
         };
 
@@ -1207,7 +1207,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             HasVariadicParameter = false // Regular array, NOT variadic
         };
 
@@ -1259,7 +1259,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1316,7 +1316,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1373,7 +1373,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1424,7 +1424,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -2000,7 +2000,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             UsesCdeclMethodWrapper = true
         };
 
@@ -2022,7 +2022,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         Assert.False(method.UsesCdeclWrapper);
@@ -2076,7 +2076,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
 
@@ -2211,7 +2211,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2241,7 +2241,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2281,7 +2281,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2512,7 +2512,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2542,7 +2542,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2708,7 +2708,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
 
@@ -3459,7 +3459,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             UsesCdeclMethodWrapper = true,
             UsesWrapperLibrary = true
         };
@@ -3533,7 +3533,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             UsesCdeclMethodWrapper = true,
             UsesWrapperLibrary = true
         };
@@ -4250,7 +4250,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parent.Methods.Add(indexOffsetBy);
 
@@ -4316,7 +4316,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parent.Methods.Add(intOverload);
         parent.Methods.Add(stringOverload);
@@ -4396,7 +4396,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -4422,7 +4422,7 @@ public class MethodWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -4632,7 +4632,7 @@ public class MethodWrapperEmitterTests
             CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("TestModule.Item")), MakeParam("e") },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         var siblingB = new MethodDecl
         {
@@ -4642,7 +4642,7 @@ public class MethodWrapperEmitterTests
             CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("Swift.Array")), MakeParam("e") },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         parent.Methods.Add(siblingA);
         parent.Methods.Add(siblingB);
@@ -4704,7 +4704,7 @@ public class MethodWrapperEmitterTests
             CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("TestModule.Item")), MakeParam("e") },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         var siblingB = new MethodDecl
         {
@@ -4714,7 +4714,7 @@ public class MethodWrapperEmitterTests
             CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("Swift.Array")), MakeParam("e") },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         parent.Methods.Add(siblingA);
         parent.Methods.Add(siblingB);
@@ -4766,7 +4766,7 @@ public class MethodWrapperEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         var siblingB = new MethodDecl
         {
@@ -4780,7 +4780,7 @@ public class MethodWrapperEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         parent.Methods.Add(siblingA);
         parent.Methods.Add(siblingB);
@@ -4847,7 +4847,7 @@ public class MethodWrapperEmitterTests
             CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("TestModule.Item")), MakeParam("e") },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = throws, IsAsync = isAsync, Visibility = Visibility.Public
+            Throws = throws, IsAsync = isAsync, IsSynthesizedAccessor = false
         };
         var siblingB = new MethodDecl
         {
@@ -4857,7 +4857,7 @@ public class MethodWrapperEmitterTests
             CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("Swift.Array")), MakeParam("e") },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent, ModuleDecl = moduleDecl,
-            Throws = throws, IsAsync = isAsync, Visibility = Visibility.Public
+            Throws = throws, IsAsync = isAsync, IsSynthesizedAccessor = false
         };
         parent.Methods.Add(siblingA);
         parent.Methods.Add(siblingB);

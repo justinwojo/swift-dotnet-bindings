@@ -393,7 +393,7 @@ public class ConformerKeyPathInitFactoryEmitterTests
             },
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
         };

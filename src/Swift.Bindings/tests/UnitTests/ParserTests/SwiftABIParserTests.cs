@@ -370,11 +370,11 @@ public class SwiftABIParserTests
     }
 
     [Fact]
-    public void CreateMethodDecl_DefaultVisibility_IsPublic()
+    public void CreateMethodDecl_DefaultIsSynthesizedAccessor_IsFalse()
     {
         var methodDecl = CreateMethodDecl("publicMethod");
 
-        Assert.Equal(Visibility.Public, methodDecl.Visibility);
+        Assert.False(methodDecl.IsSynthesizedAccessor);
     }
 
     #endregion
@@ -701,7 +701,7 @@ public class SwiftABIParserTests
             ModuleDecl = null,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -722,7 +722,7 @@ public class SwiftABIParserTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -781,7 +781,7 @@ public class SwiftABIParserTests
                     ModuleDecl = null,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Private
+                    IsSynthesizedAccessor = true
                 }
             });
         }
@@ -824,7 +824,7 @@ public class SwiftABIParserTests
                     ModuleDecl = null,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Private
+                    IsSynthesizedAccessor = true
                 }
             });
         }
@@ -891,7 +891,7 @@ public class SwiftABIParserTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         if (kind == OperatorKind.Binary)
@@ -1390,7 +1390,7 @@ public class SwiftABIParserTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(implicitCtor);
 
@@ -1471,7 +1471,7 @@ public class SwiftABIParserTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(implicitCtor);
 

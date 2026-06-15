@@ -290,7 +290,7 @@ public class EnumParserTests
                         ModuleDecl = null,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -325,7 +325,7 @@ public class EnumParserTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

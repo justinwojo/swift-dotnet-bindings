@@ -172,7 +172,7 @@ public class OperatorHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         return new OperatorDecl
@@ -271,7 +271,7 @@ public class OperatorHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var op = new OperatorDecl
@@ -349,7 +349,7 @@ public class OperatorHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var op = new OperatorDecl
@@ -477,7 +477,7 @@ public class OperatorHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         return new OperatorDecl
@@ -668,7 +668,7 @@ public class OperatorHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var op = new OperatorDecl

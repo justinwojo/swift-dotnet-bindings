@@ -1317,7 +1317,7 @@ public class SilgenNameTrampolineTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1347,7 +1347,7 @@ public class SilgenNameTrampolineTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1384,7 +1384,7 @@ public class SilgenNameTrampolineTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         if (parentDecl is ClassDecl classDecl)
             classDecl.Methods.Add(method);

@@ -581,7 +581,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = CreateBasicTypeDatabase(parentDecl);
@@ -622,7 +622,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = CreateBasicTypeDatabase(parentDecl);
@@ -880,7 +880,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -985,7 +985,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -1069,7 +1069,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -1159,7 +1159,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -1253,7 +1253,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -1343,7 +1343,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -1439,7 +1439,7 @@ public class CancellationTokenEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ThrownErrorType = TypeSpecParser.Parse("TestModule.ParseError")
         };
 

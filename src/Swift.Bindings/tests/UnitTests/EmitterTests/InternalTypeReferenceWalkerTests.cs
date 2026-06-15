@@ -62,7 +62,7 @@ public class InternalTypeReferenceWalkerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
     }
 

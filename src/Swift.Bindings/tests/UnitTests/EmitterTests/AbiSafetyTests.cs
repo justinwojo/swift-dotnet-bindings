@@ -733,7 +733,7 @@ public class AbiSafetyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
 
@@ -2111,7 +2111,7 @@ public class AbiSafetyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             // Primary method does not have explicit wrapper set
             UsesCdeclMethodWrapper = false,
             UsesWrapperLibrary = false,
@@ -2262,7 +2262,7 @@ public class AbiSafetyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2292,7 +2292,7 @@ public class AbiSafetyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2332,7 +2332,7 @@ public class AbiSafetyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

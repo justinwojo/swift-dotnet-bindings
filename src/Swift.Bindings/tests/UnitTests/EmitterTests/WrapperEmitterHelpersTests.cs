@@ -138,7 +138,7 @@ public class WrapperEmitterHelpersTests
             IsConstructor = false,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>(),
             CSSignature = new List<ArgumentDecl>(),
             AvailabilityAnnotations = null,

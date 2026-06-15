@@ -1037,7 +1037,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -1141,7 +1141,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -1387,7 +1387,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Setup type database
@@ -1614,7 +1614,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Setup type database
@@ -1768,7 +1768,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Setup type database
@@ -1880,7 +1880,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Setup type database
@@ -1979,7 +1979,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Setup type database
@@ -2151,7 +2151,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -2297,7 +2297,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -2452,7 +2452,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();
@@ -2599,7 +2599,7 @@ public class AsyncSwiftWrapperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();

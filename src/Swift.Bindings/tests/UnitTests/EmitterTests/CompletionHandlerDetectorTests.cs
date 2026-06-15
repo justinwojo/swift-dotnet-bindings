@@ -177,7 +177,7 @@ public class CompletionHandlerDetectorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = CreateTypeDatabase(parentDecl);
@@ -374,7 +374,7 @@ public class CompletionHandlerDetectorTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Pre-populate EmittedProjectedSignatures with the native async method's projected key.
@@ -431,7 +431,7 @@ public class CompletionHandlerDetectorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var csOutput2 = EmitMethodWithSignatures(completionMethod, typeDatabase, emittedSignatures);
@@ -488,7 +488,7 @@ public class CompletionHandlerDetectorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var emittedSignatures = new HashSet<string>();
@@ -706,7 +706,7 @@ public class CompletionHandlerDetectorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = CreateTypeDatabase(parentDecl);
@@ -768,7 +768,7 @@ public class CompletionHandlerDetectorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = CreateTypeDatabase(parentDecl);

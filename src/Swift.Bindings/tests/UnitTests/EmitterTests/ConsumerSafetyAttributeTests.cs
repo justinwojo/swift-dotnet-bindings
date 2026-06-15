@@ -626,7 +626,7 @@ public class ConsumerSafetyAttributeTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;
@@ -651,7 +651,7 @@ public class ConsumerSafetyAttributeTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(ctor);
         return ctor;

@@ -322,7 +322,7 @@ public class NamespaceFacadeDetectorTests
             MethodType = MethodType.Instance,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
     }
 

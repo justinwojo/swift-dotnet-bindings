@@ -909,7 +909,7 @@ public class ConstrainedExistentialBridgeTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
     }
 

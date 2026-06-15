@@ -170,7 +170,7 @@ public class AppEntityKeyPathSingletonEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
         };

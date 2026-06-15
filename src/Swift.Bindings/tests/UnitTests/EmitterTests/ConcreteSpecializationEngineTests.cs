@@ -1292,7 +1292,7 @@ public class ConcreteSpecializationEngineTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>(),
             CSSignature = new List<ArgumentDecl>(),
             AvailabilityAnnotations = null,
@@ -1793,7 +1793,7 @@ public class ConcreteSpecializationEngineTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = isGeneric
                 ? new List<GenericArgumentDecl> { new("τ_1_0", "T", new(), new()) }
                 : new List<GenericArgumentDecl>(),
@@ -1845,7 +1845,7 @@ public class ConcreteSpecializationEngineTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_1_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -1915,7 +1915,7 @@ public class ConcreteSpecializationEngineTests
             IsConstructor = true,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -1979,7 +1979,7 @@ public class ConcreteSpecializationEngineTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>(),
             CSSignature = new List<ArgumentDecl>
             {
@@ -2037,7 +2037,7 @@ public class ConcreteSpecializationEngineTests
             IsConstructor = false,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>(),
             CSSignature = new List<ArgumentDecl>
             {
@@ -2097,7 +2097,7 @@ public class ConcreteSpecializationEngineTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T",

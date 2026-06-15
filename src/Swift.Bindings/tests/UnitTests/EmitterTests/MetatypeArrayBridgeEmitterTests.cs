@@ -181,7 +181,7 @@ public class MetatypeArrayBridgeEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
     }
 
@@ -218,7 +218,7 @@ public class MetatypeArrayBridgeEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
     }
 

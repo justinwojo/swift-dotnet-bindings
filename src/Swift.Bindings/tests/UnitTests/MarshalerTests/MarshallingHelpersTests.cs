@@ -599,7 +599,7 @@ public class MarshallingHelpersTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Private
+            IsSynthesizedAccessor = true
         };
     }
 
@@ -732,7 +732,7 @@ public class MarshallingHelpersTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         return new MethodEnvironment(method, new MockTypeDatabase());

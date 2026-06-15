@@ -279,7 +279,7 @@ public class RouteCSortShapeEligibilityTests
             Throws = false,
             IsAsync = false,
             IsMutating = true,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
         return (method, parent);
     }

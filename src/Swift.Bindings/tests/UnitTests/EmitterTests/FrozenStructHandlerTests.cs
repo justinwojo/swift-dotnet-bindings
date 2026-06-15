@@ -927,7 +927,7 @@ public class FrozenStructHandlerTests
                         ModuleDecl = null,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Private
+                        IsSynthesizedAccessor = true
                     }
                 }
             },
@@ -962,7 +962,7 @@ public class FrozenStructHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1002,7 +1002,7 @@ public class FrozenStructHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         if (kind == OperatorKind.Binary)

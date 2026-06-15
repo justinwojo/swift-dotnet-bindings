@@ -281,7 +281,7 @@ public class ProtocolConformanceCacheTests
                     ModuleDecl = null,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Types = new List<TypeDecl>(),
@@ -330,7 +330,7 @@ public class ProtocolConformanceCacheTests
                     ModuleDecl = null,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Types = new List<TypeDecl>(),
@@ -402,7 +402,7 @@ public class ProtocolConformanceCacheTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

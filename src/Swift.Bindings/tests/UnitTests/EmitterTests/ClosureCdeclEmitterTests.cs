@@ -783,7 +783,7 @@ public class ClosureCdeclEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         Assert.False(method.HasClosureCdeclWrapper);
@@ -859,7 +859,7 @@ public class ClosureCdeclEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Detection returns true (it doesn't know about constructor return ABI)
@@ -1961,7 +1961,7 @@ public class ClosureCdeclEmitterTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         if (parentDecl is ClassDecl classDecl)
             classDecl.Methods.Add(method);
@@ -1998,7 +1998,7 @@ public class ClosureCdeclEmitterTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;

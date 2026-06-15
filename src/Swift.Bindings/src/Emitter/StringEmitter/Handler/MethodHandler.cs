@@ -1679,7 +1679,7 @@ namespace BindingsGeneration
             overloadParams.Add("global::System.Threading.CancellationToken cancellationToken = default");
 
             var paramString = string.Join(", ", overloadParams);
-            var accessModifier = NameProvider.GetAccessModifier(methodDecl.Visibility);
+            var accessModifier = NameProvider.GetAccessModifier(methodDecl.IsSynthesizedAccessor);
 
             // Build the lambda body based on callback shape
             var callArgs = new List<string>();

@@ -777,7 +777,7 @@ public class TypeHandlersOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var classDecl = new ClassDecl

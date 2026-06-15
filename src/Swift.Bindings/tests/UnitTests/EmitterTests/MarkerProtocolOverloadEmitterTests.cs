@@ -193,7 +193,7 @@ public class MarkerProtocolOverloadEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateClassDecl("Widget"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         MarkerProtocolOverloadEmitter.EmitOverloads(
@@ -232,7 +232,7 @@ public class MarkerProtocolOverloadEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var map = new Dictionary<string, List<string>>
@@ -287,7 +287,7 @@ public class MarkerProtocolOverloadEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateClassDecl("Widget"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var map = new Dictionary<string, List<string>>
@@ -368,7 +368,7 @@ public class MarkerProtocolOverloadEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateClassDecl("TestType"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

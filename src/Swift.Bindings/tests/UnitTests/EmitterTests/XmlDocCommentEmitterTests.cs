@@ -416,7 +416,7 @@ public class XmlDocCommentEmitterTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             Documentation = doc
         };
     }

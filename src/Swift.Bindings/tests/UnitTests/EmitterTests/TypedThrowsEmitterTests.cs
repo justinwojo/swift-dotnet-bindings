@@ -371,7 +371,7 @@ public class TypedThrowsEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = isAsync,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ThrownErrorType = hasTypedThrows ? TypeSpecParser.Parse(errorTypeName) : null
         };
 
@@ -523,7 +523,7 @@ public class TypedThrowsEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ThrownErrorType = hasTypedThrows ? TypeSpecParser.Parse(errorTypeName) : null
         };
         structDecl.Methods.Add(constructorDecl);
@@ -633,7 +633,7 @@ public class TypedThrowsEmitterTests
             ModuleDecl = moduleDecl,
             Throws = throws_,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -708,7 +708,7 @@ public class TypedThrowsEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ThrownErrorType = TypeSpecParser.Parse("TestModule.SimpleError")
         };
 

@@ -109,7 +109,16 @@ public record TypeRecord
     /// <summary>
     /// The C# type information.
     /// </summary>
-    public required CSharpTypeName CSharpTypeName { get; set; }
+    /// <remarks>
+    /// Finding 47: init-only. The one emission-time path that refines this — NameProvider's
+    /// nested-type collision rename — runs as a pre-pass inside emission (post-freeze for the
+    /// main module) and now routes through <see cref="ITypeDatabase.ApplyEmissionResult"/> (via
+    /// <see cref="TypeEmissionResult.CSharpTypeName"/>) like the other emission-discovered facts,
+    /// rather than mutating the stored record in place. Keeping this init-only is what makes the
+    /// registry freeze a real boundary: there is no setter through which a post-freeze write can
+    /// bypass the sanctioned emission-mutation API.
+    /// </remarks>
+    public required CSharpTypeName CSharpTypeName { get; init; }
 
     /// <summary>
     /// The Swift type identifier.
@@ -341,3 +350,53 @@ public record TypeRecord
 /// parent NuGets.
 /// </summary>
 public sealed record EmittedClassMethod(string SwiftName, string CSharpName, IReadOnlyList<string> ParameterSwiftTypes);
+
+/// <summary>
+/// Finding 47: the emission-discovered facts about a type, carried as a delta from emission
+/// back into the (frozen) registry. These are the only fields whose true value isn't known
+/// until the type's body has been emitted — the direct interface member count, the surviving
+/// class instance methods, and whether the class body emitted its own metadata P/Invoke. They
+/// are applied onto an already-registered <see cref="TypeRecord"/> through
+/// <see cref="ITypeDatabase.ApplyEmissionResult"/>, the sole sanctioned post-freeze mutation,
+/// so structural facts (identity, layout, conformances) stay immutable after the freeze point
+/// while these emission outputs can still be stamped on.
+/// </summary>
+/// <remarks>
+/// Each field is "unset" (null) by default and applied only when set: an emission site populates
+/// just the facts it discovered (a protocol emitter sets <see cref="EmittedMemberCount"/>; the
+/// class emitter sets <see cref="EmittedClassMethods"/> + <see cref="EmittedMetadataPInvoke"/>;
+/// NameProvider's collision rename sets <see cref="CSharpTypeName"/>), and <see cref="ApplyTo"/>
+/// leaves the rest of the record untouched. None of the emission sites ever write a meaningful
+/// null, so null-means-unchanged is unambiguous here.
+/// </remarks>
+public readonly record struct TypeEmissionResult
+{
+    /// <summary>Direct C# interface member count discovered during protocol emission.</summary>
+    public int? EmittedMemberCount { get; init; }
+
+    /// <summary>Class instance methods that survived emission (for cross-module override verification).</summary>
+    public IReadOnlyList<EmittedClassMethod>? EmittedClassMethods { get; init; }
+
+    /// <summary>Whether the class body emitted its own instance-level <c>PInvoke_getMetadata</c>.</summary>
+    public bool? EmittedMetadataPInvoke { get; init; }
+
+    /// <summary>
+    /// The refined C# type name when NameProvider's emission pre-pass renames a nested type to
+    /// dodge a member/sibling collision. Unset for the other emission facts. This is the one
+    /// emission-time mutation of an otherwise-structural field, kept in the sanctioned channel so
+    /// the registry freeze has no in-place-setter bypass.
+    /// </summary>
+    public CSharpTypeName? CSharpTypeName { get; init; }
+
+    /// <summary>
+    /// Returns <paramref name="existing"/> with each set fact applied; unset facts are preserved
+    /// from the existing record.
+    /// </summary>
+    public TypeRecord ApplyTo(TypeRecord existing) => existing with
+    {
+        EmittedMemberCount = EmittedMemberCount ?? existing.EmittedMemberCount,
+        EmittedClassMethods = EmittedClassMethods ?? existing.EmittedClassMethods,
+        EmittedMetadataPInvoke = EmittedMetadataPInvoke ?? existing.EmittedMetadataPInvoke,
+        CSharpTypeName = CSharpTypeName ?? existing.CSharpTypeName,
+    };
+}

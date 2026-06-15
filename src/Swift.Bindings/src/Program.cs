@@ -406,6 +406,16 @@ namespace BindingsGeneration
                 var moduleDatabase = moduleProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
                 typeDatabase.AddModuleDatabase(moduleDatabase);
 
+                // Finding 47: freeze the registry. Every structural write (dependency loading,
+                // the bound module's parse/finalize, cross-module conformance merges) is complete
+                // by this point; the remaining emission passes (ProtocolExtensionEmitter,
+                // DetectPhantomDefaults, ForeignTypeExtensionEmitter, EmitModule) only READ the
+                // database, except for the emission-fact stamping that flows through
+                // ApplyEmissionResult — the one sanctioned post-freeze mutation. After this, any
+                // structural Register is a contract violation (SWIFTBIND045), turning "the
+                // database's answer depends on when you ask" into a hard, observable boundary.
+                typeDatabase.Freeze();
+
                 logger.LogDebug("Parsed Swift ABI file successfully.");
 
                 // Create per-module emission context (replaces static mutable state + ResetForModule)

@@ -24,15 +24,30 @@ namespace BindingsGeneration
     /// </summary>
     /// <param name="Parsed">Total declaration nodes the parser attempted (the sum of the others).</param>
     /// <param name="Emitted">Nodes that produced a declaration.</param>
-    /// <param name="SkippedWithReason">Nodes deliberately not bound (e.g. imports, no mangled name,
-    /// unsupported declaration kind) — a handler returned null without throwing.</param>
-    /// <param name="DroppedWithError">Nodes lost to a caught exception in <c>HandleNode</c> — the
-    /// silent-failure channel this finding exists to expose.</param>
+    /// <param name="SkippedWithReason">Nodes deliberately not bound (e.g. imports, an unsupported
+    /// declaration kind, or a recognized-but-unbound kind such as <c>AssociatedType</c>/<c>OperatorDecl</c>)
+    /// — a handler returned null without throwing. A bindable type declaration that is MISSING a
+    /// load-bearing field (no mangled name) is NOT a deliberate skip; it is a record loss counted under
+    /// <see cref="DroppedWithError"/>.</param>
+    /// <param name="DroppedWithError">Nodes lost without being bound — the silent-failure channel this
+    /// finding exists to expose. Three sources land here: a caught exception in <c>HandleNode</c>; an
+    /// unrecognized node kind off the dispatch allowlist (SWIFTBIND034); and a recognized bindable
+    /// declaration whose load-bearing ABI field is absent, e.g. a TypeDecl with no mangled name
+    /// (SWIFTBIND046). The latter two also record an AbiJson degradation (fail-closed under
+    /// <c>--strict-inputs</c>); a bare caught exception is logged but is not itself a degradation.</param>
+    /// <param name="UnknownNodeKinds">Finding 45 (ingestion contract): per-kind census of ABI node
+    /// kinds that fell through the dispatch allowlist — declarations the digester emitted that the
+    /// parser does not recognize at all (as opposed to recognized-but-unbound kinds such as
+    /// <c>AssociatedType</c>/<c>OperatorDecl</c>, which are deliberate skips and never counted here).
+    /// A non-empty census means the digester shape drifted past what the parser knows; it is the
+    /// allowlist breach surfaced as a number-by-kind instead of a generic dropped-with-error tally.
+    /// Null when no unknown kind was seen (the steady state).</param>
     public sealed record ParseReconciliation(
         int Parsed,
         int Emitted,
         int SkippedWithReason,
-        int DroppedWithError)
+        int DroppedWithError,
+        IReadOnlyDictionary<string, int>? UnknownNodeKinds = null)
     {
         /// <summary>True when the buckets sum to the total — always expected to hold.</summary>
         public bool IsBalanced => Parsed == Emitted + SkippedWithReason + DroppedWithError;
@@ -65,6 +80,16 @@ namespace BindingsGeneration
         public required string Kind { get; set; }
         public required string Name { get; set; }
         public required string PrintedName { get; set; }
+
+        /// <summary>
+        /// Finding 45 (ingestion contract): the swift-api-digester schema version stamped on every
+        /// ABI JSON (currently 8 — including the project's own shipped supplement artifacts). Read
+        /// nowhere historically; <see cref="SwiftABIParser.ParseModule"/> now gates it loudly so a
+        /// digester output-shape change is observable (and fail-closed under <c>--strict-inputs</c>)
+        /// instead of silently mis-parsed. Nullable so absence is distinguishable from a real value.
+        /// </summary>
+        public int? json_format_version { get; set; }
+
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
     }
 
@@ -176,6 +201,23 @@ namespace BindingsGeneration
         private int _nodesEmitted;
         private int _nodesSkippedWithReason;
         private int _nodesDroppedWithError;
+
+        /// <summary>
+        /// Finding 45 (ingestion contract): per-kind tally of ABI node kinds that fell through the
+        /// <see cref="HandleNode"/> dispatch allowlist — i.e. kinds the parser has never seen. Built
+        /// only by the <c>default</c> arm, so recognized-but-unbound kinds (<c>Import</c>,
+        /// <c>AssociatedType</c>, <c>OperatorDecl</c>) never appear here; a non-empty census is an
+        /// allowlist breach that means the digester emitted a declaration shape we don't model.
+        /// </summary>
+        private readonly Dictionary<string, int> _unknownNodeKinds = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Finding 45: the swift-api-digester <c>json_format_version</c> this parser is calibrated
+        /// against. A mismatch (or absence) is surfaced loudly and recorded as an
+        /// <see cref="InputResolutionCategory.AbiJson"/> degradation so <c>--strict-inputs</c> can
+        /// fail the generation rather than silently mis-parse a drifted output shape.
+        /// </summary>
+        internal const int ExpectedAbiFormatVersion = 8;
 
         /// <summary>
         /// TypeWitness mappings from conformance entries.
@@ -830,6 +872,7 @@ namespace BindingsGeneration
         {
             var dependencies = new List<string>();
             var moduleName = GetModuleName();
+            GateAbiFormatVersion(moduleName);
             var moduleDecl = new ModuleDecl
             {
                 Name = ExtractUniqueName(moduleName),
@@ -863,9 +906,53 @@ namespace BindingsGeneration
                 Parsed: _nodesSeen,
                 Emitted: _nodesEmitted,
                 SkippedWithReason: _nodesSkippedWithReason,
-                DroppedWithError: _nodesDroppedWithError);
+                DroppedWithError: _nodesDroppedWithError,
+                UnknownNodeKinds: _unknownNodeKinds.Count == 0
+                    ? null
+                    : new Dictionary<string, int>(_unknownNodeKinds, StringComparer.Ordinal));
 
             return new ModuleParsingResult(moduleDecl, _moduleTypes, reconciliation);
+        }
+
+        /// <summary>
+        /// Finding 45 (ingestion contract): gate the ABI JSON <c>json_format_version</c> loudly. The
+        /// digester stamps it on every artifact (currently <see cref="ExpectedAbiFormatVersion"/>);
+        /// historically nothing read it, so a digester output-shape change would have been absorbed
+        /// silently as mis-parsed declarations. A present-and-matching version is recorded as an
+        /// informational input-resolution decision; absence or a mismatch is both warned
+        /// (SWIFTBIND033) and recorded as an <see cref="InputResolutionCategory.AbiJson"/> degradation
+        /// so <c>--strict-inputs</c> escalates it to a hard failure instead of binding against an
+        /// input shape the parser was never calibrated for.
+        /// </summary>
+        private void GateAbiFormatVersion(string moduleName)
+        {
+            var version = _moduleRoot.ABIRoot.json_format_version;
+            if (version is null)
+            {
+                _logger.LogWarning(
+                    "SWIFTBIND033: ABI JSON for module '{Module}' carries no json_format_version; the "
+                    + "ingestion contract (expected v{Expected}) cannot be verified.",
+                    moduleName, ExpectedAbiFormatVersion);
+                InputResolutionReport.RecordDegradation(
+                    InputResolutionCategory.AbiJson,
+                    $"module '{moduleName}': ABI JSON has no json_format_version (expected {ExpectedAbiFormatVersion})");
+            }
+            else if (version.Value != ExpectedAbiFormatVersion)
+            {
+                _logger.LogWarning(
+                    "SWIFTBIND033: ABI JSON for module '{Module}' declares json_format_version {Actual}, "
+                    + "but this generator is calibrated against v{Expected}; ingestion may mis-parse.",
+                    moduleName, version.Value, ExpectedAbiFormatVersion);
+                InputResolutionReport.RecordDegradation(
+                    InputResolutionCategory.AbiJson,
+                    $"module '{moduleName}': ABI JSON json_format_version {version.Value} != expected {ExpectedAbiFormatVersion}");
+            }
+            else
+            {
+                InputResolutionReport.RecordInfo(
+                    InputResolutionCategory.AbiJson,
+                    $"module '{moduleName}': ABI JSON json_format_version {version.Value}");
+            }
         }
 
         /// <summary>
@@ -885,6 +972,22 @@ namespace BindingsGeneration
                     declarations.Add(nodeDeclaration);
             }
             return declarations;
+        }
+
+        /// <summary>
+        /// Finding 45: signals that a recognized declaration cannot be bound because a load-bearing
+        /// ABI field is absent (currently a bindable TypeDecl with no mangled name). Thrown from the
+        /// per-declaration binder and caught in <see cref="HandleNode"/>, which records it as a
+        /// DroppedWithError record loss plus an AbiJson input-resolution degradation — never a silent
+        /// null skip. A dedicated exception type (rather than returning null) keeps the drop attributed
+        /// precisely even though the offending node has otherwise cleared its earlier handler gates.
+        /// </summary>
+        private sealed class AbiRecordDroppedException : Exception
+        {
+            public AbiRecordDroppedException(string? declName, string? moduleName, string reason)
+                : base($"declaration '{declName}' (module '{moduleName ?? "<none>"}') {reason}")
+            {
+            }
         }
 
         /// <summary>
@@ -924,9 +1027,55 @@ namespace BindingsGeneration
                         break;
                     case "Import":
                         break;
+                    case "AssociatedType":
+                        // Finding 45: associated types are consumed structurally as truth in
+                        // CreateProtocolDecl (which reads the protocol node's AssociatedType children
+                        // directly). Recognizing the kind here turns the member-walk's previously
+                        // error-dropped visit into a deliberate skip — it is bound elsewhere, not lost
+                        // — so it no longer pollutes the dropped-with-error channel as an allowlist miss.
+                        break;
+                    case "OperatorDecl":
+                        // Finding 45: a standalone operator *declaration* (fixity/precedence) is not a
+                        // bindable member; the operator's backing function arrives separately as a
+                        // Function node routed through CreateOperatorDecl. Recognized-and-skipped, not
+                        // an unknown kind.
+                        break;
                     default:
-                        throw new NotImplementedException($"Unsupported node kind '{node.Kind}' encountered.");
+                        // Finding 45 (ingestion contract): the dispatch allowlist above is the set of
+                        // ABI node kinds the parser models. Anything else is a digester shape the
+                        // parser has never seen — count it by kind (the census), warn loudly, and
+                        // record an input degradation so --strict-inputs fails the generation rather
+                        // than silently dropping a declaration the digester newly emits.
+                        _unknownNodeKinds[node.Kind] = _unknownNodeKinds.GetValueOrDefault(node.Kind) + 1;
+                        droppedWithError = true;
+                        _logger.LogWarning(
+                            "SWIFTBIND034: unrecognized ABI node kind '{Kind}' (name '{Name}', mangled "
+                            + "'{Mangled}') is not in the ingestion allowlist; the declaration is dropped. "
+                            + "If the digester now emits this kind, the parser must learn it.",
+                            node.Kind, node.Name, node.MangledName);
+                        InputResolutionReport.RecordDegradation(
+                            InputResolutionCategory.AbiJson,
+                            $"unrecognized ABI node kind '{node.Kind}' (e.g. '{node.Name}') dropped");
+                        break;
                 }
+            }
+            catch (AbiRecordDroppedException e)
+            {
+                // Finding 45 (loud, not silent): a load-bearing-field-absent declaration is a record
+                // loss, not a deliberate skip. Census it as DroppedWithError and record an AbiJson
+                // degradation (fails closed under --strict-inputs) — the same observability channel
+                // the SWIFTBIND034 unrecognized-node-kind path uses. Distinct exception type so the
+                // attribution here is precise rather than folded into the generic dropped-with-error
+                // catch-all below (which would emit a "while processing node" diagnostic instead).
+                droppedWithError = true;
+                _logger.LogWarning(
+                    "SWIFTBIND046: {Detail}; a load-bearing ABI field is absent, so the declaration "
+                    + "cannot be bound and is dropped. If the digester now omits this field, the parser "
+                    + "must learn the new shape.",
+                    e.Message);
+                InputResolutionReport.RecordDegradation(
+                    InputResolutionCategory.AbiJson,
+                    $"ABI declaration dropped: {e.Message}");
             }
             catch (NotImplementedException e)
             {
@@ -1070,7 +1219,10 @@ namespace BindingsGeneration
             // SECOND occurrence within this same parser pass is a true duplicate; that's
             // detected via `_moduleTypes.ContainsKey`.
             bool alreadyInModulePass = _moduleTypes.ContainsKey(typeNameSpec);
-            bool processedByDependency = _typeDatabase.IsTypeProcessed(typeName);
+            // Finding 10: the narrow registration predicate, NOT the resolvable predicate. A
+            // supplement-owned same-module type must answer "no" here, or the throw below fires
+            // spuriously when an Apple-framework binding re-declares a type the supplement owns.
+            bool processedByDependency = _typeDatabase.IsTypeRegistered(typeName);
             if (alreadyInModulePass || (processedByDependency && moduleNameOverride == null))
             {
                 if (moduleNameOverride != null)
@@ -1081,10 +1233,22 @@ namespace BindingsGeneration
                 throw new InvalidOperationException($"Type '{node.Name}' already processed.");
             }
 
-            if (string.IsNullOrEmpty(node.MangledName))
+            // Finding 45 (no silent loss of records): a bindable type declaration
+            // (Struct/Enum/Class/Protocol) REQUIRES a mangled name — it is the load-bearing ABI
+            // field every downstream binder keys off. This node has cleared the foreign-reexport
+            // and duplicate gates above, so an absent mangled name here is a type the digester
+            // declared that we cannot bind: a genuine record loss, not a benign skip. Signal a DROP
+            // (caught in HandleNode) rather than returning a bare null — a null would land in the
+            // SkippedWithReason bucket alongside imports and hide the loss. HandleNode turns this
+            // into a DroppedWithError census entry + an AbiJson degradation that fails closed under
+            // --strict-inputs, the same channel the SWIFTBIND034 unknown-kind path uses. The gate is
+            // scoped to bindable kinds so a non-bindable structural container (e.g. a "Module" node,
+            // which legitimately carries no mangled name) still falls through to the unsupported-kind
+            // skip in the DeclKind switch below rather than being mis-reported as a lost record.
+            bool isBindableTypeKind = node.DeclKind is "Struct" or "Enum" or "Class" or "Protocol";
+            if (isBindableTypeKind && string.IsNullOrEmpty(node.MangledName))
             {
-                _logger.LogWarning($"Type '{node.Name}' has no mangled name. Skipping.");
-                return null;
+                throw new AbiRecordDroppedException(node.Name, node.ModuleName, "no mangled name");
             }
 
             TypeDecl? decl;
@@ -1490,7 +1654,10 @@ namespace BindingsGeneration
                 return symbol;
             if (string.IsNullOrEmpty(node.ModuleName) || node.ModuleName == moduleDecl.Name)
                 return $"{node.MangledName}Ma";
-            if (_typeDatabase.IsTypeProcessed(swiftTypeName))
+            // Finding 10: registration predicate — "is the foreign type already registered in a
+            // loaded dependency database" — not "resolvable via the supplement". A supplement-owned
+            // foreign type must not be claimed here, so its metadata accessor comes from the TBD.
+            if (_typeDatabase.IsTypeRegistered(swiftTypeName))
                 return $"{node.MangledName}Ma";
             return _demangledTbd.GetMetadataAccessor(swiftTypeName);
         }
@@ -2186,7 +2353,7 @@ namespace BindingsGeneration
                 // for the "Ya" (async) marker when the demangler doesn't produce a FunctionReduction.
                 IsAsync = functionReduction?.Function?.IsAsync
                     ?? DetectAsyncFromMangledName(mangledName),
-                Visibility = Visibility.Public,
+                IsSynthesizedAccessor = false,
                 IsMutating = node.funcSelfKind == "Mutating",
                 IsConsuming = node.funcSelfKind == "Consuming",
                 IsBorrowing = node.funcSelfKind == "Borrowing",
@@ -2675,7 +2842,7 @@ namespace BindingsGeneration
                     || accessor.funcSelfKind == "Mutating",
                 IsConsuming = accessor.funcSelfKind == "Consuming",
                 IsBorrowing = accessor.funcSelfKind == "Borrowing",
-                Visibility = Visibility.Private,
+                IsSynthesizedAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
@@ -2740,7 +2907,7 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private,
+                IsSynthesizedAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
@@ -3135,7 +3302,7 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private,
+                IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
@@ -3204,7 +3371,7 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private,
+                IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };

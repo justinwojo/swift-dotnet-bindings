@@ -585,8 +585,10 @@ namespace BindingsGeneration
                         emitted.Add(new EmittedClassMethod(method.Name, csharpName, paramTypes));
                     }
 
-                    typeDatabase.UpdateTypeRecord(classDecl.SwiftTypeName,
-                        record with
+                    // Finding 47: emission-discovered facts are stamped through the sole sanctioned
+                    // post-freeze mutation rather than a full-record overwrite.
+                    typeDatabase.ApplyEmissionResult(classDecl.SwiftTypeName,
+                        new TypeEmissionResult
                         {
                             EmittedClassMethods = emitted,
                             EmittedMetadataPInvoke = classDecl.EmittedMetadataPInvoke
@@ -685,7 +687,7 @@ namespace BindingsGeneration
         private static bool HasParameterlessConstructor(ClassDecl classDecl)
         {
             return classDecl.Methods.Any(m =>
-                m.IsConstructor && m.Visibility == Visibility.Public &&
+                m.IsConstructor && !m.IsSynthesizedAccessor &&
                 m.CSSignature.Count <= 1); // CSSignature[0] is return type, no parameters = Count <= 1
         }
 

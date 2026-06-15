@@ -325,7 +325,7 @@ public class IndirectResultDecompositionTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         return new MethodEnvironment(method, new MockTypeDatabase());

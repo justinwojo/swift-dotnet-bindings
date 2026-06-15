@@ -148,7 +148,7 @@ public static class ExistentialBypassEmitter
                 ModuleDecl = methodDecl.ModuleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = methodDecl.Visibility
+                IsSynthesizedAccessor = methodDecl.IsSynthesizedAccessor
             };
 
             var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
@@ -489,7 +489,7 @@ public static class ExistentialBypassEmitter
                 ModuleDecl = methodDecl.ModuleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = methodDecl.Visibility
+                IsSynthesizedAccessor = methodDecl.IsSynthesizedAccessor
             };
 
             var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);
@@ -756,7 +756,7 @@ public static class ExistentialBypassEmitter
         bool isExistentialReturn)
     {
         var methodDecl = env.MethodDecl;
-        var accessModifier = NameProvider.GetAccessModifier(methodDecl.Visibility);
+        var accessModifier = NameProvider.GetAccessModifier(methodDecl.IsSynthesizedAccessor);
         var returnArg = methodDecl.CSSignature.First();
 
         // Resolve return-type info up-front: the existential container drives P/Invoke shape + buffer
@@ -1041,7 +1041,7 @@ public static class ExistentialBypassEmitter
         Signature reducedPInvokeSig,
         bool isFrozenValue)
     {
-        var accessModifier = NameProvider.GetAccessModifier(env.MethodDecl.Visibility);
+        var accessModifier = NameProvider.GetAccessModifier(env.MethodDecl.IsSynthesizedAccessor);
         // Public factory uses the wrapper (high-level) signature
         var paramString = reducedWrapperSig.ParametersString();
 
@@ -1551,7 +1551,7 @@ public static class ExistentialBypassEmitter
             ModuleDecl = method.ModuleDecl,
             Throws = method.Throws,
             IsAsync = method.IsAsync,
-            Visibility = method.Visibility
+            IsSynthesizedAccessor = method.IsSynthesizedAccessor
         };
     }
 }

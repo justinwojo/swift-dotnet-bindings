@@ -196,7 +196,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "Value",
@@ -286,7 +286,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -325,7 +325,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -359,7 +359,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new(), new()) // no constraints
@@ -637,7 +637,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -768,7 +768,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -1180,7 +1180,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -1219,7 +1219,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
@@ -1253,7 +1253,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new(), new())
@@ -1290,7 +1290,7 @@ public class ConstrainedExtensionEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "T", new(), new()) // no constraints

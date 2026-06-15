@@ -267,7 +267,7 @@ public class ThrowingClosureSimplificationTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             CSSignature = new List<ArgumentDecl>
             {
                 // Return type (index 0): void

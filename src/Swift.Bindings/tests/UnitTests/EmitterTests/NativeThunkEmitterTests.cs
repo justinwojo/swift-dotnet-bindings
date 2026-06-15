@@ -1214,7 +1214,7 @@ namespace BindingsGeneration.Tests
                 IsConstructor = isConstructor,
                 IsAsync = false,
                 Throws = false,
-                Visibility = Visibility.Public,
+                IsSynthesizedAccessor = false,
                 CSSignature = new List<ArgumentDecl>
                 {
                     MakeArg(TupleTypeSpec.Empty, "")
@@ -2337,7 +2337,7 @@ namespace BindingsGeneration.Tests
                 IsConstructor = false,
                 IsAsync = false,
                 Throws = true,
-                Visibility = Visibility.Public,
+                IsSynthesizedAccessor = false,
                 CSSignature = new List<ArgumentDecl>
                 {
                     MakeArg(new NamedTypeSpec("Swift.Int32"), ""),  // return type
@@ -2388,7 +2388,7 @@ namespace BindingsGeneration.Tests
                 IsConstructor = false,
                 IsAsync = false,
                 Throws = true,
-                Visibility = Visibility.Public,
+                IsSynthesizedAccessor = false,
                 CSSignature = new List<ArgumentDecl>
                 {
                     MakeArg(TupleTypeSpec.Empty, ""),  // void return

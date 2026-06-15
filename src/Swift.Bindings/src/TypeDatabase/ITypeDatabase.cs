@@ -16,7 +16,31 @@ public interface ITypeDatabase
     /// <param name="moduleName">The name of the module.</param>
     /// <param name="swiftTypeName">The name of the Swift type.</param>
     /// <returns><c>true</c> if the type has been processed; otherwise, <c>false</c>.</returns>
+    /// <remarks>
+    /// Finding 10: defined as "<see cref="TryGetTypeRecord(SwiftTypeName, out TypeRecord?)"/>
+    /// succeeds" — a type the resolver can hand back a record for is, by definition, processed.
+    /// This intentionally agrees with <c>TryGetTypeRecord</c> (the historical 3-arm subset that
+    /// silently disagreed on supplement / out-of-module / <c>Swift.Error</c> identities is retired).
+    /// Callers that mean the narrower "already registered in a loaded module/dependency database"
+    /// question — not "resolvable by the full machinery" — must use <see cref="IsTypeRegistered"/>
+    /// instead; the parser's duplicate-detection and metadata-accessor decisions depend on that
+    /// narrower meaning and would mis-fire on the resolvable definition.
+    /// </remarks>
     public bool IsTypeProcessed(SwiftTypeName swiftTypeName);
+
+    /// <summary>
+    /// Finding 10: the narrow "is this identity already registered in a loaded module or
+    /// dependency database" predicate — the registration question, distinct from
+    /// <see cref="IsTypeProcessed"/>'s "is this resolvable by the full machinery" question.
+    /// It deliberately excludes the Apple-supplement, out-of-module, and <c>Swift.Error</c> arms
+    /// (and records nothing), because its consumers — the parser's duplicate gate and
+    /// metadata-accessor choice — must NOT treat a supplement-owned same-module type as
+    /// "already processed" (doing so would throw a spurious duplicate or pick the wrong
+    /// metadata symbol). Defaults to <see cref="IsTypeProcessed"/> so the many test mocks that
+    /// implement <see cref="ITypeDatabase"/> need not override it; the real
+    /// <see cref="TypeDatabase"/> overrides it with the registration-only lookup.
+    /// </summary>
+    public bool IsTypeRegistered(SwiftTypeName swiftTypeName) => IsTypeProcessed(swiftTypeName);
 
     /// <summary>
     /// Attempts to retrieve the type record for a specified type identifier within a module.
@@ -28,6 +52,21 @@ public interface ITypeDatabase
     /// </param>
     /// <returns><c>true</c> if the type record was found; otherwise, <c>false</c>.</returns>
     public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record);
+
+    /// <summary>
+    /// Finding 10: the type-record lookup with the Apple-supplement arm omitted — Arms 2–6 of
+    /// the cascade (module DB, <c>Ref</c>-variant, out-of-module, type-alias, <c>Swift.Error</c>),
+    /// everything except the leading supplement consult. Used by the resolver leg
+    /// (<c>DatabaseLookupStrategy</c>) so the supplement is consulted exactly once — at the
+    /// dedicated <c>AppleSupplementStrategy</c> that already runs earlier in the strategy order —
+    /// retiring the "supplement consulted twice at two precedence positions" duplication and its
+    /// INVARIANT comment. Behavior-preserving: any identity the supplement owns is claimed by the
+    /// earlier strategy and never reaches this method. Defaults to
+    /// <see cref="TryGetTypeRecord(SwiftTypeName, out TypeRecord?)"/> so test mocks (which have no
+    /// supplement arm) are unaffected; the real <see cref="TypeDatabase"/> overrides it.
+    /// </summary>
+    public bool TryGetTypeRecordWithoutSupplement(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        => TryGetTypeRecord(swiftTypeName, out record);
 
     /// <summary>
     /// Retrieves the library path for the specified module.
@@ -54,11 +93,41 @@ public interface ITypeDatabase
         string.IsNullOrEmpty(AsyncLibraryName) ? GenerationMode.Direct : GenerationMode.XCFramework;
 
     /// <summary>
-    /// Updates a type record in the database (e.g., to rename a nested type's C# name).
+    /// General structural write: overwrites the full type record for <paramref name="name"/>.
     /// </summary>
     /// <param name="name">The Swift type name.</param>
     /// <param name="record">The updated type record.</param>
+    /// <remarks>
+    /// Finding 47: this is a pre-freeze-only structural write. After <see cref="Freeze"/> the
+    /// registry is immutable to full-record overwrites — the real <see cref="TypeDatabase"/>
+    /// implementation throws (SWIFTBIND045) if called once frozen. The <em>only</em> sanctioned
+    /// post-freeze mutation is <see cref="ApplyEmissionResult"/>, which stamps emission-discovered
+    /// facts (and nothing else) onto an already-registered record. Production emission no longer
+    /// routes through this method at all; it survives as the general/structural write used by
+    /// test setup and any pre-freeze full-record rewrite (e.g. a nested type's C# name).
+    /// </remarks>
     public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record);
+
+    /// <summary>
+    /// Finding 47: the sole sanctioned post-<see cref="Freeze"/> mutation — stamps the
+    /// emission-discovered facts in <paramref name="result"/> (interface member count, surviving
+    /// class methods, metadata-P/Invoke presence) onto the already-registered record for
+    /// <paramref name="name"/>, leaving every structural field untouched. Applied even after the
+    /// registry is frozen, because these facts are not knowable until the type's body is emitted.
+    /// No-op default so the many test mocks that implement <see cref="ITypeDatabase"/> need not
+    /// override it; the real <see cref="TypeDatabase"/> overrides it.
+    /// </summary>
+    /// <param name="name">The Swift type name whose record receives the emission facts.</param>
+    /// <param name="result">The emission-discovered facts to apply.</param>
+    public void ApplyEmissionResult(SwiftTypeName name, TypeEmissionResult result) { }
+
+    /// <summary>
+    /// Finding 47: marks the registry immutable to structural writes. After this,
+    /// <see cref="UpdateTypeRecord"/> and the module-level registration path throw (SWIFTBIND045);
+    /// only <see cref="ApplyEmissionResult"/> may still mutate records. No-op default for test
+    /// mocks; the real <see cref="TypeDatabase"/> overrides it to freeze every loaded module.
+    /// </summary>
+    public void Freeze() { }
 
     /// <summary>
     /// Gets <c>(namespace, proxyName)</c> pairs for proxy classes that were suppressed by

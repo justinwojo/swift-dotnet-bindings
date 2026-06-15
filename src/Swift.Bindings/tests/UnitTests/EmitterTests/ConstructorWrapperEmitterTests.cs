@@ -101,7 +101,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -148,7 +148,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -197,7 +197,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -260,7 +260,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -338,7 +338,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -384,7 +384,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -426,7 +426,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -470,7 +470,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -610,7 +610,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -654,7 +654,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -712,7 +712,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -767,7 +767,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -810,7 +810,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -847,7 +847,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -882,7 +882,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -926,7 +926,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             HasVariadicParameter = true // Set by demangler
         };
 
@@ -983,7 +983,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1025,7 +1025,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1070,7 +1070,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1376,7 +1376,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1437,7 +1437,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1498,7 +1498,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1605,7 +1605,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1663,7 +1663,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1723,7 +1723,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1784,7 +1784,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1843,7 +1843,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1904,7 +1904,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -1981,7 +1981,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Set the mangled name to the cdecl symbol (as MethodHandler would do)
@@ -2033,7 +2033,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -2102,7 +2102,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -2160,7 +2160,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -2298,7 +2298,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -2355,7 +2355,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -2408,7 +2408,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -2471,7 +2471,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -2541,7 +2541,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -2609,7 +2609,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -2666,7 +2666,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -2726,7 +2726,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -2803,7 +2803,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -3275,7 +3275,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;
@@ -3457,7 +3457,7 @@ public class ConstructorWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 

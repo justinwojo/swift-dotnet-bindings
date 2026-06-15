@@ -839,15 +839,15 @@ public static class NameProvider
     public static string GetProtocolWitnessTableName(string typeName, string protocolName) => $"{typeName}{protocolName}PWT";
 
     /// <summary>
-    /// Maps visibility to C# access modifier keyword.
+    /// Finding 48: maps the synthesized-accessor bit to a C# access modifier keyword. A
+    /// synthesized accessor (a stored-property/subscript getter or setter) emits as a
+    /// <c>private</c> helper behind the public property/indexer; every other method emits as
+    /// <c>public</c>. This is the only distinction the old <c>Visibility</c> enum ever drew —
+    /// its <c>Internal</c> arm was never assigned (module-internal-ness lives on
+    /// <c>IsModuleInternal</c>), so it is gone.
     /// </summary>
-    public static string GetAccessModifier(Visibility visibility) => visibility switch
-    {
-        Visibility.Public => "public",
-        Visibility.Private => "private",
-        Visibility.Internal => "internal",
-        _ => throw new ArgumentException($"Unknown visibility: {visibility}")
-    };
+    public static string GetAccessModifier(bool isSynthesizedAccessor) =>
+        isSynthesizedAccessor ? "private" : "public";
 
     /// <summary>
     /// Gets the C# property name for a given Swift property name, converting to PascalCase
@@ -1131,6 +1131,7 @@ public static class NameProvider
                         newLeafName += "Type";
 
                     var oldCSharpName = nestedRecord.CSharpTypeName.Name;
+                    var @namespace = nestedRecord.CSharpTypeName.Namespace;
                     // Replace only the trailing segment (leaf name), not all occurrences.
                     // e.g., "Parent.Configuration" → "Parent.ConfigurationType",
                     // NOT "Configuration.Configuration" → "ConfigurationType.ConfigurationType"
@@ -1138,15 +1139,20 @@ public static class NameProvider
                     var newCSharpName = lastDot >= 0
                         ? oldCSharpName.Substring(0, lastDot + 1) + newLeafName
                         : newLeafName;
-                    nestedRecord.CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
-                        nestedRecord.CSharpTypeName.Namespace, newCSharpName);
+                    // Finding 47: route the emission-time rename through the sanctioned
+                    // emission-mutation API rather than mutating the stored record in place
+                    // (the registry is frozen by the time the main module is emitted).
+                    typeDatabase.ApplyEmissionResult(nestedType.SwiftTypeName, new TypeEmissionResult
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, newCSharpName),
+                    });
 
                     // Reserve the chosen name so a subsequent rename in this loop sees it.
                     takenNames.Add(newLeafName);
 
                     // Cascade rename to all descendant types in the TypeDatabase.
                     CascadeTypeRename(nestedType, oldCSharpName, newCSharpName,
-                        nestedRecord.CSharpTypeName.Namespace, typeDatabase);
+                        @namespace, typeDatabase);
                 }
             }
         }
@@ -1208,7 +1214,11 @@ public static class NameProvider
                 if (childOldName.StartsWith(oldPrefix))
                 {
                     var childNewName = newPrefix + childOldName.Substring(oldPrefix.Length);
-                    childRecord.CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, childNewName);
+                    // Finding 47: sanctioned emission-mutation path (see PrecomputeNestedTypeRenames).
+                    typeDatabase.ApplyEmissionResult(childType.SwiftTypeName, new TypeEmissionResult
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, childNewName),
+                    });
                     // Recurse into grandchildren
                     CascadeTypeRename(childType, childOldName, childNewName, @namespace, typeDatabase);
                 }

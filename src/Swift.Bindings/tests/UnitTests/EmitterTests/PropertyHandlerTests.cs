@@ -629,7 +629,7 @@ public class PropertyHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Private
+            IsSynthesizedAccessor = true
         };
     }
 
@@ -669,7 +669,7 @@ public class PropertyHandlerTests
                 ModuleDecl = null,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private
+                IsSynthesizedAccessor = true
             };
             accessors.Add(new GetAccessorDecl { Method = getterMethod });
         }
@@ -712,7 +712,7 @@ public class PropertyHandlerTests
                 ModuleDecl = null,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private
+                IsSynthesizedAccessor = true
             };
             accessors.Add(new SetAccessorDecl { Method = setterMethod });
         }
@@ -765,7 +765,7 @@ public class PropertyHandlerTests
                 ModuleDecl = null,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private
+                IsSynthesizedAccessor = true
             };
             accessors.Add(new GetAccessorDecl { Method = getterMethod });
         }
@@ -806,7 +806,7 @@ public class PropertyHandlerTests
                 ModuleDecl = null,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private
+                IsSynthesizedAccessor = true
             };
             accessors.Add(new SetAccessorDecl { Method = setterMethod });
         }
@@ -1040,7 +1040,7 @@ public class PropertyHandlerTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -1083,7 +1083,7 @@ public class PropertyHandlerTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -1140,7 +1140,7 @@ public class PropertyHandlerTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -1183,7 +1183,7 @@ public class PropertyHandlerTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -2314,7 +2314,7 @@ public class PropertyHandlerTests
                 ModuleDecl = moduleDecl,
                 Throws = throws,
                 IsAsync = true,
-                Visibility = Visibility.Public
+                IsSynthesizedAccessor = false
             }
         });
 

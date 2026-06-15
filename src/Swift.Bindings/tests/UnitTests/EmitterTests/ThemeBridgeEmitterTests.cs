@@ -1566,7 +1566,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         Throws = false,
         IsAsync = false,
         GenericParameters = new List<GenericArgumentDecl>(),
-        Visibility = Visibility.Public,
+        IsSynthesizedAccessor = false,
         ParentDecl = null,
         ModuleDecl = null,
     };

@@ -56,6 +56,7 @@ public class SwiftABIParserRuntimeTests
     [Fact]
     public void ParseModule_TypeDeclWithoutMangledName_SkipsType()
     {
+        InputResolutionReport.Reset();
         using var fixture = CreateParserWithNodes(
             CreateNode(
                 kind: "TypeDecl",
@@ -67,8 +68,21 @@ public class SwiftABIParserRuntimeTests
 
         var result = parser.ParseModule();
 
+        // The type still never binds (it has no usable symbol)...
         Assert.Empty(result.ModuleDecl.Types);
         Assert.Empty(result.TypeDecls);
+        // ...but the loss is no longer silent (Finding 45): a bindable type missing its load-bearing
+        // mangled name is a record DROP, not a deliberate skip. It is censused under DroppedWithError
+        // (not SkippedWithReason) and recorded as an AbiJson degradation that fails closed under
+        // --strict-inputs.
+        Assert.Equal(1, result.Reconciliation.DroppedWithError);
+        Assert.Equal(0, result.Reconciliation.SkippedWithReason);
+        Assert.True(result.Reconciliation.IsBalanced);
+        Assert.Contains(
+            InputResolutionReport.Decisions,
+            d => d.Category == InputResolutionCategory.AbiJson
+                 && d.Severity == InputResolutionSeverity.Degradation
+                 && d.Detail.Contains("no mangled name"));
     }
 
     #region NO_MODULE Guard Tests
@@ -257,7 +271,7 @@ public class SwiftABIParserRuntimeTests
 
         var method = Assert.Single(result.ModuleDecl.Methods);
         Assert.True(method.IsModuleInternal);
-        Assert.Equal(Visibility.Public, method.Visibility); // C# access stays public
+        Assert.False(method.IsSynthesizedAccessor); // not a synthesized accessor — C# access stays public
     }
 
     [Fact]
@@ -320,7 +334,7 @@ public class SwiftABIParserRuntimeTests
 
         var method = Assert.Single(result.ModuleDecl.Methods);
         Assert.True(method.IsModuleInternal);
-        Assert.Equal(Visibility.Public, method.Visibility); // C# access stays public
+        Assert.False(method.IsSynthesizedAccessor); // not a synthesized accessor — C# access stays public
     }
 
     [Fact]
@@ -344,7 +358,7 @@ public class SwiftABIParserRuntimeTests
 
         var method = Assert.Single(result.ModuleDecl.Methods);
         Assert.True(method.IsModuleInternal);
-        Assert.Equal(Visibility.Public, method.Visibility); // C# access stays public
+        Assert.False(method.IsSynthesizedAccessor); // not a synthesized accessor — C# access stays public
     }
 
     [Fact]
@@ -1748,14 +1762,16 @@ public class SwiftABIParserRuntimeTests
     [Fact]
     public void ParseModule_Reconciliation_IsBalancedAndAccountsForEveryNode()
     {
-        // A mix of outcomes: one emitted type, one deliberate skip (no mangled name), one
-        // dropped-with-error (unsupported node kind throws and is swallowed by HandleNode).
+        // A mix of outcomes: one emitted type, one deliberate skip (a recognized-but-unbound
+        // OperatorDecl — its backing function arrives separately), one dropped-with-error
+        // (unrecognized node kind, censused and swallowed by HandleNode). A bindable type missing
+        // its mangled name is NOT a deliberate skip — it is a record loss — so it is not used as the
+        // skip example here (see the dedicated ParseModule_TypeDeclWithoutMangledName_* tests).
         var emitted = CreateNode(
             kind: "TypeDecl", declKind: "Class", moduleName: "TestModule",
             name: "Good", mangledName: "$s10TestModule4GoodCN");
         var skipped = CreateNode(
-            kind: "TypeDecl", declKind: "Struct", moduleName: "TestModule",
-            name: "NoMangle", mangledName: string.Empty);
+            kind: "OperatorDecl", moduleName: "TestModule", name: "+");
         var dropped = CreateNode(
             kind: "UnknownKind", moduleName: "TestModule", name: "Mystery");
 
@@ -1790,12 +1806,12 @@ public class SwiftABIParserRuntimeTests
     [Fact]
     public void ParseModule_DeliberateSkip_CountsAsSkippedWithReason_NotDropped()
     {
-        // A handler returning null without throwing (here: a TypeDecl with no mangled name) is a
-        // deliberate skip — it must NOT inflate the dropped-with-error bucket.
+        // A handler returning null without throwing (here: a recognized-but-unbound OperatorDecl) is
+        // a deliberate skip — it must NOT inflate the dropped-with-error bucket. (A bindable type
+        // missing its mangled name is a record LOSS, not a skip; that path is covered by
+        // ParseModule_TypeDeclWithoutMangledName_SkipsType.)
         using var fixture = CreateParserWithNodes(
-            CreateNode(
-                kind: "TypeDecl", declKind: "Struct", moduleName: "TestModule",
-                name: "NoMangle", mangledName: string.Empty));
+            CreateNode(kind: "OperatorDecl", moduleName: "TestModule", name: "+"));
         var recon = fixture.Parser.ParseModule().Reconciliation;
 
         Assert.Equal(1, recon.SkippedWithReason);

@@ -732,7 +732,7 @@ public class ExistentialBypassEmitterTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;

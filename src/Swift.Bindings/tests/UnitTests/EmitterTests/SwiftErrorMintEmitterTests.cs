@@ -351,7 +351,7 @@ public class SwiftErrorMintEmitterTests
         ModuleDecl = module,
         Throws = false,
         IsAsync = false,
-        Visibility = Visibility.Public
+        IsSynthesizedAccessor = false
     };
 
     private static PropertyDecl PropertyWithType(TypeSpec typeSpec)
@@ -376,7 +376,7 @@ public class SwiftErrorMintEmitterTests
             ModuleDecl = module,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         return new PropertyDecl
         {

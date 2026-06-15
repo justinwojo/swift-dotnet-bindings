@@ -413,7 +413,7 @@ public class GenericContextTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             IsAccessor = false,
         };
     }

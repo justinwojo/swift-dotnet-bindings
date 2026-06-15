@@ -114,7 +114,7 @@ public class MethodHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -165,7 +165,7 @@ public class MethodHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -324,7 +324,7 @@ public class MethodHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
@@ -1175,7 +1175,7 @@ public class MethodHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(ctor);
 
@@ -1222,7 +1222,7 @@ public class MethodHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         method.CSSignature[1].HasDefaultArg = true;
         parentDecl.Methods.Add(method);
@@ -1280,7 +1280,7 @@ public class MethodHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         method.CSSignature[2].HasDefaultArg = true;
         parentDecl.Methods.Add(method);
@@ -1594,7 +1594,7 @@ public class MethodHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;

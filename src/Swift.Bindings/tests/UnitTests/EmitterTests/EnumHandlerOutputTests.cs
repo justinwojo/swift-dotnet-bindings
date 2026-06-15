@@ -310,7 +310,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(oppositeMethod);
 
@@ -383,7 +383,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(hashMethod);
 
@@ -544,7 +544,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(internalMethod);
 
@@ -593,7 +593,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(internalStaticMethod);
 
@@ -652,7 +652,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(hashMethod);
 
@@ -1171,7 +1171,7 @@ public class EnumHandlerOutputTests
                 ModuleDecl = moduleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Public
+                IsSynthesizedAccessor = false
             },
             ParentDecl = enumDecl,
             ModuleDecl = moduleDecl
@@ -1217,7 +1217,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1257,7 +1257,7 @@ public class EnumHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -1292,7 +1292,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1322,7 +1322,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1362,7 +1362,7 @@ public class EnumHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -1640,7 +1640,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1755,7 +1755,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(describeMethod);
 
@@ -1811,7 +1811,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(factoryMethod);
 
@@ -1869,7 +1869,7 @@ public class EnumHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -1936,7 +1936,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(describeMethod);
 
@@ -1987,7 +1987,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(toArrayMethod);
 
@@ -2619,7 +2619,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(mutateMethod);
 
@@ -2677,7 +2677,7 @@ public class EnumHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 },
                 new SetAccessorDecl
@@ -2716,7 +2716,7 @@ public class EnumHandlerOutputTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -3068,7 +3068,7 @@ public class EnumHandlerOutputTests
                 new() { SwiftTypeSpec = new NamedTypeSpec("SomeModule.ComplexType"), Name = "arg", PrivateName = "arg", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
             },
             GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         Assert.True(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
@@ -3334,7 +3334,7 @@ public class EnumHandlerOutputTests
                 new() { SwiftTypeSpec = new NamedTypeSpec("TestModule.Status"), Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
             },
             GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         // Incompatible: instance method with unsupported param
@@ -3350,7 +3350,7 @@ public class EnumHandlerOutputTests
                 new() { SwiftTypeSpec = new NamedTypeSpec("SomeModule.ComplexType"), Name = "arg", PrivateName = "arg", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
             },
             GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
@@ -3411,7 +3411,7 @@ public class EnumHandlerOutputTests
                             new() { SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"), Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
                         },
                         GenericParameters = new List<GenericArgumentDecl>(),
-                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
                     }
                 },
                 new SetAccessorDecl
@@ -3423,7 +3423,7 @@ public class EnumHandlerOutputTests
                         MethodType = MethodType.Instance, IsConstructor = false,
                         CSSignature = new List<ArgumentDecl>(),
                         GenericParameters = new List<GenericArgumentDecl>(),
-                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -3465,7 +3465,7 @@ public class EnumHandlerOutputTests
                 new() { SwiftTypeSpec = new NamedTypeSpec("TestModule.Direction"), Name = "other", PrivateName = "other", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
             },
             GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(compareMethod);
 
@@ -3553,7 +3553,7 @@ public class EnumHandlerOutputTests
                 new() { SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"), Name = "verbose", PrivateName = "verbose", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
             },
             GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(describeMethod);
 
@@ -3588,7 +3588,7 @@ public class EnumHandlerOutputTests
                 new() { SwiftTypeSpec = new NamedTypeSpec("TestModule.Direction"), Name = "other", PrivateName = "other", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
             },
             GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+            ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         };
         enumDecl.Methods.Add(descMethod);
 
@@ -3628,7 +3628,7 @@ public class EnumHandlerOutputTests
                             new() { SwiftTypeSpec = new NamedTypeSpec("Swift.String"), Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
                         },
                         GenericParameters = new List<GenericArgumentDecl>(),
-                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -3661,7 +3661,7 @@ public class EnumHandlerOutputTests
                             new() { SwiftTypeSpec = optStringSpec, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
                         },
                         GenericParameters = new List<GenericArgumentDecl>(),
-                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -3688,7 +3688,7 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

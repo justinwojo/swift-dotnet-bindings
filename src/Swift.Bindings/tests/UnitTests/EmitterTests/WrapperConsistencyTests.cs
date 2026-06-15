@@ -1047,7 +1047,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
         Assert.Equal("metatype_param", WrapperValidation.GetRejectionReason(env));
@@ -1076,7 +1076,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
         Assert.Equal("metatype_return", WrapperValidation.GetRejectionReason(env));
@@ -1106,7 +1106,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(ctor, typeDb);
@@ -1140,7 +1140,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(ctor, typeDb);
         Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env),
@@ -1577,7 +1577,7 @@ public class WrapperConsistencyTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1607,7 +1607,7 @@ public class WrapperConsistencyTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1637,7 +1637,7 @@ public class WrapperConsistencyTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1682,7 +1682,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1712,7 +1712,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1781,7 +1781,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2094,7 +2094,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -2129,7 +2129,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -2171,7 +2171,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -2219,7 +2219,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -2254,7 +2254,7 @@ public class WrapperConsistencyTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);

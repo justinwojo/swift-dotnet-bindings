@@ -179,7 +179,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -230,7 +230,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(existingSibling);
 
@@ -253,7 +253,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -307,7 +307,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -366,7 +366,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(explicitOverload);
 
@@ -389,7 +389,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(methodWithDefault);
 
@@ -461,7 +461,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -513,7 +513,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -563,7 +563,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // trim=2 (remove type + format, keep countryCode)
@@ -676,7 +676,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             UsesCdeclMethodWrapper = true,
             UsesWrapperLibrary = true,
         };
@@ -772,7 +772,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -829,7 +829,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -894,7 +894,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             AvailabilityAnnotations = new List<AvailabilityAnnotation>
             {
                 new("iOS", "18.0", null, null, false, false, null, null),
@@ -980,7 +980,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1117,7 +1117,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
 
@@ -1354,7 +1354,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             // Simulate that MethodHandler already set this flag on the primary method
             UsesCdeclMethodWrapper = true,
             UsesWrapperLibrary = true,
@@ -1482,7 +1482,7 @@ public class DefaultParameterOverloadEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true, // ASYNC method
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             UsesCdeclMethodWrapper = true,
             UsesWrapperLibrary = true,
         };

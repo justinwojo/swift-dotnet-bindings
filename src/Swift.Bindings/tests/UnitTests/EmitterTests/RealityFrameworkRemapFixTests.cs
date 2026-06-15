@@ -138,7 +138,7 @@ public class RealityFrameworkRemapFixTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
 
@@ -205,7 +205,7 @@ public class RealityFrameworkRemapFixTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var env = new MethodEnvironment(method, typeDb);
 

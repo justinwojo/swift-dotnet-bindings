@@ -973,7 +973,7 @@ public class BoundGenericsHandlerTests
                     },
                     AssosiatedTypeConformances: new List<GenericParameterConformance>())
             },
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("SectionType"));
@@ -2383,7 +2383,7 @@ public class BoundGenericsHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
 
         var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);
@@ -2492,7 +2492,7 @@ public class BoundGenericsHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
 
         var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out var details);
@@ -2663,7 +2663,7 @@ public class BoundGenericsHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
 
         var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out var details);
@@ -2800,7 +2800,7 @@ public class BoundGenericsHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
 
         var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);
@@ -2917,7 +2917,7 @@ public class BoundGenericsHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
 
         var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);
@@ -3055,7 +3055,7 @@ public class BoundGenericsHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
 
         var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);

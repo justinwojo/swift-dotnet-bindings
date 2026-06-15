@@ -121,7 +121,7 @@ public class ProtocolConformanceValidatorTests
                                 ModuleDecl = moduleDecl,
                                 Throws = false,
                                 IsAsync = false,
-                                Visibility = Visibility.Public
+                                IsSynthesizedAccessor = false
                             }
                         }
                     },
@@ -184,7 +184,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -249,7 +249,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -314,7 +314,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -375,7 +375,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = true,
                     IsAsync = true,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -401,7 +401,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         concreteType.Methods.Add(asyncMethod);
 
@@ -458,7 +458,7 @@ public class ProtocolConformanceValidatorTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -1243,7 +1243,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1269,7 +1269,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -1293,7 +1293,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -1387,7 +1387,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1440,7 +1440,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1466,7 +1466,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -1514,7 +1514,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = true,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1540,7 +1540,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -1591,7 +1591,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1620,7 +1620,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -1672,7 +1672,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1699,7 +1699,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -1746,7 +1746,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1773,7 +1773,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -1822,7 +1822,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1851,7 +1851,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -1899,7 +1899,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -1927,7 +1927,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -1980,7 +1980,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -2006,7 +2006,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -2060,7 +2060,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -2086,7 +2086,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
@@ -2143,7 +2143,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Subscripts = new List<SubscriptDecl>(),
@@ -2436,7 +2436,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -2460,7 +2460,7 @@ public class ProtocolConformanceValidatorTests
                     ModuleDecl = moduleDecl,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             });
         }
@@ -2494,7 +2494,7 @@ public class ProtocolConformanceValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

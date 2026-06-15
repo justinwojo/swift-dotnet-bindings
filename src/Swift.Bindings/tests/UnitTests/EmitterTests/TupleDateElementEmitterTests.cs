@@ -117,7 +117,7 @@ public class TupleDateElementEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();

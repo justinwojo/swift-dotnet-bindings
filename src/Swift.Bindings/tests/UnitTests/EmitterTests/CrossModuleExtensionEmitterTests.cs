@@ -590,7 +590,7 @@ public class CrossModuleExtensionEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parentDecl,
             ModuleDecl = ownerModuleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -669,7 +669,7 @@ public class CrossModuleExtensionEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parentDecl,
             ModuleDecl = ownerModuleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -762,7 +762,7 @@ public class CrossModuleExtensionEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parentDecl,
             ModuleDecl = ownerModuleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

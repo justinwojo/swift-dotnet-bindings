@@ -149,7 +149,7 @@ public class Tier2LibraryFixTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var skipDetails, out _);
@@ -183,7 +183,7 @@ public class Tier2LibraryFixTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out _, out _);
@@ -259,7 +259,7 @@ public class Tier2LibraryFixTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var skipDetails, out _);
@@ -517,7 +517,7 @@ public class Tier2LibraryFixTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             WasEmitted = true,
         };
         // Add "Opacity" property to base class → triggers "With" prefix for self-returning
@@ -835,7 +835,7 @@ public class Tier2LibraryFixTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -881,7 +881,7 @@ public class Tier2LibraryFixTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             WasEmitted = true,
         };
 

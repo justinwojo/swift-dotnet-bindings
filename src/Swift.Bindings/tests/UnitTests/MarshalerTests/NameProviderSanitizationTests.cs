@@ -239,7 +239,7 @@ public class NameProviderSanitizationTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = false,

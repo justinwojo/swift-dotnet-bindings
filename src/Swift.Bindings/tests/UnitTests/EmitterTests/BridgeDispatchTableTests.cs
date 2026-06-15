@@ -290,7 +290,7 @@ public class BridgeDispatchTableTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         var typeDatabase = new TypeDatabase();
         var methodEnv = new MethodEnvironment(methodDecl, typeDatabase);
@@ -388,7 +388,7 @@ public class BridgeDispatchTableTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;

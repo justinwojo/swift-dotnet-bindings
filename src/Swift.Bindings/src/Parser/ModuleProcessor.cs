@@ -409,7 +409,7 @@ namespace BindingsGeneration
                     memberAnnotations: null, startDecl: structDecl),
             };
 
-            _moduleDatabase.RegisterType(structDecl.SwiftTypeName, typeRecord);
+            _moduleDatabase.Register(structDecl.SwiftTypeName, typeRecord, ConflictPolicy.Overwrite);
 
             // Cross-module nested type (e.g. `extension ForeignModule.ForeignType { struct Nested {} }`):
             // the SwiftTypeName starts with the foreign module, so the standard module-keyed lookup
@@ -804,7 +804,7 @@ namespace BindingsGeneration
                     memberAnnotations: null, startDecl: enumDecl),
             };
 
-            _moduleDatabase.RegisterType(enumDecl.SwiftTypeName, typeRecord);
+            _moduleDatabase.Register(enumDecl.SwiftTypeName, typeRecord, ConflictPolicy.Overwrite);
 
             // See RegisterStructType for the cross-module nested mirror rationale.
             if (emittingModuleName != namedTypeSpec.Module &&
@@ -853,7 +853,7 @@ namespace BindingsGeneration
                     memberAnnotations: null, startDecl: classDecl),
             };
 
-            _moduleDatabase.RegisterType(classDecl.SwiftTypeName, typeRecord);
+            _moduleDatabase.Register(classDecl.SwiftTypeName, typeRecord, ConflictPolicy.Overwrite);
 
             // See RegisterStructType for the cross-module nested mirror rationale.
             if (emittingModuleName != namedTypeSpec.Module &&
@@ -933,7 +933,7 @@ namespace BindingsGeneration
                     continue;
 
                 var demotedRecord = record with { Flags = record.Flags & ~TypeRecordFlags.SimpleEnum };
-                _moduleDatabase.RegisterType(swiftTypeName, demotedRecord);
+                _moduleDatabase.Register(swiftTypeName, demotedRecord, ConflictPolicy.Overwrite);
                 _logger.LogInformation($"Demoted simple enum '{swiftTypeName}' to class-based: used as generic type argument with ISwiftObject constraint.");
             }
         }
@@ -1422,7 +1422,7 @@ namespace BindingsGeneration
             };
 
             if (!protocolDecl.IsSpiProtected)
-                _moduleDatabase.RegisterType(protocolDecl.SwiftTypeName, typeRecord);
+                _moduleDatabase.Register(protocolDecl.SwiftTypeName, typeRecord, ConflictPolicy.Overwrite);
         }
 
         /// <summary>

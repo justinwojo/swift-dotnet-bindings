@@ -639,7 +639,7 @@ public class ThirdPartyValidationFixTests
                     },
                     GenericParameters = new List<GenericArgumentDecl>(),
                     ParentDecl = null, ModuleDecl = null,
-                    Visibility = Visibility.Public
+                    IsSynthesizedAccessor = false
                 }
             },
             Types = new List<TypeDecl>(),
@@ -857,7 +857,7 @@ public class ThirdPartyValidationFixTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = moduleDecl,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

@@ -847,7 +847,7 @@ public class EnumHandlerTests
                         ModuleDecl = null,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Private
+                        IsSynthesizedAccessor = true
                     }
                 }
             },
@@ -882,7 +882,7 @@ public class EnumHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

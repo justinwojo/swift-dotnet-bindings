@@ -93,7 +93,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Database"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = GenericClosureBridgeEmitter.AreNonClosureParamsCompatible(
@@ -133,7 +133,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Database"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = GenericClosureBridgeEmitter.AreNonClosureParamsCompatible(
@@ -187,7 +187,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -270,7 +270,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -357,7 +357,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -414,7 +414,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -471,7 +471,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -523,7 +523,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -585,7 +585,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -638,7 +638,7 @@ public class GenericClosureBridgeEmitterTests
             },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDatabase);
@@ -721,7 +721,7 @@ public class GenericClosureBridgeEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateClassDecl("TestType"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

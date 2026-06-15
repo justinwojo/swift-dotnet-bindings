@@ -2652,7 +2652,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -2691,7 +2691,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -2765,7 +2765,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -2807,7 +2807,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -2848,7 +2848,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -2888,7 +2888,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -2928,7 +2928,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -2968,7 +2968,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -3058,7 +3058,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -4243,7 +4243,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -4275,7 +4275,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = true,
             IsAsync = true,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -4309,7 +4309,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -4350,7 +4350,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5475,7 +5475,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5517,7 +5517,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5612,7 +5612,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     },
                     new List<GenericParameterConformance>())
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5653,7 +5653,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     },
                     new List<GenericParameterConformance>())
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5732,7 +5732,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5833,7 +5833,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     },
                     new List<GenericParameterConformance>()),
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5906,7 +5906,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -5987,7 +5987,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     new List<GenericParameterConformance>(),
                     new List<GenericParameterConformance>()),
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -6061,7 +6061,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -6142,7 +6142,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -6535,7 +6535,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -6650,7 +6650,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     },
                     new List<GenericParameterConformance>()),
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -6975,7 +6975,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7027,7 +7027,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7134,7 +7134,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     },
                     new List<GenericParameterConformance>())
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7205,7 +7205,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7254,7 +7254,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7283,7 +7283,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7313,7 +7313,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7458,7 +7458,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7494,7 +7494,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7536,7 +7536,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7577,7 +7577,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7601,7 +7601,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7626,7 +7626,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = parentView,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7693,7 +7693,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     },
                     new List<GenericParameterConformance>())
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7773,7 +7773,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                     },
                     new List<GenericParameterConformance>())
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7853,7 +7853,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 new GenericArgumentDecl("τ_0_0", "T", conformances,
                     new List<GenericParameterConformance>())
             },
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -7934,7 +7934,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -8655,7 +8655,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = view,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -9984,7 +9984,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -10051,7 +10051,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -10091,7 +10091,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
@@ -10176,7 +10176,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = null,
             ModuleDecl = null,
             CSSignature = args,

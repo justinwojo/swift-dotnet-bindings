@@ -47,7 +47,7 @@ namespace BindingsGeneration
             EmitFallbackAttribute(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
             // Emit signature: public static bool TryCreate(params, out TypeName result)
-            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
+            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
             // _needsUnsafeBody is already true: SyncMethodPlan.RequiresUnsafe returns true for all constructors
             // Use plan's ReturnLocalName so init? params projected as "result" don't collide with the out param.
             var resultName = ReturnLocalName;

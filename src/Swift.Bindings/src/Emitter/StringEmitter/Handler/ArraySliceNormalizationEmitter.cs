@@ -356,7 +356,7 @@ public static class ArraySliceNormalizationEmitter
             ModuleDecl = original.ModuleDecl,
             Throws = original.Throws,
             IsAsync = original.IsAsync,
-            Visibility = original.Visibility,
+            IsSynthesizedAccessor = original.IsSynthesizedAccessor,
             IsAccessor = original.IsAccessor,
             IsMutating = original.IsMutating,
             UsesWrapperLibrary = true,

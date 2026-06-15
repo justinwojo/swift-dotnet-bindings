@@ -320,7 +320,7 @@ public class WitnessDispatchEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         protocol.Methods.Add(method);
 
@@ -1785,7 +1785,7 @@ public class WitnessDispatchEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1831,7 +1831,7 @@ public class WitnessDispatchEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1861,7 +1861,7 @@ public class WitnessDispatchEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

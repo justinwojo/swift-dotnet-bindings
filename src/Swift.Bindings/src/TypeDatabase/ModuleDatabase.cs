@@ -9,6 +9,29 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
+    /// Finding 47: how <see cref="ModuleTypeDatabase.Register"/> resolves a same-key collision.
+    /// The write primitive was previously unconditional last-write-wins and the actual intent lived
+    /// ad hoc at every call site (a parser-side <c>if (!IsTypeProcessed) Register(...)</c> guard meant
+    /// first-wins; a bare call meant last-wins). Naming the policy at the call site makes that intent
+    /// explicit and auditable instead of implicit in the surrounding code.
+    /// </summary>
+    public enum ConflictPolicy
+    {
+        /// <summary>
+        /// Keep the first record registered for a key; a later registration of the same key is
+        /// ignored (and logged). Matches the historical <c>if (!IsTypeProcessed) Register(...)</c>
+        /// guard — the canonical record stays authoritative.
+        /// </summary>
+        KeepExisting,
+
+        /// <summary>
+        /// Overwrite with the latest record (the historical bare <c>AddOrUpdate</c> behavior). A
+        /// collision that actually changes the stored record is logged so the overwrite is visible.
+        /// </summary>
+        Overwrite,
+    }
+
+    /// <summary>
     /// Represents a Swift module in C#, managing type records and module metadata.
     /// </summary>
     public class ModuleTypeDatabase
@@ -21,11 +44,20 @@ namespace BindingsGeneration
         private readonly HashSet<string> _suppressedProxyClassNames = new(StringComparer.Ordinal);
 
         /// <summary>
-        /// Optional logger used solely to surface last-write-wins collisions in
-        /// <see cref="RegisterType"/> (Finding 47 observability). Null in contexts (e.g. tests)
+        /// Optional logger used solely to surface registry collisions in
+        /// <see cref="Register"/> (Finding 47 observability). Null in contexts (e.g. tests)
         /// that do not supply one — collision detection then runs silently, as before.
         /// </summary>
         private readonly ILogger? _logger;
+
+        /// <summary>
+        /// Finding 47: once frozen (after the main module is finalized into the database), the
+        /// registry is immutable to structural writes — <see cref="Register"/> throws. The only
+        /// sanctioned post-freeze mutation is <see cref="ApplyEmissionResult"/>, which stamps
+        /// emission-discovered facts onto an already-registered record. This turns "the database's
+        /// answer depends on when in the pipeline you ask" into a hard, observable boundary.
+        /// </summary>
+        private bool _frozen;
 
         public ModuleTypeDatabase(string name, string path, ILogger? logger = null)
         {
@@ -35,6 +67,16 @@ namespace BindingsGeneration
 
             _typeRecords = new ConcurrentDictionary<SwiftTypeName, TypeRecord>();
         }
+
+        /// <summary>
+        /// Finding 47: marks the registry immutable. After this, <see cref="Register"/> throws and
+        /// only <see cref="ApplyEmissionResult"/> may mutate records (and only their
+        /// emission-discovered facts). Idempotent.
+        /// </summary>
+        public void Freeze() => _frozen = true;
+
+        /// <summary>True once <see cref="Freeze"/> has been called.</summary>
+        public bool IsFrozen => _frozen;
 
         /// <summary>
         /// Gets the name of the module.
@@ -57,47 +99,108 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Registers a type record with the specified type identifier in the module.
+        /// Registers a type record under <paramref name="swiftTypeName"/>, resolving same-key
+        /// collisions per <paramref name="policy"/>.
         /// </summary>
-        /// <param name="typeIdentifier">The identifier for the Swift type.</param>
+        /// <param name="swiftTypeName">The identifier for the Swift type.</param>
         /// <param name="record">The type record to register.</param>
+        /// <param name="policy">How to resolve a collision with an existing record for this key.</param>
         /// <remarks>
-        /// The store is unconditional last-write-wins. Finding 47 (observability): rather than
-        /// overwrite silently, every collision that actually changes the stored record is now
-        /// surfaced. A same-name registration whose <see cref="TypeRecord.Kind"/> differs is a
-        /// genuine conflict (warned, SWIFTBIND024); a same-kind content change is an intentional
-        /// last-write-wins update (e.g. a cross-module conformance merge) and is logged at
-        /// information level. Conflict <em>policy</em> and a post-registration freeze point are
-        /// deliberately out of scope here (Session 9 owns the <c>Register(record, ConflictPolicy)</c>
-        /// refactor); this only makes the existing behavior loud.
+        /// Finding 47: the write primitive now (a) takes an explicit <see cref="ConflictPolicy"/> so
+        /// the first-wins vs last-wins intent that previously lived ad hoc at each call site is named
+        /// here, (b) folds in the Session 6 collision observability (every collision that changes the
+        /// stored record is logged, SWIFTBIND024), and (c) honors the registry freeze point — a
+        /// structural registration after <see cref="Freeze"/> is a contract violation (SWIFTBIND045),
+        /// because post-freeze the database must be immutable except for the emission-fact stamping
+        /// that flows through <see cref="ApplyEmissionResult"/>.
         /// </remarks>
-        public void RegisterType(SwiftTypeName swiftTypeName, TypeRecord record)
+        public void Register(SwiftTypeName swiftTypeName, TypeRecord record, ConflictPolicy policy)
         {
-            _typeRecords.AddOrUpdate(
-                swiftTypeName,
-                record,
-                (key, existing) =>
-                {
-                    if (_logger != null && !ReferenceEquals(existing, record) && !existing.Equals(record))
-                    {
-                        if (existing.Kind != record.Kind)
-                        {
-                            _logger.LogWarning(
-                                "SWIFTBIND024: type-registry collision in module '{Module}': '{Type}' was registered as "
-                                + "{ExistingKind} and is being overwritten as {NewKind} (last-write-wins).",
-                                Name, key, existing.Kind, record.Kind);
-                        }
-                        else
-                        {
-                            _logger.LogInformation(
-                                "SWIFTBIND024: type-registry last-write-wins update in module '{Module}': record for "
-                                + "'{Type}' ({Kind}) was overwritten with different content.",
-                                Name, key, record.Kind);
-                        }
-                    }
+            if (_frozen)
+            {
+                throw new InvalidOperationException(
+                    $"SWIFTBIND045: type registry for module '{Name}' is frozen; cannot Register "
+                    + $"'{swiftTypeName.ModuleQualifiedName}' after the freeze point. Post-freeze, only "
+                    + "ApplyEmissionResult may mutate records (emission-discovered facts only).");
+            }
 
-                    return record;
-                });
+            switch (policy)
+            {
+                case ConflictPolicy.KeepExisting:
+                    // First-wins: keep the canonical record; a later differing registration is
+                    // ignored, logged so the dropped write is visible rather than silent.
+                    _typeRecords.AddOrUpdate(
+                        swiftTypeName,
+                        record,
+                        (key, existing) =>
+                        {
+                            if (_logger != null && !ReferenceEquals(existing, record) && !existing.Equals(record))
+                            {
+                                _logger.LogInformation(
+                                    "SWIFTBIND024: type-registry collision in module '{Module}': '{Type}' is already "
+                                    + "registered ({ExistingKind}); a differing registration ({NewKind}) was ignored "
+                                    + "(keep-existing).",
+                                    Name, key, existing.Kind, record.Kind);
+                            }
+
+                            return existing;
+                        });
+                    break;
+
+                case ConflictPolicy.Overwrite:
+                default:
+                    _typeRecords.AddOrUpdate(
+                        swiftTypeName,
+                        record,
+                        (key, existing) =>
+                        {
+                            if (_logger != null && !ReferenceEquals(existing, record) && !existing.Equals(record))
+                            {
+                                if (existing.Kind != record.Kind)
+                                {
+                                    _logger.LogWarning(
+                                        "SWIFTBIND024: type-registry collision in module '{Module}': '{Type}' was registered as "
+                                        + "{ExistingKind} and is being overwritten as {NewKind} (overwrite).",
+                                        Name, key, existing.Kind, record.Kind);
+                                }
+                                else
+                                {
+                                    _logger.LogInformation(
+                                        "SWIFTBIND024: type-registry overwrite in module '{Module}': record for "
+                                        + "'{Type}' ({Kind}) was overwritten with different content.",
+                                        Name, key, record.Kind);
+                                }
+                            }
+
+                            return record;
+                        });
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Default-policy convenience over <see cref="Register(SwiftTypeName, TypeRecord, ConflictPolicy)"/>
+        /// using <see cref="ConflictPolicy.Overwrite"/> — the historical unconditional last-write-wins
+        /// behavior. Retained for the many registration/test sites that do not need to name a policy;
+        /// production write sites that DO care call the three-argument <see cref="Register"/> directly so
+        /// their first-wins vs last-wins intent is explicit. Still honors the freeze (throws SWIFTBIND045
+        /// post-<see cref="Freeze"/>) and the SWIFTBIND024 collision logging, since it routes through the
+        /// same primitive.
+        /// </summary>
+        public void RegisterType(SwiftTypeName swiftTypeName, TypeRecord record)
+            => Register(swiftTypeName, record, ConflictPolicy.Overwrite);
+
+        /// <summary>
+        /// Finding 47: the sole sanctioned post-freeze mutation — overwrites an already-registered
+        /// record with one carrying emission-discovered facts. Bypasses the freeze guard by design;
+        /// callers reach it only through <see cref="TypeDatabase.ApplyEmissionResult"/>, which builds
+        /// the new record by applying a <see cref="TypeEmissionResult"/> onto the existing one. Does
+        /// not create new keys: emission facts only ever refine a record that registration already
+        /// produced.
+        /// </summary>
+        internal void ApplyEmissionUpdate(SwiftTypeName swiftTypeName, TypeRecord record)
+        {
+            _typeRecords[swiftTypeName] = record;
         }
 
         /// <summary>

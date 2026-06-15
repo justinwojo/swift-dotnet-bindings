@@ -261,7 +261,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -300,7 +300,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -355,7 +355,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -391,7 +391,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -429,7 +429,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -463,7 +463,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -497,7 +497,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -532,7 +532,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -569,7 +569,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -612,7 +612,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -748,7 +748,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -798,7 +798,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -837,7 +837,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
@@ -884,7 +884,7 @@ public class ArraySliceNormalizationEmitterTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         return (method, typeDatabase, moduleDecl);

@@ -704,7 +704,7 @@ public class WrapperSymbolContractTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(methodDecl);
 

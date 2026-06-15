@@ -1347,12 +1347,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // - AsyncPropertyName carries the Swift property name for the wrapper call expression
             // - Name becomes "get{PropertyName}" → PascalCase → "GetPropertyName" in C#
             // - IsAccessor = false so WrapperEmitter emits a public method (not private accessor)
-            // - Visibility = Public so it appears in the public API
+            // - IsSynthesizedAccessor = false so it emits public (not a private synthesized accessor)
             var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
             accessor.Method.AsyncPropertyName = propertyDecl.Name;
             accessor.Method.Name = $"get{propertyPascalName}";
             accessor.Method.IsAccessor = false;
-            accessor.Method.Visibility = Visibility.Public;
+            accessor.Method.IsSynthesizedAccessor = false;
 
             // Propagate the property's @available annotations onto the synthesized async-property
             // method so the @_cdecl wrapper carries them. Ensures wrappers for newly-introduced

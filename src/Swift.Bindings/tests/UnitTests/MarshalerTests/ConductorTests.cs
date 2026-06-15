@@ -136,7 +136,7 @@ public class ConductorTests
             Throws = false,
             IsAsync = isAsync,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
     }
 

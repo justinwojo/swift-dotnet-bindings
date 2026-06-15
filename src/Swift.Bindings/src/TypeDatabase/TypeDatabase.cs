@@ -77,8 +77,26 @@ namespace BindingsGeneration
         /// </summary>
         public string? AsyncLibraryName { get; set; }
 
+        /// <summary>
+        /// Finding 47: once frozen (after the main module is finalized into the database, see
+        /// Program.cs), every loaded module's registry is immutable to structural writes and the
+        /// database-level <see cref="UpdateTypeRecord"/> / <see cref="RegisterCrossModuleType"/>
+        /// paths throw. The only sanctioned post-freeze mutation is <see cref="ApplyEmissionResult"/>,
+        /// which stamps emission-discovered facts. This turns "the database's answer depends on when
+        /// in the pipeline you ask" into a hard, observable boundary.
+        /// </summary>
+        private bool _frozen;
+
         public TypeDatabase()
         {
+        }
+
+        /// <inheritdoc/>
+        public void Freeze()
+        {
+            _frozen = true;
+            foreach (var moduleDb in _modules.Values)
+                moduleDb.Freeze();
         }
 
         /// <inheritdoc/>
@@ -175,7 +193,7 @@ namespace BindingsGeneration
                 foreach (var (name, record) in pending)
                 {
                     if (!moduleDatabase.IsTypeProcessed(name))
-                        moduleDatabase.RegisterType(name, record);
+                        moduleDatabase.Register(name, record, ConflictPolicy.KeepExisting);
                     else
                         MergeAdditiveProtocolConformances(moduleDatabase, name, record);
                 }
@@ -204,7 +222,7 @@ namespace BindingsGeneration
                 if (_modules.TryGetValue(foreignModule, out var foreignDb))
                 {
                     if (!foreignDb.IsTypeProcessed(record.SwiftTypeName))
-                        foreignDb.RegisterType(record.SwiftTypeName, record);
+                        foreignDb.Register(record.SwiftTypeName, record, ConflictPolicy.KeepExisting);
                     else
                         MergeAdditiveProtocolConformances(foreignDb, record.SwiftTypeName, record);
                 }
@@ -248,7 +266,7 @@ namespace BindingsGeneration
             var existingList = existing.ProtocolConformances;
             if (existingList is null)
             {
-                foreignDb.RegisterType(name, existing with { ProtocolConformances = new List<SwiftTypeName>(incomingList) });
+                foreignDb.Register(name, existing with { ProtocolConformances = new List<SwiftTypeName>(incomingList) }, ConflictPolicy.Overwrite);
                 return;
             }
 
@@ -266,7 +284,7 @@ namespace BindingsGeneration
             }
 
             if (merged is not null)
-                foreignDb.RegisterType(name, existing with { ProtocolConformances = merged });
+                foreignDb.Register(name, existing with { ProtocolConformances = merged }, ConflictPolicy.Overwrite);
         }
 
         /// <summary>
@@ -285,7 +303,7 @@ namespace BindingsGeneration
             if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
             {
                 if (!moduleDatabase.IsTypeProcessed(swiftTypeName))
-                    moduleDatabase.RegisterType(swiftTypeName, record);
+                    moduleDatabase.Register(swiftTypeName, record, ConflictPolicy.KeepExisting);
                 else
                     MergeAdditiveProtocolConformances(moduleDatabase, swiftTypeName, record);
             }
@@ -555,7 +573,7 @@ namespace BindingsGeneration
                     AvailabilityAnnotations = availabilityAnnotations,
                 };
 
-                moduleDatabase.RegisterType(swiftTypeName, typeRecord);
+                moduleDatabase.Register(swiftTypeName, typeRecord, ConflictPolicy.Overwrite);
             }
 
             // Suppressed proxy class names — populated when a previously generated module
@@ -591,7 +609,7 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
         {
-            // SwiftBindings.Apple supplement wins over local module databases for any
+            // Arm 1 — SwiftBindings.Apple supplement wins over local module databases for any
             // identity it owns — both cross-module references (Foundation.Locale.Language
             // from Translation) AND same-module references within an Apple framework
             // package (CryptoKit.P256.Signing.ECDSASignature from CryptoKit bindings).
@@ -610,6 +628,27 @@ namespace BindingsGeneration
             // future caller starts threading a real module name in, both surfaces need
             // to honor it for the TypeOwnerRegistry Level-5 (Local) fall-through to
             // stay consistent.
+            //
+            // Finding 10: the supplement arm is split out so the resolver leg
+            // (DatabaseLookupStrategy) can run Arms 2–6 alone via
+            // TryGetTypeRecordWithoutSupplement — its AppleSupplementStrategy already
+            // consulted the supplement at a higher precedence, so re-consulting it here
+            // was a redundant double-consult. Raw SwiftTypeName callers still get the
+            // supplement-first ordering by calling this method.
+            if (TryResolveAppleSupplementArm(swiftTypeName, out record))
+                return true;
+
+            return TryGetTypeRecordWithoutSupplement(swiftTypeName, out record);
+        }
+
+        /// <summary>
+        /// Finding 10: Arm 1 of the cascade in isolation — the Apple-supplement consult (with its
+        /// reference recording). Factored out so <see cref="TryGetTypeRecord"/> and the
+        /// resolver-facing <see cref="TryGetTypeRecordWithoutSupplement"/> share one definition of
+        /// "is this a supplement-owned identity" instead of duplicating it.
+        /// </summary>
+        private static bool TryResolveAppleSupplementArm(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        {
             if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplementRecord))
             {
                 AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName, "TypeDatabase.TryGetTypeRecord:AppleSupplementResolver");
@@ -617,20 +656,28 @@ namespace BindingsGeneration
                 return true;
             }
 
+            record = null;
+            return false;
+        }
+
+        /// <inheritdoc/>
+        public bool TryGetTypeRecordWithoutSupplement(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        {
+            // Arm 2 — direct module / module-alias / umbrella lookup.
             if (TryGetTypeRecordInternal(swiftTypeName, out record))
                 return true;
 
-            // C-interop aliases often use either Foo or FooRef across sources.
+            // Arm 3 — C-interop aliases often use either Foo or FooRef across sources.
             // Try a suffix variant to avoid missing CoreGraphics/CoreFoundation typedef-backed types.
             var refVariant = GetRefAliasVariant(swiftTypeName);
             if (refVariant != null && TryGetTypeRecordInternal(refVariant, out record))
                 return true;
 
-            // Try looking in the out-of-module types
+            // Arm 4 — out-of-module types.
             if (_outOfModuleTypes.TryGetValue(swiftTypeName, out record))
                 return true;
 
-            // Cross-module type aliases: resolve the alias to its canonical type and retry.
+            // Arm 5 — cross-module type aliases: resolve the alias to its canonical type and retry.
             // E.g., FamilyControls.ApplicationToken → ManagedSettings.Token<ManagedSettings.Application>
             // Strip generic args for the TypeRecord lookup (the TypeRecord is for the base type).
             if (_typeAliases.TryGetValue(swiftTypeName.ModuleQualifiedName, out var canonicalName))
@@ -643,9 +690,10 @@ namespace BindingsGeneration
                     return true;
             }
 
-            // Well-known stdlib protocols (Swift.Error → AnyError). AnyError is hand-rolled
+            // Arm 6 — well-known stdlib protocols (Swift.Error → AnyError). AnyError is hand-rolled
             // in SwiftBindings.Apple; record the reference so the consumer csproj adds the
-            // supplement PackageReference alongside.
+            // supplement PackageReference alongside. Retained on the without-supplement path because
+            // no resolver strategy covers it — only this cascade arm resolves Swift.Error.
             if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
             {
                 AppleSupplementReferences.Record("Foundation.AnyError", "TypeDatabase.TryGetTypeRecord:SwiftError");
@@ -671,14 +719,48 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record)
         {
+            // Finding 47: a full-record overwrite is a structural write — forbidden once the
+            // registry is frozen. The module-DB path below would already throw via
+            // ModuleTypeDatabase.Register's own guard, but the out-of-module fallback has no
+            // module to guard it, so gate both on the database-level freeze here.
+            if (_frozen)
+            {
+                throw new InvalidOperationException(
+                    $"SWIFTBIND045: type registry is frozen; cannot UpdateTypeRecord "
+                    + $"'{name.ModuleQualifiedName}' after the freeze point. Post-freeze, only "
+                    + "ApplyEmissionResult may mutate records (emission-discovered facts only).");
+            }
+
             var moduleName = name.Module;
             if (_modules.TryGetValue(moduleName, out var moduleDb))
             {
-                moduleDb.RegisterType(name, record);
+                moduleDb.Register(name, record, ConflictPolicy.Overwrite);
                 return;
             }
             // Fall back to out-of-module types
             _outOfModuleTypes.AddOrUpdate(name, record, (_, _) => record);
+        }
+
+        /// <inheritdoc/>
+        public void ApplyEmissionResult(SwiftTypeName name, TypeEmissionResult result)
+        {
+            // Finding 47: the sole sanctioned post-freeze mutation. Stamps the emission-discovered
+            // facts onto the already-registered record (in its owning module DB, or the
+            // out-of-module store) without touching any structural field, and bypasses the freeze
+            // guard by routing through ModuleTypeDatabase.ApplyEmissionUpdate. Only refines an
+            // existing record — emission never introduces a new type identity — so when no base
+            // record is found there is nothing to stamp and the call is a no-op.
+            if (_modules.TryGetValue(name.Module, out var moduleDb)
+                && moduleDb.TryGetTypeRecord(name, out var existing))
+            {
+                moduleDb.ApplyEmissionUpdate(name, result.ApplyTo(existing));
+                return;
+            }
+
+            if (_outOfModuleTypes.TryGetValue(name, out var existingOutOfModule))
+            {
+                _outOfModuleTypes[name] = result.ApplyTo(existingOutOfModule);
+            }
         }
 
         /// <summary>
@@ -694,6 +776,24 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public bool IsTypeProcessed(SwiftTypeName swiftTypeName)
         {
+            // Finding 10: defined as "TryGetTypeRecord succeeds". The historical body was a 3-arm
+            // subset (module DB + Ref-variant + type-alias) that silently disagreed with
+            // TryGetTypeRecord on supplement-owned, out-of-module, and Swift.Error identities —
+            // the divergence the finding exists to retire. Callers that need the narrower
+            // "registered in a loaded database" question (the parser's duplicate gate and
+            // metadata-accessor choice) use IsTypeRegistered, which keeps the old narrow body.
+            return TryGetTypeRecord(swiftTypeName, out _);
+        }
+
+        /// <inheritdoc/>
+        public bool IsTypeRegistered(SwiftTypeName swiftTypeName)
+        {
+            // The narrow, side-effect-free registration predicate (former IsTypeProcessed body):
+            // module DB / module-alias / umbrella (+ Ref-variant + type-alias) only — no supplement
+            // arm, no out-of-module, no Swift.Error, and no AppleSupplementReferences.Record. The
+            // parser asks this question to decide whether a type was ALREADY registered by a loaded
+            // dependency; a supplement-owned same-module type must answer "no" here so the parser
+            // emits it rather than throwing a spurious "already processed" duplicate.
             if (IsTypeProcessedInternal(swiftTypeName))
                 return true;
 

@@ -642,7 +642,7 @@ public class ThirdPartyValidationFixTestsV4
             ModuleDecl = imageModuleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var closureHandler = new ClosureHandler(typeDatabase);
@@ -695,7 +695,7 @@ public class ThirdPartyValidationFixTestsV4
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             CSSignature = csSignature,
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateStructDecl(parentTypeName.Split('.').Last()),
@@ -781,7 +781,7 @@ public class ThirdPartyValidationFixTestsV4
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             CSSignature = new List<ArgumentDecl>
             {
                 new ArgumentDecl
@@ -812,7 +812,7 @@ public class ThirdPartyValidationFixTestsV4
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             CSSignature = new List<ArgumentDecl>
             {
                 new ArgumentDecl
@@ -1810,7 +1810,7 @@ public class ThirdPartyValidationFixTestsV4
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             CSSignature = csSignature,
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateStructDecl(parentTypeName.Split('.').Last()),

@@ -618,7 +618,7 @@ public class ProtocolExtensionDefaultsIndexTests
                 ModuleDecl = null,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Public
+                IsSynthesizedAccessor = false
             });
         }
         return proto;
@@ -681,7 +681,7 @@ public class ProtocolExtensionDefaultsIndexTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -702,7 +702,7 @@ public class ProtocolExtensionDefaultsIndexTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

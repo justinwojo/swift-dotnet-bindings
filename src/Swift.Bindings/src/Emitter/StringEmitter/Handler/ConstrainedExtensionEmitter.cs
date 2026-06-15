@@ -1083,7 +1083,7 @@ public static class ConstrainedExtensionEmitter
         if (method.IsAccessor) return false;
         if (method.IsSubscriptAccessor) return false;
         if (method.IsAsync || method.Throws) return false;
-        if (method.Visibility != Visibility.Public) return false;
+        if (method.IsSynthesizedAccessor) return false;
         // CSSignature[0] is the return slot; anything beyond it means the method
         // takes parameters, which the initial method-extension scope does not
         // marshal. Tracked as a follow-up under the same Fix J doc.

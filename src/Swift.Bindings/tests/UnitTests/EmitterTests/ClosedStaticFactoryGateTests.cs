@@ -344,7 +344,7 @@ public class ClosedStaticFactoryGateTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
         return accessor;
     }

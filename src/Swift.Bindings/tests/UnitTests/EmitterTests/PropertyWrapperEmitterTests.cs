@@ -1947,7 +1947,7 @@ public class PropertyWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -1992,7 +1992,7 @@ public class PropertyWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var env = new MethodEnvironment(method, typeDb);
@@ -2077,7 +2077,7 @@ public class PropertyWrapperEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             UsesCdeclPropertyWrapper = true
         };
 
@@ -2100,7 +2100,7 @@ public class PropertyWrapperEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             UsesCdeclConstructorWrapper = true
         };
 
@@ -2123,7 +2123,7 @@ public class PropertyWrapperEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         Assert.False(method.UsesCdeclWrapper);
@@ -2238,7 +2238,7 @@ public class PropertyWrapperEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

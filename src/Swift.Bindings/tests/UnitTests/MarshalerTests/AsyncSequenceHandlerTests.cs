@@ -98,7 +98,7 @@ public class AsyncSequenceHandlerTests
             Throws = false,
             IsAsync = true,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = iterator,
             ModuleDecl = null,
         });
@@ -140,7 +140,7 @@ public class AsyncSequenceHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = asyncSeq,
             ModuleDecl = null,
         });

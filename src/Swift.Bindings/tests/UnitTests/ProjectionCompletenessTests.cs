@@ -594,7 +594,7 @@ public class AsyncCollectionProjectionTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = new TypeDatabase();

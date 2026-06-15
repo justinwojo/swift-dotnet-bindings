@@ -156,7 +156,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Processor"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = AsyncMethodGenericBridgeEmitter.FindEligibleGenericParam(method, CreateTypeDatabase());
@@ -187,7 +187,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Processor"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = AsyncMethodGenericBridgeEmitter.FindEligibleGenericParam(method, CreateTypeDatabase());
@@ -223,7 +223,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Processor"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = AsyncMethodGenericBridgeEmitter.FindEligibleGenericParam(method, CreateTypeDatabase());
@@ -259,7 +259,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Processor"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = AsyncMethodGenericBridgeEmitter.FindEligibleGenericParam(method, CreateTypeDatabase());
@@ -300,7 +300,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Processor"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = AsyncMethodGenericBridgeEmitter.FindEligibleGenericParam(method, CreateTypeDatabase());
@@ -338,7 +338,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = CreateClassDecl("Processor"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = AsyncMethodGenericBridgeEmitter.FindEligibleGenericParam(method, CreateTypeDatabase());
@@ -418,7 +418,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = parent,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = CreateTypeDatabase();
@@ -965,7 +965,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = CreateClassDecl("TestType"),
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1012,7 +1012,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = parent,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1148,7 +1148,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             },
             ParentDecl = parent,
             ModuleDecl = moduleDecl,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDatabase = CreateTypeDatabase();

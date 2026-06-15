@@ -92,7 +92,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
@@ -123,7 +123,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
@@ -153,7 +153,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
@@ -197,7 +197,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
@@ -240,7 +240,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
@@ -275,7 +275,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
@@ -305,7 +305,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
@@ -410,7 +410,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
@@ -441,7 +441,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var skipDetails, out _);
@@ -473,7 +473,7 @@ public class MemberEmissionValidatorTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
@@ -799,7 +799,7 @@ public class MemberEmissionValidatorTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "Value",

@@ -101,7 +101,7 @@ public class DotNetIdiomPolishTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         Assert.False(MemberEmissionValidator.IsSynthesizedProtocolMethod(method, classDecl));
@@ -127,7 +127,7 @@ public class DotNetIdiomPolishTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         Assert.False(MemberEmissionValidator.IsSynthesizedProtocolMethod(method, classDecl));
@@ -326,7 +326,7 @@ public class DotNetIdiomPolishTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         // Add a skipped property so type qualifies for opaque check
         classDecl.Properties.Add(new PropertyDecl
@@ -367,7 +367,7 @@ public class DotNetIdiomPolishTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Internal
+            IsSynthesizedAccessor = false
         });
         // Add a skipped property so type qualifies for opaque check
         classDecl.Properties.Add(new PropertyDecl
@@ -548,7 +548,7 @@ public class DotNetIdiomPolishTests
             GenericParameters = new List<GenericArgumentDecl>(),
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         protocolDecl.Methods.Add(methodDecl);
 
@@ -789,7 +789,7 @@ public class DotNetIdiomPolishTests
                 ModuleDecl = moduleDecl,
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Private
+                IsSynthesizedAccessor = true
             }
         };
     }
@@ -812,7 +812,7 @@ public class DotNetIdiomPolishTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

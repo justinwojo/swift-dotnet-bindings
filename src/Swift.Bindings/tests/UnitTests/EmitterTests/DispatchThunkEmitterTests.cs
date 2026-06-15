@@ -173,7 +173,7 @@ public class DispatchThunkEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -384,7 +384,7 @@ public class DispatchThunkEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         if (parentDecl is ClassDecl classDecl)
             classDecl.Methods.Add(method);
@@ -417,7 +417,7 @@ public class DispatchThunkEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Private
+            IsSynthesizedAccessor = true
         };
         if (parentDecl is ClassDecl classDecl)
             classDecl.Methods.Add(method);
@@ -449,7 +449,7 @@ public class DispatchThunkEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Private
+            IsSynthesizedAccessor = true
         };
         if (parentDecl is ClassDecl classDecl)
             classDecl.Methods.Add(method);

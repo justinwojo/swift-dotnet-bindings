@@ -605,7 +605,7 @@ public class ProtocolExtensionExistentialReturnTests
                     IsConstructor = false,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Public,
+                    IsSynthesizedAccessor = false,
                     ParentDecl = null,
                     ModuleDecl = null,
                 }

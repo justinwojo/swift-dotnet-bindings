@@ -141,7 +141,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -215,7 +215,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -247,7 +247,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = pipeline.ValidateMethodEmission(method, null!);
@@ -314,7 +314,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = null,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = pipeline.ValidateMethodEmission(method, null!);
@@ -747,7 +747,7 @@ public class MemberValidationPipelineTests
             IsConstructor = false,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             GenericParameters = new List<GenericArgumentDecl>
             {
                 new("τ_0_0", "Value",
@@ -889,7 +889,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = pipeline.ValidateMethodEmission(method, null!);
@@ -924,7 +924,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = null,
             Throws = true,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = pipeline.ValidateMethodEmission(method, null!);
@@ -963,7 +963,7 @@ public class MemberValidationPipelineTests
             ParentDecl = null,
             ModuleDecl = null,
             Throws = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = pipeline.ValidateMethodEmission(method, null!);
@@ -1986,7 +1986,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -2011,7 +2011,7 @@ public class MemberValidationPipelineTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

@@ -564,23 +564,23 @@ public class SignatureBuilderTests
 
     #endregion
 
-    #region Visibility Tests
+    #region IsSynthesizedAccessor Tests
 
     [Fact]
-    public void MethodDecl_PublicVisibility_IsPublic()
+    public void MethodDecl_DefaultIsSynthesizedAccessor_IsFalse()
     {
         var methodDecl = CreateMethodDecl("publicMethod");
 
-        Assert.Equal(Visibility.Public, methodDecl.Visibility);
+        Assert.False(methodDecl.IsSynthesizedAccessor);
     }
 
     [Fact]
-    public void MethodDecl_PrivateVisibility_CanBeSet()
+    public void MethodDecl_IsSynthesizedAccessor_CanBeSet()
     {
         var methodDecl = CreateMethodDecl("privateMethod");
-        methodDecl.Visibility = Visibility.Private;
+        methodDecl.IsSynthesizedAccessor = true;
 
-        Assert.Equal(Visibility.Private, methodDecl.Visibility);
+        Assert.True(methodDecl.IsSynthesizedAccessor);
     }
 
     #endregion
@@ -995,7 +995,7 @@ public class SignatureBuilderTests
             ModuleDecl = null,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -1191,7 +1191,7 @@ public class SignatureBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         parentDecl.Methods.Add(method);
         return method;

@@ -465,7 +465,7 @@ public class ProtocolHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         Assert.True(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
@@ -709,7 +709,7 @@ public class ProtocolHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -752,7 +752,7 @@ public class ProtocolHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -807,7 +807,7 @@ public class ProtocolHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -921,7 +921,7 @@ public class ProtocolHandlerTests
                     ModuleDecl = null,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Private
+                    IsSynthesizedAccessor = true
                 }
             });
         }
@@ -942,7 +942,7 @@ public class ProtocolHandlerTests
                     ModuleDecl = null,
                     Throws = false,
                     IsAsync = false,
-                    Visibility = Visibility.Private
+                    IsSynthesizedAccessor = true
                 }
             });
         }
@@ -989,7 +989,7 @@ public class ProtocolHandlerTests
             ModuleDecl = null,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

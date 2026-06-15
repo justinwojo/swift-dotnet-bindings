@@ -78,7 +78,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
@@ -125,7 +125,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = true,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
@@ -185,7 +185,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = InvokeGetMethodSignatureKey(method, typeDatabase);
@@ -222,7 +222,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var result = InvokeGetMethodSignatureKey(method, typeDatabase);
@@ -347,7 +347,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
         var methodB = new MethodDecl
         {
@@ -374,7 +374,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
 
         var keyA = InvokeGetMethodSignatureKey(methodA, typeDatabase);
@@ -457,7 +457,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -511,7 +511,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -622,7 +622,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Trimmed overload (simulated): find(query: String) — same signature
@@ -651,7 +651,7 @@ public class BaseHandlerDedupTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var key1 = InvokeGetProjectedCSharpMethodKey(explicitMethod, typeDatabase);

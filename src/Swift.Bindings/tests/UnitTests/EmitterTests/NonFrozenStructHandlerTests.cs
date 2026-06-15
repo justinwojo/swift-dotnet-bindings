@@ -352,7 +352,7 @@ public class NonFrozenStructHandlerTests
                         ModuleDecl = null,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Private
+                        IsSynthesizedAccessor = true
                     }
                 }
             },
@@ -387,7 +387,7 @@ public class NonFrozenStructHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -427,7 +427,7 @@ public class NonFrozenStructHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         if (kind == OperatorKind.Binary)

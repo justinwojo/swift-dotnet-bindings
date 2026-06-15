@@ -257,7 +257,7 @@ public class ConstructorAdmissibilityTests
         ModuleDecl = Module,
         Throws = false,
         IsAsync = false,
-        Visibility = Visibility.Public
+        IsSynthesizedAccessor = false
     };
 
     private static GenericParameterConformance SameType(string[] path, string target) =>

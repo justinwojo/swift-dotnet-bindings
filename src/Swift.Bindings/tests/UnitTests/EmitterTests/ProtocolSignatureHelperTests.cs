@@ -156,7 +156,7 @@ public class ProtocolSignatureHelperTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = moduleDecl,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var key = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase);
@@ -259,7 +259,7 @@ public class ProtocolSignatureHelperTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = moduleDecl,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var key = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase);
@@ -1070,7 +1070,7 @@ public class ProtocolSignatureHelperTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 

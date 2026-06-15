@@ -410,7 +410,7 @@ public class OperatorHandlerTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         // Add second parameter for binary operators

@@ -1204,7 +1204,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -1254,7 +1254,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -1414,7 +1414,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -1467,7 +1467,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         // Method 2: param is an array (unregistered NamedTypeSpec → AnyType via TypeDatabase miss)
@@ -1497,7 +1497,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -1552,7 +1552,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         // Method 2: array param → AnyType
@@ -1582,7 +1582,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -1657,7 +1657,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -1699,7 +1699,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -1737,7 +1737,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -1782,7 +1782,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -1832,7 +1832,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         protocolDecl.Methods.Add(new MethodDecl
         {
@@ -1858,7 +1858,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -1906,7 +1906,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -1946,7 +1946,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -1987,7 +1987,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2065,7 +2065,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2108,7 +2108,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2145,7 +2145,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2548,7 +2548,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2688,7 +2688,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2742,7 +2742,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2790,7 +2790,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2832,7 +2832,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2864,7 +2864,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocolDecl);
 
@@ -2943,7 +2943,7 @@ public class ProtocolProxyEmitterTests
                         ModuleDecl = null,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Private
+                        IsSynthesizedAccessor = true
                     }
                 }
             }
@@ -3200,7 +3200,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -3253,7 +3253,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -3301,7 +3301,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -3360,7 +3360,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(protocolDecl.Methods[0], _typeDatabase, protocolDecl);
@@ -3429,7 +3429,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -3478,7 +3478,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -3529,7 +3529,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4363,7 +4363,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocol);
 
@@ -4398,7 +4398,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocol);
 
@@ -4440,7 +4440,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4483,7 +4483,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4522,7 +4522,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = true, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4563,7 +4563,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = true, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4607,7 +4607,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = true, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4651,7 +4651,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4690,7 +4690,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4735,7 +4735,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4775,7 +4775,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = true, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4821,7 +4821,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -4859,7 +4859,7 @@ public class ProtocolProxyEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
             Throws = false, IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5321,7 +5321,7 @@ public class ProtocolProxyEmitterTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
     }
 
@@ -5505,7 +5505,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5554,7 +5554,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5583,7 +5583,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5627,7 +5627,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5657,7 +5657,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5688,7 +5688,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5720,7 +5720,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = true, IsAsync = false, Visibility = Visibility.Public
+            Throws = true, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5750,7 +5750,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = true, IsAsync = false, Visibility = Visibility.Public
+            Throws = true, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5786,7 +5786,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5817,7 +5817,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5856,7 +5856,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5934,7 +5934,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -5972,7 +5972,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -6011,7 +6011,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -6053,7 +6053,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -6088,7 +6088,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -6123,7 +6123,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = true, IsAsync = false, Visibility = Visibility.Public
+            Throws = true, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -6191,7 +6191,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);
@@ -6270,7 +6270,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = true, Visibility = Visibility.Public
+            Throws = false, IsAsync = true, IsSynthesizedAccessor = false
         });
         var output = EmitProxyClass(protocol);
 
@@ -6339,7 +6339,7 @@ public class ProtocolProxyEmitterTests
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null, ModuleDecl = null,
-            Throws = false, IsAsync = false, Visibility = Visibility.Public
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
         });
 
         var output = EmitProxyClass(protocolDecl);

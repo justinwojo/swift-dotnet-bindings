@@ -1330,7 +1330,7 @@ namespace BindingsGeneration.Tests
                 GenericParameters = new List<GenericArgumentDecl>(),
                 Throws = false,
                 IsAsync = false,
-                Visibility = Visibility.Public,
+                IsSynthesizedAccessor = false,
                 ParentDecl = parentDecl,
                 ModuleDecl = null,
             };

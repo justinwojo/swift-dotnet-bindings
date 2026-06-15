@@ -57,9 +57,17 @@ namespace BindingsGeneration
         public bool IsGeneric => GenericParameters.Count > 0;
 
         /// <summary>
-        /// Gets or sets the visibility of the method.
+        /// Finding 48: true when this method is a synthesized accessor — a getter/setter the
+        /// parser produces for a stored property or subscript (and which the emitter renders as
+        /// a <c>private</c> C# helper behind the public property/indexer). It is NOT an
+        /// access-control level: Swift access control never reaches the generator (only public
+        /// API is bound), so the field that once masqueraded as a <c>Visibility</c> enum only
+        /// ever carried this one bit. Real method internal-ness is tracked separately by
+        /// <c>BaseDecl.IsModuleInternal</c> (see parser-marshaler rule: use that, not a
+        /// visibility enum, to avoid CS0737). Defaults to <c>false</c> (an ordinary method
+        /// emits as <c>public</c>).
         /// </summary>
-        public required Visibility Visibility { get; set; } = Visibility.Public;
+        public bool IsSynthesizedAccessor { get; set; } = false;
 
         /// <summary>
         /// Indicates if this method is a property accessor (getter or setter).

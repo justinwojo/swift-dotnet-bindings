@@ -32,7 +32,7 @@ public class SpiMemberFilteringTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         Assert.False(method.IsSpiProtected);

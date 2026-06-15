@@ -342,7 +342,7 @@ public static class ConstrainedExistentialBridge
         List<BridgeParam> bridgeParams,
         IReadOnlyList<AvailabilityAnnotation>? availability = null)
     {
-        var accessModifier = NameProvider.GetAccessModifier(env.MethodDecl.Visibility);
+        var accessModifier = NameProvider.GetAccessModifier(env.MethodDecl.IsSynthesizedAccessor);
         var constructorName = typeNameWithGenerics.Contains('<')
             ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
             : typeNameWithGenerics;

@@ -16,7 +16,7 @@ namespace BindingsGeneration
         {
             // C# does not support generic constructors — never emit <...> on a constructor.
             // Type-level generic params are already declared on the containing type.
-            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
+            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
             // Use the resolved C# type name (may be renamed for nested type collision avoidance)
             var constructorName = GetResolvedTypeName();
 
@@ -98,7 +98,7 @@ namespace BindingsGeneration
                 ? NameProvider.GetMethodName("createAsync", _env.SiblingPropertyNames)
                 : _env.CSharpMethodName;
 
-            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
+            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
             // Async methods get CancellationToken as the last parameter
             var cancellationTokenParam = _requiresSwiftAsync
                 ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}global::System.Threading.CancellationToken cancellationToken = default"

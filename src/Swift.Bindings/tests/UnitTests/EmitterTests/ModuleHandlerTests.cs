@@ -129,7 +129,7 @@ public class ModuleHandlerTests
                     Throws = false,
                     IsAsync = true,
                     GenericParameters = new List<GenericArgumentDecl>(),
-                    Visibility = Visibility.Public,
+                    IsSynthesizedAccessor = false,
                     ParentDecl = asyncType,
                     ModuleDecl = moduleDecl
                 });
@@ -237,7 +237,7 @@ public class ModuleHandlerTests
                             Throws = false,
                             IsAsync = false,
                             GenericParameters = new List<GenericArgumentDecl>(),
-                            Visibility = Visibility.Public,
+                            IsSynthesizedAccessor = false,
                             ParentDecl = null,
                             ModuleDecl = moduleDecl
                         }
@@ -1114,7 +1114,7 @@ public class ModuleHandlerTests
                     Throws = false,
                     IsAsync = false,
                     GenericParameters = new List<GenericArgumentDecl>(),
-                    Visibility = Visibility.Public,
+                    IsSynthesizedAccessor = false,
                     ParentDecl = moduleDecl,
                     ModuleDecl = moduleDecl
                 });
@@ -1154,7 +1154,7 @@ public class ModuleHandlerTests
                     Throws = false,
                     IsAsync = false,
                     GenericParameters = new List<GenericArgumentDecl>(),
-                    Visibility = Visibility.Public,
+                    IsSynthesizedAccessor = false,
                     ParentDecl = moduleDecl,
                     ModuleDecl = moduleDecl
                 });
@@ -1195,7 +1195,7 @@ public class ModuleHandlerTests
                     Throws = false,
                     IsAsync = false,
                     GenericParameters = new List<GenericArgumentDecl>(),
-                    Visibility = Visibility.Public,
+                    IsSynthesizedAccessor = false,
                     ParentDecl = moduleDecl,
                     ModuleDecl = moduleDecl
                 });
@@ -1305,7 +1305,7 @@ public class ModuleHandlerTests
             Throws = false,
             IsAsync = false,
             GenericParameters = new List<GenericArgumentDecl>(),
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl
         };
@@ -1409,7 +1409,7 @@ public class ModuleHandlerTests
                         ModuleDecl = moduleDecl,
                         Throws = false,
                         IsAsync = false,
-                        Visibility = Visibility.Public
+                        IsSynthesizedAccessor = false
                     }
                 }
             },
@@ -1952,7 +1952,7 @@ public class ModuleHandlerTests
                             Throws = false,
                             IsAsync = false,
                             GenericParameters = new List<GenericArgumentDecl>(),
-                            Visibility = Visibility.Public,
+                            IsSynthesizedAccessor = false,
                             ParentDecl = null,
                             ModuleDecl = module
                         }

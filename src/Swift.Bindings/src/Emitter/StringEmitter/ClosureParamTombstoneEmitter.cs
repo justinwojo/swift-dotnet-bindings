@@ -242,7 +242,7 @@ internal static class ClosureParamTombstoneEmitter
             $"DiagnosticId = \"{DiagnosticId}\", " +
             $"UrlFormat = \"{UrlFormat}\")]");
 
-        var accessModifier = NameProvider.GetAccessModifier(method.Visibility);
+        var accessModifier = NameProvider.GetAccessModifier(method.IsSynthesizedAccessor);
         var throwBody =
             $"throw new global::System.NotSupportedException(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(ThrowMessage)}\");";
 

@@ -165,7 +165,7 @@ public class TupleClassElementParamEmitterTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         // Pin the @_cdecl method-wrapper strategy up front. The minimal MethodEnvironment+Emit harness
         // does not reproduce the full pipeline's wrapper-strategy decision for a tuple PARAMETER (it

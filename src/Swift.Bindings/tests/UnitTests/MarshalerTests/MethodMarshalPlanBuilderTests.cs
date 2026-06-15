@@ -236,7 +236,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader", structName: "Config", frozen: false);
@@ -273,7 +273,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, testModule) = CreateTypeDatabaseWithModule("Parser");
@@ -312,7 +312,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, testModule) = CreateTypeDatabaseWithModule("Fetcher", structName: "Point", frozen: true);
@@ -351,7 +351,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, testModule) = CreateTypeDatabaseWithModule("Framer", structName: "Point", frozen: true);
@@ -390,7 +390,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, _) = CreateTypeDatabaseWithModule("Fetcher");
@@ -429,7 +429,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, _) = CreateTypeDatabaseWithModule("Fetcher");
@@ -471,7 +471,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, _) = CreateTypeDatabaseWithModule("Store");
@@ -522,7 +522,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, _) = CreateTypeDatabaseWithModule("Config");
@@ -570,7 +570,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var typeDb = new TypeDatabase();
@@ -629,7 +629,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, _) = CreateTypeDatabaseWithModule("Fetcher", structName: "UrlWrapper",
@@ -815,7 +815,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public,
+            IsSynthesizedAccessor = false,
         };
         classDecl.Methods.Add(method);
 
@@ -914,7 +914,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -969,7 +969,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -1074,7 +1074,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -1279,7 +1279,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = throws,
             IsAsync = isAsync,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         if (hasTypedThrows)
@@ -1343,7 +1343,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -1417,7 +1417,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -1466,7 +1466,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         classDecl.Methods.Add(method);
 
@@ -1679,7 +1679,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
         moduleDecl.Methods.Add(method);
 
@@ -1741,7 +1741,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, _) = CreateTypeDatabaseWithModule("Loader", structName: "Config", frozen: false);
@@ -1777,7 +1777,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, testModule) = CreateTypeDatabaseWithModule("Parser");
@@ -1839,7 +1839,7 @@ public class MethodMarshalPlanBuilderTests
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            IsSynthesizedAccessor = false
         };
 
         var (typeDb, _) = CreateTypeDatabaseWithModule("Factory");
