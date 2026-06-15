@@ -79,6 +79,27 @@ namespace BindingsGeneration.Tests
             catch { return null; }
         });
 
+        /// <summary>
+        /// Locates the REAL built generator (a runnable Swift.Bindings.dll with its
+        /// runtimeconfig.json) under the repo's bin output. Targets that were migrated off
+        /// inline shell onto a generator verb — e.g. _ResolveSwiftAutoDetectedDependencies's
+        /// --resolve-auto-deps (architecture-review-2026-06 Finding 1) — must run against the
+        /// real generator, not the args-echoing stub. Probes Debug then Release.
+        /// </summary>
+        private static readonly Lazy<string?> RealGeneratorDir = new(() =>
+        {
+            var repoRoot = FindRepoRoot();
+            foreach (var config in new[] { "Debug", "Release" })
+            {
+                var dir = Path.Combine(repoRoot, "src", "Swift.Bindings", "src", "bin", config, "net10.0")
+                          + Path.DirectorySeparatorChar;
+                if (File.Exists(Path.Combine(dir, "Swift.Bindings.dll"))
+                    && File.Exists(Path.Combine(dir, "Swift.Bindings.runtimeconfig.json")))
+                    return dir;
+            }
+            return null;
+        });
+
         public SdkTargetsBehaviorTests()
         {
             _tempDir = Path.Combine(Path.GetTempPath(), $"swift-sdk-test-{Guid.NewGuid():N}");
@@ -486,6 +507,10 @@ namespace BindingsGeneration.Tests
         public void ResolveAutoDetectedDeps_FindsSiblingProject_InjectsProjectReference()
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Resolution now runs in the generator's --resolve-auto-deps verb (Finding 1),
+            // so this is an end-to-end test of verb + SDK wiring and needs the real generator.
+            var generatorDir = RealGeneratorDir.Value;
+            SkipUnless(generatorDir != null, "built Swift.Bindings.dll not found");
 
             // Create a "dependency" sibling project directory
             var siblingDir = Path.Combine(_tempDir, "PaymentSdkCore.Swift.iOS");
@@ -538,6 +563,7 @@ namespace BindingsGeneration.Tests
                   <Import Project="{sdkTargetsPath}" />
                   <PropertyGroup>
                     <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingGeneratorDir>{generatorDir}</_SwiftBindingGeneratorDir>
                   </PropertyGroup>
                   <Target Name="_ComputeSwiftFingerprint" />
                   <Target Name="_DiscoverSwiftFrameworks" />
@@ -560,6 +586,396 @@ namespace BindingsGeneration.Tests
 
             var output = result.StdOut + "\n" + result.StdErr;
             Assert.Contains("PaymentSdkCore.Swift.iOS.csproj", output);
+        }
+
+        [Fact]
+        public void ResolveAutoDetectedDeps_NoSibling_EmitsSwiftBind080()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var generatorDir = RealGeneratorDir.Value;
+            SkipUnless(generatorDir != null, "built Swift.Bindings.dll not found");
+
+            // No sibling project exists anywhere — the verb must emit a WARN| record, which
+            // the SDK surfaces as SWIFTBIND080. Exercises the FROZEN WARN branch end-to-end.
+            var bindingDir = Path.Combine(_tempDir, "PaymentSdkSheet.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var fakeXcfw = Path.Combine(bindingDir, "PaymentSdkSheet.xcframework");
+            Directory.CreateDirectory(fakeXcfw);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var depsValue = $"MissingCore|MissingCore.Swift.iOS|9.9.9|{fakeXcfw}";
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>PaymentSdkSheet</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>PaymentSdkSheetSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingDependencies>{depsValue}</_SwiftBindingDependencies>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingGeneratorDir>{generatorDir}</_SwiftBindingGeneratorDir>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="TestDump"
+                          DependsOnTargets="_ImportSwiftBindingMetadata;_ResolveSwiftAutoDetectedDependencies">
+                    <Message Importance="High" Text="PROJREF_ITEM:%(ProjectReference.Identity)" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            // SWIFTBIND080 is a Warning, not an Error, so the build still succeeds.
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0,
+                $"WARN-path test failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            Assert.Contains("SWIFTBIND080", output);
+            // The SWIFTBIND080 guidance reconstructs the user's package id from the WARN fields.
+            Assert.Contains("MissingCore.Swift.iOS", output);
+        }
+
+        // ── Finding 62: wiring-tripwire behavioral tests ──
+
+        [Fact]
+        public void GenerateSwiftBindingsHook_StampsWiringFlag()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // _GenerateSwiftBindings is unconditional and stamps _SwiftHookRan_GenerateSwiftBindings
+            // whenever it fires — even with no SwiftFramework items (the generator Exec is gated
+            // off, but the stamp is not). No generator needed.
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_CheckStamp" DependsOnTargets="_GenerateSwiftBindings">
+                    <Message Importance="high" Text="GENSTAMP:[$(_SwiftHookRan_GenerateSwiftBindings)]" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CheckStamp -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0, $"Build failed.\n{output}");
+            Assert.Contains("GENSTAMP:[true]", output);
+        }
+
+        [Fact]
+        public void ResolveAutoDepsHook_StampsWiringFlag()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // _ResolveSwiftAutoDetectedDependencies stamps unconditionally; with empty
+            // _SwiftBindingDependencies the verb Exec is skipped but the stamp still sets.
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_CheckStamp" DependsOnTargets="_ResolveSwiftAutoDetectedDependencies">
+                    <Message Importance="high" Text="RESOLVESTAMP:[$(_SwiftHookRan_ResolveSwiftAutoDetectedDependencies)]" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CheckStamp -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0, $"Build failed.\n{output}");
+            Assert.Contains("RESOLVESTAMP:[true]", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_PassesWhenBothStampsPresent()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: true, resolveStamp: true, metadataPresent: true, designTimeBuild: false);
+            Assert.True(exit == 0, $"Expected pass with both stamps present.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND062", output);
+            Assert.DoesNotContain("SWIFTBIND063", output);
+            Assert.DoesNotContain("SWIFTBIND064", output);
+            Assert.DoesNotContain("SWIFTBIND065", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_FailsSwiftBind062_WhenGenerateHookDisconnected()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Generate stamp missing => the generate hook is silently disconnected.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: false, resolveStamp: true, metadataPresent: true, designTimeBuild: false);
+            Assert.True(exit != 0, $"Expected SWIFTBIND062 failure.\n{output}");
+            Assert.Contains("SWIFTBIND062", output);
+            Assert.Contains("_GenerateSwiftBindings", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_FailsSwiftBind063_WhenResolveHookDisconnectedAndMetadataPresent()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Metadata was produced but the resolve stamp is missing => resolve/import hook
+            // is silently disconnected.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: true, resolveStamp: false, metadataPresent: true, designTimeBuild: false);
+            Assert.True(exit != 0, $"Expected SWIFTBIND063 failure.\n{output}");
+            Assert.Contains("SWIFTBIND063", output);
+            Assert.Contains("_ResolveSwiftAutoDetectedDependencies", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_NoSwiftBind063_WhenNoMetadata()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Resolve stamp missing AND no binding-metadata.props: the 063 check is gated on
+            // metadata presence, so it must NOT false-positive here.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: true, resolveStamp: false, metadataPresent: false, designTimeBuild: false);
+            Assert.True(exit == 0, $"Expected pass — 063 is gated on metadata presence.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND063", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_SkippedUnderDesignTimeBuild()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // No stamps at all, but a design-time build: the assertion target's Condition is
+            // false, so it is skipped entirely — IDEs run a restricted target subset.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: false, resolveStamp: false, metadataPresent: true, designTimeBuild: true,
+                importStamp: false, appleGenStamp: false, appleFrameworkMode: true);
+            Assert.True(exit == 0, $"Expected skip under design-time build.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND062", output);
+            Assert.DoesNotContain("SWIFTBIND063", output);
+            Assert.DoesNotContain("SWIFTBIND064", output);
+            Assert.DoesNotContain("SWIFTBIND065", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_FailsSwiftBind064_WhenImportHookDisconnectedAndMetadataPresent()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Metadata was produced and the resolver stamped, but the import stamp is missing =>
+            // _ImportSwiftBindingMetadata is silently disconnected (its AfterTargets anchor is
+            // independent of the resolver's, so the resolver stamping does NOT cover the import).
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: true, resolveStamp: true, metadataPresent: true, designTimeBuild: false,
+                importStamp: false);
+            Assert.True(exit != 0, $"Expected SWIFTBIND064 failure.\n{output}");
+            Assert.Contains("SWIFTBIND064", output);
+            Assert.Contains("_ImportSwiftBindingMetadata", output);
+            // The resolver stamped, so the 063 check must NOT also fire — 064 isolates the import hook.
+            Assert.DoesNotContain("SWIFTBIND063", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_NoSwiftBind064_WhenNoMetadata()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Import stamp missing AND no binding-metadata.props: the 064 check is gated on
+            // metadata presence, so it must NOT false-positive here.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: true, resolveStamp: true, metadataPresent: false, designTimeBuild: false,
+                importStamp: false);
+            Assert.True(exit == 0, $"Expected pass — 064 is gated on metadata presence.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND064", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_FailsSwiftBind065_WhenAppleGenerateHookDisconnectedInAppleMode()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // AppleFramework mode with the Apple-generate stamp missing => that hook (the real
+            // codegen hook in Apple mode) is silently disconnected. No metadata, so 063/064 stay off.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: true, resolveStamp: true, metadataPresent: false, designTimeBuild: false,
+                appleGenStamp: false, appleFrameworkMode: true);
+            Assert.True(exit != 0, $"Expected SWIFTBIND065 failure.\n{output}");
+            Assert.Contains("SWIFTBIND065", output);
+            Assert.Contains("_GenerateSwiftBindingsAppleFramework", output);
+        }
+
+        [Fact]
+        public void HookWiringAssertion_NoSwiftBind065_WhenNotAppleMode()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Apple-generate stamp missing but the binding is NOT AppleFramework kind: the 065
+            // check is gated on AppleFramework mode (in xcframework mode the generic hook does the
+            // codegen and the Apple hook is a no-op), so it must NOT false-positive.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: true, resolveStamp: true, metadataPresent: false, designTimeBuild: false,
+                appleGenStamp: false, appleFrameworkMode: false);
+            Assert.True(exit == 0, $"Expected pass — 065 is gated on AppleFramework mode.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND065", output);
+        }
+
+        [Fact]
+        public void AppleFrameworkGenerateHook_StampsWiringFlag()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // _GenerateSwiftBindingsAppleFramework is unconditional and stamps
+            // _SwiftHookRan_GenerateSwiftBindingsAppleFramework whenever it fires (the codegen
+            // PropertyGroup is gated on AppleFramework+Swift mode, but the stamp is not). Stub its
+            // DependsOnTargets so no real Apple xcframework/ABI work runs.
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_SynthesizeAppleFrameworkXcframework" />
+                  <Target Name="_DumpAppleFrameworkAbi" />
+                  <Target Name="_CollectSwiftModuleDatabases" />
+                  <Target Name="_CheckStamp" DependsOnTargets="_GenerateSwiftBindingsAppleFramework">
+                    <Message Importance="high" Text="APPLEGENSTAMP:[$(_SwiftHookRan_GenerateSwiftBindingsAppleFramework)]" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CheckStamp -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0, $"Build failed.\n{output}");
+            Assert.Contains("APPLEGENSTAMP:[true]", output);
+        }
+
+        [Fact]
+        public void ImportMetadataHook_StampsWiringFlag()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // _ImportSwiftBindingMetadata is gated on binding-metadata.props existing; when it
+            // does and the hook fires, it stamps _SwiftHookRan_ImportSwiftBindingMetadata. Plant a
+            // minimal metadata file so the target's Condition is satisfied.
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"),
+                "<Project><PropertyGroup><_SwiftBindingModuleName>Probe</_SwiftBindingModuleName></PropertyGroup></Project>");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_CheckStamp" DependsOnTargets="_ImportSwiftBindingMetadata">
+                    <Message Importance="high" Text="IMPORTSTAMP:[$(_SwiftHookRan_ImportSwiftBindingMetadata)]" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_CheckStamp -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0, $"Build failed.\n{output}");
+            Assert.Contains("IMPORTSTAMP:[true]", output);
+        }
+
+        /// <summary>
+        /// Drives the Finding-62 tripwire target (_AssertSwiftBindingHookWiring) in isolation.
+        /// Hook stamps, the binding kind, and DesignTimeBuild are supplied as global properties
+        /// (which the SDK targets do not override); binding-metadata.props is created on disk only
+        /// when <paramref name="metadataPresent"/> is set. Returns the exit code and merged output.
+        ///
+        /// The <paramref name="importStamp"/>, <paramref name="appleGenStamp"/>, and
+        /// <paramref name="appleFrameworkMode"/> params default to "wired / not-Apple" so callers
+        /// that only exercise the generic-generate (062) and resolve (063) checks are unaffected:
+        /// the import (064) check sees its stamp present and the Apple-generate (065) check is
+        /// gated off outside AppleFramework mode.
+        /// </summary>
+        private (int ExitCode, string Output) RunHookWiringAssertion(
+            bool genStamp, bool resolveStamp, bool metadataPresent, bool designTimeBuild,
+            bool importStamp = true, bool appleGenStamp = true, bool appleFrameworkMode = false)
+        {
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+            if (metadataPresent)
+                File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), "<Project />");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var props = "";
+            if (genStamp) props += " -p:_SwiftHookRan_GenerateSwiftBindings=true";
+            if (resolveStamp) props += " -p:_SwiftHookRan_ResolveSwiftAutoDetectedDependencies=true";
+            if (importStamp) props += " -p:_SwiftHookRan_ImportSwiftBindingMetadata=true";
+            if (appleGenStamp) props += " -p:_SwiftHookRan_GenerateSwiftBindingsAppleFramework=true";
+            if (appleFrameworkMode) props += " -p:_SwiftBindingTargetKind=AppleFramework";
+            if (designTimeBuild) props += " -p:DesignTimeBuild=true";
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_AssertSwiftBindingHookWiring -nologo -v:n{props}");
+            return (result.ExitCode, result.StdOut + "\n" + result.StdErr);
         }
 
         // ── Multi-framework first-build ordering (Gap #7): _BuildSiblingSwiftBindingDeps

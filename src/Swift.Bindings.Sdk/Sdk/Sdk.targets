@@ -744,6 +744,16 @@ done; true"
           BeforeTargets="ResolveProjectReferences"
           DependsOnTargets="_SynthesizeAppleFrameworkXcframework;_DumpAppleFrameworkAbi;_CollectSwiftModuleDatabases">
 
+    <!-- F62 wiring tripwire: stamp that this unconditional Apple-framework generate hook
+         fired. It shares the ResolveProjectReferences anchor with _GenerateSwiftBindings,
+         so a shared-anchor rename is already caught by that target's stamp; this dedicated
+         stamp additionally catches an independent rename of THIS hook's anchor. It is the
+         real codegen hook in AppleFramework mode (where _GenerateSwiftBindings is a no-op),
+         so _AssertSwiftBindingHookWiring asserts this stamp only under AppleFramework mode. -->
+    <PropertyGroup>
+      <_SwiftHookRan_GenerateSwiftBindingsAppleFramework>true</_SwiftHookRan_GenerateSwiftBindingsAppleFramework>
+    </PropertyGroup>
+
     <!-- Build direct-mode generator command (gated on fingerprint + Swift mode).
          ObjC mode uses the second PropertyGroup below (xcframework + objc flags). -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true'">
@@ -1593,6 +1603,16 @@ done; true"
       Properties set during execution (in _ComputeSwiftFingerprint) are only
       visible to task-level Conditions, not target-level Conditions.
     -->
+    <!-- F62 wiring tripwire: stamp that this unconditional hook fired. The late
+         _AssertSwiftBindingHookWiring target fails closed if the stamp is missing —
+         e.g. a future .NET/workload rename of the BeforeTargets anchor
+         (ResolveProjectReferences) would silently disconnect this generate hook,
+         and MSBuild reports no error for an AfterTargets/BeforeTargets that names a
+         nonexistent target. -->
+    <PropertyGroup>
+      <_SwiftHookRan_GenerateSwiftBindings>true</_SwiftHookRan_GenerateSwiftBindings>
+    </PropertyGroup>
+
     <PropertyGroup Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'">
       <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --xcframework "%(SwiftFramework.Identity)"</_SwiftGenCmd>
@@ -1646,6 +1666,17 @@ done; true"
   <Target Name="_ImportSwiftBindingMetadata"
           AfterTargets="_GenerateSwiftBindings;_GenerateSwiftBindingsAppleFramework"
           Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+
+    <!-- F62 wiring tripwire: stamp that the metadata-import hook fired. Its AfterTargets
+         anchor is independent of the resolver's BeforeTargets anchor, so a silent
+         disconnection HERE would leave _SwiftBindingDependencies unloaded while the
+         resolver still runs and stamps — making the SWIFTBIND063 resolve check pass even
+         though no dependency was ever imported. _AssertSwiftBindingHookWiring asserts this
+         stamp (SWIFTBIND064) whenever binding metadata exists, which is exactly when this
+         conditional target should have run. -->
+    <PropertyGroup>
+      <_SwiftHookRan_ImportSwiftBindingMetadata>true</_SwiftHookRan_ImportSwiftBindingMetadata>
+    </PropertyGroup>
 
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingPackageVersion/text()">
@@ -1858,48 +1889,30 @@ done; true"
       execution time by XmlPeek in _ImportSwiftBindingMetadata. Task-level Conditions
       see the execution-time value. Same pattern as _GenerateSwiftBindings fingerprint gate.
 
-      Parse the semicolon-delimited _SwiftBindingDependencies property.
-      Each entry: ModuleName|PackageId|Version|XCFrameworkPath
-      Dedup against explicit SwiftFrameworkDependency items (by framework name).
-      Search for sibling .csproj files and inject ProjectReference for found projects.
-      Emit SWIFTBIND080 warning with guidance for unresolved dependencies.
-    -->
-    <!-- POSIX sh: echo | tr | while read (no bash arrays or here-strings).
-         Shell variables use %24 (MSBuild percent-escape for $) to avoid
-         MSBuild property evaluation of $VAR patterns.
-         Uses \ line continuations (single logical line) like the fingerprint Exec. -->
+      Resolution logic lives in the generator's resolve-auto-deps verb
+      (Configuration/AutoDepResolver.cs), not in an inline shell script
+      (architecture-review-2026-06 Finding 1). The verb:
+        - parses the semicolon-delimited _SwiftBindingDependencies property
+          (each entry ModuleName|PackageId|Version|XCFrameworkPath),
+        - dedups against the explicit SwiftFrameworkDependency module names,
+        - probes for a sibling .csproj, and
+        - emits the FROZEN line grammar this target consumes below:
+            PROJREF|<absolute-csproj>           -> injected as a ProjectReference
+            WARN|<mod>|<pkg>|<ver>|<xcframework> -> surfaced as SWIFTBIND080
+      The percent-encoded fields (%7C/%3B/%25) reach the verb verbatim; decode
+      happens in C#. The PROJREF|/WARN| grammar is a behavioral contract — keep
+      the verb, this ItemGroup, and the Warning in lockstep.
+
+      F62 wiring tripwire: this hook has no target-level Condition (see above),
+      so it always runs in xcframework mode. Stamp that it ran; the late
+      _AssertSwiftBindingHookWiring target fails closed if the stamp is missing
+      (e.g. a future AfterTargets rename silently disconnects this hook). -->
+    <PropertyGroup>
+      <_SwiftHookRan_ResolveSwiftAutoDetectedDependencies>true</_SwiftHookRan_ResolveSwiftAutoDetectedDependencies>
+    </PropertyGroup>
+
     <Exec Condition="'$(_SwiftBindingDependencies)' != ''"
-          Command="pctdec() { echo &quot;%241&quot; | sed 's/%7C/|/g;s/%3B/;/g;s/%25/%/g'; }; \
-EXPLICIT_DEPS=&quot;@(SwiftFrameworkDependency->'%(Filename)', ';')&quot;; \
-echo &quot;$(_SwiftBindingDependencies)&quot; | tr ';' '\n' | while IFS='|' read -r MOD_NAME PKG_ID PKG_VER XCFW_PATH; do \
-  [ -z &quot;%24MOD_NAME&quot; ] &amp;&amp; continue; \
-  RAW_MOD=&quot;%24MOD_NAME&quot;; RAW_PKG=&quot;%24PKG_ID&quot;; RAW_VER=&quot;%24PKG_VER&quot;; RAW_XCFW=&quot;%24XCFW_PATH&quot;; \
-  MOD_NAME=`pctdec &quot;%24RAW_MOD&quot;`; \
-  PKG_ID=`pctdec &quot;%24RAW_PKG&quot;`; \
-  PKG_VER=`pctdec &quot;%24RAW_VER&quot;`; \
-  XCFW_PATH=`pctdec &quot;%24RAW_XCFW&quot;`; \
-  case &quot;;%24EXPLICIT_DEPS;&quot; in *&quot;;%24MOD_NAME;&quot;*) continue ;; esac; \
-  FOUND=&quot;&quot;; \
-  XCFW_PARENT=`dirname &quot;%24XCFW_PATH&quot;`; \
-  XCFW_GRANDPARENT=`dirname &quot;%24XCFW_PARENT&quot;`; \
-  if [ -f &quot;%24XCFW_PARENT/%24PKG_ID.csproj&quot; ]; then \
-    FOUND=&quot;%24XCFW_PARENT/%24PKG_ID.csproj&quot;; \
-  elif [ -f &quot;%24XCFW_GRANDPARENT/%24PKG_ID/%24PKG_ID.csproj&quot; ]; then \
-    FOUND=&quot;%24XCFW_GRANDPARENT/%24PKG_ID/%24PKG_ID.csproj&quot;; \
-  elif [ -f &quot;%24XCFW_GRANDPARENT/%24MOD_NAME/%24PKG_ID.csproj&quot; ]; then \
-    FOUND=&quot;%24XCFW_GRANDPARENT/%24MOD_NAME/%24PKG_ID.csproj&quot;; \
-  elif [ -f &quot;%24XCFW_GRANDPARENT/%24PKG_ID.csproj&quot; ]; then \
-    FOUND=&quot;%24XCFW_GRANDPARENT/%24PKG_ID.csproj&quot;; \
-  fi; \
-  if [ -n &quot;%24FOUND&quot; ]; then \
-    FOUND_DIR=`dirname &quot;%24FOUND&quot;`; \
-    FOUND_BASE=`basename &quot;%24FOUND&quot;`; \
-    FOUND_ABS=`cd &quot;%24FOUND_DIR&quot; &amp;&amp; pwd`; \
-    echo &quot;PROJREF|%24FOUND_ABS/%24FOUND_BASE&quot;; \
-  else \
-    echo &quot;WARN|%24RAW_MOD|%24RAW_PKG|%24RAW_VER|%24RAW_XCFW&quot;; \
-  fi; \
-done"
+          Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --resolve-auto-deps --auto-dep-spec &quot;$(_SwiftBindingDependencies)&quot; --explicit-deps &quot;@(SwiftFrameworkDependency->'%(Filename)', ';')&quot;"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" ItemName="_SwiftAutoDepResult" />
     </Exec>
@@ -1915,6 +1928,73 @@ done"
     <Warning Condition="'$(_SwiftBindingDependencies)' != '' AND $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').StartsWith('WARN|'))"
              Code="SWIFTBIND080"
              Text="Cross-module dependency detected but no sibling binding project found. To resolve, add one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])/$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2]).csproj&quot; /&gt;%0A%0A  For NuGet package consumption (both items required — SwiftFrameworkDependency for build-time framework resolution, PackageReference for NuGet restore):%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])&quot;%0A                              PackageId=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot; PackageVersion=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;%0A    &lt;PackageReference Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot;%0A                      Version=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4b': Wiring tripwire (architecture-review-2026-06 Finding 62)     -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--
+    MSBuild reports NO error when an AfterTargets/BeforeTargets attribute names a
+    target that does not exist — the hook is silently dropped. A future .NET SDK or
+    workload that renames a build anchor (e.g. ResolveProjectReferences,
+    _GenerateSwiftBindings) would therefore disconnect a Swift binding hook
+    with zero diagnostics, and a binding would build but skip generation, metadata
+    import, or dependency resolution — failing far downstream, or shipping broken.
+
+    This tripwire fails the build CLOSED instead. Each external-target hook stamps a
+    _SwiftHookRan_<Target> property when it fires; this late target — anchored on
+    CoreCompile, which is always preceded by ResolveProjectReferences in the standard
+    build graph — asserts the expected stamps are present and names the SPECIFIC
+    disconnected hook if one is missing. One assertion per hook, so the diagnostic
+    pinpoints exactly which anchor drifted.
+
+    False-positive discipline: each assertion only fires when the hook was genuinely
+    expected to run. The two unconditional generate hooks are asserted whenever they
+    apply (the generic one always; the AppleFramework one only in AppleFramework mode,
+    where it — not the no-op generic hook — does the real codegen). The two
+    metadata-dependent hooks (import + resolve) are gated on binding-metadata.props
+    existing, which is exactly when a connected hook must have run — so a build that
+    legitimately produced no metadata never false-positives.
+
+    Skipped under design-time builds (IDEs run a restricted target subset).
+  -->
+  <Target Name="_AssertSwiftBindingHookWiring"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+
+    <!-- _GenerateSwiftBindings is unconditional and anchored on ResolveProjectReferences,
+         which always runs before CoreCompile; it MUST have stamped by now. A missing
+         stamp means the generate hook's BeforeTargets anchor was renamed/removed. -->
+    <Error Condition="'$(_SwiftHookRan_GenerateSwiftBindings)' != 'true'"
+           Code="SWIFTBIND062"
+           Text="Swift binding generation hook '_GenerateSwiftBindings' did not run before compilation — it is silently disconnected. This usually means its 'BeforeTargets=&quot;ResolveProjectReferences&quot;' anchor was renamed or removed by a .NET SDK / workload change (MSBuild does not error on an AfterTargets/BeforeTargets that names a nonexistent target). The binding would compile without generating any Swift bindings. Re-anchor _GenerateSwiftBindings to the current pre-ResolveProjectReferences target in Swift.Bindings.Sdk/Sdk/Sdk.targets." />
+
+    <!-- In AppleFramework mode, _GenerateSwiftBindingsAppleFramework — not the no-op
+         generic hook above — is the real codegen hook. It shares the ResolveProjectReferences
+         anchor, but a dedicated stamp catches an independent rename of just THIS hook's anchor.
+         Asserted only in AppleFramework mode, where the target's codegen actually applies. -->
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
+                      AND '$(_SwiftHookRan_GenerateSwiftBindingsAppleFramework)' != 'true'"
+           Code="SWIFTBIND065"
+           Text="Swift Apple-framework binding generation hook '_GenerateSwiftBindingsAppleFramework' did not run before compilation in AppleFramework mode — it is silently disconnected. This usually means its 'BeforeTargets=&quot;ResolveProjectReferences&quot;' anchor was renamed or removed (MSBuild does not error on an AfterTargets/BeforeTargets that names a nonexistent target). The Apple-framework binding would compile without generating any Swift bindings. Re-anchor _GenerateSwiftBindingsAppleFramework to the current pre-ResolveProjectReferences target in Swift.Bindings.Sdk/Sdk/Sdk.targets." />
+
+    <!-- If binding metadata was produced, _ImportSwiftBindingMetadata must have fired to
+         load it (its AfterTargets anchor is independent of the resolver's, so the resolver
+         stamping does NOT imply the import ran). A missing stamp here means the import hook
+         is silently disconnected and _SwiftBindingDependencies was never populated. -->
+    <Error Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')
+                      AND '$(_SwiftHookRan_ImportSwiftBindingMetadata)' != 'true'"
+           Code="SWIFTBIND064"
+           Text="Swift binding metadata-import hook '_ImportSwiftBindingMetadata' did not run even though binding metadata was generated — it is silently disconnected. This usually means its 'AfterTargets=&quot;_GenerateSwiftBindings;_GenerateSwiftBindingsAppleFramework&quot;' anchor was renamed or removed (MSBuild does not error on an AfterTargets/BeforeTargets that names a nonexistent target). Binding metadata (module name, OS version, cross-module dependencies) would be silently dropped and downstream resolution would see no dependencies. Re-anchor the hook in Swift.Bindings.Sdk/Sdk/Sdk.targets." />
+
+    <!-- If binding metadata was produced, the cross-module dependency resolver must also
+         have fired. A missing stamp here means _ResolveSwiftAutoDetectedDependencies got
+         silently disconnected (independent of the import hook checked above). Gated on the
+         metadata file so builds that legitimately produced no metadata don't false-positive. -->
+    <Error Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')
+                      AND '$(_SwiftHookRan_ResolveSwiftAutoDetectedDependencies)' != 'true'"
+           Code="SWIFTBIND063"
+           Text="Swift cross-module dependency resolution hook '_ResolveSwiftAutoDetectedDependencies' did not run even though binding metadata was generated — it is silently disconnected. This usually means its 'BeforeTargets=&quot;ResolveProjectReferences&quot;' / 'AfterTargets=&quot;_ImportSwiftBindingMetadata&quot;' anchor was renamed or removed (MSBuild does not error on an AfterTargets/BeforeTargets that names a nonexistent target). Cross-module ProjectReference auto-injection and SWIFTBIND080 guidance would be silently skipped. Re-anchor the hook in Swift.Bindings.Sdk/Sdk/Sdk.targets." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

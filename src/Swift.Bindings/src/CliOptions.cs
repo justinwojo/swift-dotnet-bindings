@@ -231,6 +231,29 @@ public class CliOptions
                      "maccatalyst-arm64). Used by --slice-xcframework to pick which slices " +
                      "of a source xcframework to retain.");
 
+    public Option<bool> ResolveAutoDeps { get; } = new(
+        aliases: new[] { "--resolve-auto-deps" },
+        description: "Resolve-auto-deps mode: read the percent-encoded auto-dependency spec " +
+                     "from --auto-dep-spec (semicolon-delimited 'Module|PackageId|Version|" +
+                     "XCFrameworkPath' records), dedup against --explicit-deps, probe for a " +
+                     "sibling binding csproj, and emit one 'PROJREF|<absolute-csproj>' or " +
+                     "'WARN|<module>|<packageId>|<version>|<xcframework>' line per record to " +
+                     "stdout. Used by the SDK's _ResolveSwiftAutoDetectedDependencies target " +
+                     "to auto-inject ProjectReference items and surface SWIFTBIND080.",
+        getDefaultValue: () => false);
+
+    public Option<string?> AutoDepSpec { get; } = new(
+        aliases: new[] { "--auto-dep-spec" },
+        description: "Percent-encoded auto-dependency spec for --resolve-auto-deps: " +
+                     "semicolon-delimited 'Module|PackageId|Version|XCFrameworkPath' records. " +
+                     "Literal |/;/% inside a field are encoded as %7C/%3B/%25.");
+
+    public Option<string?> ExplicitDeps { get; } = new(
+        aliases: new[] { "--explicit-deps" },
+        description: "Semicolon-delimited module names already declared via " +
+                     "SwiftFrameworkDependency. Used by --resolve-auto-deps to skip " +
+                     "auto-detected dependencies the project already declares explicitly.");
+
     public Option<bool> EmitAppleTypesManifest { get; } = new(
         aliases: new[] { "--emit-apple-types-manifest" },
         description: "Emit-apple-types-manifest mode: ingest one or more Apple Xcode SDK ABI JSON dumps and write the " +
@@ -385,6 +408,9 @@ public class CliOptions
             DetectAppleCrossModuleDeps,
             SliceXcframework,
             Rid,
+            ResolveAutoDeps,
+            AutoDepSpec,
+            ExplicitDeps,
             EmitAppleTypesManifest,
             AppleAbiJson,
             AppleIncludeTypes,

@@ -64,6 +64,9 @@ public static class BindingsGeneratorCommand
         var detectAppleCrossModuleDeps = parseResult.GetValueForOption(options.DetectAppleCrossModuleDeps);
         var sliceXcframework = parseResult.GetValueForOption(options.SliceXcframework);
         var rid = parseResult.GetValueForOption(options.Rid);
+        var resolveAutoDeps = parseResult.GetValueForOption(options.ResolveAutoDeps);
+        var autoDepSpec = parseResult.GetValueForOption(options.AutoDepSpec);
+        var explicitDeps = parseResult.GetValueForOption(options.ExplicitDeps);
         var emitAppleTypesManifest = parseResult.GetValueForOption(options.EmitAppleTypesManifest);
         var appleAbiJsonPaths = parseResult.GetValueForOption(options.AppleAbiJson);
         var appleIncludeTypes = parseResult.GetValueForOption(options.AppleIncludeTypes);
@@ -163,6 +166,27 @@ public static class BindingsGeneratorCommand
             try
             {
                 XCFrameworkSlicer.Slice(xcframeworkPath!, rid!, outputDirectory!, logger);
+                context.ExitCode = 0;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("{Message}", ex.Message);
+                context.ExitCode = 1;
+            }
+            return;
+        }
+
+        // Handle --resolve-auto-deps: resolve auto-detected cross-module Swift dependencies
+        // into sibling ProjectReference paths (or unresolved-dependency warnings) for the
+        // SDK's _ResolveSwiftAutoDetectedDependencies target. Out-of-tree from the
+        // binding-generation pipeline — never consumes dylib/TBD/ABI-JSON, so it must run
+        // BEFORE --platform validation. Emits the frozen PROJREF|/WARN| line grammar to
+        // stdout, which the SDK captures via ConsoleToMSBuild.
+        if (resolveAutoDeps)
+        {
+            try
+            {
+                AutoDepResolver.Run(autoDepSpec, explicitDeps, Console.Out);
                 context.ExitCode = 0;
             }
             catch (Exception ex)

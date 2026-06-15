@@ -204,6 +204,7 @@ namespace BindingsGeneration.Tests
                 "_GenerateSwiftBindings",
                 "_ImportSwiftBindingMetadata",
                 "_ResolveSwiftAutoDetectedDependencies",
+                "_AssertSwiftBindingHookWiring",
                 "_IncludeGeneratedSwiftBindings",
                 "_ResolveSwiftNativeReferences",
                 "_ValidateSwiftDependencyMetadata",
@@ -763,6 +764,31 @@ namespace BindingsGeneration.Tests
         {
             Assert.Contains("SWIFTBIND080", TargetsContent);
             Assert.Contains("Cross-module dependency detected", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HookWiringTripwire_StampsAndAsserts()
+        {
+            // Finding 62: each external-target hook stamps a _SwiftHookRan_<Target> flag, and a
+            // late tripwire target fails closed (one SWIFTBIND code per hook) if a stamp is missing.
+            Assert.Contains("_SwiftHookRan_GenerateSwiftBindings", TargetsContent);
+            Assert.Contains("_SwiftHookRan_GenerateSwiftBindingsAppleFramework", TargetsContent);
+            Assert.Contains("_SwiftHookRan_ImportSwiftBindingMetadata", TargetsContent);
+            Assert.Contains("_SwiftHookRan_ResolveSwiftAutoDetectedDependencies", TargetsContent);
+            Assert.Contains("Name=\"_AssertSwiftBindingHookWiring\"", TargetsContent);
+            Assert.Contains("SWIFTBIND062", TargetsContent); // generic generate hook
+            Assert.Contains("SWIFTBIND063", TargetsContent); // resolve hook
+            Assert.Contains("SWIFTBIND064", TargetsContent); // metadata-import hook
+            Assert.Contains("SWIFTBIND065", TargetsContent); // AppleFramework generate hook
+        }
+
+        [Fact]
+        public void Targets_HookWiringTripwire_RunsBeforeCoreCompile()
+        {
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_AssertSwiftBindingHookWiring\"", StringComparison.Ordinal));
+            var targetTag = target.Substring(0, target.IndexOf('>', StringComparison.Ordinal));
+            Assert.Contains("BeforeTargets=\"CoreCompile\"", targetTag);
         }
 
         [Fact]

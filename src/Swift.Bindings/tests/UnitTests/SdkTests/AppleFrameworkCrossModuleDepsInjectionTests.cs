@@ -552,8 +552,26 @@ namespace BindingsGeneration.Tests
                   <Target Name="_ResolveAppleFrameworkPaths" />
                   <Target Name="_DiscoverSwiftFrameworks" />
                   <Target Name="_ValidateSwiftPackageItems" />
-                  <Target Name="_GenerateSwiftBindingsAppleFramework" />
-                  <Target Name="_GenerateSwiftBindings" />
+                  <!-- The two generate-hook stubs MUST keep the real targets'
+                       BeforeTargets="ResolveProjectReferences" anchor and set their F62 wiring
+                       stamps. A bare <Target Name="..." /> override would strip the anchor, so the
+                       target would never auto-run — which is precisely the "silent disconnection"
+                       the late _AssertSwiftBindingHookWiring tripwire exists to catch, and the pack
+                       would (correctly) fail. This fixture is AppleFramework kind, so BOTH the
+                       generic hook (SWIFTBIND062) and the AppleFramework hook (SWIFTBIND065, asserted
+                       in AppleFramework mode) must stamp. The real targets stamp unconditionally and
+                       run before CoreCompile; the faithful stubs mirror that contract while skipping
+                       the heavy codegen Exec. -->
+                  <Target Name="_GenerateSwiftBindingsAppleFramework" BeforeTargets="ResolveProjectReferences">
+                    <PropertyGroup>
+                      <_SwiftHookRan_GenerateSwiftBindingsAppleFramework>true</_SwiftHookRan_GenerateSwiftBindingsAppleFramework>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_GenerateSwiftBindings" BeforeTargets="ResolveProjectReferences">
+                    <PropertyGroup>
+                      <_SwiftHookRan_GenerateSwiftBindings>true</_SwiftHookRan_GenerateSwiftBindings>
+                    </PropertyGroup>
+                  </Target>
                   <Target Name="_CompileSwiftWrapper" />
                   <Target Name="_CollectSwiftModuleDatabases" />
                 </Project>
