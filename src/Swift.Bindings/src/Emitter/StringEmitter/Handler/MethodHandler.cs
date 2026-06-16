@@ -1315,9 +1315,39 @@ namespace BindingsGeneration
             TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
             if (!isAccessor)
             {
-                foreach (var argument in methodEnv.MethodDecl.CSSignature)
+                // Position-aware degradation: CSSignature[0] is the return. A return that projects to
+                // Swift.Runtime.ExistentialUnion (a PAT-with-conformers existential in a pure-read
+                // position) is NOT a degradation, so it must be excluded from BOTH the single
+                // [UnsupportedSwiftType] anchor scan AND the SWIFTBIND023 degradation record. Parameter
+                // positions of the SAME existential type still degrade to object (ExistentialUnion has
+                // no input marshalling), so for `func f(_ a: any P) -> any P` the param keeps the marker
+                // and the warning while the projected return drops both. The degradation oracle is
+                // type-based and direction-blind, so this per-position exclusion is the only place that
+                // can tell the two directions apart. The engine reached this handler via
+                // methodEnv.EmissionContext (set above for the !isAccessor path).
+                var signatureArgs = methodEnv.MethodDecl.CSSignature;
+                bool returnProjectsToUnion = false;
+                var degradationReturnSpec = signatureArgs.Count > 0 ? signatureArgs[0].SwiftTypeSpec : null;
+                if (degradationReturnSpec != null && methodEnv.ExistentialHandler.IsExistential(degradationReturnSpec))
                 {
-                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(methodEnv.TypeDatabase, methodEnv.ClosureHandler, argument.SwiftTypeSpec, out var foundFallbackInfo))
+                    var returnProtoList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(degradationReturnSpec)!;
+                    // Same position gate as the signature/body paths (see
+                    // MethodEnvironment.AllowsExistentialReturnUnionProjection) so a return that the wrapper
+                    // actually projects to union is the one excluded from degradation — and an ineligible
+                    // position (subscript/async) still degrades + warns here, matching its object signature.
+                    returnProjectsToUnion = methodEnv.ExistentialHandler.GetPublicExistentialType(
+                        returnProtoList, allowUnionProjection: methodEnv.AllowsExistentialReturnUnionProjection) == "Swift.Runtime.ExistentialUnion";
+                }
+
+                var degradedSpecs = (returnProjectsToUnion
+                    ? signatureArgs.Skip(1)
+                    : signatureArgs.AsEnumerable())
+                    .Select(a => a.SwiftTypeSpec)
+                    .ToList();
+
+                foreach (var spec in degradedSpecs)
+                {
+                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(methodEnv.TypeDatabase, methodEnv.ClosureHandler, spec, out var foundFallbackInfo))
                     {
                         fallbackInfo = foundFallbackInfo;
                         break;
@@ -1326,13 +1356,13 @@ namespace BindingsGeneration
 
                 // The single [UnsupportedSwiftType] flag above (carried into WrapperEmitter via
                 // fallbackInfo) names only the first degraded position, but SWIFTBIND023 promises one
-                // loud warning per DISTINCT degraded existential. Record the whole signature (return +
-                // every param) so an existential that only ever appears as a 2nd+ position is not
-                // silently degraded to object. CSSignature[0] is the return; dedup makes the overlap
-                // with the flag above harmless.
+                // loud warning per DISTINCT degraded existential. Record every degraded position so an
+                // existential that only ever appears as a 2nd+ position is not silently degraded to
+                // object; dedup makes the overlap with the flag above harmless. A union-projected return
+                // is excluded above.
                 UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
                     context.GetEmissionContext(), methodEnv.TypeDatabase, methodEnv.ClosureHandler,
-                    methodEnv.MethodDecl.CSSignature.Select(a => a.SwiftTypeSpec));
+                    degradedSpecs);
             }
 
             // Pre-scan: flag methods that will get throwing closure simplification overloads

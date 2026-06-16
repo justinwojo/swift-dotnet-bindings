@@ -1572,29 +1572,49 @@ public class ExistentialHandlerTests
     public void GetPublicExistentialType_PATProtocolWithKnownConformers_ReturnsExistentialUnion()
     {
         // Protocol with HasAssociatedTypes — normally returns "object".
-        // With SpecializationEngine providing conformers, should return ExistentialUnion.
+        // With SpecializationEngine providing conformers AND a pure-read (return) position
+        // (allowUnionProjection: true), should return ExistentialUnion.
         var db = new PATProtocolMockDatabase("SwiftBindingsTestLib.AttributeKind");
         var engine = new ConcreteSpecializationEngine(new EmptyTypeDatabase());
 
         var handler = new ExistentialHandler(db) { SpecializationEngine = engine };
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("SwiftBindingsTestLib.AttributeKind") });
 
-        var result = handler.GetPublicExistentialType(protocolList);
+        var result = handler.GetPublicExistentialType(protocolList, allowUnionProjection: true);
 
         Assert.Equal("Swift.Runtime.ExistentialUnion", result);
     }
 
     [Fact]
+    public void GetPublicExistentialType_PATProtocolWithConformers_DefaultDirection_ReturnsObject()
+    {
+        // Direction safety: even with a configured engine AND known conformers, an input/setter
+        // position (allowUnionProjection defaults to false) MUST keep degrading to "object" —
+        // ExistentialUnion is a read-only Swift→C# wrapper with no input marshalling. This is the
+        // guard that lets the engine be wired onto the env handler unconditionally without flipping
+        // parameters/setters to an unmarshallable type.
+        var db = new PATProtocolMockDatabase("SwiftBindingsTestLib.AttributeKind");
+        var engine = new ConcreteSpecializationEngine(new EmptyTypeDatabase());
+
+        var handler = new ExistentialHandler(db) { SpecializationEngine = engine };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("SwiftBindingsTestLib.AttributeKind") });
+
+        var result = handler.GetPublicExistentialType(protocolList); // default allowUnionProjection: false
+
+        Assert.Equal("object", result);
+    }
+
+    [Fact]
     public void GetPublicExistentialType_PATProtocolWithoutConformers_ReturnsObject()
     {
-        // PAT protocol with no known conformers — should fall back to "object"
+        // PAT protocol with no known conformers — should fall back to "object" even in a read position.
         var db = new PATProtocolMockDatabase("TestLib.UnknownProtocol");
         var engine = new ConcreteSpecializationEngine(new EmptyTypeDatabase());
 
         var handler = new ExistentialHandler(db) { SpecializationEngine = engine };
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestLib.UnknownProtocol") });
 
-        var result = handler.GetPublicExistentialType(protocolList);
+        var result = handler.GetPublicExistentialType(protocolList, allowUnionProjection: true);
 
         Assert.Equal("object", result);
     }
@@ -1602,13 +1622,13 @@ public class ExistentialHandlerTests
     [Fact]
     public void GetPublicExistentialType_PATProtocolWithoutEngine_ReturnsObject()
     {
-        // PAT protocol without specialization engine — should fall back to "object"
+        // PAT protocol without specialization engine — should fall back to "object" even in a read position.
         var db = new PATProtocolMockDatabase("SwiftBindingsTestLib.AttributeKind");
 
         var handler = new ExistentialHandler(db); // no SpecializationEngine
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("SwiftBindingsTestLib.AttributeKind") });
 
-        var result = handler.GetPublicExistentialType(protocolList);
+        var result = handler.GetPublicExistentialType(protocolList, allowUnionProjection: true);
 
         Assert.Equal("object", result);
     }

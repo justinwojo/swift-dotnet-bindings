@@ -540,8 +540,19 @@ public class ExistentialHandler
     /// Well-known stdlib protocols (e.g., Swift.Error) return their direct runtime types.
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>
+    /// <param name="allowUnionProjection">
+    /// When true, a protocol-with-associated-type / Self-requirement existential that has known
+    /// conformers projects to <c>Swift.Runtime.ExistentialUnion</c> (the read-only forward try-cast
+    /// wrapper). When false (the default) it degrades to <c>object</c>. This MUST stay false for any
+    /// position where C# *sends* the existential to Swift — method/ctor parameters, property setters,
+    /// and the input-marshalling path — because <c>ExistentialUnion</c> has no input marshalling: it
+    /// is a Swift→C# read-only projection. Only pure-read positions (method/function return values,
+    /// get-only property getters, async return wrapping) may pass true. Direction, not engine
+    /// presence, gates the union projection — so the engine can be wired onto the env handler
+    /// unconditionally without flipping parameters/setters to an unmarshallable type.
+    /// </param>
     /// <returns>The public-facing interface type name.</returns>
-    public string GetPublicExistentialType(ProtocolListTypeSpec protocolList)
+    public string GetPublicExistentialType(ProtocolListTypeSpec protocolList, bool allowUnionProjection = false)
     {
         // Class-constrained compositions (e.g. `any ClassA & ProtoP`) have no C# API
         // representation — the ABI container is a class-bounded existential with a
@@ -600,8 +611,11 @@ public class ExistentialHandler
                     }
 
                     // PAT protocol with known conformers → ExistentialUnion (try-cast pattern)
-                    // instead of falling back to object which makes the member unusable.
-                    if (SpecializationEngine != null)
+                    // instead of falling back to object which makes the member unusable. Only in a
+                    // pure-read (return) position: ExistentialUnion is a Swift→C# read-only wrapper
+                    // with no input marshalling, so parameters/setters (allowUnionProjection == false)
+                    // must keep degrading to object.
+                    if (allowUnionProjection && SpecializationEngine != null)
                     {
                         var conformers = SpecializationEngine.GetConformers(swiftTypeName);
                         if (conformers.Count > 0)

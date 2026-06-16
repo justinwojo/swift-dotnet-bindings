@@ -490,6 +490,35 @@ namespace BindingsGeneration
                 }
             }
 
+            // Top-level non-optional existential return: a PAT-with-conformers existential projects to
+            // Swift.Runtime.ExistentialUnion (the read-only forward try-cast wrapper). This is resolved
+            // directly off the env-path oracle — the SAME call the return-body wrapping in
+            // WrapperEmitter.Return makes — so signature and body agree. It is kept OUT of the factory on
+            // purpose: ProjectOptional forces IsParameter=false on an Optional's inner, so a factory gate
+            // on !IsParameter would wrongly flip optional existential PARAMETERS (and collection elements)
+            // to an unmarshallable union. Only the union case is intercepted here; every other existential
+            // (proxy interface, well-known, object fallback) falls through to the factory unchanged. The
+            // engine reaches the env handler via MethodEnvironment.EmissionContext; when it is absent
+            // (no conformers / engine unwired) the oracle returns the old type and this is a no-op.
+            // Position eligibility (subscript/async deferral) is centralized in
+            // MethodEnvironment.AllowsExistentialReturnUnionProjection so the signature path, the
+            // return-body wrapping in WrapperEmitter.Return, and the degradation-marker suppression in
+            // MethodHandler all consult ONE answer and cannot desync. When the position is ineligible (or
+            // the existential has no known conformers / the engine is unwired, e.g. a settable property's
+            // accessor env) the oracle returns the old type and this is a no-op — the existential falls
+            // through to the factory unchanged.
+            if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
+            {
+                var existentialReturnList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
+                var existentialReturnType = _env.ExistentialHandler.GetPublicExistentialType(
+                    existentialReturnList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
+                if (existentialReturnType == "Swift.Runtime.ExistentialUnion")
+                {
+                    SetReturnType(existentialReturnType);
+                    return;
+                }
+            }
+
             // Try factory-based projection for non-tuple types.
             // Tuples use legacy handling to preserve element labels and match marshalling
             // (factory TupleProjection does deep conversion; marshalling hasn't been updated yet).

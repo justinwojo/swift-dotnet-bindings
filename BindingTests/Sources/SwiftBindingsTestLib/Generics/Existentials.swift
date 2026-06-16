@@ -160,8 +160,36 @@ public struct AttributeHolder {
     }
 }
 
+/// Holder with a SETTABLE PAT existential property. A settable existential shares one C# type
+/// across getter and setter; because `Swift.Runtime.ExistentialUnion` is return-only (forward
+/// try-cast, no input marshalling), the generator must keep BOTH the public property type AND its
+/// backing getter at `object` here — NOT `ExistentialUnion`. If the getter alone projected to union
+/// the backing getter's return type would desync from the `object` property type (CS0266), and a
+/// `holder.current = holder.current` round-trip would feed an ExistentialUnion into the setter's
+/// input marshalling. Regression guard for S12 review finding #1 (read-write PAT property).
+public struct MutableAttributeHolder {
+    public var current: any AttributeKind
+
+    public init(color: String) {
+        self.current = ColorAttribute(label: "color", value: color)
+    }
+
+    public init(size: Int32) {
+        self.current = SizeAttribute(label: "size", value: size)
+    }
+}
+
 /// Free function returning existential of PAT protocol.
 public func makeColorAttribute(name: String, color: String) -> any AttributeKind {
+    return ColorAttribute(label: name, value: color)
+}
+
+/// Async function returning a PAT existential. Async existential returns are DEFERRED this session:
+/// the async harness materializes the result through its own object-typed path, so the generator must
+/// keep this `object` — projecting to `ExistentialUnion` would emit a `TaskCompletionSource<
+/// ExistentialUnion>` the harness never fills (a generated type mismatch). Regression guard for S12
+/// review finding #2 (async PAT existential return).
+public func makeColorAttributeAsync(name: String, color: String) async -> any AttributeKind {
     return ColorAttribute(label: name, value: color)
 }
 

@@ -33,52 +33,52 @@ public class ExistentialUnionTests : TestBase
         AssertEqual("flag", holder.AttributeLabel, "FlagAttribute label");
     }
 
-    // The three try-cast tests below are deferred: the PAT existential `any AttributeKind` currently
-    // degrades to `object` (surfaced loudly via SWIFTBIND023), so `holder.Attribute` is NOT projected
-    // to ExistentialUnion yet. The real projection lands with Finding 21 in Session 12. Each test now
-    // ASSERTS `union is ExistentialUnion` up front — the previous `if (union is ExistentialUnion)`
-    // guard let the body be skipped, making the test vacuously green even though projection is absent.
-    // With the hard assert + [Skip] the deferral is explicit; removing [Skip] in Session 12 turns the
-    // assert red until the projection works, instead of silently passing.
+    // Finding 21 / Session 12: the PAT existential `any AttributeKind` has known conformers
+    // (ColorAttribute / SizeAttribute / FlagAttribute), so `holder.Attribute` (a get-only property in a
+    // pure-read position) projects to Swift.Runtime.ExistentialUnion — the read-only forward try-cast
+    // wrapper — instead of degrading to `object` with a SWIFTBIND023 marker. The strongly-typed
+    // `ExistentialUnion union = holder.Attribute;` is itself a compile-time projection assertion: if the
+    // property ever regressed to `object`, this would fail to convert and the compile gate would go red.
 
-    [Skip("PAT existential 'any AttributeKind' degrades to object (SWIFTBIND023); ExistentialUnion projection deferred to Finding 21 / Session 12.")]
     public void TestExistentialUnion_TryCast_ColorAttribute()
     {
         var holder = new AttributeHolder(color: "blue");
-        var union = holder.Attribute;
-        AssertNotNull(union, "Attribute should return ExistentialUnion");
-        AssertTrue(union is ExistentialUnion, "Attribute should project to ExistentialUnion, not degrade to object");
-        if (union is ExistentialUnion eu)
-        {
-            var color = eu.As<ColorAttribute>();
-            AssertNotNull(color, "TryCast to ColorAttribute should succeed");
-        }
+        ExistentialUnion union = holder.Attribute;
+        AssertNotNull(union, "Attribute should project to ExistentialUnion");
+        var color = union.As<ColorAttribute>();
+        AssertNotNull(color, "TryCast to ColorAttribute should succeed");
     }
 
-    [Skip("PAT existential 'any AttributeKind' degrades to object (SWIFTBIND023); ExistentialUnion projection deferred to Finding 21 / Session 12.")]
     public void TestExistentialUnion_TryCast_SizeAttribute()
     {
         var holder = new AttributeHolder(size: 100);
-        var union = holder.Attribute;
-        AssertNotNull(union, "Attribute should return ExistentialUnion");
-        AssertTrue(union is ExistentialUnion, "Attribute should project to ExistentialUnion, not degrade to object");
-        if (union is ExistentialUnion eu)
-        {
-            var size = eu.As<SizeAttribute>();
-            AssertNotNull(size, "TryCast to SizeAttribute should succeed");
-        }
+        ExistentialUnion union = holder.Attribute;
+        AssertNotNull(union, "Attribute should project to ExistentialUnion");
+        var size = union.As<SizeAttribute>();
+        AssertNotNull(size, "TryCast to SizeAttribute should succeed");
     }
 
-    [Skip("PAT existential 'any AttributeKind' degrades to object (SWIFTBIND023); ExistentialUnion projection deferred to Finding 21 / Session 12.")]
     public void TestExistentialUnion_TryCast_WrongType_ReturnsNull()
     {
         var holder = new AttributeHolder(color: "green");
-        var union = holder.Attribute;
-        AssertTrue(union is ExistentialUnion, "Attribute should project to ExistentialUnion, not degrade to object");
-        if (union is ExistentialUnion eu)
-        {
-            var size = eu.As<SizeAttribute>();
-            AssertNull(size, "TryCast to wrong type should return null");
-        }
+        ExistentialUnion union = holder.Attribute;
+        var size = union.As<SizeAttribute>();
+        AssertNull(size, "TryCast to wrong type should return null");
+    }
+
+    // Finding 21 / Session 12 finding #1: the SETTABLE PAT property MutableAttributeHolder.Current
+    // keeps BOTH its public type and its backing getter at `object` (ExistentialUnion is return-only,
+    // no input marshalling). The strongly-typed `object current = holder.Current;` plus the
+    // `holder.Current = current;` round-trip is the runtime hazard the review flagged: if the getter
+    // had projected to ExistentialUnion under an `object` property, this round-trip would feed an
+    // ExistentialUnion back into the setter's input marshalling. Assert it round-trips without crashing.
+    public void TestMutableAttributeHolder_ObjectRoundTrip_DoesNotCrash()
+    {
+        var holder = new MutableAttributeHolder(color: "blue");
+        object current = holder.Current;
+        AssertNotNull(current, "Settable PAT property getter should return a non-null object");
+        holder.Current = current;   // round-trip back through the setter — must not crash
+        object again = holder.Current;
+        AssertNotNull(again, "Settable PAT property should still read back after a round-trip set");
     }
 }

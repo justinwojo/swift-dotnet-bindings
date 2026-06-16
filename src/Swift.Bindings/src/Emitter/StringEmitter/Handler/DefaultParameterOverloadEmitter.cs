@@ -300,11 +300,34 @@ public static class DefaultParameterOverloadEmitter
                     silgenHasResultBuffer: silgenUsesResultBuf);
             }
 
-            // Delegate C# emission to normal pipeline
-            TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
-            foreach (var argument in overloadDecl.CSSignature)
+            // Delegate C# emission to normal pipeline.
+            // Position-aware degradation (mirrors MethodHandler): CSSignature[0] is the return. A return
+            // that projects to Swift.Runtime.ExistentialUnion (a PAT-with-conformers existential in a
+            // pure-read position) is NOT a degradation, so it is excluded from BOTH the single
+            // [UnsupportedSwiftType] anchor scan AND the SWIFTBIND023 degradation record — using the SAME
+            // AllowsExistentialReturnUnionProjection gate + engine oracle as the signature/body paths, so
+            // a default-parameter overload whose return the wrapper actually projects to union can't keep
+            // a stale degradation marker. overloadEnv carries EmissionContext (hence the engine), set above.
+            var overloadSignatureArgs = overloadDecl.CSSignature;
+            bool overloadReturnProjectsToUnion = false;
+            var overloadReturnSpec = overloadSignatureArgs.Count > 0 ? overloadSignatureArgs[0].SwiftTypeSpec : null;
+            if (overloadReturnSpec != null && overloadEnv.ExistentialHandler.IsExistential(overloadReturnSpec))
             {
-                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(env.TypeDatabase, env.ClosureHandler, argument.SwiftTypeSpec, out var foundFallbackInfo))
+                var overloadReturnProtoList = overloadEnv.ExistentialHandler.ToProtocolListTypeSpec(overloadReturnSpec)!;
+                overloadReturnProjectsToUnion = overloadEnv.ExistentialHandler.GetPublicExistentialType(
+                    overloadReturnProtoList, allowUnionProjection: overloadEnv.AllowsExistentialReturnUnionProjection) == "Swift.Runtime.ExistentialUnion";
+            }
+
+            var overloadDegradedSpecs = (overloadReturnProjectsToUnion
+                ? overloadSignatureArgs.Skip(1)
+                : overloadSignatureArgs.AsEnumerable())
+                .Select(a => a.SwiftTypeSpec)
+                .ToList();
+
+            TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
+            foreach (var spec in overloadDegradedSpecs)
+            {
+                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(env.TypeDatabase, env.ClosureHandler, spec, out var foundFallbackInfo))
                 {
                     fallbackInfo = foundFallbackInfo;
                     break;
@@ -312,12 +335,12 @@ public static class DefaultParameterOverloadEmitter
             }
 
             // The single flag above names only the first degraded position, but SWIFTBIND023 promises
-            // one loud warning per DISTINCT degraded existential. Record the whole overload signature
-            // (return + every param) so an existential that only appears as a 2nd+ position is not
-            // silently degraded to object; dedup makes the overlap with the flag above harmless.
+            // one loud warning per DISTINCT degraded existential. Record every degraded position so an
+            // existential that only appears as a 2nd+ position is not silently degraded to object; dedup
+            // makes the overlap with the flag above harmless. A union-projected return is excluded above.
             UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
                 emissionContext, env.TypeDatabase, env.ClosureHandler,
-                overloadDecl.CSSignature.Select(a => a.SwiftTypeSpec));
+                overloadDegradedSpecs);
 
             var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo, emissionContext);
             if (overloadDecl.IsConstructor && !overloadDecl.IsFailable && !overloadDecl.IsAsync)

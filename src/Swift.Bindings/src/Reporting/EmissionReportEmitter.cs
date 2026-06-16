@@ -159,8 +159,13 @@ public static class EmissionReportEmitter
         }
 
         // Defect E: turn the previously-silent existential→object degradation into a loud
-        // per-type diagnostic. One SWIFTBIND023 warning per distinct existential — the real
-        // ExistentialUnion projection is deferred, so the consumer gets `object` for now, but
+        // per-type diagnostic. One SWIFTBIND023 warning per distinct existential that STILL degrades.
+        // PAT (associated-type) existentials WITH known concrete conformers now project to
+        // Swift.Runtime.ExistentialUnion in pure-read return positions (get-only property getters,
+        // non-async/non-subscript method & free-function returns) and are NOT recorded here. What
+        // remains in DegradedExistentials is the genuinely-unprojectable surface — no known conformers,
+        // input/parameter/setter positions (ExistentialUnion is return-only), and the still-deferred
+        // positions (optional `(any P)?`, async returns, subscripts, tuple/collection elements) — and
         // the binding author is told exactly which protocol surfaces lost type fidelity.
         foreach (var degraded in report.DegradedExistentials)
         {

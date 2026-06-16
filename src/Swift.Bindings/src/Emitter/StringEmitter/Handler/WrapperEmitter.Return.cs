@@ -452,7 +452,8 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"var existentialResult = {existentialRead};");
 
                     if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
-                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                    // Return position: allow the PAT-with-conformers union projection (read-only).
+                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
                     if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
                     // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
                     if (publicType == "Swift.Runtime.ExistentialUnion")
@@ -777,7 +778,8 @@ namespace BindingsGeneration
 
                 // Then wrap in proxy (same logic as non-cdecl path below)
                 if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
-                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                // Return position (pure read) → allow the PAT-with-conformers union projection.
+                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
                 if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
                 // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
                 if (publicType == "Swift.Runtime.ExistentialUnion")
@@ -805,7 +807,8 @@ namespace BindingsGeneration
 
                 // Metatype/unresolved existential → GetPublicExistentialType returns "object"
                 // No proxy class exists; return container directly (public type is AnyType via [UnsupportedSwiftType])
-                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                // Return position (pure read) → allow the PAT-with-conformers union projection.
+                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
                 if (publicType == "object")
                 {
                     csWriter.WriteLine($"return {ReturnLocalName};");

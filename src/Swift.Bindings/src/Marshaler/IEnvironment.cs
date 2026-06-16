@@ -259,7 +259,60 @@ namespace BindingsGeneration
         /// rebuild a fresh environment); contract enforcement is opt-in and only
         /// fires when this is non-null.
         /// </summary>
-        public ModuleEmissionContext? EmissionContext { get; set; }
+        /// <remarks>
+        /// Setting this also publishes the module's <see cref="ConcreteSpecializationEngine"/>
+        /// onto this environment's <see cref="ExistentialHandler"/>, so env-path existential
+        /// resolution (method/property returns) can reach the conformer oracle. Direction safety
+        /// is enforced by the <c>allowUnionProjection</c> flag on
+        /// <see cref="ExistentialHandler.GetPublicExistentialType"/> — NOT by engine presence —
+        /// so wiring the engine unconditionally never flips a parameter/setter (which has no
+        /// ExistentialUnion input marshalling) to an unmarshallable type.
+        /// </remarks>
+        public ModuleEmissionContext? EmissionContext
+        {
+            get => _emissionContext;
+            set
+            {
+                _emissionContext = value;
+                ExistentialHandler.SpecializationEngine = value?.SpecializationEngine;
+            }
+        }
+        private ModuleEmissionContext? _emissionContext;
+
+        /// <summary>
+        /// Whether a non-optional existential RETURN in this environment is eligible to project to the
+        /// read-only <c>Swift.Runtime.ExistentialUnion</c> wrapper. ExistentialUnion is return-only
+        /// (forward try-cast, no input marshalling), so projection is confined to pure-read return
+        /// positions. Subscript accessors (the indexer type is resolved separately by SubscriptHandler and
+        /// mixes a read return with input index params) and async returns (the async harness materializes
+        /// the result through its own object-typed path) are BOTH deferred this session — see S12 plan.
+        /// This is the SINGLE position gate consulted by the signature path
+        /// (<c>WrapperSignatureBuilder.HandleReturnType</c>), the return-body wrapping
+        /// (<c>WrapperEmitter.Return</c>), and the degradation-marker suppression (<c>MethodHandler</c> /
+        /// <c>DefaultParameterOverloadEmitter</c>), so those sites can never disagree on whether a given
+        /// return projects to union. The conformer/engine gate is layered on top inside
+        /// <see cref="ExistentialHandler.GetPublicExistentialType"/>; this property encodes POSITION
+        /// eligibility only.
+        /// <para>
+        /// <see cref="IsSettablePropertyAccessor"/> is folded in DIRECTLY (not via engine presence): a
+        /// settable property keeps its public type at <c>object</c> (ExistentialUnion has no input
+        /// marshalling), so its backing getter must too. Relying on "don't wire the engine" is NOT robust
+        /// because the <see cref="EmissionContext"/> setter re-publishes the engine onto the accessor env
+        /// after the signature is built — leaving the signature <c>object</c> but letting the body project
+        /// to union. Gating the predicate itself forces <c>allowUnionProjection: false</c> at every site
+        /// regardless of when/whether the engine is (re-)wired.
+        /// </para>
+        /// </summary>
+        public bool AllowsExistentialReturnUnionProjection =>
+            !MethodDecl.IsSubscriptAccessor && !MethodDecl.IsAsync && !IsSettablePropertyAccessor;
+
+        /// <summary>
+        /// Set by <c>PropertyHandler</c> on a settable property's accessor environment so
+        /// <see cref="AllowsExistentialReturnUnionProjection"/> keeps the backing getter at <c>object</c>
+        /// in lockstep with the public (settable) property type. Default false: free functions, methods,
+        /// and get-only property accessors are unaffected.
+        /// </summary>
+        public bool IsSettablePropertyAccessor { get; set; }
     }
 
     /// <summary>
@@ -326,5 +379,26 @@ namespace BindingsGeneration
         /// AsyncStream handler instance for handling Swift AsyncStream types.
         /// </summary>
         public AsyncStreamHandler AsyncStreamHandler { get; } = new AsyncStreamHandler(typeDatabase);
+
+        /// <summary>
+        /// Per-module emission context, threaded by the property handler. Setting it publishes the
+        /// module's <see cref="ConcreteSpecializationEngine"/> onto this environment's
+        /// <see cref="ExistentialHandler"/> so a get-only existential property getter (a pure-read
+        /// position) can project a PAT-with-conformers existential to <c>Swift.Runtime.ExistentialUnion</c>.
+        /// Direction safety is the caller's responsibility via the <c>allowUnionProjection</c> flag on
+        /// <see cref="ExistentialHandler.GetPublicExistentialType"/>: a settable property keeps its
+        /// shared getter/setter type at <c>object</c> because the setter has no ExistentialUnion input
+        /// marshalling, so the getter type must pass <c>allowUnionProjection: false</c> there.
+        /// </summary>
+        public ModuleEmissionContext? EmissionContext
+        {
+            get => _emissionContext;
+            set
+            {
+                _emissionContext = value;
+                ExistentialHandler.SpecializationEngine = value?.SpecializationEngine;
+            }
+        }
+        private ModuleEmissionContext? _emissionContext;
     }
 }

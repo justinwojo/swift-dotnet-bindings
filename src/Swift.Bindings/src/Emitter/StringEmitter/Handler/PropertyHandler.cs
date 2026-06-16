@@ -75,6 +75,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Marshal() creates environments without the collector; Emit() has the context.
         if (context.CompositionCollector != null)
             propertyEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
+        // Publish the module emission context (and, through its setter, the conformer oracle) onto
+        // this property environment so a get-only existential getter can project a PAT-with-conformers
+        // existential to ExistentialUnion. Direction safety is gated by allowUnionProjection below.
+        propertyEnv.EmissionContext = context.GetEmissionContext();
         var propertyDecl = propertyEnv.PropertyDecl;
 
         // Register the per-module SBW_CreateError_{module} helper if this property is a
@@ -264,11 +268,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             ? GenericContext.FromType(propParentType)
             : (GenericContext?)null;
 
+        // A get-only existential property getter is a pure-read position, so a PAT-with-conformers
+        // existential may project to ExistentialUnion (read-only try-cast). A settable property shares
+        // ONE C# type across getter and setter, and ExistentialUnion has no input marshalling, so an
+        // emitted setter forces the type back to object. For a non-closure existential property
+        // accessorsToEmit (computed below) equals propertyDecl.Accessors, so checking the decl's
+        // accessors here is equivalent to "will emit a public setter". This SAME flag gates both (a) the
+        // public property type immediately below and (b) whether the engine is wired onto the accessor
+        // env that emits the backing getter method (further below) — they MUST agree, else a settable
+        // property would expose `object` publicly while its backing getter returns ExistentialUnion.
+        bool isGetOnlyProperty = !propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
+
         string csTypeName;
         if (isExistential)
         {
             var protocolList = propertyEnv.ExistentialHandler.ToProtocolListTypeSpec(propertyDecl.SwiftTypeSpec)!;
-            csTypeName = propertyEnv.ExistentialHandler.GetPublicExistentialType(protocolList);
+            csTypeName = propertyEnv.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: isGetOnlyProperty);
         }
         else if (isOptionalExistential)
         {
@@ -731,6 +746,38 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Inject composition collector into accessor's ExistentialHandler
                 if (context.CompositionCollector != null)
                     accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
+                // Wire the specialization engine onto the accessor's existential oracle so the backing
+                // accessor method's RETURN TYPE projects to ExistentialUnion in lockstep with the
+                // property type and the accessor body. MethodHandler.Emit only sets EmissionContext for
+                // non-accessor paths (!isAccessor), and the property-wrapper accessor gets a fresh env
+                // here, so without this the signature path (MethodSignature.HandleReturnType) would see a
+                // null engine and degrade a PAT existential return to `object` — yielding a property of
+                // type ExistentialUnion backed by an `object`-returning method (CS0266). We wire only the
+                // engine, not the full EmissionContext, to avoid enabling the EmissionContext-gated
+                // wrapper-symbol contract check on the accessor path.
+                //
+                // A settable property keeps its public type at `object` (union has no input marshalling),
+                // so its backing getter must ALSO stay `object`. We mark the accessor env directly via
+                // IsSettablePropertyAccessor so AllowsExistentialReturnUnionProjection forces
+                // allowUnionProjection: false at every return-projection site (signature, body,
+                // degradation) — keeping the getter consistent with the public `object` type and
+                // round-trip-safe (`holder.P = holder.P` never feeds an ExistentialUnion into the setter's
+                // input marshalling). This is robust where "just don't wire the engine" was NOT: MethodHandler.Emit
+                // re-publishes the EmissionContext (hence the engine) onto the accessor env after the
+                // signature is built, which would otherwise let the body project to union while the
+                // signature stayed `object`.
+                accessorEnv.IsSettablePropertyAccessor = !isGetOnlyProperty;
+
+                // For the get-only case we still wire the engine here so the SIGNATURE path
+                // (MethodSignature.HandleReturnType) sees it: MethodHandler.Emit only sets EmissionContext
+                // for non-accessor paths (!isAccessor), and the property-wrapper accessor gets a fresh env
+                // here, so without this the signature path would see a null engine and degrade a get-only
+                // PAT existential return to `object` — yielding a property of type ExistentialUnion backed
+                // by an `object`-returning method (CS0266). We wire only the engine, not the full
+                // EmissionContext, to avoid enabling the EmissionContext-gated wrapper-symbol contract
+                // check on the accessor path.
+                if (isGetOnlyProperty)
+                    accessorEnv.ExistentialHandler.SpecializationEngine = context.GetEmissionContext()?.SpecializationEngine;
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
             }
         }
@@ -779,8 +826,19 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
+        // A get-only existential property projected to Swift.Runtime.ExistentialUnion is NOT a
+        // degradation — it is a supported read-only try-cast projection. Suppress both the
+        // [UnsupportedSwiftType] marker and the SWIFTBIND023 degradation record for that position.
+        // The degradation oracle (TryFindFallbackInfo / RecordExistentialDegradations) is type-based
+        // and direction-blind — it always tags `any PAT` as degrading — so suppression is the
+        // emission position's responsibility: a settable property keeps csTypeName == "object" (no
+        // ExistentialUnion setter marshalling) and a non-PAT / unresolved property keeps its proxy
+        // or "object" type, so their markers still fire unchanged.
+        bool isUnionProjectedProperty = csTypeName == "Swift.Runtime.ExistentialUnion";
+
         TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
-        if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(propertyEnv.TypeDatabase, propertyEnv.ClosureHandler, propertyDecl.SwiftTypeSpec, out var foundFallbackInfo))
+        if (!isUnionProjectedProperty &&
+            UnsupportedSwiftTypeSupport.TryFindFallbackInfo(propertyEnv.TypeDatabase, propertyEnv.ClosureHandler, propertyDecl.SwiftTypeSpec, out var foundFallbackInfo))
         {
             fallbackInfo = foundFallbackInfo;
         }
@@ -789,9 +847,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // one loud warning per DISTINCT degraded existential. Record the whole property type so a
         // second-or-later existential (e.g. a property typed `(any P, any Q)`) is not silently
         // degraded to object; dedup makes the overlap with the flag above harmless.
-        UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
-            context.GetEmissionContext(), propertyEnv.TypeDatabase, propertyEnv.ClosureHandler,
-            new[] { propertyDecl.SwiftTypeSpec });
+        if (!isUnionProjectedProperty)
+        {
+            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                context.GetEmissionContext(), propertyEnv.TypeDatabase, propertyEnv.ClosureHandler,
+                new[] { propertyDecl.SwiftTypeSpec });
+        }
 
         var staticModifier = propertyDecl.IsStatic ? "static " : string.Empty;
 
