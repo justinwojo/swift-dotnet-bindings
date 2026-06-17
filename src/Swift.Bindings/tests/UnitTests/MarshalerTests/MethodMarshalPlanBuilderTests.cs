@@ -884,7 +884,7 @@ public class MethodMarshalPlanBuilderTests
         var method = new MethodDecl
         {
             Name = methodName,
-            // Mangled name without 'XC' so HasConventionCInMangledName returns false
+            // Mangled name with no CFunctionPointer node, so convention(c) detection returns false
             // and the closure routes through the normal thunked-closure path.
             MangledName = $"$s10TestModule6Holder{methodName.Length}{methodName}yyF",
             MethodType = MethodType.Instance,

@@ -93,7 +93,12 @@ internal class Swift5Reducer
         // derives async/throws from annotation PRESENCE, which is behavior-identical to the four
         // old reducers for the un-annotated cases.
         new MatchRule() {
-            Name = "FunctionType", NodeKindList = new List<NodeKind> () { NodeKind.FunctionType, NodeKind.NoEscapeFunctionType },
+            // CFunctionPointer (@convention(c)) shares FunctionType's child shape (annotations +
+            // ArgumentTuple + ReturnType), so it reduces through the same path; ConvertFunctionType
+            // tags the resulting closure with IsConventionC. Finding 17: before this it had no rule,
+            // so a convention-c closure left the reducer as a "No rule for node CFunctionPointer" miss
+            // and convention detection fell back to the mangled-name "XC" substring probe.
+            Name = "FunctionType", NodeKindList = new List<NodeKind> () { NodeKind.FunctionType, NodeKind.NoEscapeFunctionType, NodeKind.CFunctionPointer },
             Reducer = ConvertFunctionType,
         },
         new MatchRule() {
@@ -500,6 +505,10 @@ internal class Swift5Reducer
         // index, which keeps this correct for every annotation combination Swift can mangle
         // (e.g. @Sendable closures and typed throws, neither of which the old fixed rules matched).
         var noEscaping = node.Kind == NodeKind.NoEscapeFunctionType;
+        // Finding 17: a CFunctionPointer node is the demangled form of a @convention(c) closure;
+        // tag the resulting ClosureTypeSpec so the marshaler reads convention off the reduced tree
+        // instead of probing the mangled name for the "XC" substring.
+        var isConventionC = node.Kind == NodeKind.CFunctionPointer;
 
         if (node.Children.Count < 2)
             return ReductionErrorLow(ExpectedButGot("FunctionType with ArgumentTuple and ReturnType children",
@@ -521,7 +530,7 @@ internal class Swift5Reducer
                 throws = true;
         }
 
-        return ConvertFunctionAsyncThrows(argTuple, @return, async, throws, noEscaping, mangledName);
+        return ConvertFunctionAsyncThrows(argTuple, @return, async, throws, noEscaping, isConventionC, mangledName);
     }
 
     /// <summary>
@@ -532,9 +541,10 @@ internal class Swift5Reducer
     /// <param name="async">Whether or not the function is async</param>
     /// <param name="throws">Whether or not the function can throw</param>
     /// <param name="noEscaping">Whether or not the function can't escape</param>
+    /// <param name="isConventionC">Whether the function uses the C calling convention (<c>@convention(c)</c>)</param>
     /// <param name="mangledName">the mangled name that generated the Node</param>
     /// <returns>A TypeSpecReduction containing a ClosureTypeSpec</returns>
-    static IReduction ConvertFunctionAsyncThrows(Node argTuple, Node @return, bool async, bool throws, bool noEscaping, string mangledName)
+    static IReduction ConvertFunctionAsyncThrows(Node argTuple, Node @return, bool async, bool throws, bool noEscaping, bool isConventionC, string mangledName)
     {
         var reduction = ConvertFirstChild(argTuple, mangledName);
         if (reduction is ReductionError error)
@@ -549,6 +559,7 @@ internal class Swift5Reducer
                 var closure = new ClosureTypeSpec(argsTypeSpecReduction.TypeSpec, returnTypeSpecReduction.TypeSpec);
                 closure.Throws = throws;
                 closure.IsAsync = async;
+                closure.IsConventionC = isConventionC;
                 if (!noEscaping)
                     closure.Attributes.Add(new TypeSpecAttribute("escaping"));
                 return new TypeSpecReduction() { Symbol = argsTypeSpecReduction.Symbol, TypeSpec = closure };

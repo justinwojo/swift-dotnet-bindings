@@ -966,9 +966,13 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void HasConventionCInMangledName_XCInFunctionTypeSection_Detected()
+    public void ConventionC_RealCFunctionPointer_SuppressesCdeclWrapper()
     {
-        // XC after 'y' (function type start) → correctly detected
+        // The mangled name carries a genuine @convention(c) closure — XC (CFunctionPointer) in the
+        // function-type section. Finding 17: detection now walks the demangled node tree
+        // (MethodHasConventionCClosure) instead of the "XC" substring, and a real CFunctionPointer
+        // node is found, so the Cdecl-wrapper path is correctly suppressed (our adapter Swift closure
+        // can't be passed where a raw C function pointer is expected).
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -985,35 +989,27 @@ public class ClosureCdeclEmitterTests
         method.MangledName = "$s20SwiftBindingsTestLib13callCFunctionys5Int32VA2DXCF";
         method.CSSignature.Add(CreateArgument("fn", closureType, moduleDecl));
 
+        Assert.True(closureHandler.MethodHasConventionCClosure(method.MangledName),
+            "a genuine CFunctionPointer node must be detected by the grammar walk");
         Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
-    public void HasConventionCInMangledName_XCInIdentifierOnly_SafeFalsePositive()
+    public void ConventionC_XCInIdentifierOnly_NotFalsePositive()
     {
-        // XC in identifier name (e.g., "processXCData") triggers a safe false positive:
-        // the method is suppressed from Cdecl wrapping and stays on the functional legacy
-        // CallConvSwift path. This is safe — the alternative (false negative) would cause
-        // Swift compile errors when wrapping actual @convention(c) closures.
+        // Finding 17: the old "XC" substring scan FALSE-POSITIVED on any identifier containing "XC"
+        // (e.g. "processXCData"), conservatively suppressing the Cdecl wrapper. On the real corpus
+        // that was harmless (such methods carry no closures), but it was still a calling-convention
+        // misclassification waiting to bite. The grammar walk parses the mangled name and finds NO
+        // CFunctionPointer node here, so it is correctly NOT treated as @convention(c).
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
-        var moduleDecl = CreateModuleDecl("TestModule");
-        var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        var closureType = new ClosureTypeSpec(
-            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
-            TupleTypeSpec.Empty);
-        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        // "13processXCData" — XC lives inside the identifier, not in a function-type section.
+        const string mangledName = "$s10TestModule6LoaderC13processXCDataySiyF";
 
-        var method = CreateMethodDecl("processXCData", parentDecl, moduleDecl,
-            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
-            methodType: MethodType.Instance);
-        // XC appears in the identifier — detected as @convention(c) (safe false positive)
-        method.MangledName = "$s10TestModule6LoaderC13processXCDataySiyF";
-        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
-
-        // Safe false positive: suppresses Cdecl wrapper, stays on legacy path
-        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.False(closureHandler.MethodHasConventionCClosure(mangledName),
+            "an identifier-embedded 'XC' must not be read as a @convention(c) closure");
     }
 
     [Fact]

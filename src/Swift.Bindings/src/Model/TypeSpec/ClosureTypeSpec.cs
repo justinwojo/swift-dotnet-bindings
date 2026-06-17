@@ -56,6 +56,15 @@ public class ClosureTypeSpec : TypeSpec
     public bool IsAsync { get; set; }
 
     /// <summary>
+    /// Returns true if the closure uses the C calling convention (<c>@convention(c)</c>), i.e. it is
+    /// a bare C function pointer with no Swift context. Finding 17: the demangler reduces a
+    /// <see cref="BindingsGeneration.Demangling.NodeKind.CFunctionPointer"/> node to a closure with
+    /// this flag set, replacing the former <c>mangledName.Contains("XC")</c> substring probe — where a
+    /// false positive is a calling-convention error, not a degrade.
+    /// </summary>
+    public bool IsConventionC { get; set; }
+
+    /// <summary>
     /// Returns true if the return type is <B>not</B> an empty tuple
     /// </summary>
     public bool HasReturn()

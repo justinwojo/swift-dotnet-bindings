@@ -265,6 +265,7 @@ public enum NodeKind
     ThrowsAnnotation,
     AsyncAnnotation,
     ConcurrentFunctionType,
+    OpaqueReturnType,
     TypedThrowsAnnotation,
     EmptyList,
     FirstElementMarker,

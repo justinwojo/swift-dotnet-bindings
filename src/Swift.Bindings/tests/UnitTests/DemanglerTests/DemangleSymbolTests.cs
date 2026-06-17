@@ -17,26 +17,44 @@ public class DemangleSymbolTests
     // DemangleSymbol() public API path tests
     // ================================================================
 
-    [Fact]
-    public void DemangleSymbol_ValidSymbol_ReturnsNull_KnownPortingBug()
+    // Finding 17 fixed the DemangleSymbol() brace bug: the foreach that drains the node stack into
+    // the Global node was nested inside the while(funcAttr) loop, so a symbol with zero function
+    // attributes (every normal symbol) never populated topLevel and the method returned null. With
+    // the foreach dedented out of the loop, DemangleSymbol() now returns the parsed Global tree.
+    private static bool ContainsKind(DemanglerNode node, NodeKind kind)
     {
-        // Known porting bug: the foreach loop that adds remaining nodes to the
-        // Global node is INSIDE the while(funcAttr) loop. Since most symbols
-        // don't have function attributes, the while loop body never executes
-        // and topLevel remains empty → returns null.
-        var demangler = new Swift5Demangler();
-        var node = demangler.DemangleSymbol("$s22GeneralHackingNonsense12ThisIsAClassCMa");
-        Assert.Null(node);
+        if (node is null)
+            return false;
+        if (node.Kind == kind)
+            return true;
+        foreach (var child in node.Children)
+            if (ContainsKind(child, kind))
+                return true;
+        return false;
     }
 
     [Fact]
-    public void DemangleSymbol_WithLeadingUnderscore_ReturnsNull_KnownPortingBug()
+    public void DemangleSymbol_MetadataAccessor_ReturnsGlobalTree()
     {
-        // Same porting bug as above — leading underscore stripped, but node
-        // still not added to topLevel because no function attributes present.
+        // type metadata accessor for GeneralHackingNonsense.ThisIsAClass ('Ma').
+        var demangler = new Swift5Demangler();
+        var node = demangler.DemangleSymbol("$s22GeneralHackingNonsense12ThisIsAClassCMa");
+        Assert.NotNull(node);
+        Assert.Equal(NodeKind.Global, node.Kind);
+        Assert.NotEmpty(node.Children);
+        Assert.True(ContainsKind(node, NodeKind.TypeMetadataAccessFunction),
+            "the demangled tree for an 'Ma' symbol must carry a TypeMetadataAccessFunction node");
+    }
+
+    [Fact]
+    public void DemangleSymbol_WithLeadingUnderscore_ReturnsGlobalTree()
+    {
+        // Same symbol with the platform leading-underscore prefix stripped — must demangle equally.
         var demangler = new Swift5Demangler();
         var node = demangler.DemangleSymbol("_$s22GeneralHackingNonsense12ThisIsAClassCMa");
-        Assert.Null(node);
+        Assert.NotNull(node);
+        Assert.Equal(NodeKind.Global, node.Kind);
+        Assert.True(ContainsKind(node, NodeKind.TypeMetadataAccessFunction));
     }
 
     [Fact]
@@ -56,14 +74,17 @@ public class DemangleSymbolTests
     }
 
     [Fact]
-    public void DemangleSymbol_FunctionSymbol_ReturnsNull_KnownPortingBug()
+    public void DemangleSymbol_FunctionSymbol_ReturnsGlobalTree()
     {
-        // Same porting bug — even function symbols return null because Function
-        // is not a "function attribute" (IsFunctionAttr only matches specialization
-        // and attribute node kinds, not Function itself).
+        // GeneralHackingNonsense.ThisIsAClass.returnSeven() -> Swift.Int. Function is not a
+        // "function attribute", so before the brace fix the while(funcAttr) loop never ran and the
+        // method returned null; now the foreach drains the Function node into the Global tree.
         var demangler = new Swift5Demangler();
         var node = demangler.DemangleSymbol("$s22GeneralHackingNonsense12ThisIsAClassC11returnSevenSiyF");
-        Assert.Null(node);
+        Assert.NotNull(node);
+        Assert.Equal(NodeKind.Global, node.Kind);
+        Assert.True(ContainsKind(node, NodeKind.Function),
+            "the demangled tree for a function symbol must carry a Function node");
     }
 
     [Fact]
@@ -79,27 +100,27 @@ public class DemangleSymbolTests
     [Fact]
     public void DemangleSymbol_CanBeCalledMultipleTimes_WithoutThrowing()
     {
-        // DemangleSymbol() reinitializes state via Init(), so multiple calls should not throw.
-        // Both return null due to the porting bug, but state isolation is the key property.
+        // DemangleSymbol() reinitializes state via Init(), so multiple calls are state-isolated.
         var demangler = new Swift5Demangler();
         var node1 = demangler.DemangleSymbol("$s22GeneralHackingNonsense12ThisIsAClassCMa");
         var node2 = demangler.DemangleSymbol("$s22GeneralHackingNonsense12ThisIsAClassC11returnSevenSiyF");
-        // Both null due to porting bug, but the point is no exception on second call
-        Assert.Null(node1);
-        Assert.Null(node2);
+        Assert.NotNull(node1);
+        Assert.NotNull(node2);
+        Assert.True(ContainsKind(node1, NodeKind.TypeMetadataAccessFunction));
+        Assert.True(ContainsKind(node2, NodeKind.Function));
     }
 
     [Fact]
-    public void DemangleSymbol_PipelineBlockedByPortingBug()
+    public void DemangleSymbol_PipelineWorks()
     {
-        // The full DemangleSymbol → Reducer pipeline cannot work because
-        // DemangleSymbol() returns null for all normal symbols.
-        // Use Run() instead for the full pipeline (tested elsewhere).
+        // Finding 17: the DemangleSymbol() public entry now returns a populated tree, and the
+        // private Run() path (DemangleType → reducer) continues to reduce the same symbol. Both
+        // paths agree that this is the metadata accessor for GeneralHackingNonsense.ThisIsAClass.
         var demangler = new Swift5Demangler();
         var node = demangler.DemangleSymbol("$s22GeneralHackingNonsense12ThisIsAClassCMa");
-        Assert.Null(node);
+        Assert.NotNull(node);
+        Assert.True(ContainsKind(node, NodeKind.TypeMetadataAccessFunction));
 
-        // Verify the Run() path works for the same symbol
         var result = demangler.Run("$s22GeneralHackingNonsense12ThisIsAClassCMa");
         var meta = Assert.IsType<MetadataAccessorReduction>(result);
         Assert.Equal("GeneralHackingNonsense.ThisIsAClass", meta.TypeSpec.Name);

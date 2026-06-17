@@ -2419,10 +2419,13 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = node.throwing ?? false,
-                // Primary source: demangler's FunctionReduction. Fallback: check mangled name
-                // for the "Ya" (async) marker when the demangler doesn't produce a FunctionReduction.
+                // Primary source: demangler's FunctionReduction. Fallback: walk the raw demangled
+                // node tree for an AsyncAnnotation marker when no FunctionReduction is produced
+                // (Constructor/accessor symbols, which the reducer intentionally does not reduce).
+                // Finding 17: this replaces DetectAsyncFromMangledName's "Ya" substring scan with a
+                // grammar-grounded tree walk that cannot false-positive on an incidental "Ya".
                 IsAsync = functionReduction?.Function?.IsAsync
-                    ?? DetectAsyncFromMangledName(mangledName),
+                    ?? demangler.HasAsyncMarker(mangledName),
                 IsSynthesizedAccessor = false,
                 IsMutating = node.funcSelfKind == "Mutating",
                 IsConsuming = node.funcSelfKind == "Consuming",
@@ -2718,29 +2721,6 @@ namespace BindingsGeneration
             }
 
             return methodDecl;
-        }
-
-        /// <summary>
-        /// Fallback async detection from the mangled name when the demangler
-        /// doesn't produce a FunctionReduction (e.g. for some constructors).
-        /// Checks for the "Ya" async marker in Swift's mangling scheme.
-        /// To avoid false positives from identifiers containing "Ya" (e.g. "Yak"),
-        /// we require "Ya" to NOT be preceded by a digit (identifier length prefix).
-        /// </summary>
-        internal static bool DetectAsyncFromMangledName(string mangledName)
-        {
-            int idx = 0;
-            while ((idx = mangledName.IndexOf("Ya", idx, StringComparison.Ordinal)) >= 0)
-            {
-                // If preceded by a digit, it's part of an identifier (e.g. "3Yak") — skip
-                if (idx > 0 && char.IsAsciiDigit(mangledName[idx - 1]))
-                {
-                    idx += 2;
-                    continue;
-                }
-                return true;
-            }
-            return false;
         }
 
         /// <summary>

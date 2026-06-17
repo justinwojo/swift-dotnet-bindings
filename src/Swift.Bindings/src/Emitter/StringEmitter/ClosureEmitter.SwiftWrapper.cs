@@ -1307,10 +1307,11 @@ public static partial class ClosureEmitter
             return false;
 
         // @convention(c) closures are passed as raw C function pointers, not Swift closures.
-        // The ABI JSON doesn't include convention attributes, but the mangled name encodes
-        // @convention(c) as 'XC'. If present, our adapter closure (a regular Swift closure)
-        // can't be passed where a @convention(c) pointer is expected.
-        if (HasConventionCInMangledName(methodDecl.MangledName))
+        // The ABI JSON doesn't include convention attributes; Finding 17 detects them by walking
+        // the demangled tree for a CFunctionPointer node (instead of an "XC" substring scan). If
+        // present, our adapter closure (a regular Swift closure) can't be passed where a
+        // @convention(c) pointer is expected.
+        if (closureHandler.MethodHasConventionCClosure(methodDecl.MangledName))
             return false;
 
         // If the method has ANY async closures (throwing or non-throwing baseline),
@@ -1344,15 +1345,5 @@ public static partial class ClosureEmitter
             && thunkClosures.All(arg =>
                 IsClosureCdeclCompatible(
                     closureHandler.GetClosureTypeSpec(arg)!, closureHandler));
-    }
-
-    /// <summary>
-    /// Checks if a method's mangled name contains the 'XC' marker indicating a
-    /// @convention(c) closure parameter. The ABI JSON doesn't include convention
-    /// attributes on ClosureTypeSpec, so this is the reliable detection path.
-    /// </summary>
-    internal static bool HasConventionCInMangledName(string mangledName)
-    {
-        return mangledName.Contains("XC", StringComparison.Ordinal);
     }
 }

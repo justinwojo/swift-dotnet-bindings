@@ -13,6 +13,10 @@ public class ClosureHandler
     private readonly ITypeDatabase _typeDatabase;
     private readonly TupleHandler _tupleHandler;
     private readonly ExistentialHandler _existentialHandler;
+    // Finding 17: convention(c) detection walks the demangled node tree for a CFunctionPointer node
+    // (HasCFunctionPointerMarker) instead of scanning the mangled name for the "XC" substring — a
+    // false positive here is a calling-convention/ABI fault, so the grammar-grounded check matters.
+    private readonly Demangling.Swift5Demangler _demangler = new();
 
     public ClosureHandler(ITypeDatabase typeDatabase)
     {
@@ -112,6 +116,12 @@ public class ClosureHandler
     /// <returns><c>true</c> if the closure is @convention(c); otherwise, <c>false</c>.</returns>
     public bool IsConventionC(ClosureTypeSpec closureTypeSpec)
     {
+        // Finding 17: a closure reduced from a CFunctionPointer node carries IsConventionC directly,
+        // so honor it first. (Closure specs parsed from ABI JSON printedName do not, which is why the
+        // mangled-name overload below still exists for the parameter path.)
+        if (closureTypeSpec.IsConventionC)
+            return true;
+
         if (!closureTypeSpec.HasAttributes)
             return false;
 
@@ -124,14 +134,20 @@ public class ClosureHandler
     /// <summary>
     /// Determines whether the closure has @convention(c) attribute, using the method's mangled
     /// name as a fallback. ABI JSON does not include @convention(c) in ClosureTypeSpec attributes,
-    /// but the mangled name encodes it as 'XC' (CFunctionPointer in the demangling grammar).
+    /// but the mangled name encodes it as a CFunctionPointer node in the demangling grammar.
     /// </summary>
     /// <remarks>
     /// The mangled name fallback is only safe when the method has a single closure parameter.
-    /// For methods with multiple closures, XC in the mangled name could belong to a different
+    /// For methods with multiple closures, the CFunctionPointer node could belong to a different
     /// closure parameter. In that case, we fall back to the attribute-based check (which returns
     /// false, treating all closures as @convention(swift) — the safe default that generates
     /// correct thunks). Mixed @convention(c) + @convention(swift) methods are rare in practice.
+    ///
+    /// Finding 17: the fallback now walks the demangled node tree
+    /// (<see cref="Demangling.Swift5Demangler.HasCFunctionPointerMarker"/>) for a CFunctionPointer
+    /// node rather than scanning the mangled name for the literal substring "XC". The substring scan
+    /// could false-positive on an identifier that incidentally contained "XC" (e.g. "XCTest"), and a
+    /// false positive here is a calling-convention error, not a graceful degrade.
     /// </remarks>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="methodMangledName">The mangled name of the containing method.</param>
@@ -143,14 +159,27 @@ public class ClosureHandler
             return true;
 
         // Fallback: ABI JSON doesn't include @convention(c) attributes.
-        // Detect via mangled name encoding 'XC' (Swift's convention(c) marker).
-        // Only safe for single-closure methods — for multi-closure methods, XC could
+        // Detect via the demangled CFunctionPointer node (Swift's convention(c) marker).
+        // Only safe for single-closure methods — for multi-closure methods, the marker could
         // belong to a different parameter, misclassifying this one.
         if (closureParamCount > 1)
             return false;
 
-        return ClosureEmitter.HasConventionCInMangledName(methodMangledName);
+        return _demangler.HasCFunctionPointerMarker(methodMangledName);
     }
+
+    /// <summary>
+    /// Finding 17: whether the method's demangled signature contains <em>any</em> @convention(c)
+    /// closure (a CFunctionPointer node anywhere in the tree). This is the whole-method presence
+    /// check used to decide whether the Cdecl-wrapper path applies at all — distinct from the
+    /// per-parameter <see cref="IsConventionC(ClosureTypeSpec, string, int)"/> classifier. Replaces
+    /// the former <c>ClosureEmitter.HasConventionCInMangledName</c> "XC" substring scan with the
+    /// grammar-grounded tree walk, so an identifier incidentally containing "XC" can't false-positive.
+    /// </summary>
+    /// <param name="methodMangledName">The mangled name of the containing method.</param>
+    /// <returns><c>true</c> if the method signature carries a @convention(c) closure; otherwise <c>false</c>.</returns>
+    public bool MethodHasConventionCClosure(string methodMangledName) =>
+        _demangler.HasCFunctionPointerMarker(methodMangledName);
 
     /// <summary>
     /// Determines whether the closure has @MainActor attribute.

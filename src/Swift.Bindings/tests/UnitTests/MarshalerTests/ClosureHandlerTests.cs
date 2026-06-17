@@ -3042,10 +3042,11 @@ public class ClosureHandlerTests
     #region Bug #4 regression: @convention(c) detection via mangled name
 
     [Fact]
-    public void IsConventionC_WithMangledName_DetectsXCMarker()
+    public void IsConventionC_WithMangledName_DetectsCFunctionPointer()
     {
         // Bug #4: ABI JSON doesn't include @convention(c) attributes on ClosureTypeSpec.
-        // The mangled name overload detects it via the 'XC' encoding.
+        // The mangled name overload detects it. Finding 17: detection walks the demangled node tree
+        // for a CFunctionPointer node instead of scanning for the literal "XC" substring.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
         var closureSpec = new ClosureTypeSpec(
@@ -3054,11 +3055,11 @@ public class ClosureHandlerTests
         // Without mangled name: attribute-based check returns false (ABI JSON missing)
         Assert.False(handler.IsConventionC(closureSpec));
 
-        // With mangled name containing XC: detects @convention(c)
+        // With a mangled name whose signature carries a @convention(c) closure: detected.
         Assert.True(handler.IsConventionC(closureSpec,
             "$s20SwiftBindingsTestLib13callCFunctionys5Int32VA2DXCF"));
 
-        // Without XC in mangled name: returns false
+        // A noescape (XE) closure is NOT @convention(c): returns false.
         Assert.False(handler.IsConventionC(closureSpec,
             "$s20SwiftBindingsTestLib14regularClosureySiSiXEF"));
     }
@@ -3084,20 +3085,20 @@ public class ClosureHandlerTests
     [Fact]
     public void IsConventionC_MultiClosureMethod_FallsBackToSafeDefault()
     {
-        // When a method has multiple closure params, the method-level XC check
+        // When a method has multiple closure params, the method-level convention check
         // could misclassify a @convention(swift) closure as @convention(c).
-        // Guard: only use mangled name fallback for single-closure methods.
+        // Guard: only use the mangled-name fallback for single-closure methods.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
         var closureSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int32"), TupleTypeSpec.Empty);
 
-        // Even though XC is in the mangled name, with 2+ closures we can't be sure
-        // this specific closure is @convention(c) — return false (safe default)
+        // Even though a CFunctionPointer is present in the signature, with 2+ closures we can't be
+        // sure THIS specific closure is @convention(c) — return false (safe default).
         Assert.False(handler.IsConventionC(closureSpec,
             "$s20SwiftBindingsTestLib10mixedFuncsys5Int32VA2DXC_A2DXEtF", closureParamCount: 2));
 
-        // Single closure: XC detection works
+        // Single closure: the CFunctionPointer node is detected.
         Assert.True(handler.IsConventionC(closureSpec,
             "$s20SwiftBindingsTestLib10mixedFuncsys5Int32VA2DXC_A2DXEtF", closureParamCount: 1));
     }

@@ -103,6 +103,75 @@ namespace BindingsGeneration.Demangling
             return false;
         }
 
+        /// <summary>
+        /// Reports whether <paramref name="mangledName"/> demangles to a tree carrying an
+        /// <see cref="NodeKind.AsyncAnnotation"/> node — i.e. the symbol is an <c>async</c> function,
+        /// method, accessor, or initializer.
+        ///
+        /// Finding 17: this replaces the <c>DetectAsyncFromMangledName</c> substring scan for
+        /// <c>"Ya"</c>. Like <see cref="HasVariadicParameterMarker"/>, it walks the raw node tree
+        /// (which is always built) rather than the reduced <see cref="IReduction"/>, so it works even
+        /// for symbols the reducer has no rule for — notably <c>Constructor</c>/accessor symbols,
+        /// where a FunctionReduction is never produced. It is grounded in the parsed mangling grammar,
+        /// so it cannot false-positive on an identifier that incidentally contains <c>"Ya"</c>.
+        /// Returns false if the tree cannot be built.
+        /// </summary>
+        public bool HasAsyncMarker(string mangledName)
+            => RawTreeContainsKind(mangledName, NodeKind.AsyncAnnotation);
+
+        /// <summary>
+        /// Reports whether <paramref name="mangledName"/> demangles to a tree carrying a
+        /// <see cref="NodeKind.CFunctionPointer"/> node — i.e. the symbol has a
+        /// <c>@convention(c)</c> closure somewhere in its signature.
+        ///
+        /// Finding 17: this replaces the <c>HasConventionCInMangledName</c> substring scan for
+        /// <c>"XC"</c>, where a false positive is a calling-convention error, not a degrade. Walking
+        /// the parsed tree cannot mistake an identifier containing <c>"XC"</c> (e.g. <c>XCTestCase</c>,
+        /// or a Punycode-bearing name) for a C function pointer. Returns false if the tree cannot be
+        /// built.
+        /// </summary>
+        public bool HasCFunctionPointerMarker(string mangledName)
+            => RawTreeContainsKind(mangledName, NodeKind.CFunctionPointer);
+
+        private bool RawTreeContainsKind(string mangledName, NodeKind kind)
+        {
+            if (string.IsNullOrEmpty(mangledName))
+                return false;
+            lock (runLock)
+            {
+                nodeStack.Clear();
+                substitutions.Clear();
+                words.Clear();
+                originalIdentifier = mangledName;
+                slice = new StringSlice(originalIdentifier);
+                slice.Advance(GetManglingPrefixLength(originalIdentifier));
+                Node topLevelNode;
+                try
+                {
+                    topLevelNode = DemangleType(null);
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+                return NodeTreeContainsKind(topLevelNode, kind);
+            }
+        }
+
+        static bool NodeTreeContainsKind(Node node, NodeKind kind)
+        {
+            if (node is null)
+                return false;
+            if (node.Kind == kind)
+                return true;
+            foreach (var child in node.Children)
+            {
+                if (NodeTreeContainsKind(child, kind))
+                    return true;
+            }
+            return false;
+        }
+
         IReduction Run()
         {
             var topLevelNode = DemangleType(null);
@@ -405,22 +474,28 @@ namespace BindingsGeneration.Demangling
             var topLevel = new Node(NodeKind.Global);
             var parent = topLevel;
             Node funcAttr = null;
+            // Function attributes (thunks, partial-apply forwarders, …) are consumed first; a
+            // partial-apply forwarder reparents subsequent nodes under itself. This loop ONLY peels
+            // attributes — the body that drains the remaining node stack into `parent` must run AFTER
+            // it, not inside it. Finding 17: the foreach was nested in this while, so a symbol with
+            // zero function attributes (every normal symbol) never populated topLevel and the method
+            // returned null. Dedenting it out of the loop is the brace fix.
             while ((funcAttr = PopNode(IsFunctionAttr)) != null)
             {
                 parent.AddChild(funcAttr);
                 if (funcAttr.Kind == NodeKind.PartialApplyForwarder || funcAttr.Kind == NodeKind.PartialApplyObjCForwarder)
                     parent = funcAttr;
-                foreach (var nd in nodeStack)
+            }
+            foreach (var nd in nodeStack)
+            {
+                switch (nd.Kind)
                 {
-                    switch (nd.Kind)
-                    {
-                        case NodeKind.Type:
-                            parent.AddChild(nd.Children[0]);
-                            break;
-                        default:
-                            parent.AddChild(nd);
-                            break;
-                    }
+                    case NodeKind.Type:
+                        parent.AddChild(nd.Children[0]);
+                        break;
+                    default:
+                        parent.AddChild(nd);
+                        break;
                 }
             }
             if (topLevel.Children.Count == 0)
@@ -1254,7 +1329,12 @@ namespace BindingsGeneration.Demangling
             var labelList = new Node(NodeKind.LabelList);
             var tuple = parameterType.Children[0].Children[0];
 
-            if (isOldFunctionTypeMangling && (tuple != null || tuple.Kind != NodeKind.Tuple))
+            // Old-mangling path only: if the single parameter isn't a tuple, there are no labels to
+            // recover, so return the empty list. Finding 17: this read `tuple != null`, which both
+            // bailed out early for EVERY old-mangling function that DID have a tuple (dropping its
+            // labels) and dereferenced `tuple.Kind` when `tuple` was null (NRE). The canonical
+            // popFunctionParamLabels returns empty iff the param is absent or not a Tuple.
+            if (isOldFunctionTypeMangling && (tuple == null || tuple.Kind != NodeKind.Tuple))
                 return labelList;
 
             var hasLabels = false;
@@ -1950,6 +2030,15 @@ namespace BindingsGeneration.Demangling
                     AddSubstitution(t);
                     return t;
                 }
+                case 'r':
+                    // Finding 17: `Qr` is the opaque return type of the current context — the mangled
+                    // form of an `-> some Protocol` result (e.g. AppIntents `perform() async throws
+                    // -> some IntentResult`, SwiftUI `var body: some View`). It is a leaf, matching
+                    // the canonical Swift demangler. Before this, `Qr` fell through to
+                    // `default: return null`, which collapsed the enclosing function-type parse so its
+                    // `AsyncAnnotation`/throws markers never surfaced — making an `async -> some T`
+                    // method read as non-async.
+                    return CreateType(new Node(NodeKind.OpaqueReturnType));
                 default:
                     return null;
             }
@@ -2276,7 +2365,10 @@ namespace BindingsGeneration.Demangling
                         {
                             return null;
                         }
-                        types.Add(node);
+                        // Finding 17: this added the stale `node` (the first node popped above) on
+                        // every iteration instead of the just-popped `node1`, so the equals/hash
+                        // thunk helper collected N copies of its first type and dropped the rest.
+                        types.Add(node1);
                     }
 
                     var result = new Node(nodeKind);
