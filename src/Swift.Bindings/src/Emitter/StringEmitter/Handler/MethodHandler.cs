@@ -1326,18 +1326,12 @@ namespace BindingsGeneration
                 // can tell the two directions apart. The engine reached this handler via
                 // methodEnv.EmissionContext (set above for the !isAccessor path).
                 var signatureArgs = methodEnv.MethodDecl.CSSignature;
-                bool returnProjectsToUnion = false;
-                var degradationReturnSpec = signatureArgs.Count > 0 ? signatureArgs[0].SwiftTypeSpec : null;
-                if (degradationReturnSpec != null && methodEnv.ExistentialHandler.IsExistential(degradationReturnSpec))
-                {
-                    var returnProtoList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(degradationReturnSpec)!;
-                    // Same position gate as the signature/body paths (see
-                    // MethodEnvironment.AllowsExistentialReturnUnionProjection) so a return that the wrapper
-                    // actually projects to union is the one excluded from degradation — and an ineligible
-                    // position (subscript/async) still degrades + warns here, matching its object signature.
-                    returnProjectsToUnion = methodEnv.ExistentialHandler.GetPublicExistentialType(
-                        returnProtoList, allowUnionProjection: methodEnv.AllowsExistentialReturnUnionProjection) == "Swift.Runtime.ExistentialUnion";
-                }
+                // Single source of truth (MethodEnvironment.ReturnProjectsToExistentialUnion): a return that
+                // the wrapper actually projects to union is excluded from degradation, while an ineligible
+                // position (subscript/async/settable getter) still degrades + warns here, matching its object
+                // signature. The SAME predicate drives the signature builder, the return-body wrapper, and the
+                // [return: OriginalSwiftType] suppression, so they can never disagree.
+                bool returnProjectsToUnion = methodEnv.ReturnProjectsToExistentialUnion;
 
                 var degradedSpecs = (returnProjectsToUnion
                     ? signatureArgs.Skip(1)

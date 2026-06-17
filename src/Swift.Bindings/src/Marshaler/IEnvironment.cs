@@ -313,6 +313,38 @@ namespace BindingsGeneration
         /// and get-only property accessors are unaffected.
         /// </summary>
         public bool IsSettablePropertyAccessor { get; set; }
+
+        /// <summary>
+        /// Whether the return of this member ACTUALLY projects to <c>Swift.Runtime.ExistentialUnion</c> —
+        /// i.e. the return is a PAT existential with known conformers, in a position eligible per
+        /// <see cref="AllowsExistentialReturnUnionProjection"/>, AND the conformer/engine gate inside
+        /// <see cref="ExistentialHandler.GetPublicExistentialType"/> resolves it to the union wrapper. This is
+        /// the SINGLE "did this return project to union?" decision shared by the signature builder, the
+        /// return-body wrapper, the degradation-marker suppression in <c>MethodHandler</c> /
+        /// <c>DefaultParameterOverloadEmitter</c>, AND the <c>[return: OriginalSwiftType]</c> suppression in
+        /// <c>WrapperEmitter.EmitReturnTypeOriginalSwiftType</c>. Because every site reads the same predicate
+        /// against the same environment state, the declared signature type and every degradation marker stay
+        /// in lockstep: a union return drops the degradation marker (it did not degrade), while an ineligible
+        /// position (parameter, settable getter, async, subscript) keeps its <c>object</c> signature AND its
+        /// marker. Returns false (safe — keep the marker, matching an <c>object</c> signature) whenever the
+        /// engine is unwired, since the signature builder, gated identically, would also have stayed at
+        /// <c>object</c>.
+        /// </summary>
+        public bool ReturnProjectsToExistentialUnion
+        {
+            get
+            {
+                var signatureArgs = MethodDecl.CSSignature;
+                var returnSpec = signatureArgs.Count > 0 ? signatureArgs[0].SwiftTypeSpec : null;
+                if (returnSpec == null || !ExistentialHandler.IsExistential(returnSpec))
+                    return false;
+
+                var returnProtoList = ExistentialHandler.ToProtocolListTypeSpec(returnSpec)!;
+                return ExistentialHandler.GetPublicExistentialType(
+                    returnProtoList, allowUnionProjection: AllowsExistentialReturnUnionProjection)
+                        == "Swift.Runtime.ExistentialUnion";
+            }
+        }
     }
 
     /// <summary>

@@ -301,22 +301,14 @@ public static class DefaultParameterOverloadEmitter
             }
 
             // Delegate C# emission to normal pipeline.
-            // Position-aware degradation (mirrors MethodHandler): CSSignature[0] is the return. A return
-            // that projects to Swift.Runtime.ExistentialUnion (a PAT-with-conformers existential in a
-            // pure-read position) is NOT a degradation, so it is excluded from BOTH the single
-            // [UnsupportedSwiftType] anchor scan AND the SWIFTBIND023 degradation record — using the SAME
-            // AllowsExistentialReturnUnionProjection gate + engine oracle as the signature/body paths, so
-            // a default-parameter overload whose return the wrapper actually projects to union can't keep
-            // a stale degradation marker. overloadEnv carries EmissionContext (hence the engine), set above.
+            // Position-aware degradation (mirrors MethodHandler) via the single source of truth
+            // (MethodEnvironment.ReturnProjectsToExistentialUnion): a return the wrapper actually projects to
+            // union is excluded from BOTH the single [UnsupportedSwiftType] anchor scan AND the SWIFTBIND023
+            // degradation record, while an ineligible position still degrades + warns here. The SAME predicate
+            // drives the signature builder, the return-body wrapper, and the [return: OriginalSwiftType]
+            // suppression, so a default-parameter overload can't keep a stale degradation marker.
             var overloadSignatureArgs = overloadDecl.CSSignature;
-            bool overloadReturnProjectsToUnion = false;
-            var overloadReturnSpec = overloadSignatureArgs.Count > 0 ? overloadSignatureArgs[0].SwiftTypeSpec : null;
-            if (overloadReturnSpec != null && overloadEnv.ExistentialHandler.IsExistential(overloadReturnSpec))
-            {
-                var overloadReturnProtoList = overloadEnv.ExistentialHandler.ToProtocolListTypeSpec(overloadReturnSpec)!;
-                overloadReturnProjectsToUnion = overloadEnv.ExistentialHandler.GetPublicExistentialType(
-                    overloadReturnProtoList, allowUnionProjection: overloadEnv.AllowsExistentialReturnUnionProjection) == "Swift.Runtime.ExistentialUnion";
-            }
+            bool overloadReturnProjectsToUnion = overloadEnv.ReturnProjectsToExistentialUnion;
 
             var overloadDegradedSpecs = (overloadReturnProjectsToUnion
                 ? overloadSignatureArgs.Skip(1)

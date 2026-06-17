@@ -74,6 +74,39 @@ public class ExistentialUnionReturnProjectionParityTests
         // --- Free-function PAT returns: winners → ExistentialUnion ---
         Assert.Contains($"public static {Union} MakeColorAttribute(", generated);
         Assert.Contains($"public static {Union} MakeSizeAttribute(", generated);
+
+        // --- A union-projected return is NOT a degradation, so it must NOT carry the
+        // `[return: OriginalSwiftType(...)]` marker (architecture-review Defect E / the degradation
+        // oracle is direction-blind). The marker and the signature type are driven by the SAME predicate
+        // (MethodEnvironment.ReturnProjectsToExistentialUnion), so a winner that projects to union in its
+        // signature must also drop the marker — otherwise the wrapper claims a degradation that did not
+        // happen. The marker legitimately remains on the degraded positions (settable getter `object`,
+        // async `Task<object>`), so this is asserted per-winner, not globally.
+        AssertNoReturnDegradationMarkerBefore(generated, $"private {Union} Attribute_Get()");
+        AssertNoReturnDegradationMarkerBefore(generated, $"public static {Union} MakeColorAttribute(");
+        AssertNoReturnDegradationMarkerBefore(generated, $"public static {Union} MakeSizeAttribute(");
+    }
+
+    /// <summary>
+    /// Asserts that the C# member whose signature line contains <paramref name="signature"/> is NOT
+    /// preceded by a <c>[return: ...OriginalSwiftType(...)]</c> degradation marker. Walks back over the
+    /// contiguous run of attribute/blank lines attached to the member (the only place the marker can sit)
+    /// and stops at the first line that is not an attribute, so a marker on an unrelated earlier member
+    /// does not produce a false positive.
+    /// </summary>
+    private static void AssertNoReturnDegradationMarkerBefore(string generated, string signature)
+    {
+        var sigIndex = generated.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(sigIndex >= 0, $"Union-projecting signature not found in generated bindings: {signature}");
+
+        var lines = generated.Substring(0, sigIndex).Split('\n');
+        for (int i = lines.Length - 1; i >= 0; i--)
+        {
+            var trimmed = lines[i].Trim();
+            if (trimmed.Length == 0) continue;          // skip blank lines between attributes
+            if (!trimmed.StartsWith("[")) break;        // reached non-attribute code — done walking back
+            Assert.DoesNotContain("OriginalSwiftType", trimmed);
+        }
     }
 
     /// <summary>

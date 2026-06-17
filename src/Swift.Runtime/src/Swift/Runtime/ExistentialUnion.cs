@@ -57,10 +57,15 @@ public sealed class ExistentialUnion : ISwiftExistentialConvertible<ExistentialC
 
         unsafe
         {
-            // Determine if the value is stored inline in the payload buffer
-            // or heap-allocated. Inline threshold: 3 machine words (24 bytes on 64-bit).
+            // Determine inline vs out-of-line storage with the SAME criterion the write side uses
+            // (ExistentialContainerFactory.MarshalPayload): a value is stored inline only when it fits
+            // the 3-word buffer AND its value-witness IsNonInline flag is clear. A size-only check would
+            // mis-route a small-but-non-inline type (odd alignment / not bitwise-takable) to the inline
+            // branch and read boxed memory as inline bytes.
             var vwt = expected.ValueWitnessTable;
-            if (vwt->Size <= (nuint)(3 * IntPtr.Size))
+            var size = (int)vwt->Size;
+            var isNonInline = (vwt->Flags & ValueWitnessFlags.IsNonInline) != 0;
+            if (size <= ExistentialContainerFactory.MaxInlinePayloadSize && !isNonInline)
             {
                 // Inline storage: value data is in payload0/payload1/payload2.
                 // Pin a local copy and pass a pointer to the start (payload0 offset = 0).
@@ -69,11 +74,25 @@ public sealed class ExistentialUnion : ISwiftExistentialConvertible<ExistentialC
             }
             else
             {
-                // Heap storage: payload0 is a pointer to the heap-allocated value.
-                return (T)SwiftObjectHelper<T>.NewFromPayload(_container.Payload0);
+                // Out-of-line storage: payload0 is a swift_allocBox heap object (refcount header +
+                // value), the exact inverse of MarshalPayload's write path, which stores boxPair.HeapObject
+                // — NOT boxPair.Buffer — in payload0. Project past the box header to the value buffer before
+                // reading it; passing the raw heap-object pointer to NewFromPayload's value-witness
+                // InitializeWithCopy reads the box's metadata/refcount words as value bytes and faults.
+                var valuePtr = swift_projectBox(_container.Payload0);
+                return (T)SwiftObjectHelper<T>.NewFromPayload(valuePtr);
             }
         }
     }
+
+    /// <summary>
+    /// Projects a Swift box (the heap object stored in an out-of-line existential payload by
+    /// <c>swift_allocBox</c>) to the address of the value it holds — the inverse of
+    /// <see cref="ExistentialContainerFactory"/>'s <c>swift_allocBox</c> write path. Read-only:
+    /// does not retain or release the box.
+    /// </summary>
+    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_projectBox")]
+    private static extern IntPtr swift_projectBox(IntPtr heapObject);
 
     /// <summary>
     /// Attempts to cast the existential value to a specific concrete conformer type.

@@ -200,6 +200,33 @@ public class ExistentialContainerFactoryTests
         Assert.Equal((IntPtr)0xAA, result.Payload0);
     }
 
+    [Fact]
+    public void GetOrCreate_WithAlreadyMarshalledContainer_RoundTripsAsBorrowed()
+    {
+        // A degraded `object` PAT-existential getter hands out the raw ExistentialContainer1 it
+        // marshalled from Swift. Reading it as `object` and feeding it straight back to a settable
+        // property's setter routes through GetOrCreate<object> — the container is neither a proxy
+        // (ISwiftExistentialConvertible) nor a boxable conformer (IExistentialBoxable), so without the
+        // round-trip branch this would throw InvalidCastException (the MutableAttributeHolder.Current
+        // round-trip failure). The container must pass straight through as a BORROWED container: the
+        // boxed value still owns the payload's +1, so the setter must not destroy it.
+        var marshalled = new ExistentialContainer1
+        {
+            Payload0 = (IntPtr)0x1234,
+            Payload1 = (IntPtr)0x5678,
+            Payload2 = IntPtr.Zero,
+            ObjectMetadata = TypeMetadata.Zero
+        };
+
+        object boxed = marshalled;
+        var result = ExistentialContainerFactory.GetOrCreate<object>(boxed, out var ownsContainer, out var keepAlive);
+
+        Assert.Equal(marshalled.Payload0, result.Payload0);
+        Assert.Equal(marshalled.Payload1, result.Payload1);
+        Assert.False(ownsContainer, "Round-tripped container is borrowed — the boxed value owns the +1, the setter must not destroy it.");
+        Assert.Same(boxed, keepAlive);
+    }
+
     #endregion
 
     #region GetOrCreate Mock Types

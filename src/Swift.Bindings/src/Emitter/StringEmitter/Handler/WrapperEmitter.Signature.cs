@@ -440,6 +440,15 @@ namespace BindingsGeneration
             // Constructors have no return type in C#, so [return:] is invalid
             if (_env.MethodDecl.IsConstructor) return;
 
+            // A return that projects to Swift.Runtime.ExistentialUnion is NOT a degradation — the wrapper
+            // returns the projected union type, not object — so it must NOT carry the degradation marker.
+            // The degradation oracle (TryFindFallbackInfo) is type-based and direction-blind and would match
+            // the PAT existential regardless, so consult the SAME single position/engine predicate the
+            // signature builder and MethodHandler's degradation suppression use, keeping the emitted signature
+            // type and this marker in lockstep (a parameter/settable-getter/async/subscript of the same type
+            // stays object and keeps the marker).
+            if (_env.ReturnProjectsToExistentialUnion) return;
+
             var returnArg = _env.MethodDecl.CSSignature.First();
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(
                 _env.TypeDatabase, _env.ClosureHandler, returnArg.SwiftTypeSpec, out var info))

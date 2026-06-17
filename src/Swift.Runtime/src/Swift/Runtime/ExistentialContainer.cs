@@ -1123,6 +1123,20 @@ public static class ExistentialContainerFactory
     public static ExistentialContainer1 GetOrCreate<TProtocol>(TProtocol value, out bool ownsContainer, out object? keepAlive)
         where TProtocol : class
     {
+        // Round-trip: value is already a marshalled existential container — e.g. read back from a
+        // degraded `object` PAT-existential getter, which hands out the raw ExistentialContainer1 (it is
+        // neither a proxy nor a boxable conformer). Feed it straight back. The boxed container still owns
+        // the payload's +1, so this is a borrowed container (ownsContainer = false) with the boxed value
+        // as the keep-alive root across the native call — the same contract as the
+        // ISwiftExistentialConvertible branch below. Matched as the exact ExistentialContainer1 (not the
+        // IExistentialContainer interface) because this overload can only correctly return that arity.
+        if (value is ExistentialContainer1 roundTripContainer)
+        {
+            ownsContainer = false;
+            keepAlive = value;
+            return roundTripContainer;
+        }
+
         if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
         {
             ownsContainer = false;
@@ -1263,6 +1277,15 @@ public static class ExistentialContainerFactory
         out object? keepAlive)
         where TProtocol : class
     {
+        // Round-trip an already-marshalled existential container (see the wrapFallback-free overload
+        // above for the full rationale) before attempting proxy/boxable/auto-wrap dispatch.
+        if (value is ExistentialContainer1 roundTripContainer)
+        {
+            ownsContainer = false;
+            keepAlive = value;
+            return roundTripContainer;
+        }
+
         if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
         {
             ownsContainer = false;
