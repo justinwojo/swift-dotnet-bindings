@@ -84,6 +84,10 @@ public static class BindingsGeneratorCommand
         var allowPartialAppleTypesManifest = parseResult.GetValueForOption(options.AllowPartialAppleTypesManifest);
         var validateAppleTypesManifest = parseResult.GetValueForOption(options.ValidateAppleTypesManifest);
         var appleTypesManifestWriteBack = parseResult.GetValueForOption(options.AppleTypesManifestWriteBack);
+        var regenStdlibConformances = parseResult.GetValueForOption(options.RegenStdlibConformances);
+        var stdlibDumpPath = parseResult.GetValueForOption(options.StdlibDump);
+        var stdlibConformancesPath = parseResult.GetValueForOption(options.StdlibConformances);
+        var stdlibConformancesWriteBack = parseResult.GetValueForOption(options.StdlibConformancesWriteBack);
         var appleSupplementPrototypeDir = parseResult.GetValueForOption(options.AppleSupplementPrototypeDir);
         var configPath = parseResult.GetValueForOption(options.Config);
         var interfaceFactsProducer = parseResult.GetValueForOption(options.InterfaceFactsProducer) ?? "auto";
@@ -261,6 +265,20 @@ public static class BindingsGeneratorCommand
             context.ExitCode = AppleTypesManifest.AppleTypesManifestValidateCommand.Run(
                 appleTypesManifestPath ?? string.Empty,
                 appleTypesManifestWriteBack,
+                logger);
+            return;
+        }
+
+        // Handle --regen-stdlib-conformances: verify/prune the embedded stdlib conformance fact
+        // table against a Swift-stdlib swift-api-digester dump (produced by the nuke target).
+        // Out-of-tree from the binding-generation pipeline — must run BEFORE --platform validation,
+        // same as the Apple-types modes.
+        if (regenStdlibConformances)
+        {
+            context.ExitCode = StdlibConformances.StdlibConformancesRegenCommand.Run(
+                stdlibDumpPath ?? string.Empty,
+                stdlibConformancesPath ?? string.Empty,
+                stdlibConformancesWriteBack,
                 logger);
             return;
         }

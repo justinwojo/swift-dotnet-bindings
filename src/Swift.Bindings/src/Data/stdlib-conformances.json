@@ -1,7 +1,7 @@
 {
   "$schema": "stdlib-conformances.schema.json",
   "schemaVersion": 1,
-  "comment": "Swift standard-library conformance facts the generator cannot recover from a local TypeDecl (the stdlib has no TypeDecl in the corpus). ONE input to ConformanceOracle, not the whole base: foreign cross-module conformances resolve via ABI-confirmed specialization hints and transitive refinement, not this table. Regenerate with `nuke regen-stdlib-conformances` (dumps the Swift stdlib conformance graph via swift-api-digester); do not hand-edit. Bump schemaVersion here AND ConformanceOracle.ExpectedStdlibSchemaVersion in lockstep on any shape change.",
+  "comment": "Swift standard-library conformance facts the generator cannot recover from a local TypeDecl (the stdlib has no TypeDecl in the corpus). ONE input to ConformanceOracle, not the whole base: foreign cross-module conformances resolve via ABI-confirmed specialization hints and transitive refinement, not this table. Deliberately MINIMAL — a curated slice that omits true-but-irrelevant conformances (Sendable/Copyable/Decodable/...). Verify against the live toolchain with `nuke regen-stdlib-conformances`, which dumps the Swift stdlib via swift-api-digester and PRUNES any entry the live stdlib no longer declares but never widens the set; to add a type or protocol, edit here then re-run regen to confirm it against ground truth. Bump schemaVersion here AND ConformanceOracle.ExpectedStdlibSchemaVersion in lockstep on any shape change.",
   "conformances": {
     "Swift.String": [
       "Swift.Comparable",
@@ -13,8 +13,7 @@
       "Swift.ExpressibleByStringLiteral",
       "Swift.ExpressibleByStringInterpolation",
       "Swift.TextOutputStream",
-      "Swift.TextOutputStreamable",
-      "Swift.RangeExpression"
+      "Swift.TextOutputStreamable"
     ],
     "Swift.Int": [
       "Swift.Comparable",

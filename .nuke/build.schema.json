@@ -41,6 +41,7 @@
         "RegenerateAppleSnapshot",
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
+        "RegenStdlibConformances",
         "RuntimeUnitTests",
         "SeedParityBaseline",
         "SeedSkipSurfaceBaseline",
