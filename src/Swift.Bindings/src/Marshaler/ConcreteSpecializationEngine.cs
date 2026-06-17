@@ -1084,14 +1084,16 @@ public class ConcreteSpecializationEngine
     /// <paramref name="conformer"/> — is skipped because membership in its conformer
     /// list is the precondition for arriving here.
     /// <para>
-    /// Each non-selected constraint is checked with <see cref="VerifyHintAgainstAbi"/>.
-    /// <see cref="AbiVerification.Disproved"/> rejects the conformer — its declared
-    /// protocols (plus their <see cref="ProtocolDecl.InheritedProtocols"/> chains) do
-    /// not include the constraint. <see cref="AbiVerification.Uncertain"/> accepts
-    /// (we lack ground truth in this module — e.g. the conformer is hint-declared
-    /// from outside the indexed module, or the chain walks into an unindexed protocol
-    /// from a plausible-refiner module). <see cref="AbiVerification.Confirmed"/>
-    /// accepts.
+    /// Each non-selected constraint is checked with <see cref="IsKnownConformerOfConstraint"/>
+    /// — the conformer satisfies it only when it is a known conformer of the constraint per
+    /// the same hint+ABI discovery <see cref="GetConformers"/> performs for the selected
+    /// protocol (ABI-declared, OR curated-hint-listed and not ABI-disproved). This is the
+    /// F20 fail-closed flip: the prior implementation accepted any verdict that was not
+    /// ABI-Disproved, so an Uncertain conformer (no ABI ground truth) that no curated hint
+    /// listed under the constraint leaked through and produced a CSM overload whose
+    /// <c>conformer : constraint</c> requirement the Swift wrapper cannot satisfy. The
+    /// ledger's "hint-backed cross-module conformance → Yes" is preserved — the conformer
+    /// stays in <see cref="GetConformers"/> unless the ABI disproves it.
     /// </para>
     /// <para>
     /// When the conformer is rejected, <paramref name="missingConstraint"/> receives
@@ -1113,13 +1115,38 @@ public class ConcreteSpecializationEngine
             var constraintKey = constraint.ToString();
             if (string.Equals(constraintKey, selectedKey, StringComparison.Ordinal)) continue;
 
-            if (VerifyHintAgainstAbi(conformer.SwiftQualifiedName, constraintKey) == AbiVerification.Disproved)
+            // Fail-closed (F20): a non-selected constraint is satisfied only when the
+            // conformer is a KNOWN conformer of it — exactly the hint+ABI discovery
+            // GetConformers performs for the selected protocol. The prior code accepted any
+            // verdict that was not ABI-Disproved, so an Uncertain conformer (no ABI ground
+            // truth) that no curated hint listed under the constraint leaked through and
+            // emitted a CSM overload the Swift wrapper cannot compile.
+            if (!IsKnownConformerOfConstraint(conformer.SwiftQualifiedName, constraint))
             {
                 missingConstraint = constraintKey;
                 return false;
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="conformerQualifiedName"/> is a known conformer of
+    /// <paramref name="constraint"/> per the same hint+ABI discovery <see cref="GetConformers"/>
+    /// performs for a selected protocol — i.e. the conformer is ABI-declared for the
+    /// constraint, or curated-hint-listed under it and not ABI-disproved. Used to verify
+    /// non-selected and method-level conformance constraints fail-closed: a conformer that is
+    /// neither ABI-known nor hint-backed for the constraint is rejected rather than emitted
+    /// against a requirement the Swift wrapper cannot satisfy.
+    /// </summary>
+    private bool IsKnownConformerOfConstraint(string conformerQualifiedName, SwiftTypeName constraint)
+    {
+        foreach (var c in GetConformers(constraint))
+        {
+            if (string.Equals(c.SwiftQualifiedName, conformerQualifiedName, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     private void RecordRejection(
@@ -1226,7 +1253,17 @@ public class ConcreteSpecializationEngine
                 if (kind == MethodConstraintKind.Conformance)
                 {
                     if (parentLevelNames.Contains(target)) continue;
-                    if (VerifyHintAgainstAbi(entry.Conformer.SwiftQualifiedName, target) != AbiVerification.Disproved) continue;
+                    // Fail-closed (F20): same shape as ConformerSatisfiesAllConstraints. A
+                    // method-level conformance constraint stricter than the parent's
+                    // declaration is satisfied only when the chosen parent conformer is a
+                    // KNOWN conformer of it (ABI-declared OR hint-backed and not ABI-disproved).
+                    // The prior code admitted any non-Disproved verdict, so an Uncertain
+                    // conformer with no hint backing emitted a closed-form CSM whose method
+                    // `where` clause the conformer fails to satisfy.
+                    if (IsKnownConformerOfConstraint(
+                            entry.Conformer.SwiftQualifiedName,
+                            SwiftTypeName.FromModuleQualifiedName(target)))
+                        continue;
                     RecordMethodWhereRejection(
                         parentTypeDecl, method, entry.Param.GenericParam,
                         entry.Param.ConstraintProtocol, entry.Conformer, target);

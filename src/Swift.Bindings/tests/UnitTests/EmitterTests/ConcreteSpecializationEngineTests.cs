@@ -332,6 +332,159 @@ public class ConcreteSpecializationEngineTests
         Assert.Empty(result);
     }
 
+    // ==================== Multi-protocol generic constraints — fail-closed secondary (F20) ====================
+    //
+    // When a generic param carries more than one protocol constraint (`<T : A & B>`),
+    // FindSpecializableProtocolConstraint picks ONE protocol (A) and GetConformers(A)
+    // supplies the candidate conformers. ConformerSatisfiesAllConstraints must then verify
+    // each candidate against the NON-selected constraints (B). The old code accepted any
+    // verdict that was not ABI-Disproved — so a conformer the ABI could neither confirm nor
+    // deny (Uncertain) and that no curated hint listed under B slipped through, emitting a
+    // CSM<conformer> overload whose `conformer : B` requirement the Swift wrapper cannot
+    // satisfy. The F20 fail-closed flip rejects unless the conformer is a KNOWN conformer of
+    // B — ABI-declared OR curated-hint-listed-and-not-ABI-disproved (the same hint+ABI
+    // discovery GetConformers performs for the selected protocol).
+
+    [Fact]
+    public void FindSpecializableMethods_MultiConstraintParam_SecondaryUnprovableNoHint_DropsConformer()
+    {
+        // <T : ProcessableA & ProcessableB>. ConcreteItem is ABI-indexed conforming to
+        // ProcessableA only (the selected protocol). ProcessableB is a same-module protocol
+        // ConcreteItem does NOT declare and no hint lists it under → VerifyHintAgainstAbi
+        // returns Uncertain (same-module plausible refiner). Old behavior leaked ConcreteItem
+        // (Uncertain != Disproved). Fail-closed drops it; with no surviving conformer the
+        // method is not specializable.
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem");
+        db.Register(conformerTypeName, "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.ProcessableA");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateStructWithMultiConstraintMethod(
+            "Processor", "process", "TestLib.ProcessableA", "TestLib.ProcessableB");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_MultiConstraintParam_SecondaryHintBacked_KeepsConformer()
+    {
+        // <T : Foundation.DataProtocol & Foundation.ContiguousBytes>. Foundation.Data is a
+        // curated hint conformer of BOTH protocols (specialization-hints.json) but lives in
+        // no indexed module here, so the ABI can neither confirm nor deny the ContiguousBytes
+        // membership (Uncertain). The fail-closed flip must still admit it — the ledger's
+        // "hint-backed cross-module conformance → Yes" — because GetConformers(ContiguousBytes)
+        // lists Data. This guards the flip against over-rejecting genuine hint conformances.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var typeDecl = CreateStructWithMultiConstraintMethod(
+            "Sink", "consume", "Foundation.DataProtocol", "Foundation.ContiguousBytes");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Single(result);
+        Assert.Single(result[0].SpecializableParams);
+        Assert.Contains(result[0].SpecializableParams[0].Conformers,
+            c => c.SwiftQualifiedName == "Foundation.Data");
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_MultiConstraintParam_SecondaryAbiConfirmed_KeepsConformer()
+    {
+        // <T : ProcessableA & ProcessableB>. ConcreteItem is ABI-indexed declaring BOTH
+        // conformances, so the secondary constraint resolves ABI-Confirmed. The conformer
+        // must survive — GetConformers folds ABI conformers in, so the membership check
+        // covers ABI-declared secondaries too (not just hint-backed ones).
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem");
+        db.Register(conformerTypeName, "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithTwoConformances(
+            "TestLib", "TestLib.ConcreteItem", "TestLib.ProcessableA", "TestLib.ProcessableB");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateStructWithMultiConstraintMethod(
+            "Processor", "process", "TestLib.ProcessableA", "TestLib.ProcessableB");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Single(result);
+        Assert.Single(result[0].SpecializableParams);
+        Assert.Contains(result[0].SpecializableParams[0].Conformers,
+            c => c.SwiftQualifiedName == "TestLib.ConcreteItem");
+    }
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_Conformance_ExtraConstraintUnprovableNoHint_FailsClosed()
+    {
+        // Method-level `where τ_0_0 : ExtraProto` is stricter than the parent type's
+        // declaration (parent param carries no constraints here, so it is not skipped as
+        // a parent-level constraint). The chosen parent conformer (SongItem) neither
+        // ABI-declares nor is hint-listed under ExtraProto → Uncertain. Old behavior accepted
+        // any non-Disproved verdict, emitting a closed-form CSM whose method `where` clause
+        // the conformer fails. Same fail-open pattern as ConformerSatisfiesAllConstraints —
+        // fail-closed: reject.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig("restrict", "<τ_0_0 where τ_0_0 : TestLib.ExtraProto>");
+        var parent = CreateGenericStructDecl("Bag", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.SongItem",
+            CSharpType: "SongItem");
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.False(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "an unprovable, un-hinted method-level conformance constraint must fail-closed");
+    }
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_Conformance_ExtraConstraintHintBacked_Admits()
+    {
+        // Method-level `where τ_0_0 : Foundation.ContiguousBytes` with the parent conformer
+        // Foundation.Data — a curated hint conformer of ContiguousBytes. The conformer is a
+        // known conformer of the extra constraint (GetConformers lists it), so the stricter
+        // method-level clause is satisfied and the tuple admits. Guards the fix against
+        // over-rejecting genuine hint-backed method-level constraints.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig("restrict", "<τ_0_0 where τ_0_0 : Foundation.ContiguousBytes>");
+        var parent = CreateGenericStructDecl("Bag", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "Foundation.Data",
+            CSharpType: "Data");
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("Foundation.DataProtocol"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.True(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "a hint-backed method-level conformance constraint must be admitted");
+    }
+
     [Fact]
     public void GetConformers_AttributeKindProtocol_ReturnsThreeConformers()
     {
@@ -1880,6 +2033,114 @@ public class ConcreteSpecializationEngineTests
 
         method.ParentDecl = structDecl;
         return structDecl;
+    }
+
+    /// <summary>
+    /// Builds a struct with a static method whose single method-own generic parameter carries
+    /// TWO protocol constraints (`func m&lt;T : A &amp; B&gt;(_ item: T) -&gt; String`). Used to
+    /// exercise the multi-constraint intersection in ConformerSatisfiesAllConstraints.
+    /// </summary>
+    private static StructDecl CreateStructWithMultiConstraintMethod(
+        string typeName, string methodName, string protocolNameA, string protocolNameB)
+    {
+        var protoA = SwiftTypeName.FromModuleQualifiedName(protocolNameA);
+        var protoB = SwiftTypeName.FromModuleQualifiedName(protocolNameB);
+        var confA = new GenericParameterConformance(new[] { "τ_1_0" }, protoA, ConformanceKind.Protocol);
+        var confB = new GenericParameterConformance(new[] { "τ_1_0" }, protoB, ConformanceKind.Protocol);
+
+        var paramTypeSpec = new NamedTypeSpec("τ_1_0");
+
+        var method = new MethodDecl
+        {
+            Name = methodName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{methodName}",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_1_0", "T", new List<GenericParameterConformance> { confA, confB }, new())
+            },
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+                new() { Name = "item", PrivateName = "item", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = paramTypeSpec, IsGeneric = true }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        method.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    /// <summary>
+    /// Builds a module with a single type that declares TWO protocol conformances. Used to
+    /// exercise the ABI-Confirmed arm of the multi-constraint check: a conformer indexed as
+    /// declaring both protocols satisfies a non-selected constraint via the ABI merge.
+    /// </summary>
+    private static ModuleDecl CreateModuleWithTwoConformances(
+        string moduleName, string conformerType, string protocolA, string protocolB)
+    {
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName(conformerType);
+        var protoA = SwiftTypeName.FromModuleQualifiedName(protocolA);
+        var protoB = SwiftTypeName.FromModuleQualifiedName(protocolB);
+
+        var structDecl = new StructDecl
+        {
+            Name = conformerTypeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = conformerTypeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(conformerTypeName, protoA, ""),
+                new(conformerTypeName, protoB, "")
+            },
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { structDecl },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            AvailabilityAnnotations = null
+        };
     }
 
     private static StructDecl CreateStructWithProtocolConstrainedConstructor(
