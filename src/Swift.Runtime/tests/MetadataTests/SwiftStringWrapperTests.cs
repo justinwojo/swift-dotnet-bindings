@@ -323,5 +323,44 @@ public class SwiftStringWrapperTests : IClassFixture<SwiftStringWrapperTests.Wra
         ephemeral.Dispose();
     }
 
+    [Fact]
+    public void Ephemeral_LargeForm_HeapBacked_BuildsAndReleasesOnce()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        // R3-F1: every other Ephemeral test above uses an inline small-string (≤15 UTF-8 bytes),
+        // where SBW_SwiftString_Destroy is a no-op (no ARC storage). The over-release-on-copy hazard
+        // only bites the LARGE form, which heap-allocates ARC-managed storage that Destroy actually
+        // frees. This pins the heap-backed representation through the SAFE single-owner pattern the
+        // emitter uses: construct, read the inert two-word `.Buffer`, Dispose exactly once. A 64-char
+        // ASCII string is unambiguously large form (>15 bytes), so this exercises a real
+        // alloc-then-release ARC cycle and would fault if the fast path mishandled heap-backed storage.
+        var large = new string('x', 64);
+
+        nint w0, w1;
+        using (var ephemeral = new SwiftString.EphemeralSwiftString(large))
+        {
+            (w0, w1) = ReadWords(ephemeral.Buffer);
+        }
+
+        // A real large-form String was built (the two words are not both zero / not the empty-string
+        // representation). We deliberately do NOT compare these words to the heap SwiftString path the
+        // way the small-form tests do: for the large form one word is a pointer to independently
+        // allocated heap storage, so the words differ by allocation by design — asserting equality
+        // would be ABI guesswork. The behavior-preservation proof lives in the inline-form tests; this
+        // one proves the heap-backed alloc/Destroy lifecycle is clean.
+        Assert.False(w0 == 0 && w1 == 0, "Large-form ephemeral produced an empty/zero two-word value");
+    }
+
+    // NOTE: there is intentionally NO live "copy then Dispose both" test (`var b = a; b.Dispose();
+    // a.Dispose();`). On a large-form (heap-backed) string that double-frees the same ARC storage —
+    // undefined behavior that may corrupt the heap or crash non-deterministically rather than throw a
+    // catchable exception, which would make for a flaky, process-poisoning test. The over-release is
+    // unobservable on a small-form string (both Destroys are no-ops), so a same-process assertion is
+    // either UB or vacuous. The durable, deterministic gate against a copy is the structural emitter
+    // guard EphemeralSwiftString_ConstructedAtExactlyOneUsingBoundEmitterSite in
+    // StringByValueFastPathEmitterTests, which proves the generator never emits a copy of the handle.
+
     #endregion
 }

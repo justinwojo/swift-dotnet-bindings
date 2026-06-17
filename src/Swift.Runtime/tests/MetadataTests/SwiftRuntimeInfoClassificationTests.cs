@@ -87,6 +87,24 @@ public class SwiftRuntimeInfoClassificationTests
     }
 
     [Fact]
+    public void NativeAot_HardConflict_ExceptionMessageIsTopLevel()
+    {
+        // R5-1b regression guard. The conflict check used to run in the eager static cctor, so
+        // a throw was wrapped in TypeInitializationException — demoting the actionable
+        // runtime-flavor-conflict text to .InnerException and poisoning the type for every later
+        // read. The fix defers the check off the cctor (a Lazy factory), so the bare
+        // InvalidOperationException surfaces with the conflict text at the TOP level. Pin that:
+        // the message must be readable without unwrapping .InnerException, and the exception must
+        // NOT be a TypeInitializationException.
+        var ex = Assert.Throws<InvalidOperationException>(() => SwiftRuntimeInfo.ResolveIsNativeAot(
+            switchPresent: true, switchValue: true,
+            monoDetected: true, isSimulatorRid: false, isDynamicCodeSupported: false));
+
+        Assert.Contains("runtime-flavor conflict", ex.Message);
+        Assert.Null(ex.InnerException);
+    }
+
+    [Fact]
     public void NativeAot_SwitchAbsent_FallsBackToHeuristic_DesktopCoreClr()
     {
         // No switch (e.g. a consumer not using the SDK's buildTransitive targets).

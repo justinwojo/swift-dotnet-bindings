@@ -78,66 +78,115 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // Fallback: token-aware matching using Swift name mangling conventions.
-                    // Swift mangled symbols encode identifiers as {length}{name}, e.g.,
-                    // "8Identity4Card2id". Matching on "{len}Identity" instead of bare
-                    // "Identity" prevents false positives from names like "IdentityCard".
-                    //
-                    // Swift also uses substitution indices (e.g., "0B") to compress shared
-                    // prefixes between the module name and type name. For example, a module
-                    // whose name shares a prefix with a type name mangles as
-                    // "{len}{moduleName}0B{len}{suffix}" — the shared prefix
-                    // is replaced by "0B". In this case, the full type name won't
-                    // appear literally, but the non-shared suffix length-prefixed form will.
-                    // We handle this by trying length-prefixed suffixes preceded by a Swift
-                    // substitution pattern (uppercase letter terminator, e.g., "B", "C").
-                    var lastDot = entry.QualifiedName.LastIndexOf('.');
-                    if (lastDot < 0) continue;
-
-                    var parts = entry.QualifiedName.Split('.');
-                    bool allMatch = true;
-                    foreach (var part in parts)
-                    {
-                        // Match the length-prefixed form "{len}{name}" in the mangled symbol
-                        var lengthPrefixed = $"{part.Length}{part}";
-                        if (!blockText.Contains(lengthPrefixed, StringComparison.Ordinal))
-                        {
-                            // Try suffix matching for Swift substitution compression.
-                            // Substitutions produce patterns like "0B17VerificationSheet" where
-                            // the uppercase letter (B) terminates the substitution index and
-                            // the length-prefixed suffix follows immediately.
-                            // Require the suffix to be preceded by an uppercase letter to
-                            // confirm an actual substitution, not a coincidental match.
-                            bool suffixFound = false;
-                            for (int len = part.Length - 1; len >= 5; len--)
-                            {
-                                var suffix = part.Substring(part.Length - len);
-                                var suffixPrefixed = $"{len}{suffix}";
-                                int pos = blockText.IndexOf(suffixPrefixed, StringComparison.Ordinal);
-                                if (pos > 0)
-                                {
-                                    // Verify preceding character is an uppercase letter
-                                    // (Swift substitution index terminator)
-                                    char preceding = blockText[pos - 1];
-                                    if (preceding >= 'A' && preceding <= 'Z')
-                                    {
-                                        suffixFound = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (!suffixFound)
-                            {
-                                allMatch = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (allMatch)
+                    // Fallback for members without a mangled-name hash (e.g. properties):
+                    // token-aware, ADJACENCY-aware matching using Swift name-mangling
+                    // conventions. See MatchesByMangledName.
+                    if (MatchesByMangledName(blockText, entry.QualifiedName))
                         return true;
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Token-aware, adjacency-aware match of a dotted qualified name ("Type.member",
+        /// "Outer.Inner.member") against a thunk block's mangled symbols.
+        /// </summary>
+        /// <remarks>
+        /// Swift mangles a member symbol as its nominal parts followed by the member, each as a
+        /// length-prefixed token (<c>{len}{name}</c>) and separated ONLY by nominal-kind /
+        /// substitution-terminator characters — single uppercase letters such as the <c>C</c>/<c>O</c>
+        /// type-kind suffix (e.g. <c>…3FooC2idSivg</c> for <c>Foo.id</c>). The parts must therefore
+        /// appear ADJACENT inside a single symbol, not merely be present somewhere in the block.
+        ///
+        /// Requiring adjacency is what stops a sim-only PROPERTY (<c>Card.id</c> → <c>4Card</c>,
+        /// <c>2id</c>) from false-matching a SIBLING METHOD's thunk on the same type
+        /// (<c>…4CardC4find2id…</c> for <c>find(id:)</c>), where the same two tokens are present but
+        /// separated by an intervening length-prefixed method name (<c>4find</c>). That false match
+        /// would strip a live DEVICE thunk and surface as <c>EntryPointNotFoundException</c> on device
+        /// (audit Regression-R6, finding #2). The token-fallback itself stays load-bearing — the
+        /// property's OWN accessor thunk must still be matched and removed for the device slice — so
+        /// this tightens precision rather than removing the fallback.
+        /// </remarks>
+        private static bool MatchesByMangledName(string blockText, string qualifiedName)
+        {
+            if (qualifiedName.IndexOf('.') < 0)
+                return false;
+
+            var parts = qualifiedName.Split('.');
+
+            // Anchor on every occurrence of the first part (literal length-prefixed form OR a
+            // substitution-compressed suffix), then require the remaining parts to follow
+            // adjacently — separated only by Swift connective (uppercase) characters.
+            for (int i = 0; i < blockText.Length; i++)
+            {
+                int anchorLen = MatchPartAt(blockText, i, parts[0]);
+                if (anchorLen < 0)
+                    continue;
+                if (RemainingPartsFollowAdjacently(blockText, parts, anchorEnd: i + anchorLen))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Verifies that parts[1..] mangle immediately after <paramref name="anchorEnd"/>, each
+        /// separated from the previous by Swift connective characters only (single uppercase
+        /// nominal-kind / substitution terminators). A digit or lowercase letter in a gap signals
+        /// an intervening length-prefixed identifier (e.g. a sibling method name) — not an adjacent
+        /// member access — so the tokens do not form one member symbol.
+        /// </summary>
+        private static bool RemainingPartsFollowAdjacently(string blockText, string[] parts, int anchorEnd)
+        {
+            int pos = anchorEnd;
+            for (int p = 1; p < parts.Length; p++)
+            {
+                while (pos < blockText.Length && blockText[pos] >= 'A' && blockText[pos] <= 'Z')
+                    pos++;
+                int len = MatchPartAt(blockText, pos, parts[p]);
+                if (len < 0)
+                    return false;
+                pos += len;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the matched token length if <paramref name="part"/> mangles starting exactly at
+        /// <paramref name="pos"/> in <paramref name="blockText"/>, else -1. Tries the literal
+        /// <c>{len}{name}</c> form first, then a substitution-compressed suffix <c>{len}{suffix}</c>
+        /// (suffix ≥ 5 chars) — the latter only when immediately preceded by an uppercase
+        /// substitution-index terminator, confirming a real Swift substitution rather than a
+        /// coincidental shared suffix.
+        /// </summary>
+        private static int MatchPartAt(string blockText, int pos, string part)
+        {
+            if (pos < 0 || pos >= blockText.Length)
+                return -1;
+
+            var lengthPrefixed = $"{part.Length}{part}";
+            if (HasSubstringAt(blockText, pos, lengthPrefixed))
+                return lengthPrefixed.Length;
+
+            for (int len = part.Length - 1; len >= 5; len--)
+            {
+                var suffix = part.Substring(part.Length - len);
+                var suffixPrefixed = $"{len}{suffix}";
+                if (HasSubstringAt(blockText, pos, suffixPrefixed)
+                    && pos > 0
+                    && blockText[pos - 1] >= 'A' && blockText[pos - 1] <= 'Z')
+                {
+                    return suffixPrefixed.Length;
+                }
+            }
+            return -1;
+        }
+
+        private static bool HasSubstringAt(string text, int pos, string value)
+        {
+            if (pos + value.Length > text.Length)
+                return false;
+            return string.CompareOrdinal(text, pos, value, 0, value.Length) == 0;
         }
     }
 

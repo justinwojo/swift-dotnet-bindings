@@ -605,12 +605,18 @@ public partial class ProtocolProxyEmitter
             if (method.IsObjCOptional)
                 continue;
 
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
-            if (methodIndices.ContainsKey(methodKey))
+            // Allocate the SBW slot index on the SWIFT-domain requirement key — the same key the
+            // producer walk (WitnessDispatchEmitter) numbers on — NOT the projected C# key. Two
+            // overloads whose distinct Swift parameter types both project to Swift.AnyType are two
+            // witness requirements (two producer indices); keying the index here on the collapsed
+            // C# projection would give them one index and skew every later method's accessor symbol
+            // (EntryPointNotFoundException). See WitnessDispatchEmitter.GetMethodKey.
+            var slotKey = WitnessDispatchEmitter.GetMethodKey(method);
+            if (methodIndices.ContainsKey(slotKey))
                 continue;
 
             var idx = methodIndex++;
-            methodIndices[methodKey] = idx;
+            methodIndices[slotKey] = idx;
 
             var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
             if (!emittedCSharpKeys.Add(projectedKey))

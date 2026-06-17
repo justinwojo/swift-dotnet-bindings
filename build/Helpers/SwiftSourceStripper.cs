@@ -30,6 +30,18 @@ public static class SwiftSourceStripper
         // conformance and its witness-table getter must survive stripping or the
         // existential-construction P/Invoke fails with EntryPointNotFoundException.
         "OptionalFirstDelegate",
+        // Finding 8 reverse-dispatch gate: OptionalCallbackDelegate declares a required
+        // method followed by `@objc optional` methods AND an `@objc optional` property.
+        // MinimalCSharpConformer (C#) is passed to Swift `invokeRequired`, which dispatches
+        // the required member back through reverse-dispatch slot 0. The conformance and its
+        // witness-table getter must survive stripping or the existential-construction
+        // P/Invoke fails with EntryPointNotFoundException.
+        "OptionalCallbackDelegate",
+        // R5-1a forward witness-dispatch index lockstep: makeWitnessIndexConformer vends
+        // a WitnessIndexConformer as `any WitnessIndexProto`; the C# proxy dispatches `tag`
+        // through the forward witness path. The conformance + its witness-table getter must
+        // survive stripping or the existential reconstruction fails at runtime.
+        "WitnessIndexProto",
         "Describable", "TestIdentifiable", "Displayable",
         "Nameable", "Ageable", "Addable", "Subtractable", "Multipliable", "Dividable",
         // EC2 composition owned-return reverse dispatch (CompositionArgLifetime.swift):

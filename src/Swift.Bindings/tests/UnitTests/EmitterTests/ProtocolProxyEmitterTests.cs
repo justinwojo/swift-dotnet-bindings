@@ -4971,31 +4971,59 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_ClosureSkippedMethod_OmitsVtableSlotEntirely()
     {
-        // Vtable-slot-collision regression for closure-skipped methods.
+        // Vtable-slot layout for a NON-DISPATCHABLE closure method.
         //
-        // Swift's EveryProtocolEmitter emits a `fatalError` stub for non-dispatchable closure
-        // methods (only `() -> Void` shape dispatches; everything else still
-        // bypasses the vtable). Because Swift's stub bypasses the vtable, the Swift vtable
-        // struct has no slot for the method. The C# proxy MUST mirror that omission — if C#
-        // declared a field for the skipped method, every subsequent slot would shift one
-        // pointer-width past the address Swift reads, and dispatch on the next method would
-        // land on the wrong function pointer (silent corruption, not a clean crash).
+        // Swift's EveryProtocolEmitter emits a `fatalError` stub (and NO vtable field) for a method
+        // whose signature carries a closure off the dispatch surface — a throwing/async method, or
+        // any closure shape other than the dispatchable `() -> Void` family. The producer's
+        // MethodEmitsVtableField (== ProtocolVtableMembers.IncludesMethod after the ctor/static/objc
+        // pre-skip) returns false for it, so EmitProtocolVtableStruct CONSUMES the slot index then
+        // drops the field. The C# proxy MUST mirror that exactly: omit the Swift-vtable field, the
+        // local-vtable delegate, AND the Receive_ trampoline — while a following dispatchable method
+        // still lands at the index Swift assigned it (skip-but-consume). A C# field for the skipped
+        // method would shift every later slot one pointer-width past the address Swift reads.
         //
-        // Verified: no Swift-vtable field, no local-vtable field, no Receive_ trampoline,
-        // and no static-ctor wiring.
+        // The omission is driven by the method's REAL shape via IncludesMethod, NOT by the C#-side
+        // skip sets (those are fillability-only for the vtable now — see Vtables.cs). So the fixture
+        // is a genuine non-dispatchable closure method (throwing + a `() -> Void` closure param) —
+        // exactly what ProtocolHandler marks closure-skipped — not a plain method with an injected
+        // skip key (that simulated a state the real pipeline never produces).
         var protocol = CreateSimpleProtocol("CallbackOwner");
-        protocol.Methods.Add(CreateMethodDecl("onComplete"));
 
-        var method = protocol.Methods.First(m => m.Name == "onComplete");
-        var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocol);
+        // onComplete(handler:): throwing method carrying a `() -> Void` closure param. Throwing
+        // short-circuits every IsDispatchableClosure* check, so IncludesMethod == false → no slot.
+        var onComplete = CreateMethodDecl("onComplete");
+        onComplete.Throws = true;
+        onComplete.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "handler",
+            PrivateName = "handler",
+            SwiftTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(onComplete);
+
+        // cleanup(): plain dispatchable method declared AFTER the skipped closure method.
+        protocol.Methods.Add(CreateMethodDecl("cleanup"));
+
+        var onCompleteKey = ProtocolSignatureHelper.GetMethodSignatureKey(onComplete, _typeDatabase, protocol);
 
         var output = EmitProxyClassWithSkips(protocol,
-            closureSkippedMethodKeys: new HashSet<string> { methodKey },
-            skippedMethodKeys: new HashSet<string> { methodKey });
+            closureSkippedMethodKeys: new HashSet<string> { onCompleteKey });
 
+        // The non-dispatchable closure method gets NO vtable presence on any of the three loops.
         Assert.DoesNotContain("Receive_onComplete_0(", output);
         Assert.DoesNotContain("Func_onComplete_0", output);
         Assert.DoesNotContain("func_onComplete_0", output);
+
+        // ...but its index IS consumed: cleanup lands at slot 1, not 0 (skip-but-consume parity with
+        // EveryProtocolEmitter.EmitProtocolVtableStruct). cleanup at slot 0 would mean the C# struct
+        // under-counted the skipped method and every later reverse-dispatch read shifts.
+        Assert.Contains("func_cleanup_1", output);
+        Assert.DoesNotContain("func_cleanup_0", output);
     }
 
     [Fact]

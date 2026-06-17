@@ -638,6 +638,11 @@ public class ProtocolHandlerOutputTests
                     SwiftTypeSpec = propertyTypeSpec,
                     IsStatic = false,
                     HasStorage = false,
+                    // A property declared in a protocol body is a requirement (parser sets
+                    // protocolReq == true). The vtable layout predicate keeps the slot for a
+                    // requirement even when the C# surface can't project it (AnyType generic arg),
+                    // which is exactly what this test asserts below (func_batchedItems_get present).
+                    IsProtocolRequirement = true,
                     Accessors = new List<AccessorDecl>
                     {
                         new GetAccessorDecl
@@ -1568,11 +1573,23 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
-    public void InterfaceImpl_ProjectedCollision_PreservesMethodIndex()
+    public void InterfaceImpl_ProjectedCollision_VtableMirrorsRawProducerSlots()
     {
-        // Protocol with 3 methods where method 2 is AnyType-duplicate of method 1 (same primary key).
-        // Method 3 (cleanup) should still get vtable index 1 (not 0), preserving sequential alignment.
-        // The duplicate handle method is primary-skipped (both resolve to same AnyType param key).
+        // Two existential overloads that COLLAPSE to one C# method must still each get their OWN raw
+        // Swift vtable slot, and a following distinct method's slot index must advance PAST both —
+        // mirroring the Swift producer (EveryProtocolEmitter.EmitProtocolVtableStruct), which keys
+        // slot allocation on the RAW method key (name + labels + raw Swift type spec) via
+        // EveryProtocolEmitter.GetMethodKey, NOT the projected/collapsing C# key.
+        //
+        // handle(UnknownModule.Foo) and handle(UnknownModule.Bar) have distinct raw type specs, so
+        // they take slots 0 and 1 even though both project to AnyType → a single C# Handle(object).
+        // cleanup() therefore lands at slot 2. The OLD model keyed the index on the collapsing
+        // projected key, gave the duplicate no slot, and put cleanup at 1 — which UNDER-counted the
+        // Swift struct and shifted every later reverse-dispatch read (the Finding 8 / WitnessIndexProto
+        // corruption, where the trailing method landed at 1 instead of Swift's 2 → EntryPointNotFound /
+        // mis-dispatch). The duplicate slot (func_handle_1) is left null by the cctor — C# cannot
+        // reverse-dispatch the SECOND collapsed overload — a documented fillability limitation, not a
+        // layout defect: the struct is correctly Swift-sized and the interface exposes one Handle.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -1605,10 +1622,14 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        // Vtable should have handle at index 0 and cleanup at index 1
+        // Vtable mirrors the raw producer: both handle overloads get a slot (0, 1), cleanup at 2.
         Assert.Contains("func_handle_0", csOutput);
-        Assert.Contains("func_cleanup_1", csOutput);
-        // Interface should only have one Handle (duplicate skipped)
+        Assert.Contains("func_handle_1", csOutput);
+        Assert.Contains("func_cleanup_2", csOutput);
+        // cleanup must NOT collapse back to the projected-key index 1 (the stale, struct-shrinking model).
+        Assert.DoesNotContain("func_cleanup_1", csOutput);
+        // Interface still collapses the two overloads to ONE Handle (C# cannot represent two
+        // Handle(AnyType) overloads) — only the vtable carries both raw slots.
         var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class HandlerProxy"));
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(interfacePart, "Handle("));
     }

@@ -116,6 +116,99 @@ public class ProtocolSignatureHelperTests
 
     #endregion
 
+    #region R5-1a — Witness-dispatch index lockstep (AnyType-collapse divergence)
+
+    [Fact]
+    public void WitnessDispatchKey_AnyTypeCollapsingOverloads_ProducerKeyCountsDistinct_ProjectedKeyCollapses()
+    {
+        // R5-1a regression guard. The three witness-dispatch walks (the Swift @_cdecl
+        // producer plus the two C# consumer walks) allocate each method's SBW slot index
+        // from a running counter gated on a dedup key. The producer keys on the RAW Swift
+        // type spec (WitnessDispatchEmitter.GetMethodKey); if a consumer instead keys on the
+        // PROJECTED C# type (ProtocolSignatureHelper.GetMethodSignatureKey), two overloads
+        // whose DISTINCT Swift parameter types both fall back to Swift.AnyType collapse to a
+        // single index on the consumer but stay two on the producer — shifting every later
+        // dispatchable method's baked-in SBW symbol index → EntryPointNotFoundException at
+        // runtime. The fix routes all three walks through GetMethodKey; this pins the two key
+        // domains' distinct-count divergence so a regression back to the projected key is caught.
+        var typeDatabase = CreateTypeDatabase(); // registers Swift.Int only; UnknownModule.* → AnyType
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Two overloads of `f` whose distinct Swift param specs both project to Swift.AnyType.
+        var fFoo = CreateMethodWithParam("f", "UnknownModule.Foo", moduleDecl);
+        var fBar = CreateMethodWithParam("f", "UnknownModule.Bar", moduleDecl);
+        // The later dispatchable required method whose SBW index must not shift.
+        var g = CreateMethodWithParam("g", "Swift.Int", moduleDecl);
+        var methods = new[] { fFoo, fBar, g };
+
+        var producerKeys = methods
+            .Select(WitnessDispatchEmitter.GetMethodKey)
+            .Distinct()
+            .Count();
+        var projectedKeys = methods
+            .Select(m => ProtocolSignatureHelper.GetMethodSignatureKey(m, typeDatabase))
+            .Distinct()
+            .Count();
+
+        // Producer (raw Swift spec): f(Foo), f(Bar), g — three true witness-table requirements.
+        Assert.Equal(3, producerKeys);
+        // Projected C# key: f(AnyType), g — collapses the overload pair. This is the count the
+        // consumer walks must NOT use; a 3 vs 2 split is exactly the index skew R5-1a describes.
+        Assert.Equal(2, projectedKeys);
+    }
+
+    [Fact]
+    public void WitnessDispatchKey_TrailingDispatchableMethod_IndexUnshiftedUnderProducerKey()
+    {
+        // The concrete failure mode: `g`'s allocated slot index. Replaying the
+        // `idx = methodIndex++` gated by `methodIndices.ContainsKey(key)` allocation that all
+        // three walks run, `g` lands at index 2 under the shared raw-Swift producer key (after
+        // two distinct `f` overloads) but would land at index 1 under the projected-C# key —
+        // the off-by-one baked into the SBW symbol on the consumer while Swift emits index 2.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var fFoo = CreateMethodWithParam("f", "UnknownModule.Foo", moduleDecl);
+        var fBar = CreateMethodWithParam("f", "UnknownModule.Bar", moduleDecl);
+        var g = CreateMethodWithParam("g", "Swift.Int", moduleDecl);
+        var methods = new[] { fFoo, fBar, g };
+
+        var producerIndex = AllocateSlotIndex(methods, g, WitnessDispatchEmitter.GetMethodKey);
+        var projectedIndex = AllocateSlotIndex(
+            methods, g, m => ProtocolSignatureHelper.GetMethodSignatureKey(m, typeDatabase));
+
+        Assert.Equal(2, producerIndex);
+        Assert.Equal(1, projectedIndex);
+        Assert.NotEqual(producerIndex, projectedIndex);
+    }
+
+    /// <summary>
+    /// Mirrors the witness-dispatch walks' index allocation: a running counter advanced once per
+    /// distinct dedup key, returning the index assigned to <paramref name="target"/>.
+    /// </summary>
+    private static int AllocateSlotIndex(
+        IReadOnlyList<MethodDecl> methods, MethodDecl target, Func<MethodDecl, string> keyFn)
+    {
+        var indices = new Dictionary<string, int>();
+        var counter = 0;
+        foreach (var method in methods)
+        {
+            var key = keyFn(method);
+            if (!indices.ContainsKey(key))
+            {
+                indices[key] = counter++;
+            }
+
+            if (ReferenceEquals(method, target))
+            {
+                return indices[key];
+            }
+        }
+
+        return -1;
+    }
+
+    #endregion
+
     #region P1 Fix — isParameter + Native Remapping
 
     [Fact]

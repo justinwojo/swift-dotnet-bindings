@@ -57,9 +57,17 @@ namespace BindingsGeneration
             if (string.IsNullOrEmpty(autoDepSpec))
                 return results;
 
-            // Dedup set: the shell did a `case ";$EXPLICIT_DEPS;" in *";$MOD;"*` substring
-            // match around delimiters, which is exact-element membership. Ordinal: module
-            // names are case-sensitive ABI identifiers.
+            // Dedup set: the shell did a `case ";$EXPLICIT_DEPS;" in *";$MOD;"*` delimiter-
+            // bounded substring match against the DECODED module. This C# port splits the
+            // explicit-deps `;`-list into a set and tests `Contains(module)` — exact-element
+            // membership, which matches the shell for every real input (Swift module names are
+            // identifiers with no `;`). The one corner where the two diverge: a module that
+            // decodes to contain a `;` (from `%3B`) can never equal a split element, so it is
+            // emitted here where the shell would have deduped it. That input cannot arise from
+            // the producer (a `;` in a module name is itself impossible), and the set-membership
+            // form is arguably the more-correct reading of a `;`-list, so the divergence is
+            // intentional, not a parity bug (Regression-R4 finding C2). Ordinal: module names
+            // are case-sensitive ABI identifiers.
             var explicitSet = new HashSet<string>(StringComparer.Ordinal);
             if (!string.IsNullOrEmpty(explicitDeps))
             {
@@ -119,8 +127,15 @@ namespace BindingsGeneration
                 if (found is not null)
                 {
                     // Shell: FOUND_ABS=`cd $(dirname FOUND) && pwd`; echo PROJREF|$FOUND_ABS/$(basename FOUND).
-                    // Path.GetFullPath is the logical-normalize analog of `cd && pwd` (no symlink
-                    // resolution), matching the shell's default `pwd -L`.
+                    // toAbsolutePath is Path.GetFullPath, which logically normalizes an ABSOLUTE
+                    // candidate without resolving symlinks — exact parity with the shell's `pwd -L`
+                    // for the real inputs (the dependency XCFrameworkPath is always absolutized by
+                    // Program.cs before this resolver sees it). The one divergence: for a RELATIVE
+                    // candidate, GetFullPath prepends Environment.CurrentDirectory, which macOS
+                    // realpath-resolves (`/private/tmp/…` vs the `/tmp/…` `pwd -L` preserves). That
+                    // path is unreachable in normal SDK use, and `/tmp`↔`/private/tmp` are the same
+                    // inode so the injected ProjectReference resolves identically — cosmetic, not a
+                    // functional parity bug (Regression-R4 finding C3).
                     results.Add("PROJREF|" + toAbsolutePath(found));
                 }
                 else

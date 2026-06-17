@@ -895,6 +895,140 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void FilterThunkAssembly_Fallback_SimOnlyProperty_DoesNotStripSiblingMethodThunk()
+        {
+            // R6-2 regression (audit Regression-R6, finding #2). A sim-only PROPERTY has no
+            // mangled-name hash, so it matches thunks via the token fallback. On a type that ALSO
+            // declares a sibling method whose argument label equals the property name, both the
+            // type token and the member token appear in the method's thunk too — e.g. property
+            // "Card.id" (4Card, 2id) and method "Card.find(id:)" → "...4CardC4find2id...". The old
+            // fallback only required each token to appear SOMEWHERE in the block, so it stripped the
+            // sibling DEVICE method's thunk → EntryPointNotFoundException on device. Adjacency-aware
+            // matching must remove ONLY the property's own accessor thunk (4Card adjacent to 2id,
+            // separated only by the nominal-kind char 'C') and preserve the method thunk (4Card and
+            // 2id separated by the length-prefixed method name 4find).
+            var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var asm = string.Join("\n", new[]
+                {
+                    // Sim-only property getter "Card.id" — its OWN thunk; MUST be removed.
+                    ".globl _thunk_Module_prop",
+                    ".p2align 2",
+                    "_thunk_Module_prop:",
+                    "    stp     x29, x30, [sp, #-16]!",
+                    "    bl      _$s6Module4CardC2idSivg",
+                    "    ldp     x29, x30, [sp], #16",
+                    "    ret",
+                    "",
+                    // Sibling method "Card.find(id:)" — argument label "id" collides; MUST survive.
+                    ".globl _thunk_Module_find",
+                    ".p2align 2",
+                    "_thunk_Module_find:",
+                    "    stp     x29, x30, [sp, #-16]!",
+                    "    bl      _$s6Module4CardC4find2idSiF",
+                    "    ldp     x29, x30, [sp], #16",
+                    "    ret",
+                    ""
+                });
+                var asmFile = Path.Combine(dir, "Module.arm64.s");
+                File.WriteAllText(asmFile, asm);
+
+                var outDir = Path.Combine(dir, "out");
+                Directory.CreateDirectory(outDir);
+
+                // Property has no hash → uses the token fallback.
+                var simOnly = MakeResult(("Card.id", ""));
+                var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(asmFile, simOnly, outDir);
+
+                Assert.NotNull(result);
+                Assert.Equal(1, result!.Value.RemovedCount);
+
+                var filtered = File.ReadAllText(result.Value.FilteredPath);
+                // The sibling method thunk (device-needed) must remain.
+                Assert.Contains("4CardC4find2id", filtered);
+                // The property's own accessor thunk must be gone.
+                Assert.DoesNotContain("4CardC2idSivg", filtered);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void DetectThenFilter_SimOnlyProperty_PreservesSiblingDeviceMethodThunk()
+        {
+            // R6-2 chained regression: drive the real `Detect` (simulator-vs-device ABI diff) into
+            // the real `FilterThunkAssembly`, instead of hand-building a SimulatorOnlyResult. This
+            // proves the property entry that `Detect` produces (a `Var` whose hash is deliberately
+            // cleared → name-only fallback) flows into the filter and that the adjacency-aware
+            // fallback removes ONLY the property's own accessor thunk, never the sibling method's.
+            // The property accessor thunk symbol (`...2idSivg`) differs from the `Var` descriptor
+            // mangled name in the ABI JSON (`...2idSivp`) — which is exactly why the hash is cleared
+            // and the token fallback is load-bearing here.
+            var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Directory.CreateDirectory(dir);
+            try
+            {
+                // Simulator slice: Card has a sim-only computed property `id` AND a method `find(id:)`.
+                var simJson =
+                    "{\"ABIRoot\":{\"children\":[" +
+                    "{\"kind\":\"TypeDecl\",\"name\":\"Card\",\"children\":[" +
+                    "{\"kind\":\"Var\",\"name\":\"id\",\"mangledName\":\"$s6Module4CardC2idSivp\"}," +
+                    "{\"kind\":\"Function\",\"name\":\"find\",\"mangledName\":\"$s6Module4CardC4find2idSiF\"}" +
+                    "]}]}}";
+                // Device slice: only `find(id:)` exists — `id` is behind #if targetEnvironment(simulator).
+                var devJson =
+                    "{\"ABIRoot\":{\"children\":[" +
+                    "{\"kind\":\"TypeDecl\",\"name\":\"Card\",\"children\":[" +
+                    "{\"kind\":\"Function\",\"name\":\"find\",\"mangledName\":\"$s6Module4CardC4find2idSiF\"}" +
+                    "]}]}}";
+                var simAbi = Path.Combine(dir, "sim.json");
+                var devAbi = Path.Combine(dir, "dev.json");
+                File.WriteAllText(simAbi, simJson);
+                File.WriteAllText(devAbi, devJson);
+
+                var detected = SimulatorOnlyMemberDetector.Detect(simAbi, devAbi, NullLogger.Instance);
+                Assert.Equal(1, detected.Count);
+                Assert.Contains("Card.id", detected.QualifiedNames);
+
+                var asm = string.Join("\n", new[]
+                {
+                    ".globl _thunk_Module_prop",
+                    ".p2align 2",
+                    "_thunk_Module_prop:",
+                    "    stp     x29, x30, [sp, #-16]!",
+                    "    bl      _$s6Module4CardC2idSivg",
+                    "    ldp     x29, x30, [sp], #16",
+                    "    ret",
+                    "",
+                    ".globl _thunk_Module_find",
+                    ".p2align 2",
+                    "_thunk_Module_find:",
+                    "    stp     x29, x30, [sp, #-16]!",
+                    "    bl      _$s6Module4CardC4find2idSiF",
+                    "    ldp     x29, x30, [sp], #16",
+                    "    ret",
+                    ""
+                });
+                var asmFile = Path.Combine(dir, "Module.arm64.s");
+                File.WriteAllText(asmFile, asm);
+
+                var outDir = Path.Combine(dir, "out");
+                Directory.CreateDirectory(outDir);
+
+                var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(asmFile, detected, outDir);
+
+                Assert.NotNull(result);
+                Assert.Equal(1, result!.Value.RemovedCount);
+
+                var filtered = File.ReadAllText(result.Value.FilteredPath);
+                Assert.Contains("4CardC4find2id", filtered);     // sibling device method survives
+                Assert.DoesNotContain("4CardC2idSivg", filtered); // sim-only accessor removed
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void FilterThunkAssembly_NoOp_WhenEmptyResult()
         {
             var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(

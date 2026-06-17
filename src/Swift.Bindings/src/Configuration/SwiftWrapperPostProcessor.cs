@@ -103,7 +103,13 @@ namespace BindingsGeneration
         /// match in normal operation (they are now prevented at emission time), so a warning indicates
         /// a regression in the emitter.
         /// </param>
-        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null)
+        /// <param name="currentModuleName">
+        /// The Swift module currently being generated. Lets the internal-type matcher tell a
+        /// current-module-qualified reference (<c>&lt;currentModule&gt;.X</c>, strip) apart from a
+        /// foreign-module reference (<c>Foundation.Data</c>, keep) when only a short name is known.
+        /// Null falls back to bare-only short-name matching.
+        /// </param>
+        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null, string? currentModuleName = null)
         {
             if (string.IsNullOrEmpty(sourceContent))
                 return new PostProcessingResult { CleanedContent = sourceContent, StrippedBlockCount = 0 };
@@ -146,7 +152,7 @@ namespace BindingsGeneration
                         // For protocol conformance extensions with method/property bodies,
                         // strip if the body references an internal or Swift-unavailable type
                         var body = ScanBlockBody(lines, i, end);
-                        bool refsInternal = ReferencesInternalType(body, internalTypeNames);
+                        bool refsInternal = ReferencesInternalType(body, internalTypeNames, currentModuleName);
                         bool refsUnavail = !refsInternal && ReferencesSwiftUnavailableType(body);
                         if (refsInternal || refsUnavail)
                         {
@@ -170,7 +176,7 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     bool brokenPat = IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning);
-                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames);
+                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames, currentModuleName);
                     bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
                     if (brokenPat || refsInternal || refsUnavail)
                     {
@@ -200,7 +206,7 @@ namespace BindingsGeneration
                         var body = ScanBlockBody(lines, i + 1, end);
 
                         bool brokenPat = IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning);
-                        bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames);
+                        bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames, currentModuleName);
                         bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
                         if (brokenPat || refsInternal || refsUnavail)
                         {
@@ -226,8 +232,8 @@ namespace BindingsGeneration
                     // being extended, which may be internal even when the body uses Self.
                     bool brokenPat = IsExtensionBroken(lines, i, end, body, onSafetyNetWarning);
                     bool refsInternal = !brokenPat && (
-                        ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesInternalType(stripped, internalTypeNames));
+                        ReferencesInternalType(body, internalTypeNames, currentModuleName) ||
+                        ReferencesInternalType(stripped, internalTypeNames, currentModuleName));
                     bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
                     if (brokenPat || refsInternal || refsUnavail)
                     {
@@ -248,8 +254,8 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     bool refsInternal =
-                        ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesInternalType(stripped, internalTypeNames);
+                        ReferencesInternalType(body, internalTypeNames, currentModuleName) ||
+                        ReferencesInternalType(stripped, internalTypeNames, currentModuleName);
                     bool refsUnavail = !refsInternal && ReferencesSwiftUnavailableType(body);
                     if (refsInternal || refsUnavail)
                     {
@@ -269,7 +275,7 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     bool brokenPat = IsStandaloneFuncBroken(body, i, onSafetyNetWarning);
-                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames);
+                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames, currentModuleName);
                     bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
                     if (brokenPat || refsInternal || refsUnavail)
                     {
@@ -507,17 +513,52 @@ namespace BindingsGeneration
         /// <summary>
         /// Checks if a block body references any internal (non-public) type names.
         /// Uses word-boundary matching to avoid false positives (e.g., "Layer" won't match "Player").
+        ///
+        /// Module-aware matching: the internal-type set carries each current-module internal type
+        /// under BOTH its short name (<c>Data</c>) and its module-qualified name (<c>MyModule.Data</c>).
+        /// Generated wrappers, however, spell BOTH current-module internal types AND cross-module
+        /// public types module-qualified — e.g. <c>SwiftBindingsTestLib.InternalHolder</c> (current,
+        /// must strip) and <c>Foundation.Data</c> (foreign, must survive) are syntactically identical.
+        /// A naive <c>\b&lt;short&gt;\b</c> over-strips the foreign one (the <c>.Data</c> suffix matches
+        /// internal <c>Data</c> → silent public-API loss); a blanket negative lookbehind under-strips the
+        /// current one (it also suppresses the <c>.InternalHolder</c> match → uncompilable wrapper). The
+        /// only correct discriminator is the module prefix, so this mirrors the emission-time gate
+        /// <see cref="InternalTypeReferenceWalker"/>'s rule: a SHORT internal name matches a reference
+        /// only when that reference denotes the CURRENT module's type — written bare (not preceded by a
+        /// <c>.</c>) OR qualified with the current module (<c>&lt;currentModule&gt;.X</c>) — and never
+        /// when qualified with a different module. QUALIFIED set entries (<c>Module.Type[.Nested]</c>)
+        /// already carry their own module prefix and use a plain word-boundary match; they also cover
+        /// nested current-module types whose bare/short form the current-module-qualified pattern can't
+        /// reach. When <paramref name="currentModuleName"/> is unknown (null), only the bare form is
+        /// matched for short names (the legacy behavior for callers that don't supply a module).
         /// </summary>
-        private static bool ReferencesInternalType(string body, HashSet<string>? internalTypeNames)
+        private static bool ReferencesInternalType(string body, HashSet<string>? internalTypeNames, string? currentModuleName)
         {
             if (internalTypeNames == null || internalTypeNames.Count == 0)
                 return false;
 
             foreach (var typeName in internalTypeNames)
             {
-                // Use word-boundary regex to avoid false positives
-                var pattern = @"\b" + Regex.Escape(typeName) + @"\b";
-                if (Regex.IsMatch(body, pattern))
+                var escaped = Regex.Escape(typeName);
+
+                if (typeName.Contains('.'))
+                {
+                    // Qualified entry — the module prefix disambiguates it; plain match.
+                    if (Regex.IsMatch(body, @"\b" + escaped + @"\b"))
+                        return true;
+                    continue;
+                }
+
+                // Short (unqualified) entry. Match a bare occurrence (not preceded by '.') — this
+                // catches a genuine current-module reference and never the '.Data' tail of a
+                // qualified foreign type like Foundation.Data.
+                if (Regex.IsMatch(body, @"(?<!\.)\b" + escaped + @"\b"))
+                    return true;
+
+                // Also match the current-module-qualified spelling (<currentModule>.X) that wrappers
+                // emit for current-module types, while still rejecting <foreignModule>.X.
+                if (!string.IsNullOrEmpty(currentModuleName) &&
+                    Regex.IsMatch(body, @"\b" + Regex.Escape(currentModuleName) + @"\." + escaped + @"\b"))
                     return true;
             }
 

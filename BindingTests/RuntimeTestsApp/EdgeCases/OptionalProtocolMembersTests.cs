@@ -90,6 +90,31 @@ public class OptionalProtocolMembersTests : TestBase
             "Swift reverse-dispatch landed on the required member after a leading optional");
     }
 
+    public void TestReverseDispatchLandsOnRequiredAfterOptionalProperty()
+    {
+        // Finding 8 end-to-end gate. OptionalCallbackDelegate declares its required
+        // `didFireRequired` method FIRST, then three `@objc optional` methods AND an
+        // `@objc optional var optionalLabel`. Properties are walked BEFORE methods when
+        // the reverse-dispatch vtable struct is laid out, so a C# walk that emits a slot
+        // for the optional property pushes a phantom `func_optionalLabel_get` field ahead
+        // of `func_didFireRequired_0`. The Swift producer never assigns the optional a
+        // slot, so its struct is just [csVTHandle, func_didFireRequired_0]; the positional
+        // memcpy then lands C#'s `func_optionalLabel_get` pointer into the slot Swift reads
+        // as `didFireRequired` → Swift calls the wrong/garbage pointer → SIGSEGV.
+        //
+        // The fix skips optional members in the C# vtable struct so both sides are
+        // [csVTHandle, func_didFireRequired_0]. This passes a minimal C# conformer (only
+        // the required member implemented) to Swift `invokeRequired`, which dispatches the
+        // required member back through reverse-dispatch slot 0. A green run proves the slot
+        // realigns and the call carries the right value. (Pre-fix the C# struct carried the
+        // phantom `func_optionalLabel_get` field — the ArtifactParityGate vtable mismatch
+        // that this fix removed.)
+        var conformer = new MinimalCSharpConformer();
+        Functions.InvokeRequired(conformer, 4242);
+        AssertEqual(4242, conformer.LastRequiredTag,
+            "Swift reverse-dispatch landed on the required member after a leading optional property");
+    }
+
     public void TestOptionalVoidDIMIsNoOp()
     {
         // Calling the optional void method via the DIM should silently no-op.

@@ -20,7 +20,11 @@ public partial class ProtocolProxyEmitter
 
         // Track emitted receivers to avoid duplicates
         var emittedReceivers = new HashSet<string>();
-        var closureHandler = applyVtableMembershipFilter ? new ClosureHandler(_typeDatabase) : null;
+        // Always needed: the method loop gates layout on ProtocolVtableMembers.IncludesMethod on
+        // BOTH paths (matching the struct), and IncludesMethod needs a ClosureHandler. The
+        // property/subscript loops below still gate on the flag (their same-module fillability is
+        // the skip sets, not the layout predicate).
+        var closureHandler = new ClosureHandler(_typeDatabase);
 
         // Property receivers (skip static properties - they're not part of the interface)
         foreach (var property in protocolDecl.Properties)
@@ -56,7 +60,19 @@ public partial class ProtocolProxyEmitter
             subscriptIndex++;
         }
 
-        // Method receivers
+        // Method receivers. Index allocation MUST match the vtable struct (Vtables.cs): RAW producer
+        // key (EveryProtocolEmitter.GetMethodKey), index consumed for every distinct raw method, and
+        // the layout predicate (IncludesMethod) applied UNCONDITIONALLY so a receiver is emitted only
+        // for a method that actually has a Swift vtable slot. Two fillability filters then layer on
+        // top — they leave a slot Swift KEEPS at null rather than shrinking the layout:
+        //   • _skippedMethodKeys — an AnyType-unprojectable member has no C# surface to forward to.
+        //   • the projected-C# collapse — two raw-distinct overloads projecting to one C# method
+        //     (consume(any A)/consume(any B) → Consume(object)) share a single receiver; the
+        //     collapsed-duplicate slot is left null (same fillability model as AnyType members and
+        //     the inout-ObjC deferred slot — see EveryProtocolEmitter.EmitProtocolVtableStruct).
+        //     A C# conformer therefore cannot today reverse-dispatch the SECOND collapsed overload;
+        //     that is a known fillability limitation, not a layout defect — the struct is correctly
+        //     sized and forward dispatch + the first overload work.
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
         var emittedCSharpKeys = new HashSet<string>();
@@ -70,21 +86,18 @@ public partial class ProtocolProxyEmitter
             if (method.IsObjCOptional)
                 continue;
 
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
-            if (!methodIndices.TryGetValue(methodKey, out var idx))
+            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
+            if (!methodIndices.TryGetValue(slotKey, out var idx))
             {
                 idx = methodIndex++;
-                methodIndices[methodKey] = idx;
-                if (_skippedMethodKeys.Contains(methodKey))
-                {
-                    // Closure-skipped methods are omitted from BOTH the Swift vtable struct
-                    // (EveryProtocolEmitter emits a fatalError stub that bypasses the vtable)
-                    // AND the C# Swift-facing vtable struct (see ProtocolProxyEmitter.Vtables.cs).
-                    // Emitting a Receive_ trampoline here would have no slot to be assigned into,
-                    // so skip the receiver entirely.
+                methodIndices[slotKey] = idx;
+                // LAYOUT: no Swift vtable slot (non-dispatchable closure / method-generic /
+                // Self-typed / mixed-generic) → no receiver. Index already consumed.
+                if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler))
                     continue;
-                }
-                if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler!))
+                // FILLABILITY: skip-set membership is keyed on the projected/collapsing key.
+                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+                if (_skippedMethodKeys.Contains(collapsingKey))
                     continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))

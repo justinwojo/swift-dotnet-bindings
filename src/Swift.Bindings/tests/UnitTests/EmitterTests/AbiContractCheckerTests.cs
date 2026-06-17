@@ -743,6 +743,106 @@ public sealed partial class TestClass
 
     #endregion
 
+    #region R6-3: LibraryImport-first layout + alternate array forms
+
+    [Fact]
+    public void Extract_CallConvAfterLibraryImport_TargetTypedNewArray_ReadsSwift()
+    {
+        // The generic-metadata accessor helper (PInvokeHelperEmitter) emits
+        // [LibraryImport] FIRST, then [UnmanagedCallConv] on the FOLLOWING line, using
+        // target-typed `new[]`. A backward-only scan + a `new Type[]`-only regex both
+        // miss this and mis-default it to Cdecl. The convention here is genuinely Swift.
+        var csOutput = @"
+public sealed partial class TestClass
+{
+    [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo0B0CMa"")]
+    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+    private static partial global::Swift.Runtime.TypeMetadata PInvoke_getMetadata_buffer(global::Swift.Runtime.TypeMetadataRequest request, global::System.IntPtr parameters);
+}";
+        var pinvokes = AbiContractChecker.ExtractPInvokes(csOutput, "TestModule");
+
+        Assert.Single(pinvokes);
+        Assert.Equal("PInvoke_getMetadata_buffer", pinvokes[0].MethodName);
+        Assert.Equal("CallConvSwift", pinvokes[0].CallingConvention);
+    }
+
+    [Fact]
+    public void Validate_MetadataAccessorHelper_NoFalseCC004()
+    {
+        // The real metadata-accessor helper shape: a CallConvSwift P/Invoke targeting a
+        // $s…Ma mangled symbol, with [UnmanagedCallConv] AFTER [LibraryImport] in
+        // target-typed `new[]` form. Mis-reading it as Cdecl fires a false SWIFTBIND094
+        // (CC-004: Cdecl-targets-mangled-symbol). Reading it correctly as Swift must not.
+        var csOutput = @"
+public sealed partial class TestClass
+{
+    [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo0B0CMa"")]
+    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+    private static partial global::Swift.Runtime.TypeMetadata PInvoke_getMetadata_buffer(global::Swift.Runtime.TypeMetadataRequest request, global::System.IntPtr parameters);
+}";
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-004");
+    }
+
+    [Fact]
+    public void Extract_TargetTypedNewArray_CallConvFirst_ReadsSwift()
+    {
+        // KvoExtensionEmitter emits [UnmanagedCallConv] first using target-typed `new[]`.
+        // The convention-first order is fine for the backward scan, but the `new[]` form
+        // must still be recognized by the regex (it was only matching literal `Type[]`).
+        var csOutput = @"
+public sealed partial class TestClass
+{
+    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+    [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3barSiyF"")]
+    private static partial int PInvoke_bar_NEWARR(int value);
+}";
+        var pinvokes = AbiContractChecker.ExtractPInvokes(csOutput, "TestModule");
+
+        Assert.Single(pinvokes);
+        Assert.Equal("CallConvSwift", pinvokes[0].CallingConvention);
+    }
+
+    [Fact]
+    public void Extract_CollectionExpressionCallConvs_ReadsSwift()
+    {
+        // AppleTypesCsEmitter emits the C# 12 collection-expression form
+        // `CallConvs = [typeof(CallConvSwift)]` — no `new`, square brackets. The regex
+        // must recognize this too, else a genuine CallConvSwift is mis-read as Cdecl.
+        var csOutput = @"
+public sealed partial class TestClass
+{
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
+    [LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3barSiyF"")]
+    private static partial int PInvoke_bar_COLLEXPR(int value);
+}";
+        var pinvokes = AbiContractChecker.ExtractPInvokes(csOutput, "TestModule");
+
+        Assert.Single(pinvokes);
+        Assert.Equal("CallConvSwift", pinvokes[0].CallingConvention);
+    }
+
+    [Fact]
+    public void CC001_CallConvAfterLibraryImport_NonBlittable_DetectsViolation()
+    {
+        // Defense-in-depth: a CallConvSwift P/Invoke with the LibraryImport-first layout
+        // AND a non-blittable parameter must still trip CC-001 — the layout fix re-enables
+        // the blittability checks that the mis-default to Cdecl had silently disabled.
+        var csOutput = @"
+public sealed partial class TestClass
+{
+    [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3barSiyF"")]
+    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+    private static partial int PInvoke_bar_LATECC(SwiftSafeHandle handle, SwiftSelf<IntPtr> self);
+}";
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.Contains(result.Violations, v => v.RuleId == "CC-001");
+    }
+
+    #endregion
+
     #region P1: Internal/public visibility
 
     [Fact]

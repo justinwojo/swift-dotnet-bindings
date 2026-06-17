@@ -47,13 +47,20 @@ namespace BindingsGeneration;
 /// </summary>
 public static class DepModuleCollisionDetector
 {
-    // ^\s* anchors at line start (multiline). Permit any number of attributes,
-    // either access modifier (`public` or `open`), and `final` in either order
-    // (`public final class Foo` and `final public class Foo` are both legal Swift).
-    // Bind the captured module name and require a word-boundary right after —
-    // `public class FooBar` must not match for module `Foo`.
+    // ^\s* anchors at line start (multiline). Permit any number of attributes, then a
+    // run of declaration modifiers on EITHER side of the access keyword. swiftc emits
+    // the modifier before `public` for several type kinds — `final public class`,
+    // `indirect public enum`, `nonisolated public class` — as well as after it
+    // (`public final class`). A `final`-only allowance silently missed `indirect`/
+    // `nonisolated`, so the qualifier-strip never fired and the bound wrapper failed
+    // swiftc with "type '<Module>' has no member …". `nonisolated` may carry a paren
+    // argument (`nonisolated(unsafe)`), so tolerate an optional `(…)`. Bind the captured
+    // module name with a trailing word-boundary — `public class FooBar` must not match
+    // for module `Foo`. (`dynamic` is a member-only modifier swiftc rejects on a type
+    // declaration, so it can never appear here — see Regression-R6 finding 5.)
+    private const string TypeDeclModifiers = @"(?:(?:final|indirect|nonisolated)(?:\s*\([^)]*\))?\s+)*";
     private static readonly Regex SwiftPublicTypeRegex = new(
-        @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:final\s+)?(?:public|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+        @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*" + TypeDeclModifiers + @"(?:public|open)\s+" + TypeDeclModifiers + @"(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)\b",
         RegexOptions.Compiled | RegexOptions.Multiline);
 
     // ^\s* anchors at line start. Match `@interface Foo` and `@interface Foo (Cat)`,

@@ -63,6 +63,25 @@ public static class SwiftRuntimeInfo
     /// </summary>
     internal const string NativeAotSwitchName = "Swift.Runtime.IsNativeAot";
 
+    /// <summary>Resolved runtime flavor — NativeAOT vs Mono — computed once on first access.</summary>
+    private readonly record struct RuntimeFlavor(bool IsNativeAot, bool IsMono);
+
+    /// <summary>
+    /// Lazily-resolved runtime flavor. The resolution is deliberately deferred OFF the static
+    /// constructor: the runtime-flavor-conflict check in <see cref="ResolveIsNativeAot"/> throws
+    /// <see cref="InvalidOperationException"/>, and a throw from a static cctor is wrapped in a
+    /// <see cref="TypeInitializationException"/> that permanently POISONS the type — every later read
+    /// of <see cref="IsNativeAotRuntime"/>/<see cref="IsMonoRuntime"/> (touched on virtually every
+    /// marshal path and from generated <c>[ModuleInitializer]</c>s) would re-throw the cached wrapper
+    /// with the actionable conflict text demoted to <c>.InnerException</c>. A <see cref="Lazy{T}"/> in
+    /// the default <c>ExecutionAndPublication</c> mode runs the check on first explicit access and
+    /// caches+re-throws the ORIGINAL <see cref="InvalidOperationException"/> (conflict text at top
+    /// level) on every access, preserving the fail-fast intent without the type-poison cascade. The
+    /// conflict path is genuinely reachable (a Direct build run on the iOS Simulator), so this is the
+    /// fix for that real misconfiguration, not a theoretical one.
+    /// </summary>
+    private static readonly Lazy<RuntimeFlavor> s_flavor = new(ResolveFlavor);
+
     /// <summary>
     /// True when running on NativeAOT (iOS/tvOS device with PublishAot, or a desktop
     /// NativeAOT publish). False on Mono (simulator, device full-AOT, Catalyst) and
@@ -71,7 +90,7 @@ public static class SwiftRuntimeInfo
     /// Public so generated binding assemblies can gate eager static-cctor metadata
     /// caching on NativeAOT (mirrors the SwiftArray eager-init pattern).
     /// </summary>
-    public static readonly bool IsNativeAotRuntime;
+    public static bool IsNativeAotRuntime => s_flavor.Value.IsNativeAot;
 
     /// <summary>
     /// True when running on a Mono runtime (iOS/tvOS simulator, iOS/tvOS device full-AOT,
@@ -79,18 +98,19 @@ public static class SwiftRuntimeInfo
     /// Used by <see cref="RuntimeLimitations"/> to gate runtime-specific workarounds.
     /// Note: VWT Destroy from the GC finalizer is safe on all runtimes via the Cdecl trampoline.
     /// </summary>
-    public static readonly bool IsMonoRuntime;
+    public static bool IsMonoRuntime => s_flavor.Value.IsMono;
 
-    static SwiftRuntimeInfo()
+    private static RuntimeFlavor ResolveFlavor()
     {
         bool switchPresent = AppContext.TryGetSwitch(NativeAotSwitchName, out bool switchValue);
         bool monoDetected = DetectMonoIndicator();
         bool isDynamicCodeSupported = RuntimeFeature.IsDynamicCodeSupported;
         string? rid = TryGetRuntimeIdentifier();
 
-        IsNativeAotRuntime = ResolveIsNativeAot(
+        bool isNativeAot = ResolveIsNativeAot(
             switchPresent, switchValue, monoDetected, IsSimulatorRid(rid), isDynamicCodeSupported);
-        IsMonoRuntime = ResolveIsMono(IsNativeAotRuntime, monoDetected, IsAppleMobileRid(rid));
+        bool isMono = ResolveIsMono(isNativeAot, monoDetected, IsAppleMobileRid(rid));
+        return new RuntimeFlavor(isNativeAot, isMono);
     }
 
     /// <summary>

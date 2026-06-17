@@ -2480,7 +2480,37 @@ public class WitnessDispatchEmitter
         "where", "get", "set", "value", "partial", "using", "namespace"
     };
 
-    private static string GetMethodKey(MethodDecl method)
+    /// <summary>
+    /// Canonical witness-accessor slot-index key. Keys on the method name plus each parameter's
+    /// RAW Swift type spec (not the projected C# type), so two overloads whose distinct Swift
+    /// parameter types both project to the same C# fallback (Swift.AnyType) are still counted as
+    /// two separate witness-table requirements — exactly as the Swift producer numbers them.
+    /// This is the SINGLE key the three witness-dispatch walks must agree on for SBW symbol
+    /// indices to line up: the producer here, the C# P/Invoke decl walk
+    /// (ProtocolProxyEmitter.SwiftObject.EmitWitnessDispatchPInvokes) and the C# call-site walk
+    /// (ProtocolProxyEmitter.InterfaceImpl.EmitInterfaceImplementation). Allocating the index on
+    /// ProtocolSignatureHelper.GetMethodSignatureKey (the projected C# key) on the consumer side
+    /// collapses such an overload pair to one index, shifting every later dispatchable method's
+    /// SBW index → EntryPointNotFoundException at runtime.
+    ///
+    /// Argument labels are INTENTIONALLY OMITTED here — and this is the opposite choice from
+    /// <see cref="EveryProtocolEmitter.GetMethodKey"/>, which DOES include them. The difference
+    /// is deliberate, not an oversight: the forward/SBW index is an internal symbol-naming
+    /// convention shared only between this producer walk and the two C# consumer walks (all three
+    /// key off THIS method), and the accessor body dispatches by Swift source-level call — it is
+    /// NOT pinned to Swift's ABI witness-table ordering. So a label-only overload pair
+    /// (`func move(to: Int32)` / `func move(from: Int32)`, identical name+types, differing only by
+    /// label) MUST collapse to one slot on all three walks identically, leaving a trailing method
+    /// at the collapsed index with no shift. Making this key label-sensitive would split the pair
+    /// into two indices on the producer while the (label-blind) consumers still expected one,
+    /// re-opening the exact SBW index-shift this key exists to prevent. The reverse/vtable axis is
+    /// the inverse case: that struct's field order must match Swift's label-distinguished slot
+    /// allocation, which is why EveryProtocolEmitter.GetMethodKey keeps labels (and leaves the
+    /// collapsed C# member's second slot null — the deferred protocol-collision-rename limitation
+    /// documented at ProtocolHandler.cs and ProtocolProxyEmitter.Receivers.cs). Pinned by
+    /// WitnessDispatchEmitterTests.OverloadDisambiguation_LabelOnlyOverloadPair_CollapsesToOneSlot_NoTrailingIndexShift.
+    /// </summary>
+    internal static string GetMethodKey(MethodDecl method)
     {
         // The async effect is part of the key so `func m()` and `func m() async` each get their
         // own witness-accessor symbol. They are distinct Swift witness-table requirements; an

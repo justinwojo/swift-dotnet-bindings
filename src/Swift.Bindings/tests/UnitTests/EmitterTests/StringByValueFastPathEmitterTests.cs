@@ -42,6 +42,12 @@ public class StringByValueFastPathEmitterTests
         Assert.Contains("nint name_w0 =", csOutput);
         Assert.Contains("nint name_w1 =", csOutput);
 
+        // R3-F1: the owning ref-struct handle (nameSwift) must be read ONLY through its inert
+        // `.Buffer` words (copied into nameBuf) — never aliased/copied by value, which would let two
+        // instances each Dispose the same +1 (over-release on a heap-backed string).
+        Assert.Contains("var nameBuf = nameSwift.Buffer;", csOutput);
+        Assert.DoesNotContain("= nameSwift;", csOutput); // no value-copy of the owning handle
+
         // The heap SwiftString path (SafeHandle + PayloadBuffer) is intentionally skipped for the
         // decomposed param — its markers must be gone (behavior-preserving, allocation-free).
         Assert.DoesNotContain("nameDisposable", csOutput);
@@ -93,7 +99,55 @@ public class StringByValueFastPathEmitterTests
         Assert.Contains("new SwiftString(name)", csOutput);
     }
 
+    [Fact]
+    public void EphemeralSwiftString_ConstructedAtExactlyOneUsingBoundEmitterSite()
+    {
+        // R3-F1 structural guard (the durable gate for the over-release-on-copy hazard).
+        // EphemeralSwiftString is a ref struct that OWNS a +1 Swift String and releases it once on
+        // Dispose. C# cannot enforce move-only semantics, so a value-copy of the owning handle
+        // (`var b = a;`) would carry `_created = true` into the copy and let two instances each call
+        // SBW_SwiftString_Destroy on the same String — an over-release for heap-backed (large-form)
+        // strings. The only robust defense is to guarantee the GENERATOR never copies the handle: it
+        // must construct it at exactly one emitter site and always bind it with `using` (a single,
+        // deterministic Dispose). This scans the generator source and pins that invariant, so a
+        // future emitter edit that adds a second construction site or drops the `using` turns red.
+        var srcRoot = Path.Combine(LocateRepoRoot(), "src", "Swift.Bindings", "src");
+        Assert.True(Directory.Exists(srcRoot), $"Generator source root not found: {srcRoot}");
+
+        var sites = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(srcRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            var lines = File.ReadAllLines(file);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!lines[i].Contains("new SwiftString.EphemeralSwiftString("))
+                    continue;
+                // Every emitted construction MUST be a `using var` declaration so the owning handle
+                // is disposed exactly once and is never bound to a non-`using` (leaked) or copyable
+                // local. The emitter builds the emitted code via an interpolated string, so the
+                // `using var` token appears on the SAME source line as the construction.
+                Assert.True(lines[i].Contains("using var "),
+                    $"EphemeralSwiftString construction at {Path.GetFileName(file)}:{i + 1} is not `using`-bound: {lines[i].Trim()}");
+                sites.Add($"{Path.GetFileName(file)}:{i + 1}");
+            }
+        }
+
+        Assert.True(sites.Count == 1,
+            $"Expected exactly ONE EphemeralSwiftString construction site (the @_cdecl string by-value fast path in " +
+            $"WrapperEmitter.Marshalling.cs); found {sites.Count}: [{string.Join(", ", sites)}]. A ref struct that owns " +
+            $"a +1 must never be copied — every emission must be a single `using`-bound site reading only `.Buffer`.");
+    }
+
     #region Helpers
+
+    private static string LocateRepoRoot()
+    {
+        var dir = new DirectoryInfo(System.AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "SwiftBindings.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
+    }
 
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,

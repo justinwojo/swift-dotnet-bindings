@@ -1256,6 +1256,25 @@ namespace BindingsGeneration
             bool isBindableTypeKind = node.DeclKind is "Struct" or "Enum" or "Class" or "Protocol";
             if (isBindableTypeKind && string.IsNullOrEmpty(node.MangledName))
             {
+                // An ObjC-rooted declaration — an imported/`@objc` ObjC class or a C-typedef
+                // struct re-exported through a Swift module — legitimately carries no Swift
+                // mangled name: its ABI identity is the Clang USR (`c:objc(...)` / `c:@T@...`)
+                // plus an `ObjC` decl attribute, the *expected* shape for foreign interop, not
+                // digester drift. The missing mangled name here is therefore not a record loss:
+                // such a type, when referenced, resolves through the Apple-supplement /
+                // out-of-module path, and the digester re-export node itself is never bound.
+                // Skip it cleanly (lands in SkippedWithReason) — the pre-b297b66f semantics —
+                // rather than signalling a DROP. Signalling a drop would poison the
+                // ParseReconciliation tally + InputResolutionReport on every ObjC-touching
+                // binding in normal mode, and fail closed spuriously under --strict-inputs. A
+                // Swift-defined `@objc` class keeps its `$s...` mangled name and never reaches
+                // this branch, so the exemption stays scoped to mangled-name-less ObjC identities.
+                if (IsObjCRootedIdentity(node))
+                {
+                    _logger.LogDebug($"Skipping ObjC-rooted declaration '{node.Name}' with no Swift mangled name (resolved via supplement / out-of-module when referenced).");
+                    return null;
+                }
+
                 throw new AbiRecordDroppedException(node.Name, node.ModuleName, "no mangled name");
             }
 
@@ -3462,10 +3481,13 @@ namespace BindingsGeneration
                     // generic parameter, mirroring the Swift compiler's own desugaring of
                     // `some P` in parameter position to an unnamed generic `<T: P>`.
                     // Only applies when we're inside CreateMethodDecl's param loop
-                    // (_opaqueParamCapture != null); otherwise fall through to the default
-                    // parser (which will still produce a broken NamedTypeSpec("some"),
-                    // but that's no worse than pre-fix behavior and shouldn't occur in
-                    // practice — opaque types only appear at method signature boundaries).
+                    // (_opaqueParamCapture != null). Outside it — notably a subscript index
+                    // param `some P`, which does not install the capture — fall through to
+                    // ParseTypeSpecOrDegrade below: the EOF-strict Parse throws on the bare
+                    // "some P" string (not a single nominal), so the degrade path yields a
+                    // leading-prefix NamedTypeSpec("some") — broken but present, matching
+                    // pre-cb1ff96d behavior — rather than letting the throw drop the whole
+                    // declaration via HandleNode's catch.
                     if (node.Name == kGenericTypeParam &&
                         node.PrintedName.StartsWith("some ", StringComparison.Ordinal) &&
                         _opaqueParamCapture != null)
@@ -3491,11 +3513,7 @@ namespace BindingsGeneration
                         arraySpec.GenericParameters.Add(elementSpec);
                         return arraySpec;
                     }
-                    var spec = TypeSpecParser.Parse(node.PrintedName);
-                    if (spec is null)
-                    {
-                        throw new Exception($"Error parsing type from \"{node.PrintedName}\"");
-                    }
+                    var spec = ParseTypeSpecOrDegrade(node.PrintedName);
                     // When a typealias appears inside Optional<T>, swift-api-digester encodes the
                     // underlying nominal in the TypeNameAlias child node — but TypeSpecParser
                     // only sees PrintedName ("simd.float4x4?"), so it keeps the alias name as the
@@ -3860,6 +3878,67 @@ namespace BindingsGeneration
             if (raw.Contains('.'))
                 return SwiftTypeName.FromModuleQualifiedName(raw);
             return SwiftTypeName.FromModuleQualifiedName($"Swift.{raw}");
+        }
+
+        /// <summary>
+        /// Parses a swift-api-digester <c>PrintedName</c> into a <see cref="TypeSpec"/>, degrading
+        /// gracefully instead of dropping the enclosing declaration. The canonical
+        /// <see cref="TypeSpecParser.Parse(string)"/> is EOF-strict (cb1ff96d), so a type string
+        /// that is not a single nominal — an un-stripped opaque modifier in a non-capture position
+        /// (a subscript index param <c>some P</c>) or a <c>sending</c>-modified closure result
+        /// (<c>() -> sending Box</c>) — throws <see cref="TypeSpecParseException"/>. Unguarded, that
+        /// throw propagates to <c>HandleNode</c>'s catch-all and silently drops the WHOLE member
+        /// (regression from cb1ff96d, which replaced the lenient prefix parse with the strict one).
+        /// On a strict failure, fall back to the lenient <see cref="TypeSpecParser.ParsePrefix"/> —
+        /// the pre-cb1ff96d behavior — which yields a degraded-but-present spec so the member still
+        /// emits, and log it so the degradation is observable rather than silent. If even the prefix
+        /// parse yields nothing, let the original strict failure surface rather than return null.
+        /// </summary>
+        private TypeSpec ParseTypeSpecOrDegrade(string printedName)
+        {
+            try
+            {
+                var spec = TypeSpecParser.Parse(printedName);
+                if (spec is null)
+                {
+                    throw new Exception($"Error parsing type from \"{printedName}\"");
+                }
+                return spec;
+            }
+            catch (TypeSpecParseException ex)
+            {
+                var degraded = TypeSpecParser.ParsePrefix(printedName);
+                if (degraded is null)
+                {
+                    throw;
+                }
+                _logger.LogDebug(
+                    $"Type string \"{printedName}\" is not a single strict type ({ex.Message}); " +
+                    "degraded to a leading-prefix parse so the declaration is not dropped via HandleNode's catch.");
+                return degraded;
+            }
+        }
+
+        /// <summary>
+        /// True when an ABI node's identity is rooted in ObjC/C interop rather than Swift — an
+        /// imported or <c>@objc</c> ObjC class, or a C-typedef struct re-exported through a Swift
+        /// module. Such nodes carry a Clang USR (<c>c:objc(...)</c> / <c>c:@T@...</c>) and/or an
+        /// <c>ObjC</c> decl attribute and legitimately have no Swift mangled name. A Swift-defined
+        /// <c>@objc</c> class is NOT ObjC-rooted by this test in the way that matters: it still
+        /// carries a <c>$s...</c> mangled name, so it never reaches the missing-mangled-name gate
+        /// this helper guards.
+        /// </summary>
+        private static bool IsObjCRootedIdentity(Node node)
+        {
+            if (node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "ObjC") != -1)
+            {
+                return true;
+            }
+
+            string? usr = node.usr;
+            return usr is not null
+                && (usr.StartsWith("c:objc(", StringComparison.Ordinal)
+                    || usr.StartsWith("c:@T@", StringComparison.Ordinal));
         }
 
         /// <summary>

@@ -795,6 +795,91 @@ namespace BindingsGeneration.Tests
             Assert.Equal(RegisterFile.Integer, result.Slots[1].File);
         }
 
+        // R6-4: the register oracle (LowerOptional) used to fabricate an over-wide
+        // `{inner}+tag` layout for EVERY non-class value payload. But Swift only appends a
+        // 1-byte discriminator tag to fixed-width int/float scalars (covered above) — Bool,
+        // pointers, and frozen simple enums fold `.none` into a spare inhabitant, keeping the
+        // inner type's size with NO tag. The thunk path forwards raw registers and has no
+        // spare-inhabitant encode/decode layer, so these must DECLINE (null → route to a
+        // @_cdecl wrapper that does encode them), matching the field oracle
+        // (ModuleProcessor.ClassifyFieldType) via the shared OptionalAbiClassifier. Before the
+        // fix each of these returned a 2-slot result, inflating the size by a slot and a byte.
+
+        [Fact]
+        public void LowerReturnType_OptionalBool_DeclinesToCdecl()
+        {
+            // Optional<Bool> keeps Bool's 1-byte size (`.none` == byte 2, a spare inhabitant) —
+            // no appended tag. The register oracle must decline rather than fabricate {b,i1}.
+            var typeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"));
+            var db = new TypeDatabase();
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
+            Assert.Null(result);
+        }
+
+        [Theory]
+        [InlineData("Swift.OpaquePointer")]
+        [InlineData("Swift.UnsafeRawPointer")]
+        [InlineData("Swift.UnsafeMutableRawPointer")]
+        public void LowerReturnType_OptionalPointer_DeclinesToCdecl(string pointerType)
+        {
+            // A nullable pointer uses 0 for `.none` (a spare inhabitant) and keeps the 8-byte
+            // pointer size — no tag. SwiftOptional models nullable pointers with an appended
+            // tag (nint?-style), which does NOT match Swift's nullable-pointer ABI, so the
+            // thunk path can't lower it; decline.
+            var typeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(pointerType));
+            var db = new TypeDatabase();
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void LowerReturnType_OptionalSimpleEnum_DeclinesToCdecl()
+        {
+            // Optional<frozen simple enum> uses the case-count sentinel for `.none` (a spare
+            // inhabitant) and keeps the enum's size — no tag. Decline.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Color");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Color"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib5ColorO",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int",
+                InlineSize = 1,
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+            var typeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("MyLib.Color"));
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void LowerReturnType_OptionalInt32_TagAddingScalarStillLowers()
+        {
+            // Contrast guard: a fixed-width scalar that genuinely DOES gain a tag must still
+            // lower (Int32 = 4 bytes + 1-byte tag = 2 slots). The fix narrows the path to
+            // tag-adding scalars; it must not over-decline them.
+            var typeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int32"));
+            var db = new TypeDatabase();
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
+            Assert.NotNull(result);
+            Assert.False(result!.IsIndirect);
+            Assert.Equal(2, result.Slots.Count);
+            Assert.All(result.Slots, s => Assert.Equal(RegisterFile.Integer, s.File));
+            Assert.Equal(4, result.Slots[0].ByteSize);
+            Assert.Equal(1, result.Slots[1].ByteSize); // tag byte
+            Assert.Equal(5, result.TotalByteSize);
+        }
+
         #endregion
 
         #region Edge Cases

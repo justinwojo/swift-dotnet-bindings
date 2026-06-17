@@ -1,5 +1,5 @@
 {
-  "git_sha": "f119fdf5",
+  "git_sha": "8ec160df",
   "description": "Artifact-parity gate baseline. Records pre-existing cross-artifact divergences (Defect cluster D member-path symbols; Finding 8 / Defect C vtable over-emissions) so the gate is green now and fails on any NEW divergence. See src/docs/architecture-review-2026-06.md (Findings 4/8/30, Defect cluster D). Reseed with \u0060nuke SeedParityBaseline\u0060 after an intentional, reviewed change.",
   "symbol_forward_known_missing": {
     "SwiftBindings": [
@@ -22,79 +22,7 @@
     "SBW_UnregisterTask_SwiftBindingsTestLibDependency"
   ],
   "struct_arity_known_mismatches": [],
-  "vtable_field_known_mismatches": [
-    {
-      "protocol": "CombinedMixedSelfGeneric",
-      "cs_fields": [
-        "csVTHandle",
-        "func_combinedName_get",
-        "func_combinedName_set",
-        "func_combineWithSelf_0"
-      ],
-      "swift_fields": [
-        "csVTHandle"
-      ]
-    },
-    {
-      "protocol": "CrossModuleClosurePropertyParentDelegate",
-      "cs_fields": [
-        "csVTHandle",
-        "func_closureCallback_get",
-        "func_closureCallback_set",
-        "func_nonClosureDidNotify_0"
-      ],
-      "swift_fields": [
-        "csVTHandle",
-        "func_nonClosureDidNotify_0"
-      ]
-    },
-    {
-      "protocol": "OptionalCallbackDelegate",
-      "cs_fields": [
-        "csVTHandle",
-        "func_optionalLabel_get",
-        "func_didFireRequired_0"
-      ],
-      "swift_fields": [
-        "csVTHandle",
-        "func_didFireRequired_0"
-      ]
-    },
-    {
-      "protocol": "PhantomOwnerMixedGeneric",
-      "cs_fields": [
-        "csVTHandle",
-        "func_phantomName_get",
-        "func_phantomName_set",
-        "func_processGenericPhantom_0"
-      ],
-      "swift_fields": [
-        "csVTHandle"
-      ]
-    },
-    {
-      "protocol": "Processable",
-      "cs_fields": [
-        "csVTHandle",
-        "func_label_get",
-        "func_process_0"
-      ],
-      "swift_fields": [
-        "csVTHandle",
-        "func_label_get"
-      ]
-    },
-    {
-      "protocol": "Summable",
-      "cs_fields": [
-        "csVTHandle",
-        "func_add_0"
-      ],
-      "swift_fields": [
-        "csVTHandle"
-      ]
-    }
-  ],
+  "vtable_field_known_mismatches": [],
   "vtable_cs_only_known": [
     "BoundCollidable",
     "BoundRecognizer",

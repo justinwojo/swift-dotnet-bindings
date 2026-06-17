@@ -952,6 +952,163 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("InnerInternal", result.CleanedContent);
             Assert.Contains("SBW_clean", result.CleanedContent);
         }
+
+        [Fact]
+        public void Process_QualifiedCrossModuleType_NotStrippedByShortNameCollision()
+        {
+            // R6-1: the internal-type set carries a current-module internal type under BOTH its
+            // short name ("Data") AND its module-qualified name ("SomeModule.Data"). A PUBLIC API
+            // surfacing a DIFFERENT module's same-short-name type (Foundation.Data) must NOT be
+            // stripped: the short name "Data" must not match the ".Data" suffix of "Foundation.Data".
+            // Before the module-aware guard, "\bData\b" matched that suffix → the public block was
+            // wrongly stripped, its entry-point symbol harvested into StrippedSymbols, and the C#
+            // P/Invoke suppressed → silent public-API loss / EntryPointNotFoundException at runtime.
+            var internalTypes = new HashSet<string> { "Data", "SomeModule.Data" };
+            var input = """
+                @_cdecl("SBW_makeData")
+                public func SBW_makeData() -> Foundation.Data {
+                    return Foundation.Data()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_makeData", result.CleanedContent);
+            Assert.DoesNotContain("SBW_makeData", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_BareInternalShortName_StillStripped()
+        {
+            // Guard against over-correction: an UNQUALIFIED reference to the current-module internal
+            // type (bare "Data", never preceded by ".") must still be stripped. The negative
+            // lookbehind only suppresses matches on a qualified cross-module suffix.
+            var internalTypes = new HashSet<string> { "Data", "SomeModule.Data" };
+            var input = """
+                @_cdecl("SBW_useInternal")
+                public func SBW_useInternal() -> Data {
+                    return Data()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_useInternal", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_SelfModuleQualifiedInternalType_StillStripped()
+        {
+            // A reference to the current-module internal type via ITS OWN module-qualified name
+            // ("SomeModule.Data") must still be stripped — caught by the qualified set entry, whose
+            // module prefix disambiguates it from any other module's same-short-name type.
+            var internalTypes = new HashSet<string> { "Data", "SomeModule.Data" };
+            var input = """
+                @_cdecl("SBW_useQualified")
+                public func SBW_useQualified() -> SomeModule.Data {
+                    return SomeModule.Data()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_useQualified", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_CurrentModuleQualifiedShortNameOnly_StrippedWhenModuleKnown()
+        {
+            // This is the EXACT shape of the R6-1 regression observed in BindingTests: the
+            // internal-type set carries the type under its SHORT name only ("InternalHolder"),
+            // while the generated wrapper spells the current-module reference QUALIFIED
+            // ("SwiftBindingsTestLib.InternalHolder"). The old "\bInternalHolder\b" matched the
+            // ".InternalHolder" suffix and stripped the block (correct, but for the wrong reason —
+            // suffix collision). A blanket negative lookbehind then UNDER-stripped it (the suffix
+            // no longer matched and no qualified set entry existed to catch it), leaving an
+            // uncompilable wrapper ("no type named 'InternalHolder' in module 'SwiftBindingsTestLib'").
+            // The module-aware matcher restores the strip via the <currentModule>.X clause — but
+            // ONLY when the current module name is supplied; with it unknown (null), a current-module
+            // qualified reference cannot be told apart from a foreign one, so it is conservatively kept.
+            var internalTypes = new HashSet<string> { "InternalHolder" };
+            var input = """
+                @_silgen_name("wrapper_holder")
+                public func SBW_holder(_self: UnsafeMutableRawPointer) -> SwiftBindingsTestLib.InternalHolder {
+                    return SwiftBindingsTestLib.InternalHolder()
+                }
+
+                """;
+
+            var stripped = SwiftWrapperPostProcessor.Process(
+                input, internalTypes, onSafetyNetWarning: null, currentModuleName: "SwiftBindingsTestLib");
+            Assert.Equal(1, stripped.StrippedBlockCount);
+            Assert.DoesNotContain("InternalHolder", stripped.CleanedContent);
+            Assert.Contains("wrapper_holder", stripped.StrippedSymbols);
+
+            // Without the module name the qualified current-module form can't be disambiguated from
+            // a foreign module's same-short-name type, so the block is conservatively preserved.
+            var kept = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(0, kept.StrippedBlockCount);
+            Assert.Contains("SBW_holder", kept.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_RealCdeclBlockReferencingQualifiedInternalType_IsStripped()
+        {
+            // Exact real-world block shape from BindingTests output (InternalHolder.describe @_cdecl
+            // wrapper). The body references the QUALIFIED current-module internal type inside a
+            // generic (Unmanaged<SwiftBindingsTestLib.InternalHolder>). The manifest carries the type
+            // under BOTH its short ("InternalHolder") and qualified ("SwiftBindingsTestLib.InternalHolder")
+            // forms. This block MUST be stripped (the qualified entry plain-matches; the short entry's
+            // <currentModule>.X clause also matches).
+            var internalTypes = new HashSet<string>
+            {
+                "Data", "InlinableInternalCascadeError", "InternalCarrier", "InternalHolder",
+                "SwiftBindingsTestLib.InlinableInternalCascadeError", "SwiftBindingsTestLib.InternalCarrier",
+                "SwiftBindingsTestLib.InternalHolder", "SwiftBindingsTestLib.ShortNameCollisionFixture.Data",
+            };
+            var input =
+                "// Method @_cdecl wrapper for SwiftBindingsTestLib.InternalHolder.describe.\n" +
+                "// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.\n" +
+                "@_cdecl(\"SBW_SwiftBindingsTestLib_InternalHolder_describe_FC6BCDD3\")\n" +
+                "public func _sbw_method_CFF5BF28(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeMutableRawPointer) {\n" +
+                "    let obj = Unmanaged<SwiftBindingsTestLib.InternalHolder>.fromOpaque(self_).takeUnretainedValue()\n" +
+                "    let result: String = obj.describe()\n" +
+                "    _ = result\n" +
+                "}\n";
+
+            var result = SwiftWrapperPostProcessor.Process(
+                input, internalTypes, onSafetyNetWarning: null, currentModuleName: "SwiftBindingsTestLib");
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("InternalHolder", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_ForeignModuleQualifiedShortNameCollision_KeptEvenWhenModuleKnown()
+        {
+            // The counterpart invariant: even with the current module known, a SHORT internal name
+            // ("Data") must NOT strip a wrapper that references a DIFFERENT module's same-short-name
+            // type ("Foundation.Data"). The <currentModule>.X clause is keyed to the current module
+            // only, so "Foundation.Data" never matches.
+            var internalTypes = new HashSet<string> { "Data" };
+            var input = """
+                @_cdecl("SBW_makeData")
+                public func SBW_makeData() -> Foundation.Data {
+                    return Foundation.Data()
+                }
+
+                """;
+
+            var result = SwiftWrapperPostProcessor.Process(
+                input, internalTypes, onSafetyNetWarning: null, currentModuleName: "SwiftBindingsTestLib");
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_makeData", result.CleanedContent);
+            Assert.DoesNotContain("SBW_makeData", result.StrippedSymbols);
+        }
     }
 
     public class CollectInternalTypeNamesTests
@@ -1016,6 +1173,98 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("Layer", result);
             // Qualified name should remain
             Assert.Contains("TestModule.Outer.Layer", result);
+        }
+
+        [Fact]
+        public void CollectInternalTypeNames_NestedInternalType_ContributesNoBareShortName()
+        {
+            // A NESTED internal type (`Outer.Data`) is unreachable from the generated wrapper via its
+            // bare leaf name — Swift requires a qualified spelling (`Outer.Data` / `Module.Outer.Data`)
+            // at the wrapper's top-level scope. Adding the bare "Data" would false-positive the text
+            // matcher against any same-named foreign type emitters print unqualified (a `Foundation.Data`
+            // parameter, etc.). A TOP-LEVEL internal type DOES keep its bare short name (a wrapper may
+            // reference it bare). Without this distinction, an internal nested `Data` strips every
+            // `_dbw_append(_ data: Data)` shim and other Foundation.Data references (the R6-1 regression).
+            var moduleDecl = new ModuleDecl
+            {
+                Name = "TestModule",
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Dependencies = new List<string>(),
+                Protocols = new List<ProtocolDecl>(),
+                ParentDecl = null,
+                ModuleDecl = null,
+                Types = new List<TypeDecl>
+                {
+                    // Public parent enclosing a nested @usableFromInline internal `Data`.
+                    new StructDecl
+                    {
+                        Name = "Outer",
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer"),
+                        MangledName = "$s10TestModule5OuterVN",
+                        IsModuleInternal = false,
+                        Properties = new List<PropertyDecl>(),
+                        Methods = new List<MethodDecl>(),
+                        Types = new List<TypeDecl>
+                        {
+                            new StructDecl
+                            {
+                                Name = "Data",
+                                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Data"),
+                                MangledName = "$s10TestModule5Outer4DataVN",
+                                IsModuleInternal = true,
+                                Properties = new List<PropertyDecl>(),
+                                Methods = new List<MethodDecl>(),
+                                Types = new List<TypeDecl>(),
+                                Operators = new List<OperatorDecl>(),
+                                Subscripts = new List<SubscriptDecl>(),
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                Conformances = new List<TypeConformance>(),
+                                ParentDecl = null,
+                                ModuleDecl = null,
+                                IsFrozen = false,
+                                MetadataAccessor = ""
+                            }
+                        },
+                        Operators = new List<OperatorDecl>(),
+                        Subscripts = new List<SubscriptDecl>(),
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        Conformances = new List<TypeConformance>(),
+                        ParentDecl = null,
+                        ModuleDecl = null,
+                        IsFrozen = false,
+                        MetadataAccessor = ""
+                    },
+                    // Top-level internal type — its bare short name IS a valid bare wrapper reference.
+                    new StructDecl
+                    {
+                        Name = "TopInternal",
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TopInternal"),
+                        MangledName = "$s10TestModule11TopInternalVN",
+                        IsModuleInternal = true,
+                        Properties = new List<PropertyDecl>(),
+                        Methods = new List<MethodDecl>(),
+                        Types = new List<TypeDecl>(),
+                        Operators = new List<OperatorDecl>(),
+                        Subscripts = new List<SubscriptDecl>(),
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        Conformances = new List<TypeConformance>(),
+                        ParentDecl = null,
+                        ModuleDecl = null,
+                        IsFrozen = false,
+                        MetadataAccessor = ""
+                    }
+                }
+            };
+
+            var result = BindingsGenerator.CollectInternalTypeNames(moduleDecl);
+
+            // Nested internal type: qualified form present, bare leaf name absent.
+            Assert.Contains("TestModule.Outer.Data", result);
+            Assert.DoesNotContain("Data", result);
+            // Top-level internal type: both qualified and bare short name present.
+            Assert.Contains("TestModule.TopInternal", result);
+            Assert.Contains("TopInternal", result);
         }
     }
 

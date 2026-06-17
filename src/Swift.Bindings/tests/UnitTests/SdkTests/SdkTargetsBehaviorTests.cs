@@ -793,6 +793,29 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void HookWiringAssertion_SkippedUnderStandaloneCoreCompile()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // R4-C1 regression guard. A standalone `dotnet build -t:CoreCompile` enters CoreCompile
+            // WITHOUT the real Build graph, so BuildOnlySettings never runs and BuildingProject stays
+            // 'false' — and ResolveProjectReferences is skipped, so _GenerateSwiftBindings's stamp is
+            // legitimately absent. DesignTimeBuild is empty in both that misfire and a real full build,
+            // so the old DesignTimeBuild-only gate could not tell them apart and the assert would
+            // false-positive SWIFTBIND062. The fix adds the canonical `AND BuildingProject == 'true'`
+            // companion: with BuildingProject 'false' (modeled here) the assert must SKIP entirely —
+            // no SWIFTBIND062 even though every stamp is missing and metadata is present.
+            var (exit, output) = RunHookWiringAssertion(
+                genStamp: false, resolveStamp: false, metadataPresent: true, designTimeBuild: false,
+                importStamp: false, appleGenStamp: false, appleFrameworkMode: true,
+                buildingProject: false);
+            Assert.True(exit == 0, $"Expected skip under standalone CoreCompile (BuildingProject=false).\n{output}");
+            Assert.DoesNotContain("SWIFTBIND062", output);
+            Assert.DoesNotContain("SWIFTBIND063", output);
+            Assert.DoesNotContain("SWIFTBIND064", output);
+            Assert.DoesNotContain("SWIFTBIND065", output);
+        }
+
+        [Fact]
         public void HookWiringAssertion_FailsSwiftBind064_WhenImportHookDisconnectedAndMetadataPresent()
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
@@ -937,10 +960,19 @@ namespace BindingsGeneration.Tests
         /// that only exercise the generic-generate (062) and resolve (063) checks are unaffected:
         /// the import (064) check sees its stamp present and the Apple-generate (065) check is
         /// gated off outside AppleFramework mode.
+        ///
+        /// <paramref name="buildingProject"/> defaults to true: the tripwire is gated on
+        /// <c>BuildingProject == 'true'</c> (the canonical "real-build-only" idiom), but invoking
+        /// <c>-t:_AssertSwiftBindingHookWiring</c> in isolation leaves BuildingProject 'false'
+        /// (BuildOnlySettings, which flips it true, only runs inside a real Build graph). The
+        /// failure-expecting cases therefore force <c>-p:BuildingProject=true</c> to faithfully
+        /// model the real-build context in which the assert actually fires; the R4-C1 case passes
+        /// false to model a standalone <c>-t:CoreCompile</c>, where the assert must SKIP.
         /// </summary>
         private (int ExitCode, string Output) RunHookWiringAssertion(
             bool genStamp, bool resolveStamp, bool metadataPresent, bool designTimeBuild,
-            bool importStamp = true, bool appleGenStamp = true, bool appleFrameworkMode = false)
+            bool importStamp = true, bool appleGenStamp = true, bool appleFrameworkMode = false,
+            bool buildingProject = true)
         {
             var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
             Directory.CreateDirectory(intermediateDir);
@@ -972,6 +1004,7 @@ namespace BindingsGeneration.Tests
             if (appleGenStamp) props += " -p:_SwiftHookRan_GenerateSwiftBindingsAppleFramework=true";
             if (appleFrameworkMode) props += " -p:_SwiftBindingTargetKind=AppleFramework";
             if (designTimeBuild) props += " -p:DesignTimeBuild=true";
+            if (buildingProject) props += " -p:BuildingProject=true";
 
             var result = RunDotnet(
                 $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_AssertSwiftBindingHookWiring -nologo -v:n{props}");

@@ -216,6 +216,21 @@ public class ReturnPathTests : TestBase
         TestLogger.Info($"Greeter.Greet = {greeting}");
     }
 
+    public void TestGreeterHeapBackedStringParam()
+    {
+        // R3-F1 end-to-end sentinel for the @_cdecl String-by-value fast path (EphemeralSwiftString).
+        // Every other Greeter test uses ≤15-byte inline small strings; this passes a >15 UTF-8 byte
+        // argument, which forces Swift's large/heap-backed String form — the representation whose
+        // transient +1 the EphemeralSwiftString ref struct owns and releases on Dispose. A regression
+        // that dropped the `using` or copied the owning handle would over-release this heap storage
+        // (crash / corruption), so a clean round-trip here affirmatively re-confirms the fast path.
+        const string longGreeting = "a thirty-two character greeting!"; // 32 UTF-8 bytes (> 15 → heap-backed)
+        var g = new Greeter(name: "Alice");
+        var greeting = g.Greet(greeting: longGreeting);
+        AssertEqual("a thirty-two character greeting!, Alice!", greeting, "Heap-backed greeting round-trips");
+        TestLogger.Info($"Greeter.Greet (heap-backed) = {greeting}");
+    }
+
     #endregion
 
     #region VoidParamArrayFactory — Void Param + Array Return via @_cdecl

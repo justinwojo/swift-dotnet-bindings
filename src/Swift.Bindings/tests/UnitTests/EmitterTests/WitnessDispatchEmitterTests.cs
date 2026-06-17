@@ -566,6 +566,45 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("SBW_Calculator_method_compute_1", output);
     }
 
+    [Fact]
+    public void OverloadDisambiguation_LabelOnlyOverloadPair_CollapsesToOneSlot_NoTrailingIndexShift()
+    {
+        // A label-only overload pair — same base name, same parameter TYPES, differing only
+        // by Swift argument label (`func move(to: Int32)` / `func move(from: Int32)`) — must
+        // collapse to a SINGLE forward-witness accessor here, because GetMethodKey (the
+        // canonical forward/SBW slot key) is intentionally label-BLIND. This is the producer
+        // walk; the two C# consumer walks (ProtocolProxyEmitter.InterfaceImpl /.SwiftObject)
+        // key off the SAME GetMethodKey, so they collapse the pair identically. The load-bearing
+        // invariant the R5-1a fix rests on: a trailing dispatchable method must land at the
+        // index the collapsed pair leaves it at (here index 1, NOT 2). If a future change made
+        // this key label-SENSITIVE (the way EveryProtocolEmitter.GetMethodKey is, for the
+        // reverse/vtable axis), `move` would consume indices 0 AND 1 here while the still-blind
+        // consumers expected `tag` at 1 — reintroducing the SBW index-shift
+        // EntryPointNotFoundException R5-1a closed. (The second overload being non-individually
+        // dispatchable is the deferred protocol-collision-rename limitation documented at
+        // ProtocolHandler.cs and Receivers.cs, not a defect this test asserts away.)
+        var protocolDecl = CreateSimpleProtocol("Mover");
+        protocolDecl.Methods.Add(CreateMethodWithParams("move",
+            returnType: TupleTypeSpec.Empty,
+            paramTypes: new[] { ("to", new NamedTypeSpec("Swift.Int32") as TypeSpec) }));
+        protocolDecl.Methods.Add(CreateMethodWithParams("move",
+            returnType: TupleTypeSpec.Empty,
+            paramTypes: new[] { ("from", new NamedTypeSpec("Swift.Int32") as TypeSpec) }));
+        protocolDecl.Methods.Add(CreateMethodWithParams("tag",
+            returnType: TupleTypeSpec.Empty,
+            paramTypes: new[] { ("_", new NamedTypeSpec("Swift.Int32") as TypeSpec) }));
+
+        var output = EmitDispatch(protocolDecl);
+
+        // The label-only pair collapses to exactly one accessor at index 0 ...
+        Assert.Contains("SBW_Mover_method_move_0", output);
+        Assert.DoesNotContain("SBW_Mover_method_move_1", output);
+        // ... so the trailing dispatchable method occupies index 1, never index 2. This is the
+        // lockstep both C# forward walks rely on (same label-blind GetMethodKey → same indices).
+        Assert.Contains("SBW_Mover_method_tag_1", output);
+        Assert.DoesNotContain("SBW_Mover_method_tag_2", output);
+    }
+
     #endregion
 
     #region Non-Dispatchable Members Tests

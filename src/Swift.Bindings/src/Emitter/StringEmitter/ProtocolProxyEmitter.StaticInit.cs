@@ -209,11 +209,22 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
 
+        // Two distinct gates per member, mirroring the cross-module path (EmitCrossModuleParent
+        // VtableInit) and the struct definitions (EmitSwiftVtableStruct/EmitLocalVtableStruct):
+        //   1. LAYOUT — ProtocolVtableMembers.IncludesProperty/IncludesSubscript. Never assign into
+        //      a slot the struct does not declare (would reference a missing field).
+        //   2. FILLABILITY — _skippedPropertyNames / _skippedSubscriptIndices. A slot Swift KEEPS
+        //      but C# can't project (e.g. AnyType-unprojectable) has no Receive_ trampoline, so the
+        //      assignment is skipped and the slot is left null. The struct still carries the field.
+        var vtableClosureHandler = new ClosureHandler(_typeDatabase);
+
         var emittedLocalAssignments = new HashSet<string>();
 
         foreach (var property in protocolDecl.Properties)
         {
             if (property.IsStatic)
+                continue;
+            if (!ProtocolVtableMembers.IncludesProperty(property, protocolDecl, vtableClosureHandler))
                 continue;
             if (_skippedPropertyNames.Contains(property.Name))
                 continue;
@@ -229,12 +240,17 @@ public partial class ProtocolProxyEmitter
             var subscriptKey = $"subscript_{subscriptIndex}";
             if (emittedSubscripts.Add(subscriptKey))
             {
-                if (!_skippedSubscriptIndices.Contains(subscriptIndex))
+                // A non-static excluded subscript still consumes its index below so the numbering
+                // matches the struct layout; only the assignment is gated on layout + fillability.
+                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl) &&
+                    !_skippedSubscriptIndices.Contains(subscriptIndex))
                     EmitLocalVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             }
             subscriptIndex++;
         }
 
+        // Index allocation matches the struct (Vtables.cs): RAW producer key + IncludesMethod
+        // layout, then the fillability skips leave Swift-kept-but-C#-unfillable slots null.
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
         var emittedCSharpKeys = new HashSet<string>();
@@ -248,12 +264,16 @@ public partial class ProtocolProxyEmitter
             if (method.IsObjCOptional)
                 continue;
 
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
-            if (!methodIndices.ContainsKey(methodKey))
+            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
+            if (!methodIndices.ContainsKey(slotKey))
             {
                 var idx = methodIndex++;
-                methodIndices[methodKey] = idx;
-                if (_skippedMethodKeys.Contains(methodKey))
+                methodIndices[slotKey] = idx;
+                // LAYOUT: a method with no Swift vtable slot has no struct field to assign into.
+                if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
+                    continue;
+                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+                if (_skippedMethodKeys.Contains(collapsingKey))
                     continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
@@ -280,6 +300,9 @@ public partial class ProtocolProxyEmitter
         {
             if (property.IsStatic)
                 continue;
+            // Same layout-then-fillability gating as the local-vtable loop above.
+            if (!ProtocolVtableMembers.IncludesProperty(property, protocolDecl, vtableClosureHandler))
+                continue;
             if (_skippedPropertyNames.Contains(property.Name))
                 continue;
             EmitSwiftVtablePropertyAssignment(writer, property, emittedSwiftAssignments);
@@ -294,7 +317,8 @@ public partial class ProtocolProxyEmitter
             var subscriptKey = $"subscript_{subscriptIndex}";
             if (emittedSubscripts.Add(subscriptKey))
             {
-                if (!_skippedSubscriptIndices.Contains(subscriptIndex))
+                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl) &&
+                    !_skippedSubscriptIndices.Contains(subscriptIndex))
                     EmitSwiftVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             }
             subscriptIndex++;
@@ -313,12 +337,15 @@ public partial class ProtocolProxyEmitter
             if (method.IsObjCOptional)
                 continue;
 
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
-            if (!methodIndices.ContainsKey(methodKey))
+            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
+            if (!methodIndices.ContainsKey(slotKey))
             {
                 var idx = methodIndex++;
-                methodIndices[methodKey] = idx;
-                if (_skippedMethodKeys.Contains(methodKey))
+                methodIndices[slotKey] = idx;
+                if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
+                    continue;
+                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+                if (_skippedMethodKeys.Contains(collapsingKey))
                     continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
@@ -608,11 +635,14 @@ public partial class ProtocolProxyEmitter
             // method that follows lands at the slot the struct field carries.
             if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
             if (method.IsObjCOptional) continue;
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, parentDecl);
-            if (!methodIndices.ContainsKey(methodKey))
+            // Index on the RAW producer key (matches Vtables.cs / EveryProtocolEmitter); the
+            // projected key is fillability-only. Cross-module parents have empty skip sets
+            // (reset in EmitCrossModuleParentScaffolding), so IncludesMethod alone drives layout.
+            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
+            if (!methodIndices.ContainsKey(slotKey))
             {
                 var idx = methodIndex++;
-                methodIndices[methodKey] = idx;
+                methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, parentDecl, vtableClosureHandler)) continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, parentDecl);
                 if (!emittedCSharpKeys.Add(projectedKey)) continue;
@@ -657,11 +687,13 @@ public partial class ProtocolProxyEmitter
             // Receivers.cs / EveryProtocolEmitter.
             if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
             if (method.IsObjCOptional) continue;
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, parentDecl);
-            if (!methodIndices.ContainsKey(methodKey))
+            // Index on the RAW producer key (matches Vtables.cs / EveryProtocolEmitter); see the
+            // local-vtable loop above.
+            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
+            if (!methodIndices.ContainsKey(slotKey))
             {
                 var idx = methodIndex++;
-                methodIndices[methodKey] = idx;
+                methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, parentDecl, vtableClosureHandler)) continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, parentDecl);
                 if (!emittedCSharpKeys.Add(projectedKey)) continue;

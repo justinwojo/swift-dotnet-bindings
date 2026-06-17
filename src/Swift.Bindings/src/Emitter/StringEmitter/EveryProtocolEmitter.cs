@@ -5554,7 +5554,17 @@ public class EveryProtocolEmitter
         return $"Get_EveryProtocol_{protocolDecl.Name}_WitnessTable";
     }
 
-    private static string GetMethodKey(MethodDecl method)
+    /// <summary>
+    /// The authoritative reverse-dispatch slot key: method name + argument labels + RAW Swift
+    /// parameter type specs + async effect. This is the producer's index allocator
+    /// (<see cref="EmitProtocolVtableStruct"/>), so the C# reverse-dispatch consumers
+    /// (ProtocolProxyEmitter Vtables/Receivers/StaticInit) MUST key their slot indices on this
+    /// same builder to stay byte-for-byte aligned with the Swift `_vtable` struct. Distinct from
+    /// <see cref="ProtocolSignatureHelper.GetMethodSignatureKey"/> (which projects params through
+    /// the C# type fallback and collapses raw-distinct existential overloads) — the projected key
+    /// is correct for interface dedup / skip-set membership but MUST NOT gate slot positions.
+    /// </summary>
+    internal static string GetMethodKey(MethodDecl method)
     {
         // Create a unique key for method overloading based on name, argument labels, and parameter types.
         // Argument labels are needed to distinguish Swift overloads like:

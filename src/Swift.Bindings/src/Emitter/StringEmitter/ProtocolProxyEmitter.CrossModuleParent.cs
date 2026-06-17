@@ -110,8 +110,8 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"#region Cross-Module Parent Scaffolding ({parentDecl.ModuleDecl?.Name}.{parentDecl.Name})");
             writer.WriteLine();
 
-            EmitSwiftVtableStruct(writer, parentDecl, applyVtableMembershipFilter: true);
-            EmitLocalVtableStruct(writer, parentDecl, applyVtableMembershipFilter: true);
+            EmitSwiftVtableStruct(writer, parentDecl);
+            EmitLocalVtableStruct(writer, parentDecl);
             EmitCrossModuleParentVtableFields(writer, parentDecl);
             EmitCrossModuleParentSetVtablePInvoke(writer, parentDecl);
             EmitReceiverMethods(writer, parentDecl, parentInterfaceName, applyVtableMembershipFilter: true);

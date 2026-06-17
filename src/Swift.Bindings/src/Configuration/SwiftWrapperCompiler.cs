@@ -221,7 +221,7 @@ namespace BindingsGeneration
                 {
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
-                        warning => logger.LogWarning("{Warning}", warning));
+                        warning => logger.LogWarning("{Warning}", warning), currentModuleName: moduleName);
                     totalStripped += result.StrippedBlockCount;
                     allStrippedSymbols.UnionWith(result.StrippedSymbols);
                     AccumulateSubCauseTotals(subCauseTotals, result.StrippedBlocksBySubCause);
@@ -680,7 +680,7 @@ namespace BindingsGeneration
                 {
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
-                        warning => logger.LogWarning("{Warning}", warning));
+                        warning => logger.LogWarning("{Warning}", warning), currentModuleName: moduleName);
                     totalStripped += result.StrippedBlockCount;
                     allStrippedSymbols.UnionWith(result.StrippedSymbols);
                     AccumulateSubCauseTotals(subCauseTotals, result.StrippedBlocksBySubCause);

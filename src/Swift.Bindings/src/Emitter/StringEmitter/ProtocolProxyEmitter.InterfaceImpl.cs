@@ -93,6 +93,11 @@ public partial class ProtocolProxyEmitter
         // protocol refines a base protocol's return type (CS0738 fix).
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        // Member-emission dedup, keyed on the PROJECTED requirement key (GetMethodSignatureKey).
+        // SEPARATE from methodIndices (keyed on the raw slotKey): the index must advance per raw
+        // requirement to stay in producer lockstep, but the C# member must collapse AnyType-
+        // degrading overloads to one emission. See the note at the dedup site below.
+        var emittedMethodSignatureKeys = new HashSet<string>();
         var emittedCSharpKeys = new Dictionary<string, MethodDecl>();
         foreach (var method in protocolDecl.Methods)
         {
@@ -109,35 +114,51 @@ public partial class ProtocolProxyEmitter
             if (method.IsObjCOptional)
                 continue;
 
+            // Two distinct keys, intentionally: the SBW slot index is allocated on the SWIFT-domain
+            // requirement key (slotKey) so it tracks the producer walk and the P/Invoke decl walk —
+            // an AnyType-collapsed overload pair stays two indices, not one (see
+            // WitnessDispatchEmitter.GetMethodKey). The skip-set lookups below use the projected C#
+            // key (methodKey), because ProtocolHandler populates _skippedMethodKeys /
+            // _closureSkippedMethodKeys with ProtocolSignatureHelper.GetMethodSignatureKey.
+            var slotKey = WitnessDispatchEmitter.GetMethodKey(method);
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
-            if (!methodIndices.ContainsKey(methodKey))
+            if (methodIndices.ContainsKey(slotKey))
+                continue;
+            var idx = methodIndex++;
+            methodIndices[slotKey] = idx;
+            // Member-emission collapse on the PROJECTED requirement key (GetMethodSignatureKey):
+            // two overloads whose distinct Swift params both degrade to Swift.AnyType (e.g. a
+            // closure param and an array param) emit the SAME C# member signature, so only the
+            // first emits — the rest would be CS0111 duplicates. The index above was still advanced
+            // per raw requirement (slotKey) so the SBW symbol indices, and every later method's
+            // index, stay in lockstep with the producer (WitnessDispatchEmitter.GetMethodKey).
+            // GetProjectedCSharpMethodKey can't be the collapse key: it keeps the closure as Action
+            // and the array as IReadOnlyList, so it would let both emit (the regression this fixes).
+            if (!emittedMethodSignatureKeys.Add(methodKey))
+                continue;
+            if (_skippedMethodKeys.Contains(methodKey))
             {
-                var idx = methodIndex++;
-                methodIndices[methodKey] = idx;
-                if (_skippedMethodKeys.Contains(methodKey))
+                // Closure-skipped methods are now in the interface — emit NotSupported stub
+                if (_closureSkippedMethodKeys.Contains(methodKey))
                 {
-                    // Closure-skipped methods are now in the interface — emit NotSupported stub
-                    if (_closureSkippedMethodKeys.Contains(methodKey))
-                    {
-                        // Pass the proxy's own propertyNames so the dedup key reflects the
-                        // collision-aware C# member name (Foo -> FooMethod when this protocol
-                        // has a property Foo). Without it, two methods that emit under
-                        // different C# names can falsely share a dedup key, dropping one
-                        // emission entirely.
-                        var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
-                        if (emittedCSharpKeys.ContainsKey(projectedKeySkipped))
-                            continue;
-                        emittedCSharpKeys[projectedKeySkipped] = method;
-                        EmitNotSupportedMethodStub(writer, method, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
-                    }
-                    continue;
+                    // Pass the proxy's own propertyNames so the dedup key reflects the
+                    // collision-aware C# member name (Foo -> FooMethod when this protocol
+                    // has a property Foo). Without it, two methods that emit under
+                    // different C# names can falsely share a dedup key, dropping one
+                    // emission entirely.
+                    var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
+                    if (emittedCSharpKeys.ContainsKey(projectedKeySkipped))
+                        continue;
+                    emittedCSharpKeys[projectedKeySkipped] = method;
+                    EmitNotSupportedMethodStub(writer, method, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
                 }
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
-                if (emittedCSharpKeys.ContainsKey(projectedKey))
-                    continue;
-                emittedCSharpKeys[projectedKey] = method;
-                EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx, emittedCSharpPropertyNames);
+                continue;
             }
+            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
+            if (emittedCSharpKeys.ContainsKey(projectedKey))
+                continue;
+            emittedCSharpKeys[projectedKey] = method;
+            EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx, emittedCSharpPropertyNames);
         }
 
         // Static virtual members: emit NotSupportedException stubs to satisfy the interface contract.

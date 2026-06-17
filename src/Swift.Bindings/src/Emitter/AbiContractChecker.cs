@@ -105,8 +105,19 @@ public static class AbiContractChecker
 
     // Matches both unqualified and global:: qualified UnmanagedCallConv attributes.
     // Captures the calling convention type name (e.g., "CallConvSwift" or "CallConvCdecl").
+    //
+    // The generator emits the CallConvs array in four interchangeable C# forms, and the
+    // checker must recognize all of them — missing one mis-defaults the convention to
+    // Cdecl, which silently disables CC-001/CC-002 and fires a false CC-004:
+    //   1. new global::System.Type[] { typeof(global::System.…CallConvSwift) }  (PInvokeEmitHelper, fully-qualified)
+    //   2. new Type[] { typeof(CallConvSwift) }                                 (PInvokeEmitHelper, short)
+    //   3. new[] { typeof(…CallConvSwift) }                                     (PInvokeHelperEmitter, KvoExtensionEmitter — target-typed)
+    //   4. [typeof(CallConvSwift)]                                              (AppleTypesCsEmitter — C# 12 collection expression)
+    // The optional `new …`/`new[]` prefix covers 1–3; the `[{[]`/`[}]]` bracket pair covers
+    // either the `{ … }` array initializer or the `[ … ]` collection expression. Being lax
+    // about pairing { with ] is harmless: inputs are only ever generator-emitted attributes.
     private static readonly Regex CallingConvRegex = new(
-        @"\[(?:global::System\.Runtime\.InteropServices\.)?UnmanagedCallConv\(CallConvs\s*=\s*new\s+(?:global::System\.)?Type\[\]\s*\{\s*typeof\((?:global::System\.Runtime\.CompilerServices\.)?(CallConv\w+)\)\s*\}\)\]",
+        @"\[(?:global::System\.Runtime\.InteropServices\.)?UnmanagedCallConv\(CallConvs\s*=\s*(?:new\s+(?:global::System\.)?Type\[\]|new\[\])?\s*[\{\[]\s*typeof\((?:global::System\.Runtime\.CompilerServices\.)?(CallConv\w+)\)\s*[\}\]]\)\]",
         RegexOptions.Compiled);
 
     // Matches both unqualified and global:: qualified LibraryImport attributes.
@@ -369,7 +380,15 @@ public static class AbiContractChecker
             var libraryName = libMatch.Groups[1].Value;
             var entryPoint = libMatch.Groups[2].Value;
 
-            // Look backwards (up to 3 lines) for [UnmanagedCallConv]
+            // Find the [UnmanagedCallConv] attribute adjacent to [LibraryImport]. Emitters
+            // are NOT consistent about attribute order: the main method P/Invoke path
+            // (PInvokeEmitHelper) emits [UnmanagedCallConv] BEFORE [LibraryImport], but the
+            // generic-metadata accessor helper (PInvokeHelperEmitter) emits [LibraryImport]
+            // FIRST and [UnmanagedCallConv] on the FOLLOWING line. A backward-only scan
+            // silently misses the latter and mis-defaults it to Cdecl — which both disables
+            // the CC-001/CC-002 blittability checks for a genuine CallConvSwift P/Invoke AND
+            // fires a false CC-004 on its $s… mangled symbol. So scan BOTH directions: the
+            // backward pass below, plus a forward pass folded into the signature scan.
             string? callingConvention = null;
             for (int k = Math.Max(0, i - 3); k < i; k++)
             {
@@ -382,13 +401,11 @@ public static class AbiContractChecker
                 }
             }
 
-            // If no [UnmanagedCallConv] found, the runtime uses the platform default
-            // (C calling convention), not Swift. All real generator paths that emit $s...
-            // symbols also emit [UnmanagedCallConv(CallConvSwift)]. The no-attribute
-            // emitters (EnumHandler, SBW_Free helpers) are always wrapper/C ABI paths.
-            callingConvention ??= "CallConvCdecl";
-
-            // Look forward for the signature — may be on the next line or span multiple lines
+            // Look forward for the signature — may be on the next line or span multiple
+            // lines — and, while skipping intervening attribute lines, pick up a
+            // [UnmanagedCallConv] that follows [LibraryImport] (only if the backward scan
+            // didn't already resolve one). The scan stops at this P/Invoke's signature, so
+            // it can never absorb the next declaration's convention attribute.
             string? returnType = null;
             string? methodName = null;
             string? paramsStr = null;
@@ -397,9 +414,18 @@ public static class AbiContractChecker
             {
                 var scanLine = lines[j].TrimStart();
 
-                // Skip attribute lines (e.g., [return: MarshalAs(...)])
+                // Skip attribute lines (e.g., [return: MarshalAs(...)]), but first try to
+                // resolve a not-yet-found calling convention emitted after [LibraryImport].
                 if (scanLine.StartsWith("["))
+                {
+                    if (callingConvention == null)
+                    {
+                        var fwdCallConvMatch = CallingConvRegex.Match(scanLine);
+                        if (fwdCallConvMatch.Success)
+                            callingConvention = fwdCallConvMatch.Groups[1].Value;
+                    }
                     continue;
+                }
 
                 var sigMatch = PInvokeSignatureStartRegex.Match(scanLine);
                 if (sigMatch.Success)
@@ -413,6 +439,12 @@ public static class AbiContractChecker
                     break;
                 }
             }
+
+            // If no [UnmanagedCallConv] found in either direction, the runtime uses the
+            // platform default (C calling convention), not Swift. All real generator paths
+            // that emit $s... symbols also emit [UnmanagedCallConv(CallConvSwift)]. The
+            // no-attribute emitters (EnumHandler, SBW_Free helpers) are wrapper/C ABI paths.
+            callingConvention ??= "CallConvCdecl";
 
             if (returnType == null || methodName == null)
                 continue;

@@ -42,8 +42,11 @@ public record TypeLoweringResult(
 /// - Structs: Recursively flatten fields. Count total slots (int + float combined).
 /// - 4-slot limit: If total slots > 4, the value is passed indirectly via x8 pointer.
 /// - Classes: Always 1 integer slot (pointer).
-/// - Optional&lt;value type&gt;: Inner type's slots + 1 integer tag slot.
+/// - Optional&lt;fixed-width int/float scalar&gt;: Inner type's slots + 1 integer tag slot.
 /// - Optional&lt;class&gt;: 1 integer slot (nullable pointer, no tag).
+/// - Optional&lt;Bool / pointer / enum / struct&gt;: declined — Swift folds .none into a
+///   spare inhabitant (no tag, same size) and the thunk path has no spare-inhabitant
+///   encoding, so these route to a @_cdecl wrapper. See OptionalAbiClassifier.
 /// - Empty struct: 0 slots, not indirect.
 /// - Non-frozen struct: Always indirect (unknown layout at compile time).
 /// - Enums with raw value: 1 integer slot.
@@ -344,8 +347,17 @@ public static class TypeLowering
     }
 
     /// <summary>
-    /// Lowers Optional&lt;T&gt; — nullable class pointers are 1 integer slot,
-    /// value type optionals are inner layout + 1 integer tag slot.
+    /// Lowers Optional&lt;T&gt; for the register oracle. Nullable class pointers are 1
+    /// integer slot. For value-type payloads we only know the layout when Swift appends a
+    /// 1-byte discriminator tag — i.e. the fixed-width integer/float scalars. Every other
+    /// value payload (Bool, pointers, enums, structs) folds <c>.none</c> into a spare
+    /// inhabitant and keeps the inner type's size with NO tag; the thunk path forwards raw
+    /// registers and has no spare-inhabitant encode/decode layer, so we DECLINE those
+    /// (return null) and let the method route to a <c>@_cdecl</c> wrapper, whose managed
+    /// marshalling does encode them. The tag-adding set is shared with the field oracle
+    /// (ModuleProcessor.ClassifyFieldType) via <see cref="OptionalAbiClassifier"/> so the
+    /// two can't drift — previously this fabricated an over-wide <c>{inner}+tag</c> layout
+    /// for spare-inhabitant payloads. See Finding 44 / Regression-R6 finding 4.
     /// </summary>
     private static TypeLoweringResult? LowerOptional(NamedTypeSpec optionalType, ITypeDatabase typeDb)
     {
@@ -364,7 +376,14 @@ public static class TypeLowering
                 IsIndirect: false,
                 TotalByteSize: 8);
 
-        // Value type optional: lower inner type, then add tag slot
+        // Spare-inhabitant payloads (Bool, pointers, enums, structs) keep the inner size
+        // with no tag and have no thunk-side encoding — decline so they route to @_cdecl.
+        // Only fixed-width integer/float scalars genuinely gain the 1-byte tag this path
+        // fabricates, so only those are safe to lower here.
+        if (!OptionalAbiClassifier.HasAppendedOptionalTag(innerType.Name))
+            return null;
+
+        // Tag-adding scalar optional: lower inner type, then add the 1-byte tag slot.
         var innerResult = LowerNamedType(innerType, typeDb);
         if (innerResult == null || innerResult.IsIndirect)
             return null; // Can't compose optional of indirect type in registers

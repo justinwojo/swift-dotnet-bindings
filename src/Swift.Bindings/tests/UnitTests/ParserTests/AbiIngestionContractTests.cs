@@ -297,6 +297,48 @@ public class AbiIngestionContractTests
             d => d.Category == InputResolutionCategory.AbiJson && d.Severity == InputResolutionSeverity.Degradation);
     }
 
+    /// <summary>
+    /// Companion scope guard, ObjC/C-interop edge: a bindable node whose identity is rooted in
+    /// ObjC/C interop legitimately carries no Swift mangled name. An imported / <c>@objc</c> ObjC
+    /// class carries a <c>c:objc(...)</c> USR + an <c>ObjC</c> decl attribute; a C-typedef struct
+    /// re-exported through a Swift module carries a <c>c:@T@...</c> USR with no <c>ObjC</c> attribute.
+    /// Both are the EXPECTED foreign-interop ABI shape, not digester drift — the type resolves
+    /// through the Apple supplement / out-of-module path when referenced, and the re-export node is
+    /// never bound. So it must be a deliberate skip (SkippedWithReason), never a DroppedWithError and
+    /// never an AbiJson degradation. Without this exemption every ObjC-touching binding's
+    /// reconciliation tally is poisoned and <c>--strict-inputs</c> fails closed spuriously
+    /// (regression from b297b66f: Quick/BonMot/Firebase/… all tripped the gate). Both arms of the
+    /// exemption (decl-attribute and USR-prefix) are exercised so dropping either turns a case red.
+    /// The non-ObjC <c>Ghost</c> drop test above remains the negative control: a genuine Swift type
+    /// that lost its mangled name still drops loudly.
+    /// </summary>
+    [Theory]
+    [InlineData("Class", "c:objc(cs)QuickSpec", true)]          // ObjC class: USR + ObjC attr (real Quick shape)
+    [InlineData("Protocol", "c:objc(pl)NSObject", true)]        // ObjC protocol: USR + ObjC attr
+    [InlineData("Struct", "c:@T@NSAttributedStringKey", false)] // C-typedef struct: USR-prefix arm only, no ObjC attr
+    public void ParseModule_ObjCRootedBindableMissingMangledName_SkippedNotDropped(
+        string bindableKind, string usr, bool hasObjCAttr)
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var objcNode = CreateNode(
+            "TypeDecl", declKind: bindableKind, name: "Foreign", moduleName: "TestModule", mangledName: "",
+            usr: usr, declAttributes: hasObjCAttr ? ["ObjC", "Dynamic"] : []);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, objcNode);
+
+        var result = fixture.Parser.ParseModule();
+
+        // Not bound, but skipped cleanly — no record-loss diagnostic.
+        Assert.DoesNotContain(result.ModuleDecl.Types, t => t.Name == "Foreign");
+        Assert.DoesNotContain(result.ModuleDecl.Protocols, p => p.Name == "Foreign");
+        Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("SWIFTBIND046"));
+        Assert.Equal(0, result.Reconciliation.DroppedWithError);
+        Assert.Equal(1, result.Reconciliation.SkippedWithReason);
+        Assert.DoesNotContain(
+            InputResolutionReport.Decisions,
+            d => d.Category == InputResolutionCategory.AbiJson && d.Severity == InputResolutionSeverity.Degradation);
+    }
+
     #region Harness
 
     private static ParserFixture CreateParser(int? jsonFormatVersion, ILogger logger, params Node[] nodes)
@@ -343,7 +385,9 @@ public class AbiIngestionContractTests
         string name = "",
         string moduleName = "TestModule",
         string mangledName = "$s",
-        IEnumerable<Node>? children = null)
+        IEnumerable<Node>? children = null,
+        string? usr = null,
+        string[]? declAttributes = null)
     {
         return new Node
         {
@@ -353,7 +397,8 @@ public class AbiIngestionContractTests
             MangledName = mangledName,
             PrintedName = name,
             ModuleName = moduleName,
-            DeclAttributes = [],
+            usr = usr,
+            DeclAttributes = declAttributes ?? [],
             @static = false,
             IsInternal = false,
             GenericSig = null,

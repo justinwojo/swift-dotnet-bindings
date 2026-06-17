@@ -1956,11 +1956,21 @@ done; true"
     existing, which is exactly when a connected hook must have run — so a build that
     legitimately produced no metadata never false-positives.
 
-    Skipped under design-time builds (IDEs run a restricted target subset).
+    Skipped under design-time builds (IDEs run a restricted target subset) AND under any
+    CoreCompile entered outside a real build graph. The tripwire's stamp is set by
+    _GenerateSwiftBindings (anchored BeforeTargets="ResolveProjectReferences"); a standalone
+    `dotnet build -t:CoreCompile` skips ResolveProjectReferences, so the stamp is legitimately
+    absent and the assert would false-positive. DesignTimeBuild is empty (not 'true') in both
+    that misfire and a real full build, so it cannot distinguish them — but BuildingProject is
+    'false' standalone and 'true' in a full build (BuildOnlySettings, first in CoreBuildDependsOn,
+    flips it true ahead of CoreCompile). Gating on the conjunction is Microsoft's canonical
+    "real-build-only" idiom (Microsoft.Common.CurrentVersion.targets) and preserves fail-closed
+    detection: a genuinely disconnected hook on an actual `-t:Build` still fires (BuildingProject
+    is true there). See Regression-R4 finding C1.
   -->
   <Target Name="_AssertSwiftBindingHookWiring"
           BeforeTargets="CoreCompile"
-          Condition="'$(DesignTimeBuild)' != 'true'">
+          Condition="'$(DesignTimeBuild)' != 'true' AND '$(BuildingProject)' == 'true'">
 
     <!-- _GenerateSwiftBindings is unconditional and anchored on ResolveProjectReferences,
          which always runs before CoreCompile; it MUST have stamped by now. A missing

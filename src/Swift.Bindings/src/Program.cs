@@ -1673,13 +1673,13 @@ namespace BindingsGeneration
         {
             var internalNames = new HashSet<string>();
             var publicNames = new HashSet<string>();
-            CollectTypeNames(module.Types, internalNames, publicNames, module.Name);
+            CollectTypeNames(module.Types, internalNames, publicNames, module.Name, isTopLevel: true);
             // Remove short names that collide with public type names to avoid over-stripping
             internalNames.ExceptWith(publicNames);
             return internalNames;
         }
 
-        private static void CollectTypeNames(IEnumerable<TypeDecl> types, HashSet<string> internalNames, HashSet<string> publicNames, string moduleName)
+        private static void CollectTypeNames(IEnumerable<TypeDecl> types, HashSet<string> internalNames, HashSet<string> publicNames, string moduleName, bool isTopLevel)
         {
             foreach (var t in types)
             {
@@ -1688,7 +1688,7 @@ namespace BindingsGeneration
                 // types are not internal to this module — they're imports or stdlib types.
                 if (t.SwiftTypeName != null && t.SwiftTypeName.Module != moduleName)
                 {
-                    CollectTypeNames(t.Types, internalNames, publicNames, moduleName);
+                    CollectTypeNames(t.Types, internalNames, publicNames, moduleName, isTopLevel: false);
                     continue;
                 }
 
@@ -1697,14 +1697,23 @@ namespace BindingsGeneration
                     // Always add qualified name (unique, no collision risk)
                     if (t.SwiftTypeName != null)
                         internalNames.Add(t.SwiftTypeName.ToString());
-                    // Add short name tentatively (may be removed if it collides with a public name)
-                    internalNames.Add(t.Name);
+                    // Add the bare short name ONLY for top-level internal types. A nested internal
+                    // type (e.g. `ShortNameCollisionFixture.Data`) is unreachable from the generated
+                    // wrapper via its bare leaf name — the wrapper's top-level `@_cdecl` functions and
+                    // cross-type extensions must spell a nested type qualified (`Parent.Nested` or
+                    // `Module.Parent.Nested`), and those qualified forms are already added above. Adding
+                    // the bare leaf name would false-positive the text matcher against any same-named
+                    // foreign type emitters print unqualified (a `Foundation.Data` parameter, etc.),
+                    // stripping unrelated wrapper blocks. (The top-level bare name may still be removed
+                    // below if it collides with a public short name.)
+                    if (isTopLevel)
+                        internalNames.Add(t.Name);
                 }
                 else
                 {
                     publicNames.Add(t.Name);  // Track public short names for collision detection
                 }
-                CollectTypeNames(t.Types, internalNames, publicNames, moduleName);  // Recurse ALL children
+                CollectTypeNames(t.Types, internalNames, publicNames, moduleName, isTopLevel: false);  // Recurse ALL children
             }
         }
 

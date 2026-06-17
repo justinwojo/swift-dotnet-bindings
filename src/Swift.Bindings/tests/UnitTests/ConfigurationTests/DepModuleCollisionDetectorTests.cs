@@ -51,6 +51,30 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Theory]
+        // Modifier BEFORE the access keyword (the R6-5 miss): swiftc emits these forms in
+        // a .swiftinterface and the `final`-only allowance silently dropped them.
+        [InlineData("indirect public enum Modular { }", "Modular")]
+        [InlineData("nonisolated public class Noniso { }", "Noniso")]
+        [InlineData("nonisolated(unsafe) public class Noniso { }", "Noniso")]
+        // Combined / either-order modifier runs must still match.
+        [InlineData("public final class Late { }", "Late")]
+        [InlineData("@objc final public class Mixed { }", "Mixed")]
+        public void HasSwiftPublicTypeWithName_ModifierBeforeAccessKeyword_Detects(string text, string module)
+        {
+            Assert.True(
+                DepModuleCollisionDetector.HasSwiftPublicTypeWithName(text, module),
+                $"Expected detection for: {text}");
+        }
+
+        [Fact]
+        public void HasSwiftPublicTypeWithName_ModifierBeforeAccess_PrefixMatch_NoFalsePositive()
+        {
+            // The added modifier run must not weaken the trailing word-boundary guard.
+            Assert.False(
+                DepModuleCollisionDetector.HasSwiftPublicTypeWithName("indirect public enum ModularKit { }", "Modular"));
+        }
+
         [Fact]
         public void HasSwiftPublicTypeWithName_ModuleNameMismatch_NoDetection()
         {
