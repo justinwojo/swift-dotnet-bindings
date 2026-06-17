@@ -12,18 +12,8 @@ public static class StructsAndEnumsEmitter
 {
     static readonly HashSet<string> FieldSupportedTypes = ["NSString", "nint", "nuint", "nfloat", "int", "float", "double"];
 
-    // Structs already defined by .NET MAUI's framework bindings — skip re-emission.
-    static readonly HashSet<string> SystemStructs =
-    [
-        "CLLocationCoordinate2D", "MKCoordinateSpan", "MKCoordinateRegion",
-        "MKMapPoint", "MKMapSize", "MKMapRect",
-        "CMTime", "CMTimeRange", "CMTimeMapping",
-        "CGAffineTransform", "CGPoint", "CGSize", "CGRect", "CGVector",
-        "UIEdgeInsets", "NSDirectionalEdgeInsets",
-        "NSRange", "UIOffset", "CATransform3D",
-        "SCNVector3", "SCNVector4", "SCNMatrix4",
-        "MKTileOverlayPath",
-    ];
+    // Structs already defined by .NET MAUI's framework bindings are skipped via
+    // AppleFrameworkRegistry.IsObjCSystemStruct (objc-type-mappings.json: systemStructs).
 
     public static StructsAndEnumsResult? Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger, ObjCBindingDiagnostics? diagnostics = null, PlatformInfo? platformInfo = null, HashSet<string>? excludeTypeNames = null)
     {
@@ -45,12 +35,13 @@ public static class StructsAndEnumsEmitter
         // then add only those to knownTypes. This prevents parent structs from being
         // emitted when their field types reference skipped structs (e.g., structs with
         // unions or unresolvable field types like protobuf types).
-        var allModuleStructNames = new HashSet<string>(module.Structs.Where(s => !SystemStructs.Contains(s.Name)).Select(s => s.Name));
+        var allModuleStructNames = new HashSet<string>(module.Structs.Where(s => !AppleFrameworkRegistry.IsObjCSystemStruct(s.Name)).Select(s => s.Name));
         var emittableStructs = ComputeEmittableStructs(module.Structs, typedefMap, knownTypes, allModuleStructNames, logger);
         foreach (var s in emittableStructs) knownTypes.Add(s);
         // Track struct names that were parsed but won't be emitted (unsafe layout,
         // unresolvable fields, etc.). Used by EmitStruct to catch references that
-        // slip through the CamelCase heuristic in IsTypeResolvable.
+        // slip through the CamelCase heuristic in IsTypeResolvable (a skipped
+        // module struct still starts uppercase).
         var skippedStructNames = new HashSet<string>(allModuleStructNames.Except(emittableStructs));
 
         // Build set of module-local type names (classes + protocol interfaces)
@@ -158,9 +149,9 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine("{");
 
         foreach (var enumDecl in module.Enums)
-            EmitEnum(sb, enumDecl, typedefMap, diagnostics, platformInfo);
+            EmitEnum(sb, enumDecl, typedefMap, diagnostics);
 
-        foreach (var structDecl in module.Structs.Where(s => !SystemStructs.Contains(s.Name)))
+        foreach (var structDecl in module.Structs.Where(s => !AppleFrameworkRegistry.IsObjCSystemStruct(s.Name)))
             EmitStruct(sb, structDecl, typedefMap, knownTypes, skippedStructNames, logger, diagnostics);
 
         foreach (var blockTypedef in blockTypedefs)
@@ -176,7 +167,7 @@ public static class StructsAndEnumsEmitter
         }
 
         if (module.Constants.Any(c => c.IsExtern) || module.Functions.Count > 0)
-            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, enumNames, droppedDelegateNames, excludeTypeNames, logger, diagnostics, platformInfo);
+            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, enumNames, droppedDelegateNames, excludeTypeNames, logger, diagnostics);
 
         sb.AppendLine("}");
 
@@ -212,14 +203,10 @@ public static class StructsAndEnumsEmitter
         return new StructsAndEnumsResult(filePath, bgenDelegatesPath);
     }
 
-    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, Dictionary<string, ObjCTypeRef>? typedefMap = null, ObjCBindingDiagnostics? diagnostics = null, PlatformInfo? platformInfo = null)
+    static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, Dictionary<string, ObjCTypeRef>? typedefMap = null, ObjCBindingDiagnostics? diagnostics = null)
     {
-        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, enumDecl.Availability, "    ", platformInfo))
-        {
-            diagnostics?.RecordSkip("Enum", enumDecl.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
-            return;
-        }
         ObjCDocCommentEmitter.EmitDocComment(sb, enumDecl.DocComment, null, "    ");
+        ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, enumDecl.Availability, "    ");
 
         var (baseType, isNative) = ResolveEnumBackingType(enumDecl, typedefMap);
         if (isNative)
@@ -238,6 +225,9 @@ public static class StructsAndEnumsEmitter
             // Prefix with _ if stripping left a digit-leading identifier (invalid C#)
             if (caseName.Length > 0 && char.IsDigit(caseName[0]))
                 caseName = "_" + caseName;
+            // Per-case availability attributes ([Supported/Obsoleted/UnsupportedOSPlatform] are valid
+            // on enum members) — a no-op when the enumerator carried no availability macro.
+            ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, c.Availability, "        ");
             var valueStr = c.Value.HasValue ? $" = {c.Value.Value}" : "";
             sb.AppendLine($"        {caseName}{valueStr},");
         }
@@ -484,7 +474,7 @@ public static class StructsAndEnumsEmitter
     /// </summary>
     static HashSet<string> ComputeEmittableStructs(List<ObjCStructDecl> structs, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> baseKnownTypes, HashSet<string> allModuleStructNames, ILogger logger)
     {
-        var candidates = structs.Where(s => !SystemStructs.Contains(s.Name) && !s.HasUnsafeLayout).ToList();
+        var candidates = structs.Where(s => !AppleFrameworkRegistry.IsObjCSystemStruct(s.Name) && !s.HasUnsafeLayout).ToList();
 
         // Seed with all candidate names, then iteratively remove structs whose fields
         // reference types that are no longer in the emittable set.
@@ -509,11 +499,11 @@ public static class StructsAndEnumsEmitter
 
                     // A field type that IS a module struct but NOT in the emittable set
                     // means it was skipped (unsafe layout, unresolvable fields, etc.).
-                    // The CamelCase heuristic in IsTypeResolvable would let it through,
-                    // so we must check explicitly.
+                    // The CamelCase heuristic in IsTypeResolvable would let it
+                    // through, so we must check explicitly.
                     bool isSkippedModuleStruct = allModuleStructNames.Contains(checkType) && !emittable.Contains(checkType);
 
-                    if (isSkippedModuleStruct || !ObjCTypeMapper.IsTypeResolvable(checkType, tempKnown))
+                    if (isSkippedModuleStruct || !ObjCTypeMapper.IsTypeResolvable(checkType, tempKnown, field.Type.Name))
                     {
                         emittable.Remove(s.Name);
                         tempKnown.Remove(s.Name);
@@ -558,7 +548,7 @@ public static class StructsAndEnumsEmitter
                 diagnostics?.RecordSkip("Struct", structDecl.Name, ObjCSkipReason.UnresolvableType, $"field '{field.Name}' references skipped struct '{checkType}'");
                 return;
             }
-            if (!ObjCTypeMapper.IsTypeResolvable(checkType, knownTypes))
+            if (!ObjCTypeMapper.IsTypeResolvable(checkType, knownTypes, field.Type.Name))
             {
                 logger.LogDebug("Skipping struct {StructName}: field '{FieldName}' has unresolvable type '{TypeName}'",
                     structDecl.Name, field.Name, checkType);
@@ -598,29 +588,23 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine();
     }
 
-    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, HashSet<string> droppedDelegateNames, HashSet<string>? excludeTypeNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
+    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, HashSet<string> droppedDelegateNames, HashSet<string>? excludeTypeNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         sb.AppendLine($"    public static class {module.ModuleName}Constants");
         sb.AppendLine("    {");
 
         foreach (var constant in module.Constants.Where(c => c.IsExtern))
-            EmitConstant(sb, constant, typedefMap, diagnostics, platformInfo);
+            EmitConstant(sb, constant, typedefMap, diagnostics);
 
         foreach (var function in module.Functions)
-            EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, enumNames, droppedDelegateNames, excludeTypeNames, logger, diagnostics, platformInfo);
+            EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, enumNames, droppedDelegateNames, excludeTypeNames, logger, diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
     }
 
-    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
+    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap, ObjCBindingDiagnostics? diagnostics)
     {
-        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, constant.Availability, "        ", platformInfo))
-        {
-            diagnostics?.RecordSkip("Constant", constant.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
-            return;
-        }
-
         var pascalName = ToPascalCase(constant.Name);
 
         // NSString* constants use NSString as the [Field] property type (MAUI convention),
@@ -631,6 +615,7 @@ public static class StructsAndEnumsEmitter
 
         if (FieldSupportedTypes.Contains(fieldType))
         {
+            ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, constant.Availability, "        ");
             sb.AppendLine($"        [Field(\"{constant.Name}\", \"__Internal\")]");
             sb.AppendLine($"        public static {fieldType} {pascalName} {{ get; }}");
             sb.AppendLine();
@@ -667,14 +652,8 @@ public static class StructsAndEnumsEmitter
         return false;
     }
 
-    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, HashSet<string> droppedDelegateNames, HashSet<string>? excludeTypeNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, PlatformInfo? platformInfo = null)
+    static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, HashSet<string> droppedDelegateNames, HashSet<string>? excludeTypeNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
-        if (ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, function.Availability, "        ", platformInfo))
-        {
-            diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.UnavailableApi, "marked unavailable on iOS");
-            return;
-        }
-
         // Skip variadic C functions — they require va_list which can't be safely P/Invoked
         if (function.IsVariadic)
         {
@@ -713,13 +692,18 @@ public static class StructsAndEnumsEmitter
         }
 
         // Skip functions that reference unresolvable types (e.g., external C typedefs
-        // from included headers whose definitions aren't available in C#)
-        var allTypes = paramTypes.Append(returnType);
-        if (allTypes.Any(t => !ObjCTypeMapper.IsTypeResolvable(t, knownTypes)))
+        // from included headers whose definitions aren't available in C#). Pair each mapped
+        // type with its retained source ObjC name so the resolvability check keys on the
+        // source identity (amendment D), not the already-mapped text.
+        var allTypeChecks = function.Parameters
+            .Select((p, i) => (Mapped: paramTypes[i], Source: p.Type.Name))
+            .Append((Mapped: returnType, Source: function.ReturnType.Name))
+            .ToList();
+        var unresolvable = allTypeChecks.FirstOrDefault(t => !ObjCTypeMapper.IsTypeResolvable(t.Mapped, knownTypes, t.Source));
+        if (unresolvable.Mapped != null)
         {
-            var unresolvable = allTypes.FirstOrDefault(t => !ObjCTypeMapper.IsTypeResolvable(t, knownTypes));
-            logger.LogDebug("Skipping function {FuncName}: unresolvable type '{TypeName}'", function.Name, unresolvable);
-            diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.UnresolvableType, $"unresolvable type '{unresolvable}'");
+            logger.LogDebug("Skipping function {FuncName}: unresolvable type '{TypeName}'", function.Name, unresolvable.Mapped);
+            diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.UnresolvableType, $"unresolvable type '{unresolvable.Mapped}'");
             return;
         }
 
@@ -734,6 +718,7 @@ public static class StructsAndEnumsEmitter
             return $"{paramTypes[i]} {paramName}";
         }));
 
+        ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, function.Availability, "        ");
         sb.AppendLine($"        [DllImport(\"__Internal\")]");
         sb.AppendLine($"        public static extern {returnType} {function.Name}({parameters});");
         sb.AppendLine();

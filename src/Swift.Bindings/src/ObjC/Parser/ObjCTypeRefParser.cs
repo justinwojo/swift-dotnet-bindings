@@ -208,7 +208,7 @@ public static class ObjCTypeRefParser
             changed = false;
             foreach (var prefix in MacroPrefixes)
             {
-                var idx = s.IndexOf(prefix, StringComparison.Ordinal);
+                var idx = IndexOfMacroPrefixAtTokenBoundary(s, prefix);
                 if (idx < 0) continue;
 
                 // Find end of the macro name (uppercase letters, digits, underscores)
@@ -238,6 +238,27 @@ public static class ObjCTypeRefParser
         } while (changed);
 
         return s;
+    }
+
+    /// <summary>
+    /// Finds the first occurrence of <paramref name="prefix"/> that begins a token, i.e. the
+    /// preceding character is the start of the string or a non-identifier character. A bare
+    /// <see cref="string.IndexOf(string, StringComparison)"/> matches the prefix anywhere —
+    /// including mid-identifier — so a real type name like <c>MacOS_Settings</c> would have its
+    /// <c>OS_</c> sub-match stripped to <c>Mac</c>. Macros only ever appear as standalone tokens,
+    /// so anchoring at token boundaries strips them without corrupting embedded substrings.
+    /// </summary>
+    private static int IndexOfMacroPrefixAtTokenBoundary(string s, string prefix)
+    {
+        var searchStart = 0;
+        while (true)
+        {
+            var idx = s.IndexOf(prefix, searchStart, StringComparison.Ordinal);
+            if (idx < 0) return -1;
+            if (idx == 0 || !(char.IsLetterOrDigit(s[idx - 1]) || s[idx - 1] == '_'))
+                return idx;
+            searchStart = idx + 1;
+        }
     }
 
     /// <summary>

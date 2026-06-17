@@ -662,6 +662,12 @@ namespace BindingsGeneration
                         : null,
                     suppressedProxyNamespace: namespaceResolver.ResolveNamespace(moduleName));
 
+                // Emit the Swift type-ownership manifest (swift-types.json) so a mixed-framework
+                // ObjC pass can dedup its declarations against the ObjC runtime names this Swift
+                // pipeline owns — keyed on objcRuntimeName, the only naming universe both sides
+                // share (Finding 23). Replaces the old emitted-C# regex scrape.
+                SwiftTypeOwnershipManifestEmitter.Emit(decl, outputDirectory, logger);
+
                 logger.LogInformation("Bindings generation completed for {SwiftAbiPath}.", swiftAbiPath);
 
             }
@@ -2308,30 +2314,22 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Scans generated C# files for public type declarations to support mixed framework dedup.
-        /// Returns the set of type names emitted by the Swift pipeline.
+        /// Returns the set of Objective-C runtime names the Swift pipeline owns, for mixed-framework
+        /// ObjC dedup. Reads the structured <c>swift-types.json</c> ownership manifest the Swift
+        /// pipeline writes (<see cref="SwiftTypeOwnershipManifestEmitter"/>), keyed on
+        /// <c>objcRuntimeName</c> — the only naming universe the Swift and ObjC pipelines share.
+        /// <para/>
+        /// This replaces the former regex scrape of emitted <c>*.cs</c> (Finding 23), which
+        /// collected the C# names (so a protocol's <c>IFoo</c> never matched the ObjC <c>Foo</c>,
+        /// and an <c>@objc(CustomName)</c> rename was missed entirely) and was vulnerable to
+        /// stale <c>.cs</c> files left by prior runs.
         /// </summary>
         internal static HashSet<string> CollectSwiftEmittedTypeNames(string outputDirectory)
         {
-            var typeNames = new HashSet<string>(StringComparer.Ordinal);
             if (!Directory.Exists(outputDirectory))
-                return typeNames;
+                return new HashSet<string>(StringComparer.Ordinal);
 
-            // Match: public [unsafe] class|struct|enum|interface NAME
-            var pattern = new System.Text.RegularExpressions.Regex(
-                @"^\s*public\s+(?:unsafe\s+)?(?:partial\s+)?(?:class|struct|enum|interface)\s+(\w+)",
-                System.Text.RegularExpressions.RegexOptions.Multiline);
-
-            foreach (var csFile in Directory.GetFiles(outputDirectory, "*.cs"))
-            {
-                var content = File.ReadAllText(csFile);
-                foreach (System.Text.RegularExpressions.Match match in pattern.Matches(content))
-                {
-                    typeNames.Add(match.Groups[1].Value);
-                }
-            }
-
-            return typeNames;
+            return SwiftTypeOwnershipManifestEmitter.ReadOwnedObjCRuntimeNames(outputDirectory);
         }
 
         /// <summary>

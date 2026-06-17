@@ -377,6 +377,25 @@ public class ObjCTypeRefParserTests
     }
 
     [Theory]
+    // Macro prefix at a real token boundary (start-of-string or after a non-identifier
+    // char) is an availability/annotation macro and IS stripped.
+    [InlineData("NS_AVAILABLE NSString *", "NSString")]
+    [InlineData("API_AVAILABLE(ios(14.0)) NSNumber *", "NSNumber")]
+    // Macro prefix appearing MID-identifier (preceded by a letter/digit/underscore) is part
+    // of a real type name and must NOT be stripped. Regression: StripPrefixedMacros used a
+    // bare IndexOf that matched a prefix substring anywhere in the token, corrupting names
+    // like "MacOS_Settings" → "Mac" (the "OS_" sub-match was stripped to end-of-token).
+    [InlineData("MacOS_Settings *", "MacOS_Settings")]
+    [InlineData("FooUI_Widget *", "FooUI_Widget")]
+    [InlineData("MyAPI_Client *", "MyAPI_Client")]
+    public void Parse_MacroPrefix_StrippedOnlyAtTokenBoundary(string qualType, string expectedName)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.Equal(expectedName, result.Name);
+        Assert.True(result.IsPointer);
+    }
+
+    [Theory]
     [InlineData("const MKMapPoint *", "MKMapPoint", true)]
     [InlineData("const CLLocationCoordinate2D *", "CLLocationCoordinate2D", true)]
     [InlineData("NSString *const", "NSString", true)]

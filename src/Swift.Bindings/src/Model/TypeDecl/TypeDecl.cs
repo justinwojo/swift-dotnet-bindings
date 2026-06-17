@@ -121,6 +121,22 @@ namespace BindingsGeneration
         public string? CustomActorIsolatorName { get; set; }
 
         /// <summary>
+        /// The Objective-C runtime name this type registers under, when it differs from the
+        /// Swift <see cref="BaseDecl.Name"/> because of an explicit <c>@objc(CustomName)</c>
+        /// attribute. Null when the type carries no custom ObjC name — callers MUST treat null
+        /// as "the ObjC runtime name equals the Swift name" (the default Swift→ObjC exposure).
+        /// <para/>
+        /// The custom name is recoverable only from the <c>.swiftinterface</c> text
+        /// (swift-api-digester strips the <c>@objc</c> argument from the ABI JSON, where an
+        /// <c>@objc</c> Swift class keeps its <c>$s…</c> mangled name), so it arrives via the
+        /// <see cref="SwiftInterfaceFacts.ObjCRuntimeNames"/> fact applied in
+        /// <c>SwiftABIParser.ApplyObjCRuntimeName</c>. Consumed by the <c>swift-types.json</c>
+        /// ownership manifest so the mixed-framework ObjC dedup can match an ObjC
+        /// <c>@interface CustomName</c> against the Swift type that owns it.
+        /// </summary>
+        public string? ObjCRuntimeName { get; set; }
+
+        /// <summary>
         /// Whether this type has a singleton pattern (static 'shared' property returning Self).
         /// Used for async method workarounds where passing self doesn't work correctly.
         /// </summary>

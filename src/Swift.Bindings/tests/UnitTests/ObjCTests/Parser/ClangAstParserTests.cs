@@ -949,8 +949,14 @@ public class ClangAstParserTests
     }
 
     [Fact]
-    public void Parse_AvailabilityAttr_OnClass()
+    public void Parse_AvailabilityAttr_NoSourceOffset_RecoversNothing()
     {
+        // clang's -ast-dump=json emits AvailabilityAttr nodes that carry ONLY {id, kind, range}
+        // — never the platform/introduced/deprecated fields. (Verified against a live clang probe,
+        // Xcode 26.3.) Finding 22 (a2) recovers the data by reading the consumer header at the
+        // attribute's range.begin source offset (see ClangAstParserAvailabilityTests). This node
+        // carries only a `loc` with no usable range.begin offset, so there is nothing to read back:
+        // recovery degrades cleanly to no availability while the class and its method still parse.
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "ObjCInterfaceDecl",
@@ -960,8 +966,7 @@ public class ClangAstParserTests
             "inner": [
                 {
                     "kind": "AvailabilityAttr",
-                    "platform": "ios",
-                    "introduced": "15.0"
+                    {{MakeLoc()}}
                 },
                 {
                     "kind": "ObjCMethodDecl",
@@ -971,9 +976,7 @@ public class ClangAstParserTests
                     "inner": [
                         {
                             "kind": "AvailabilityAttr",
-                            "platform": "ios",
-                            "introduced": "16.0",
-                            "deprecated": "18.0"
+                            {{MakeLoc()}}
                         }
                     ]
                 }
@@ -982,17 +985,15 @@ public class ClangAstParserTests
         """);
 
         var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // The AvailabilityAttr nodes recover nothing (no source offset); the class and its method
+        // parse normally and carry no availability.
         Assert.Single(module.Classes);
-
-        // Class availability
-        Assert.Single(module.Classes[0].Availability);
-        Assert.Equal("15.0", module.Classes[0].Availability[0].IntroducedVersion);
-
-        // Method availability (nested inside class→method inner[])
+        Assert.Equal("NewWidget", module.Classes[0].Name);
+        Assert.Empty(module.Classes[0].Availability);
         var method = module.Classes[0].Methods[0];
-        Assert.Single(method.Availability);
-        Assert.Equal("16.0", method.Availability[0].IntroducedVersion);
-        Assert.Equal("18.0", method.Availability[0].DeprecatedVersion);
+        Assert.Equal("doStuff", method.Selector);
+        Assert.Empty(method.Availability);
     }
 
     [Fact]
@@ -1534,8 +1535,11 @@ public class ClangAstParserTests
     [Fact]
     public void Parse_DuplicateClasses_MergesMetadata()
     {
-        // Two duplicates of Widget: first has superclass and protocol A,
-        // second has protocol B and availability. Merge should combine all metadata.
+        // Two duplicates of Widget: first has superclass and protocol A, second has protocol B
+        // (and an AvailabilityAttr node with no recoverable source offset — its inline
+        // platform/introduced JSON fields are NOT read; availability is recovered from header bytes,
+        // see ClangAstParserAvailabilityTests.Merges_AvailabilityFromSparserDuplicate). Merge should
+        // combine all the structural metadata regardless.
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "ObjCInterfaceDecl",
@@ -1596,8 +1600,6 @@ public class ClangAstParserTests
         Assert.Contains("NSCopying", cls.ProtocolNames);
         // Generic type params merged from first duplicate
         Assert.Contains("WidgetType", cls.GenericTypeParamNames);
-        // Availability merged from second duplicate
-        Assert.Contains(cls.Availability, a => a.IntroducedVersion == "15.0");
     }
 
     [Fact]
@@ -1642,8 +1644,6 @@ public class ClangAstParserTests
         // Both inherited protocols merged
         Assert.Contains("NSCoding", proto.InheritedProtocolNames);
         Assert.Contains("NSCopying", proto.InheritedProtocolNames);
-        // Availability merged
-        Assert.Contains(proto.Availability, a => a.IntroducedVersion == "14.0");
     }
 
     [Fact]
@@ -2080,8 +2080,12 @@ public class ClangAstParserTests
     }
 
     [Fact]
-    public void Parse_CategoryAvailability_Preserved()
+    public void Parse_CategoryAvailabilityAttr_NoSourceOffset_RecoversNothing()
     {
+        // A category's AvailabilityAttr node carrying no source offset (here: a bare loc, no
+        // range.begin offset) recovers nothing — availability is recovered from the byte offset when
+        // present (see ClangAstParserAvailabilityTests), but degrades cleanly when it isn't. The
+        // category and its member still parse, and the category carries no availability.
         var json = WrapInTranslationUnit($$"""
         {
             "kind": "ObjCInterfaceDecl",
@@ -2106,8 +2110,7 @@ public class ClangAstParserTests
             "inner": [
                 {
                     "kind": "AvailabilityAttr",
-                    "platform": "ios",
-                    "introduced": "16.0"
+                    {{MakeLoc()}}
                 },
                 {
                     "kind": "ObjCMethodDecl",
@@ -2123,9 +2126,10 @@ public class ClangAstParserTests
         var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
 
         var cat = Assert.Single(module.Categories);
-        Assert.Single(cat.Availability);
-        Assert.Equal("ios", cat.Availability[0].Platform);
-        Assert.Equal("16.0", cat.Availability[0].IntroducedVersion);
+        Assert.Equal("NewStuff", cat.CategoryName);
+        Assert.Contains(cat.Methods, m => m.Selector == "newMethod");
+        // No source offset on the attr → no availability recovered.
+        Assert.Empty(cat.Availability);
     }
 
     [Fact]

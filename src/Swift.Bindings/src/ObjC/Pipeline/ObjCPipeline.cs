@@ -222,7 +222,16 @@ public static class ObjCPipeline
     /// <summary>
     /// Member-level dedup for mixed frameworks: shared classes are dropped from ObjC output,
     /// but their category members are extracted into separate [Category] binding interfaces.
-    /// Shared protocols are still dropped entirely.
+    /// Shared protocols are dropped entirely.
+    /// <para/>
+    /// <paramref name="swiftTypeNames"/> is the set of Objective-C runtime names the Swift
+    /// pipeline owns, read from the <c>swift-types.json</c> ownership manifest (Finding 23). It
+    /// is matched against the ObjC declaration names (<c>ObjCClassDecl.Name</c> /
+    /// <c>ObjCProtocolDecl.Name</c>), which are themselves ObjC runtime names parsed from the
+    /// Swift-generated <c>-Swift.h</c> header — so both sides compare in the same naming
+    /// universe. This is what lets the protocol leg fire (the manifest carries a Swift
+    /// protocol's ObjC name <c>Foo</c>, not its C# projection <c>IFoo</c>) and an
+    /// <c>@objc(CustomName)</c> rename match (the manifest carries the custom name).
     /// </summary>
     internal static ObjCModule FilterForMixedFramework(
         ObjCModule module, HashSet<string> swiftTypeNames, ILogger logger)

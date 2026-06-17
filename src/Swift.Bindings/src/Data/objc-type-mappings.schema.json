@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "objc-type-mappings.schema.json",
+  "title": "ObjC type-mapping tables",
+  "description": "Single-source-of-truth tables the ObjC pipeline uses to map ObjC/C type names onto C# types, folded out of the formerly-hardcoded ObjCTypeMapper/StructsAndEnumsEmitter tables and owned by AppleFrameworkRegistry.",
+  "type": "object",
+  "required": ["schemaVersion", "pointerTypeMappings", "coreFoundationRefMappings", "primitiveTypeMappings", "acronymConventions", "objcValueTypes", "systemStructs"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "description": "Bumped in lockstep with AppleFrameworkRegistry.ExpectedObjCTypeMappingsSchemaVersion when the shape changes.",
+      "minimum": 1
+    },
+    "pointerTypeMappings": {
+      "type": "object",
+      "description": "ObjC pointer/object type name -> C# type (e.g. NSString -> string, NSURL -> NSUrl).",
+      "additionalProperties": { "type": "string" }
+    },
+    "coreFoundationRefMappings": {
+      "type": "object",
+      "description": "CoreFoundation Ref typedefs and opaque types that appear without '*' in the clang AST -> C# type.",
+      "additionalProperties": { "type": "string" }
+    },
+    "primitiveTypeMappings": {
+      "type": "object",
+      "description": "C/ObjC primitive type name -> C# type (e.g. BOOL -> bool, NSInteger -> nint).",
+      "additionalProperties": { "type": "string" }
+    },
+    "acronymConventions": {
+      "type": "array",
+      "description": "Acronyms that Microsoft.iOS/MAUI bgen lowercases inside NS-prefixed managed names. Ordered longer-first so substring overlaps (HTTPS contains HTTP) resolve correctly.",
+      "items": {
+        "type": "object",
+        "required": ["objc", "dotnet"],
+        "additionalProperties": false,
+        "properties": {
+          "objc": { "type": "string" },
+          "dotnet": { "type": "string" }
+        }
+      }
+    },
+    "objcValueTypes": {
+      "type": "array",
+      "description": "Apple framework struct/value types commonly used as pointer parameters (C structs bridged to .NET value types).",
+      "items": { "type": "string" }
+    },
+    "systemStructs": {
+      "type": "array",
+      "description": "Structs already defined by .NET MAUI's framework bindings — the ObjC struct emitter skips re-emitting these.",
+      "items": { "type": "string" }
+    }
+  }
+}

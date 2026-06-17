@@ -32,13 +32,13 @@ public class SwiftInterfaceFactsTests
         // 21 fact maps + 3 best-effort source-position maps + 3 non-fact migrations
         // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) + 1 SDK 0.11.0 R2
         // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters + 1
-        // ClosureParameterAttributes = 30.
+        // ClosureParameterAttributes + 1 Finding 23 ObjCRuntimeNames = 31.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null)
             .ToList();
 
-        Assert.Equal(30, properties.Count);
+        Assert.Equal(31, properties.Count);
 
         // Every required property is populated on Empty (no nullable holes).
         foreach (var prop in properties)
@@ -118,8 +118,8 @@ public class SwiftInterfaceFactsTests
     #endregion
 
     #region Pass-through tests — representative facts reach their consumer
-    // Six of the 21 fact fields are covered directly here (the type-level ones whose consumer
-    // effect is observable from a single TypeDecl). The remaining 15 fields plumb through to
+    // Seven of the 21 fact fields are covered directly here (the type-level ones whose consumer
+    // effect is observable from a single TypeDecl). The remaining 14 fields plumb through to
     // MethodDecl/ArgumentDecl/PropertyDecl populated during full ABI parses; their consumer
     // paths are exercised by the per-domain suites under tests/UnitTests/ParserTests
     // (ActorMetadataParserTests, VariadicTypeSpec..., ProtocolTbdDescriptor..., etc.), all of
@@ -254,6 +254,60 @@ public class SwiftInterfaceFactsTests
         var typeDecl = ParseSingleType(facts, "Callback", "Protocol");
         var protoDecl = Assert.IsType<ProtocolDecl>(typeDecl);
         Assert.True(protoDecl.HasConventionCClosureParameters);
+    }
+
+    // Finding 23 — @objc(CustomName) end-to-end generator-golden (full chain, not just pass-through).
+    [Fact]
+    public void ObjCRuntimeName_RealSwiftInterface_FlowsThroughToEmittedSidecar()
+    {
+        // ISSUE C(#1) generator-golden for F23's linchpin (@objc(CustomName)). A true sim
+        // "round-trip through ObjC registration" is infeasible AND meaningless here: the custom
+        // runtime name never reaches the generated C# — the .cs is byte-identical with or without
+        // the rename. objcRuntimeName lives ONLY in the swift-types.json sidecar, consumed at BUILD
+        // time to drop ObjC @interface decls a mixed framework's Swift side already owns. BindingTests
+        // is a pure-Swift pipeline, so that consumer never fires on-device. The single ABI-observable
+        // artifact is therefore the emitted sidecar, asserted full-chain below:
+        //   real .swiftinterface text → GetObjCRuntimeNames (regex parse)
+        //     → SwiftInterfaceFacts.ObjCRuntimeNames
+        //     → SwiftABIParser.ApplyObjCRuntimeName (qualified-path bridge → TypeDecl.ObjCRuntimeName)
+        //     → SwiftTypeOwnershipManifestEmitter.Emit (swift-types.json) → ReadOwnedObjCRuntimeNames
+        var ifacePath = Path.GetTempFileName();
+        var outDir = Directory.CreateTempSubdirectory("sb-objc-customname-");
+        try
+        {
+            File.WriteAllText(ifacePath,
+                "import Foundation\n" +
+                "@objc(MOSWidget) public class Widget {\n" +
+                "  @objc public init()\n" +
+                "}\n");
+
+            // 1. Real regex parse of the .swiftinterface → runtime-name map (top-level key = "Widget").
+            var runtimeNames = SwiftInterfaceAccessParser.GetObjCRuntimeNames(ifacePath);
+            Assert.Equal("MOSWidget", runtimeNames["Widget"]);
+
+            // 2. Facts → parser → model. Exercises ApplyObjCRuntimeName + BuildTypeQualifiedPath, the
+            //    one bridge no other test covers (parser tests stop at the map; manifest tests start
+            //    from a model with ObjCRuntimeName already set).
+            var facts = SwiftInterfaceFacts.Empty with { ObjCRuntimeNames = runtimeNames };
+            var module = ParseModuleDecl(facts, "Widget", "Class");
+            var classDecl = Assert.Single(module.Types);
+            Assert.Equal("MOSWidget", classDecl.ObjCRuntimeName);
+
+            // 3. Emit the real sidecar and read the owned ObjC runtime names back out of it.
+            SwiftTypeOwnershipManifestEmitter.Emit(module, outDir.FullName, NullLogger.Instance);
+            Assert.True(File.Exists(Path.Combine(outDir.FullName, SwiftTypeOwnershipManifest.FileName)));
+            var owned = SwiftTypeOwnershipManifestEmitter.ReadOwnedObjCRuntimeNames(outDir.FullName);
+
+            // The @objc(CustomName) value is what survives into emitted output as the dedup key …
+            Assert.Contains("MOSWidget", owned);
+            // … and the C# projection (the Swift source name) is NOT the key.
+            Assert.DoesNotContain("Widget", owned);
+        }
+        finally
+        {
+            File.Delete(ifacePath);
+            outDir.Delete(recursive: true);
+        }
     }
 
     [Theory]
@@ -502,6 +556,9 @@ public class SwiftInterfaceFactsTests
     #region Helpers
 
     private static TypeDecl ParseSingleType(SwiftInterfaceFacts facts, string typeName, string declKind)
+        => Assert.Single(ParseModuleDecl(facts, typeName, declKind).Types);
+
+    private static ModuleDecl ParseModuleDecl(SwiftInterfaceFacts facts, string typeName, string declKind)
     {
         var moduleNode = new
         {
@@ -570,8 +627,7 @@ public class SwiftInterfaceFactsTests
                 CreateEmptyDemanglingResults(),
                 NullLogger.Instance,
                 facts);
-            var module = parser.ParseModule();
-            return Assert.Single(module.ModuleDecl.Types);
+            return parser.ParseModule().ModuleDecl;
         }
         finally
         {

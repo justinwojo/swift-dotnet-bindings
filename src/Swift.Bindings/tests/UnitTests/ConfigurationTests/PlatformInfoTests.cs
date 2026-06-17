@@ -23,9 +23,7 @@ namespace BindingsGeneration.Tests
             Assert.Equal("ios-arm64", pi.NuGetRid);
             Assert.Equal(".Swift.iOS", pi.SwiftPackageIdSuffix);
             Assert.Equal(".ObjC.iOS", pi.ObjCPackageIdSuffix);
-            Assert.Equal("iOS", pi.ObjCRuntimePlatformName);
             Assert.Equal("ios", pi.PlistPlatformString);
-            Assert.Equal("ios", pi.AvailabilityPlatformString);
             Assert.Equal("15.0", pi.DefaultMinimumOS);
             Assert.True(pi.HasSimulatorVariant);
             Assert.NotNull(pi.SimulatorSlice);
@@ -42,9 +40,7 @@ namespace BindingsGeneration.Tests
             Assert.Equal("osx-arm64", pi.NuGetRid);
             Assert.Equal(".Swift.macOS", pi.SwiftPackageIdSuffix);
             Assert.Equal(".ObjC.macOS", pi.ObjCPackageIdSuffix);
-            Assert.Equal("MacOSX", pi.ObjCRuntimePlatformName);
             Assert.Equal("macos", pi.PlistPlatformString);
-            Assert.Equal("macos", pi.AvailabilityPlatformString);
             Assert.Equal("12.0", pi.DefaultMinimumOS);
             Assert.False(pi.HasSimulatorVariant);
             Assert.Null(pi.SimulatorSlice);
@@ -61,9 +57,7 @@ namespace BindingsGeneration.Tests
             Assert.Equal("tvos-arm64", pi.NuGetRid);
             Assert.Equal(".Swift.tvOS", pi.SwiftPackageIdSuffix);
             Assert.Equal(".ObjC.tvOS", pi.ObjCPackageIdSuffix);
-            Assert.Equal("TvOS", pi.ObjCRuntimePlatformName);
             Assert.Equal("tvos", pi.PlistPlatformString);
-            Assert.Equal("tvos", pi.AvailabilityPlatformString);
             Assert.Equal("15.0", pi.DefaultMinimumOS);
             Assert.True(pi.HasSimulatorVariant);
             Assert.NotNull(pi.SimulatorSlice);
@@ -80,9 +74,7 @@ namespace BindingsGeneration.Tests
             Assert.Equal("maccatalyst-arm64", pi.NuGetRid);
             Assert.Equal(".Swift.MacCatalyst", pi.SwiftPackageIdSuffix);
             Assert.Equal(".ObjC.MacCatalyst", pi.ObjCPackageIdSuffix);
-            Assert.Equal("MacCatalyst", pi.ObjCRuntimePlatformName);
             Assert.Equal("ios", pi.PlistPlatformString); // Catalyst uses "ios" in plist
-            Assert.Equal("maccatalyst", pi.AvailabilityPlatformString);
             Assert.Equal("15.0", pi.DefaultMinimumOS);
             Assert.False(pi.HasSimulatorVariant);
             Assert.Null(pi.SimulatorSlice);
@@ -737,52 +729,6 @@ namespace BindingsGeneration.Tests
             {
                 Directory.Delete(tempDir, true);
             }
-        }
-    }
-
-    public class ObjCAvailabilityEmitterPlatformTests
-    {
-        [Theory]
-        [InlineData(ApplePlatform.iOS, "ios", "PlatformName.iOS")]
-        [InlineData(ApplePlatform.macOS, "macos", "PlatformName.MacOSX")]
-        [InlineData(ApplePlatform.tvOS, "tvos", "PlatformName.TvOS")]
-        [InlineData(ApplePlatform.MacCatalyst, "maccatalyst", "PlatformName.MacCatalyst")]
-        public void EmitAvailability_CorrectPlatformName(ApplePlatform platform, string availPlatform, string expectedAttr)
-        {
-            var pi = PlatformInfoFactory.Create(platform);
-            var sb = new System.Text.StringBuilder();
-            var availability = new List<BindingsGeneration.ObjC.ObjCAvailability>
-            {
-                new() { Platform = availPlatform, IntroducedVersion = "15.0" }
-            };
-
-            var isUnavailable = BindingsGeneration.ObjC.ObjCAvailabilityEmitter.EmitAvailabilityAttributes(
-                sb, availability, "    ", pi);
-
-            Assert.False(isUnavailable);
-            var result = sb.ToString();
-            Assert.Contains(expectedAttr, result);
-            Assert.Contains("[Introduced(", result);
-        }
-
-        [Fact]
-        public void EmitAvailability_FiltersByPlatform()
-        {
-            var pi = PlatformInfoFactory.Create(ApplePlatform.macOS);
-            var sb = new System.Text.StringBuilder();
-            var availability = new List<BindingsGeneration.ObjC.ObjCAvailability>
-            {
-                // iOS availability should be skipped for macOS target
-                new() { Platform = "ios", IntroducedVersion = "10.0" },
-                new() { Platform = "macos", IntroducedVersion = "12.0" },
-            };
-
-            BindingsGeneration.ObjC.ObjCAvailabilityEmitter.EmitAvailabilityAttributes(
-                sb, availability, "    ", pi);
-
-            var result = sb.ToString();
-            Assert.Contains("PlatformName.MacOSX", result);
-            Assert.DoesNotContain("PlatformName.iOS", result);
         }
     }
 

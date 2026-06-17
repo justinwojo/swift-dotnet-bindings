@@ -24,6 +24,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.3" />
     <None Include="../../../README.md" Pack="true" PackagePath="\" />
     <EmbeddedResource Include="Data/apple-frameworks.json" />
+    <EmbeddedResource Include="Data/objc-type-mappings.json" />
     <EmbeddedResource Include="Data/specialization-hints.json" />
     <!-- Apple-types manifest lives in the SDK tree so generator + SDK consumers share
          a single file. Embedding it here (via LogicalName to keep the resource key

@@ -140,6 +140,60 @@ public class StructsAndEnumsEmitterTests
     }
 
     [Fact]
+    public void EmitEnum_PerCaseAvailability_EmittedOnMemberIndependentOfEnumLevel()
+    {
+        // An NS_ENUM whose TYPE is introduced in ios 13 but where one CASE was deprecated later in
+        // ios 15. Per-case [ObsoletedOSPlatform] must land on that member only — the enum body still
+        // emits all members, and the unannotated case carries no attribute.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLMode",
+                    Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0" }],
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "TLModeClassic", Value = 0 },
+                        new ObjCEnumCaseDecl
+                        {
+                            Name = "TLModeLegacy",
+                            Value = 1,
+                            Availability =
+                            [
+                                new ObjCAvailability
+                                {
+                                    Platform = "ios",
+                                    IntroducedVersion = "13.0",
+                                    DeprecatedVersion = "15.0",
+                                    Message = "use Classic"
+                                }
+                            ]
+                        },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Enum-level attribute present on the type.
+        Assert.Contains("SupportedOSPlatform(\"ios13.0\")", output);
+        // Per-case deprecation attribute present.
+        Assert.Contains("ObsoletedOSPlatform(\"ios15.0\", \"use Classic\")", output);
+        // Both members still emit.
+        Assert.Contains("Classic = 0,", output);
+        Assert.Contains("Legacy = 1,", output);
+        // The deprecation attribute attaches to the deprecated member, not the clean one.
+        var attrIdx = output.IndexOf("ObsoletedOSPlatform(\"ios15.0\"", StringComparison.Ordinal);
+        var legacyIdx = output.IndexOf("Legacy = 1,", StringComparison.Ordinal);
+        var classicIdx = output.IndexOf("Classic = 0,", StringComparison.Ordinal);
+        Assert.True(attrIdx >= 0 && attrIdx < legacyIdx);
+        Assert.True(attrIdx > classicIdx, "per-case attribute must attach to the legacy member, not the classic one");
+    }
+
+    [Fact]
     public void EmitStruct_WithFields()
     {
         var module = new ObjCModule

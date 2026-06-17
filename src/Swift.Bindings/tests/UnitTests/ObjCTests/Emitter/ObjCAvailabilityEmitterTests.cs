@@ -4,471 +4,161 @@
 using System.Text;
 using BindingsGeneration.ObjC;
 using Xunit;
-using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
 
 namespace BindingsGeneration.Tests.ObjCTests;
 
+/// <summary>
+/// Unit tests for <see cref="ObjCAvailabilityEmitter"/> (Finding 22, recovery option a2): turning
+/// recovered <see cref="ObjCAvailability"/> records into fully-qualified .NET platform-availability
+/// attributes that mirror the Swift <c>@available</c> path's emission shape.
+/// </summary>
 public class ObjCAvailabilityEmitterTests
 {
-
-    [Fact]
-    public void EmitAvailability_Introduced_EmitsIntroducedAttribute()
+    private static string Emit(params ObjCAvailability[] availability)
     {
         var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
-        {
-            new() { Platform = "ios", IntroducedVersion = "14.0" }
-        };
-
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.False(isUnavailable);
-        Assert.Contains("[Introduced(PlatformName.iOS, 14, 0)]", sb.ToString());
+        ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, availability, "    ");
+        return sb.ToString();
     }
 
     [Fact]
-    public void EmitAvailability_Deprecated_EmitsDeprecatedAttribute()
+    public void Introduced_EmitsSupportedOSPlatform()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
-        {
-            new() { Platform = "ios", DeprecatedVersion = "15.0" }
-        };
-
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.False(isUnavailable);
-        Assert.Contains("[Deprecated(PlatformName.iOS, 15, 0)]", sb.ToString());
+        var output = Emit(new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" });
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios15.0\")]", output);
     }
 
     [Fact]
-    public void EmitAvailability_DeprecatedWithMessage_IncludesMessage()
+    public void Introduced_MajorOnly_NormalizedToMajorMinor()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
-        {
-            new() { Platform = "ios", DeprecatedVersion = "16.0", Message = "Use newMethod instead" }
-        };
-
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.False(isUnavailable);
-        Assert.Contains("[Deprecated(PlatformName.iOS, 16, 0, message: \"Use newMethod instead\")]", sb.ToString());
+        // Matches the Swift path: "13" → "13.0" so the two emitters produce identical strings.
+        var output = Emit(new ObjCAvailability { Platform = "ios", IntroducedVersion = "13" });
+        Assert.Contains("SupportedOSPlatform(\"ios13.0\")", output);
     }
 
     [Fact]
-    public void EmitAvailability_Obsoleted_EmitsObsoletedAttribute()
+    public void Deprecated_EmitsObsoletedOSPlatform_WithMessage()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
+        var output = Emit(new ObjCAvailability
         {
-            new() { Platform = "ios", ObsoletedVersion = "17.0" }
-        };
+            Platform = "ios",
+            IntroducedVersion = "13.0",
+            DeprecatedVersion = "15.0",
+            Message = "use newThing"
+        });
 
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.False(isUnavailable);
-        Assert.Contains("[Obsoleted(PlatformName.iOS, 17, 0)]", sb.ToString());
+        Assert.Contains("SupportedOSPlatform(\"ios13.0\")", output);
+        Assert.Contains("[global::System.Runtime.Versioning.ObsoletedOSPlatform(\"ios15.0\", \"use newThing\")]", output);
     }
 
     [Fact]
-    public void EmitAvailability_ObsoletedWithMessage_IncludesMessage()
+    public void Obsoleted_EmitsObsoletedOSPlatform()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
-        {
-            new() { Platform = "ios", ObsoletedVersion = "17.0", Message = "No longer supported" }
-        };
-
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.False(isUnavailable);
-        Assert.Contains("[Obsoleted(PlatformName.iOS, 17, 0, message: \"No longer supported\")]", sb.ToString());
+        var output = Emit(new ObjCAvailability { Platform = "macos", ObsoletedVersion = "12.0" });
+        Assert.Contains("ObsoletedOSPlatform(\"macos12.0\")", output);
     }
 
     [Fact]
-    public void EmitAvailability_Unavailable_ReturnsTrueAndEmitsNothing()
+    public void Unavailable_EmitsUnsupportedOSPlatform_AndDoesNotIntroduce()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
-        {
-            new() { Platform = "ios", IsUnavailable = true }
-        };
-
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.True(isUnavailable);
-        Assert.Empty(sb.ToString());
+        var output = Emit(new ObjCAvailability { Platform = "tvos", IsUnavailable = true });
+        Assert.Contains("[global::System.Runtime.Versioning.UnsupportedOSPlatform(\"tvos\")]", output);
+        Assert.DoesNotContain("SupportedOSPlatform", output);
     }
 
     [Fact]
-    public void EmitAvailability_NonIosPlatform_IgnoresEntry()
+    public void EmptyList_EmitsNothing()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
-        {
-            new() { Platform = "macos", IntroducedVersion = "12.0" }
-        };
-
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.False(isUnavailable);
-        Assert.Empty(sb.ToString());
+        Assert.Equal("", Emit());
     }
 
     [Fact]
-    public void EmitAvailability_MixedAvailability_UnavailableAfterIntroduced_ReturnsTrue()
+    public void Message_WithQuotesAndBackslashes_IsEscaped()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
+        var output = Emit(new ObjCAvailability
         {
-            new() { Platform = "ios", IntroducedVersion = "14.0" },
-            new() { Platform = "ios", IsUnavailable = true }
-        };
-
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.True(isUnavailable);
-        // Should NOT have emitted anything since symbol is unavailable
-        Assert.Empty(sb.ToString());
+            Platform = "ios",
+            DeprecatedVersion = "15.0",
+            Message = "say \"hi\" \\ bye"
+        });
+        // The generated C# string literal must be valid: embedded quotes/backslashes escaped.
+        Assert.Contains("ObsoletedOSPlatform(\"ios15.0\", \"say \\\"hi\\\" \\\\ bye\")", output);
     }
 
     [Fact]
-    public void EmitAvailability_MessageWithQuotes_EscapesProperly()
+    public void DuplicateAttributes_AreDeduped()
     {
-        var sb = new StringBuilder();
-        var avail = new List<ObjCAvailability>
-        {
-            new() { Platform = "ios", DeprecatedVersion = "16.0", Message = "Use \"newAPI\" instead" }
-        };
+        // A decl can carry both API_AVAILABLE and API_DEPRECATED for the same platform/version.
+        var output = Emit(
+            new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0" },
+            new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0" });
 
-        var isUnavailable = ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, avail, "    ");
-
-        Assert.False(isUnavailable);
-        Assert.Contains("message: \"Use \\\"newAPI\\\" instead\"", sb.ToString());
+        var idx = output.IndexOf("SupportedOSPlatform(\"ios13.0\")", StringComparison.Ordinal);
+        Assert.True(idx >= 0);
+        Assert.Equal(-1, output.IndexOf("SupportedOSPlatform(\"ios13.0\")", idx + 1, StringComparison.Ordinal));
     }
 
     [Fact]
-    public void ApiDefinitionEmitter_SkipsUnavailableClass()
+    public void Lines_CarryRequestedIndent()
     {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes =
-            [
-                new ObjCClassDecl
-                {
-                    Name = "DeprecatedClass",
-                    Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
-                }
-            ]
-        };
-
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var diag = new ObjCBindingDiagnostics();
-            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger, diag);
-            var content = File.ReadAllText(path);
-            Assert.DoesNotContain("DeprecatedClass", content);
-            Assert.Single(diag.SkippedSymbols);
-            Assert.Equal(ObjCSkipReason.UnavailableApi, diag.SkippedSymbols[0].Reason);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
+        var output = Emit(new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" });
+        Assert.StartsWith("    [global::System.Runtime.Versioning.SupportedOSPlatform", output);
     }
 
     [Fact]
-    public void ApiDefinitionEmitter_SkipsUnavailableMethod()
+    public void MacCatalystFloor_IsLiftedToHigherIosFloor()
     {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes =
-            [
-                new ObjCClassDecl
-                {
-                    Name = "MyClass",
-                    Methods =
-                    [
-                        new ObjCMethodDecl
-                        {
-                            Selector = "doThing",
-                            ReturnType = new ObjCTypeRef { Name = "void" },
-                            IsInstanceMethod = true,
-                            Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
-                        },
-                        new ObjCMethodDecl
-                        {
-                            Selector = "doOtherThing",
-                            ReturnType = new ObjCTypeRef { Name = "void" },
-                            IsInstanceMethod = true,
-                        }
-                    ]
-                }
-            ]
-        };
+        // Parity with the Swift path's AvailabilityHelpers.LiftMacCatalystFloorToIOS: a decl carrying
+        // BOTH an explicit maccatalyst floor (13.0) and a HIGHER ios floor (16.0, >= 13.0) must emit
+        // the maccatalyst floor lifted to the ios floor. swiftc maps iOS>=13 floors onto macCatalyst
+        // 1:1, so emitting the literal maccatalyst13.0 would let a Catalyst consumer between 13.0 and
+        // 16.0 slip past CA1416 and hit a missing symbol at runtime.
+        var output = Emit(
+            new ObjCAvailability { Platform = "ios", IntroducedVersion = "16.0" },
+            new ObjCAvailability { Platform = "maccatalyst", IntroducedVersion = "13.0" });
 
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var diag = new ObjCBindingDiagnostics();
-            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger, diag);
-            var content = File.ReadAllText(path);
-            Assert.DoesNotContain("doThing", content);
-            Assert.Contains("DoOtherThing", content);
-            Assert.Single(diag.SkippedSymbols);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
+        Assert.Contains("SupportedOSPlatform(\"ios16.0\")", output);
+        Assert.Contains("SupportedOSPlatform(\"maccatalyst16.0\")", output);
+        Assert.DoesNotContain("maccatalyst13.0", output);
     }
 
     [Fact]
-    public void StructsAndEnumsEmitter_EmitsEnumAvailability()
+    public void MacCatalystFloor_NotLiftedWhenAlreadyAtOrAboveIosFloor()
     {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Enums =
-            [
-                new ObjCEnumDecl
-                {
-                    Name = "TLStatus",
-                    Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0", DeprecatedVersion = "16.0", Message = "Use TLState" }],
-                    Cases = [new ObjCEnumCaseDecl { Name = "TLStatusA" }]
-                }
-            ]
-        };
+        // The common Apple shape: maccatalyst floor >= ios floor (e.g. ios(13.0), macCatalyst(13.1)).
+        // The lift only RAISES, never lowers — maccatalyst13.1 stays as-is.
+        var output = Emit(
+            new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0" },
+            new ObjCAvailability { Platform = "maccatalyst", IntroducedVersion = "13.1" });
 
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var result = StructsAndEnumsEmitter.Emit(module, dir, "TestLib.Binding", Logger);
-            Assert.NotNull(result);
-            var content = File.ReadAllText(result!.FilePath);
-            Assert.Contains("[Introduced(PlatformName.iOS, 13, 0)]", content);
-            Assert.Contains("[Deprecated(PlatformName.iOS, 16, 0, message: \"Use TLState\")]", content);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
+        Assert.Contains("SupportedOSPlatform(\"ios13.0\")", output);
+        Assert.Contains("SupportedOSPlatform(\"maccatalyst13.1\")", output);
     }
 
     [Fact]
-    public void ApiDefinitionEmitter_UnavailableClassWithDocComment_NoOrphanedDocs()
+    public void MacCatalystFloor_NotInventedFromIosOnlyAnnotation()
     {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes =
-            [
-                new ObjCClassDecl
-                {
-                    Name = "OldClass",
-                    DocComment = "This class is deprecated.",
-                    Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
-                },
-                new ObjCClassDecl
-                {
-                    Name = "NewClass",
-                }
-            ]
-        };
+        // Gated on an EXPLICIT maccatalyst entry (mirrors the Swift gate): an ios-only annotation must
+        // NOT synthesize a maccatalyst attribute — .NET's ios→maccatalyst child-platform inheritance
+        // already narrows Catalyst consumers to the ios floor.
+        var output = Emit(new ObjCAvailability { Platform = "ios", IntroducedVersion = "16.0" });
 
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger);
-            var content = File.ReadAllText(path);
-            Assert.DoesNotContain("OldClass", content);
-            Assert.DoesNotContain("This class is deprecated.", content);
-            Assert.Contains("NewClass", content);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
+        Assert.Contains("SupportedOSPlatform(\"ios16.0\")", output);
+        Assert.DoesNotContain("maccatalyst", output);
     }
 
     [Fact]
-    public void ApiDefinitionEmitter_UnavailableMethodWithDocComment_NoOrphanedDocs()
+    public void MacCatalystLift_ClearsVacuousDeprecationBelowLiftedFloor()
     {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes =
-            [
-                new ObjCClassDecl
-                {
-                    Name = "MyClass",
-                    Methods =
-                    [
-                        new ObjCMethodDecl
-                        {
-                            Selector = "oldMethod",
-                            ReturnType = new ObjCTypeRef { Name = "void" },
-                            IsInstanceMethod = true,
-                            DocComment = "This method is old.",
-                            Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
-                        },
-                        new ObjCMethodDecl
-                        {
-                            Selector = "newMethod",
-                            ReturnType = new ObjCTypeRef { Name = "void" },
-                            IsInstanceMethod = true,
-                        }
-                    ]
-                }
-            ]
-        };
+        // When the lifted introduced floor (16.0) sits above this annotation's own deprecated version
+        // (14.0), the deprecation is vacuous (the API never existed there) and must be cleared, else a
+        // backwards [ObsoletedOSPlatform("maccatalyst14.0")] below [SupportedOSPlatform("maccatalyst16.0")]
+        // would be emitted.
+        var output = Emit(
+            new ObjCAvailability { Platform = "ios", IntroducedVersion = "16.0" },
+            new ObjCAvailability { Platform = "maccatalyst", IntroducedVersion = "13.0", DeprecatedVersion = "14.0" });
 
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger);
-            var content = File.ReadAllText(path);
-            Assert.DoesNotContain("oldMethod", content);
-            Assert.DoesNotContain("This method is old.", content);
-            Assert.Contains("NewMethod", content);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
-    }
-
-    [Fact]
-    public void ApiDefinitionEmitter_UnavailablePropertyWithDocComment_NoOrphanedDocs()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes =
-            [
-                new ObjCClassDecl
-                {
-                    Name = "MyClass",
-                    Properties =
-                    [
-                        new ObjCPropertyDecl
-                        {
-                            Name = "oldProp",
-                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
-                            DocComment = "This property is old.",
-                            Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }]
-                        },
-                        new ObjCPropertyDecl
-                        {
-                            Name = "newProp",
-                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
-                        }
-                    ]
-                }
-            ]
-        };
-
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var path = ApiDefinitionEmitter.Emit(module, dir, "TestNamespace", Logger);
-            var content = File.ReadAllText(path);
-            Assert.DoesNotContain("This property is old.", content);
-            Assert.Contains("NewProp", content);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
-    }
-
-    [Fact]
-    public void StructsAndEnumsEmitter_UnavailableEnumWithDocComment_NoOrphanedDocs()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Enums =
-            [
-                new ObjCEnumDecl
-                {
-                    Name = "TLOldEnum",
-                    DocComment = "This enum is old.",
-                    Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }],
-                    Cases = [new ObjCEnumCaseDecl { Name = "TLOldEnumA" }]
-                },
-                new ObjCEnumDecl
-                {
-                    Name = "TLNewEnum",
-                    Cases = [new ObjCEnumCaseDecl { Name = "TLNewEnumA" }]
-                }
-            ]
-        };
-
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var result = StructsAndEnumsEmitter.Emit(module, dir, "TestLib.Binding", Logger);
-            Assert.NotNull(result);
-            var content = File.ReadAllText(result!.FilePath);
-            Assert.DoesNotContain("This enum is old.", content);
-            Assert.DoesNotContain("TLOldEnum", content);
-            Assert.Contains("TLNewEnum", content);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
-    }
-
-    [Fact]
-    public void StructsAndEnumsEmitter_SkipsUnavailableEnum()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Enums =
-            [
-                new ObjCEnumDecl
-                {
-                    Name = "TLOldStatus",
-                    Availability = [new ObjCAvailability { Platform = "ios", IsUnavailable = true }],
-                    Cases = [new ObjCEnumCaseDecl { Name = "TLOldStatusA" }]
-                },
-                new ObjCEnumDecl
-                {
-                    Name = "TLNewStatus",
-                    Cases = [new ObjCEnumCaseDecl { Name = "TLNewStatusA" }]
-                }
-            ]
-        };
-
-        var dir = Path.Combine(Path.GetTempPath(), $"avail_test_{Guid.NewGuid():N}");
-        try
-        {
-            var diag = new ObjCBindingDiagnostics();
-            var result = StructsAndEnumsEmitter.Emit(module, dir, "TestLib.Binding", Logger, diag);
-            Assert.NotNull(result);
-            var content = File.ReadAllText(result!.FilePath);
-            Assert.DoesNotContain("TLOldStatus", content);
-            Assert.Contains("TLNewStatus", content);
-            Assert.Single(diag.SkippedSymbols);
-        }
-        finally
-        {
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, true);
-        }
+        Assert.Contains("SupportedOSPlatform(\"maccatalyst16.0\")", output);
+        Assert.DoesNotContain("ObsoletedOSPlatform(\"maccatalyst14.0\")", output);
     }
 }

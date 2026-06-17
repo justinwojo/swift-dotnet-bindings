@@ -125,6 +125,16 @@ namespace BindingsGeneration
         /// requirement's exact closure type and compiles.</summary>
         public required Dictionary<string, List<List<string>>> ClosureParameterAttributes { get; init; }
 
+        /// <summary>Qualified type path → explicit Objective-C runtime name declared via
+        /// <c>@objc(CustomName)</c> in the swiftinterface (e.g.
+        /// <c>"Outer.Widget" → "MOSWidget"</c>). Only types with an explicit custom name appear;
+        /// a type with bare <c>@objc</c> (or no <c>@objc</c>) is absent because its ObjC runtime
+        /// name equals its Swift name. The ABI JSON keeps the <c>$s…</c> mangled name and strips
+        /// the selector argument, so the swiftinterface is the only source. Applied to
+        /// <see cref="TypeDecl.ObjCRuntimeName"/> by <c>SwiftABIParser.ApplyObjCRuntimeName</c> and
+        /// consumed by the <c>swift-types.json</c> ownership manifest (Finding 23).</summary>
+        public required Dictionary<string, string> ObjCRuntimeNames { get; init; }
+
         /// <summary>Subscript external labels. Key: "TypeName.subscript(label1:label2:)"
         /// (e.g., "AES.subscript(bitAt:)"). Value: list of external labels (e.g.,
         /// <c>["bitAt"]</c>).</summary>
@@ -323,6 +333,7 @@ namespace BindingsGeneration
             AutoclosureParameters = new Dictionary<string, List<bool>>(),
             ConstLiteralParameters = new Dictionary<string, List<bool>>(),
             ClosureParameterAttributes = new Dictionary<string, List<List<string>>>(),
+            ObjCRuntimeNames = new Dictionary<string, string>(),
             SubscriptLabels = new Dictionary<string, List<string>>(),
             VariadicMembers = new HashSet<string>(),
             ConventionCProtocols = new HashSet<string>(),

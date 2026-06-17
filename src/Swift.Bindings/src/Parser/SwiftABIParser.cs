@@ -382,6 +382,21 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Sets <see cref="TypeDecl.ObjCRuntimeName"/> when the swiftinterface declared an
+        /// explicit <c>@objc(CustomName)</c> rename for this type. Left null otherwise (the ObjC
+        /// runtime name then equals the Swift name). Sourced from
+        /// <see cref="SwiftInterfaceFacts.ObjCRuntimeNames"/>, keyed on the same qualified type
+        /// path as the actor-isolation facts. Consumed by the swift-types.json ownership manifest
+        /// so mixed-framework dedup can match the ObjC <c>@interface</c> the Swift type owns.
+        /// </summary>
+        private void ApplyObjCRuntimeName(TypeDecl typeDecl)
+        {
+            var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
+            if (_facts.ObjCRuntimeNames.TryGetValue(qualifiedPath, out var objcName))
+                typeDecl.ObjCRuntimeName = objcName;
+        }
+
+        /// <summary>
         /// Sets availability annotations on a type declaration from swiftinterface data.
         /// </summary>
         private void ApplyAvailability(TypeDecl typeDecl)
@@ -1659,6 +1674,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyObjCRuntimeName(decl);
             ApplyPosition(decl);
             PopulateDocumentation(decl, node);
             return decl;
@@ -1728,6 +1744,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyObjCRuntimeName(decl);
             ApplyPosition(decl);
             PopulateDocumentation(decl, node);
             return decl;
@@ -2137,6 +2154,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyObjCRuntimeName(decl);
             ApplyPosition(decl);
             PopulateDocumentation(decl, node);
             return decl;
@@ -2342,6 +2360,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyObjCRuntimeName(decl);
             ApplyPosition(decl);
             PopulateDocumentation(decl, node);
 

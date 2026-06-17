@@ -318,6 +318,111 @@ public class ObjCPipelineIntegrationTests
             $"Expected at least 1 CoreBluetooth protocol, got {module.Protocols.Count}");
     }
 
+    /// <summary>
+    /// End-to-end availability recovery (Finding 22, recovery option a2): a header carrying a
+    /// macro-form <c>API_AVAILABLE(ios(15.0))</c> on a class and a bare
+    /// <c>__attribute__((availability(...)))</c> on a method is run through REAL clang
+    /// (<c>-ast-dump=json</c>), parsed, and emitted. Asserts the recovered availability surfaces as
+    /// the same <c>[SupportedOSPlatform]</c>/<c>[ObsoletedOSPlatform]</c> shape the Swift path uses.
+    /// This proves the source-offset recovery works against actual clang output (the JSON node
+    /// itself carries only <c>{id, kind, range}</c>), not just hand-authored JSON. The header is NOT
+    /// stripped — it flows through the full generation pipeline.
+    /// </summary>
+    [Fact]
+    public void Pipeline_XCFrameworkFixture_RecoversAvailabilityFromSource()
+    {
+        if (!HasXcode())
+            return;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_avail_e2e_{Guid.NewGuid():N}");
+        try
+        {
+            var xcfwPath = Path.Combine(tempDir, "TestObjCLib.xcframework");
+            var sliceId = "ios-arm64_x86_64-simulator";
+            var fwName = "TestObjCLib";
+            var sliceDir = Path.Combine(xcfwPath, sliceId);
+            var fwDir = Path.Combine(sliceDir, $"{fwName}.framework");
+            var headersDir = Path.Combine(fwDir, "Headers");
+            var modulesDir = Path.Combine(fwDir, "Modules");
+
+            Directory.CreateDirectory(headersDir);
+            Directory.CreateDirectory(modulesDir);
+
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{fwName}.framework/{fwName}</string>
+                            <key>LibraryIdentifier</key><string>{sliceId}</string>
+                            <key>LibraryPath</key><string>{fwName}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """);
+
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                $"framework module {fwName} {{\n  umbrella header \"{fwName}.h\"\n  export *\n  module * {{ export * }}\n}}\n");
+
+            // API_AVAILABLE (macro form, recovered via expansionLoc) on the class; bare
+            // __attribute__((availability(...))) (recovered via direct offset) on a method.
+            File.WriteAllText(Path.Combine(headersDir, $"{fwName}.h"), """
+                #import <Foundation/Foundation.h>
+
+                NS_ASSUME_NONNULL_BEGIN
+
+                API_AVAILABLE(ios(15.0))
+                @interface TLAvailManager : NSObject
+                @property (nonatomic, readonly) BOOL isReady;
+                - (void)legacyMethod __attribute__((availability(ios, introduced=16.0, deprecated=17.0, message="use newMethod")));
+                @end
+
+                NS_ASSUME_NONNULL_END
+                """);
+
+            File.WriteAllText(Path.Combine(sliceDir, $"{fwName}.framework/{fwName}"), "");
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.NotNull(result.ApiDefinitionPath);
+
+            var apiDef = File.ReadAllText(result.ApiDefinitionPath!);
+            Assert.Contains("partial interface TLAvailManager", apiDef);
+
+            // Class-level macro availability recovered from source.
+            Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios15.0\")]", apiDef);
+
+            // Method-level bare-attribute availability recovered from source.
+            Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios16.0\")]", apiDef);
+            Assert.Contains("[global::System.Runtime.Versioning.ObsoletedOSPlatform(\"ios17.0\"", apiDef);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
     [Fact]
     public void Pipeline_SdkMode_ObjCOnly_SkipsCsproj()
     {

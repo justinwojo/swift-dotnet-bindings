@@ -63,14 +63,8 @@ namespace BindingsGeneration
         /// <summary>".ObjC.iOS", ".ObjC.macOS", etc.</summary>
         public required string ObjCPackageIdSuffix { get; init; }
 
-        /// <summary>ObjCRuntime.PlatformName enum value name: "iOS", "MacOSX", "TvOS", "MacCatalyst".</summary>
-        public required string ObjCRuntimePlatformName { get; init; }
-
         /// <summary>Plist SupportedPlatform for xcframework filtering: "ios", "macos", "tvos".</summary>
         public required string PlistPlatformString { get; init; }
-
-        /// <summary>ObjC availability annotation platform: "ios", "macos", "tvos", "maccatalyst".</summary>
-        public required string AvailabilityPlatformString { get; init; }
 
         /// <summary>Default minimum OS version fallback.</summary>
         public required string DefaultMinimumOS { get; init; }

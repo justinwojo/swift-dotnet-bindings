@@ -61,6 +61,25 @@ internal static class AppleFrameworkRegistry
     // IsModuleAvailableOnPlatform gate).
     private static readonly HashSet<string> _allKnownModules;
 
+    // --- ObjC type-mapping tables (folded out of ObjCTypeMapper / StructsAndEnumsEmitter) ---
+    // These were five+one hardcoded tables scattered across the ObjC emitter. They are now
+    // a single schema-versioned sibling data file (objc-type-mappings.json) the registry owns,
+    // so the "AppleFrameworkRegistry is the single source of truth" constraint actually holds
+    // for ObjC type knowledge too.
+    private static readonly Dictionary<string, string> _objcPointerTypeMappings;
+    private static readonly Dictionary<string, string> _coreFoundationRefTypeMappings;
+    private static readonly Dictionary<string, string> _objcPrimitiveTypeMappings;
+    private static readonly (string ObjC, string Dotnet)[] _objcAcronymConventions;
+    private static readonly HashSet<string> _objcValueTypes;
+    private static readonly HashSet<string> _objcSystemStructs;
+
+    /// <summary>
+    /// Schema version this build of the registry understands for objc-type-mappings.json.
+    /// Bump in lockstep with the data file's <c>schemaVersion</c> whenever the shape changes,
+    /// mirroring the SwiftInterfaceParser kSchemaVersion/ExpectedSchemaVersion handshake.
+    /// </summary>
+    internal const int ExpectedObjCTypeMappingsSchemaVersion = 1;
+
     // --- JSON Model ---
 
     private sealed class FrameworkDefinitionsFile
@@ -120,10 +139,53 @@ internal static class AppleFrameworkRegistry
         public string? PackageId { get; set; }
     }
 
+    private sealed class ObjCTypeMappingsFile
+    {
+        [JsonProperty("schemaVersion")]
+        public int SchemaVersion { get; set; }
+
+        [JsonProperty("pointerTypeMappings")]
+        public Dictionary<string, string> PointerTypeMappings { get; set; } = new();
+
+        [JsonProperty("coreFoundationRefMappings")]
+        public Dictionary<string, string> CoreFoundationRefMappings { get; set; } = new();
+
+        [JsonProperty("primitiveTypeMappings")]
+        public Dictionary<string, string> PrimitiveTypeMappings { get; set; } = new();
+
+        [JsonProperty("acronymConventions")]
+        public List<AcronymConventionEntry> AcronymConventions { get; set; } = new();
+
+        [JsonProperty("objcValueTypes")]
+        public List<string> ObjcValueTypes { get; set; } = new();
+
+        [JsonProperty("systemStructs")]
+        public List<string> SystemStructs { get; set; } = new();
+    }
+
+    private sealed class AcronymConventionEntry
+    {
+        [JsonProperty("objc")]
+        public string ObjC { get; set; } = string.Empty;
+
+        [JsonProperty("dotnet")]
+        public string Dotnet { get; set; } = string.Empty;
+    }
+
     // --- Static Constructor (loads from embedded JSON) ---
 
     static AppleFrameworkRegistry()
     {
+        var objcTypeMappings = LoadObjCTypeMappings();
+        _objcPointerTypeMappings = new Dictionary<string, string>(objcTypeMappings.PointerTypeMappings, StringComparer.Ordinal);
+        _coreFoundationRefTypeMappings = new Dictionary<string, string>(objcTypeMappings.CoreFoundationRefMappings, StringComparer.Ordinal);
+        _objcPrimitiveTypeMappings = new Dictionary<string, string>(objcTypeMappings.PrimitiveTypeMappings, StringComparer.Ordinal);
+        _objcAcronymConventions = objcTypeMappings.AcronymConventions
+            .Select(a => (a.ObjC, a.Dotnet))
+            .ToArray();
+        _objcValueTypes = new HashSet<string>(objcTypeMappings.ObjcValueTypes, StringComparer.Ordinal);
+        _objcSystemStructs = new HashSet<string>(objcTypeMappings.SystemStructs, StringComparer.Ordinal);
+
         var definitions = LoadFrameworkDefinitions();
 
         _autoBridgeModules = new HashSet<string>(StringComparer.Ordinal);
@@ -256,6 +318,30 @@ internal static class AppleFrameworkRegistry
         return file.Frameworks;
     }
 
+    private static ObjCTypeMappingsFile LoadObjCTypeMappings()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        const string resourceName = "Swift.Bindings.Data.objc-type-mappings.json";
+
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Embedded resource '{resourceName}' not found.");
+
+        using var reader = new StreamReader(stream);
+        var json = reader.ReadToEnd();
+        var file = JsonConvert.DeserializeObject<ObjCTypeMappingsFile>(json)
+            ?? throw new InvalidOperationException("Failed to deserialize objc-type-mappings.json.");
+
+        // Schema-version handshake: a producer/consumer shape change must bump both the data
+        // file and ExpectedObjCTypeMappingsSchemaVersion in lockstep, so a stale embedded file
+        // fails loud here instead of silently mis-mapping every ObjC type.
+        if (file.SchemaVersion != ExpectedObjCTypeMappingsSchemaVersion)
+            throw new InvalidOperationException(
+                $"objc-type-mappings.json schemaVersion {file.SchemaVersion} does not match the "
+                + $"expected version {ExpectedObjCTypeMappingsSchemaVersion}. Regenerate or bump both in lockstep.");
+
+        return file;
+    }
+
     // --- Public API (unchanged) ---
 
     /// <summary>Narrower set used by IsObjCModuleType to gate auto-bridging.</summary>
@@ -342,6 +428,63 @@ internal static class AppleFrameworkRegistry
     /// <summary>True when a module declares no ObjC classes — every type it exports is a
     /// Swift value type. See <see cref="_valueTypesOnlyModules"/>.</summary>
     public static bool IsValueTypesOnlyModule(string moduleName) => _valueTypesOnlyModules.Contains(moduleName);
+
+    // --- ObjC type-mapping queries (folded from ObjCTypeMapper / StructsAndEnumsEmitter) ---
+
+    /// <summary>Maps a known ObjC pointer/object type name to its C# type (e.g. NSString → string).</summary>
+    public static bool TryMapObjCPointerType(string objcName, out string csharpType) =>
+        _objcPointerTypeMappings.TryGetValue(objcName, out csharpType!);
+
+    /// <summary>Maps a CoreFoundation Ref typedef / opaque type to its C# type (e.g. CGImageRef → CGImage).</summary>
+    public static bool TryMapCoreFoundationRefType(string objcName, out string csharpType) =>
+        _coreFoundationRefTypeMappings.TryGetValue(objcName, out csharpType!);
+
+    /// <summary>Maps a C/ObjC primitive type name to its C# type (e.g. BOOL → bool, NSInteger → nint).</summary>
+    public static bool TryMapObjCPrimitiveType(string objcName, out string csharpType) =>
+        _objcPrimitiveTypeMappings.TryGetValue(objcName, out csharpType!);
+
+    /// <summary>True if the name is a known ObjC pointer/object type.</summary>
+    public static bool IsObjCPointerType(string objcName) => _objcPointerTypeMappings.ContainsKey(objcName);
+
+    /// <summary>True if the name is a known CoreFoundation Ref / opaque type.</summary>
+    public static bool IsCoreFoundationRefType(string objcName) => _coreFoundationRefTypeMappings.ContainsKey(objcName);
+
+    /// <summary>True if the name is a known C/ObjC primitive type.</summary>
+    public static bool IsObjCPrimitiveType(string objcName) => _objcPrimitiveTypeMappings.ContainsKey(objcName);
+
+    /// <summary>True if the name is a known Apple framework struct/value type (CGPoint, CMTime, simd_*, …).</summary>
+    public static bool IsObjCValueType(string name) => _objcValueTypes.Contains(name);
+
+    /// <summary>True if the struct is already defined by .NET MAUI's framework bindings and must not be re-emitted.</summary>
+    public static bool IsObjCSystemStruct(string name) => _objcSystemStructs.Contains(name);
+
+    /// <summary>Acronym casing pairs (objc → dotnet), ordered longer-first for correct substring replacement.</summary>
+    public static IReadOnlyList<(string ObjC, string Dotnet)> ObjCAcronymConventions => _objcAcronymConventions;
+
+    /// <summary>All C# type names the ObjC pointer table can produce. Used to seed known-type sets.</summary>
+    public static IEnumerable<string> ObjCPointerTypeMappedValues => _objcPointerTypeMappings.Values;
+
+    /// <summary>All C# type names the CoreFoundation Ref table can produce.</summary>
+    public static IEnumerable<string> CoreFoundationRefTypeMappedValues => _coreFoundationRefTypeMappings.Values;
+
+    /// <summary>All C# type names the primitive table can produce.</summary>
+    public static IEnumerable<string> ObjCPrimitiveTypeMappedValues => _objcPrimitiveTypeMappings.Values;
+
+    /// <summary>All known Apple framework value-type names.</summary>
+    public static IEnumerable<string> ObjCValueTypeNames => _objcValueTypes;
+
+    /// <summary>
+    /// True once the folded ObjC type-mapping tables are loaded and non-empty. Consumers
+    /// (ObjCTypeMapper) startup-assert on this so a failed embed/load fails loud rather than
+    /// silently mis-mapping every ObjC type to a passthrough name.
+    /// </summary>
+    public static bool HasObjCTypeMappings =>
+        _objcPointerTypeMappings.Count > 0
+        && _coreFoundationRefTypeMappings.Count > 0
+        && _objcPrimitiveTypeMappings.Count > 0
+        && _objcAcronymConventions.Length > 0
+        && _objcValueTypes.Count > 0
+        && _objcSystemStructs.Count > 0;
 
     /// <summary>Module-level only remapping (ObjectiveC→Foundation, QuartzCore→CoreAnimation, etc.)</summary>
     public static string MapModuleToNetNamespace(string swiftModule)

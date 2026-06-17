@@ -71,6 +71,15 @@ public static class SwiftInterfaceAccessParser
         @"(?:public|open)\s+actor\s+(\w+)",
         RegexOptions.Compiled);
 
+    // Regex for an explicit @objc(CustomName) runtime-name rename. The argument is a bare
+    // identifier; requiring the closing paren immediately after it excludes method selectors
+    // (e.g. @objc(initWithName:) carries a trailing colon), so only type/member single-token
+    // renames match. Type-vs-member disambiguation is done by the caller (records only on
+    // type-declaration lines).
+    private static readonly Regex ObjCCustomNameRegex = new(
+        @"@objc\s*\(\s*([A-Za-z_]\w*)\s*\)",
+        RegexOptions.Compiled);
+
     // Regex for nonisolated member declarations
     private static readonly Regex NonisolatedRegex = new(
         @"nonisolated\s+(?:public|open|final|var|let|func|static|class)",
@@ -561,6 +570,103 @@ public static class SwiftInterfaceAccessParser
                     // shouldn't overwrite the type-level annotation.
                     if (!result.ContainsKey(qualifiedPath))
                         result[qualifiedPath] = matchedActorName;
+                }
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                typeStack.Pop();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Scans the swiftinterface for type declarations carrying an explicit
+    /// <c>@objc(CustomName)</c> rename and returns a map of qualified type path
+    /// (e.g. <c>"Widget"</c> or <c>"Outer.Inner"</c>) → the custom ObjC runtime name.
+    /// <para/>
+    /// Only types whose ObjC runtime name DIFFERS from their Swift name appear — a bare
+    /// <c>@objc</c> (or no <c>@objc</c>) leaves the runtime name equal to the Swift name, so it
+    /// is absent and callers treat absence as "runtime name == Swift name". The
+    /// <c>@objc(...)</c> argument is recoverable only here: swift-api-digester strips it from the
+    /// ABI JSON (an <c>@objc</c> Swift class keeps its <c>$s…</c> mangled name).
+    /// <para/>
+    /// The attribute may sit on the declaration line itself or on its own line immediately
+    /// above the declaration; both are handled. Method/property selector renames
+    /// (<c>@objc(foo:bar:)</c>) are excluded by <see cref="ObjCCustomNameRegex"/> (trailing
+    /// colon) AND by recording only on type-declaration lines.
+    /// </summary>
+    public static Dictionary<string, string> GetObjCRuntimeNames(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? pendingObjCName = null;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            string? nameOnLine = null;
+            var objcMatch = ObjCCustomNameRegex.Match(trimmed);
+            if (objcMatch.Success)
+                nameOnLine = objcMatch.Groups[1].Value;
+
+            // Effective name for THIS line: a deferred annotation from the previous line wins,
+            // otherwise the name found on this line. Consume the pending slot every iteration.
+            string? effectiveName = pendingObjCName ?? nameOnLine;
+            pendingObjCName = null;
+
+            // Attribute alone on its own line (no decl on the same line) — defer it to the next
+            // declaration line. Mirror the actor-isolation scanner's guards: do not defer when
+            // the line already opens a scope or carries a member declaration (the attribute then
+            // belongs to that member, not to a following type).
+            if (effectiveName != null && !TypeDeclRegex.IsMatch(trimmed) && openBraces == 0
+                && !IsMemberDeclLine(trimmed))
+            {
+                pendingObjCName = effectiveName;
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                continue;
+            }
+
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                var typeName = typeMatch.Groups[1].Value;
+                typeStack.Push((typeName, braceDepth));
+                pushedScope = true;
+
+                if (effectiveName != null)
+                {
+                    var qualifiedPath = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+                    // First match wins; a stray member-level @objc(name) further down can't
+                    // overwrite the type-level rename.
+                    if (!result.ContainsKey(qualifiedPath))
+                        result[qualifiedPath] = effectiveName;
                 }
             }
 

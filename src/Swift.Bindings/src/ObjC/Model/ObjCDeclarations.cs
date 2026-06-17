@@ -41,11 +41,17 @@ public sealed record ObjCMethodDecl
     public bool IsDesignatedInitializer { get; init; }
     public bool IsFromCategory { get; init; }
     public string CategoryName { get; init; } = "";
-    public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public bool IsRefinedForSwift { get; init; }
     public string? DocComment { get; init; }
     public List<ObjCDocParam> DocParams { get; init; } = [];
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's <c>API_AVAILABLE</c> /
+    /// <c>API_DEPRECATED</c> / <c>API_UNAVAILABLE</c> macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
 public sealed record ObjCPropertyDecl
@@ -60,10 +66,15 @@ public sealed record ObjCPropertyDecl
     public string? GetterSelector { get; init; }
     public string? SetterSelector { get; init; }
     public ObjCMemorySemantic MemorySemantic { get; init; }
-    public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public bool IsRefinedForSwift { get; init; }
     public string? DocComment { get; init; }
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
 public sealed record ObjCClassDecl
@@ -74,7 +85,6 @@ public sealed record ObjCClassDecl
     public List<string> GenericTypeParamNames { get; init; } = [];
     public List<ObjCMethodDecl> Methods { get; init; } = [];
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
-    public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public string? DocComment { get; init; }
 
@@ -86,6 +96,12 @@ public sealed record ObjCClassDecl
     /// keep such classes (it only ever drops with positive proof of absence).
     /// </summary>
     public bool HasCustomRuntimeName { get; init; }
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
 public sealed record ObjCProtocolDecl
@@ -94,7 +110,6 @@ public sealed record ObjCProtocolDecl
     public List<string> InheritedProtocolNames { get; init; } = [];
     public List<ObjCMethodDecl> Methods { get; init; } = [];
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
-    public List<ObjCAvailability> Availability { get; init; } = [];
     public string? DocComment { get; init; }
     /// <summary>
     /// True when this protocol is a delegate or data-source protocol.
@@ -102,12 +117,27 @@ public sealed record ObjCProtocolDecl
     /// delegate/dataSource property on a class. Used by the emitter to add [Model].
     /// </summary>
     public bool IsDelegateProtocol { get; init; }
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
 public sealed record ObjCEnumCaseDecl
 {
     public required string Name { get; init; }
     public long? Value { get; init; }
+
+    /// <summary>
+    /// Platform-availability records recovered from the enumerator's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2). Apple
+    /// SDKs commonly annotate individual <c>NS_ENUM</c> cases (e.g. a value introduced or deprecated
+    /// in a later OS than the enum type itself), so the per-case attributes are recovered and emitted
+    /// independently of the enum-level <see cref="ObjCEnumDecl.Availability"/>.
+    /// </summary>
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
 public sealed record ObjCEnumDecl
@@ -116,9 +146,14 @@ public sealed record ObjCEnumDecl
     public bool IsOptions { get; init; }
     public ObjCTypeRef? UnderlyingType { get; init; }
     public List<ObjCEnumCaseDecl> Cases { get; init; } = [];
-    public List<ObjCAvailability> Availability { get; init; } = [];
     public string? SwiftName { get; init; }
     public string? DocComment { get; init; }
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
+    public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
 public sealed record ObjCStructField
@@ -147,6 +182,11 @@ public sealed record ObjCFunctionDecl
     public required ObjCTypeRef ReturnType { get; init; }
     public List<ObjCParameterDecl> Parameters { get; init; } = [];
     public bool IsVariadic { get; init; }
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
@@ -155,6 +195,11 @@ public sealed record ObjCConstantDecl
     public required string Name { get; init; }
     public required ObjCTypeRef Type { get; init; }
     public bool IsExtern { get; init; }
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
@@ -172,5 +217,10 @@ public sealed record ObjCCategoryDecl
     public List<string> GenericTypeParamNames { get; init; } = [];
     public List<ObjCMethodDecl> Methods { get; init; } = [];
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
+
+    /// <summary>
+    /// Platform-availability records recovered from the declaration's availability macros or a bare
+    /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
+    /// </summary>
     public List<ObjCAvailability> Availability { get; init; } = [];
 }

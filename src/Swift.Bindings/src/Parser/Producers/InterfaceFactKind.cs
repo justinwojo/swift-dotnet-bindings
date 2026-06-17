@@ -61,6 +61,12 @@ public enum InterfaceFactKind
     // is the only source. Needed so the synthesized `extension EveryProtocol: SomeProtocol`
     // conformance reproduces the requirement's exact closure type.
     ClosureParameterAttributes,
+    // Qualified-type-path → explicit `@objc(CustomName)` runtime name. The ABI JSON keeps an
+    // `@objc` Swift class's `$s…` mangled name and drops the ObjC selector argument, so the
+    // custom runtime name lives only in the swiftinterface. Threads into TypeDecl.ObjCRuntimeName
+    // and the swift-types.json ownership manifest so mixed-framework dedup matches ObjC decls
+    // by their runtime name (Finding 23).
+    ObjCRuntimeNames,
 }
 
 internal static class InterfaceFactKindHelpers

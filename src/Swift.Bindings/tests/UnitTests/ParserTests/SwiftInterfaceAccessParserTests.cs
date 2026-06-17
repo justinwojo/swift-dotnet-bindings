@@ -3864,6 +3864,160 @@ public class DisposeBag {
 
     #endregion
 
+    #region GetObjCRuntimeNames Tests
+
+    [Fact]
+    public void GetObjCRuntimeNames_SameLineRename_RecordsCustomName()
+    {
+        // @objc(MOSWidget) on the class line: the Swift type Widget registers under the ObjC
+        // runtime name MOSWidget, which the mixed-framework dedup must key on.
+        var swiftInterface = """
+            @objc(MOSWidget) public class Widget {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(path);
+            Assert.True(map.TryGetValue("Widget", out var objcName));
+            Assert.Equal("MOSWidget", objcName);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetObjCRuntimeNames_OwnLineRename_DeferredToDecl()
+    {
+        // The attribute on its own line above the declaration must be deferred to the following
+        // type-decl line — mirroring the actor-isolation scanner's deferred-annotation handling.
+        var swiftInterface = """
+            @objc(MOSWidget)
+            public class Widget {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(path);
+            Assert.True(map.TryGetValue("Widget", out var objcName));
+            Assert.Equal("MOSWidget", objcName);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetObjCRuntimeNames_RenamedProtocol_Recorded()
+    {
+        var swiftInterface = """
+            @objc(MOSDrawable) public protocol Drawable {
+              func draw()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(path);
+            Assert.True(map.TryGetValue("Drawable", out var objcName));
+            Assert.Equal("MOSDrawable", objcName);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetObjCRuntimeNames_BareObjc_Absent()
+    {
+        // A bare @objc (no argument) leaves the runtime name equal to the Swift name, so the map
+        // must NOT record it — absence is the signal "ObjC name == Swift name".
+        var swiftInterface = """
+            @objc public class Widget {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(path);
+            Assert.False(map.ContainsKey("Widget"));
+            Assert.Empty(map);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetObjCRuntimeNames_MethodSelectorRename_NotRecordedAsType()
+    {
+        // A method/property selector rename @objc(doThing) sits on a member line, not a type line,
+        // and must never be recorded as a TYPE-level ObjC runtime name. The bare class keeps its
+        // Swift name (absent from the map).
+        var swiftInterface = """
+            @objc public class Widget {
+              @objc(doThing) public func doThing()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(path);
+            Assert.False(map.ContainsKey("Widget"));
+            // The member selector name must not leak in under any key.
+            Assert.DoesNotContain("doThing", map.Values);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetObjCRuntimeNames_ColonSelector_ExcludedByRegex()
+    {
+        // @objc(setValue:) — the trailing colon means the ObjCCustomNameRegex (closing paren after
+        // an identifier) does not match, so it is excluded even at the regex layer.
+        var swiftInterface = """
+            @objc public class Widget {
+              @objc(setValue:) public func setValue(_ v: Swift.Int)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(path);
+            Assert.Empty(map);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetObjCRuntimeNames_NestedType_QualifiedPath()
+    {
+        // A nested @objc(Inner) rename must be recorded under its qualified type path so the
+        // manifest builder (which keys on BuildTypeQualifiedPath) finds it.
+        var swiftInterface = """
+            public class Outer {
+              @objc(MOSInner) public class Inner {
+                public init()
+              }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(path);
+            Assert.True(map.TryGetValue("Outer.Inner", out var objcName));
+            Assert.Equal("MOSInner", objcName);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetObjCRuntimeNames_NonExistentFile_ReturnsEmpty()
+    {
+        var map = SwiftInterfaceAccessParser.GetObjCRuntimeNames(
+            Path.Combine(Path.GetTempPath(), $"missing_{Guid.NewGuid():N}.swiftinterface"));
+        Assert.Empty(map);
+    }
+
+    #endregion
+
     #region Family-F overload disambiguation + protocol requirement availability
 
     /// <summary>

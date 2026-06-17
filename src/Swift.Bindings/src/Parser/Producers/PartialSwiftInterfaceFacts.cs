@@ -38,6 +38,7 @@ public sealed record PartialSwiftInterfaceFacts
     public Dictionary<string, List<bool>>? AutoclosureParameters { get; init; }
     public Dictionary<string, List<bool>>? ConstLiteralParameters { get; init; }
     public Dictionary<string, List<List<string>>>? ClosureParameterAttributes { get; init; }
+    public Dictionary<string, string>? ObjCRuntimeNames { get; init; }
     public Dictionary<string, List<string>>? SubscriptLabels { get; init; }
     public HashSet<string>? VariadicMembers { get; init; }
     public HashSet<string>? ConventionCProtocols { get; init; }

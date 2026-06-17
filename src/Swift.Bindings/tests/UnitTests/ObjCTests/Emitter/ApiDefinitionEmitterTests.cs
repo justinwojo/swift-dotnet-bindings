@@ -554,69 +554,112 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("string Title { get; }", result);
     }
 
-    // --- Availability ---
+    // --- Availability (Finding 22, recovery option a2) ---
 
     [Fact]
-    public void Emit_IntroducedAvailability_EmitsAttribute()
+    public void Emit_NoRecoveredAvailability_EmitsNoAvailabilityAttributes()
     {
+        // When no availability was recovered from header source (the common case — clang's JSON
+        // AvailabilityAttr carries no platform data, and the source offset yielded nothing), the
+        // API-definition emitter emits NO availability attributes for any decl kind. This guards
+        // the "annotate only what we actually recovered" contract and pins that the dead bgen-era
+        // [Introduced]/[Deprecated] names are never emitted.
         var module = new ObjCModule
         {
             ModuleName = "Test",
             Classes = [new ObjCClassDecl
             {
                 Name = "MyClass",
-                Availability = [new ObjCAvailability
+                Methods = [new ObjCMethodDecl
                 {
-                    Platform = "ios",
-                    IntroducedVersion = "16.0"
-                }]
-            }]
+                    Selector = "doStuff",
+                    IsInstanceMethod = true,
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                }],
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "title",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = true,
+                }],
+            }],
+            Protocols = [new ObjCProtocolDecl { Name = "MyDelegate" }],
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("[Introduced(PlatformName.iOS, 16, 0)]", result);
+
+        // The decls themselves still emit...
+        Assert.Contains("partial interface MyClass", result);
+        Assert.Contains("partial interface IMyDelegate", result);
+        // ...with no availability attributes of any kind.
+        Assert.DoesNotContain("[Introduced(", result);
+        Assert.DoesNotContain("[Deprecated(", result);
+        Assert.DoesNotContain("[Obsoleted(", result);
+        Assert.DoesNotContain("SupportedOSPlatform", result);
+        Assert.DoesNotContain("ObsoletedOSPlatform", result);
+        Assert.DoesNotContain("UnsupportedOSPlatform", result);
     }
 
     [Fact]
-    public void Emit_DeprecatedAvailability_EmitsAttribute()
+    public void Emit_RecoveredAvailability_OnClassAndMethodAndProperty()
     {
+        // With availability recovered (Finding 22 a2), the emitter writes the same
+        // [SupportedOSPlatform]/[ObsoletedOSPlatform] shape the Swift @available path uses.
         var module = new ObjCModule
         {
             ModuleName = "Test",
             Classes = [new ObjCClassDecl
             {
                 Name = "MyClass",
-                Availability = [new ObjCAvailability
+                Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" }],
+                Methods = [new ObjCMethodDecl
                 {
-                    Platform = "ios",
-                    DeprecatedVersion = "15.0"
-                }]
-            }]
+                    Selector = "doStuff",
+                    IsInstanceMethod = true,
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    Availability = [new ObjCAvailability
+                    {
+                        Platform = "ios",
+                        IntroducedVersion = "13.0",
+                        DeprecatedVersion = "16.0",
+                        Message = "use somethingElse"
+                    }],
+                }],
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "title",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = true,
+                    Availability = [new ObjCAvailability { Platform = "macos", IntroducedVersion = "12.0" }],
+                }],
+            }],
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("[Deprecated(PlatformName.iOS, 15, 0)]", result);
+
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios15.0\")]", result);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios13.0\")]", result);
+        Assert.Contains("[global::System.Runtime.Versioning.ObsoletedOSPlatform(\"ios16.0\", \"use somethingElse\")]", result);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"macos12.0\")]", result);
     }
 
     [Fact]
-    public void Emit_NonIosAvailability_Skipped()
+    public void Emit_RecoveredUnavailable_OnProtocol_EmitsUnsupportedOSPlatform()
     {
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            Classes = [new ObjCClassDecl
+            Protocols = [new ObjCProtocolDecl
             {
-                Name = "MyClass",
-                Availability = [new ObjCAvailability
-                {
-                    Platform = "macos",
-                    IntroducedVersion = "13.0"
-                }]
-            }]
+                Name = "MyDelegate",
+                Availability = [new ObjCAvailability { Platform = "tvos", IsUnavailable = true }],
+            }],
         };
 
         var result = EmitAndRead(module);
-        Assert.DoesNotContain("Introduced", result);
+
+        Assert.Contains("partial interface IMyDelegate", result);
+        Assert.Contains("[global::System.Runtime.Versioning.UnsupportedOSPlatform(\"tvos\")]", result);
     }
 
     // --- Instancetype ---
@@ -884,35 +927,6 @@ public class ApiDefinitionEmitterTests
         // Both should be constructors since they have different param types
         Assert.Contains("NativeHandle Constructor(string name);", result);
         Assert.Contains("NativeHandle Constructor(nint count);", result);
-    }
-
-    // --- Method availability ---
-
-    [Fact]
-    public void Emit_MethodAvailability_EmitsAttribute()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes = [new ObjCClassDecl
-            {
-                Name = "MyClass",
-                Methods = [new ObjCMethodDecl
-                {
-                    Selector = "newApi",
-                    ReturnType = new ObjCTypeRef { Name = "void" },
-                    IsInstanceMethod = true,
-                    Availability = [new ObjCAvailability
-                    {
-                        Platform = "ios",
-                        IntroducedVersion = "17.0"
-                    }]
-                }]
-            }]
-        };
-
-        var result = EmitAndRead(module);
-        Assert.Contains("[Introduced(PlatformName.iOS, 17, 0)]", result);
     }
 
     // --- DisableDefaultCtor ---
@@ -2695,100 +2709,6 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("NSDictionary<NSString, NSNumber> config", result);
     }
 
-    // --- Fix #13: Platform availability attribute emission ---
-
-    [Fact]
-    public void Emit_ClassWithIntroduced_EmitsIntroducedAttribute()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes = [new ObjCClassDecl
-            {
-                Name = "MBDocScanApp",
-                Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "13.0" }]
-            }]
-        };
-
-        var result = EmitAndRead(module);
-        Assert.Contains("[Introduced(PlatformName.iOS, 13, 0)]", result);
-        Assert.Contains("[BaseType(typeof(NSObject))]", result);
-        Assert.Contains("partial interface MBDocScanApp", result);
-    }
-
-    [Fact]
-    public void Emit_ProtocolWithIntroduced_EmitsIntroducedAttribute()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Protocols = [new ObjCProtocolDecl
-            {
-                Name = "MyDelegate",
-                Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" }]
-            }]
-        };
-
-        var result = EmitAndRead(module);
-        Assert.Contains("[Introduced(PlatformName.iOS, 15, 0)]", result);
-        Assert.Contains("partial interface IMyDelegate", result);
-    }
-
-    [Fact]
-    public void Emit_MethodWithDeprecated_EmitsDeprecatedAttribute()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes = [new ObjCClassDecl
-            {
-                Name = "MyClass",
-                Methods = [new ObjCMethodDecl
-                {
-                    Selector = "oldMethod",
-                    IsInstanceMethod = true,
-                    ReturnType = new ObjCTypeRef { Name = "void" },
-                    Availability = [new ObjCAvailability
-                    {
-                        Platform = "ios",
-                        IntroducedVersion = "10.0",
-                        DeprecatedVersion = "16.0",
-                        Message = "Use newMethod instead"
-                    }]
-                }]
-            }]
-        };
-
-        var result = EmitAndRead(module);
-        Assert.Contains("[Introduced(PlatformName.iOS, 10, 0)]", result);
-        Assert.Contains("[Deprecated(PlatformName.iOS, 16, 0, message: \"Use newMethod instead\")]", result);
-        Assert.Contains("OldMethod", result);
-    }
-
-    [Fact]
-    public void Emit_PropertyWithIntroduced_EmitsIntroducedAttribute()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "Test",
-            Classes = [new ObjCClassDecl
-            {
-                Name = "MyClass",
-                Properties = [new ObjCPropertyDecl
-                {
-                    Name = "newProp",
-                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
-                    IsReadonly = true,
-                    Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "14.0" }]
-                }]
-            }]
-        };
-
-        var result = EmitAndRead(module);
-        Assert.Contains("[Introduced(PlatformName.iOS, 14, 0)]", result);
-        Assert.Contains("string NewProp { get; }", result);
-    }
-
     // ──────────────────────────────────────────────
     // Fix #4: Optional vs required member classification
     // ──────────────────────────────────────────────
@@ -3131,6 +3051,59 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("[NullAllowed, Export(\"dataSource\", ArgumentSemantic.Weak)]", result);
         Assert.Contains("NSObject WeakDataSource {", result);
         Assert.Contains("[Export(\"setDataSource:\")] set;", result);
+    }
+
+    [Fact]
+    public void Emit_DelegateProperty_Availability_AppliedToBothWrapAndWeakMembers()
+    {
+        // A delegate property with recovered availability emits TWO C# members (the [Wrap] strong
+        // property AND the [Export] weak backing property). The platform-availability attribute must
+        // guard BOTH — a consumer touching WeakDelegate directly needs the analyzer guard just as much
+        // as one using the strong Delegate property. Regression guard: the weak member used to be
+        // emitted without availability.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyViewDelegate",
+                IsDelegateProtocol = true
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyView",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "delegate",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "id",
+                        IsPointer = true,
+                        ProtocolQualifications = ["MyViewDelegate"]
+                    },
+                    IsReadonly = false,
+                    GetterSelector = "delegate",
+                    Availability = [new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" }]
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+
+        // Both the strong [Wrap] property and the weak [Export] property emit; each is guarded.
+        Assert.Contains("[Wrap(\"WeakDelegate\")]", result);
+        Assert.Contains("NSObject WeakDelegate {", result);
+
+        // The availability attribute appears TWICE — once before each member.
+        const string attr = "[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios15.0\")]";
+        var first = result.IndexOf(attr, StringComparison.Ordinal);
+        Assert.True(first >= 0, "availability must guard the strong [Wrap] delegate property");
+        var second = result.IndexOf(attr, first + attr.Length, StringComparison.Ordinal);
+        Assert.True(second >= 0, "availability must ALSO guard the weak [Export] backing property");
+
+        // Sanity: the second attribute precedes the weak [Export] member.
+        var weakExportIdx = result.IndexOf("[NullAllowed, Export(\"delegate\", ArgumentSemantic.Weak)]", StringComparison.Ordinal);
+        Assert.True(second < weakExportIdx, "second availability attribute must precede the weak [Export] property");
     }
 
     [Fact]
@@ -4043,5 +4016,139 @@ public class ApiDefinitionEmitterTests
         var result = EmitAndRead(module);
         Assert.Contains("partial interface IMyDelegate : INSCoding", result);
         Assert.DoesNotContain("IThirdPartyBase", result);
+    }
+
+    // ──────────────────────────────────────────────
+    // Finding 24: delegate-protocol identity is decided at the emission source
+    // (threaded delegateProtocolNames → MapType step 3 + the conformance/
+    // inheritance lists), NOT by a blunt whole-file IFoo→Foo regex post-process.
+    // [Protocol, Model] delegate protocols are referenced by their bare name
+    // (bgen emits the class form Foo); all other protocols use IFoo.
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_ClassConformingToLocalDelegateProtocol_UsesBareNameInConformanceList()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl { Name = "MyViewDelegate", IsDelegateProtocol = true }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyView",
+                ProtocolNames = ["MyViewDelegate"],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        // The class conformance list must reference the [Model] protocol by its bare
+        // (class) name — the Xamarin convention — not the I-prefixed interface form.
+        Assert.Contains("partial interface MyView : MyViewDelegate", result);
+        Assert.DoesNotContain(": IMyViewDelegate", result);
+    }
+
+    [Fact]
+    public void Emit_ClassConformingToLocalNonDelegateProtocol_UsesIPrefixInConformanceList()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl { Name = "Configurable", IsDelegateProtocol = false }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Widget",
+                ProtocolNames = ["Configurable"],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        // A non-delegate protocol stays I-prefixed in the conformance list.
+        Assert.Contains("partial interface Widget : IConfigurable", result);
+    }
+
+    [Fact]
+    public void Emit_ProtocolInheritingLocalDelegateProtocol_UsesBareNameInInheritanceList()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl { Name = "BaseViewDelegate", IsDelegateProtocol = true },
+                new ObjCProtocolDecl
+                {
+                    Name = "ExtendedViewDelegate",
+                    IsDelegateProtocol = true,
+                    InheritedProtocolNames = ["BaseViewDelegate"],
+                },
+            ],
+        };
+
+        var result = EmitAndRead(module);
+        // Both are [Model] delegate protocols → both emitted bare, including in the
+        // inheritance list of the deriving protocol.
+        Assert.Contains("partial interface ExtendedViewDelegate : BaseViewDelegate", result);
+        Assert.DoesNotContain(": IBaseViewDelegate", result);
+    }
+
+    [Fact]
+    public void Emit_MethodParameterTypedAsLocalDelegateProtocol_UsesBareName()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl { Name = "MyViewDelegate", IsDelegateProtocol = true }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyView",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "registerHandler:",
+                        ReturnType = SimpleType("void"),
+                        IsInstanceMethod = true,
+                        Parameters =
+                        [
+                            new ObjCParameterDecl
+                            {
+                                Name = "handler",
+                                Type = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualifications = ["MyViewDelegate"] },
+                            },
+                        ],
+                    },
+                ],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        // A parameter qualified by the delegate protocol maps (MapType step 3) to the
+        // bare name, not IMyViewDelegate.
+        Assert.Contains("RegisterHandler(MyViewDelegate handler)", result);
+        Assert.DoesNotContain("IMyViewDelegate handler", result);
+    }
+
+    [Fact]
+    public void Emit_DocCommentMentioningInterfaceName_NotRewritten_NoWholeFileRegex()
+    {
+        // Regression for the removed whole-file IFoo→Foo regex: it rewrote EVERY
+        // \bIMyViewDelegate\b occurrence, including prose inside doc comments. With the
+        // decision moved to the emission source, an unrelated mention of the I-prefixed
+        // name in a doc comment survives verbatim.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl { Name = "MyViewDelegate", IsDelegateProtocol = true }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyView",
+                DocComment = "Prefer the IMyViewDelegate interface for testing.",
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        // The doc-comment text is preserved — the old regex would have corrupted it to
+        // "MyViewDelegate interface".
+        Assert.Contains("IMyViewDelegate interface for testing", result);
     }
 }

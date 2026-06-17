@@ -1443,4 +1443,95 @@ public class AppleFrameworkRegistryTests
         Assert.False(AppleFrameworkRegistry.TryGetPackageId(module, out var packageId));
         Assert.True(string.IsNullOrEmpty(packageId));
     }
+
+    // ──────────────────────────────────────────────
+    // Finding 24: ObjC type-mapping tables folded into the registry
+    //
+    // The five ObjC lookup tables that used to live inline in ObjCTypeMapper
+    // (pointer types, CoreFoundation Ref types, primitive types, acronym
+    // conventions, value types) plus StructsAndEnumsEmitter's SystemStructs set
+    // now load from the embedded objc-type-mappings.json under a schema-version
+    // handshake. These tests pin that the fold loaded (not silently empty) and
+    // that representative entries from each table resolve through the registry.
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void HasObjCTypeMappings_IsTrue_AllSixTablesLoaded()
+    {
+        // The embedded objc-type-mappings.json must load all six tables non-empty.
+        // ObjCTypeMapper's static constructor startup-asserts on exactly this — a
+        // false here means the resource failed to embed or the schema version
+        // mismatched, which would otherwise silently pass every ObjC type through
+        // as a bare name.
+        Assert.True(AppleFrameworkRegistry.HasObjCTypeMappings);
+    }
+
+    [Theory]
+    [InlineData("NSString", "string")]
+    [InlineData("NSURL", "NSUrl")]
+    [InlineData("NSObject", "NSObject")]
+    public void TryMapObjCPointerType_FoldedEntries_Resolve(string objc, string expected)
+    {
+        Assert.True(AppleFrameworkRegistry.TryMapObjCPointerType(objc, out var mapped));
+        Assert.Equal(expected, mapped);
+        Assert.True(AppleFrameworkRegistry.IsObjCPointerType(objc));
+    }
+
+    [Theory]
+    [InlineData("CGImageRef", "CGImage")]
+    [InlineData("CGColorRef", "CGColor")]
+    [InlineData("CGColorSpaceRef", "CGColorSpace")]
+    public void TryMapCoreFoundationRefType_FoldedEntries_Resolve(string objc, string expected)
+    {
+        Assert.True(AppleFrameworkRegistry.TryMapCoreFoundationRefType(objc, out var mapped));
+        Assert.Equal(expected, mapped);
+        Assert.True(AppleFrameworkRegistry.IsCoreFoundationRefType(objc));
+    }
+
+    [Theory]
+    [InlineData("BOOL", "bool")]
+    [InlineData("NSInteger", "nint")]
+    [InlineData("CGFloat", "nfloat")]
+    public void TryMapObjCPrimitiveType_FoldedEntries_Resolve(string objc, string expected)
+    {
+        Assert.True(AppleFrameworkRegistry.TryMapObjCPrimitiveType(objc, out var mapped));
+        Assert.Equal(expected, mapped);
+        Assert.True(AppleFrameworkRegistry.IsObjCPrimitiveType(objc));
+    }
+
+    [Theory]
+    [InlineData("CGRect")]
+    [InlineData("CGPoint")]
+    [InlineData("CGSize")]
+    public void IsObjCValueType_FoldedEntries_Recognized(string name)
+    {
+        Assert.True(AppleFrameworkRegistry.IsObjCValueType(name));
+    }
+
+    [Fact]
+    public void IsObjCSystemStruct_FoldedEntries_Recognized()
+    {
+        // SystemStructs was the sixth table (formerly inline in StructsAndEnumsEmitter):
+        // structs MAUI's framework bindings already define and we must not re-emit.
+        // At least one well-known entry must be recognized; the precise set is data.
+        Assert.True(AppleFrameworkRegistry.IsObjCSystemStruct("CGRect"));
+    }
+
+    [Fact]
+    public void ObjCAcronymConventions_FoldedTable_OrderedLongerFirst()
+    {
+        var conventions = AppleFrameworkRegistry.ObjCAcronymConventions;
+        Assert.NotEmpty(conventions);
+        // The table must be ordered longer-ObjC-token-first so substring replacement
+        // does not corrupt overlapping acronyms (e.g. HTTPS before HTTP). Verify the
+        // ObjC keys are sorted by descending length.
+        for (var i = 1; i < conventions.Count; i++)
+            Assert.True(conventions[i - 1].ObjC.Length >= conventions[i].ObjC.Length,
+                $"Acronym conventions must be ordered longer-first; '{conventions[i - 1].ObjC}' precedes longer '{conventions[i].ObjC}'");
+        // HTTPS must precede HTTP if both present (the canonical overlap).
+        var https = conventions.ToList().FindIndex(c => c.ObjC == "HTTPS");
+        var http = conventions.ToList().FindIndex(c => c.ObjC == "HTTP");
+        if (https >= 0 && http >= 0)
+            Assert.True(https < http, "HTTPS must precede HTTP for correct substring replacement");
+    }
 }

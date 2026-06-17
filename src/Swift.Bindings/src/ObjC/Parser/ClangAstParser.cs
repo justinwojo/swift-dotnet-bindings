@@ -42,6 +42,18 @@ public static class ClangAstParser
     };
 
     /// <summary>
+    /// Per-parse cache of header file bytes, keyed by absolute path. Availability recovery
+    /// (Finding 22, recovery option a2) reads the consumer header at each <c>AvailabilityAttr</c>'s
+    /// source byte offset; a member-dense framework can carry hundreds of attributes in one header,
+    /// so the bytes are read once per file and reused. Cleared in <see cref="Parse"/>'s finally so it
+    /// never leaks across modules. <c>[ThreadStatic]</c> mirrors the single-threaded-per-parse
+    /// assumption the existing <see cref="ObjCTypeRefParser.SetAdditionalGenericContainers"/> state
+    /// already relies on.
+    /// </summary>
+    [ThreadStatic]
+    private static Dictionary<string, byte[]>? _sourceByteCache;
+
+    /// <summary>
     /// Parses a Clang AST JSON string into an ObjCModule.
     /// </summary>
     /// <param name="logger">
@@ -158,7 +170,7 @@ public static class ClangAstParser
                 case "ObjCInterfaceDecl":
                     if (!IsForwardDeclaration(node))
                     {
-                        var classDecl = ParseClassDecl(node);
+                        var classDecl = ParseClassDecl(node, nodeResolvedFile);
                         if (classDecl != null)
                             classes.Add(classDecl);
                     }
@@ -167,20 +179,20 @@ public static class ClangAstParser
                 case "ObjCProtocolDecl":
                     if (!IsForwardDeclaration(node))
                     {
-                        var protocolDecl = ParseProtocolDecl(node, currentFile);
+                        var protocolDecl = ParseProtocolDecl(node, currentFile, nodeResolvedFile);
                         if (protocolDecl != null)
                             protocols.Add(protocolDecl);
                     }
                     break;
 
                 case "ObjCCategoryDecl":
-                    var category = ParseCategoryDecl(node);
+                    var category = ParseCategoryDecl(node, nodeResolvedFile);
                     if (category != null)
                         categories.Add(category);
                     break;
 
                 case "EnumDecl":
-                    var enumDecl = ParseEnumDecl(node);
+                    var enumDecl = ParseEnumDecl(node, nodeResolvedFile);
                     if (enumDecl != null)
                         enums.Add(enumDecl);
                     break;
@@ -200,13 +212,13 @@ public static class ClangAstParser
                     break;
 
                 case "FunctionDecl":
-                    var funcDecl = ParseFunctionDecl(node);
+                    var funcDecl = ParseFunctionDecl(node, nodeResolvedFile);
                     if (funcDecl != null)
                         functions.Add(funcDecl);
                     break;
 
                 case "VarDecl":
-                    var constDecl = ParseConstantDecl(node);
+                    var constDecl = ParseConstantDecl(node, nodeResolvedFile);
                     if (constDecl != null)
                         constants.Add(constDecl);
                     break;
@@ -273,16 +285,28 @@ public static class ClangAstParser
         // Pass 3: Deduplicate declarations by name.
         // The same type can appear in multiple headers (public + internal, or multiple umbrella includes).
         // Enums/structs: keep richest (most cases/fields) since empty forward-like decls precede full defs.
-        // Classes/protocols: merge metadata (superclass, protocols, availability, generic params)
+        // Classes/protocols: merge metadata (superclass, protocols, generic params)
         //   from all duplicates onto the richest (most methods+properties).
         // Functions/constants/typedefs: keep first (no richness variation).
-        enums = DeduplicateByRichest(enums, e => e.Name, e => e.Cases.Count);
+        // Availability is merged from every duplicate (not just the kept one) for every decl kind that
+        // carries it — a sparser duplicate (e.g. a forward enum decl) can hold the availability macro
+        // while the richer definition does not, and dropping it would lose a real [SupportedOSPlatform].
+        // ObjCStructDecl has no Availability field, so structs use the plain richest-wins dedup.
+        enums = DeduplicateByRichestMergingAvailability(
+            enums, e => e.Name, e => e.Cases.Count, e => e.Availability, (e, av) => e with { Availability = av });
         structs = DeduplicateByRichest(structs, s => s.Name, s => s.Fields.Count);
         classes = MergeClasses(classes);
         protocols = MergeProtocols(protocols);
-        functions = DeduplicateByFirst(functions, f => f.Name);
-        constants = DeduplicateByFirst(constants, c => c.Name);
-        typedefs = DeduplicateByFirst(typedefs, t => t.Name);
+        // Functions/constants have no member-richness axis, but a real header shape DOES split
+        // availability across duplicates: a bare forward declaration followed by a redeclaration that
+        // carries the availability macro (e.g. `void F(void);` then `void F(void) API_AVAILABLE(...)`).
+        // Keep the first decl's identity but MERGE availability from every duplicate so a later-decl
+        // annotation is not dropped — same fidelity the class/protocol merge path already provides.
+        functions = DeduplicateByFirstMergingAvailability(
+            functions, f => f.Name, f => f.Availability, (f, av) => f with { Availability = av });
+        constants = DeduplicateByFirstMergingAvailability(
+            constants, c => c.Name, c => c.Availability, (c, av) => c with { Availability = av });
+        typedefs = DeduplicateByFirst(typedefs, t => t.Name); // no Availability field — nothing to merge
 
         // Pass 3.5: Drop deprecated-subclass legacy-name aliases. Must run AFTER MergeClasses so
         // SuperclassName is populated from the definition node (not a stray forward-decl instance).
@@ -291,9 +315,10 @@ public static class ClangAstParser
         // properties verbatim purely so existing source keeps compiling. Emitting both produces
         // duplicate partial interfaces and bgen .g.cs collisions on case-insensitive macOS
         // filesystems. The alias's name differs from its superclass's name only by letter casing —
-        // that is the most reliable signal because clang's JSON AST dump omits the platform/
-        // deprecated/unavailable fields on AvailabilityAttr nodes, so the parsed Availability list
-        // is always empty.
+        // that is the most reliable signal for this rename pattern. (Availability itself IS now
+        // recovered from header source per Finding 22 a2 — see RecoverAvailability — but the clang
+        // JSON AvailabilityAttr node still carries only {id, kind, range}, and a pure "is-deprecated"
+        // match would be far less precise than the name-casing match used here.)
         var droppedAliasNames = new HashSet<string>(StringComparer.Ordinal);
         var aliasToCanonical = new Dictionary<string, string>(StringComparer.Ordinal);
         classes = DropDeprecatedSubclassAliases(classes, droppedAliasNames, aliasToCanonical);
@@ -344,6 +369,7 @@ public static class ClangAstParser
         finally
         {
             ObjCTypeRefParser.SetAdditionalGenericContainers(null);
+            _sourceByteCache = null;
         }
     }
 
@@ -386,7 +412,7 @@ public static class ClangAstParser
     // Top-level declaration parsers
     // ──────────────────────────────────────────────
 
-    private static ObjCClassDecl? ParseClassDecl(JsonElement element)
+    private static ObjCClassDecl? ParseClassDecl(JsonElement element, string? declFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
@@ -427,9 +453,8 @@ public static class ClangAstParser
 
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
-        var availability = new List<ObjCAvailability>();
 
-        ParseContainerChildren(element, methods, properties, availability, isProtocol: false);
+        ParseContainerChildren(element, methods, properties, isProtocol: false, currentFile: declFile);
 
         var swiftName = ExtractSwiftName(element);
         var (docComment, _) = ExtractDocComment(element);
@@ -448,10 +473,10 @@ public static class ClangAstParser
             GenericTypeParamNames = genericTypeParamNames,
             Methods = methods,
             Properties = properties,
-            Availability = availability,
             SwiftName = swiftName,
             DocComment = docComment,
-            HasCustomRuntimeName = hasCustomRuntimeName
+            HasCustomRuntimeName = hasCustomRuntimeName,
+            Availability = RecoverAvailability(element, declFile)
         };
     }
 
@@ -472,7 +497,7 @@ public static class ClangAstParser
         return false;
     }
 
-    private static ObjCProtocolDecl? ParseProtocolDecl(JsonElement element, string? currentFile = null)
+    private static ObjCProtocolDecl? ParseProtocolDecl(JsonElement element, string? currentFile = null, string? declFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
@@ -490,9 +515,8 @@ public static class ClangAstParser
 
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
-        var availability = new List<ObjCAvailability>();
 
-        ParseContainerChildren(element, methods, properties, availability, isProtocol: true, currentFile: currentFile);
+        ParseContainerChildren(element, methods, properties, isProtocol: true, currentFile: currentFile ?? declFile);
 
         var (docComment, _) = ExtractDocComment(element);
 
@@ -502,12 +526,12 @@ public static class ClangAstParser
             InheritedProtocolNames = inherited,
             Methods = methods,
             Properties = properties,
-            Availability = availability,
-            DocComment = docComment
+            DocComment = docComment,
+            Availability = RecoverAvailability(element, declFile ?? currentFile)
         };
     }
 
-    private static ObjCCategoryDecl? ParseCategoryDecl(JsonElement element)
+    private static ObjCCategoryDecl? ParseCategoryDecl(JsonElement element, string? declFile = null)
     {
         // In clang AST, the owning class is in "interface.name", not "name".
         // "name" is the category name (e.g., "NSCoderMethods" in NSObject(NSCoderMethods)).
@@ -536,9 +560,8 @@ public static class ClangAstParser
 
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
-        var availability = new List<ObjCAvailability>();
 
-        ParseContainerChildren(element, methods, properties, availability, isProtocol: false);
+        ParseContainerChildren(element, methods, properties, isProtocol: false, currentFile: declFile);
 
         return new ObjCCategoryDecl
         {
@@ -547,18 +570,17 @@ public static class ClangAstParser
             ProtocolNames = protocols,
             Methods = methods,
             Properties = properties,
-            Availability = availability
+            Availability = RecoverAvailability(element, declFile)
         };
     }
 
-    private static ObjCEnumDecl? ParseEnumDecl(JsonElement element)
+    private static ObjCEnumDecl? ParseEnumDecl(JsonElement element, string? declFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
 
         var isOptions = false;
         var cases = new List<ObjCEnumCaseDecl>();
-        var availability = new List<ObjCAvailability>();
         ObjCTypeRef? underlyingType = null;
 
         // Check for fixed underlying type
@@ -586,18 +608,21 @@ public static class ClangAstParser
                             {
                                 value = TryExtractEnumValue(caseInner);
                             }
-                            cases.Add(new ObjCEnumCaseDecl { Name = caseName, Value = value });
+                            cases.Add(new ObjCEnumCaseDecl
+                            {
+                                Name = caseName,
+                                Value = value,
+                                // Per-case availability: an enumerator can carry its own
+                                // API_AVAILABLE/API_DEPRECATED/API_UNAVAILABLE distinct from the
+                                // enum type's (recovered the same way — source byte offset at the
+                                // EnumConstantDecl's range.begin; degrades to empty when absent).
+                                Availability = RecoverAvailability(child, declFile),
+                            });
                         }
                         break;
 
                     case "FlagEnumAttr":
                         isOptions = true;
-                        break;
-
-                    case "AvailabilityAttr":
-                        var avail = ParseAvailability(child);
-                        if (avail != null)
-                            availability.Add(avail);
                         break;
                 }
             }
@@ -612,9 +637,9 @@ public static class ClangAstParser
             IsOptions = isOptions,
             UnderlyingType = underlyingType,
             Cases = cases,
-            Availability = availability,
             SwiftName = swiftName,
-            DocComment = docComment
+            DocComment = docComment,
+            Availability = RecoverAvailability(element, declFile)
         };
     }
 
@@ -679,7 +704,7 @@ public static class ClangAstParser
         return (fields, hasUnsafe, reason);
     }
 
-    private static ObjCFunctionDecl? ParseFunctionDecl(JsonElement element)
+    private static ObjCFunctionDecl? ParseFunctionDecl(JsonElement element, string? declFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
@@ -695,7 +720,6 @@ public static class ClangAstParser
         }
 
         var parameters = new List<ObjCParameterDecl>();
-        var availability = new List<ObjCAvailability>();
 
         if (element.TryGetProperty("inner", out var inner))
         {
@@ -708,12 +732,6 @@ public static class ClangAstParser
                         var param = ParseParameter(child);
                         if (param != null)
                             parameters.Add(param);
-                        break;
-
-                    case "AvailabilityAttr":
-                        var avail = ParseAvailability(child);
-                        if (avail != null)
-                            availability.Add(avail);
                         break;
                 }
             }
@@ -728,11 +746,11 @@ public static class ClangAstParser
             ReturnType = ObjCTypeRefParser.Parse(funcReturnType),
             Parameters = parameters,
             IsVariadic = isVariadic,
-            Availability = availability
+            Availability = RecoverAvailability(element, declFile)
         };
     }
 
-    private static ObjCConstantDecl? ParseConstantDecl(JsonElement element)
+    private static ObjCConstantDecl? ParseConstantDecl(JsonElement element, string? declFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
@@ -746,26 +764,12 @@ public static class ClangAstParser
             isExtern = sc.GetString() == "extern";
         }
 
-        var availability = new List<ObjCAvailability>();
-        if (element.TryGetProperty("inner", out var inner))
-        {
-            foreach (var child in inner.EnumerateArray())
-            {
-                if (GetOptionalString(child, "kind") == "AvailabilityAttr")
-                {
-                    var avail = ParseAvailability(child);
-                    if (avail != null)
-                        availability.Add(avail);
-                }
-            }
-        }
-
         return new ObjCConstantDecl
         {
             Name = name,
             Type = ObjCTypeRefParser.Parse(qualType),
             IsExtern = isExtern,
-            Availability = availability
+            Availability = RecoverAvailability(element, declFile)
         };
     }
 
@@ -832,7 +836,6 @@ public static class ClangAstParser
         JsonElement element,
         List<ObjCMethodDecl> methods,
         List<ObjCPropertyDecl> properties,
-        List<ObjCAvailability> availability,
         bool isProtocol,
         string? currentFile = null)
     {
@@ -858,21 +861,15 @@ public static class ClangAstParser
                     // Skip implicit accessor methods generated for properties
                     if (child.TryGetProperty("isImplicit", out var implProp) && implProp.GetBoolean())
                         break;
-                    var method = ParseMethodDecl(child, IsInOptionalSection(child, optionalLines));
+                    var method = ParseMethodDecl(child, IsInOptionalSection(child, optionalLines), currentFile);
                     if (method != null)
                         methods.Add(method);
                     break;
 
                 case "ObjCPropertyDecl":
-                    var prop = ParsePropertyDecl(child, optionalLines);
+                    var prop = ParsePropertyDecl(child, optionalLines, currentFile);
                     if (prop != null)
                         properties.Add(prop);
-                    break;
-
-                case "AvailabilityAttr":
-                    var avail = ParseAvailability(child);
-                    if (avail != null)
-                        availability.Add(avail);
                     break;
             }
         }
@@ -928,6 +925,225 @@ public static class ClangAstParser
         return line > 0 && optionalLines.Contains(line);
     }
 
+    // ──────────────────────────────────────────────
+    // Availability recovery (Finding 22, recovery option a2)
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Recovers platform-availability records for a declaration by reading its
+    /// <c>AvailabilityAttr</c> child nodes from the consumer header source.
+    /// <para/>
+    /// Clang's <c>-ast-dump=json</c> serializes <c>AvailabilityAttr</c> as only
+    /// <c>{id, kind, range}</c> — the platform / introduced / deprecated / message fields are NOT
+    /// emitted. We instead read the raw annotation text at the attribute's source byte offset and
+    /// parse it (see <see cref="ObjCAvailabilityParser"/>). For macro forms (<c>API_AVAILABLE</c>,
+    /// <c>NS_AVAILABLE_IOS</c>, …) the <c>range.begin.expansionLoc</c> points at the macro use-site
+    /// in the consumer header (the <c>spellingLoc</c> instead points uselessly into the SDK's
+    /// <c>AvailabilityInternal.h</c>); for a bare <c>__attribute__((availability(...)))</c> the
+    /// <c>range.begin</c> offset points directly at the <c>availability</c> keyword and the file is
+    /// omitted (inherited from the enclosing declaration → <paramref name="declFile"/>).
+    /// </summary>
+    private static List<ObjCAvailability> RecoverAvailability(JsonElement element, string? declFile)
+    {
+        var result = new List<ObjCAvailability>();
+        if (!element.TryGetProperty("inner", out var inner) || inner.ValueKind != JsonValueKind.Array)
+            return result;
+
+        foreach (var child in inner.EnumerateArray())
+        {
+            if (GetOptionalString(child, "kind") != "AvailabilityAttr")
+                continue;
+            var recovered = RecoverOneAvailability(child, declFile);
+            if (recovered != null)
+                result.AddRange(recovered);
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<ObjCAvailability>? RecoverOneAvailability(JsonElement attr, string? declFile)
+    {
+        if (!attr.TryGetProperty("range", out var range) || !range.TryGetProperty("begin", out var begin))
+            return null;
+
+        if (!TryGetSourceOffset(begin, out var offset, out var file))
+            return null;
+
+        file ??= declFile;
+        if (file == null)
+            return null;
+
+        var bytes = ReadFileBytesCached(file);
+        if (bytes == null || offset < 0 || offset >= bytes.Length)
+            return null;
+
+        var invocation = ReadInvocationAt(bytes, offset);
+        if (invocation == null)
+            return null;
+
+        var (token, args) = SplitInvocation(invocation);
+        if (token == null)
+            return null;
+
+        return ObjCAvailabilityParser.ParseInvocation(token, args);
+    }
+
+    /// <summary>
+    /// Resolves the source byte offset and (best-effort) file for an <c>AvailabilityAttr</c>'s
+    /// <c>range.begin</c> location. Prefers <c>expansionLoc</c> (the macro use-site) over the bare
+    /// location; returns null-file when clang omits it (the caller falls back to the decl's file).
+    /// </summary>
+    private static bool TryGetSourceOffset(JsonElement loc, out int offset, out string? file)
+    {
+        offset = 0;
+        file = null;
+
+        // Macro forms carry the consumer-header use-site under expansionLoc.
+        if (loc.TryGetProperty("expansionLoc", out var exp) && TryReadOffset(exp, out offset))
+        {
+            file = TryGetLocFile(exp, "file", out var f) ? f : null;
+            return true;
+        }
+
+        // Bare __attribute__ / direct location.
+        if (TryReadOffset(loc, out offset))
+        {
+            file = TryGetLocFile(loc, "file", out var f) ? f : null;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryReadOffset(JsonElement loc, out int offset)
+    {
+        offset = 0;
+        if (loc.TryGetProperty("offset", out var o) && o.ValueKind == JsonValueKind.Number)
+        {
+            offset = o.GetInt32();
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Reads (and caches) the raw bytes of a header file. Clang source offsets are byte offsets, so
+    /// the slice must be taken over bytes, not over a decoded string (headers can contain multi-byte
+    /// UTF-8 in comments before the attribute). Returns null when the file can't be read.
+    /// </summary>
+    private static byte[]? ReadFileBytesCached(string file)
+    {
+        _sourceByteCache ??= new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        if (_sourceByteCache.TryGetValue(file, out var cached))
+            return cached;
+
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(file); }
+        catch { return null; }
+
+        _sourceByteCache[file] = bytes;
+        return bytes;
+    }
+
+    /// <summary>
+    /// Extracts the availability annotation text beginning at <paramref name="offset"/>: the leading
+    /// identifier token followed by its balanced parenthesized argument list (e.g.
+    /// <c>API_AVAILABLE(ios(13.0), macos(10.15))</c> or <c>availability(ios, introduced=13.0)</c>).
+    /// Returns null when no identifier or no balanced parenthesis group is found.
+    /// </summary>
+    private static string? ReadInvocationAt(byte[] bytes, int offset)
+    {
+        int i = offset;
+
+        // Skip leading whitespace.
+        while (i < bytes.Length && IsAsciiWhitespace(bytes[i]))
+            i++;
+
+        int tokenStart = i;
+        // Leading identifier: [A-Za-z_][A-Za-z0-9_]* — the first byte must NOT be a digit (a macro/
+        // attribute name never starts with one, and clang anchors the offset at that name), so a bad
+        // offset landing mid-number degrades to no-availability instead of misparsing a numeric token.
+        if (i >= bytes.Length || !IsIdentStartByte(bytes[i]))
+            return null; // not an identifier start at this offset
+        while (i < bytes.Length && IsIdentByte(bytes[i]))
+            i++;
+        if (i == tokenStart)
+            return null; // no identifier at this offset
+
+        // Skip whitespace between token and '('.
+        int j = i;
+        while (j < bytes.Length && IsAsciiWhitespace(bytes[j]))
+            j++;
+        if (j >= bytes.Length || bytes[j] != (byte)'(')
+            return null; // no argument list — not an annotation we can parse
+
+        // Balance parentheses, respecting char/string literals.
+        int depth = 0;
+        bool inString = false;
+        byte quote = (byte)'"';
+        int end = -1;
+        for (int k = j; k < bytes.Length; k++)
+        {
+            byte c = bytes[k];
+            if (inString)
+            {
+                if (c == (byte)'\\') { k++; continue; }
+                if (c == quote) inString = false;
+                continue;
+            }
+            if (c == (byte)'"' || c == (byte)'\'')
+            {
+                inString = true;
+                quote = c;
+            }
+            else if (c == (byte)'(')
+            {
+                depth++;
+            }
+            else if (c == (byte)')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    end = k;
+                    break;
+                }
+            }
+        }
+        if (end < 0)
+            return null; // unbalanced — give up rather than guess
+
+        return System.Text.Encoding.UTF8.GetString(bytes, tokenStart, end - tokenStart + 1);
+    }
+
+    /// <summary>
+    /// Splits an invocation string <c>TOKEN(args)</c> into its leading token and the raw argument
+    /// text inside the outermost parentheses.
+    /// </summary>
+    private static (string? token, string args) SplitInvocation(string invocation)
+    {
+        var open = invocation.IndexOf('(');
+        if (open <= 0)
+            return (null, "");
+        var token = invocation[..open].Trim();
+        var close = invocation.LastIndexOf(')');
+        var args = close > open ? invocation[(open + 1)..close] : invocation[(open + 1)..];
+        return (token.Length == 0 ? null : token, args);
+    }
+
+    private static bool IsIdentByte(byte b) =>
+        (b >= (byte)'A' && b <= (byte)'Z') ||
+        (b >= (byte)'a' && b <= (byte)'z') ||
+        (b >= (byte)'0' && b <= (byte)'9') ||
+        b == (byte)'_';
+
+    private static bool IsIdentStartByte(byte b) =>
+        (b >= (byte)'A' && b <= (byte)'Z') ||
+        (b >= (byte)'a' && b <= (byte)'z') ||
+        b == (byte)'_';
+
+    private static bool IsAsciiWhitespace(byte b) =>
+        b == (byte)' ' || b == (byte)'\t' || b == (byte)'\r' || b == (byte)'\n' || b == (byte)'\f' || b == (byte)'\v';
+
     private static string? ResolveLocFile(JsonElement element)
     {
         if (!element.TryGetProperty("loc", out var loc))
@@ -963,7 +1179,7 @@ public static class ClangAstParser
         return 0;
     }
 
-    private static ObjCMethodDecl? ParseMethodDecl(JsonElement element, bool isOptional)
+    private static ObjCMethodDecl? ParseMethodDecl(JsonElement element, bool isOptional, string? declFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
@@ -984,7 +1200,6 @@ public static class ClangAstParser
         var returnQualType = GetReturnType(element) ?? "void";
 
         var parameters = new List<ObjCParameterDecl>();
-        var methodAvailability = new List<ObjCAvailability>();
         var isDesignatedInitializer = false;
 
         if (element.TryGetProperty("inner", out var inner))
@@ -998,12 +1213,6 @@ public static class ClangAstParser
                         var param = ParseParameter(child);
                         if (param != null)
                             parameters.Add(param);
-                        break;
-
-                    case "AvailabilityAttr":
-                        var avail = ParseAvailability(child);
-                        if (avail != null)
-                            methodAvailability.Add(avail);
                         break;
 
                     case "ObjCDesignatedInitializerAttr":
@@ -1026,15 +1235,15 @@ public static class ClangAstParser
             IsOptional = isOptional,
             IsVariadic = isVariadic,
             IsDesignatedInitializer = isDesignatedInitializer,
-            Availability = methodAvailability,
             SwiftName = swiftName,
             IsRefinedForSwift = isRefined,
             DocComment = docComment,
-            DocParams = docParams
+            DocParams = docParams,
+            Availability = RecoverAvailability(element, declFile)
         };
     }
 
-    private static ObjCPropertyDecl? ParsePropertyDecl(JsonElement element, HashSet<int>? optionalLines)
+    private static ObjCPropertyDecl? ParsePropertyDecl(JsonElement element, HashSet<int>? optionalLines, string? declFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
@@ -1084,20 +1293,6 @@ public static class ClangAstParser
         else if (element.TryGetProperty("unsafe_unretained", out var unsafeProp) && unsafeProp.GetBoolean())
             memorySemantic = ObjCMemorySemantic.UnsafeUnretained;
 
-        var propAvailability = new List<ObjCAvailability>();
-        if (element.TryGetProperty("inner", out var inner))
-        {
-            foreach (var child in inner.EnumerateArray())
-            {
-                if (GetOptionalString(child, "kind") == "AvailabilityAttr")
-                {
-                    var avail = ParseAvailability(child);
-                    if (avail != null)
-                        propAvailability.Add(avail);
-                }
-            }
-        }
-
         // Properties have control:"optional" in clang JSON;
         // also check source-level section for consistency
         var isOptional = false;
@@ -1121,10 +1316,10 @@ public static class ClangAstParser
             GetterSelector = getter,
             SetterSelector = setter,
             MemorySemantic = memorySemantic,
-            Availability = propAvailability,
             SwiftName = swiftName,
             IsRefinedForSwift = isRefined,
-            DocComment = docComment
+            DocComment = docComment,
+            Availability = RecoverAvailability(element, declFile)
         };
     }
 
@@ -1263,22 +1458,6 @@ public static class ClangAstParser
                 return true;
         }
         return false;
-    }
-
-    private static ObjCAvailability? ParseAvailability(JsonElement element)
-    {
-        var platform = GetOptionalString(element, "platform");
-        if (platform == null) return null;
-
-        return new ObjCAvailability
-        {
-            Platform = platform,
-            IntroducedVersion = GetOptionalString(element, "introduced"),
-            DeprecatedVersion = GetOptionalString(element, "deprecated"),
-            ObsoletedVersion = GetOptionalString(element, "obsoleted"),
-            IsUnavailable = element.TryGetProperty("unavailable", out var u) && u.GetBoolean(),
-            Message = GetOptionalString(element, "message")
-        };
     }
 
     // ──────────────────────────────────────────────
@@ -1500,6 +1679,40 @@ public static class ClangAstParser
     }
 
     /// <summary>
+    /// Like <see cref="DeduplicateByRichest{T}"/>, but also merges availability from every same-named
+    /// duplicate onto the kept (richest) instance — the same fidelity the class/protocol/category and
+    /// function/constant merge paths provide. A sparser duplicate (e.g. a forward enum declaration) can
+    /// carry the availability macro while the richer definition (more cases) does not, so keeping the
+    /// richest must not drop that annotation. Returns the richest unchanged when no duplicate adds
+    /// anything.
+    /// </summary>
+    private static List<T> DeduplicateByRichestMergingAvailability<T>(
+        List<T> items,
+        Func<T, string> nameSelector,
+        Func<T, int> richnessSelector,
+        Func<T, List<ObjCAvailability>> availabilityGetter,
+        Func<T, List<ObjCAvailability>, T> withAvailability)
+    {
+        if (items.Count <= 1) return items;
+        return items.GroupBy(nameSelector).Select(g =>
+        {
+            var richest = g.OrderByDescending(richnessSelector).First();
+            if (g.Count() == 1) return richest;
+
+            var merged = new List<ObjCAvailability>(availabilityGetter(richest));
+            var changed = false;
+            foreach (var dup in g)
+            {
+                if (ReferenceEquals(dup, richest)) continue;
+                var before = merged.Count;
+                MergeAvailabilityInto(merged, availabilityGetter(dup));
+                if (merged.Count != before) changed = true;
+            }
+            return changed ? withAvailability(richest, merged) : richest;
+        }).ToList();
+    }
+
+    /// <summary>
     /// Drops "deprecated-subclass alias" classes — Apple's rename pattern where the legacy spelling
     /// becomes a fully-deprecated subclass of the canonical class (e.g. Matter's
     /// <c>MTROtaSoftware…</c> subclassing <c>MTROTASoftware…</c>, or
@@ -1537,7 +1750,7 @@ public static class ClangAstParser
 
     /// <summary>
     /// Deduplicates classes by name, merging metadata from all duplicates onto the richest instance.
-    /// Metadata includes: SuperclassName, ProtocolNames, GenericTypeParamNames, Availability.
+    /// Metadata includes: SuperclassName, ProtocolNames, GenericTypeParamNames.
     /// NOTE: Methods/properties are NOT merged across duplicates — only the richest instance's
     /// members are kept. In practice, duplicate declarations of the same class come from the same
     /// header definition (re-included via umbrella headers), so they have identical members.
@@ -1569,13 +1782,7 @@ public static class ClangAstParser
                     superclass ??= dup.SuperclassName;
                     foreach (var p in dup.ProtocolNames) allProtocols.Add(p);
                     foreach (var gp in dup.GenericTypeParamNames) allGenericParams.Add(gp);
-                    foreach (var a in dup.Availability)
-                    {
-                        if (!allAvailability.Any(existing =>
-                            existing.Platform == a.Platform && existing.IntroducedVersion == a.IntroducedVersion
-                            && existing.DeprecatedVersion == a.DeprecatedVersion))
-                            allAvailability.Add(a);
-                    }
+                    MergeAvailabilityInto(allAvailability, dup.Availability);
                 }
 
                 return richest with
@@ -1583,8 +1790,8 @@ public static class ClangAstParser
                     SuperclassName = superclass,
                     ProtocolNames = allProtocols.ToList(),
                     GenericTypeParamNames = allGenericParams.ToList(),
-                    Availability = allAvailability,
-                    HasCustomRuntimeName = hasCustomRuntimeName
+                    HasCustomRuntimeName = hasCustomRuntimeName,
+                    Availability = allAvailability
                 };
             })
             .ToList();
@@ -1592,7 +1799,7 @@ public static class ClangAstParser
 
     /// <summary>
     /// Deduplicates protocols by name, merging metadata from all duplicates onto the richest instance.
-    /// Metadata includes: InheritedProtocolNames, Availability.
+    /// Metadata includes: InheritedProtocolNames.
     /// NOTE: Methods/properties are NOT merged — same rationale as MergeClasses.
     /// </summary>
     private static List<ObjCProtocolDecl> MergeProtocols(List<ObjCProtocolDecl> protocols)
@@ -1611,13 +1818,7 @@ public static class ClangAstParser
                 {
                     if (ReferenceEquals(dup, richest)) continue;
                     foreach (var ip in dup.InheritedProtocolNames) allInherited.Add(ip);
-                    foreach (var a in dup.Availability)
-                    {
-                        if (!allAvailability.Any(existing =>
-                            existing.Platform == a.Platform && existing.IntroducedVersion == a.IntroducedVersion
-                            && existing.DeprecatedVersion == a.DeprecatedVersion))
-                            allAvailability.Add(a);
-                    }
+                    MergeAvailabilityInto(allAvailability, dup.Availability);
                 }
 
                 return richest with
@@ -1663,13 +1864,7 @@ public static class ClangAstParser
                         if (allPropertyNames.Add(p.Name))
                             allProperties.Add(p);
                     }
-                    foreach (var a in dup.Availability)
-                    {
-                        if (!allAvailability.Any(existing =>
-                            existing.Platform == a.Platform && existing.IntroducedVersion == a.IntroducedVersion
-                            && existing.DeprecatedVersion == a.DeprecatedVersion))
-                            allAvailability.Add(a);
-                    }
+                    MergeAvailabilityInto(allAvailability, dup.Availability);
                 }
 
                 return richest with
@@ -1683,11 +1878,63 @@ public static class ClangAstParser
             .ToList();
     }
 
+    /// <summary>
+    /// Appends availability records from <paramref name="source"/> into <paramref name="target"/>,
+    /// skipping records that duplicate one already present (same platform + introduced + deprecated).
+    /// Used when merging duplicate declarations so an availability annotation that landed on a
+    /// sparser duplicate is preserved on the merged decl.
+    /// </summary>
+    private static void MergeAvailabilityInto(List<ObjCAvailability> target, List<ObjCAvailability> source)
+    {
+        foreach (var a in source)
+        {
+            if (!target.Any(existing =>
+                existing.Platform == a.Platform
+                && existing.IntroducedVersion == a.IntroducedVersion
+                && existing.DeprecatedVersion == a.DeprecatedVersion
+                && existing.ObsoletedVersion == a.ObsoletedVersion
+                && existing.IsUnavailable == a.IsUnavailable))
+            {
+                target.Add(a);
+            }
+        }
+    }
+
     private static List<T> DeduplicateByFirst<T>(
         List<T> items, Func<T, string> nameSelector)
     {
         if (items.Count <= 1) return items;
         return items.GroupBy(nameSelector).Select(g => g.First()).ToList();
+    }
+
+    /// <summary>
+    /// Like <see cref="DeduplicateByFirst{T}"/>, but preserves availability that landed on a duplicate
+    /// other than the first: keeps the first decl's shape/identity and merges availability from every
+    /// same-named duplicate into it (via <see cref="MergeAvailabilityInto"/>). Handles the
+    /// forward-declare-then-redeclare-with-availability header shape where the FIRST decl is bare and a
+    /// LATER one carries the macro. Returns the first decl unchanged when no duplicate adds anything.
+    /// </summary>
+    private static List<T> DeduplicateByFirstMergingAvailability<T>(
+        List<T> items,
+        Func<T, string> nameSelector,
+        Func<T, List<ObjCAvailability>> availabilityGetter,
+        Func<T, List<ObjCAvailability>, T> withAvailability)
+    {
+        if (items.Count <= 1) return items;
+        return items.GroupBy(nameSelector).Select(g =>
+        {
+            var first = g.First();
+            var merged = new List<ObjCAvailability>(availabilityGetter(first));
+            var changed = false;
+            foreach (var dup in g)
+            {
+                if (ReferenceEquals(dup, first)) continue;
+                var before = merged.Count;
+                MergeAvailabilityInto(merged, availabilityGetter(dup));
+                if (merged.Count != before) changed = true;
+            }
+            return changed ? withAvailability(first, merged) : first;
+        }).ToList();
     }
 
     private static long? TryExtractEnumValue(JsonElement innerArray)

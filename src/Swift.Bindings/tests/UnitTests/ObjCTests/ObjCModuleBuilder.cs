@@ -176,7 +176,6 @@ public class ObjCModuleBuilder
         private readonly List<string> _protocols = [];
         private readonly List<ObjCMethodDecl> _methods = [];
         private readonly List<ObjCPropertyDecl> _properties = [];
-        private readonly List<ObjCAvailability> _availability = [];
         private string? _swiftName;
         private string? _docComment;
 
@@ -185,7 +184,6 @@ public class ObjCModuleBuilder
         public ClassBuilder Protocol(string name) { _protocols.Add(name); return this; }
         public ClassBuilder Method(ObjCMethodDecl m) { _methods.Add(m); return this; }
         public ClassBuilder Property(ObjCPropertyDecl p) { _properties.Add(p); return this; }
-        public ClassBuilder Availability(ObjCAvailability a) { _availability.Add(a); return this; }
         public ClassBuilder SwiftName(string name) { _swiftName = name; return this; }
         public ClassBuilder DocComment(string comment) { _docComment = comment; return this; }
 
@@ -213,7 +211,6 @@ public class ObjCModuleBuilder
             ProtocolNames = _protocols,
             Methods = _methods,
             Properties = _properties,
-            Availability = _availability,
             SwiftName = _swiftName,
             DocComment = _docComment,
         };
@@ -225,7 +222,6 @@ public class ObjCModuleBuilder
         private readonly List<string> _inherited = [];
         private readonly List<ObjCMethodDecl> _methods = [];
         private readonly List<ObjCPropertyDecl> _properties = [];
-        private readonly List<ObjCAvailability> _availability = [];
         private string? _docComment;
 
         internal ProtocolBuilder(string name) { _name = name; }
@@ -233,7 +229,6 @@ public class ObjCModuleBuilder
         public ProtocolBuilder Inherits(string name) { _inherited.Add(name); return this; }
         public ProtocolBuilder Method(ObjCMethodDecl m) { _methods.Add(m); return this; }
         public ProtocolBuilder Property(ObjCPropertyDecl p) { _properties.Add(p); return this; }
-        public ProtocolBuilder Availability(ObjCAvailability a) { _availability.Add(a); return this; }
         public ProtocolBuilder DocComment(string comment) { _docComment = comment; return this; }
 
         public ProtocolBuilder Method(string selector, string returnType, bool instance = true, params (string name, string type)[] parameters) =>
@@ -259,7 +254,6 @@ public class ObjCModuleBuilder
             InheritedProtocolNames = _inherited,
             Methods = _methods,
             Properties = _properties,
-            Availability = _availability,
             DocComment = _docComment,
         };
     }
@@ -270,7 +264,6 @@ public class ObjCModuleBuilder
         private bool _isOptions;
         private ObjCTypeRef? _underlyingType;
         private readonly List<ObjCEnumCaseDecl> _cases = [];
-        private readonly List<ObjCAvailability> _availability = [];
         private string? _swiftName;
         private string? _docComment;
 
@@ -279,7 +272,6 @@ public class ObjCModuleBuilder
         public EnumBuilder Options() { _isOptions = true; return this; }
         public EnumBuilder UnderlyingType(string type) { _underlyingType = SimpleType(type); return this; }
         public EnumBuilder Case(string name, long? value = null) { _cases.Add(new ObjCEnumCaseDecl { Name = name, Value = value }); return this; }
-        public EnumBuilder Availability(ObjCAvailability a) { _availability.Add(a); return this; }
         public EnumBuilder SwiftName(string name) { _swiftName = name; return this; }
         public EnumBuilder DocComment(string comment) { _docComment = comment; return this; }
 
@@ -289,7 +281,6 @@ public class ObjCModuleBuilder
             IsOptions = _isOptions,
             UnderlyingType = _underlyingType,
             Cases = _cases,
-            Availability = _availability,
             SwiftName = _swiftName,
             DocComment = _docComment,
         };

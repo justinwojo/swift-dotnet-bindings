@@ -5,161 +5,22 @@ namespace BindingsGeneration.ObjC;
 
 public static class ObjCTypeMapper
 {
-    static readonly Dictionary<string, string> PointerTypeMappings = new()
+    static ObjCTypeMapper()
     {
-        ["NSString"] = "string",
-        ["NSArray"] = "NSArray",
-        ["NSDictionary"] = "NSDictionary",
-        ["NSData"] = "NSData",
-        ["NSURL"] = "NSUrl",
-        ["NSNumber"] = "NSNumber",
-        ["NSError"] = "NSError",
-        ["NSSet"] = "NSSet",
-        ["NSDate"] = "NSDate",
-        ["NSObject"] = "NSObject",
-        ["CGImageRef"] = "CGImage",
-        ["NSURLSession"] = "NSUrlSession",
-        ["NSURLSessionTask"] = "NSUrlSessionTask",
-        ["NSURLSessionDataTask"] = "NSUrlSessionDataTask",
-        ["NSURLSessionDownloadTask"] = "NSUrlSessionDownloadTask",
-        ["NSURLSessionUploadTask"] = "NSUrlSessionUploadTask",
-        ["NSURLSessionStreamTask"] = "NSUrlSessionStreamTask",
-        ["NSURLSessionConfiguration"] = "NSUrlSessionConfiguration",
-        ["NSURLSessionTaskMetrics"] = "NSUrlSessionTaskMetrics",
-        ["NSURLSessionTaskTransactionMetrics"] = "NSUrlSessionTaskTransactionMetrics",
-        ["NSURLSessionWebSocketTask"] = "NSUrlSessionWebSocketTask",
-        ["NSURLCredential"] = "NSUrlCredential",
-        ["NSURLCredentialStorage"] = "NSUrlCredentialStorage",
-        ["NSURLAuthenticationChallenge"] = "NSUrlAuthenticationChallenge",
-        ["NSURLProtectionSpace"] = "NSUrlProtectionSpace",
-        ["NSURLCache"] = "NSUrlCache",
-        ["NSUUID"] = "NSUuid",
-        ["NSTimeZone"] = "NSTimeZone",
-        ["NSURLRequest"] = "NSUrlRequest",
-        ["NSURLResponse"] = "NSUrlResponse",
-        ["NSURLConnection"] = "NSUrlConnection",
-        ["NSHTTPURLResponse"] = "NSHttpUrlResponse",
-        ["NSHTTPCookie"] = "NSHttpCookie",
-        ["NSHTTPCookieStorage"] = "NSHttpCookieStorage",
-        ["NSCachedURLResponse"] = "NSCachedUrlResponse",
-        ["NSMutableURLRequest"] = "NSMutableUrlRequest",
-        ["BOOL"] = "bool",
-    };
+        // Mirror ObjCUsingsEmitter's startup assert. The ObjC type-mapping tables this class
+        // depends on (pointer/CoreFoundation-ref/primitive/value-type/system-struct/acronym)
+        // now live in AppleFrameworkRegistry, loaded from the schema-versioned sibling file
+        // objc-type-mappings.json. A failed embed/load would otherwise silently produce empty
+        // maps and mis-map every ObjC type to a passthrough name, so fail loud at first touch.
+        if (!AppleFrameworkRegistry.HasObjCTypeMappings)
+            throw new InvalidOperationException(
+                "ObjCTypeMapper requires the folded ObjC type-mapping tables owned by "
+                + "AppleFrameworkRegistry (objc-type-mappings.json), but they report empty. "
+                + "Ensure the data file is embedded and its schemaVersion matches "
+                + $"AppleFrameworkRegistry.ExpectedObjCTypeMappingsSchemaVersion ({AppleFrameworkRegistry.ExpectedObjCTypeMappingsSchemaVersion}).");
+    }
 
-    // CoreFoundation Ref typedefs and opaque types that appear without '*' in clang AST.
-    static readonly Dictionary<string, string> CoreFoundationRefMappings = new()
-    {
-        ["CGImageRef"] = "CGImage",
-        ["CGColorRef"] = "CGColor",
-        ["CGPathRef"] = "CGPath",
-        ["CGContextRef"] = "CGContext",
-        ["dispatch_queue_t"] = "DispatchQueue",
-        ["dispatch_data_t"] = "DispatchData",
-        ["dispatch_block_t"] = "Action",
-        ["CFUUIDRef"] = "IntPtr",
-        ["CFTypeRef"] = "IntPtr",
-        ["CFArrayRef"] = "IntPtr",
-        ["CFDataRef"] = "IntPtr",
-        ["CFStringRef"] = "IntPtr",
-        ["CFErrorRef"] = "IntPtr",
-        ["CFIndex"] = "nint",
-        ["CGColorSpaceRef"] = "CGColorSpace",
-        ["CGLayerRef"] = "IntPtr",
-        ["CVPixelBufferRef"] = "IntPtr",
-        ["CVImageBufferRef"] = "IntPtr",
-        ["IOSurfaceRef"] = "IntPtr",
-        ["CGImageSourceRef"] = "IntPtr",
-        ["CFAllocatorRef"] = "IntPtr",
-        ["CFDictionaryRef"] = "IntPtr",
-        ["dispatch_queue_attr_t"] = "IntPtr",
-        ["dispatch_semaphore_t"] = "IntPtr",
-        ["dispatch_group_t"] = "IntPtr",
-        ["dispatch_source_t"] = "IntPtr",
-        ["os_log_t"] = "IntPtr",
-        ["os_log_type_t"] = "byte",
-        ["os_unfair_lock_t"] = "IntPtr",
-        ["os_unfair_lock"] = "IntPtr",
-        ["SecKeyRef"] = "IntPtr",
-        ["SecCertificateRef"] = "IntPtr",
-        ["SecIdentityRef"] = "IntPtr",
-        ["SecTrustRef"] = "IntPtr",
-        ["SecPolicyRef"] = "IntPtr",
-        ["AudioComponentInstance"] = "IntPtr",
-        ["AudioUnit"] = "IntPtr",
-        ["CMSampleBufferRef"] = "CMSampleBuffer",
-    };
-
-    static readonly Dictionary<string, string> PrimitiveTypeMappings = new()
-    {
-        ["BOOL"] = "bool",
-        ["NSInteger"] = "nint",
-        ["NSUInteger"] = "nuint",
-        ["CGFloat"] = "nfloat",
-        ["NSTimeInterval"] = "double",
-        ["void"] = "void",
-        ["int"] = "int",
-        ["float"] = "float",
-        ["double"] = "double",
-        ["long"] = "long",
-        ["unsigned int"] = "uint",
-        ["unsigned long"] = "ulong",
-        ["unsigned short"] = "ushort",
-        ["unsigned char"] = "byte",
-        ["short"] = "short",
-        ["char"] = "byte",
-        ["signed char"] = "sbyte",
-        ["unsigned char"] = "byte",
-        ["int8_t"] = "sbyte",
-        ["long long"] = "long",
-        ["unsigned long long"] = "ulong",
-        ["uint8_t"] = "byte",
-        ["UInt8"] = "byte",
-        ["int32_t"] = "int",
-        ["int64_t"] = "long",
-        ["uint32_t"] = "uint",
-        ["uint16_t"] = "ushort",
-        ["int16_t"] = "short",
-        ["uint64_t"] = "ulong",
-        ["size_t"] = "nuint",
-        ["va_list"] = "IntPtr",
-        ["CFAbsoluteTime"] = "double",
-        ["Float64"] = "double",
-        ["Float32"] = "float",
-        ["ABRecordID"] = "int",
-        ["ABPropertyID"] = "int",
-        ["CFComparisonResult"] = "nint",
-        ["ABPropertyType"] = "int",
-        ["ABPersonImageFormat"] = "int",
-        ["ABRecordRef"] = "IntPtr",
-        ["CLLocationDegrees"] = "double",
-        ["CLLocationDistance"] = "double",
-        ["CLLocationDirection"] = "double",
-        ["CLLocationSpeed"] = "double",
-        ["CLLocationAccuracy"] = "double",
-        ["UIBackgroundTaskIdentifier"] = "nint",
-        ["uint_least8_t"] = "byte",
-        ["int_least8_t"] = "sbyte",
-        ["uint_least16_t"] = "ushort",
-        ["int_least16_t"] = "short",
-        ["uint_least32_t"] = "uint",
-        ["int_least32_t"] = "int",
-        ["uint_least64_t"] = "ulong",
-        ["int_least64_t"] = "long",
-        ["uint_fast8_t"] = "byte",
-        ["int_fast8_t"] = "sbyte",
-        ["uint_fast16_t"] = "ushort",
-        ["int_fast16_t"] = "short",
-        ["uint_fast32_t"] = "uint",
-        ["int_fast32_t"] = "int",
-        ["uint_fast64_t"] = "ulong",
-        ["int_fast64_t"] = "long",
-        ["intptr_t"] = "nint",
-        ["uintptr_t"] = "nuint",
-        ["ptrdiff_t"] = "nint",
-        ["ssize_t"] = "nint",
-    };
-
-    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null)
+    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? delegateProtocolNames = null)
     {
         // 0a. C function pointers and anonymous records → IntPtr
         if (typeRef.IsFunctionPointer || typeRef.IsAnonymousRecord)
@@ -169,13 +30,13 @@ public static class ObjCTypeMapper
         // Must be checked before primitive mapping, which would discard the array size.
         if (typeRef.FixedArraySize is > 0)
         {
-            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap);
+            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap, delegateProtocolNames: delegateProtocolNames);
             return $"{elementType}[{typeRef.FixedArraySize}]";
         }
 
         // 1. Block types
         if (typeRef.IsBlock)
-            return MapBlockType(typeRef, genericTypeParams, typedefMap);
+            return MapBlockType(typeRef, genericTypeParams, typedefMap, delegateProtocolNames);
 
         // 2. instancetype
         if (typeRef.Name == "instancetype")
@@ -191,19 +52,26 @@ public static class ObjCTypeMapper
                 .ToList();
             if (protocols.Count == 0)
                 return "NSObject";
+            // [Protocol, Model] delegate protocols are referenced by their bare interface name
+            // (Xamarin convention: bgen emits both IFoo and Foo, and [Model] consumers use Foo).
+            // Non-delegate protocols use the I-prefixed interface. Deciding bare-vs-I here at the
+            // source replaces the former whole-file IFoo→Foo regex post-process in
+            // ApiDefinitionEmitter, which blindly rewrote every \bIFoo\b in the generated text.
+            if (delegateProtocolNames != null && delegateProtocolNames.Contains(protocols[0]))
+                return MapProtocolName(protocols[0]);
             return $"I{MapProtocolName(protocols[0])}";
         }
 
         // 3b. Typed generic collections: NSArray<T> → T[], NSDictionary<K,V> → NSDictionary<K,V>
         if (typeRef.GenericArgs.Count > 0)
         {
-            var mappedGeneric = MapGenericCollectionType(typeRef, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            var mappedGeneric = MapGenericCollectionType(typeRef, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, delegateProtocolNames);
             if (mappedGeneric != null)
                 return mappedGeneric;
         }
 
         // 4. Known pointer types
-        if (typeRef.IsPointer && PointerTypeMappings.TryGetValue(typeRef.Name, out var mapped))
+        if (typeRef.IsPointer && AppleFrameworkRegistry.TryMapObjCPointerType(typeRef.Name, out var mapped))
             return mapped;
 
         // 5. Special non-pointer types
@@ -217,7 +85,7 @@ public static class ObjCTypeMapper
         // 6. Primitive types (void* → IntPtr, not "void")
         if (typeRef.Name == "void" && typeRef.IsPointer)
             return "IntPtr";
-        if (PrimitiveTypeMappings.TryGetValue(typeRef.Name, out var primitive))
+        if (AppleFrameworkRegistry.TryMapObjCPrimitiveType(typeRef.Name, out var primitive))
             return primitive;
 
         // 7. ObjC lightweight generic type parameters → NSObject
@@ -228,7 +96,7 @@ public static class ObjCTypeMapper
             return "NSObject";
 
         // 8. CoreFoundation Ref types (typedefs for CF pointers, e.g., CGImageRef → CGImage)
-        if (CoreFoundationRefMappings.TryGetValue(typeRef.Name, out var cfMapped))
+        if (AppleFrameworkRegistry.TryMapCoreFoundationRefType(typeRef.Name, out var cfMapped))
             return cfMapped;
 
         // 9. Typedef alias resolution (pre-resolved, single-hop lookup)
@@ -249,14 +117,14 @@ public static class ObjCTypeMapper
                     IsBlock = resolved.IsBlock,
                 };
                 withPointer.BlockParams.AddRange(resolved.BlockParams);
-                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap);
+                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, delegateProtocolNames: delegateProtocolNames);
             }
-            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap);
+            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, delegateProtocolNames: delegateProtocolNames);
         }
 
         // 10. Block typedef name resolution (e.g., TypeNotificationBlock → Action<string, Type>)
         if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
-            return MapBlockType(blockResolved, genericTypeParams, typedefMap);
+            return MapBlockType(blockResolved, genericTypeParams, typedefMap, delegateProtocolNames);
 
         // 11. ObjC-to-.NET naming convention fallback (NS-prefix only)
         return ApplyDotNetAcronymConvention(typeRef.Name);
@@ -272,7 +140,7 @@ public static class ObjCTypeMapper
     {
         // Check explicit pointer mappings for non-string types
         // (NSString → string is wrong for BaseType, keep NSString)
-        if (PointerTypeMappings.TryGetValue(name, out var mapped) && mapped != "string" && mapped != "bool")
+        if (AppleFrameworkRegistry.TryMapObjCPointerType(name, out var mapped) && mapped != "string" && mapped != "bool")
             return mapped;
 
         return ApplyDotNetAcronymConvention(name);
@@ -285,32 +153,18 @@ public static class ObjCTypeMapper
     public static string MapProtocolName(string name) => ApplyDotNetAcronymConvention(name);
 
     /// <summary>
-    /// Acronyms that Microsoft.iOS/MAUI bgen lowercases in the body of NS-prefixed
-    /// managed type names (per .NET naming guidelines: acronym keeps first letter
-    /// uppercase, rest lowercase when 3+ chars long). Ordered LONGER FIRST so that
-    /// substring overlaps (HTTPS contains HTTP) are handled correctly via Replace.
-    /// </summary>
-    private static readonly (string ObjC, string Dotnet)[] AcronymConventions = new[]
-    {
-        ("HTTPS", "Https"),
-        ("HTTP",  "Http"),
-        ("JSON",  "Json"),
-        ("HTML",  "Html"),
-        ("URL",   "Url"),
-        ("XPC",   "Xpc"),
-    };
-
-    /// <summary>
     /// Applies .NET naming convention to ObjC type names: NSXPC* → NSXpc*, NSURL* → NSUrl*,
     /// etc. Only triggers on NS-prefixed names — other framework prefixes (CB, CG, AV, ...)
     /// keep their original casing because Microsoft.iOS does not apply the convention there.
+    /// Acronym casing pairs live in AppleFrameworkRegistry (objc-type-mappings.json),
+    /// ordered longer-first so substring overlaps (HTTPS contains HTTP) resolve correctly.
     /// </summary>
     internal static string ApplyDotNetAcronymConvention(string name)
     {
         if (!name.StartsWith("NS", StringComparison.Ordinal))
             return name;
         var result = name;
-        foreach (var (objc, dn) in AcronymConventions)
+        foreach (var (objc, dn) in AppleFrameworkRegistry.ObjCAcronymConventions)
         {
             if (result.Contains(objc, StringComparison.Ordinal))
                 result = result.Replace(objc, dn, StringComparison.Ordinal);
@@ -326,7 +180,7 @@ public static class ObjCTypeMapper
     internal static string ReverseDotNetAcronymConvention(string mappedName)
     {
         var result = mappedName;
-        foreach (var (objc, dn) in AcronymConventions)
+        foreach (var (objc, dn) in AppleFrameworkRegistry.ObjCAcronymConventions)
         {
             if (result.Contains(dn, StringComparison.Ordinal))
                 result = result.Replace(dn, objc, StringComparison.Ordinal);
@@ -414,9 +268,9 @@ public static class ObjCTypeMapper
     public static HashSet<string> BuildKnownMappedTypes()
     {
         var known = new HashSet<string>();
-        foreach (var v in PrimitiveTypeMappings.Values) known.Add(v);
-        foreach (var v in PointerTypeMappings.Values) known.Add(v);
-        foreach (var v in CoreFoundationRefMappings.Values) known.Add(v);
+        foreach (var v in AppleFrameworkRegistry.ObjCPrimitiveTypeMappedValues) known.Add(v);
+        foreach (var v in AppleFrameworkRegistry.ObjCPointerTypeMappedValues) known.Add(v);
+        foreach (var v in AppleFrameworkRegistry.CoreFoundationRefTypeMappedValues) known.Add(v);
         // Types that MapType returns directly (not via dictionaries)
         known.Add("NSObject");
         known.Add("Selector");
@@ -428,22 +282,38 @@ public static class ObjCTypeMapper
         // Without this, CoreGraphics/CoreLocation/etc. types get rejected under the
         // -fmodules fallback because their prefixes aren't registered as ObjC class
         // prefixes (those frameworks expose only C structs, not ObjC classes).
-        foreach (var v in KnownAppleValueTypes) known.Add(v);
+        foreach (var v in AppleFrameworkRegistry.ObjCValueTypeNames) known.Add(v);
         return known;
     }
 
     /// <summary>
     /// Checks whether a mapped type name will be resolvable in StructsAndEnums.cs.
-    /// Uses CamelCase heuristic: ObjC/Apple types start uppercase, C-internal types are snake_case.
+    /// <para>
+    /// Uses a CamelCase heuristic: ObjC/Apple framework types and module-defined ObjC
+    /// structs/enums start uppercase (<c>CGBitmapInfo</c>, <c>UIColor</c>, <c>NSCoder</c>,
+    /// <c>SDImagePixelFormat</c>), while C-internal types are snake_case
+    /// (<c>pb_wire_type_t</c>, <c>pb_size_t</c>). This is deliberately broader than
+    /// <see cref="IsApiDefinitionTypeResolvable"/>: StructsAndEnums.cs <em>emits</em> the
+    /// value-type definitions, so a module-local CamelCase struct is resolvable by being
+    /// generated alongside, and an Apple value type resolves via its framework <c>using</c>.
+    /// The known-Apple-class-prefix set is the wrong gate here — it catalogues ObjC <em>class</em>
+    /// prefixes (NS, UI, AR, …) and omits value-type prefixes like <c>CG</c>/<c>CF</c> and every
+    /// third-party module prefix, so keying on it would drop legitimate Apple value types
+    /// (<c>CGBitmapInfo</c>) and module-defined structs.
+    /// </para>
+    /// <para>
+    /// Per the F24 design review the casing decision keys on the retained <em>source ObjC
+    /// identity</em> (<paramref name="sourceObjCName"/>) when threaded through, not the
+    /// already-mapped text — the source name is the authoritative origin signal — falling back
+    /// to <paramref name="mappedType"/> otherwise.
+    /// </para>
     /// </summary>
-    public static bool IsTypeResolvable(string mappedType, HashSet<string> knownTypes)
+    public static bool IsTypeResolvable(string mappedType, HashSet<string> knownTypes, string? sourceObjCName = null)
     {
         if (IsKnownMappedOrPatternType(mappedType, knownTypes)) return true;
-        // ObjC/Apple framework types use CamelCase (e.g., CGBitmapInfo, UIColor, NSCoder).
-        // C-internal types use snake_case (e.g., pb_wire_type_t, pb_size_t).
-        // Accept uppercase-starting types — they're available via Apple framework using directives.
-        if (mappedType.Length > 0 && char.IsUpper(mappedType[0])) return true;
-        return false;
+        // ObjC/Apple framework + module-defined types are CamelCase; C-internal types are snake_case.
+        var identity = !string.IsNullOrEmpty(sourceObjCName) ? sourceObjCName : mappedType;
+        return identity.Length > 0 && char.IsUpper(identity[0]);
     }
 
     /// <summary>
@@ -563,16 +433,16 @@ public static class ObjCTypeMapper
         // id, Class, SEL — object/meta types, not value type pointers
         if (name is "id" or "Class" or "SEL" or "instancetype") return false;
         // CoreFoundation Ref types (dispatch_queue_t, CGImageRef, etc.) — opaque pointers
-        if (CoreFoundationRefMappings.ContainsKey(name)) return false;
+        if (AppleFrameworkRegistry.IsCoreFoundationRefType(name)) return false;
 
         // If it maps to a primitive, it's a value type pointer (e.g., BOOL *, int *, CGFloat *)
-        if (PrimitiveTypeMappings.ContainsKey(name)) return true;
+        if (AppleFrameworkRegistry.IsObjCPrimitiveType(name)) return true;
 
         // ObjC object types: known pointer type mappings (NSString *, NSObject *, etc.)
-        if (PointerTypeMappings.ContainsKey(name)) return false;
+        if (AppleFrameworkRegistry.IsObjCPointerType(name)) return false;
 
         // Struct types from Apple frameworks (CG*, CL*, MK*, CM*, etc.)
-        if (IsKnownAppleValueType(name)) return true;
+        if (AppleFrameworkRegistry.IsObjCValueType(name)) return true;
 
         // Enum types are value types — pointer to enum is an out-param
         // Check both the resolved name (for typedef aliases) and the original name
@@ -593,35 +463,13 @@ public static class ObjCTypeMapper
         return MapType(pointee, typedefMap: typedefMap);
     }
 
-    // Apple framework struct/value types commonly used as pointer parameters.
-    // These are C structs bridged to .NET value types.
-    private static readonly HashSet<string> KnownAppleValueTypes =
-    [
-        "CGPoint", "CGSize", "CGRect", "CGVector", "CGAffineTransform",
-        "UIEdgeInsets", "NSDirectionalEdgeInsets",
-        "UIOffset", "UIFloatRange",
-        "CLLocationCoordinate2D",
-        "MKCoordinateSpan", "MKCoordinateRegion", "MKMapPoint", "MKMapSize", "MKMapRect",
-        "CMTime", "CMTimeRange", "CMTimeMapping", "CMVideoDimensions",
-        "CATransform3D",
-        "NSRange",
-        "SCNVector3", "SCNVector4", "SCNMatrix4",
-        "simd_float2", "simd_float3", "simd_float4",
-        "simd_float4x4", "simd_float3x3",
-        "MTLOrigin", "MTLSize", "MTLRegion",
-        "AVAudio3DPoint", "AVAudio3DVector", "AVAudio3DAngularOrientation",
-    ];
-
-    private static bool IsKnownAppleValueType(string name) =>
-        KnownAppleValueTypes.Contains(name);
-
-    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null)
+    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, HashSet<string>? delegateProtocolNames = null)
     {
         var returnType = typeRef.BlockReturnType != null
-            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap)
+            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap, delegateProtocolNames: delegateProtocolNames)
             : "void";
 
-        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap)).ToList();
+        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap, delegateProtocolNames: delegateProtocolNames)).ToList();
 
         if (paramTypes.Count > 16)
             return "NSObject";
@@ -644,7 +492,7 @@ public static class ObjCTypeMapper
     /// - NSSet&lt;T&gt; / NSMutableSet&lt;T&gt; / NSOrderedSet&lt;T&gt; → NSSet&lt;T&gt; (preserves generic args)
     /// Returns null if the type doesn't qualify for generic mapping (e.g., generic param element type).
     /// </summary>
-    private static string? MapGenericCollectionType(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap)
+    private static string? MapGenericCollectionType(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? delegateProtocolNames = null)
     {
         // NSArray<T> / NSMutableArray<T> with a single concrete element type → T[]
         if (typeRef.Name is "NSArray" or "NSMutableArray" && typeRef.GenericArgs.Count == 1)
@@ -654,7 +502,7 @@ public static class ObjCTypeMapper
             // which isn't useful — return null to let normal mapping handle it as plain NSArray.
             if (genericTypeParams != null && genericTypeParams.Contains(elemArg.Name))
                 return null;
-            var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
+            var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, delegateProtocolNames);
             // Closures (Action/Func<>) and nested arrays (T[][]) don't implement INativeObject,
             // which is required by bgen's NSArray.FromNSObjects<T>() / CFArray.ArrayFromHandle<T>().
             // Fall back to untyped NSArray for these element types.
@@ -722,7 +570,7 @@ public static class ObjCTypeMapper
         }
 
         // Known NS object types that implement INativeObject
-        if (PointerTypeMappings.TryGetValue(name, out var mapped))
+        if (AppleFrameworkRegistry.TryMapObjCPointerType(name, out var mapped))
         {
             // string doesn't implement INativeObject — keep NSString
             if (mapped == "string")
@@ -735,7 +583,7 @@ public static class ObjCTypeMapper
             return "NSObject";
 
         // Primitive types (int, bool, etc.) can't be used as NSDictionary generic args
-        if (PrimitiveTypeMappings.ContainsKey(name))
+        if (AppleFrameworkRegistry.IsObjCPrimitiveType(name))
             return null;
 
         // Unknown pointer types: module-local ObjC classes (e.g., GIDClaim) are emitted as
