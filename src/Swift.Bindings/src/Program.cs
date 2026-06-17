@@ -58,6 +58,10 @@ namespace BindingsGeneration
                 Array.Empty<string>(), Array.Empty<string>());
             try
             {
+            // Finding 18: start each generation run with a clean demangle rule-miss tally so the
+            // SWIFTBIND058 summary below reports this run's reductions, not the process lifetime's.
+            Demangling.ReductionDiagnostics.Reset();
+
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
 
@@ -486,6 +490,23 @@ namespace BindingsGeneration
 
                 var report = ReportCollector.Complete();
                 ReportCollector.Reset();
+
+                // Finding 18: surface UNDOCUMENTED demangle reducer rule-misses as one loud
+                // SWIFTBIND058 line. A miss means a node kind reached the reducer with no rule, so
+                // demangle-based async/convention/variadic detection silently degraded to a substring
+                // heuristic for every symbol carrying that kind. We warn only on kinds outside
+                // ReductionDiagnostics.IntentionallyUnreducedKinds — the benign Constructor/accessor
+                // non-reductions every real library produces are expected and stay silent, so the
+                // warning means a genuinely new hole. The corpus-loudness unit test is the hard gate.
+                var reductionSnapshot = Demangling.ReductionDiagnostics.Capture();
+                if (reductionSnapshot.HasUnexpectedMisses)
+                {
+                    logger.LogWarning(
+                        "SWIFTBIND058: demangle reduction matched no rule for undocumented node kind(s) " +
+                        "({Misses} of {Attempts} total reductions missed); demangle-based " +
+                        "async/convention/variadic detection degraded for: {Detail}",
+                        reductionSnapshot.Misses, reductionSnapshot.Attempts, reductionSnapshot.DescribeUnexpected());
+                }
 
                 // Co-gate method bodies that reference suppressed proxy classes.
                 // When EveryProtocol conformance is skipped, the proxy class is not emitted.

@@ -28,10 +28,17 @@ internal class RuleRunner
     /// <returns></returns>
     public IReduction RunRules(Node node, string mangledName)
     {
+        // Finding 18: every reduction attempt and every rule-miss is counted so a "No rule for
+        // node {Kind}" hole can no longer disable demangle-based detection silently. The generator
+        // surfaces the tally as SWIFTBIND058 and the corpus-loudness test fails closed on any miss.
+        ReductionDiagnostics.RecordAttempt();
         var rule = rules.FirstOrDefault(r => r.Matches(node));
 
         if (rule is null)
+        {
+            ReductionDiagnostics.RecordNoRuleMiss(node.Kind, mangledName);
             return new ReductionError() { Symbol = mangledName, Message = $"No rule for node {node.Kind}" };
+        }
         return rule.Reducer(node, mangledName);
     }
 }
