@@ -21,6 +21,7 @@ public class BoundGenericsHandler
     private readonly TupleHandler _tupleHandler;
     private readonly ExistentialHandler _existentialHandler;
     private readonly ConformanceGraph? _conformanceGraph;
+    private readonly ConformanceOracle _conformanceOracle;
 
     public BoundGenericsHandler(ITypeDatabase typeDatabase, ConformanceGraph? conformanceGraph = null)
     {
@@ -29,6 +30,7 @@ public class BoundGenericsHandler
         _tupleHandler = new TupleHandler(typeDatabase);
         _existentialHandler = new ExistentialHandler(typeDatabase);
         _conformanceGraph = conformanceGraph;
+        _conformanceOracle = new ConformanceOracle(typeDatabase);
     }
 
     // Almost all generics will be projected into C# as classes.
@@ -1318,7 +1320,7 @@ public class BoundGenericsHandler
         // resolve to real C#-visible relationships — keep them.
         if (typeArgumentName == protocolConstraint)
             return false;
-        if (HasWellKnownStdlibConformance(typeArgumentName, protocolConstraint))
+        if (_conformanceOracle.HasStdlibConformance(typeArgumentName, protocolConstraint))
             return false;
 
         // The "extension on foreign type" shape: the typeArgument's home module differs from
@@ -1404,112 +1406,18 @@ public class BoundGenericsHandler
 
         var typeArgumentName = SwiftTypeName.FromTypeSpec(namedTypeArgument);
 
-        // Class-bound constraint (`<T : SomeClass>`). The parser tags every `:`
-        // clause as ConformanceKind.Protocol; consult the resolved typedb record
-        // to recognise the class-target case. A class-bound constraint is satisfied
-        // when the type argument is the same class or inherits (transitively) from
-        // it — class subtyping, not protocol conformance. Mirrors Swift's class-
-        // constraint semantics. See
-        // A class-bound constraint is satisfied when the type argument is the same class
-        // or inherits (transitively) from it — class subtyping, not protocol conformance.
-        //
-        // Run this BEFORE the FindTypeDecl resolution so external XML/database-
-        // owned subclasses (e.g. `Foundation.UnitTemperature` satisfying
-        // `Foundation.Dimension`) are recognised — those types have no local
-        // TypeDecl and would otherwise hit the `typeArgumentDecl == null`
-        // short-circuit and return false, silently skipping members that take
-        // a `T : Dimension` argument.
-        if (_typeDatabase.TryGetTypeRecord(protocolConstraint, out var constraintRecord) &&
-            constraintRecord.Kind == TypeRecordKind.Class)
-        {
-            if (typeArgumentName == protocolConstraint)
-                return true;
-            if (IsSubclassOfViaTypeDatabase(typeArgumentName, protocolConstraint))
-                return true;
-        }
-
+        // Concrete type argument. Delegate the "does T satisfy C" decision to the single
+        // conformance oracle, which consolidates self-conformance, the committed stdlib fact
+        // table, stripped foreign conformances, class-subtyping walks, and transitive protocol
+        // inheritance behind one fail-closed {Yes, No, Unknown} answer. Only Yes emits; both No
+        // (Swift never promised the conformance) and Unknown (genuinely unprovable) fail closed.
+        _typeDatabase.TryGetTypeRecord(protocolConstraint, out var constraintRecord);
         var typeArgumentDecl = FindTypeDecl(moduleDecl, typeArgumentName);
-
-        if (typeArgumentDecl == null)
-        {
-            // If the argument type is an external protocol type matching the constraint,
-            // treat it as satisfying the self-conformance case.
-            if (typeArgumentName == protocolConstraint)
-                return true;
-
-            // Well-known Swift stdlib conformances: the generator doesn't have declarations
-            // for stdlib types, but we know their conformances. Without this, members using
-            // e.g. KeyedStorage<String, V> where String : Comparable are incorrectly skipped.
-            if (HasWellKnownStdlibConformance(typeArgumentName, protocolConstraint))
-                return true;
-
-            // Stripped foreign conformances: swift-api-digester drops underscore-PAT
-            // conformance records (e.g. `Swift.Int : AppIntents._IntentValue`) along with the
-            // protocol decl. UnderscoreProtocolSynthesizer re-parses them from the owning
-            // module's swiftinterface and registers the foreign (concrete, protocol) pairs here.
-            // Without this, members on closed bound generics like `IntentParameter<Int>` are
-            // skipped. The table holds only the synthesizer's narrow allowlist facts, so the
-            // exact-pair match is itself the gate (no general external-conformance oracle).
-            if (_typeDatabase.HasStrippedConformance(typeArgumentName, protocolConstraint))
-                return true;
-
-            // For external concrete types (e.g. Swift stdlib types), we can't verify
-            // conformance from local declarations, so fail closed and skip the member.
-            return false;
-        }
-
-        if (typeArgumentDecl is ProtocolDecl && typeArgumentName == protocolConstraint)
-            return true;
-
-        // Locally-declared class-bound case: still walk the local SuperclassNames
-        // chain in addition to the TypeDatabase walk above, because not every
-        // local class hierarchy round-trips through the TypeDatabase (the
-        // hierarchy is populated lazily by `ResolveClassHierarchy` for the
-        // current module's decls).
-        if (constraintRecord != null &&
-            constraintRecord.Kind == TypeRecordKind.Class &&
-            typeArgumentDecl is ClassDecl typeArgClass)
-        {
-            var constraintQualifiedName = protocolConstraint.ModuleQualifiedName;
-            if (typeArgClass.SuperclassNames.Any(n => n == constraintQualifiedName))
-                return true;
-        }
-
-        // Check if the type argument has a direct conformance to the protocol constraint.
-        if (HasConformance(typeArgumentDecl, protocolConstraint))
-            return true;
-
-        // Check transitive conformance: ConcreteType : ChildProtocol should satisfy
-        // T : ParentProtocol when ChildProtocol : ParentProtocol.
-        return HasTransitiveConformance(typeArgumentDecl, protocolConstraint, moduleDecl);
+        return _conformanceOracle.ConcreteConforms(
+            typeArgumentName, protocolConstraint, constraintRecord, typeArgumentDecl, moduleDecl)
+            == ConformanceResult.Yes;
     }
 
-    /// <summary>
-    /// Walks the TypeDatabase superclass chain from <paramref name="typeArgumentName"/>
-    /// looking for an exact match against <paramref name="classConstraint"/>. Used when
-    /// the type argument is an XML/database-owned class (e.g. Foundation unit subclasses)
-    /// that has no local <see cref="TypeDecl"/> — without this path, those types fail
-    /// the class-bound constraint check and their members are silently skipped from the
-    /// generated bindings. Caps the walk at 64 hops to avoid pathological infinite loops
-    /// in malformed databases.
-    /// </summary>
-    private bool IsSubclassOfViaTypeDatabase(SwiftTypeName typeArgumentName, SwiftTypeName classConstraint)
-    {
-        var current = typeArgumentName;
-        for (int i = 0; i < 64; i++)
-        {
-            if (!_typeDatabase.TryGetTypeRecord(current, out var record))
-                return false;
-            if (record.Kind != TypeRecordKind.Class)
-                return false;
-            if (record.SuperclassTypeName == null)
-                return false;
-            if (record.SuperclassTypeName == classConstraint)
-                return true;
-            current = record.SuperclassTypeName;
-        }
-        return false;
-    }
 
     /// <summary>
     /// Checks whether a TypeSpec references a generic parameter declared by the supplied list.
@@ -1591,7 +1499,7 @@ public class BoundGenericsHandler
 
             // Inherited match: check if the conformance target protocol inherits
             // from the required protocol (e.g., T: ChildProtocol satisfies T: ParentProtocol)
-            if (moduleDecl != null && ProtocolInheritsFrom(conformance.ConformanceTarget, protocolConstraint, moduleDecl))
+            if (moduleDecl != null && _conformanceOracle.ProtocolInheritsFrom(conformance.ConformanceTarget, protocolConstraint, moduleDecl))
                 return true;
         }
 
@@ -1618,86 +1526,6 @@ public class BoundGenericsHandler
     /// </summary>
     private bool IsProtocolEmittableForConditionalConstraint(SwiftTypeName protocolTypeName)
         => MethodValidationGates.IsProtocolAvailableForConstraint(protocolTypeName, _typeDatabase);
-
-    /// <summary>
-    /// Well-known conformances for Swift standard library types that the generator
-    /// cannot verify from local declarations. These are stable, documented conformances
-    /// from the Swift standard library.
-    /// </summary>
-    private static readonly Dictionary<string, HashSet<string>> s_wellKnownStdlibConformances = new()
-    {
-        ["Swift.String"] = new HashSet<string>
-        {
-            "Swift.Comparable", "Swift.Equatable", "Swift.Hashable",
-            "Swift.CustomStringConvertible", "Swift.CustomDebugStringConvertible",
-            "Swift.LosslessStringConvertible", "Swift.ExpressibleByStringLiteral",
-            "Swift.ExpressibleByStringInterpolation", "Swift.TextOutputStream",
-            "Swift.TextOutputStreamable", "Swift.RangeExpression",
-        },
-        ["Swift.Int"] = new HashSet<string>
-        {
-            "Swift.Comparable", "Swift.Equatable", "Swift.Hashable",
-            "Swift.Numeric", "Swift.SignedNumeric", "Swift.BinaryInteger",
-            "Swift.FixedWidthInteger", "Swift.SignedInteger", "Swift.Strideable",
-            "Swift.CustomStringConvertible",
-        },
-        ["Swift.Double"] = new HashSet<string>
-        {
-            "Swift.Comparable", "Swift.Equatable", "Swift.Hashable",
-            "Swift.Numeric", "Swift.SignedNumeric", "Swift.FloatingPoint",
-            "Swift.BinaryFloatingPoint", "Swift.Strideable",
-            "Swift.CustomStringConvertible",
-        },
-        ["Swift.Bool"] = new HashSet<string>
-        {
-            "Swift.Equatable", "Swift.Hashable", "Swift.CustomStringConvertible",
-            "Swift.ExpressibleByBooleanLiteral",
-        },
-        ["Swift.Never"] = new HashSet<string>
-        {
-            "Swift.Error", "Swift.Equatable", "Swift.Hashable",
-            "Swift.Comparable",
-        },
-    };
-
-    private static bool HasWellKnownStdlibConformance(SwiftTypeName typeArgument, SwiftTypeName protocolConstraint)
-    {
-        return s_wellKnownStdlibConformances.TryGetValue(typeArgument.ModuleQualifiedName, out var conformances) &&
-               conformances.Contains(protocolConstraint.ModuleQualifiedName);
-    }
-
-    /// <summary>
-    /// Checks whether a protocol transitively inherits from a target protocol.
-    /// Uses the module's protocol declarations to resolve the inheritance chain.
-    /// </summary>
-    private static bool ProtocolInheritsFrom(SwiftTypeName childProtocol, SwiftTypeName targetProtocol, ModuleDecl moduleDecl)
-    {
-        var visited = new HashSet<string>();
-        return ProtocolInheritsFromRecursive(childProtocol, targetProtocol, moduleDecl, visited);
-    }
-
-    private static bool ProtocolInheritsFromRecursive(SwiftTypeName current, SwiftTypeName target, ModuleDecl moduleDecl, HashSet<string> visited)
-    {
-        var key = current.ModuleQualifiedName;
-        if (!visited.Add(key))
-            return false;
-
-        var protocolDecl = moduleDecl.Protocols
-            .FirstOrDefault(p => p.SwiftTypeName.Module == current.Module && p.SwiftTypeName.Name == current.Name);
-        if (protocolDecl == null)
-            return false;
-
-        foreach (var inherited in protocolDecl.InheritedProtocols)
-        {
-            var inheritedName = SwiftTypeName.FromTypeSpec(inherited);
-            if (inheritedName == target)
-                return true;
-            if (ProtocolInheritsFromRecursive(inheritedName, target, moduleDecl, visited))
-                return true;
-        }
-
-        return false;
-    }
 
     private bool IsObjCBridgedType(NamedTypeSpec typeSpec)
     {
@@ -1911,41 +1739,6 @@ public class BoundGenericsHandler
     }
 
     private static bool IsBareStdlibGeneric(NamedTypeSpec typeSpec) => s_stdlibGenerics.Contains(typeSpec.Name);
-
-    private static bool HasConformance(TypeDecl typeDecl, SwiftTypeName protocolType) =>
-        typeDecl switch
-        {
-            StructDecl structDecl => structDecl.Conformances.Any(c => c.Protocol == protocolType),
-            ClassDecl classDecl => classDecl.Conformances.Any(c => c.Protocol == protocolType),
-            EnumDecl enumDecl => enumDecl.Conformances.Any(c => c.Protocol == protocolType),
-            _ => false
-        };
-
-    /// <summary>
-    /// Checks whether a concrete type transitively satisfies a protocol constraint via protocol inheritance.
-    /// For example, ConcreteType : ChildProtocol satisfies T : ParentProtocol when ChildProtocol : ParentProtocol.
-    /// </summary>
-    private static bool HasTransitiveConformance(TypeDecl typeDecl, SwiftTypeName targetProtocol, ModuleDecl moduleDecl)
-    {
-        var conformances = typeDecl switch
-        {
-            StructDecl s => s.Conformances,
-            ClassDecl c => c.Conformances,
-            EnumDecl e => e.Conformances,
-            _ => null
-        };
-
-        if (conformances == null)
-            return false;
-
-        foreach (var conformance in conformances)
-        {
-            if (ProtocolInheritsFrom(conformance.Protocol, targetProtocol, moduleDecl))
-                return true;
-        }
-
-        return false;
-    }
 
     private static TypeDecl? FindTypeDecl(ModuleDecl moduleDecl, SwiftTypeName swiftTypeName)
     {

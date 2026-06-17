@@ -1,0 +1,55 @@
+{
+  "$schema": "stdlib-conformances.schema.json",
+  "schemaVersion": 1,
+  "comment": "Swift standard-library conformance facts the generator cannot recover from a local TypeDecl (the stdlib has no TypeDecl in the corpus). ONE input to ConformanceOracle, not the whole base: foreign cross-module conformances resolve via ABI-confirmed specialization hints and transitive refinement, not this table. Regenerate with `nuke regen-stdlib-conformances` (dumps the Swift stdlib conformance graph via swift-api-digester); do not hand-edit. Bump schemaVersion here AND ConformanceOracle.ExpectedStdlibSchemaVersion in lockstep on any shape change.",
+  "conformances": {
+    "Swift.String": [
+      "Swift.Comparable",
+      "Swift.Equatable",
+      "Swift.Hashable",
+      "Swift.CustomStringConvertible",
+      "Swift.CustomDebugStringConvertible",
+      "Swift.LosslessStringConvertible",
+      "Swift.ExpressibleByStringLiteral",
+      "Swift.ExpressibleByStringInterpolation",
+      "Swift.TextOutputStream",
+      "Swift.TextOutputStreamable",
+      "Swift.RangeExpression"
+    ],
+    "Swift.Int": [
+      "Swift.Comparable",
+      "Swift.Equatable",
+      "Swift.Hashable",
+      "Swift.Numeric",
+      "Swift.SignedNumeric",
+      "Swift.BinaryInteger",
+      "Swift.FixedWidthInteger",
+      "Swift.SignedInteger",
+      "Swift.Strideable",
+      "Swift.CustomStringConvertible"
+    ],
+    "Swift.Double": [
+      "Swift.Comparable",
+      "Swift.Equatable",
+      "Swift.Hashable",
+      "Swift.Numeric",
+      "Swift.SignedNumeric",
+      "Swift.FloatingPoint",
+      "Swift.BinaryFloatingPoint",
+      "Swift.Strideable",
+      "Swift.CustomStringConvertible"
+    ],
+    "Swift.Bool": [
+      "Swift.Equatable",
+      "Swift.Hashable",
+      "Swift.CustomStringConvertible",
+      "Swift.ExpressibleByBooleanLiteral"
+    ],
+    "Swift.Never": [
+      "Swift.Error",
+      "Swift.Equatable",
+      "Swift.Hashable",
+      "Swift.Comparable"
+    ]
+  }
+}

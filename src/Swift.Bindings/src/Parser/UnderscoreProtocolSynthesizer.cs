@@ -203,7 +203,7 @@ internal static class UnderscoreProtocolSynthesizer
     /// <summary>
     /// Re-attaches the protocol-conformance records that swift-api-digester strips from the
     /// ABI JSON alongside an underscored protocol decl, so that bound-generic constraint
-    /// checks (<see cref="BoundGenericsHandler"/>'s <c>HasConformance</c>) and conformer
+    /// checks (<see cref="ConformanceOracle"/>'s <c>HasConformance</c>) and conformer
     /// indexing (<see cref="ConcreteSpecializationEngine"/>) can see the conformance.
     ///
     /// <para>

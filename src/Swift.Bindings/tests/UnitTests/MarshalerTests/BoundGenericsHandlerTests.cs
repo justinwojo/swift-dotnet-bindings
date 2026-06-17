@@ -2165,6 +2165,141 @@ public class BoundGenericsHandlerTests
 
     #endregion
 
+    #region Conformance Oracle (fail-closed trichotomy)
+
+    // These pin the {Yes, No, Unknown} distinction the public TryGetFirstUnsatisfiedConstraint
+    // path collapses to satisfied/not. The key fail-closed contract: a fully resolved local type
+    // lacking the conformance is a DEFINITIVE No (Swift never promised it), while a foreign type
+    // with no fact source is Unknown (genuinely unprovable) — both drop, but they are different
+    // facts. Yes for a stdlib pair exercises the committed stdlib-conformances.json fact table.
+
+    [Fact]
+    public void ConformanceOracle_StdlibFact_ReturnsYes()
+    {
+        // Swift.String : Swift.Comparable is recorded in the committed stdlib fact table.
+        // String has no local TypeDecl, so the oracle resolves it from the embedded facts.
+        var oracle = new ConformanceOracle(new MockTypeDatabase());
+        var module = CreateModuleDecl("TestModule");
+
+        var result = oracle.ConcreteConforms(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Comparable"),
+            constraintRecord: null,
+            typeArgumentDecl: null,
+            moduleDecl: module);
+
+        Assert.Equal(ConformanceResult.Yes, result);
+    }
+
+    [Fact]
+    public void ConformanceOracle_FullyResolvedLocalTypeWithoutConformance_ReturnsNo()
+    {
+        // A local TypeDecl that declares no matching conformance is a DEFINITIVE negative,
+        // not merely unprovable.
+        var oracle = new ConformanceOracle(new MockTypeDatabase());
+        var module = CreateModuleDecl("TestModule");
+        var rawData = CreateStructDecl("RawData", module); // no conformances
+
+        var result = oracle.ConcreteConforms(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.RawData"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Serializable"),
+            constraintRecord: null,
+            typeArgumentDecl: rawData,
+            moduleDecl: module);
+
+        Assert.Equal(ConformanceResult.No, result);
+    }
+
+    [Fact]
+    public void ConformanceOracle_ForeignTypeNoFact_ReturnsUnknown()
+    {
+        // A foreign type with no local decl and no fact source (stdlib table or stripped
+        // conformance) is genuinely unprovable — the oracle fails closed with Unknown,
+        // distinct from a definitive No.
+        var oracle = new ConformanceOracle(new MockTypeDatabase());
+        var module = CreateModuleDecl("TestModule");
+
+        var result = oracle.ConcreteConforms(
+            SwiftTypeName.FromModuleQualifiedName("ThirdParty.Mystery"),
+            SwiftTypeName.FromModuleQualifiedName("ThirdParty.SomeProtocol"),
+            constraintRecord: null,
+            typeArgumentDecl: null,
+            moduleDecl: module);
+
+        Assert.Equal(ConformanceResult.Unknown, result);
+    }
+
+    [Fact]
+    public void ConformanceOracle_LocalDirectConformance_ReturnsYes()
+    {
+        var oracle = new ConformanceOracle(new MockTypeDatabase());
+        var module = CreateModuleDecl("TestModule");
+        var dataModel = CreateStructDecl("DataModel", module, new[] { "TestModule.Serializable" });
+
+        var result = oracle.ConcreteConforms(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.DataModel"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Serializable"),
+            constraintRecord: null,
+            typeArgumentDecl: dataModel,
+            moduleDecl: module);
+
+        Assert.Equal(ConformanceResult.Yes, result);
+    }
+
+    [Fact]
+    public void ConformanceOracle_SelfConformanceForeignProtocol_ReturnsYes()
+    {
+        // A protocol type used as its own constraint (typeArgument == constraint) resolves Yes
+        // even with no local decl.
+        var oracle = new ConformanceOracle(new MockTypeDatabase());
+        var module = CreateModuleDecl("TestModule");
+        var p = SwiftTypeName.FromModuleQualifiedName("ThirdParty.SomeProtocol");
+
+        var result = oracle.ConcreteConforms(p, p, constraintRecord: null, typeArgumentDecl: null, moduleDecl: module);
+
+        Assert.Equal(ConformanceResult.Yes, result);
+    }
+
+    [Theory]
+    [InlineData("Swift.String", "Swift.Hashable")]
+    [InlineData("Swift.Int", "Swift.FixedWidthInteger")]
+    [InlineData("Swift.Double", "Swift.BinaryFloatingPoint")]
+    [InlineData("Swift.Bool", "Swift.ExpressibleByBooleanLiteral")]
+    [InlineData("Swift.Never", "Swift.Error")]
+    public void ConformanceOracle_HasStdlibConformance_SeededFacts_ReturnTrue(string type, string protocol)
+    {
+        var oracle = new ConformanceOracle(new MockTypeDatabase());
+        Assert.True(oracle.HasStdlibConformance(
+            SwiftTypeName.FromModuleQualifiedName(type),
+            SwiftTypeName.FromModuleQualifiedName(protocol)));
+    }
+
+    [Fact]
+    public void ConformanceOracle_HasStdlibConformance_UnknownPair_ReturnsFalse()
+    {
+        var oracle = new ConformanceOracle(new MockTypeDatabase());
+        // Swift.Int does not conform to Swift.FloatingPoint.
+        Assert.False(oracle.HasStdlibConformance(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.FloatingPoint")));
+        // A stdlib type entirely absent from the table.
+        Assert.False(oracle.HasStdlibConformance(
+            SwiftTypeName.FromModuleQualifiedName("Swift.UInt8"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Comparable")));
+    }
+
+    [Fact]
+    public void ConformanceOracle_Construction_LoadsStdlibFactTable_SchemaHandshakePasses()
+    {
+        // The embedded stdlib-conformances.json must load and its schemaVersion must match
+        // ExpectedStdlibSchemaVersion — a mismatch throws at construction.
+        var ex = Record.Exception(() => new ConformanceOracle(new MockTypeDatabase()));
+        Assert.Null(ex);
+        Assert.Equal(1, ConformanceOracle.ExpectedStdlibSchemaVersion);
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase
