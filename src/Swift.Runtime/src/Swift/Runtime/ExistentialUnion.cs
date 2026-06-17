@@ -65,22 +65,37 @@ public sealed class ExistentialUnion : ISwiftExistentialConvertible<ExistentialC
             var vwt = expected.ValueWitnessTable;
             var size = (int)vwt->Size;
             var isNonInline = (vwt->Flags & ValueWitnessFlags.IsNonInline) != 0;
+
+            // Both branches below resolve a BORROWED interior pointer: the existential (its inline
+            // payload words, or the swift_allocBox heap box) retains ownership of the value's +1.
+            // Route that borrowed source through SwiftMarshal.ExtractCopiedValue<T>, which copies out
+            // an INDEPENDENT value the returned wrapper owns and disposes — InitializeWithCopy (+1)
+            // for reference-backed struct conformers, an ARC retain of the instance pointer for true
+            // Swift classes — instead of handing the borrowed pointer straight to NewFromPayload.
+            // NewFromPayload's ownership contract VARIES by conformer shape, and for the resilient
+            // (non-@frozen) struct shape it ADOPTS the pointer: disposing such a wrapper ran a
+            // value-witness Destroy over still-borrowed storage and then NativeMemory.Free'd a box
+            // interior (or a stack local, on the inline branch) the runtime never allocated — an
+            // invalid free / use-after-free. ExtractCopiedValue makes the read uniformly safe across
+            // adopt / copy / move struct shapes AND the true-class shape (where the payload word is
+            // the instance pointer, not a value buffer), which a bitwise copy would mishandle.
             if (size <= ExistentialContainerFactory.MaxInlinePayloadSize && !isNonInline)
             {
-                // Inline storage: value data is in payload0/payload1/payload2.
-                // Pin a local copy and pass a pointer to the start (payload0 offset = 0).
+                // Inline storage: value data is in payload0/payload1/payload2 (payload0 offset = 0).
+                // containerCopy must stay alive across the extraction below — keep the call in-scope.
                 var containerCopy = _container;
-                return (T)SwiftObjectHelper<T>.NewFromPayload((IntPtr)Unsafe.AsPointer(ref containerCopy));
+                return Swift.Runtime.InteropServices.SwiftMarshal.ExtractCopiedValue<T>(
+                    Unsafe.AsPointer(ref containerCopy), vwt->Size);
             }
             else
             {
                 // Out-of-line storage: payload0 is a swift_allocBox heap object (refcount header +
                 // value), the exact inverse of MarshalPayload's write path, which stores boxPair.HeapObject
                 // — NOT boxPair.Buffer — in payload0. Project past the box header to the value buffer before
-                // reading it; passing the raw heap-object pointer to NewFromPayload's value-witness
-                // InitializeWithCopy reads the box's metadata/refcount words as value bytes and faults.
+                // reading it; the box keeps its own +1, so this is a borrowed read.
                 var valuePtr = swift_projectBox(_container.Payload0);
-                return (T)SwiftObjectHelper<T>.NewFromPayload(valuePtr);
+                return Swift.Runtime.InteropServices.SwiftMarshal.ExtractCopiedValue<T>(
+                    (void*)valuePtr, vwt->Size);
             }
         }
     }

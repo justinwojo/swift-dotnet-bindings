@@ -125,6 +125,49 @@ public protocol AttributeKind {
     }
 }
 
+/// Conformer 4: RESILIENT (non-`@frozen`) struct conformer. Under library evolution a
+/// non-`@frozen` public struct is resilient, so the generator projects it as a non-frozen
+/// "ClassWithOpaquePayload" whose `NewFromPayload` ADOPTS the incoming pointer into a
+/// SwiftSafeHandle (freed via `NativeMemory.Free` on dispose/finalize). It carries four
+/// String fields (= 4 machine words > the 3-word inline existential buffer), so the value
+/// is stored OUT-OF-LINE in the existential (`swift_allocBox`). Reading it back through
+/// `ExistentialUnion.As<T>` and disposing it is the regression guard for the out-of-line
+/// invalid-free: the pre-fix code handed the borrowed `swift_projectBox` interior pointer
+/// straight to the adopt-semantics wrapper, which then `NativeMemory.Free`d box-owned storage.
+public struct ResilientAttribute: AttributeKind {
+    public typealias Value = String
+    public let label: String
+    public let value: String
+    public let detail: String
+    public let extra: String
+
+    public init(label: String, value: String, detail: String, extra: String) {
+        self.label = label
+        self.value = value
+        self.detail = detail
+        self.extra = extra
+    }
+}
+
+/// Conformer 5: SMALL resilient (non-`@frozen`) struct conformer — a single Int32 value
+/// alongside its label. Its value-witness size is 20 bytes (a 16-byte String + a 4-byte Int32),
+/// within the 3-word/24-byte inline buffer, and it is bitwise-takable (a String moves by memcpy),
+/// so IsNonInline is clear and the existential stores it INLINE. Covers `ExistentialUnion.As<T>`'s
+/// INLINE branch under adopt semantics (the pre-fix code passed a stack-local address to the
+/// adopt-semantics wrapper → stack free on dispose). The runtime test pins the inline classification
+/// so this stays distinct from the out-of-line `ResilientAttribute` case. Resilient, not `@frozen`,
+/// so it is projected as the same non-frozen ADOPT shape.
+public struct SmallResilientAttribute: AttributeKind {
+    public typealias Value = Int32
+    public let label: String
+    public let value: Int32
+
+    public init(label: String, value: Int32) {
+        self.label = label
+        self.value = value
+    }
+}
+
 /// Container that holds an existential of the PAT protocol.
 /// The `attribute` property returns `any AttributeKind` — the generator should
 /// emit this as ExistentialUnion since the protocol has associated types.
@@ -196,4 +239,25 @@ public func makeColorAttributeAsync(name: String, color: String) async -> any At
 /// Free function returning existential of PAT protocol.
 public func makeSizeAttribute(name: String, size: Int32) -> any AttributeKind {
     return SizeAttribute(label: name, value: size)
+}
+
+/// Free function returning a RESILIENT (non-`@frozen`) conformer boxed in `any AttributeKind`.
+/// The four String fields exceed the 3-word inline existential buffer, so the value lives
+/// OUT-OF-LINE in a `swift_allocBox`. A pure-read free-function return projects to
+/// `ExistentialUnion`. Reading it back via `ExistentialUnion.As<ResilientAttribute>` then disposing
+/// is the regression guard for the out-of-line invalid-free: the pre-fix code handed the borrowed
+/// `swift_projectBox` interior (box-owned, +1) to the adopt-semantics `NewFromPayload`, which then
+/// value-witness-destroyed box storage and `NativeMemory.Free`d a box interior C# never allocated.
+/// A free function carries a unique name, so it sidesteps the `AttributeHolder` constructor dedup
+/// (two single-`String` inits would be a genuine C# CS0111 duplicate).
+public func makeResilientAttribute(value: String) -> any AttributeKind {
+    return ResilientAttribute(label: "resilient", value: value, detail: "detail", extra: "extra")
+}
+
+/// Free function returning a SMALL resilient (non-`@frozen`) conformer that fits the inline
+/// existential buffer (single Int32 alongside its label) — best-effort coverage of
+/// `ExistentialUnion.As<T>`'s INLINE branch under adopt semantics, where the pre-fix code passed a
+/// stack-local address to the adopt-semantics `NewFromPayload`.
+public func makeSmallResilientAttribute(value: Int32) -> any AttributeKind {
+    return SmallResilientAttribute(label: "smallResilient", value: value)
 }
