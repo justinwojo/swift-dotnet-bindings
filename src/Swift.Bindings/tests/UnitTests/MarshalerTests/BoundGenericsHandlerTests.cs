@@ -984,6 +984,129 @@ public class BoundGenericsHandlerTests
         Assert.Equal(string.Empty, details);
     }
 
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ScopelessGenericParam_NoEmittableScope_ReturnsTrue()
+    {
+        // Finding 20 fail-closed flip: a generic-parameter-shaped type argument (τ_0_0) that
+        // belongs to NO emittable scope — neither the (non-generic) enclosing type nor any
+        // method-level generics — carries no C# `where` clause. Emitting the bound generic
+        // would reference an unconstrained type parameter, so the conformance is genuinely
+        // unprovable. The member must be dropped (constraint reported unsatisfied).
+        //
+        // Previously this path returned "satisfied" (fail-open), silently emitting bindings
+        // whose constraint nothing actually guaranteed.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var host = CreateStructDecl("Host", moduleDecl); // non-generic: no parent generic params
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.Describable");
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("τ_0_0"));
+        var contextDecl = new PropertyDecl
+        {
+            Name = "storage",
+            SwiftTypeSpec = boundGeneric,
+            ParentDecl = host,    // non-generic struct; not a MethodDecl → no method-level generics
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_FreeFunctionMethodLevelParam_ReturnsFalse()
+    {
+        // Regression guard for the fail-closed flip: a free function (parent is the module,
+        // NOT a TypeDecl) declares its own generic parameter carrying the required constraint.
+        // parentTypeGenericParams is null, but the function's own generics are threaded as
+        // methodGenericParams — C# emits the `where` on the generated method, so the
+        // conformance is provably satisfied and the member must be kept.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.Describable");
+
+        var freeFunction = new MethodDecl
+        {
+            Name = "makeContainer",
+            ParentDecl = moduleDecl,    // free function: parent is the module, not a TypeDecl
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new(
+                    TypeName: "τ_0_0",
+                    SugaredTypeName: "Element",
+                    GenericConformances: new List<GenericParameterConformance>
+                    {
+                        new(
+                            Path: new[] { "τ_0_0" },
+                            ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                            Kind: ConformanceKind.Protocol)
+                    },
+                    AssosiatedTypeConformances: new List<GenericParameterConformance>())
+            },
+            IsSynthesizedAccessor = false
+        };
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("Element"));
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, freeFunction, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_MethodLevelParamMissingConstraint_ReturnsTrue()
+    {
+        // A method-level generic parameter exists but does NOT declare the constraint the
+        // bound generic requires. C# would emit the method parameter without a matching
+        // `where`, so `Container<Element>` (which requires Describable) is unsatisfied. This
+        // shape is invalid Swift, but fail-closed handling drops it rather than emitting
+        // uncompilable C#.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var processorDecl = CreateStructDecl("ItemProcessor", moduleDecl);
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.Describable");
+
+        var method = new MethodDecl
+        {
+            Name = "process",
+            ParentDecl = processorDecl,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new(
+                    TypeName: "τ_0_0",
+                    SugaredTypeName: "Element",
+                    // Note: no Describable conformance declared on this method param.
+                    GenericConformances: new List<GenericParameterConformance>(),
+                    AssosiatedTypeConformances: new List<GenericParameterConformance>())
+            },
+            IsSynthesizedAccessor = false
+        };
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("Element"));
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
     #endregion
 
     #region Mixed Generic Parameter Tests

@@ -1449,14 +1449,17 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
-    /// Checks whether a generic type parameter satisfies a protocol constraint based on
-    /// the parent type's generic declarations. When no parent type generic parameters are
-    /// available (e.g., free functions), the check is permissive and returns true.
+    /// Checks whether a generic-type-parameter type argument provably satisfies a protocol
+    /// constraint. Fail-closed (Finding 20): the conformance is accepted only when an
+    /// emittable C# <c>where</c> clause guarantees it.
     ///
-    /// When the parent type doesn't satisfy the constraint, falls back to the method's
-    /// generic parameters to check for conditional extension constraints. The constraint
-    /// is accepted if the protocol is emittable (no associated types or Self requirements),
-    /// since the P/Invoke infrastructure already generates witness table extraction for these.
+    /// The parameter is resolved against its declaring scope: if it is a parent-type generic
+    /// parameter, the decision rests solely on the parent's declared constraints (a method-level
+    /// <c>where</c> on a parent parameter is illegal — CS0699 — so conditional extension
+    /// constraints are rejected); if it is a method-level generic parameter, the method's own
+    /// constraints decide. A generic parameter that belongs to neither scope carries no
+    /// emittable constraint and is rejected, rather than emitting a binding that references an
+    /// unconstrained type parameter.
     /// </summary>
     private bool GenericTypeParamSatisfiesConstraint(
         TypeSpec typeArgument, SwiftTypeName protocolConstraint,
@@ -1464,57 +1467,63 @@ public class BoundGenericsHandler
         ModuleDecl? moduleDecl = null,
         IReadOnlyList<GenericArgumentDecl>? methodGenericParams = null)
     {
-        // If no parent type generic parameters are available (e.g., free functions,
-        // non-generic parent types), be permissive — the constraint can't be
-        // validated against a parent type and may be satisfied at the call site.
-        if (parentTypeGenericParams == null || parentTypeGenericParams.Count == 0)
-            return true;
-
         var paramName = typeArgument is NamedTypeSpec namedArg ? namedArg.Name : typeArgument.ToString();
 
-        // Find the matching generic parameter in the parent type's declarations.
-        // Match on both TypeName (ABI internal, e.g. τ_0_0) and SugaredTypeName
-        // (source-level name, e.g. 'MusicItemType') since a type-argument reference in a
-        // parsed TypeSpec may use either form depending on the ABI capture.
-        var matchingParam = parentTypeGenericParams.FirstOrDefault(
+        // A generic parameter's conformance is provable only when an emittable C# `where`
+        // clause guarantees it. This local checks whether a declared generic parameter
+        // carries the required protocol, directly or via protocol inheritance — the same
+        // basis the parent and method scopes share.
+        bool ParamCarriesConstraint(GenericArgumentDecl param)
+        {
+            foreach (var conformance in param.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+
+                // Direct match.
+                if (conformance.ConformanceTarget == protocolConstraint)
+                    return true;
+
+                // Inherited match: the declared protocol inherits from the required one
+                // (e.g. T: ChildProtocol satisfies T: ParentProtocol).
+                if (moduleDecl != null &&
+                    _conformanceOracle.ProtocolInheritsFrom(conformance.ConformanceTarget, protocolConstraint, moduleDecl))
+                    return true;
+            }
+
+            return false;
+        }
+
+        // 1) Is the type argument a generic parameter of the *parent* type? Match on both
+        //    TypeName (ABI internal, e.g. τ_0_0) and SugaredTypeName (source-level name,
+        //    e.g. 'MusicItemType') since a type-argument reference may use either form
+        //    depending on the ABI capture.
+        var parentParam = parentTypeGenericParams?.FirstOrDefault(
             p => p.TypeName == paramName || p.SugaredTypeName == paramName);
-        if (matchingParam == null)
+        if (parentParam != null)
         {
-            // The type parameter doesn't belong to the parent type (e.g., a method-level
-            // type parameter). Be permissive — method-level constraints are emitted on the
-            // method itself.
-            return true;
+            // The parameter belongs to the parent type, so C# can only honor the constraints
+            // the parent type itself declares on it. A method-level `where` on a parent type
+            // parameter is illegal (CS0699), so conditional extension constraints
+            // (e.g. `extension Table<T> where T: FetchableRecord`) — which surface on the
+            // method's generic parameters but not on the parent — are correctly rejected here.
+            return ParamCarriesConstraint(parentParam);
         }
 
-        // Check if the parent type's constraints on this parameter include the required protocol
-        // (either directly or via protocol inheritance)
-        foreach (var conformance in matchingParam.GenericConformances)
-        {
-            if (conformance.Kind != ConformanceKind.Protocol)
-                continue;
+        // 2) Not a parent parameter — is it a *method-level* generic parameter (including a
+        //    free function's own generics)? Those carry an emittable `where` clause on the
+        //    generated method, so the constraint is provable when the method declares it.
+        var methodParam = methodGenericParams?.FirstOrDefault(
+            p => p.TypeName == paramName || p.SugaredTypeName == paramName);
+        if (methodParam != null)
+            return ParamCarriesConstraint(methodParam);
 
-            // Direct match
-            if (conformance.ConformanceTarget == protocolConstraint)
-                return true;
-
-            // Inherited match: check if the conformance target protocol inherits
-            // from the required protocol (e.g., T: ChildProtocol satisfies T: ParentProtocol)
-            if (moduleDecl != null && _conformanceOracle.ProtocolInheritsFrom(conformance.ConformanceTarget, protocolConstraint, moduleDecl))
-                return true;
-        }
-
-        // Note: conditional extension constraints (e.g., `extension Table<T> where T: FetchableRecord`)
-        // appear in the method's GenericParameters but NOT on the parent type. C# cannot express
-        // method-level `where` constraints on parent type parameters (CS0699). Methods whose
-        // signatures use bound generic types requiring these constraints (e.g., RecordCursor<T>
-        // where T: IFetchableRecord) will not compile. We return false here to skip such methods.
-        //
-        // Methods from conditional extensions that DON'T reference constrained bound generics
-        // in their signatures are unaffected — TryGetFirstUnsatisfiedConstraint is only called
-        // for bound generic types, so those methods are never checked here.
-
-        // The parent type does not constrain this parameter to conform to the required protocol,
-        // and no conditional extension constraint was found.
+        // 3) The type argument is a generic parameter that belongs to NO emittable scope —
+        //    neither the parent type nor any method-level generics. There is no `where`
+        //    clause we can attach, so the conformance is genuinely unprovable. Fail closed:
+        //    drop the member rather than emit a binding that references an unconstrained
+        //    type parameter. (This path previously returned true — the fail-open that
+        //    Finding 20 targets.)
         return false;
     }
 
