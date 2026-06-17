@@ -1600,24 +1600,16 @@ namespace BindingsGeneration
             foreach (var inherited in protocolDecl.InheritedProtocols)
                 parentNames.Add(inherited.Name);
 
-            // Fallback: parse GenericSignature for "Self : Module.Protocol" constraints
-            if (parentNames.Count == 0 && !string.IsNullOrEmpty(protocolDecl.GenericSignature))
+            // Fallback (Finding 19): when InheritedProtocols is empty, derive parent protocol names
+            // from the parsed signature's conformance targets. The legacy scan collected the target
+            // after every " : " regardless of subject (Self / τ_0_0 / associated-type member); the
+            // parsed equivalent is every conformance-requirement target.
+            if (parentNames.Count == 0)
             {
-                var sig = protocolDecl.GenericSignature;
-                // Match "Self : Module.ProtocolName" or "τ_0_0 : Module.ProtocolName" patterns
-                var idx = 0;
-                while (idx < sig.Length)
+                foreach (var r in protocolDecl.ParsedGenericSignature.Requirements)
                 {
-                    var colonIdx = sig.IndexOf(" : ", idx);
-                    if (colonIdx < 0) break;
-                    var nameStart = colonIdx + 3;
-                    // Find end of the name (comma, '>', or end of string)
-                    var nameEnd = sig.IndexOfAny(new[] { ',', '>' }, nameStart);
-                    if (nameEnd < 0) nameEnd = sig.Length;
-                    var constraintName = sig.Substring(nameStart, nameEnd - nameStart).Trim();
-                    if (!string.IsNullOrEmpty(constraintName))
-                        parentNames.Add(constraintName);
-                    idx = nameEnd + 1;
+                    if (r.Kind == GenericRequirementKind.Conformance)
+                        parentNames.Add(r.Target);
                 }
             }
 

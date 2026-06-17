@@ -2284,21 +2284,30 @@ namespace BindingsGeneration
             // separate HasMethodSelfTypeParams check that walks method signatures for
             // τ_0_0 references, so protocols whose only Self usage is in method
             // parameters/returns remain covered.
-            bool hasSelfRequirement = node.GenericSig != null &&
-                (node.GenericSig.Contains("Self.", StringComparison.Ordinal) ||
-                 node.GenericSig.Contains("Self ==", StringComparison.Ordinal));
+            // Finding 19: query the parsed signature instead of substring/regex scans of the raw text.
+            var parsedSig = GenericSignatureParser.ParseSignature(node.GenericSig);
 
-            // Check if class-bound (requires AnyObject).
-            // AnyObject may appear in conformances OR in the generic signature
-            // (e.g. "<τ_0_0 : AnyObject>" for protocols declared as ": AnyObject").
-            // The genericSig check must be precise: only match when Self (τ_0_0) directly
-            // conforms to AnyObject, NOT when an associated type does (e.g. "τ_0_0.Element : AnyObject").
-            // τ_0_0\s*: matches "τ_0_0 :" but not "τ_0_0.Element :" (dot breaks the \s* match).
+            // A real Self requirement manifests as an associated-type path through Self
+            // (`Self.X`, a non-direct subject rooted at Self) or a same-type pin on Self
+            // (`Self == X`). Simple protocol inheritance (`Self : Foo`) does NOT count. In
+            // unsugared api-digester output Self renders as τ_0_0 and this never fires — method-level
+            // Self usage is covered separately by the HasMethodSelfTypeParams signature walk — so the
+            // check is faithful to the legacy "Self." / "Self ==" substring test for the sugared form.
+            bool hasSelfRequirement = parsedSig.Requirements.Any(r =>
+                string.Equals(r.SubjectRoot, "Self", StringComparison.Ordinal) &&
+                (!r.IsDirect || r.Kind == GenericRequirementKind.SameType));
+
+            // Check if class-bound (requires AnyObject). AnyObject may appear in conformances OR as a
+            // DIRECT Self (τ_0_0) conformance in the generic signature (e.g. "<τ_0_0 : AnyObject>" for
+            // a protocol declared ": AnyObject"). A constraint on an associated type
+            // ("τ_0_0.Element : AnyObject") must NOT count — hence the IsDirect filter.
             bool isClassBound = inheritedProtocols.Any(p =>
                 p.Name == "AnyObject" ||
                 p.Name == "Swift.AnyObject") ||
-                (node.GenericSig != null &&
-                 System.Text.RegularExpressions.Regex.IsMatch(node.GenericSig, @"τ_0_0\s*:[^,]*\bAnyObject\b"));
+                parsedSig.Requirements.Any(r =>
+                    r.IsDirect && r.Kind == GenericRequirementKind.Conformance &&
+                    string.Equals(r.SubjectRoot, "τ_0_0", StringComparison.Ordinal) &&
+                    r.TargetSimpleName == "AnyObject");
 
             // A superclass constraint (`protocol P : SomeClass`) is also class-bound: its
             // existential carries the compact `[classRef][witnessTables]` layout rather than
@@ -2311,7 +2320,7 @@ namespace BindingsGeneration
             // is a superclass constraint => class-bound. (Protocol-inheritance class-boundness,
             // e.g. `HasCollision : HasTransform : Entity`, is resolved transitively downstream
             // by ModuleProcessor.ProtocolIsClassBoundTransitive walking inherited protocols.)
-            if (!isClassBound && node.GenericSig != null)
+            if (!isClassBound)
             {
                 var conformanceSimpleNames = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var conformance in node.Conformances)
@@ -2320,11 +2329,14 @@ namespace BindingsGeneration
                         conformanceSimpleNames.Add(conformance.Name.Split('.')[^1]);
                 }
 
-                foreach (System.Text.RegularExpressions.Match match in
-                         System.Text.RegularExpressions.Regex.Matches(
-                             node.GenericSig, @"(?:τ_0_0|Self)\s*:\s*([A-Za-z_][\w.]*)"))
+                foreach (var r in parsedSig.Requirements)
                 {
-                    var simpleTarget = match.Groups[1].Value.Split('.')[^1];
+                    if (!r.IsDirect || r.Kind != GenericRequirementKind.Conformance)
+                        continue;
+                    if (!string.Equals(r.SubjectRoot, "τ_0_0", StringComparison.Ordinal) &&
+                        !string.Equals(r.SubjectRoot, "Self", StringComparison.Ordinal))
+                        continue;
+                    var simpleTarget = r.TargetSimpleName;
                     if (simpleTarget is "AnyObject" or "Sendable" or "Escapable"
                         or "Copyable" or "SendableMetatype" or "Any")
                         continue;

@@ -126,6 +126,15 @@ namespace BindingsGeneration
         public string? RawGenericSig { get; set; }
 
         /// <summary>
+        /// The structured form of <see cref="RawGenericSig"/> (Finding 19): the single grammar that
+        /// every method-signature predicate queries instead of hand-scanning the raw string. Computed
+        /// on access (not cached in a backing field, which would perturb record equality); the parse
+        /// is cheap and these signatures are short.
+        /// </summary>
+        public GenericSignatureModel ParsedGenericSignature =>
+            GenericSignatureParser.ParseSignature(RawGenericSig);
+
+        /// <summary>
         /// Set to true during emission when this method passes all validation gates and is
         /// actually written to the C# output. Used by override resolution to verify that a
         /// base class method exists in the emitted C# hierarchy (not just the parsed model).

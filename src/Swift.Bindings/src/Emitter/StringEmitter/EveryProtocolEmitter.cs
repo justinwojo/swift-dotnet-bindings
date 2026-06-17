@@ -5664,14 +5664,11 @@ public class EveryProtocolEmitter
         // EveryProtocol is a Swift class and trivially satisfies the AnyObject constraint.
         // Only NSObjectProtocol requires NSObject identity methods that EveryProtocol can't provide.
 
-        // Check GenericSignature for NSObjectProtocol constraints.
+        // Check GenericSignature for NSObjectProtocol constraints (Finding 19).
         // ObjC protocols often declare constraints like "<τ_0_0 : ObjectiveC.NSObjectProtocol>"
         // in genericSig instead of listing NSObjectProtocol in inheritedProtocols.
-        if (!string.IsNullOrEmpty(protocolDecl.GenericSignature))
-        {
-            if (protocolDecl.GenericSignature.Contains("NSObjectProtocol"))
-                return true;
-        }
+        if (protocolDecl.ParsedGenericSignature.Requirements.Any(r => r.TargetSimpleName == "NSObjectProtocol"))
+            return true;
 
         foreach (var inherited in protocolDecl.InheritedProtocols)
         {
@@ -5732,8 +5729,7 @@ public class EveryProtocolEmitter
         if (!visited.Add(qualifiedName))
             return;
 
-        if (!string.IsNullOrEmpty(protocolDecl.GenericSignature) &&
-            protocolDecl.GenericSignature.Contains("NSObjectProtocol"))
+        if (protocolDecl.ParsedGenericSignature.Requirements.Any(r => r.TargetSimpleName == "NSObjectProtocol"))
         {
             sawNSObjectProtocol = true;
         }
@@ -6163,42 +6159,14 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Parses constraint protocol names from a genericSig string.
-    /// Extracts types after Self / τ_0_0 markers (Self constraints).
-    /// swift-api-digester uses both spellings: protocol declarations carry
-    /// <c>&lt;Self : Foo&gt;</c> while bound generic signatures use the
-    /// substituted form <c>&lt;τ_0_0 : Foo&gt;</c>. The <c>Self.Member</c>
-    /// dotted form is intentionally excluded — that targets an associated
-    /// type, not Self itself.
+    /// The verbatim conformance targets of every DIRECT Self / τ_0_0 constraint in a genericSig
+    /// (Finding 19). swift-api-digester uses both spellings: protocol declarations carry
+    /// <c>&lt;Self : Foo&gt;</c> while bound generic signatures use the substituted form
+    /// <c>&lt;τ_0_0 : Foo&gt;</c>. The <c>Self.Member</c> dotted form is excluded — that targets an
+    /// associated type, not Self itself (the parsed model marks such a clause non-direct).
     /// </summary>
     private static IEnumerable<string> ParseGenericSigConstraints(string sig)
-    {
-        foreach (var c in ExtractConstraints(sig, "τ_0_0 : "))
-            yield return c;
-        foreach (var c in ExtractConstraints(sig, "Self : "))
-            yield return c;
-    }
-
-    private static IEnumerable<string> ExtractConstraints(string sig, string marker)
-    {
-        int idx = 0;
-        while (idx < sig.Length)
-        {
-            var pos = sig.IndexOf(marker, idx, StringComparison.Ordinal);
-            if (pos < 0)
-                break;
-
-            pos += marker.Length;
-            var end = pos;
-            while (end < sig.Length && sig[end] != ',' && sig[end] != '>')
-                end++;
-            var constraint = sig.Substring(pos, end - pos).Trim();
-            idx = end;
-
-            if (!string.IsNullOrEmpty(constraint))
-                yield return constraint;
-        }
-    }
+        => GenericSignatureParser.ParseSignature(sig).DirectConformanceTargets("τ_0_0", "Self");
 
     /// <summary>
     /// Checks if a protocol is or inherits from CaseIterable, directly or transitively.

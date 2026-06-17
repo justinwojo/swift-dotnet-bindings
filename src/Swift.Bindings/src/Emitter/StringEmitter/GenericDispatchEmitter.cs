@@ -465,13 +465,14 @@ internal static class GenericDispatchEmitter
     /// </summary>
     private static bool HasSameTypeConstraintOnParentGenericParam(MethodDecl methodDecl)
     {
-        var sig = methodDecl.RawGenericSig;
-        if (string.IsNullOrEmpty(sig))
-            return false;
-
-        // Match patterns like "τ_0_0 ==" which constrain parent-level generic params
-        // (depth 0) to specific types. Method-level params are depth 1+ (τ_1_0).
-        return System.Text.RegularExpressions.Regex.IsMatch(sig, @"τ_0_\d+\s*==");
+        // Finding 19: query the parsed signature for a DIRECT same-type constraint on a depth-0
+        // (parent-level) generic param — τ_0_X == ConcreteType. Method-level params are depth 1+
+        // (τ_1_0). A member clause (τ_0_0.Element == …) is not a parent-param pin and was excluded
+        // by the legacy `τ_0_\d+\s*==` regex (the operator had to follow the bare param), so the
+        // IsDirect filter mirrors that.
+        return methodDecl.ParsedGenericSignature.Requirements.Any(r =>
+            r.Kind == GenericRequirementKind.SameType && r.IsDirect &&
+            System.Text.RegularExpressions.Regex.IsMatch(r.SubjectRoot, @"^τ_0_\d+$"));
     }
 
     /// <summary>

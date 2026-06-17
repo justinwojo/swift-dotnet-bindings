@@ -234,22 +234,6 @@ public static class WrapperEmitterHelpers
     {
         if (parentType?.GenericParameters == null || parentType.GenericParameters.Count == 0)
             return string.Empty;
-        var sig = methodDecl.RawGenericSig;
-        if (string.IsNullOrEmpty(sig))
-            return string.Empty;
-
-        var whereStart = sig.IndexOf(" where ", StringComparison.Ordinal);
-        if (whereStart < 0)
-            return string.Empty;
-        // Strip exactly ONE trailing `>` (the angle-wrapped signature closer), not all of
-        // them — a greedy TrimEnd('>') eats the closing bracket of a generic SameType target
-        // like `== Swift.Dictionary<Swift.String, Swift.Int>`, and this clause is emitted
-        // verbatim into the generated wrapper's Swift `extension … where …`, so a truncated
-        // target produces invalid Swift that fails the wrapper compile.
-        var afterWhere = sig.Substring(whereStart + " where ".Length).Trim();
-        if (sig.TrimStart().StartsWith("<", StringComparison.Ordinal) &&
-            afterWhere.EndsWith(">", StringComparison.Ordinal))
-            afterWhere = afterWhere.Substring(0, afterWhere.Length - 1).TrimEnd();
 
         var parentParamNames = parentType.GenericParameters
             .Select(p => p.SugaredTypeName)
@@ -278,31 +262,26 @@ public static class WrapperEmitterHelpers
         }
 
         var clauses = new List<string>();
-        // Top-level comma split: a generic SameType target's inner commas (angle-depth>0)
-        // must stay attached to their clause, not be torn into invalid Swift fragments.
-        foreach (var rawClause in SwiftTypeListText.SplitTopLevelCommas(afterWhere))
+        // Finding 19: query the parsed signature instead of re-splitting the raw `where` text. Only
+        // DIRECT constraints on a parent generic param are emitted; the target is reproduced verbatim
+        // — the parser preserves a generic same-type target's inner punctuation (e.g.
+        // `== Swift.Dictionary<Swift.String, Swift.Int>`), so the emitted Swift `where` clause stays
+        // valid.
+        foreach (var r in methodDecl.ParsedGenericSignature.Requirements)
         {
-            var clause = rawClause.Trim();
-            var sameType = System.Text.RegularExpressions.Regex.Match(clause, @"^(\w+)\s*==\s*(.+)$");
-            if (sameType.Success)
+            if (!r.IsDirect || !parentParamNames.Contains(r.SubjectRoot)) continue;
+
+            if (r.Kind == GenericRequirementKind.SameType)
             {
-                var paramName = sameType.Groups[1].Value;
-                if (!parentParamNames.Contains(paramName)) continue;
-                clauses.Add($"{paramName} == {sameType.Groups[2].Value.Trim()}");
+                clauses.Add($"{r.SubjectRoot} == {r.Target}");
                 continue;
             }
 
             if (!includeConformanceConstraints) continue;
-
-            var conformance = System.Text.RegularExpressions.Regex.Match(clause, @"^(\w+)\s*:\s*(.+)$");
-            if (!conformance.Success) continue;
-            var cParam = conformance.Groups[1].Value;
-            if (!parentParamNames.Contains(cParam)) continue;
-            var cTarget = conformance.Groups[2].Value.Trim();
             // Skip constraints the parent already requires — re-stating them is redundant.
-            if (parentLevelConstraints.TryGetValue(cParam, out var declared) && declared.Contains(cTarget))
+            if (parentLevelConstraints.TryGetValue(r.SubjectRoot, out var declared) && declared.Contains(r.Target))
                 continue;
-            clauses.Add($"{cParam} : {cTarget}");
+            clauses.Add($"{r.SubjectRoot} : {r.Target}");
         }
         return clauses.Count == 0 ? string.Empty : " where " + string.Join(", ", clauses);
     }

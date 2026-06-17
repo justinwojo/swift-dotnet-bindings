@@ -200,4 +200,104 @@ public class GenericSignatureParser
         ConformanceKind kind = clause.Contains(":") ? ConformanceKind.Protocol : ConformanceKind.ConcreteType;
         return new GenericParameterConformance(target, SwiftTypeName.FromModuleQualifiedName(conformanceTarget), kind);
     }
+
+    /// <summary>
+    /// Parses a raw generic signature into a faithful, lossless <see cref="GenericSignatureModel"/>
+    /// (Finding 19). Every conformance (<c>:</c>) and same-type (<c>==</c>) clause survives with its
+    /// target text intact — nothing is dropped — so this one parse is the single grammar that every
+    /// downstream predicate queries, replacing the per-site substring scans and bespoke regexes.
+    ///
+    /// <para>
+    /// Constraints are read from BOTH the parameter section and the <c>where</c> section. Swift's
+    /// api-digester renders protocol inheritance inline (<c>&lt;τ_0_0 : AnyObject&gt;</c>, no
+    /// <c>where</c>), while method/function constraints use a <c>where</c> clause
+    /// (<c>&lt;τ_0_0 where τ_0_0 : Swift.Equatable&gt;</c>); both are the same kind of requirement, so
+    /// <c> where </c> is treated as a clause separator and the whole signature flows through one
+    /// top-level comma split.
+    /// </para>
+    ///
+    /// <para>
+    /// Unlike <see cref="ParseGenericSignature"/>, this does NOT throw or drop on
+    /// constructed-generic / unqualified / marker targets: it is a read-only structural view used by
+    /// emitter/parser predicates, never a source of <see cref="GenericParameterConformance"/> records
+    /// (whose careful drop semantics gate downstream admissibility). The two are intentionally
+    /// separate.
+    /// </para>
+    /// </summary>
+    public static GenericSignatureModel ParseSignature(string? rawSignature)
+    {
+        if (string.IsNullOrWhiteSpace(rawSignature))
+            return GenericSignatureModel.Empty;
+
+        var sig = rawSignature.Trim();
+        // Strip the single outer <...> wrapper. Strip exactly one bracket each end — a greedy trim
+        // would eat the closing bracket of a generic same-type target like `== Dictionary<K, V>`.
+        if (sig.StartsWith("<", StringComparison.Ordinal) && sig.EndsWith(">", StringComparison.Ordinal))
+            sig = sig[1..^1];
+
+        // Fold the where-section into the parameter section: constraints can live in either, and
+        // both are the same kind of requirement (protocols inline them, methods use `where`).
+        sig = sig.Replace(" where ", ", ", StringComparison.Ordinal);
+
+        var parameters = new List<string>();
+        var requirements = new List<GenericRequirement>();
+
+        foreach (var rawClause in SwiftTypeListText.SplitTopLevelCommas(sig))
+        {
+            var clause = rawClause.Trim();
+            if (clause.Length == 0)
+                continue;
+
+            // Same-type (`==`) takes precedence: the operator never appears inside a LHS path, so the
+            // first top-level occurrence is the real operator. A naive `IndexOf` would also be wrong
+            // for a target carrying angle-bracketed inner punctuation, hence the depth-aware scan.
+            var eqIdx = IndexOfTopLevel(clause, "==");
+            if (eqIdx >= 0)
+            {
+                var lhs = clause[..eqIdx].Trim();
+                var rhs = clause[(eqIdx + 2)..].Trim();
+                if (lhs.Length > 0 && rhs.Length > 0)
+                    requirements.Add(new GenericRequirement(SplitPath(lhs), rhs, GenericRequirementKind.SameType));
+                continue;
+            }
+
+            var colonIdx = IndexOfTopLevel(clause, ":");
+            if (colonIdx >= 0)
+            {
+                var lhs = clause[..colonIdx].Trim();
+                var rhs = clause[(colonIdx + 1)..].Trim();
+                if (lhs.Length > 0 && rhs.Length > 0)
+                    requirements.Add(new GenericRequirement(SplitPath(lhs), rhs, GenericRequirementKind.Conformance));
+                continue;
+            }
+
+            // No operator: a bare parameter declaration (τ_0_0, τ_1_0, Self).
+            parameters.Add(clause);
+        }
+
+        return new GenericSignatureModel(parameters, requirements);
+    }
+
+    /// <summary>Splits a requirement LHS into its dotted path (<c>τ_0_0.Element</c> → <c>["τ_0_0", "Element"]</c>).</summary>
+    private static IReadOnlyList<string> SplitPath(string lhs)
+        => lhs.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>
+    /// Index of the first occurrence of <paramref name="op"/> in <paramref name="s"/> at
+    /// angle-bracket depth 0, or -1. Keeps an operator that appears inside a generic argument list
+    /// (none do today, but defensively) from being mistaken for the clause operator.
+    /// </summary>
+    private static int IndexOfTopLevel(string s, string op)
+    {
+        int depth = 0;
+        for (int i = 0; i + op.Length <= s.Length; i++)
+        {
+            char c = s[i];
+            if (c == '<') { depth++; continue; }
+            if (c == '>') { if (depth > 0) depth--; continue; }
+            if (depth == 0 && string.CompareOrdinal(s, i, op, 0, op.Length) == 0)
+                return i;
+        }
+        return -1;
+    }
 }

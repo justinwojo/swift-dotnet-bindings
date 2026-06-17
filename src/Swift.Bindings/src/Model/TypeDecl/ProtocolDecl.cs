@@ -59,6 +59,15 @@ public sealed record ProtocolDecl : TypeDecl
     public string? GenericSignature { get; set; }
 
     /// <summary>
+    /// The structured form of <see cref="GenericSignature"/> (Finding 19): the single grammar that
+    /// every signature predicate queries instead of hand-scanning the raw string. Computed on access
+    /// (not cached in a backing field, which would perturb record equality); the parse is cheap and
+    /// these signatures are short.
+    /// </summary>
+    public GenericSignatureModel ParsedGenericSignature =>
+        GenericSignatureParser.ParseSignature(GenericSignature);
+
+    /// <summary>
     /// Indicates whether this is a class-bound protocol (can only be adopted by classes).
     /// In Swift, this is specified with ": AnyObject" or ": class".
     /// </summary>

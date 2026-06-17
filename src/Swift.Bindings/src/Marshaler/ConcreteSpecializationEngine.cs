@@ -1429,87 +1429,37 @@ public class ConcreteSpecializationEngine
     /// <summary>
     /// Parses <c>MethodDecl.RawGenericSig</c> (format
     /// <c>&lt;τ_0_0, τ_0_1 where τ_0_0 : Module.Protocol, τ_0_1 == Module.ConcreteType&gt;</c>)
-    /// into a map of parameter-name → list of (kind, target) pairs. Both conformance
+    /// into a map of parameter-name → list of (kind, member-path, target) tuples. Both conformance
     /// (<c>:</c>) and same-type (<c>==</c>) clauses are captured. Used by
     /// <see cref="ParentTupleSatisfiesMethodConstraints"/> to detect when a per-method
     /// where-clause adds requirements beyond the parent type's declaration.
+    /// <para>
+    /// Finding 19: the clause grammar (top-level-comma split, <c>==</c>-before-<c>:</c> operator
+    /// detection, root/dependent-member LHS split) now lives in
+    /// <see cref="GenericSignatureParser.ParseSignature"/>; this keys the parsed requirements by
+    /// their root generic param. The member path is empty for a direct constraint (<c>τ_0_0 : P</c>)
+    /// and carries the associated-type path for a constrained-extension clause
+    /// (<c>τ_0_0.Element == Swift.Int</c> → member path <c>Element</c>), which drives associated-type
+    /// resolution against the chosen conformer downstream.
+    /// </para>
     /// </summary>
     private static Dictionary<string, List<(MethodConstraintKind Kind, string MemberPath, string Target)>> ParseMethodLevelConstraints(string rawGenericSig)
     {
         var result = new Dictionary<string, List<(MethodConstraintKind, string, string)>>(StringComparer.Ordinal);
-        var whereIdx = rawGenericSig.IndexOf(" where ", StringComparison.Ordinal);
-        if (whereIdx < 0) return result;
-
-        // The whole generic signature is wrapped in one pair of angle brackets:
-        // `<τ_0_0 where τ_0_0 == Foundation.Measurement<Foundation.UnitDuration>>`. Strip
-        // exactly ONE trailing `>` (the signature closer). A greedy TrimEnd('>') also eats
-        // the closing bracket of a generic SameType target, truncating
-        // `Measurement<UnitDuration>` to `Measurement<UnitDuration` — which then fails to
-        // parse downstream and silently drops the specialization. Only strip when the sig is
-        // genuinely angle-wrapped (defensive: if the ABI ever hands us an unwrapped string we
-        // must not chop a real RHS closer).
-        var afterWhere = rawGenericSig.Substring(whereIdx + " where ".Length).Trim();
-        if (rawGenericSig.TrimStart().StartsWith("<", StringComparison.Ordinal) &&
-            afterWhere.EndsWith(">", StringComparison.Ordinal))
-            afterWhere = afterWhere.Substring(0, afterWhere.Length - 1).TrimEnd();
-        // Split on top-level commas only — a generic SameType target like
-        // `Swift.Dictionary<Swift.String, Swift.Int>` carries an inner comma at angle-depth>0
-        // that a naive Split(',') would tear into two bogus clauses.
-        foreach (var rawClause in SwiftTypeListText.SplitTopLevelCommas(afterWhere))
+        foreach (var r in GenericSignatureParser.ParseSignature(rawGenericSig).Requirements)
         {
-            var clause = rawClause.Trim();
-            MethodConstraintKind kind;
-            int opIdx;
-            int opLen;
-            var eqIdx = clause.IndexOf("==", StringComparison.Ordinal);
-            if (eqIdx > 0)
-            {
-                kind = MethodConstraintKind.SameType;
-                opIdx = eqIdx;
-                opLen = 2;
-            }
-            else
-            {
-                var colonIdx = clause.IndexOf(':');
-                if (colonIdx <= 0) continue;
-                kind = MethodConstraintKind.Conformance;
-                opIdx = colonIdx;
-                opLen = 1;
-            }
-
-            var lhs = clause.Substring(0, opIdx).Trim();
-            var target = clause.Substring(opIdx + opLen).Trim();
-            if (lhs.Length == 0 || target.Length == 0) continue;
-
-            // Split the LHS into its root generic param and an optional dependent-member
-            // path. `τ_0_0 : P` keys `τ_0_0` with an empty member path — a direct
-            // constraint on the param. `τ_0_0.Element == Swift.Int` keys `τ_0_0` with
-            // member path "Element" — a constraint on the param's associated type,
-            // contributed by a constrained extension (`extension Box where Value.Element
-            // == Int`). Keying by the ROOT lets ParentTupleSatisfiesMethodConstraints find
-            // every clause for a bound parent param in one lookup; the member path drives
-            // associated-type resolution against the chosen conformer.
-            string rootParam;
-            string memberPath;
-            var dotIdx = lhs.IndexOf('.');
-            if (dotIdx < 0)
-            {
-                rootParam = lhs;
-                memberPath = string.Empty;
-            }
-            else
-            {
-                rootParam = lhs.Substring(0, dotIdx);
-                memberPath = lhs.Substring(dotIdx + 1);
-            }
+            var rootParam = r.SubjectRoot;
             if (rootParam.Length == 0) continue;
+            var kind = r.Kind == GenericRequirementKind.SameType
+                ? MethodConstraintKind.SameType
+                : MethodConstraintKind.Conformance;
 
             if (!result.TryGetValue(rootParam, out var list))
             {
                 list = new List<(MethodConstraintKind, string, string)>();
                 result[rootParam] = list;
             }
-            var entry = (kind, memberPath, target);
+            var entry = (kind, r.MemberPath, r.Target);
             if (!list.Contains(entry))
                 list.Add(entry);
         }
