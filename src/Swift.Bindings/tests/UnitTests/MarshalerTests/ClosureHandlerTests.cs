@@ -501,19 +501,47 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_WithAsyncVoidReturnClosure_ReturnsTrue()
+    public void IsSupportedClosure_WithAsyncVoidReturnClosure_ReturnsFalse()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Async closures with void return ARE supported (no cast needed).
-        // (Bool) -> Void, async
+        // (Bool) async -> Void is NOT a baseline async shape (the baseline non-throwing
+        // shape requires a non-void blittable return), so it can't be bridged: the legacy
+        // SwiftClosureData path invokes the closure synchronously and discards the returned
+        // Task — silently dropping the async semantics — and, for an escaping argument,
+        // emits an undeclared closure box (CS0103). The method must be skipped, matching the
+        // `#if swift(>=99.0)`-gated `callAsyncVoidClosure` BindingTests fixture and the
+        // real-world YouTubePlayerKit `OpenURLAction.init(handler:)` regression.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Bool"),
             TupleTypeSpec.Empty);
         closureTypeSpec.IsAsync = true;
 
-        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithEscapingMultiArgAsyncVoidClosure_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Reproduces the YouTubePlayerKit `OpenURLAction.init(handler:)` shape:
+        // `@escaping (URL, YouTubePlayer) async -> Void`. Async, non-throwing, Void return,
+        // escaping — exactly the shape that previously slipped past the support gate, routed
+        // to the legacy closure path, and produced an undeclared closure box (CS0103) once
+        // async detection became exact. Must be rejected so the enclosing member is skipped.
+        var args = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Foundation.URL"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+        var closureTypeSpec = new ClosureTypeSpec(args, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     [Fact]
@@ -1542,9 +1570,15 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // @MainActor @Sendable () async -> Void
-        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        // @MainActor @Sendable () async throws -> Bool: a supported async shape (the
+        // no-arg async-throwing continuation bridge — see
+        // IsSupportedClosure_WithAsyncThrowingClosureNoParams_ReturnsTrue). The
+        // @MainActor/@Sendable attributes are orthogonal to support classification and must
+        // not disqualify it. (A void-return async closure is NOT supported regardless of
+        // attributes — see IsSupportedClosure_WithAsyncVoidReturnClosure_ReturnsFalse.)
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
         closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
         closureTypeSpec.Attributes.Add(new TypeSpecAttribute("MainActor"));
         closureTypeSpec.Attributes.Add(new TypeSpecAttribute("Sendable"));
 

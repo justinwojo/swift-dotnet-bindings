@@ -437,19 +437,26 @@ public class ThirdPartyValidationFixTestsV3
     }
 
     [Fact]
-    public void IsSupportedClosure_AsyncNonThrowingWithParams_ReturnsTrue()
+    public void IsSupportedClosure_AsyncNonThrowingVoidReturn_ReturnsFalse()
     {
         var typeDatabase = CreateTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // (Int) async -> Void — async-only closures use a different path
+        // (Int) async -> Void — an async, non-throwing closure with a Void return is
+        // NOT supported: the baseline-async bridge keys off a non-void blittable return
+        // that withCheckedContinuation can carry back, so an async -> Void closure has
+        // nothing to resume with. This shape previously slipped past the async guard,
+        // routed to the legacy escaping-closure path, and emitted an undeclared box
+        // (CS0103) plus a callback that discarded the returned Task — the YouTubePlayerKit
+        // OpenURLAction.init(handler:) regression. IsSupportedClosure must reject it so the
+        // member is skipped (constructor) or tombstoned (method), never legacy-emitted.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             TupleTypeSpec.Empty);
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = false;
 
-        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     #endregion

@@ -237,14 +237,17 @@ public class ClosureHandler
         // IsBaselineAsyncThrowingClosure accepts the shape; otherwise the closure still
         // has to pass the generic IsSupportedClosureParameterType loop below.
 
-        // Async-only closures with non-void returns are supported only for the baseline
-        // non-throwing shape (@escaping (Args) async -> T where T is a blittable primitive
-        // and args are baseline-bridgeable). Anything wider still routes to the generic
-        // skip path — the emitter can't synthesize a Task-returning delegate
-        // under an [UnmanagedCallersOnly] callback for arbitrary shapes.
+        // Async, non-throwing closures are supported only for the baseline non-throwing
+        // shape (@escaping (Args) async -> T where T is a blittable primitive and args are
+        // baseline-bridgeable). Anything wider — including an `async -> Void` closure, which
+        // can never be baseline because the baseline shape requires a non-void blittable
+        // return — routes to the generic skip path. The emitter can't synthesize a
+        // Task-returning delegate under an [UnmanagedCallersOnly] callback for arbitrary
+        // shapes; in particular, the legacy SwiftClosureData path would invoke an async
+        // closure synchronously and discard the returned Task, silently dropping the async
+        // semantics (and, for an escaping arg, emitting an undeclared closure box → CS0103).
         if (closureTypeSpec.IsAsync
             && !closureTypeSpec.Throws
-            && !closureTypeSpec.ReturnType.IsEmptyTuple
             && !IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
             return false;
 

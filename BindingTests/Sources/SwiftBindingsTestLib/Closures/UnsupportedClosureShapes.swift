@@ -16,8 +16,9 @@ import Foundation
 //   AsyncThrowingClosureParam   — async+throwing closure parameter
 //   ArrayOfExistentialReturn    — closure returning `[any P]`
 //   SendableOptionalExistential — optional existential with @Sendable
+//   AsyncVoidReturn             — `@escaping (Args) async -> Void` (not baseline-async)
 //
-// All four shapes degrade today. Fixing each is a separate Closure-handler session
+// All five shapes degrade today. Fixing each is a separate Closure-handler session
 // (per-shape evidence + indirect-return marshalling). Layer B's job here is to keep
 // the count visible.
 
@@ -95,5 +96,41 @@ public class UnsupportedClosureAsyncThrowingParam {
         } catch {
             return -1
         }
+    }
+}
+
+/// Shape (5): `@escaping (Args) async -> Void` — an async closure with a `Void`
+/// return. This is NOT a baseline-async closure: the baseline-async bridge keys
+/// off a non-void blittable return that `withCheckedContinuation` can carry back,
+/// so a `-> Void` async closure has nothing to resume with and must be rejected by
+/// `IsSupportedClosure`. Before the fix it slipped past the async guard (the guard
+/// only rejected non-void async-non-throwing closures), routed to the legacy
+/// escaping-closure path, and emitted an undeclared `handlerBox` (CS0103) plus a
+/// callback that silently discarded the returned `Task`. Mirrors the real-world
+/// `YouTubePlayerKit.OpenURLAction.init(handler: @escaping (URL, YouTubePlayer) async -> Void)`
+/// that surfaced this under `nuke validate`. Both the constructor and the method
+/// forms are pinned: the constructor reaches the closure-param skip gate through a
+/// different early-return than an instance method, and the constructor form is the
+/// exact shape that regressed.
+public class UnsupportedClosureAsyncVoidReturn {
+    private var onOpen: ((UnsupportedClosureRequest) async -> Void)?
+    private var deferred: ((UnsupportedClosureRequest, UnsupportedClosureSignalDefault) async -> Void)?
+
+    // Reachable constructor — keeps the emitted type instantiable so the skip of
+    // the async-void constructor below is observable as "member dropped", not
+    // "whole type unreachable".
+    public init() {}
+
+    // Async-void closure constructor parameter — skipped (single-arg form,
+    // YouTubePlayerKit OpenURLAction.init(handler:) shape).
+    public init(handler: @escaping (UnsupportedClosureRequest) async -> Void) {
+        self.onOpen = handler
+    }
+
+    // Async-void closure method parameter — skipped (multi-arg form).
+    public func onChange(
+        _ handler: @escaping (UnsupportedClosureRequest, UnsupportedClosureSignalDefault) async -> Void
+    ) {
+        self.deferred = handler
     }
 }
