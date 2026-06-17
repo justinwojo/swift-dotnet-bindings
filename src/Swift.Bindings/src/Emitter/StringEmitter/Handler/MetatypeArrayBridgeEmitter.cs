@@ -234,7 +234,7 @@ public static class MetatypeArrayBridgeEmitter
         string? moduleFilter)
     {
         var returnSpec = original.CSSignature[0].SwiftTypeSpec;
-        bool isVoid = returnSpec is TupleTypeSpec tup && tup == TupleTypeSpec.Empty;
+        bool isVoid = returnSpec is TupleTypeSpec tup && tup.IsEmptyTuple;
         bool isStringReturn = !isVoid && returnSpec.ToString() == "Swift.String";
         var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec);
 

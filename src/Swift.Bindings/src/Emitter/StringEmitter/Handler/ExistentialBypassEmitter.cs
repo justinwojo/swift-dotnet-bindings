@@ -1384,7 +1384,7 @@ public static class ExistentialBypassEmitter
                 return rendered;
 
             case TupleTypeSpec tupleTypeSpec:
-                if (tupleTypeSpec == TupleTypeSpec.Empty)
+                if (tupleTypeSpec.IsEmptyTuple)
                     return "Void";
                 var elements = string.Join(", ", tupleTypeSpec.Elements.Select(e =>
                 {

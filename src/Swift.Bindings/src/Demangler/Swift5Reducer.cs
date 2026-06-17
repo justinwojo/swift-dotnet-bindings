@@ -394,9 +394,14 @@ internal class Swift5Reducer
         // Tuple
         //   TupleElement*   - 0 or more TupleElement nodes
 
-        // No children, empty tuple
+        // No children, empty tuple. Return a FRESH instance, never the shared TupleTypeSpec.Empty
+        // singleton: a reduced empty tuple flows up as a closure's arguments or as a tuple element,
+        // and the labeling sites (ConvertTupleElement, ConvertFunction's label loop) then assign
+        // `.TypeLabel` onto whatever spec they got back. Handing out the singleton lets a labeled
+        // empty-tuple parameter (`(first: ())`) write its label onto the global singleton, so every
+        // empty tuple in the process subsequently renders `first: ()` instead of `()`.
         if (node.Children.Count == 0)
-            return new TypeSpecReduction() { Symbol = mangledName, TypeSpec = TupleTypeSpec.Empty };
+            return new TypeSpecReduction() { Symbol = mangledName, TypeSpec = new TupleTypeSpec() };
 
         var types = new List<TypeSpec>();
 

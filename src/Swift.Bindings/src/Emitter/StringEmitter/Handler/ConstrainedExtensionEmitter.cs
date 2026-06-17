@@ -1259,7 +1259,7 @@ public static class ConstrainedExtensionEmitter
         // spec that ClassifyCEReturnShape rejects. Promote that null to a synthetic
         // Void shape on the method side only.
         bool isVoidReturn = effectiveReturnTypeSpec == null
-            || (effectiveReturnTypeSpec is TupleTypeSpec t && t == TupleTypeSpec.Empty);
+            || (effectiveReturnTypeSpec is TupleTypeSpec t && t.IsEmptyTuple);
         if (classification == null && !isVoidReturn)
         {
             UnsupportedCommentEmitter.EmitMemberSkipped(

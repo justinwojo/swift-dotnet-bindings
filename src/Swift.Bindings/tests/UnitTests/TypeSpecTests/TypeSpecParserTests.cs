@@ -462,6 +462,24 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
         Assert.Equal("error", ns.TypeLabel);
     }
 
+    [Fact]
+    public static void ParsingLabeledVoidElement_DoesNotCorruptSharedEmptyTupleSingleton()
+    {
+        // Regression: parsing a `Swift.Void` type used to return the shared TupleTypeSpec.Empty
+        // singleton, and the per-occurrence TypeLabel was then written onto whatever instance came
+        // back. A labeled void element therefore stamped its label onto the GLOBAL empty tuple, so
+        // every empty tuple in the process afterwards rendered "label: ()" instead of "()" — even a
+        // freshly constructed `() -> ()` closure. The void type must be a fresh instance so the
+        // label stays local to the element. (Same bug class as the demangler's ConvertTuple, which
+        // also stopped handing out the singleton.)
+        var ts = TypeSpecParser.Parse("(first: Swift.Void, second: Swift.Int)") as TupleTypeSpec;
+        Assert.NotNull(ts);
+        Assert.Equal("first", ts!.Elements[0].TypeLabel);            // the local element carries the label...
+        Assert.True(ts.Elements[0] is TupleTypeSpec inner && inner.IsEmptyTuple); // ...and it is an empty tuple
+        Assert.Equal("()", TupleTypeSpec.Empty.ToString());          // ...but the shared singleton stays pristine
+        Assert.Equal("() -> ()", new ClosureTypeSpec(null, null).ToString());
+    }
+
     // --- Finding 49: EOF-strict canonical entry point ---
 
     [Theory]

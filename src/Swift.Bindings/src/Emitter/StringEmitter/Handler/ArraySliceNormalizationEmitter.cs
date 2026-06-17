@@ -595,7 +595,7 @@ public static class ArraySliceNormalizationEmitter
         // Render return type from original method
         var returnTypeSpec = originalMethodDecl.CSSignature.First().SwiftTypeSpec;
         var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
-        bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec == TupleTypeSpec.Empty;
+        bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec.IsEmptyTuple;
         bool throws = originalMethodDecl.Throws;
 
         // @_cdecl return mapping

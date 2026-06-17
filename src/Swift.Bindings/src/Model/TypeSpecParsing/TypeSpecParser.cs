@@ -111,7 +111,11 @@ public class TypeSpecParser
             // SwiftModuleAliases for the rationale and the longer-term home (type resolver, Finding 10).
             var tokenValue = SwiftModuleAliases.NormalizeTypeName(token.Value);
             if (tokenValue == "Swift.Void")
-                type = TupleTypeSpec.Empty;
+                // Fresh instance, not the shared TupleTypeSpec.Empty singleton: this `type` receives
+                // a per-occurrence `TypeLabel`/`IsInOut`/`IsAny` below, and a labeled void element
+                // (`first: ()`) would otherwise write its label onto the global singleton, corrupting
+                // every empty-tuple rendering in the process.
+                type = new TupleTypeSpec();
             else if (tokenValue == "Any")
                 // "Any" is Swift's existential type with zero protocols
                 // Represent it as an empty ProtocolListTypeSpec
