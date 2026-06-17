@@ -425,6 +425,19 @@ public static class SwiftSourceStripper
         // it here matches production; stripped otherwise because nothing referenced it before
         // this test.
         "PExtOptChildProtocol",
+        // Existential-overload collapse + reverse dispatch (OverloadCollapseDispatch.swift).
+        // OverloadCollapseDelegate declares two `record` overloads taking DIFFERENT
+        // existentials (`any OverloadCollapseTagPrimary` / `any OverloadCollapseTagSecondary`)
+        // — the FirebaseFirestore `add(any Expression)` / `add(any Sendable)` shape. The
+        // generator collapses both to a single C# interface method but allocates two witness
+        // slots; the proxy raw-signature dedup keeps only the surviving (first) overload's
+        // receiver. OverloadCollapseDispatchTests vends a C# conformer to Swift
+        // OverloadCollapseSource.firePrimary, which dispatches the surviving overload back
+        // through the EveryProtocol vtable — so the conformance + witness-table getter must
+        // survive stripping. The tag protocol is reverse-read through the receiver as well.
+        "OverloadCollapseDelegate",
+        "OverloadCollapseTagPrimary",
+        "OverloadCollapseTagSecondary",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

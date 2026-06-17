@@ -63,9 +63,14 @@ public partial class ProtocolProxyEmitter
         // Method receivers. Index allocation MUST match the vtable struct (Vtables.cs): RAW producer
         // key (EveryProtocolEmitter.GetMethodKey), index consumed for every distinct raw method, and
         // the layout predicate (IncludesMethod) applied UNCONDITIONALLY so a receiver is emitted only
-        // for a method that actually has a Swift vtable slot. Two fillability filters then layer on
+        // for a method that actually has a Swift vtable slot. Three fillability filters then layer on
         // top — they leave a slot Swift KEEPS at null rather than shrinking the layout:
         //   • _skippedMethodKeys — an AnyType-unprojectable member has no C# surface to forward to.
+        //   • the raw-signature collapse — the interface emits exactly ONE method per raw Swift
+        //     signature key, so two overloads that collapse to one raw key but project to DISTINCT
+        //     C# methods (add(any Expression)→Add(IExpression) / add(any Swift.Sendable)→Add(object))
+        //     get a single receiver for the first (surviving) overload; the second's slot is left
+        //     null. Without this the orphan receiver would dispatch to a non-existent C# overload.
         //   • the projected-C# collapse — two raw-distinct overloads projecting to one C# method
         //     (consume(any A)/consume(any B) → Consume(object)) share a single receiver; the
         //     collapsed-duplicate slot is left null (same fillability model as AnyType members and
@@ -75,6 +80,7 @@ public partial class ProtocolProxyEmitter
         //     sized and forward dispatch + the first overload work.
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedRawKeys = new HashSet<string>();
         var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
@@ -98,6 +104,18 @@ public partial class ProtocolProxyEmitter
                 // FILLABILITY: skip-set membership is keyed on the projected/collapsing key.
                 var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
                 if (_skippedMethodKeys.Contains(collapsingKey))
+                    continue;
+                // RAW-SIGNATURE DEDUP: the interface emits exactly ONE method per raw Swift
+                // signature key (ProtocolHandler dedups on GetMethodSignatureKey — e.g. an
+                // `add(any Expression)` / `add(any Swift.Sendable)` overload pair both collapse to
+                // one raw key and only the first survives as `Add(IExpression)`). Mirror that here:
+                // the surviving interface method is the FIRST by declaration order, so keep its
+                // receiver and skip later same-raw-key overloads. Without this, the second overload
+                // — which projects to a DISTINCT C# key (`object`) and so slips past the
+                // projected-key collapse below — would emit a receiver dispatching to a non-existent
+                // `Add(object)` overload (CS1503). The vtable index is already consumed above, so the
+                // skipped slot is correctly left null (the documented fillability model).
+                if (!emittedRawKeys.Add(collapsingKey))
                     continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))

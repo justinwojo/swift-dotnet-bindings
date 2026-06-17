@@ -253,6 +253,7 @@ public partial class ProtocolProxyEmitter
         // layout, then the fillability skips leave Swift-kept-but-C#-unfillable slots null.
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedRawKeys = new HashSet<string>();
         var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
@@ -274,6 +275,13 @@ public partial class ProtocolProxyEmitter
                     continue;
                 var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
                 if (_skippedMethodKeys.Contains(collapsingKey))
+                    continue;
+                // RAW-SIGNATURE DEDUP: mirror the interface's one-method-per-raw-key invariant and
+                // the receiver loop (ProtocolProxyEmitter.Receivers.cs). An overload pair that
+                // collapses to one raw key but projects to distinct C# methods must wire only the
+                // surviving (first) overload's trampoline; the orphan slot stays null rather than
+                // pointing at a receiver for a non-existent C# overload.
+                if (!emittedRawKeys.Add(collapsingKey))
                     continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
@@ -623,6 +631,7 @@ public partial class ProtocolProxyEmitter
         }
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedRawKeys = new HashSet<string>();
         var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in parentDecl.Methods)
         {
@@ -644,6 +653,16 @@ public partial class ProtocolProxyEmitter
                 var idx = methodIndex++;
                 methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, parentDecl, vtableClosureHandler)) continue;
+                // RAW-SIGNATURE DEDUP: mirror the receiver loop (EmitReceiverMethods, shared with
+                // this cross-module path via applyVtableMembershipFilter) and the child local-vtable
+                // loop. An existential-overload pair that collapses to one raw key but projects to
+                // distinct C# keys gets ONE receiver (the first survivor); without this guard the
+                // local-vtable initializer would emit `Func_X_{idx} = &Receive_X_{idx}` for the
+                // second overload — an orphan reference to a receiver the guarded loop never emitted
+                // (CS0103). The slot's struct field still exists (keyed on the raw producer key) and
+                // is left at IntPtr.Zero, matching the documented fillability model.
+                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, parentDecl);
+                if (!emittedRawKeys.Add(collapsingKey)) continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, parentDecl);
                 if (!emittedCSharpKeys.Add(projectedKey)) continue;
                 EmitLocalVtableMethodAssignment(writer, method, idx);

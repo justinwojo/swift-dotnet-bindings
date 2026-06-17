@@ -1593,6 +1593,144 @@ public class ProtocolProxyEmitterTests
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "static void Receive_finish_"));
     }
 
+    [Fact]
+    public void EmitProxyClass_TwoExistentialOverloadsSameRawKey_EmitsSingleReceiver()
+    {
+        // FirebaseFirestore regression (S20): a protocol carries two overloads of the SAME
+        // method name whose params are DIFFERENT existentials — `record(any TagA)` and
+        // `record(any TagB)`. The three protocol key functions diverge on this shape:
+        //   • ProtocolSignatureHelper.GetMethodSignatureKey resolves each param via
+        //     GetTypeRecordOrAnyType — an existential ProtocolListTypeSpec is NOT understood
+        //     there, so BOTH collapse to "record(Swift.AnyType)". ProtocolHandler dedups on
+        //     this key → the interface emits exactly ONE method (Record(ITagA), first by
+        //     declaration order). This mirrors Firestore's add(any Expression)/add(any Sendable).
+        //   • EveryProtocolEmitter.GetMethodKey (vtable layout / slot allocation) keys off the
+        //     RAW Swift type, which is distinct (TagA vs TagB) → TWO witness slots.
+        //   • GetProjectedCSharpMethodKey routes through ProjectTypeToCSharp's existential
+        //     fallback → distinct projected keys (ITagA vs ITagB), so the projected-key dedup
+        //     in the receiver/static-init loops does NOT collapse them.
+        // Before the fix the receiver + static-init loops therefore emitted a SECOND receiver
+        // (Receive_record_1) dispatching to a non-existent Record(ITagB) overload → CS1503 in
+        // the generated binding. The fix adds a raw-signature dedup (emittedRawKeys, keyed on
+        // GetMethodSignatureKey) to both loops so only the surviving (first) overload's receiver
+        // is emitted; the collapsed slot is left null (the documented fillability model — the
+        // vtable struct is still sized for both slots, matching Swift's witness table).
+        // The protocols are REGISTERED so the factory-first ProjectTypeToCSharp (used by
+        // GetProjectedCSharpMethodKey) resolves each existential to its DISTINCT interface
+        // (ITagA / ITagB). GetMethodSignatureKey, by contrast, reads GetTypeRecordOrAnyType on
+        // the ProtocolListTypeSpec — not a named lookup, so it returns AnyType for both
+        // regardless of registration. That asymmetry is the whole bug.
+        RegisterProtocol("TagA");
+        RegisterProtocol("TagB");
+        var protocol = CreateSimpleProtocol("OverloadCollapseProto");
+
+        var first = CreateMethodDecl("record");
+        first.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "value", PrivateName = "value",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TagA") }),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(first);
+
+        var second = CreateMethodDecl("record");
+        second.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "value", PrivateName = "value",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TagB") }),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(second);
+
+        var output = EmitProxyClass(protocol);
+
+        // The interface collapses both overloads to one method; the reverse-dispatch receiver
+        // and its static-init wiring must follow suit — exactly ONE receiver, no orphan.
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "static void Receive_record_"));
+        // ...and exactly ONE local-vtable assignment wiring a receiver into the struct.
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "= &Receive_record_"));
+    }
+
+    [Fact]
+    public void EmitProxyClass_CrossModuleParent_TwoExistentialOverloadsSameRawKey_EmitsSingleReceiver()
+    {
+        // Cross-module sibling of EmitProxyClass_TwoExistentialOverloadsSameRawKey_EmitsSingleReceiver.
+        // Here the collapsing existential-overload pair (`record(any TagA)` / `record(any TagB)`)
+        // lives on a PARENT protocol in a DIFFERENT module that the child (in TestModule) inherits
+        // across the boundary. The child proxy's cctor populates the cross-module parent's local
+        // vtable via EmitCrossModuleParentVtableInit (ProtocolProxyEmitter.StaticInit.cs). That
+        // loop shares the SAME GetMethodSignatureKey-collapse / GetProjectedCSharpMethodKey-diverge
+        // asymmetry as the same-module child path, and the receiver emitter (EmitReceiverMethods,
+        // reached here with applyVtableMembershipFilter: true) already dedups on the raw key →
+        // exactly ONE `Receive_record_`. Without the matching raw-key dedup in the cross-module
+        // local-vtable loop the initializer emits `Func_record_1 = &Receive_record_1`, an orphan
+        // reference to a receiver the deduped emitter never wrote (CS0103 in the generated binding).
+        // The collapse is keyed on the method's existential params (registered TagA/TagB project to
+        // distinct C# interfaces, while GetMethodSignatureKey reads them as Swift.AnyType), so the
+        // declaring protocol need only live cross-module; its own registration is incidental.
+        RegisterProtocol("TagA");
+        RegisterProtocol("TagB");
+        RegisterCrossModuleProtocol("OtherModule", "ParentProto");
+
+        var parentModule = new ModuleDecl
+        {
+            Name = "OtherModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parent = CreateSimpleProtocol("ParentProto");
+        parent.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ParentProto");
+        parent.ModuleDecl = parentModule;
+
+        var first = CreateMethodDecl("record");
+        first.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "value", PrivateName = "value",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TagA") }),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        parent.Methods.Add(first);
+
+        var second = CreateMethodDecl("record");
+        second.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "value", PrivateName = "value",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TagB") }),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        parent.Methods.Add(second);
+
+        var childModule = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        childModule.DependencyProtocols["OtherModule"] = new List<ProtocolDecl> { parent };
+
+        var child = CreateSimpleProtocol("ChildProto");
+        child.ModuleDecl = childModule;
+        child.InheritedProtocols.Add(new NamedTypeSpec("OtherModule.ParentProto"));
+
+        var output = EmitProxyClass(child);
+
+        // The cross-module parent scaffolding must collapse the existential-overload pair to ONE
+        // receiver + ONE local-vtable assignment, exactly like the same-module path.
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "static void Receive_record_"));
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "= &Receive_record_"));
+    }
+
     #endregion
 
     #region Swift Existential Degradation Tests
