@@ -667,7 +667,8 @@ public static class OptionalPointerWrapperEmitter
                     // Tag-only enum: zero-initialize and copyMemory to avoid reading past
                     // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
                     // Compute size before closures to avoid Swift exclusivity checker error.
-                    // EmitTagOnlyEnumReturn doesn't support indent, so emit inline.
+                    // The shared tag-only helper emits unindented lines, so this indent-aware
+                    // optional-pointer site emits the same shape inline.
                     swiftWriter.WriteLine($"{indent}var result = {callExpr}");
                     swiftWriter.WriteLine($"{indent}let resultSize = MemoryLayout.size(ofValue: result)");
                     swiftWriter.WriteLine($"{indent}var tag: {mapping!.CdeclReturnType} = 0");

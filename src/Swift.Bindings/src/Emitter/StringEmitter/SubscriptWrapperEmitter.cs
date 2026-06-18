@@ -675,46 +675,7 @@ public static class SubscriptWrapperEmitter
 
     private static void EmitDirectReturn(SwiftWriter swiftWriter, string expr,
         TypeSpec typeSpec, ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
-    {
-        switch (mapping.Kind)
-        {
-            case CdeclReturnKind.Bool:
-                swiftWriter.WriteLine($"return ({expr}) ? 1 : 0");
-                break;
-
-            case CdeclReturnKind.SimpleEnum:
-                if (typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord) &&
-                    !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
-                {
-                    swiftWriter.WriteLine($"return {mapping.CdeclReturnType}(({expr}).rawValue)");
-                }
-                else
-                {
-                    // Tag-only enum: zero-initialize and copyMemory to avoid reading past
-                    // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
-                    WrapperEmitterHelpers.EmitTagOnlyEnumReturn(swiftWriter, expr, mapping.CdeclReturnType);
-                }
-                break;
-
-            case CdeclReturnKind.ClassPointer:
-                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
-                // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
-                // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
-                swiftWriter.WriteLine($"return Unmanaged.passRetained({expr} as AnyObject).toOpaque()");
-                break;
-
-            case CdeclReturnKind.OptionalClassPointer:
-                // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
-                // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
-                swiftWriter.WriteLine($"return ({expr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
-                break;
-
-            case CdeclReturnKind.Direct:
-            default:
-                swiftWriter.WriteLine($"return {expr}");
-                break;
-        }
-    }
+        => CdeclReturnRenderer.Write(swiftWriter, expr, typeSpec, typeDatabase, mapping, scalarParens: true);
 
     // ═══════════════════════════════════════════════════════════════════════
     // Generic parent class support — protocol-based type erasure

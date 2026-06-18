@@ -768,47 +768,7 @@ public static class PropertyWrapperEmitter
     /// </summary>
     private static void EmitDirectGetterReturn(SwiftWriter swiftWriter, string propAccess,
         TypeSpec typeSpec, ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
-    {
-        switch (mapping.Kind)
-        {
-            case CdeclReturnKind.Bool:
-                swiftWriter.WriteLine($"return {propAccess} ? 1 : 0");
-                break;
-
-            case CdeclReturnKind.SimpleEnum:
-                // Check if it has a raw value type for safe conversion
-                if (typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord) &&
-                    !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
-                {
-                    swiftWriter.WriteLine($"return {mapping.CdeclReturnType}({propAccess}.rawValue)");
-                }
-                else
-                {
-                    // Tag-only enum: zero-initialize and copyMemory to avoid reading past
-                    // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
-                    WrapperEmitterHelpers.EmitTagOnlyEnumReturn(swiftWriter, propAccess, mapping.CdeclReturnType);
-                }
-                break;
-
-            case CdeclReturnKind.ClassPointer:
-                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
-                // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
-                // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
-                swiftWriter.WriteLine($"return Unmanaged.passRetained({propAccess} as AnyObject).toOpaque()");
-                break;
-
-            case CdeclReturnKind.OptionalClassPointer:
-                // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
-                // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
-                swiftWriter.WriteLine($"return ({propAccess}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
-                break;
-
-            case CdeclReturnKind.Direct:
-            default:
-                swiftWriter.WriteLine($"return {propAccess}");
-                break;
-        }
-    }
+        => CdeclReturnRenderer.Write(swiftWriter, propAccess, typeSpec, typeDatabase, mapping, scalarParens: false);
 
     /// <summary>
     /// Checks if a parent decl is a non-copyable struct.
@@ -1077,40 +1037,11 @@ public static class PropertyWrapperEmitter
             // `swiftc` as "cannot convert Bool to Int8". SimpleEnum / ClassPointer
             // mirror the non-generic path for completeness so any Collection-family
             // conformer's enum- or class-returning nint-only property compiles cleanly.
-            switch (returnMapping.Kind)
-            {
-                case CdeclReturnKind.Bool:
-                    bodyLines.Add($"return {propAccess} ? 1 : 0");
-                    break;
-                case CdeclReturnKind.SimpleEnum:
-                    if (env.TypeDatabase.TryGetTypeRecord(propertyDecl.SwiftTypeSpec, out var enumRecord)
-                        && !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
-                    {
-                        bodyLines.Add($"return {returnMapping.CdeclReturnType}({propAccess}.rawValue)");
-                    }
-                    else
-                    {
-                        // Tag-only enum: zero-init + copyMemory(byteCount: enum size) avoids
-                        // reading past the enum's 1-byte allocation into the wider cdecl
-                        // return type (Int/Int8 etc.). Mirrors the non-generic path's
-                        // EmitTagOnlyEnumReturn; both paths must agree or tag-only enum
-                        // properties on Collection-family conformers produce mismatched
-                        // ABI or invalid Swift.
-                        bodyLines.AddRange(WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(
-                            propAccess, returnMapping.CdeclReturnType));
-                    }
-                    break;
-                case CdeclReturnKind.ClassPointer:
-                    bodyLines.Add($"return Unmanaged.passRetained({propAccess} as AnyObject).toOpaque()");
-                    break;
-                case CdeclReturnKind.OptionalClassPointer:
-                    bodyLines.Add($"return ({propAccess}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
-                    break;
-                case CdeclReturnKind.Direct:
-                default:
-                    bodyLines.Add($"return {propAccess}");
-                    break;
-            }
+            // Tag-only enum / Bool / ClassPointer mirror the non-generic getter path so that any
+            // Collection-family conformer's enum- or class-returning nint-only property compiles
+            // cleanly; both paths must agree or they produce mismatched ABI or invalid Swift.
+            bodyLines.AddRange(CdeclReturnRenderer.Lines(
+                propAccess, propertyDecl.SwiftTypeSpec, env.TypeDatabase, returnMapping, scalarParens: false));
         }
 
         // Emit protocol

@@ -365,32 +365,14 @@ public static class WrapperEmitterHelpers
     }
 
     /// <summary>
-    /// Emits a safe tag-only enum return for @_cdecl wrappers.
+    /// Returns the Swift code lines for a tag-only enum return as a list of strings.
     /// Tag-only enums (no RawRepresentable conformance) have a memory layout smaller than
     /// the cdecl return type (e.g., a 4-case enum is 1 byte, but the return type is Int/8 bytes).
     /// Using <c>UnsafeRawPointer.load(as: Int.self)</c> reads past the enum's allocation,
-    /// causing "load from misaligned raw pointer" crashes on ARM64.
-    /// Instead, zero-initialize an Int and copy only the enum's actual bytes into it.
-    /// </summary>
-    /// <param name="swiftWriter">The Swift writer for the wrapper .swift file.</param>
-    /// <param name="callExpr">The Swift expression that produces the enum value.</param>
-    /// <param name="cdeclReturnType">The cdecl return type name (e.g., "Int").</param>
-    public static void EmitTagOnlyEnumReturn(SwiftWriter swiftWriter, string callExpr, string cdeclReturnType)
-    {
-        // Compute size BEFORE the closures to avoid Swift exclusivity checker error
-        // ("overlapping accesses to 'result'") — MemoryLayout.size(ofValue:) reads result
-        // while withUnsafePointer(to: &result) takes exclusive access.
-        swiftWriter.WriteLine($"var result = {callExpr}");
-        swiftWriter.WriteLine("let resultSize = MemoryLayout.size(ofValue: result)");
-        swiftWriter.WriteLine($"var tag: {cdeclReturnType} = 0");
-        swiftWriter.WriteLine("withUnsafeMutablePointer(to: &tag) { tagPtr in withUnsafePointer(to: &result) { resultPtr in UnsafeMutableRawPointer(tagPtr).copyMemory(from: UnsafeRawPointer(resultPtr), byteCount: resultSize) } }");
-        swiftWriter.WriteLine("return tag");
-    }
-
-    /// <summary>
-    /// Returns the Swift code lines for a tag-only enum return as a list of strings,
-    /// for use in extension body lines (e.g., generic extension method emission).
-    /// See <see cref="EmitTagOnlyEnumReturn"/> for the rationale.
+    /// causing "load from misaligned raw pointer" crashes on ARM64. Instead, zero-initialize
+    /// an Int and copy only the enum's actual bytes into it. The single source of truth for the
+    /// tag-only return shape; <see cref="CdeclReturnRenderer"/> consumes it for all @_cdecl
+    /// return rendering (writer and lines forms alike).
     /// </summary>
     /// <param name="callExpr">The Swift expression that produces the enum value.</param>
     /// <param name="cdeclReturnType">The cdecl return type name (e.g., "Int").</param>

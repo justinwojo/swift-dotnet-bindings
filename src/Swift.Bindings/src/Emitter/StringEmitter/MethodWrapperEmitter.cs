@@ -1173,41 +1173,8 @@ public static class MethodWrapperEmitter
             // Direct return — must apply the same conversions as EmitDirectGetterReturn:
             // Bool → Int8 (ternary), SimpleEnum → rawValue/tag, ClassPointer → Unmanaged
             var callExpr = $"{tryPrefix}obj.{swiftMethodName}({methodCallArgString})";
-            switch (returnMapping.Kind)
-            {
-                case CdeclReturnKind.Bool:
-                    extensionBodyLines.Add($"let result = {callExpr}");
-                    extensionBodyLines.Add("return result ? 1 : 0");
-                    break;
-                case CdeclReturnKind.SimpleEnum:
-                    // Tag-only enums have no rawValue — use safe widening copy.
-                    // Matches EmitDirectGetterReturn in PropertyWrapperEmitter.
-                    if (env.TypeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord) &&
-                        !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
-                    {
-                        extensionBodyLines.Add($"let result = {callExpr}");
-                        extensionBodyLines.Add($"return {returnMapping.CdeclReturnType}(result.rawValue)");
-                    }
-                    else
-                    {
-                        // Tag-only enum: zero-initialize and copyMemory to avoid reading past
-                        // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
-                        extensionBodyLines.AddRange(
-                            WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(callExpr, returnMapping.CdeclReturnType));
-                    }
-                    break;
-                case CdeclReturnKind.ClassPointer:
-                    extensionBodyLines.Add($"let result = {callExpr}");
-                    extensionBodyLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
-                    break;
-                case CdeclReturnKind.OptionalClassPointer:
-                    extensionBodyLines.Add($"let result = {callExpr}");
-                    extensionBodyLines.Add("return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }");
-                    break;
-                default:
-                    extensionBodyLines.Add($"return {callExpr}");
-                    break;
-            }
+            extensionBodyLines.AddRange(CdeclReturnRenderer.LinesBindingResult(
+                callExpr, returnTypeSpec, env.TypeDatabase, returnMapping));
         }
 
         // Inout writebacks for concrete-typed inout params on generic parents are emitted
@@ -1425,24 +1392,7 @@ public static class MethodWrapperEmitter
         if (!isVoidReturn && !needsResultPtr)
         {
             // Return a sentinel value matching the return type
-            switch (returnMapping.Kind)
-            {
-                case CdeclReturnKind.Bool:
-                    swiftWriter.WriteLine("    return 0");
-                    break;
-                case CdeclReturnKind.SimpleEnum:
-                    swiftWriter.WriteLine("    return 0");
-                    break;
-                case CdeclReturnKind.ClassPointer:
-                    swiftWriter.WriteLine("    return UnsafeMutableRawPointer(bitPattern: 1)!");
-                    break;
-                case CdeclReturnKind.OptionalClassPointer:
-                    swiftWriter.WriteLine("    return nil");
-                    break;
-                case CdeclReturnKind.Direct:
-                    swiftWriter.WriteLine("    return 0");
-                    break;
-            }
+            CdeclReturnRenderer.WriteErrorSentinel(swiftWriter, returnMapping);
         }
 
         swiftWriter.WriteLine("}");
@@ -1462,46 +1412,7 @@ public static class MethodWrapperEmitter
     /// </summary>
     private static void EmitDirectReturn(SwiftWriter swiftWriter, string callExpr,
         TypeSpec typeSpec, ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
-    {
-        switch (mapping.Kind)
-        {
-            case CdeclReturnKind.Bool:
-                swiftWriter.WriteLine($"return ({callExpr}) ? 1 : 0");
-                break;
-
-            case CdeclReturnKind.SimpleEnum:
-                if (typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord) &&
-                    !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
-                {
-                    swiftWriter.WriteLine($"return {mapping.CdeclReturnType}(({callExpr}).rawValue)");
-                }
-                else
-                {
-                    // Tag-only enum: zero-initialize and copyMemory to avoid reading past
-                    // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
-                    WrapperEmitterHelpers.EmitTagOnlyEnumReturn(swiftWriter, callExpr, mapping.CdeclReturnType);
-                }
-                break;
-
-            case CdeclReturnKind.ClassPointer:
-                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
-                // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
-                // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
-                swiftWriter.WriteLine($"return Unmanaged.passRetained({callExpr} as AnyObject).toOpaque()");
-                break;
-
-            case CdeclReturnKind.OptionalClassPointer:
-                // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
-                // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
-                swiftWriter.WriteLine($"return ({callExpr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
-                break;
-
-            case CdeclReturnKind.Direct:
-            default:
-                swiftWriter.WriteLine($"return {callExpr}");
-                break;
-        }
-    }
+        => CdeclReturnRenderer.Write(swiftWriter, callExpr, typeSpec, typeDatabase, mapping, scalarParens: true);
 
     /// <summary>
     /// Checks whether any closure parameter is an async closure the emitter can't
