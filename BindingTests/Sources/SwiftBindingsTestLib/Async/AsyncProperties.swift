@@ -166,30 +166,34 @@ public final class TrackedRefStreamSource {
     }
 }
 
-// MARK: - AsyncThrowingStream rejection (Defect I)
-// AsyncThrowingStream's terminal iteration error has no representation across the channel bridge
-// (the bridge models a non-throwing AsyncStream as IAsyncEnumerable<T>), so the generator must
-// reject it with SkipReason.UnsupportedThrowingAsyncStream rather than half-binding. Pre-fix the
-// throwing variant matched IsAsyncStream and flowed into the supported-stream emission path, which
-// emitted a Swift wrapper iterating it with a bare `for await` (no `try`) — a Swift compile error
-// that the harness silently strips, leaving a C# property bound to a missing symbol. This fixture
-// pins the rejection against the REAL parser output (the ABI/swiftinterface must name the type
-// `_Concurrency.AsyncThrowingStream` for IsThrowingStream to fire) and proves the rejection is
-// property-scoped: the sibling non-throwing `safeEvents` on the same type must still be emitted.
+// MARK: - AsyncThrowingStream support (Defect I redesign)
+// AsyncThrowingStream<Element, Failure> now binds to IAsyncEnumerable<Element>. Beyond the element +
+// completion callbacks every stream carries, the throwing variant adds a SEPARATE Swift producer-error
+// callback: the generated wrapper iterates with `for try await` inside a do/catch, and on a
+// `finish(throwing:)` termination its `catch` arm marshals the Swift error description across to the C#
+// producer-error trampoline, which faults the channel so the consumer's `await foreach` RETHROWS at the
+// boundary instead of silently truncating (the pre-redesign behaviour). A `CancellationError` is
+// swallowed (consumer task-cancel is not a producer fault). This fixture pins the support against the
+// REAL parser output (the ABI/swiftinterface must name the type `_Concurrency.AsyncThrowingStream`) and
+// proves it is property-scoped: the sibling non-throwing `safeEvents` rides the same supported-stream
+// emission path and must still round-trip.
 public final class ThrowingStreamSource {
     public init() {}
 
-    /// MUST be skipped: AsyncThrowingStream is unsupported (UnsupportedThrowingAsyncStream).
+    /// Throwing stream: yields 1, 2, 3 then faults via `finish(throwing:)`. A consumer's `await foreach`
+    /// observes the three elements then RETHROWS the faulted error (description `boom`, marshalled by the
+    /// producer-error callback into a SwiftRuntimeException) at the boundary.
     public var throwingEvents: AsyncThrowingStream<Int32, Error> {
         AsyncThrowingStream { continuation in
             continuation.yield(1)
             continuation.yield(2)
-            continuation.finish()
+            continuation.yield(3)
+            continuation.finish(throwing: StreamProducerError.boom)
         }
     }
 
-    /// Sibling non-throwing stream — must still be emitted and round-trip at runtime, proving the
-    /// throwing-stream rejection does not poison the whole type.
+    /// Sibling non-throwing stream — must still emit and round-trip, proving the throwing-stream support
+    /// rides the same emission path and does not poison the plain AsyncStream sibling on the same type.
     public var safeEvents: AsyncStream<Int32> {
         AsyncStream { continuation in
             continuation.yield(7)
@@ -198,4 +202,86 @@ public final class ThrowingStreamSource {
             continuation.finish()
         }
     }
+}
+
+/// Error a throwing AsyncStream raises via `finish(throwing:)` so the producer-threw fault path is
+/// exercised end to end. `"\(error)"` renders the case name `boom`, which the Swift wrapper's `catch`
+/// arm passes to the C# producer-error callback; the bridge surfaces it as the SwiftRuntimeException
+/// message a consumer observes when `await foreach` rethrows.
+public enum StreamProducerError: Error {
+    case boom
+}
+
+// MARK: - Producer cancel (Defect I redesign)
+// A consumer-initiated stop (Cancel/Dispose/enumerator disposal) routes through SwiftAsyncStream's
+// producer-cancel registry hook, which task-cancels the SUSPENDED Swift producer Task (the wrapper's
+// `for await`) rather than merely completing the channel. This closes the "stream dropped without
+// completing or disposing leaks one handle+instance" residual. The fixture exercises it: `slowCounts`
+// produces on a detached Task that sleeps between yields, so the wrapper's `for await` is genuinely
+// suspended between elements — the exact shape producer-cancel exists to stop. `continuation.onTermination`
+// forwards the wrapper Task's cancellation (delivered when SBW_CancelTask cancels it) to the producer
+// Task. `producedCount` lets the consumer assert the producer's element count STOPS CLIMBING after a
+// Cancel() — proving the suspended producer was actually stopped, not just that the channel closed.
+public final class CancellableStreamSource {
+    public init() {}
+
+    private let _produced = ProducedCounter()
+
+    /// Number of elements the Swift producer has yielded so far. After a consumer Cancel(), this must
+    /// stop climbing (the producer Task was cancelled), not keep incrementing forever.
+    public var producedCount: Int32 { _produced.value }
+
+    /// Continuously-climbing AsyncStream: the producer Task yields an incrementing counter every 20ms,
+    /// so `producedCount` rises without bound until the consumer stops it. A consumer break/Cancel must
+    /// halt production — `producedCount` then freezes — rather than leaving the producer running forever.
+    /// `continuation.onTermination` forwards the wrapper Task's cancellation to the producer Task.
+    public var climbingCounts: AsyncStream<Int32> {
+        let counter = _produced
+        return AsyncStream { continuation in
+            let task = Task {
+                var i: Int32 = 0
+                while !Task.isCancelled {
+                    continuation.yield(i)
+                    counter.value = i + 1
+                    i += 1
+                    try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Yields 3 elements then SUSPENDS INDEFINITELY — the "slow / never-yielding upstream" shape. The
+    /// wrapper's `for await` parks with no next element boundary, so completing the channel cannot wake
+    /// it; ONLY a registry task-cancel (the C# Cancel() → SBW_CancelTask → wrapper Task cancel →
+    /// `onTermination`) drives the producer to `finish()` and the wrapper to its completion callback,
+    /// which frees the rooting GCHandle. This isolates producer-cancel: pre-redesign such a parked stream
+    /// leaked one context handle (and instance) forever.
+    public var suspendingCounts: AsyncStream<Int32> {
+        let counter = _produced
+        return AsyncStream { continuation in
+            let task = Task {
+                var i: Int32 = 0
+                while i < 3 {
+                    continuation.yield(i)
+                    counter.value = i + 1
+                    i += 1
+                }
+                // Park until the wrapper Task is cancelled — no further elements ever arrive.
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+/// Counter shared between the Swift producer Task and the C# consumer's reads. `@unchecked Sendable`:
+/// the single producer writes while running and the consumer reads after the producer has been cancelled
+/// and settled, so the benign data race never observes a torn Int32.
+final class ProducedCounter: @unchecked Sendable {
+    var value: Int32 = 0
 }

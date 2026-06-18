@@ -24,18 +24,21 @@ public class AsyncStreamHandlerTests
     }
 
     [Fact]
-    public void IsAsyncStream_WithAsyncThrowingStream_ReturnsFalse()
+    public void IsAsyncStream_WithAsyncThrowingStream_ReturnsTrue()
     {
-        // AsyncThrowingStream is NOT a supported AsyncStream: its terminal iteration error has no
-        // representation across the channel bridge, so IsAsyncStream must not match it (it is
-        // rejected via IsThrowingStream → SkipReason.UnsupportedThrowingAsyncStream). Matching it
-        // here would let it flow into the supported-stream emission path and half-bind.
+        // AsyncThrowingStream IS now a supported async stream: it projects to IAsyncEnumerable<T>
+        // exactly like AsyncStream (element = generic param [0] for both), and its
+        // finish(throwing:) termination is marshalled through a producer-error callback that faults
+        // the channel so the consumer's await foreach rethrows. IsAsyncStream therefore matches it
+        // so it flows into the (now-supported) stream emission path. (Inverse of the Session-2
+        // rejection — see IsThrowingStream below, which still distinguishes the throwing variant so
+        // the emitter knows to wire the extra producer-error callback.)
         var typeDatabase = new MockTypeDatabase();
         var handler = new AsyncStreamHandler(typeDatabase);
 
         var typeSpec = new NamedTypeSpec("_Concurrency.AsyncThrowingStream", new NamedTypeSpec("Swift.Int"));
 
-        Assert.False(handler.IsAsyncStream(typeSpec));
+        Assert.True(handler.IsAsyncStream(typeSpec));
     }
 
     [Fact]

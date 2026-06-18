@@ -51,17 +51,26 @@ namespace Swift;
 /// always-following completion. <see cref="Dispose"/> likewise does NOT free it (see the remark on
 /// Dispose).</para>
 ///
+/// <para><b>Producer cancel.</b> A consumer-initiated stop (<see cref="Cancel"/>, <see cref="Dispose"/>,
+/// or enumerator disposal) routes through <see cref="SignalProducerStop"/>, which — beyond completing
+/// the channel — task-cancels the Swift producer via the cancellation registry (<see cref="SetProducerCancellation"/>,
+/// wired by the generated getter). This wakes a SUSPENDED producer (one awaiting a slow/never-yielding
+/// upstream) so it runs its completion path and frees the context handle, rather than lingering until a
+/// next element boundary that may never arrive. The cancel fires at most once per stream (Interlocked
+/// one-shot) and is gated on the handle still being live (<c>_handleFreed == 0</c>), so a cleanly
+/// completed stream never calls into the registry.</para>
+///
 /// <para><b>No finalizer — by design.</b> A finalizer cannot back-stop the handle: the strong
 /// <see cref="GCHandle"/> roots <c>this</c>, so while the handle is allocated the instance is never
 /// eligible for finalization (it self-roots). A finalizer would be dead code. This mirrors the
 /// project's existing decisions where the native side holds a context cookie the managed side cannot
 /// safely reclaim from a finalizer — KVO (KeyValueObserving) omits a finalizer outright, and the
-/// owns-context SwiftClosure path leaks rather than risk a use-after-free. The residual leak here is
-/// the same shape: a producer that never completes AND is never disposed (e.g. an infinite stream
-/// whose only reference is dropped without enumerating). Closing that fully requires cancelling the
-/// suspended Swift producer task so it runs its completion path — tracked for the producer-cancel
-/// registry work (Session 13). Choosing a bounded leak over a recycled-cookie use-after-free is the
-/// project's standing policy for this class of native/managed lifetime mismatch.</para>
+/// owns-context SwiftClosure path leaks rather than risk a use-after-free. With producer cancel in
+/// place, the remaining residual is narrow: a producer that never completes AND is never stopped (an
+/// infinite stream whose only reference is dropped without enumerating OR disposing) — no stop path
+/// runs, so nothing reclaims it. Closing THAT fully would need a finalizer the self-rooting handle
+/// makes impossible. Choosing a bounded leak over a recycled-cookie use-after-free is the project's
+/// standing policy for this class of native/managed lifetime mismatch.</para>
 /// </summary>
 /// <typeparam name="TElement">The element type in the stream.</typeparam>
 public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposable
@@ -81,6 +90,19 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     // DeliverElement reads this flag from the same/another thread and GCHandle.Free is not a
     // concurrency primitive — the one-shot guarantees exactly one free even if completion is doubled.
     private int _handleFreed;
+
+    // Producer-cancel registry wiring. Set ONCE by the generated getter (before the stream escapes to
+    // the consumer) via SetProducerCancellation: _producerCancelKey is the registry key under which
+    // the Swift wrapper registered its producer Task, and _producerCancel invokes the per-module
+    // SBW_CancelTask P/Invoke. SignalProducerStop fires it to task-cancel a SUSPENDED producer so it
+    // runs its completion path (which frees the context handle) instead of leaking. See the producer-
+    // cancel note on the class. The key is DISTINCT from the GCHandle context cookie by design.
+    private long _producerCancelKey;
+    private Action<long>? _producerCancel;
+    // 0 = producer cancel not yet requested, 1 = requested. Interlocked one-shot so at most ONE
+    // SBW_CancelTask fires per stream — bounding the registry tombstone residual to ≤1 entry even
+    // under a cancel/complete race (see SignalProducerStop).
+    private int _producerCancelRequested;
 
     /// <summary>
     /// Creates a new SwiftAsyncStream.
@@ -107,6 +129,20 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
             _thisHandle = GCHandle.Alloc(this);
         }
         return GCHandle.ToIntPtr(_thisHandle).ToInt64();
+    }
+
+    /// <summary>
+    /// Wires the producer-cancel registry hook. Called ONCE by the generated property getter, before
+    /// this instance escapes to the consumer, so the fields are effectively immutable by the time any
+    /// stop path can read them. <paramref name="cancelKey"/> is the registry key the Swift wrapper
+    /// registered its producer Task under (distinct from the GCHandle context cookie);
+    /// <paramref name="cancel"/> invokes the per-module <c>SBW_CancelTask</c> P/Invoke.
+    /// <see cref="SignalProducerStop"/> fires it to task-cancel a suspended producer.
+    /// </summary>
+    public void SetProducerCancellation(long cancelKey, Action<long> cancel)
+    {
+        _producerCancelKey = cancelKey;
+        _producerCancel = cancel;
     }
 
     /// <summary>
@@ -216,10 +252,10 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
         finally
         {
             // Consumer broke out of the loop, threw, or had its token cancelled, disposing this
-            // enumerator. Signal the Swift producer to stop at its next element boundary so an active
-            // producer winds down (its completion callback then frees the context handle). Fully
-            // stopping a SUSPENDED producer needs task-level cancellation — producer-cancel registry,
-            // Session 13.
+            // enumerator. Signal the Swift producer to stop: an active producer winds down at its next
+            // element boundary, and SignalProducerStop additionally task-cancels a SUSPENDED producer
+            // via the cancellation registry. Either way the producer runs its completion callback,
+            // which frees the context handle.
             SignalProducerStop();
         }
     }
@@ -243,10 +279,10 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     /// free the context handle: the Swift producer may still deliver an in-flight element, and freeing
     /// the handle while a callback can still resolve it engages the GCHandle cookie-recycling hazard
     /// (a recycled cookie could resolve a different live instance). The handle is freed when the
-    /// producer runs its completion callback (<see cref="Complete"/>) — for an
-    /// active producer that follows promptly from the stop signal. A producer suspended with no
-    /// further elements is the residual leak documented on the class; closing it needs task-level
-    /// producer cancellation (Session 13), not an unsafe early free here.
+    /// producer runs its completion callback (<see cref="Complete"/>): an active producer follows
+    /// promptly from the stop signal, and a SUSPENDED producer is task-cancelled by
+    /// <see cref="SignalProducerStop"/> via the cancellation registry so it too reaches completion —
+    /// not freed by an unsafe early free here.
     /// </remarks>
     public void Dispose()
     {
@@ -275,6 +311,24 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
             // _cts already disposed — the stop was already signalled.
         }
         _channel.Writer.TryComplete();
+
+        // Task-cancel a SUSPENDED Swift producer so it runs its completion path (freeing the context
+        // handle) instead of lingering until its next element boundary — which may never arrive for a
+        // producer awaiting a slow/never-completing upstream. Completing the channel above does not
+        // wake such a producer; only task cancellation does. Gated two ways:
+        //  - _handleFreed == 0: normal completion (Complete) sets _handleFreed on the Swift executor
+        //    thread BEFORE the producer Task's `defer { _sbwUnregisterTask }` runs, so a stream that
+        //    finished cleanly never reaches SBW_CancelTask here, and whenever this read sees 0 the
+        //    registry entry is still live — no per-iteration tombstone growth on the happy path.
+        //  - _producerCancelRequested one-shot: at most one SBW_CancelTask per stream. Under a genuine
+        //    cancel/complete race (read 0, then the producer completes + unregisters, then this fires)
+        //    the residual is at most ONE never-reclaimed registry tombstone per stream, not unbounded.
+        if (_producerCancel is { } cancel
+            && Volatile.Read(ref _handleFreed) == 0
+            && Interlocked.Exchange(ref _producerCancelRequested, 1) == 0)
+        {
+            cancel(_producerCancelKey);
+        }
     }
 
     /// <summary>

@@ -203,6 +203,132 @@ public class AsyncStreamOwnershipTests : TestBase
         TestLogger.Info("AsyncStream context handle freed at completion on a fully-drained, never-disposed stream (no await-foreach leak)");
     }
 
+    /// <summary>
+    /// Context-handle lifetime on the PRODUCER-THREW fault path (Defect I redesign). A throwing stream's
+    /// <c>finish(throwing:)</c> routes through the producer-error callback → <c>FaultChannel</c>, which
+    /// deliberately does NOT free the rooting handle (it is reachable mid-stream). The Swift wrapper
+    /// always invokes <c>completionCallback</c> after its <c>do/catch</c> even on a fault, so the trailing
+    /// completion is what frees the handle. This extends the deterministic
+    /// <see cref="SwiftAsyncStream{T}.IsContextHandleAllocated"/> probe to the faulted path: a stream that
+    /// rethrows at the boundary must still free its context handle, not leak it.
+    /// </summary>
+    public async Task TestThrowingStreamContextHandleFreedAfterFault_NoLeak()
+    {
+        using var source = new ThrowingStreamSource();
+
+        // Hold the concrete instance so the assertion can observe its handle. await foreach disposes only
+        // the generated enumerator (SignalProducerStop — no free) and FaultChannel does not free either;
+        // the ONLY free here is the trailing completion callback.
+        var stream = (SwiftAsyncStream<int>)source.ThrowingEvents;
+
+        var collected = new List<int>();
+        await WithTimeout(Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var v in stream)
+                {
+                    collected.Add(v);
+                }
+            }
+            catch (global::Swift.Runtime.SwiftRuntimeException)
+            {
+                // Expected — the Swift producer threw; the fault rethrows at the boundary.
+            }
+        }), DefaultAsyncTimeout);
+
+        AssertEqual(3, collected.Count, "throwing stream must yield its 3 pre-fault elements");
+
+        for (int attempt = 0; attempt < 200 && stream.IsContextHandleAllocated; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        AssertFalse(stream.IsContextHandleAllocated,
+            "the trailing completion callback must free the rooting GCHandle even on a producer-threw " +
+            "fault (FaultChannel does NOT free; Complete does) — a faulted stream must not leak its handle");
+        TestLogger.Info("Throwing stream context handle freed at completion after a producer-threw fault (no leak)");
+    }
+
+    /// <summary>
+    /// Producer cancel (Defect I redesign) — element-count guard. A continuously-climbing Swift producer
+    /// must STOP producing when the consumer stops iterating (breaking the <c>await foreach</c> disposes
+    /// the enumerator → <c>SignalProducerStop</c> → registry task-cancel of the wrapper Task → the
+    /// fixture's <c>onTermination</c> cancels the producer). The proof is behavioural: <c>producedCount</c>
+    /// freezes after the stop, rather than climbing forever (channel-closed-but-producer-still-running).
+    /// </summary>
+    public async Task TestCancellableStreamCancelStopsClimbingProducer()
+    {
+        using var source = new CancellableStreamSource();
+        var stream = (SwiftAsyncStream<int>)source.ClimbingCounts;
+
+        int consumed = 0;
+        await WithTimeout(Task.Run(async () =>
+        {
+            await foreach (var v in stream)
+            {
+                consumed++;
+                if (consumed >= 3)
+                {
+                    break; // disposing the enumerator signals the producer to stop
+                }
+            }
+        }), DefaultAsyncTimeout);
+
+        AssertEqual(3, consumed, "must consume 3 climbing elements before stopping the producer");
+
+        // Let the stop propagate (registry cancel → onTermination → producer Task cancel), then snapshot
+        // twice. A producer that ignored the stop would keep climbing across the two reads.
+        await Task.Delay(200);
+        int first = source.ProducedCount;
+        await Task.Delay(250);
+        int second = source.ProducedCount;
+
+        AssertEqual(first, second,
+            $"stopping the consumer must STOP the Swift producer (producedCount frozen), not leave it " +
+            $"producing forever; was {first}, then {second} after a further 250ms");
+        TestLogger.Info($"CancellableStream: producer halted at {first} after consumer stop (count frozen, not climbing)");
+    }
+
+    /// <summary>
+    /// Producer cancel (Defect I redesign) — the registry-isolating leak guard. A producer that yields a
+    /// few elements then SUSPENDS INDEFINITELY parks the wrapper's <c>for await</c> with no next element
+    /// boundary; completing the channel cannot wake it. ONLY the cancellation registry (C# <c>Cancel()</c>
+    /// → <c>SBW_CancelTask</c> → wrapper Task cancel → the fixture's <c>onTermination</c>) drives the
+    /// producer to <c>finish()</c> and the wrapper to its completion callback, which frees the rooting
+    /// GCHandle. Pre-redesign this exact shape leaked one context handle (and instance) forever — so a
+    /// broken producer-cancel leaves the handle allocated and this goes red.
+    /// </summary>
+    public async Task TestSuspendedStreamContextHandleFreedAfterCancel_NoLeak()
+    {
+        using var source = new CancellableStreamSource();
+        var stream = (SwiftAsyncStream<int>)source.SuspendingCounts;
+
+        // The wrapper produces into the unbounded channel without a consumer: it yields 3 then parks. No
+        // await foreach is needed — the rooting handle stays allocated while the producer is suspended.
+        for (int attempt = 0; attempt < 200 && source.ProducedCount < 3; attempt++)
+        {
+            await Task.Delay(10);
+        }
+        AssertEqual(3, source.ProducedCount, "suspending producer must yield 3 elements then park indefinitely");
+        AssertTrue(stream.IsContextHandleAllocated, "the rooting GCHandle is allocated while the producer is parked");
+
+        // Cancel must task-cancel the SUSPENDED producer via the registry so it reaches completion;
+        // channel-complete alone cannot wake a producer parked with no next element boundary.
+        stream.Cancel();
+
+        for (int attempt = 0; attempt < 200 && stream.IsContextHandleAllocated; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        AssertFalse(stream.IsContextHandleAllocated,
+            "producer cancel must drive the suspended producer to its completion callback, freeing the " +
+            "rooting GCHandle; without it a parked producer never completes and the stream leaks one " +
+            "handle per read");
+        TestLogger.Info("Suspended stream: Cancel() woke the parked producer to completion; context handle freed (no leak)");
+    }
+
     // Drains the concrete stream via await foreach — which disposes only the generated enumerator, never
     // SwiftAsyncStream.Dispose — and returns the summed elements. Split out only so WithTimeout can wrap
     // the drain Task; the test method keeps its own reference to the stream across the post-drain poll.

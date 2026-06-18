@@ -287,6 +287,37 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 pInvokeHelperContext: null, emissionContext);
         }
 
+        // ── Emit producer-cancel P/Invokes (once per extension class) ──
+        // SBW_CancelTask / SBW_UnregisterTask land in this `*CsmExtensions` class so the public
+        // method's CancellationToken registration (and its synchronous-failure catch) can reach them.
+        // Deduped by the same extension-class typeKey the throws-helper P/Invokes use; the
+        // CancellationTaskEmitter dedup set is keyed independently of AsyncHarnessEmitter's wrapper-class
+        // key, so a generic parent with both a wrapper-class async method and a CSM specialization emits
+        // a copy in each class (each needs its own, they are distinct C# classes).
+        var cancelParentTupleNames = pairing
+            .Where(p => p.Param.IsParentGeneric)
+            .Select(p => SanitizeTypeName(p.Conformer.CSharpType));
+        var cancelTypeKey = $"{parentTypeDecl.Name}{string.Concat(cancelParentTupleNames)}CsmExtensions";
+        if (!CancellationTaskEmitter.HasCancelPInvokeForType(cancelTypeKey, emissionContext))
+        {
+            CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(cancelTypeKey, emissionContext);
+            var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleName);
+            var unregisterSymbolName = CancellationTaskEmitter.GetUnregisterSymbolName(moduleName);
+            csWriter.WriteLine();
+            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLines($"""
+                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
+                private static partial void SBW_CancelTask(long taskId);
+
+                """);
+            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLines($"""
+                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{unregisterSymbolName}")]
+                private static partial void SBW_UnregisterTask(long taskId);
+
+                """);
+        }
+
         // ── Emit C# extension body + P/Invoke + callbacks ─────────────
         EmitParentOnlyAsyncCSharpExtension(
             csWriter, method, parentCsName, returnCsType,
@@ -521,6 +552,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
     {
+        // Producer-cancel registry: emit the shared Swift infra (_SBWTaskEntry, _sbwRegisterTask,
+        // _sbwAssignTask, _sbwUnregisterTask, @_cdecl SBW_CancelTask_{module}) once per module so the
+        // Task launched below can be task-cancelled by a C# CancellationToken. No-op if a regular async
+        // method already emitted it.
+        CancellationTaskEmitter.EmitIfNeeded(swiftWriter, moduleName, emissionContext);
+
         // Param layout (must match the C# pinvokeParams below in the same order):
         //   resultPtr: UnsafeMutableRawPointer (indirect return)
         //   <Utf8Slice user params...> (each → Utf8Ptr + Utf8Len pair)
@@ -528,6 +565,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //   completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
         //   errorCallback (throws only): same signature
         //   context: UnsafeMutableRawPointer (GCHandle for TCS)
+        //   cancelKey: Int64 (producer-cancel registry key)
         var swiftParams = new List<string>
         {
             "_ resultPtr: UnsafeMutableRawPointer",
@@ -568,6 +606,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 "_ errorCallback: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void");
         }
         swiftParams.Add("_ context: UnsafeMutableRawPointer");
+        swiftParams.Add("_ cancelKey: Int64");
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             method.ParentDecl, method.IsMainActorIsolated, method.IsNonisolated);
@@ -601,9 +640,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
         foreach (var reconstruction in reconstructions)
             swiftWriter.WriteLine($"    {reconstruction}");
 
-        // Launch the Task. `@_cdecl` callees return synchronously to C#; the async work
-        // proceeds in the background and signals C# via the completion callback.
-        swiftWriter.WriteLine("    Task {");
+        // Launch the Task, registered with the producer-cancel registry so a C# CancellationToken
+        // can task-cancel it (mirrors WrapperEmitter.Async's registration block). `@_cdecl` callees
+        // return synchronously to C#; the async work proceeds in the background and signals C# via the
+        // completion callback. The `defer` unregisters on every exit; `_sbwAssignTask` reports a
+        // cancel that raced ahead of assignment so it can be replayed onto the launched task.
+        swiftWriter.WriteLine("    let _entry = _SBWTaskEntry()");
+        swiftWriter.WriteLine("    _sbwRegisterTask(cancelKey, _entry)");
+        swiftWriter.WriteLine("    let _sbwLaunchedTask = Task {");
+        swiftWriter.WriteLine("        defer { _sbwUnregisterTask(cancelKey) }");
 
         if (throws)
         {
@@ -629,6 +674,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         swiftWriter.WriteLine("    }");
+        swiftWriter.WriteLine("    if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }");
         swiftWriter.WriteLine("}");
     }
 
@@ -773,6 +819,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // IsAllocated guard prevents a double-Free crash if a malformed Swift caller
         // were to invoke both success and error callbacks for the same context (Swift's
         // contract is exactly-one-callback, but defense-in-depth costs nothing here).
+        // Dispose the cancel registration (holder[2]) before freeing the handle — the
+        // token may still hold a reference to the (already-completed) TCS otherwise.
+        csWriter.WriteLine(
+            "if (handle.IsAllocated && handle.Target is object[] holderR && holderR.Length > 2 && holderR[2] is global::System.Threading.CancellationTokenRegistration regR) regR.Dispose();");
         csWriter.WriteLine("if (handle.IsAllocated) handle.Free();");
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -831,6 +881,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine("if (resultPtr != IntPtr.Zero) global::System.Runtime.InteropServices.NativeMemory.Free((void*)resultPtr);");
             // Defense-in-depth: IsAllocated guard prevents process-crash if both
             // callbacks fire for the same context (see success callback rationale).
+            // Dispose the cancel registration (holder[2]) before freeing the handle.
+            csWriter.WriteLine(
+                "if (handle.IsAllocated && handle.Target is object[] holderR && holderR.Length > 2 && holderR[2] is global::System.Threading.CancellationTokenRegistration regR) regR.Dispose();");
             csWriter.WriteLine("if (handle.IsAllocated) handle.Free();");
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -841,7 +894,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // ── P/Invoke ───────────────────────────────────────────────────
         // Param order must match the Swift @_cdecl wrapper exactly:
         //   resultPtr → <Utf8Slice user params: ptr+len pairs> → self_ → completion
-        //     → errorCallback (if throws) → context
+        //     → errorCallback (if throws) → context → cancelKey
         csWriter.WriteLine();
         var pinvokeParams = new List<string>
         {
@@ -858,6 +911,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (throws)
             pinvokeParams.Add("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCallback");
         pinvokeParams.Add("IntPtr context");
+        pinvokeParams.Add("long cancelKey");
 
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
@@ -879,11 +933,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
             var csName = NameProvider.GetCSharpParameterName(utf8Arg);
             publicParams.Add($"string {csName}");
         }
+        // CancellationToken trails the user params (defaulted, so existing call sites are unaffected).
+        // Cancelling task-cancels the suspended Swift producer via the registry and sets the TCS canceled.
+        publicParams.Add("global::System.Threading.CancellationToken cancellationToken = default");
 
         // The public method body hardcodes synthetic locals (tcs, resultPtr, holder,
-        // handle). A user parameter spelling any of them would shadow the synthetic (CS0136)
-        // and the generator would emit uncompilable C# at exit 0. Reserve each against the
-        // in-scope user identifiers (the `self` receiver + every Utf8Slice param); with no
+        // handle, cancel key + registration). A user parameter spelling any of them would shadow the
+        // synthetic (CS0136) and the generator would emit uncompilable C# at exit 0. Reserve each
+        // against the in-scope user identifiers (the `self` receiver + every Utf8Slice param); with no
         // collision the original name is returned verbatim, so output is unchanged. The
         // success/error callback methods take fixed params (no user names) and stay literal.
         var asyncScope = new SyntheticNameScope(
@@ -892,6 +949,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         string asyncResultPtrName = asyncScope.Reserve("resultPtr");
         string holderName = asyncScope.Reserve("holder");
         string handleName = asyncScope.Reserve("handle");
+        string cancelKeyName = asyncScope.Reserve("_sbwCancelKey");
+        string cancelRegName = asyncScope.Reserve("_cancelRegistration");
 
         csWriter.WriteLine();
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
@@ -927,10 +986,38 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine(
                 $"var {asyncResultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::Swift.Runtime.InteropServices.SwiftMarshal.GetSwiftTypeSize<{returnCsType}>());");
         }
-        // Holder carries both the TCS and the resultPtr to whichever callback fires so
-        // C# can free the buffer in both paths. Boxing IntPtr (nint) into object[] is
-        // safe because the runtime preserves the pointer value verbatim.
-        csWriter.WriteLine($"var {holderName} = new object[] {{ {tcsName}, (object)(nint){asyncResultPtrName} }};");
+        // Producer-cancel registry key (distinct from the GCHandle context). A cancellable token
+        // registers a callback that task-cancels the suspended Swift producer (SBW_CancelTask) and
+        // sets the TCS canceled; first-writer-wins means a later success/error callback no-ops. The
+        // registration is carried in the holder so whichever callback fires disposes it (no leak).
+        csWriter.WriteLine(
+            $"long {cancelKeyName} = global::Swift.Runtime.SwiftAsyncCancellation.NextCancelKey();");
+        csWriter.WriteLine(
+            $"global::System.Threading.CancellationTokenRegistration {cancelRegName} = default;");
+        csWriter.WriteLine("if (cancellationToken.CanBeCanceled)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"{cancelRegName} = cancellationToken.Register(");
+        csWriter.Indent++;
+        csWriter.WriteLine("static state =>");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine(
+            $"var (__tcs, __tok, __id) = ((global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>, global::System.Threading.CancellationToken, long))state!;");
+        csWriter.WriteLine("SBW_CancelTask(__id);");
+        csWriter.WriteLine("__tcs.TrySetCanceled(__tok);");
+        csWriter.Indent--;
+        csWriter.WriteLine("},");
+        csWriter.WriteLine($"({tcsName}, cancellationToken, {cancelKeyName}));");
+        csWriter.Indent--;
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+
+        // Holder carries the TCS, the resultPtr, and the cancel registration to whichever callback
+        // fires so C# can free the buffer AND dispose the registration in both paths. Boxing IntPtr
+        // (nint) into object[] is safe because the runtime preserves the pointer value verbatim;
+        // CancellationTokenRegistration is a struct, boxed here and unboxed in the callbacks.
+        csWriter.WriteLine($"var {holderName} = new object[] {{ {tcsName}, (object)(nint){asyncResultPtrName}, {cancelRegName} }};");
         csWriter.WriteLine(
             $"var {handleName} = global::System.Runtime.InteropServices.GCHandle.Alloc({holderName});");
         csWriter.WriteLine("try");
@@ -956,6 +1043,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         callArgs.Add(successCallbackField);
         if (throws) callArgs.Add(errorCallbackField);
         callArgs.Add($"global::System.Runtime.InteropServices.GCHandle.ToIntPtr({handleName})");
+        callArgs.Add(cancelKeyName);
 
         // byte[] prelude (inside the try-block — UTF8.GetBytes can throw on null input,
         // and the catch below correctly cleans up handle + resultPtr in that case).
@@ -987,11 +1075,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("catch");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        // Synchronous-path safety net: if the P/Invoke itself throws before Swift could
-        // schedule the Task (e.g. DllNotFoundException), neither callback will fire so
-        // we free the buffer + handle here and let the caller see the original failure.
+        // Synchronous-path safety net: if anything throws before Swift could schedule the
+        // Task (a null string param makes UTF8.GetBytes throw; a missing symbol throws
+        // DllNotFoundException) neither callback will fire, so we free the buffer + handle
+        // and dispose the cancel registration here.
+        csWriter.WriteLine($"{cancelRegName}.Dispose();");
         csWriter.WriteLine($"if ({handleName}.IsAllocated) {handleName}.Free();");
         csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free((void*){asyncResultPtrName});");
+        // The wrapper never launched, so its `defer { _sbwUnregisterTask }` will not run.
+        // Reclaim any WINDOW-A cancellation tombstone left for this id (no-op if none) —
+        // a token that fired in the synchronous window planted it before this throw.
+        csWriter.WriteLine($"SBW_UnregisterTask({cancelKeyName});");
         csWriter.WriteLine("throw;");
         csWriter.Indent--;
         csWriter.WriteLine("}");

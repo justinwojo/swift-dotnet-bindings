@@ -109,21 +109,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // Reject AsyncThrowingStream BEFORE the AsyncStream branch. The bridge models a
-        // non-throwing AsyncStream as IAsyncEnumerable<T>; the throwing variant's terminal
-        // iteration error has no representation across the channel bridge, so it fails closed
-        // rather than emitting a stream that can never surface its error. IsAsyncStream
-        // deliberately does NOT match the throwing variant, so without this guard the property
-        // would fall through to the generic property path and emit an unusable binding.
-        if (propertyEnv.AsyncStreamHandler.IsThrowingStream(propertyDecl.SwiftTypeSpec))
-        {
-            _logger.LogWarning($"PropertyHandler: Skipping AsyncThrowingStream property {propertyDecl.Name} — throwing streams are not supported.");
-            SkipProperty(SkipReason.UnsupportedThrowingAsyncStream,
-                "AsyncThrowingStream is not supported: the terminal iteration error has no representation across the AsyncStream channel bridge.");
-            return;
-        }
-
-        // Handle AsyncStream properties - emit as IAsyncEnumerable<T>
+        // Handle AsyncStream properties - emit as IAsyncEnumerable<T>. IsAsyncStream now admits
+        // AsyncThrowingStream too; the throwing variant's finish(throwing:) termination is surfaced
+        // through a separate Swift producer-error callback that faults the channel so await foreach
+        // rethrows (see EmitAsyncStreamProperty / AsyncStreamEmitter).
         bool isAsyncStream = propertyEnv.AsyncStreamHandler.IsAsyncStream(propertyDecl.SwiftTypeSpec);
         if (isAsyncStream)
         {
@@ -151,7 +140,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     "Actor AsyncStream property has parameterized-protocol element type (@_cdecl wrapper cannot spell iOS 16+ parameterized protocol).");
                 return;
             }
-            EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.PropertyRenames);
+            EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.GetEmissionContext(), context.PropertyRenames);
             propertyDecl.WasEmitted = true;
             ReportCollector.RecordMemberEmitted(propertyDecl);
             return;
@@ -1447,12 +1436,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         SwiftWriter swiftWriter,
         PropertyEnvironment propertyEnv,
         PropertyDecl propertyDecl,
+        ModuleEmissionContext emissionContext,
         Dictionary<string, string>? propertyRenames = null)
     {
         var asyncStreamHandler = propertyEnv.AsyncStreamHandler;
-        var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
         var swiftWrapperName = asyncStreamHandler.GetSwiftWrapperFunctionName(propertyDecl);
         var callbackName = $"{propertyDecl.Name}_AsyncStream";
+        // AsyncThrowingStream<T, Failure>: emit a producer-error callback so finish(throwing:) faults
+        // the channel and the consumer's await foreach rethrows. AsyncStream (non-throwing) does not.
+        bool isThrowing = asyncStreamHandler.IsThrowingStream(propertyDecl.SwiftTypeSpec);
 
         // Get parent type name for Swift wrapper
         var parentTypeName = propertyDecl.ParentDecl is TypeDecl typeDecl ? typeDecl.Name : "Unknown";
@@ -1465,23 +1457,57 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Get containing type name for CS0542 collision detection
         string? asyncContainingTypeName = (propertyDecl.ParentDecl as TypeDecl)?.Name;
 
+        // Producer-cancel registry: every stream registers its producer Task so a C# Cancel()/Dispose()
+        // can task-cancel a suspended producer (see AsyncStreamEmitter.EmitSwiftWrapper + SwiftAsyncStream).
+        // Emit the Swift registry infra once per module and the C# SBW_CancelTask / SBW_UnregisterTask
+        // P/Invokes once per C# type — shared and deduped with the async-method harness via the same
+        // ModuleEmissionContext, so a type carrying both a stream and an async method emits each exactly
+        // once. AsyncStream on generic parents is rejected upstream, so these emit inline (no helper-class
+        // hoisting) at `private` visibility, matching the non-generic AsyncHarnessEmitter path.
+        CancellationTaskEmitter.EmitIfNeeded(swiftWriter, moduleName, emissionContext);
+        var typeKey = (propertyDecl.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleName;
+        if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey, emissionContext))
+        {
+            CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, emissionContext);
+            var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleName);
+            var unregisterSymbolName = CancellationTaskEmitter.GetUnregisterSymbolName(moduleName);
+            csWriter.WriteLine();
+            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLines($"""
+                [global::System.Runtime.InteropServices.LibraryImport("{libraryPath}", EntryPoint = "{cancelSymbolName}")]
+                private static partial void SBW_CancelTask(long taskId);
+
+                """);
+            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLines($"""
+                [global::System.Runtime.InteropServices.LibraryImport("{libraryPath}", EntryPoint = "{unregisterSymbolName}")]
+                private static partial void SBW_UnregisterTask(long taskId);
+
+                """);
+        }
+
         // Emit callbacks
         csWriter.WriteLine();
         AsyncStreamEmitter.EmitElementCallback(csWriter, propertyDecl, asyncStreamHandler, callbackName);
         csWriter.WriteLine();
         AsyncStreamEmitter.EmitCompletionCallback(csWriter, propertyDecl, asyncStreamHandler, callbackName);
         csWriter.WriteLine();
+        if (isThrowing)
+        {
+            AsyncStreamEmitter.EmitErrorCallback(csWriter, propertyDecl, asyncStreamHandler, callbackName);
+            csWriter.WriteLine();
+        }
 
         // Emit P/Invoke
-        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, propertyDecl.IsStatic);
+        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, propertyDecl.IsStatic, isThrowing);
         csWriter.WriteLine();
 
         // Emit property with collision detection for containing type (CS0542) and nested-type renames
-        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, asyncContainingTypeName, propertyRenames);
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, isThrowing, asyncContainingTypeName, propertyRenames);
         csWriter.WriteLine();
 
         // Emit Swift wrapper
-        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, parentTypeName);
+        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, parentTypeName, isThrowing);
     }
 
     /// <summary>

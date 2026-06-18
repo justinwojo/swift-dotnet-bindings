@@ -1259,7 +1259,7 @@ public class AsyncSwiftWrapperTests
         var libraryPath = typeDatabase.AsyncLibraryName
             ?? typeDatabase.GetLibraryPath("TestModule");
 
-        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, false);
+        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, false, isThrowing: false);
 
         var result = csOutput.ToString();
         Assert.Contains("TestModuleSwiftBindings", result);

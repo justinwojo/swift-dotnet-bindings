@@ -356,13 +356,47 @@ public class AsyncComplexTypeTests : TestBase
 
     #endregion
 
-    #region AsyncThrowingStream rejection (Defect I)
-    // ThrowingStreamSource pins the throwing-stream rejection against the real parser/emitter pipeline:
-    // `throwingEvents` (AsyncThrowingStream) MUST be skipped (UnsupportedThrowingAsyncStream) while the
-    // sibling non-throwing `safeEvents` MUST still emit and round-trip. The absence of `throwingEvents`
-    // is structurally enforced too — referencing `source.ThrowingEvents` below would not compile if the
-    // generator regressed to emitting it (the line is intentionally NOT present; the sibling working is
-    // the positive signal that the rejection is property-scoped, not whole-type).
+    #region AsyncThrowingStream support (Defect I redesign)
+    // ThrowingStreamSource pins throwing-stream SUPPORT against the real parser/emitter pipeline:
+    // `throwingEvents` (AsyncThrowingStream) now BINDS to IAsyncEnumerable<int> — the wrapper iterates
+    // `for try await` inside a do/catch and, on `finish(throwing:)`, marshals the Swift error through a
+    // producer-error callback that faults the channel so `await foreach` rethrows. The sibling
+    // non-throwing `safeEvents` rides the same supported-stream path and must keep round-tripping,
+    // proving the throwing variant didn't change the plain AsyncStream emission.
+
+    public async Task TestThrowingStreamSource_ProducerThrew_RethrowsFaultedError()
+    {
+        using var source = new ThrowingStreamSource();
+
+        var collected = new List<int>();
+        Exception? caught = null;
+        try
+        {
+            await WithTimeout(Task.Run(async () =>
+            {
+                await foreach (var v in source.ThrowingEvents)
+                {
+                    collected.Add(v);
+                }
+            }), DefaultAsyncTimeout);
+        }
+        catch (Exception ex)
+        {
+            caught = ex;
+        }
+
+        AssertEqual(3, collected.Count,
+            "ThrowingEvents must yield its 3 pre-fault elements before the producer throws");
+        AssertTrue(collected.Count == 3 && collected[0] == 1 && collected[1] == 2 && collected[2] == 3,
+            $"ThrowingEvents must yield [1,2,3] before faulting; got [{string.Join(",", collected)}]");
+        AssertNotNull(caught,
+            "await foreach over a finish(throwing:) stream must RETHROW the producer error, not silently truncate");
+        AssertTrue(caught is global::Swift.Runtime.SwiftRuntimeException,
+            $"producer-threw fault must surface as SwiftRuntimeException; got {caught?.GetType().Name}");
+        AssertTrue(caught!.Message.Contains("boom"),
+            $"the faulted error must carry the Swift error description 'boom'; got '{caught.Message}'");
+        TestLogger.Info("ThrowingStreamSource.ThrowingEvents: yielded [1,2,3] then rethrew producer error 'boom'");
+    }
 
     public async Task TestThrowingStreamSourceSafeSiblingStillEmits()
     {
@@ -379,9 +413,9 @@ public class AsyncComplexTypeTests : TestBase
         }), DefaultAsyncTimeout);
 
         AssertEqual(24L, sum,
-            "ThrowingStreamSource.SafeEvents must drain 7+8+9 = 24 — the AsyncThrowingStream sibling " +
-            "rejection must not poison the rest of the type");
-        TestLogger.Info("ThrowingStreamSource: throwing property skipped, non-throwing SafeEvents round-trips to 24");
+            "ThrowingStreamSource.SafeEvents must drain 7+8+9 = 24 — the non-throwing sibling must keep " +
+            "round-tripping now that the throwing variant rides the same supported-stream path");
+        TestLogger.Info("ThrowingStreamSource: throwing variant bound, non-throwing SafeEvents round-trips to 24");
     }
 
     #endregion

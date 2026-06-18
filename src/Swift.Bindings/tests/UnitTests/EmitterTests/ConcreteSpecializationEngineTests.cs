@@ -857,6 +857,47 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncMethod_WiresCancellationToken()
+    {
+        // S13 Pillar E (CSM cancellation gap): the parent-only async CSM specialization historically
+        // had NO cancellation — only RunContinuationsAsynchronously. It now mirrors the live method
+        // emitters' registration blocks: a trailing CancellationToken parameter, a _sbwCancelKey from
+        // the registry, a token-registration that calls SBW_CancelTask, and the SBW_CancelTask /
+        // SBW_UnregisterTask P/Invokes hosted in the extension class. Red before the wiring landed.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), "System", "Int64");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncMethod(
+            "Producer", "produce", "SwiftBindingsTestLib.AsyncBagItem", "Swift.Int");
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // C#: trailing defaulted CancellationToken on the public method, registry key, token
+        // registration that cancels the suspended producer, and both registry P/Invokes.
+        Assert.Contains("global::System.Threading.CancellationToken cancellationToken = default", cs);
+        Assert.Contains("SwiftAsyncCancellation.NextCancelKey()", cs);
+        Assert.Contains("cancellationToken.Register(", cs);
+        Assert.Contains("SBW_CancelTask(", cs);
+        Assert.Contains("SBW_UnregisterTask(", cs);
+
+        // Swift: the @_cdecl wrapper takes the cancelKey and registers/assigns the launched Task.
+        Assert.Contains("_ cancelKey: Int64", swift);
+        Assert.Contains("_sbwRegisterTask(cancelKey, _entry)", swift);
+        Assert.Contains("if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }", swift);
+    }
+
+    [Fact]
     public void ComputePairingCount_SingleParam_ReturnsConformerCount()
     {
         var specParams = new List<ConcreteSpecializationEngine.SpecializableParam>

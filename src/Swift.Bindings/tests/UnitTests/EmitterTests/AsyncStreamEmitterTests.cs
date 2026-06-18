@@ -28,7 +28,7 @@ public class AsyncStreamEmitterTests
         var swiftWriter = new SwiftWriter(swiftOutput);
 
         AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
-            "Sensor_readings_AsyncStream", "TestModule.Sensor");
+            "Sensor_readings_AsyncStream", "TestModule.Sensor", isThrowing: false);
 
         var swift = swiftOutput.ToString();
         Assert.DoesNotContain("@MainActor", swift);
@@ -129,7 +129,7 @@ public class AsyncStreamEmitterTests
         var swiftWriter = new SwiftWriter(swiftOutput);
 
         AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
-            "DataProcessor_results_AsyncStream", "TestModule.DataProcessor");
+            "DataProcessor_results_AsyncStream", "TestModule.DataProcessor", isThrowing: false);
 
         var swift = swiftOutput.ToString();
         Assert.Contains("Task {", swift);
@@ -153,7 +153,7 @@ public class AsyncStreamEmitterTests
         var swiftWriter = new SwiftWriter(swiftOutput);
 
         AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
-            "DataProcessor_results_AsyncStream", "TestModule.DataProcessor");
+            "DataProcessor_results_AsyncStream", "TestModule.DataProcessor", isThrowing: false);
 
         var swift = swiftOutput.ToString();
         Assert.DoesNotContain("@MainActor", swift);
@@ -271,11 +271,12 @@ public class AsyncStreamEmitterTests
     }
 
     [Fact]
-    public void MemberEmissionValidator_RejectsAsyncThrowingStream()
+    public void MemberEmissionValidator_AllowsAsyncThrowingStream()
     {
-        // AsyncThrowingStream's terminal iteration error has no representation across the channel
-        // bridge, so it fails closed with a dedicated reason rather than falling through to the
-        // generic property path and emitting an unusable binding.
+        // Inverse of the Session-2 rejection: AsyncThrowingStream is now bound. It projects to
+        // IAsyncEnumerable<T> like AsyncStream, and its finish(throwing:) termination is marshalled
+        // through a producer-error callback that faults the channel so the consumer's await foreach
+        // rethrows. The validator no longer fails it closed.
         var typeDatabase = new MockTypeDatabase();
 
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -284,10 +285,177 @@ public class AsyncStreamEmitterTests
         var property = CreateAsyncThrowingStreamProperty("events", classDecl, moduleDecl);
 
         var skipReason = MemberEmissionValidator.CanEmitProperty(
-            property, typeDatabase, out var skipDetails, out _);
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
-        Assert.Equal(SkipReason.UnsupportedThrowingAsyncStream, skipReason);
-        Assert.Contains("AsyncThrowingStream", skipDetails);
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
+    }
+
+    [Fact]
+    public void EmitErrorCallback_FaultsChannelWithProducerError()
+    {
+        // The producer-error callback (throwing streams only) marshals the Swift error message and
+        // routes it to FaultChannel so the consumer's await foreach rethrows. It is null-guarded and
+        // wrapped in the StreamFault envelope (constructing the bridge exception must not unwind
+        // across the @convention(c) boundary, since the Swift wrapper invokes completionCallback —
+        // which owns the GCHandle free — AFTER this returns).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Feed", moduleDecl);
+        var property = CreateAsyncThrowingStreamProperty("events", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        AsyncStreamEmitter.EmitErrorCallback(csWriter, property, asyncStreamHandler, "Feed_events");
+
+        var cs = csOutput.ToString();
+        Assert.Contains("_OnError(long context, byte* messagePtr)", cs);
+        Assert.Contains("PtrToStringUTF8", cs);
+        Assert.Contains("stream.FaultChannel(new global::Swift.Runtime.SwiftRuntimeException(__msg));", cs);
+        Assert.Contains("if (stream == null) return;", cs);
+        // StreamFault envelope around the body.
+        Assert.Contains("catch (global::System.Exception __uco_ex)", cs);
+        Assert.Contains("stream.FaultChannel(__uco_ex);", cs);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_ThrowingStream_EmitsErrorCallbackAndDoCatch()
+    {
+        // A throwing stream's Swift wrapper takes the extra producer-error callback, iterates with
+        // `for try await`, swallows a consumer-driven CancellationError (cancel is not a producer
+        // fault), and on a genuine producer throw marshals the error string back through the error
+        // callback. completionCallback still fires on every path so the C# channel always completes.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Feed", moduleDecl);
+        var property = CreateAsyncThrowingStreamProperty("events", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
+            "Feed_events_AsyncStream", "TestModule.Feed", isThrowing: true);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("errorCallback: @convention(c) (Int64, UnsafePointer<CChar>) -> Void", swift);
+        Assert.Contains("for try await element in", swift);
+        Assert.Contains("catch is CancellationError {", swift);
+        Assert.Contains("errorCallback(context, $0)", swift);
+        Assert.Contains("completionCallback(context)", swift);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_NonThrowingStream_OmitsErrorCallbackAndDoCatch()
+    {
+        // A non-throwing stream takes no producer-error callback and iterates with a plain
+        // `for await` (no do/catch, no `try`).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Sensor", moduleDecl);
+        var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
+            "Sensor_readings_AsyncStream", "TestModule.Sensor", isThrowing: false);
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("errorCallback", swift);
+        Assert.DoesNotContain("catch is CancellationError", swift);
+        Assert.Contains("for await element in", swift);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_AllStreams_RegisterProducerCancelTask()
+    {
+        // Every stream (throwing or not) registers its producer Task with the cancellation registry
+        // so a C# Cancel()/Dispose() can task-cancel a suspended `for await` producer, not merely
+        // complete the channel. Mirrors the live method emitters' registration block.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Sensor", moduleDecl);
+        var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
+            "Sensor_readings_AsyncStream", "TestModule.Sensor", isThrowing: false);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("_ cancelKey: Int64", swift);
+        Assert.Contains("_sbwRegisterTask(cancelKey, _sbwEntry)", swift);
+        Assert.Contains("defer { _sbwUnregisterTask(cancelKey) }", swift);
+        Assert.Contains("if _sbwAssignTask(_sbwEntry, _sbwTask) { _sbwTask.cancel() }", swift);
+    }
+
+    [Fact]
+    public void EmitPInvokeDeclaration_ThrowingStream_EmitsErrorCallbackAndCancelKey()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, "Feed_events_AsyncStream", "libFeed",
+            isStatic: false, isThrowing: true);
+
+        var cs = csOutput.ToString();
+        Assert.Contains("delegate* unmanaged[Cdecl]<long, byte*, void> errorCallback", cs);
+        Assert.Contains("long cancelKey", cs);
+    }
+
+    [Fact]
+    public void EmitPInvokeDeclaration_NonThrowingStream_OmitsErrorCallbackButKeepsCancelKey()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, "Sensor_readings_AsyncStream", "libSensor",
+            isStatic: false, isThrowing: false);
+
+        var cs = csOutput.ToString();
+        Assert.DoesNotContain("errorCallback", cs);
+        // Producer-cancel is wired for ALL streams, not just throwing ones.
+        Assert.Contains("long cancelKey", cs);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_WiresProducerCancellationAndPassesCancelKey()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Sensor", moduleDecl);
+        var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, property, asyncStreamHandler,
+            "Sensor_readings_AsyncStream", "Sensor_readings", isThrowing: false, "Sensor");
+
+        var cs = csOutput.ToString();
+        Assert.Contains("NextCancelKey()", cs);
+        Assert.Contains("SetProducerCancellation(", cs);
+        Assert.Contains("SBW_CancelTask(", cs);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_ThrowingStream_PassesErrorCallback()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Feed", moduleDecl);
+        var property = CreateAsyncThrowingStreamProperty("events", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, property, asyncStreamHandler,
+            "Feed_events_AsyncStream", "Feed_events", isThrowing: true, "Feed");
+
+        var cs = csOutput.ToString();
+        Assert.Contains("_OnError", cs);
     }
 
     #region Helpers

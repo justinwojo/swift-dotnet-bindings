@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Swift;
 using Swift.Runtime;
 using Xunit;
@@ -517,6 +519,93 @@ public class DisposeSafetyTests
         // Completion still frees it after Dispose (idempotent one-shot).
         stream.Complete();
         Assert.False(stream.IsContextHandleAllocated);
+    }
+
+    // Shared fault-propagation invariant both fault paths rely on: FaultChannel(ex) completes the
+    // channel WITH the error, so a consumer's `await foreach` drains the already-buffered elements
+    // first and THEN rethrows ex at the boundary (rather than silently truncating). This is the
+    // deterministic runtime guard for the pre-existing C#-UCO StreamFault path (the element/completion
+    // trampoline faults mid-stream → FaultChannel) — the NEW Swift-producer-error path converges on the
+    // same FaultChannel call, so this propagation must keep working for both.
+    [Fact]
+    public async Task SwiftAsyncStream_FaultChannel_AwaitForeachRethrowsAfterDrainingBuffer()
+    {
+        var stream = new SwiftAsyncStream<int>();
+
+        // Buffer two elements through the real Swift-executor entry point (DeliverElement copies the
+        // value out of the borrowed pointer), then fault mid-stream — exactly the shape the element
+        // trampoline produces when its UCO body throws after some elements have flowed.
+        DeliverInt(stream, 11);
+        DeliverInt(stream, 22);
+        stream.FaultChannel(new InvalidOperationException("mid-stream marshal fault"));
+
+        var drained = new List<int>();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var x in stream)
+            {
+                drained.Add(x);
+            }
+        });
+
+        Assert.Equal(new[] { 11, 22 }, drained);
+        Assert.Equal("mid-stream marshal fault", ex.Message);
+    }
+
+    // Producer-cancel hook (Defect I redesign): a consumer stop (Cancel/Dispose/enumerator disposal)
+    // must invoke the registered producer-cancel callback EXACTLY ONCE with the registered key, so a
+    // SUSPENDED Swift producer is task-cancelled (not merely channel-completed). The one-shot bounds the
+    // registry tombstone residual to ≤1 entry even under repeated stops.
+    [Fact]
+    public void SwiftAsyncStream_Cancel_InvokesProducerCancelOnceWithKey()
+    {
+        var stream = new SwiftAsyncStream<int>();
+        stream.GetContext(); // handle live so SignalProducerStop's handle-live gate passes
+
+        int calls = 0;
+        long observedKey = -1;
+        stream.SetProducerCancellation(4242, k => { calls++; observedKey = k; });
+
+        stream.Cancel();
+        Assert.Equal(1, calls);
+        Assert.Equal(4242L, observedKey);
+
+        // One-shot: a second stop does not re-cancel the producer.
+        stream.Cancel();
+        Assert.Equal(1, calls);
+    }
+
+    // Happy-path no-tombstone-growth invariant: a stream that completed cleanly (Complete frees the
+    // handle) must NOT call into the cancellation registry on a subsequent stop — the handle-live gate
+    // (_handleFreed == 0) skips SBW_CancelTask, so a fully-drained stream never leaves a registry
+    // tombstone behind.
+    [Fact]
+    public void SwiftAsyncStream_CancelAfterComplete_DoesNotInvokeProducerCancel()
+    {
+        var stream = new SwiftAsyncStream<int>();
+        stream.GetContext();
+
+        int calls = 0;
+        stream.SetProducerCancellation(7, _ => calls++);
+
+        stream.Complete(); // frees the handle (_handleFreed = 1)
+        stream.Cancel();   // handle-live gate fails → producer-cancel must not fire
+        Assert.Equal(0, calls);
+    }
+
+    // Delivers one blittable int through DeliverElement via a pinned box, so the test exercises the real
+    // borrowed-pointer copy-out path rather than reaching into the private channel.
+    private static void DeliverInt(SwiftAsyncStream<int> stream, int value)
+    {
+        var handle = GCHandle.Alloc(value, GCHandleType.Pinned);
+        try
+        {
+            Assert.True(stream.DeliverElement(handle.AddrOfPinnedObject()));
+        }
+        finally
+        {
+            handle.Free();
+        }
     }
 
     #endregion

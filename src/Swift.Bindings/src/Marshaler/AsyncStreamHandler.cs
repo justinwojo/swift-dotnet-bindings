@@ -27,23 +27,26 @@ public class AsyncStreamHandler
     }
 
     /// <summary>
-    /// Determines whether the specified type is a (non-throwing) <c>AsyncStream</c>.
+    /// Determines whether the specified type is a stream the bridge supports — either a non-throwing
+    /// <c>AsyncStream</c> or a throwing <c>AsyncThrowingStream</c>.
     /// </summary>
     /// <remarks>
-    /// <c>AsyncThrowingStream</c> is deliberately NOT matched here: its iteration can throw, which the
-    /// current bridge has no channel to surface, so it is rejected with a dedicated diagnostic
-    /// (<see cref="SkipReason.UnsupportedThrowingAsyncStream"/>) at member emission. Use
-    /// <see cref="IsThrowingStream"/> to detect the throwing variant. Matching it here would let it
-    /// flow into the supported-stream emission path and half-bind.
+    /// Both variants project to <c>IAsyncEnumerable&lt;T&gt;</c> (element type <c>T</c> is generic
+    /// parameter 0 for both <c>AsyncStream&lt;T&gt;</c> and <c>AsyncThrowingStream&lt;T, Failure&gt;</c>).
+    /// The throwing variant additionally surfaces its <c>finish(throwing:)</c> termination through a
+    /// separate Swift producer-error callback that faults the channel, so an <c>await foreach</c>
+    /// rethrows at the boundary. Use <see cref="IsThrowingStream"/> to detect the throwing variant and
+    /// gate that extra error-callback wiring.
     /// </remarks>
     /// <param name="typeSpec">The type specification.</param>
-    /// <returns><c>true</c> if the type is a non-throwing AsyncStream; otherwise, <c>false</c>.</returns>
+    /// <returns><c>true</c> if the type is a supported AsyncStream/AsyncThrowingStream; otherwise, <c>false</c>.</returns>
     public bool IsAsyncStream(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec namedType)
             return false;
 
-        return namedType.Name == AsyncStreamTypeName;
+        return namedType.Name == AsyncStreamTypeName
+            || namedType.Name == AsyncThrowingStreamTypeName;
     }
 
     /// <summary>

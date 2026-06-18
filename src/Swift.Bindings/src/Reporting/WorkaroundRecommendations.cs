@@ -37,7 +37,7 @@ public static class WorkaroundRecommendations
         SkipReason.UnsupportedAsyncStream =>
             "Write a Swift wrapper that converts stream elements to a supported type.",
         SkipReason.UnsupportedThrowingAsyncStream =>
-            "AsyncThrowingStream's iteration error has no channel across the current bridge. Expose the sequence as a non-throwing AsyncStream<Element> via a Swift wrapper that catches the error and terminates the stream (or surfaces it through a separate result property).",
+            "AsyncThrowingStream is now bound directly (it rethrows through await foreach); no workaround is needed. This reason is retired and should not appear in new reports.",
         SkipReason.DuplicateSignature =>
             "Rename one member via a Swift extension to disambiguate.",
         SkipReason.GenericTypeCallback =>
@@ -100,7 +100,7 @@ public static class WorkaroundRecommendations
         SkipReason.UnsupportedAsyncStream =>
             "async stream element type not supported",
         SkipReason.UnsupportedThrowingAsyncStream =>
-            "AsyncThrowingStream iteration error not representable across the bridge",
+            "AsyncThrowingStream now bound directly (retired reason)",
         SkipReason.DuplicateSignature =>
             "C# signature collides with another member",
         SkipReason.GenericTypeCallback =>

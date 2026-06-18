@@ -87,10 +87,12 @@ public enum SkipReason
     UnsupportedClosure,
     UnsupportedAsyncStream,
     /// <summary>
-    /// Property is an <c>AsyncThrowingStream</c>. The bridge models a non-throwing
-    /// <c>AsyncStream</c> as <c>IAsyncEnumerable&lt;T&gt;</c>; the throwing variant's iteration error
-    /// has no representation across the current channel bridge, so it fails closed with this reason
-    /// rather than half-binding (emitting a stream that can never surface its terminal error).
+    /// <b>Retired.</b> <c>AsyncThrowingStream</c> is now bound: it projects to
+    /// <c>IAsyncEnumerable&lt;T&gt;</c> like <c>AsyncStream</c>, and a <c>finish(throwing:)</c>
+    /// termination is marshalled through a producer-error callback that faults the channel so the
+    /// consumer's <c>await foreach</c> rethrows. The generator no longer emits this reason for the
+    /// throwing variant. The member is retained so persisted reports and the
+    /// <see cref="WorkaroundRecommendations"/> switch keep total coverage without churn.
     /// </summary>
     UnsupportedThrowingAsyncStream,
     DuplicateSignature,
