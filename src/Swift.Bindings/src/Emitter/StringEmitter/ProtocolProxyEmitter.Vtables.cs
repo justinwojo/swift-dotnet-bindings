@@ -9,19 +9,16 @@ public partial class ProtocolProxyEmitter
     /// Emits the struct that matches the Swift vtable layout.
     /// This is passed to Swift's SetVtable function.
     ///
-    /// LAYOUT is now driven uniformly by <see cref="ProtocolVtableMembers"/> on BOTH the same-module
-    /// and cross-module paths (property → IncludesProperty, subscript → IncludesSubscript, method →
-    /// raw-keyed IncludesMethod), so the C# struct mirrors the Swift wrapper's vtable struct exactly
-    /// without a per-call-site flag. The same-module skip sets (<c>_skippedMethodKeys</c> et al.)
-    /// remain FILLABILITY-only and are consulted by the receiver/assignment walks, never here.
+    /// LAYOUT is rendered from the single <see cref="VtableLayout"/> model (<see cref="VtableLayoutBuilder"/>):
+    /// this struct walks <see cref="VtableLayout.IncludedSlots"/> in declaration order, so the C# struct
+    /// mirrors the Swift wrapper's vtable struct field-for-field without a per-call-site flag. Membership
+    /// still flows through <see cref="ProtocolVtableMembers"/>, which now delegates to the model's
+    /// <c>Classify*</c> oracle. The same-module skip sets (<c>_skippedMethodKeys</c> et al.) remain
+    /// FILLABILITY-only and are consulted by the receiver/assignment walks, never here.
     /// </summary>
     private void EmitSwiftVtableStruct(CSharpWriter writer, ProtocolDecl protocolDecl)
     {
         var structName = GetSwiftVtableStructName(protocolDecl);
-        // Always needed now: the property/subscript LAYOUT decision routes through
-        // ProtocolVtableMembers on BOTH the same-module and cross-module paths (see the loops
-        // below), and IncludesProperty needs a ClosureHandler to classify closure properties.
-        var closureHandler = new ClosureHandler(_typeDatabase);
 
         writer.WriteLine($"/// <summary>Matches Swift {protocolDecl.Name}_vtable layout</summary>");
         writer.WriteLine("[StructLayout(LayoutKind.Sequential)]");
@@ -34,90 +31,31 @@ public partial class ProtocolProxyEmitter
         // Track emitted fields to avoid duplicates
         var emittedFields = new HashSet<string>();
 
-        // Property fields. LAYOUT membership — "does the Swift _vtable carry a slot for this
-        // property?" — is ProtocolVtableMembers.IncludesProperty, the single source of truth that
-        // mirrors EveryProtocolEmitter.EmitProtocolVtableStruct. This is a DIFFERENT axis from
-        // _skippedPropertyNames ("can C# project/fill this member?"): Swift KEEPS a slot for an
-        // AnyType-unprojectable property (the assignment walk just leaves it null) and OMITS an
-        // @objc optional / non-requirement / Self-typed / non-dispatchable-closure property.
-        // Gating the field on _skippedPropertyNames over-skipped the AnyType slots Swift keeps,
-        // making the C# [StructLayout] SMALLER than Swift's so every following field read from the
-        // wrong offset (the inverse of the Finding-8 corruption). One predicate for both the
-        // same-module and cross-module paths now; the assignment walk (EmitChildVtablePopulation)
-        // leaves slots C# can't fill at null.
-        foreach (var property in protocolDecl.Properties)
-        {
-            if (property.IsStatic)
-                continue;
-            if (!ProtocolVtableMembers.IncludesProperty(property, protocolDecl, closureHandler))
-                continue;
-            EmitPropertyVtableSwiftFields(writer, property, emittedFields);
-        }
-
-        // Subscript fields. Same layout-vs-fillability split as properties: IncludesSubscript is
-        // the Swift-mirror layout predicate (drops static / Self-typed / mixed-generic, KEEPS
-        // AnyType). A non-static excluded subscript still consumes its index so the next
-        // dispatchable subscript lands at the slot Swift assigned it; static subscripts consume no
-        // index (matching EveryProtocolEmitter).
-        int subscriptIndex = 0;
-        foreach (var subscript in protocolDecl.Subscripts)
-        {
-            if (subscript.IsStatic)
-                continue;
-            if (!ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl))
-            {
-                subscriptIndex++;
-                continue;
-            }
-            EmitSubscriptVtableSwiftFields(writer, subscript, subscriptIndex, emittedFields);
-            subscriptIndex++;
-        }
-
-        // Method fields. LAYOUT only — this struct is shared memory with Swift's _vtable, so it
-        // must mirror EveryProtocolEmitter.EmitProtocolVtableStruct EXACTLY: allocate the slot index
-        // from the RAW producer key (EveryProtocolEmitter.GetMethodKey — name + labels + raw Swift
-        // type specs), consuming an index for every distinct raw method, and emit a field iff the
-        // producer's membership predicate (ProtocolVtableMembers.IncludesMethod, == MethodEmitsVtableField
-        // after the ctor/static/@objc-optional pre-skip) keeps the slot.
+        // This struct is shared memory with Swift's _vtable, so it must mirror
+        // EveryProtocolEmitter.EmitProtocolVtableStruct field-for-field. Both render the SAME ordered
+        // VtableLayout: membership, raw-key index allocation (skip-but-consume), and the static-
+        // subscript-consumes-no-index rule all come from VtableLayoutBuilder, so the C# [StructLayout]
+        // and the Swift struct cannot disagree on slot count or position.
         //
-        // Three things are DELIBERATELY absent vs. the receiver/assignment walks (which key on the
-        // same raw index but layer fillability on top):
-        //   • The projected-C# collapse (GetProjectedCSharpMethodKey / GetMethodSignatureKey). Two
-        //     raw-distinct existential overloads that project to one C# method (e.g. consume(any A)
-        //     / consume(any B) → Consume(object)) each get their OWN Swift slot, so the struct must
-        //     emit BOTH func_consume_0 AND func_consume_1. Collapsing here was the WitnessIndexProto
-        //     corruption: tag landed at index 1 instead of Swift's 2 and every later read shifted.
-        //   • _skippedMethodKeys (AnyType-unprojectable members). That is FILLABILITY, not layout:
-        //     Swift KEEPS the slot, the assignment walk just leaves it null. Gating the field on it
-        //     would shrink the struct below Swift's.
-        //   • _closureSkippedMethodKeys — subsumed by IncludesMethod, whose closure branch returns
-        //     false for the same off-surface closure methods (and keyed on raw, the collapsing-keyed
-        //     set wouldn't match anyway).
-        int methodIndex = 0;
-        var methodIndices = new Dictionary<string, int>();
-        foreach (var method in protocolDecl.Methods)
+        // The model is LAYOUT, not fillability: it KEEPS the slot for an AnyType-unprojectable member
+        // (the assignment walk leaves it null) and gives each raw-distinct existential overload its
+        // OWN slot (no projected-C# collapse) — gating on _skippedMethodKeys / the projected key here
+        // would shrink the struct below Swift's and shift every later field (the Finding-8 / WitnessIndexProto
+        // corruption). Those fillability filters stay on the receiver/assignment walks only.
+        var layout = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl);
+        foreach (var slot in layout.IncludedSlots)
         {
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
-                continue;
-            // @objc optional methods get no vtable slot — the Swift producer
-            // (EveryProtocolEmitter.EmitProtocolVtableStruct) skips them BEFORE the index
-            // increment, so this struct must omit the field AND not consume the slot, or the
-            // C# [StructLayout] grows a field Swift never wrote and every later slot shifts.
-            if (method.IsObjCOptional)
-                continue;
-
-            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
-            if (!methodIndices.TryGetValue(slotKey, out var idx))
+            switch (slot.Kind)
             {
-                idx = methodIndex++;
-                methodIndices[slotKey] = idx;
-                // Skip-but-consume for the categories Swift omits (non-dispatchable closure,
-                // method-level generics, Self-typed, mixed-generic protocol): the producer
-                // consumes the index then drops the field, so the next dispatchable method
-                // lands at the slot Swift assigned it.
-                if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler))
-                    continue;
-                EmitMethodVtableSwiftField(writer, method, idx, emittedFields);
+                case VtableMemberKind.Property:
+                    EmitPropertyVtableSwiftFields(writer, slot.AsProperty!, emittedFields);
+                    break;
+                case VtableMemberKind.Subscript:
+                    EmitSubscriptVtableSwiftFields(writer, slot.AsSubscript!, slot.SlotIndex, emittedFields);
+                    break;
+                case VtableMemberKind.Method:
+                    EmitMethodVtableSwiftField(writer, slot.AsMethod!, slot.SlotIndex, emittedFields);
+                    break;
             }
         }
 
@@ -135,71 +73,31 @@ public partial class ProtocolProxyEmitter
     private void EmitLocalVtableStruct(CSharpWriter writer, ProtocolDecl protocolDecl)
     {
         var structName = GetLocalVtableStructName(protocolDecl);
-        // Always needed now (see EmitSwiftVtableStruct): IncludesProperty gates the property/
-        // subscript layout on every path and needs a ClosureHandler for closure-property triage.
-        var closureHandler = new ClosureHandler(_typeDatabase);
 
         writer.WriteLine($"/// <summary>Local vtable holding managed delegates</summary>");
         writer.WriteLine($"private struct {structName}");
         writer.WriteLine("{");
         writer.Indent++;
 
-        // Property delegates - track emitted to avoid duplicates (skip static properties)
+        // The local (managed-delegate) struct is positionally copied into _swiftVTable, so it must
+        // stay field-for-field aligned with the Swift-facing struct. It renders the SAME VtableLayout
+        // model (identical membership + raw-key skip-but-consume index) — see EmitSwiftVtableStruct
+        // for why the projected-C# collapse and the fillability skip sets are deliberately absent.
         var emittedFields = new HashSet<string>();
-        foreach (var property in protocolDecl.Properties)
+        var layout = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl);
+        foreach (var slot in layout.IncludedSlots)
         {
-            if (property.IsStatic)
-                continue;
-            // The local (managed-delegate) struct must stay field-for-field aligned with the
-            // Swift-facing struct, so it uses the identical LAYOUT predicate (IncludesProperty) —
-            // NOT _skippedPropertyNames. See the note in EmitSwiftVtableStruct for the
-            // layout-vs-fillability axis split and the positional-copy corruption this prevents.
-            if (!ProtocolVtableMembers.IncludesProperty(property, protocolDecl, closureHandler))
-                continue;
-            EmitPropertyLocalVtableFields(writer, property, protocolDecl, emittedFields);
-        }
-
-        // Subscript delegates (skip static subscripts)
-        int subscriptIndex = 0;
-        foreach (var subscript in protocolDecl.Subscripts)
-        {
-            if (subscript.IsStatic)
-                continue;
-            if (!ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl))
+            switch (slot.Kind)
             {
-                subscriptIndex++;
-                continue;
-            }
-            EmitSubscriptLocalVtableFields(writer, subscript, protocolDecl, subscriptIndex, emittedFields);
-            subscriptIndex++;
-        }
-
-        // Method delegates. LAYOUT only — this struct must stay field-for-field aligned with the
-        // Swift-facing struct (its fields are positionally copied into _swiftVTable), so it uses the
-        // identical raw-key index allocation + IncludesMethod layout predicate. See the method-loop
-        // note in EmitSwiftVtableStruct for why the projected-C# collapse and the fillability skip
-        // sets are deliberately absent here.
-        int methodIndex = 0;
-        var methodIndices = new Dictionary<string, int>();
-        foreach (var method in protocolDecl.Methods)
-        {
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
-                continue;
-            // @objc optional methods get no vtable slot — the Swift producer
-            // (EveryProtocolEmitter.EmitProtocolVtableStruct) skips them BEFORE the index
-            // increment, so this struct must omit the field AND not consume the slot, or the
-            // C# [StructLayout] grows a field Swift never wrote and every later slot shifts.
-            if (method.IsObjCOptional)
-                continue;
-
-            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
-            if (!methodIndices.TryGetValue(slotKey, out var idx))
-            {
-                idx = methodIndex++;
-                methodIndices[slotKey] = idx;
-                if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler))
-                    continue;
-                EmitMethodLocalVtableField(writer, method, protocolDecl, idx, emittedFields);
+                case VtableMemberKind.Property:
+                    EmitPropertyLocalVtableFields(writer, slot.AsProperty!, protocolDecl, emittedFields);
+                    break;
+                case VtableMemberKind.Subscript:
+                    EmitSubscriptLocalVtableFields(writer, slot.AsSubscript!, protocolDecl, slot.SlotIndex, emittedFields);
+                    break;
+                case VtableMemberKind.Method:
+                    EmitMethodLocalVtableField(writer, slot.AsMethod!, protocolDecl, slot.SlotIndex, slot.Width, emittedFields);
+                    break;
             }
         }
 
@@ -318,23 +216,17 @@ public partial class ProtocolProxyEmitter
         }
     }
 
-    private void EmitMethodLocalVtableField(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, int index, HashSet<string> emittedFields)
+    private void EmitMethodLocalVtableField(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, int index, int slotCount, HashSet<string> emittedFields)
     {
         var fieldName = $"Func_{method.Name}_{index}";
         if (!emittedFields.Add(fieldName))
             return;
 
-        // Exclude return type, debug params, and empty tuple () params — must match receiver signature.
-        // Dispatchable closure params expand into TWO IntPtr slots (fnPtr + ctx) on both Swift
-        // and C# vtables — see EveryProtocolEmitter.CountVtableSlots.
-        var closureHandler = new ClosureHandler(_typeDatabase);
-        int slotCount = 0;
-        foreach (var p in method.CSSignature.Skip(1))
-        {
-            if (DefaultParameterOverloadEmitter.IsDebugParameter(p) || p.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-            slotCount += EveryProtocolEmitter.CountVtableSlots(p.SwiftTypeSpec, closureHandler);
-        }
+        // slotCount is the slot's VtableLayout width: dispatchable closure / Optional<Closure> params
+        // expand into TWO IntPtr slots (fnPtr + ctx), every other param into one (return type, debug
+        // params, and empty-tuple () params contribute none) — see VtableLayoutBuilder.GetWidth and
+        // EveryProtocolEmitter.CountVtableSlots. Taking it from the model ties this delegate's arity to
+        // the same width the Swift struct field renders, so they cannot disagree on parameter count.
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
 

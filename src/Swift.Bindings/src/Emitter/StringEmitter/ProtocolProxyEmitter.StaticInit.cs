@@ -249,9 +249,12 @@ public partial class ProtocolProxyEmitter
             subscriptIndex++;
         }
 
-        // Index allocation matches the struct (Vtables.cs): RAW producer key + IncludesMethod
-        // layout, then the fillability skips leave Swift-kept-but-C#-unfillable slots null.
-        int methodIndex = 0;
+        // Slot INDEX comes from the shared VtableLayout model (the SAME ordered list the struct in
+        // Vtables.cs renders), so an assignment's index can never drift from its struct field (Bug #21).
+        // The fillability skips below then leave Swift-kept-but-C#-unfillable slots null. Both the local
+        // and the swift-facing assignment loops reuse this one map (their indices are identical — same
+        // methods, same order, same pre-skip + raw-key dedup).
+        var methodSlotIndices = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl).MethodSlotIndexByKey;
         var methodIndices = new Dictionary<string, int>();
         var emittedRawKeys = new HashSet<string>();
         var emittedCSharpKeys = new HashSet<string>();
@@ -268,7 +271,7 @@ public partial class ProtocolProxyEmitter
             var slotKey = EveryProtocolEmitter.GetMethodKey(method);
             if (!methodIndices.ContainsKey(slotKey))
             {
-                var idx = methodIndex++;
+                var idx = methodSlotIndices[slotKey];
                 methodIndices[slotKey] = idx;
                 // LAYOUT: a method with no Swift vtable slot has no struct field to assign into.
                 if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
@@ -332,7 +335,6 @@ public partial class ProtocolProxyEmitter
             subscriptIndex++;
         }
 
-        methodIndex = 0;
         methodIndices.Clear();
         emittedCSharpKeys.Clear();
         foreach (var method in protocolDecl.Methods)
@@ -348,7 +350,7 @@ public partial class ProtocolProxyEmitter
             var slotKey = EveryProtocolEmitter.GetMethodKey(method);
             if (!methodIndices.ContainsKey(slotKey))
             {
-                var idx = methodIndex++;
+                var idx = methodSlotIndices[slotKey];
                 methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
                     continue;
@@ -629,7 +631,11 @@ public partial class ProtocolProxyEmitter
             EmitLocalVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             subscriptIndex++;
         }
-        int methodIndex = 0;
+        // Slot INDEX comes from the shared VtableLayout model (the SAME ordered list the struct in
+        // Vtables.cs renders), so an assignment's index can never drift from its struct field (Bug #21).
+        // Cross-module parents have empty skip sets, so IncludesMethod alone drives layout here; both
+        // the local and swift-facing loops reuse this one map (identical indices by construction).
+        var methodSlotIndices = new VtableLayoutBuilder(_typeDatabase).Build(parentDecl).MethodSlotIndexByKey;
         var methodIndices = new Dictionary<string, int>();
         var emittedRawKeys = new HashSet<string>();
         var emittedCSharpKeys = new HashSet<string>();
@@ -650,7 +656,7 @@ public partial class ProtocolProxyEmitter
             var slotKey = EveryProtocolEmitter.GetMethodKey(method);
             if (!methodIndices.ContainsKey(slotKey))
             {
-                var idx = methodIndex++;
+                var idx = methodSlotIndices[slotKey];
                 methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, parentDecl, vtableClosureHandler)) continue;
                 // RAW-SIGNATURE DEDUP: mirror the receiver loop (EmitReceiverMethods, shared with
@@ -695,7 +701,6 @@ public partial class ProtocolProxyEmitter
             EmitSwiftVtableSubscriptAssignment(writer, subscript, subscriptIndex, localVtableField);
             subscriptIndex++;
         }
-        methodIndex = 0;
         methodIndices.Clear();
         emittedCSharpKeys.Clear();
         foreach (var method in parentDecl.Methods)
@@ -711,7 +716,7 @@ public partial class ProtocolProxyEmitter
             var slotKey = EveryProtocolEmitter.GetMethodKey(method);
             if (!methodIndices.ContainsKey(slotKey))
             {
-                var idx = methodIndex++;
+                var idx = methodSlotIndices[slotKey];
                 methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, parentDecl, vtableClosureHandler)) continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, parentDecl);

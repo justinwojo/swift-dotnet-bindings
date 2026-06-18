@@ -78,7 +78,11 @@ public partial class ProtocolProxyEmitter
         //     A C# conformer therefore cannot today reverse-dispatch the SECOND collapsed overload;
         //     that is a known fillability limitation, not a layout defect — the struct is correctly
         //     sized and forward dispatch + the first overload work.
-        int methodIndex = 0;
+        // Slot INDEX comes from the shared VtableLayout model (the SAME ordered list the vtable struct
+        // renders), so a receiver's index can never drift from its struct field (Bug #21). The three
+        // fillability filters below — _skippedMethodKeys, the raw-signature collapse, the projected-C#
+        // collapse — are UNCHANGED: they leave a Swift-kept slot null rather than re-deriving the index.
+        var methodSlotIndices = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl).MethodSlotIndexByKey;
         var methodIndices = new Dictionary<string, int>();
         var emittedRawKeys = new HashSet<string>();
         var emittedCSharpKeys = new HashSet<string>();
@@ -95,7 +99,7 @@ public partial class ProtocolProxyEmitter
             var slotKey = EveryProtocolEmitter.GetMethodKey(method);
             if (!methodIndices.TryGetValue(slotKey, out var idx))
             {
-                idx = methodIndex++;
+                idx = methodSlotIndices[slotKey];
                 methodIndices[slotKey] = idx;
                 // LAYOUT: no Swift vtable slot (non-dispatchable closure / method-generic /
                 // Self-typed / mixed-generic) → no receiver. Index already consumed.

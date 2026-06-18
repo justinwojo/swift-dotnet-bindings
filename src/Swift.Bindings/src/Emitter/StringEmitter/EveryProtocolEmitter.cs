@@ -490,104 +490,31 @@ public class EveryProtocolEmitter
         // Track emitted fields to avoid duplicates
         var emittedFields = new HashSet<string>();
 
-        // Detect mixed-generic protocols (both method-level generic and non-generic instance members).
-        // ALL members get fatalError() stubs — no vtable fields needed.
-        bool isMixedGenericProtocol = IsMixedGenericProtocol(protocolDecl);
-
-        // Property getters and setters (skip static, @objc optional, non-dispatchable closure,
-        // Self-typed, and mixed-generic properties). Dispatchable closure properties fall
-        // through to a specialised vtable-field path that emits (fnPtr, ctx) slots like
-        // the closure-param methods.
-        foreach (var property in protocolDecl.Properties)
+        // Render the single VtableLayout model: one ordered slot list whose membership, index, and
+        // width come from VtableLayoutBuilder (the canonical reverse-dispatch oracle). The C# struct
+        // mirrors (EmitSwiftVtableStruct / EmitLocalVtableStruct) and the cross-module-parent walks
+        // render the SAME list, so the Swift `_vtable` struct cannot drift out of positional agreement
+        // with them (the Bug #21 / Defect-F class). Excluded members emit no field but still consume
+        // their slot index inside the model (skip-but-consume), so a fatalError-stub member leaves the
+        // exact positional hole the C# side expects. A dispatchable-closure property takes the
+        // specialised (fnPtr, ctx) field shape; everything else routes through its kind's emitter.
+        var layout = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl);
+        foreach (var slot in layout.IncludedSlots)
         {
-            // Non-requirement properties (e.g. a protocol-extension default impl that survives
-            // parsing because it is not flagged IsFromExtension) have no C# override to dispatch
-            // to — Swift owns the body — so they get NO vtable slot. The plan/fan-out populators
-            // (ComputePropertyEmissionPlans / ComputeSiblingPropertyFallbacks at :680/:703/:774)
-            // already exclude !IsProtocolRequirement; the struct layout and
-            // ProtocolVtableMembers.IncludesProperty MUST match or the populated slots land in the
-            // wrong positions and Swift reads garbage (Defect F / Finding-8 positional corruption).
-            if (property.IsStatic || property.IsObjCOptional || !property.IsProtocolRequirement)
-                continue;
-            // Skip vtable fields for non-dispatchable closure properties — they get fatalError() stubs.
-            // Dispatchable closure properties get their own vtable-field shape (two pointer slots per accessor).
-            if (HasClosureInPropertyType(property))
+            switch (slot.Kind)
             {
-                if (!IsDispatchableClosureProperty(property, closureHandler))
-                    continue;
-                if (isMixedGenericProtocol)
-                    continue;
-                EmitDispatchableClosurePropertyVtableFields(writer, property, closureHandler, emittedFields);
-                continue;
-            }
-            // Skip vtable fields for Self-typed properties — they get fatalError() stubs
-            if (ContainsSelfTypeParam(property.SwiftTypeSpec))
-                continue;
-            // Skip vtable fields for mixed-generic protocols — all members get stubs
-            if (isMixedGenericProtocol)
-                continue;
-            EmitPropertyVtableFields(writer, property, protocolDecl, emittedFields);
-        }
-
-        // Subscript getters and setters (skip static, Self-typed, and mixed-generic subscripts)
-        int subscriptIndex = 0;
-        foreach (var subscript in protocolDecl.Subscripts)
-        {
-            if (subscript.IsStatic)
-                continue;
-            // Skip vtable fields for Self-typed subscripts — they get fatalError() stubs
-            if (ContainsSelfTypeParam(subscript.ReturnTypeSpec) ||
-                subscript.IndexParameters.Any(ip => ContainsSelfTypeParam(ip.SwiftTypeSpec)))
-            {
-                subscriptIndex++;
-                continue;
-            }
-            // Skip vtable fields for mixed-generic protocols — all members get stubs
-            if (isMixedGenericProtocol)
-            {
-                subscriptIndex++;
-                continue;
-            }
-            EmitSubscriptVtableFields(writer, subscript, protocolDecl, subscriptIndex, emittedFields);
-            subscriptIndex++;
-        }
-
-        // Methods - track by signature to handle overloads correctly
-        int methodIndex = 0;
-        var methodIndices = new Dictionary<string, int>();
-        foreach (var method in protocolDecl.Methods)
-        {
-            // Skip constructors, static, and @objc optional methods
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
-                continue;
-            if (method.IsObjCOptional)
-                continue;
-
-            var methodKey = GetMethodKey(method);
-            if (!methodIndices.TryGetValue(methodKey, out var idx))
-            {
-                idx = methodIndex++;
-                methodIndices[methodKey] = idx;
-                // Skip vtable fields for the non-dispatchable categories (closure methods off the
-                // dispatch surface, method-level generics, Self-typed methods, mixed-generic protocol
-                // members) — those get fatalError() stubs and the field would be dead code. The
-                // ComputeMethodEmissionPlans fan-out branch filter gates on the SAME predicate, so
-                // the two stay in lock-step. (Param-side dispatchable closure methods expand
-                // per-closure to two UnsafeRawPointer slots; return-side methods reuse the
-                // value-shaped UnsafeRawPointer return slot already produced by EmitMethodVtableField.)
-                if (!MethodEmitsVtableField(method, isMixedGenericProtocol, closureHandler))
-                    continue;
-                // A method with an inout ObjC-bridgeable param also gets a fatalError trap stub
-                // (see the body pass + EmitInOutObjCBridgeableMethodStub) but, unlike the four
-                // categories above, intentionally KEEPS its vtable slot. The trapping witness
-                // never reads the slot and the C# receiver compiles via the ordinary objc-param
-                // path (it drops the inout), so the slot is dead-but-harmless and both the Swift
-                // vtable struct and the C# vtable buffer stay in lock-step. Skipping it would
-                // require a matching skip here, in ProtocolVtableMembers.IncludesMethod (which
-                // would need TypeDatabase threaded through its call sites), and in ProtocolHandler's
-                // same-module skip set — deferred (see roadmap) as disproportionate to a cosmetic slot.
-                // Only emit vtable field for new methods (not duplicates)
-                EmitMethodVtableField(writer, method, protocolDecl, idx, emittedFields, closureHandler);
+                case VtableMemberKind.Property:
+                    if (slot.IsDispatchableClosure)
+                        EmitDispatchableClosurePropertyVtableFields(writer, slot.AsProperty!, closureHandler, emittedFields);
+                    else
+                        EmitPropertyVtableFields(writer, slot.AsProperty!, protocolDecl, emittedFields);
+                    break;
+                case VtableMemberKind.Subscript:
+                    EmitSubscriptVtableFields(writer, slot.AsSubscript!, protocolDecl, slot.SlotIndex, emittedFields);
+                    break;
+                case VtableMemberKind.Method:
+                    EmitMethodVtableField(writer, slot.AsMethod!, protocolDecl, slot.SlotIndex, emittedFields, closureHandler);
+                    break;
             }
         }
 
@@ -1418,8 +1345,13 @@ public class EveryProtocolEmitter
             subscriptIndex++;
         }
 
-        // Emit method implementations
-        int methodIndex = 0;
+        // Emit method implementations.
+        // The vtable SLOT INDEX for each method comes from the shared VtableLayout model — the SAME
+        // ordered slot list EmitProtocolVtableStruct and the C# vtable structs render — so the
+        // extension body cannot drift out of index agreement with the struct it dispatches through
+        // (Bug #21). methodIndices stays the local "first-seen" set that drives isNewMethod (one body
+        // per raw-distinct requirement); only the index VALUE is now model-sourced.
+        var methodSlotIndices = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl).MethodSlotIndexByKey;
         var methodIndices = new Dictionary<string, int>();
         // Tracks emitted EveryProtocol witness-body signatures (async-omitted full signatures)
         // so each rendered Swift `func` body appears at most once per extension. Distinct from
@@ -1444,7 +1376,7 @@ public class EveryProtocolEmitter
             bool isNewMethod = false;
             if (!methodIndices.TryGetValue(methodKey, out var idx))
             {
-                idx = methodIndex++;
+                idx = methodSlotIndices[methodKey];
                 methodIndices[methodKey] = idx;
                 isNewMethod = true;
             }
