@@ -121,18 +121,14 @@ public static partial class ClosureEmitter
         var paramList = string.Join("\n    ", paramLines);
 
         // Sync arg-marshal statements: produce a0Val/a1Val/… from a0/a1/…
-        // before Task.Run. Indentation matches the generated C# method body.
-        var marshalBlock = "";
-        if (args.Count > 0)
+        // before Task.Run. Written into the guarded body at the try-body indent (Stage 3),
+        // so they carry no literal indentation of their own.
+        var marshalLines = new List<string>();
+        for (int i = 0; i < args.Count; i++)
         {
-            var marshalLines = new List<string>();
-            for (int i = 0; i < args.Count; i++)
-            {
-                var stmts = closureHandler.GetAsyncThrowingArgSyncMarshalStatements(args[i], $"a{i}", $"a{i}Val");
-                foreach (var line in stmts.Split('\n'))
-                    marshalLines.Add("    " + line);
-            }
-            marshalBlock = string.Join("\n", marshalLines) + "\n";
+            var stmts = closureHandler.GetAsyncThrowingArgSyncMarshalStatements(args[i], $"a{i}", $"a{i}Val");
+            foreach (var line in stmts.Split('\n'))
+                marshalLines.Add(line);
         }
 
         // The helper call: AsyncClosureHelper.RunAsync[<A0Public,…>,TResult](handle, state, contBox, a0Val, a1Val, …, success, error)
@@ -263,58 +259,43 @@ public static partial class ClosureEmitter
                 """);
         }
 
-        // Stage 3 — open the guarded body: resolve the context handle (GCHandle.FromIntPtr throws on
-        // a zero/corrupt contextPtr — caught below and resumed with an error / FailFast, never an
-        // escape past the UCO boundary), verify it carries the expected state (resuming with an
-        // error if not, never returning silently), then marshal the args.
-        csWriter.WriteLines($$"""
-                try
-                {
-                    var handle = GCHandle.FromIntPtr(contextPtr);
-                    if (handle.Target is not {{stateType}} state)
-                    {
-                        {{targetMismatchBody}}
-                        return;
-                    }
-            {{marshalBlock}}
-            """);
+        // Stage 3 — open the guarded body via the shared UCO envelope (Finding 38): resolve the
+        // context handle (GCHandle.FromIntPtr throws on a zero/corrupt contextPtr — caught by the
+        // envelope and resumed with an error / FailFast, never an escape past the UCO boundary),
+        // verify it carries the expected state (resuming with an error if not, never returning
+        // silently), then marshal the args. csWriter.Indent moves to the method-body level so the
+        // envelope's try/catch and the method's closing brace nest correctly.
+        csWriter.Indent++;
+        UcoGuardEmitter.EmitOpen(csWriter);
+        csWriter.WriteLine("var handle = GCHandle.FromIntPtr(contextPtr);");
+        csWriter.WriteLine($"if (handle.Target is not {stateType} state)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine(targetMismatchBody);
+        csWriter.WriteLine("return;");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        foreach (var line in marshalLines)
+            csWriter.WriteLine(line);
 
         // Stage 4 — branch-specific helper invocation (spawns Task.Run and returns synchronously).
         if (isDataReturn)
-        {
-            csWriter.WriteLines($$"""
-                    Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-            """);
-        }
+            csWriter.WriteLine("Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);");
         else if (isStringReturn)
-        {
-            csWriter.WriteLines($$"""
-                    Swift.Runtime.StringAsyncClosureHelper.RunStringAsync(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
-            """);
-        }
+            csWriter.WriteLine($"Swift.Runtime.StringAsyncClosureHelper.RunStringAsync(handle, state, continuationBoxPtr{argValList}, successAction, errorAction);");
         else if (hasReturn && !isThrowing)
-        {
-            csWriter.WriteLines($$"""
-                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction);
-            """);
-        }
+            csWriter.WriteLine($"AsyncClosureHelper.{helperName}(handle, state, continuationBoxPtr{argValList}, successAction);");
         else
-        {
-            csWriter.WriteLines($$"""
-                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
-            """);
-        }
+            csWriter.WriteLine($"AsyncClosureHelper.{helperName}(handle, state, continuationBoxPtr{argValList}, successAction, errorAction);");
 
-        // Stage 5 — close the guarded body. A synchronous escape resumes the box once with an error
-        // (throwing closures) or FailFasts (non-throwing). Closes the generated method.
-        csWriter.WriteLines($$"""
-                }
-                catch (global::System.Exception __uco_ex)
-                {
-                    {{ucoCatchBody}}
-                }
-            }
-            """);
+        // Stage 5 — close the guarded body through the ResumeBoxError policy: a synchronous escape
+        // resumes the box once with an error (throwing closures) or FailFasts (non-throwing). The
+        // resume statements are supplied here (ucoCatchBody); the try/catch structure is the shared
+        // envelope's. Then close the generated method.
+        UcoGuardEmitter.EmitClose(csWriter, UcoGuardEmitter.UcoFaultPolicy.ResumeBoxError,
+            resumeErrorBody: new[] { ucoCatchBody });
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 
     /// <summary>

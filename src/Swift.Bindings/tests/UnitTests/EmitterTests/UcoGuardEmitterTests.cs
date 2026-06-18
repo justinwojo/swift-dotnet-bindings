@@ -83,15 +83,67 @@ public class UcoGuardEmitterTests
     }
 
     [Fact]
-    public void EmitClose_ResumeBoxError_StillThrowsUntilFinding37RoutesThroughHere()
+    public void EmitClose_ResumeBoxError_EmitsCallerSuppliedResumeBody()
     {
-        // Finding 37 emits its own resume-scope envelope inline rather than routing through this
-        // seam; no caller passes ResumeBoxError. The seam fails loudly rather than silently
-        // emitting a catch-free body.
+        // Finding 37/38: the async-closure Start thunk owns a Swift continuation box. The envelope
+        // owns the try/catch; the closure emitter supplies the resume statements (which box, which
+        // resume helper) so an escape resumes the box exactly once instead of unwinding past the UCO
+        // boundary or being silently swallowed.
+        var (w, sink) = NewWriter();
+        UcoGuardEmitter.EmitOpen(w);
+        w.WriteLine("AsyncClosureHelper.RunVoidAsync(handle, state, continuationBoxPtr, successAction, errorAction);");
+        UcoGuardEmitter.EmitClose(w, UcoGuardEmitter.UcoFaultPolicy.ResumeBoxError,
+            resumeErrorBody: new[]
+            {
+                "global::Swift.Runtime.AsyncClosureHelper.ReportError(__uco_ex, continuationBoxPtr, errorAction);",
+            });
+
+        var output = sink.ToString();
+        Assert.Contains("catch (global::System.Exception __uco_ex)", output);
+        Assert.Contains(
+            "global::Swift.Runtime.AsyncClosureHelper.ReportError(__uco_ex, continuationBoxPtr, errorAction);",
+            output);
+        // The catch follows the try's closing brace, never before it.
+        var braceIdx = output.IndexOf("}", System.StringComparison.Ordinal);
+        var catchIdx = output.IndexOf("catch", System.StringComparison.Ordinal);
+        Assert.True(braceIdx >= 0 && catchIdx > braceIdx, "catch must follow the try's closing brace");
+    }
+
+    [Fact]
+    public void EmitClose_ResumeBoxError_WithoutBody_ThrowsArgumentException()
+    {
+        // ResumeBoxError's resume statements are callback-specific (which continuation box, throwing
+        // vs non-throwing), so the envelope refuses to emit a catch-free body when the caller forgets
+        // to supply them — the same fail-closed contract as StreamFault.
         var (w, _) = NewWriter();
         UcoGuardEmitter.EmitOpen(w);
-        Assert.Throws<System.NotImplementedException>(
+        Assert.Throws<System.ArgumentException>(
             () => UcoGuardEmitter.EmitClose(w, UcoGuardEmitter.UcoFaultPolicy.ResumeBoxError));
+    }
+
+    [Fact]
+    public void EmitClose_FailFast_WithMember_EmitsAsyncWitnessMemberNamedArms()
+    {
+        // The async-witness member-named FailFast is folded into EmitClose via the `member` parameter
+        // (one close-emitter, not two): FailFast + a non-null member yields the two member-named arms,
+        // identical to the EmitCloseAsyncWitnessFailFast convenience wrapper.
+        var (viaPolicy, policySink) = NewWriter();
+        UcoGuardEmitter.EmitOpen(viaPolicy);
+        viaPolicy.WriteLine("return MarshalToSwiftBuffer(result);");
+        UcoGuardEmitter.EmitClose(viaPolicy, UcoGuardEmitter.UcoFaultPolicy.FailFast,
+            member: "AsyncRefineModifierBase.refineModify");
+
+        var (viaWrapper, wrapperSink) = NewWriter();
+        UcoGuardEmitter.EmitOpen(viaWrapper);
+        viaWrapper.WriteLine("return MarshalToSwiftBuffer(result);");
+        UcoGuardEmitter.EmitCloseAsyncWitnessFailFast(viaWrapper, "AsyncRefineModifierBase.refineModify");
+
+        // The convenience wrapper and the policy path produce byte-identical output.
+        Assert.Equal(wrapperSink.ToString(), policySink.ToString());
+        // And it really is the member-named async-witness shape, not the anonymous FailFast.
+        Assert.Contains("FailFastAsyncWitnessCancellation", policySink.ToString());
+        Assert.Contains("FailFastAsyncWitnessException", policySink.ToString());
+        Assert.DoesNotContain("FailFastUnhandledClosureException", policySink.ToString());
     }
 
     [Fact]
