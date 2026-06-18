@@ -18,9 +18,9 @@ namespace BindingsGeneration.Tests;
 /// .swiftinterface inputs through the regex producer and the SwiftSyntax producer
 /// and asserts every fact SwiftSyntax covers comes out byte-equal.
 /// <para/>
-/// SwiftSyntax provides 100% fact coverage (24/24) — every fact this
-/// test exercises is now produced by SwiftSyntax. The remaining role of the regex
-/// producer is the per-release rollback / parity diff path.
+/// SwiftSyntax provides full fact coverage — every fact this test exercises is now
+/// produced by SwiftSyntax. The remaining role of the regex producer is the
+/// per-release rollback / parity diff path.
 /// <para/>
 /// SKIP BEHAVIOR: when the SwiftInterfaceParser host binary isn't built, every
 /// fact in the test class is skipped instead of failing — `dotnet test` is a no-op
@@ -562,6 +562,208 @@ public class InterfaceFactsProducerParityTests
                 "    public static func wrap(_ keyToWrap: Swift.Int, using kek: Swift.Int) -> Swift.Int\n" +
                 "  }\n" +
                 "}\n" },
+        };
+
+    /// <summary>`_const` parameter corpus. Mirrors `GetConstLiteralParameters`: the effective
+    /// gate is the STRICT public-func/init shape (a bare protocol requirement yields no entry
+    /// because the regex looks the printedName up with <c>insideProtocol=false</c>), keyed by
+    /// the full qualified chain (first-dot-strip for extensions). Detection is the
+    /// <c>_const&#160;</c> prefix on the parameter's type portion.</summary>
+    public static IEnumerable<object[]> ConstLiteralCorpus =>
+        new[]
+        {
+            new object[] { "InitAllConst",
+                "public struct IntentCollectionSize {\n" +
+                "  public init(min: _const Swift.Int, max: _const Swift.Int)\n" +
+                "}\n" },
+            new object[] { "FreeFuncMixedConst",
+                "public func clamp(a: _const Swift.Int, b: Swift.Int) -> Swift.Int\n" },
+            new object[] { "NoConstExcluded",
+                "public func plain(a: Swift.Int) -> Swift.Int\n" },
+            new object[] { "ConstWithDefault",
+                "public struct S {\n" +
+                "  public func step(n: _const Swift.Int = 0) -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "ExtensionConstFirstDotKey",
+                "extension Mod.Outer.Target {\n" +
+                "  public func emit(x: _const Swift.Int) -> Swift.Int\n" +
+                "}\n" },
+            // `_const` is a prefix-with-trailing-space check, so a parameter NAME containing
+            // "const" (type has no `_const`) must NOT register.
+            new object[] { "ConstInNameNotType",
+                "public func name(const_thing: Swift.Int) -> Swift.Int\n" },
+            // Bare protocol requirement: const does NOT emit (regex resolves the printedName
+            // with insideProtocol=false → null). Both producers must stay empty here.
+            new object[] { "BareProtocolConstNotEmitted",
+                "public protocol P {\n" +
+                "  func need(x: _const Swift.Int)\n" +
+                "}\n" },
+            // Failable init: the regex's PublicInitRegex/AnyInitRegex require literal `init(`
+            // (`init\s*(?:<…>)?\(`), so `init?(`/`init!(` match NOTHING — no const entry. The
+            // SwiftSyntax walker must mirror this for the new fact via the `!isFailableInit`
+            // gate (the existing 4 signature facts intentionally still emit for failable inits,
+            // which is why this guard case lives in the const corpus, not SignatureCorpus).
+            new object[] { "FailableInitConstNotEmitted",
+                "public struct Boxed {\n" +
+                "  public init?(value: _const Swift.Int)\n" +
+                "}\n" },
+        };
+
+    /// <summary>Closure-parameter-attribute corpus (`@MainActor` / `@Sendable`). Mirrors
+    /// `GetClosureParameterAttributes`: the gate is public-shape OR inside-a-protocol (bare
+    /// requirements contribute via the relaxed protocol path), keyed by the full qualified
+    /// chain. Values are per-parameter, index-aligned attribute-name lists (empty list for a
+    /// parameter that carries none), deduped, normalized to the bare attribute name.</summary>
+    public static IEnumerable<object[]> ClosureAttributeCorpus =>
+        new[]
+        {
+            // Headline case: a bare protocol requirement whose closure parameter carries both
+            // attributes. The regex's relaxed protocol path fires; SwiftSyntax must mirror via
+            // the isInsideProtocol gate.
+            new object[] { "ProtocolRequirementMainActorSendable",
+                "public protocol Scheduler {\n" +
+                "  func scheduleOnMainActor(_ action: @escaping @MainActor @Sendable () -> Void)\n" +
+                "}\n" },
+            new object[] { "PublicMethodMainActor",
+                "public struct Runner {\n" +
+                "  public func run(_ cb: @escaping @MainActor () -> Void)\n" +
+                "}\n" },
+            // Module-qualified attribute (@_Concurrency.MainActor) normalizes to "MainActor".
+            new object[] { "QualifiedAttributeNormalized",
+                "public func q(_ cb: @escaping @_Concurrency.MainActor () -> Void)\n" },
+            // Index-aligned: second param carries no attribute → empty inner list, but the
+            // member still registers because param 0 has one.
+            new object[] { "MixedAttrAndPlainParam",
+                "public func mix(a: @Sendable () -> Void, b: Swift.Int)\n" },
+            new object[] { "MultipleClosureParams",
+                "public func multi(first: @MainActor () -> Void, second: @Sendable () -> Void)\n" },
+            new object[] { "NoAttributesExcluded",
+                "public func plain(_ cb: () -> Void)\n" },
+            // Duplicate attribute on one parameter dedups to a single entry (regex Contains gate).
+            new object[] { "DuplicateAttrDeduped",
+                "public func dd(_ cb: @MainActor @Sendable @MainActor () -> Void)\n" },
+            new object[] { "ExtensionClosureAttrFirstDotKey",
+                "extension Mod.Outer.Target {\n" +
+                "  public func ext(_ cb: @Sendable () -> Void)\n" +
+                "}\n" },
+            // Closure attribute on a bare protocol INIT requirement.
+            new object[] { "BareProtocolInitAttr",
+                "public protocol Maker {\n" +
+                "  init(handler: @escaping @MainActor () -> Void)\n" +
+                "}\n" },
+            // Failable init requirement: the protocol's ProtocolInitRegex DOES classify
+            // `init?(` as a member line, but the downstream `ExtractClosureParameterAttributes`
+            // re-gates through `AnyInitRegex`, which rejects `init?(` — so NO closure-attr entry
+            // on either producer. SwiftSyntax mirrors via the `!isFailableInit` gate (which fires
+            // even on the relaxed protocol path).
+            new object[] { "FailableProtocolInitAttrNotEmitted",
+                "public protocol Maker {\n" +
+                "  init?(handler: @escaping @MainActor () -> Void)\n" +
+                "}\n" },
+        };
+
+    /// <summary>SPI-only-conformance corpus. Each row is
+    /// <c>{ label, publicInterface, privateInterface }</c> — the fact is harvested ONLY
+    /// from the sibling <c>*.private.swiftinterface</c>, so the meaningful content lives in
+    /// the third element. Mirrors <c>GetSpiOnlyConformances</c> and its
+    /// <c>SpiExtensionHeaderRegex</c>: a single source line of the form
+    /// <c>@_spi(...) [public|open] extension QualifiedType : P1, P2 { ... }</c>, with leading
+    /// per-conformance attributes stripped, the unqualified protocol tail kept, a trailing
+    /// <c>where</c> clause dropped, and <c>Codable</c> expanded to <c>Encodable</c>+<c>Decodable</c>.
+    /// The conformance list is keyed <c>"QualifiedType::UnqualifiedProtocol"</c>.</summary>
+    public static IEnumerable<object[]> SpiOnlyConformancesCorpus =>
+        new[]
+        {
+            new object[] { "BasicSpiConformance",
+                "import Swift\n",
+                "@_spi(Private) extension Mod.Foo : Swift.Equatable {}\n" },
+            // `public`/`open` between the @_spi attribute and `extension` is allowed.
+            new object[] { "PublicModifierSpi",
+                "import Swift\n",
+                "@_spi(Internal) public extension Mod.Bar : Swift.Hashable {}\n" },
+            // Codable synthesizes two ABI conformance entries; both producers expand it.
+            new object[] { "CodableExpandsToEncodableDecodable",
+                "import Swift\n",
+                "@_spi(X) extension Mod.Baz : Swift.Codable {}\n" },
+            // Multiple comma-separated conformances on one line.
+            new object[] { "MultipleConformances",
+                "import Swift\n",
+                "@_spi(X) extension Mod.Q : Alpha, Beta {}\n" },
+            // A per-conformance leading attribute (`@retroactive`) is stripped; the
+            // unqualified tail of a module-qualified protocol is kept.
+            new object[] { "RetroactiveAttributeStripped",
+                "import Swift\n",
+                "@_spi(X) extension Mod.R : @retroactive Swift.Equatable {}\n" },
+            // A trailing top-level `where` clause is dropped from the conformance section.
+            new object[] { "WhereClauseStripped",
+                "import Swift\n",
+                "@_spi(X) extension Mod.W : Proto where Element : Other {}\n" },
+            // A plain (non-@_spi) extension contributes NOTHING — both producers empty.
+            new object[] { "NonSpiExtensionExcluded",
+                "import Swift\n",
+                "extension Mod.N : Proto {}\n" },
+            // A private interface with no @_spi extension at all — covered-but-empty parity.
+            new object[] { "NoSpiContent",
+                "import Swift\n",
+                "public struct Mod {}\n" },
+        };
+
+    /// <summary>`@objc(CustomName)` runtime-name corpus. Mirrors <c>GetObjCRuntimeNames</c>
+    /// and its <c>ObjCCustomNameRegex</c>: records on the <c>TypeDeclRegex</c> set
+    /// (class/struct/enum/actor/protocol) only — never on an extension; the attribute may sit
+    /// on the declaration line OR be deferred from the line immediately above; bare <c>@objc</c>
+    /// and selector renames (<c>@objc(foo:)</c>, trailing colon) are excluded; a same-line body
+    /// <c>{</c> is required to record (multi-line type headers do not); first-match-wins; the key
+    /// is the dot-qualified nesting path.</summary>
+    public static IEnumerable<object[]> ObjCRuntimeNamesCorpus =>
+        new[]
+        {
+            new object[] { "ClassRename",
+                "@objc(WGTWidget) public class Widget {\n}\n" },
+            // struct/enum/actor/protocol are all in the TypeDeclRegex set; both producers cover
+            // every kind, so a non-class decl must round-trip identically.
+            new object[] { "StructRename",
+                "@objc(STRBoxed) public struct Boxed {\n}\n" },
+            new object[] { "ActorRename",
+                "@objc(ACTRunner) public actor Runner {\n}\n" },
+            new object[] { "ProtocolRename",
+                "@objc(PRONamed) public protocol Named {\n}\n" },
+            // Nested type → fully-qualified dotted key (Outer.Inner).
+            new object[] { "NestedTypeQualifiedKey",
+                "public enum Outer {\n" +
+                "  @objc(INRInner) public class Inner {\n" +
+                "  }\n" +
+                "}\n" },
+            // Attribute on its OWN line is deferred onto the following type declaration.
+            new object[] { "OwnLineAttributeBindsToType",
+                "@objc(OLAHolder)\npublic class Holder {\n}\n" },
+            // Bare `@objc` (no argument) leaves the runtime name == the Swift name → NOT recorded.
+            new object[] { "BareObjcNotRecorded",
+                "@objc public class Plain {\n}\n" },
+            // A selector rename on a member carries a trailing colon and fails the bare-identifier
+            // regex; the enclosing type gets no rename, so both producers stay empty.
+            new object[] { "SelectorRenameExcluded",
+                "public class Svc {\n" +
+                "  @objc(doThing:) public func doThing(_ x: Swift.Int)\n" +
+                "}\n" },
+            // `@objc(name)` deferred onto a MEMBER (not a type) is consumed without recording.
+            new object[] { "DeferredToMemberNotRecorded",
+                "public class Carrier {\n" +
+                "  @objc(memberName)\n" +
+                "  public var value: Swift.Int { get }\n" +
+                "}\n" },
+            // A type whose body `{` is on a LATER line — the regex records only on a same-line
+            // depth-positive `{`, and the walker's opensOnSameLine gate mirrors it → not recorded.
+            new object[] { "MultiLineTypeDeclNotRecorded",
+                "@objc(MLNMulti) public class Multi\n{\n}\n" },
+            // `@objc(name)` on an extension never records (the regex records only on the
+            // TypeDecl branch; the walker's extension visit only pushes a scope frame).
+            new object[] { "ExtensionNeverRecords",
+                "public class Base {}\n" +
+                "@objc(EXTName) extension Base {\n}\n" },
+            // No `@objc` anywhere → empty on both sides.
+            new object[] { "NoObjcExcluded",
+                "public class Vanilla {\n}\n" },
         };
 
     /// <summary>Member-collection corpus: internal + public member keys.</summary>
@@ -1367,6 +1569,117 @@ public class InterfaceFactsProducerParityTests
         }
     }
 
+    [SkippableTheory]
+    [MemberData(nameof(ConstLiteralCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalConstLiteralParameters(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ConstLiteralParameters, swiftSyntax.CoveredFacts);
+            AssertBoolListDictParity(label, "ConstLiteralParameters",
+                regex.Facts.ConstLiteralParameters, swiftSyntax.Facts.ConstLiteralParameters);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(ClosureAttributeCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalClosureParameterAttributes(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ClosureParameterAttributes, swiftSyntax.CoveredFacts);
+            AssertNestedStringListDictParity(label, "ClosureParameterAttributes",
+                regex.Facts.ClosureParameterAttributes, swiftSyntax.Facts.ClosureParameterAttributes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(SpiOnlyConformancesCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalSpiOnlyConformances(
+        string label, string publicInterface, string privateInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFileWithPrivate(publicInterface, privateInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.SpiOnlyConformances, swiftSyntax.CoveredFacts);
+            AssertSetParity(label, "SpiOnlyConformances",
+                regex.Facts.SpiOnlyConformances, swiftSyntax.Facts.SpiOnlyConformances);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void SpiOnlyConformances_NoPrivateSibling_CoveredButEmptyOnBoth()
+    {
+        // No `*.private.swiftinterface` sibling exists. Both producers must still DECLARE
+        // SpiOnlyConformances coverage (so the aggregator never falls through) and emit an
+        // empty set — otherwise a producer that covered-but-found-nothing would be
+        // indistinguishable from one that didn't cover the fact at all.
+        var binaryPath = ResolveBinaryOrSkip("NoPrivateSibling");
+        var path = WriteTempFile("import Swift\npublic struct Mod {}\n");
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.SpiOnlyConformances, regex.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.SpiOnlyConformances, swiftSyntax.CoveredFacts);
+            AssertSetParity("NoPrivateSibling", "SpiOnlyConformances",
+                regex.Facts.SpiOnlyConformances, swiftSyntax.Facts.SpiOnlyConformances);
+            Assert.Empty(swiftSyntax.Facts.SpiOnlyConformances!);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(ObjCRuntimeNamesCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalObjCRuntimeNames(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ObjCRuntimeNames, swiftSyntax.CoveredFacts);
+            AssertStringDictParity(label, "ObjCRuntimeNames",
+                regex.Facts.ObjCRuntimeNames, swiftSyntax.Facts.ObjCRuntimeNames);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [SkippableFact]
     public void Aggregator_WithSwiftSyntaxThenRegex_RoutesMigratedFactsToSwiftSyntax()
     {
@@ -1532,6 +1845,43 @@ public class InterfaceFactsProducerParityTests
             {
                 Assert.True(r[i] == s[i],
                     $"[{label}] {factName}['{key}'][{i}] diverged. regex={r[i]} swift-syntax={s[i]}");
+            }
+        }
+    }
+
+    /// <summary>Parity for the nested per-parameter attribute lists
+    /// (<c>Dictionary&lt;string, List&lt;List&lt;string&gt;&gt;&gt;</c> — member → per-parameter →
+    /// attribute names). Asserts identical key sets, identical parameter arity per key, and
+    /// identical index-aligned attribute lists (order-sensitive: both producers emit
+    /// first-seen order with per-parameter dedup).</summary>
+    private static void AssertNestedStringListDictParity(
+        string label, string factName,
+        Dictionary<string, List<List<string>>>? regexDict,
+        Dictionary<string, List<List<string>>>? swiftSyntaxDict)
+    {
+        Assert.NotNull(regexDict);
+        Assert.NotNull(swiftSyntaxDict);
+        Assert.True(regexDict!.Count == swiftSyntaxDict!.Count,
+            $"[{label}] {factName} count diverged. regex={regexDict.Count} swift-syntax={swiftSyntaxDict.Count}\n  regex keys: {Join(regexDict.Keys)}\n  swift keys: {Join(swiftSyntaxDict.Keys)}");
+        foreach (var key in regexDict.Keys)
+        {
+            Assert.True(swiftSyntaxDict.ContainsKey(key),
+                $"[{label}] {factName}: swift-syntax missing key '{key}'");
+            var r = regexDict[key];
+            var s = swiftSyntaxDict[key];
+            Assert.True(r.Count == s.Count,
+                $"[{label}] {factName}['{key}'] parameter-count diverged. regex={r.Count} swift-syntax={s.Count}");
+            for (int i = 0; i < r.Count; i++)
+            {
+                var ri = r[i];
+                var si = s[i];
+                Assert.True(ri.Count == si.Count,
+                    $"[{label}] {factName}['{key}'][{i}] attribute-count diverged. regex={ri.Count} ({Join(ri)}) swift-syntax={si.Count} ({Join(si)})");
+                for (int j = 0; j < ri.Count; j++)
+                {
+                    Assert.True(ri[j] == si[j],
+                        $"[{label}] {factName}['{key}'][{i}][{j}] diverged. regex='{ri[j]}' swift-syntax='{si[j]}'");
+                }
             }
         }
     }
@@ -1712,6 +2062,23 @@ public class InterfaceFactsProducerParityTests
         var path = Path.Combine(Path.GetTempPath(), $"InterfaceFactsParity-{Guid.NewGuid()}.swiftinterface");
         File.WriteAllText(path, content);
         return path;
+    }
+
+    /// <summary>Writes a public <c>*.swiftinterface</c> plus its sibling
+    /// <c>*.private.swiftinterface</c> into a fresh unique directory and returns the PUBLIC
+    /// path. Both producers derive the private path from the public one
+    /// (<c>DerivePrivateSwiftInterfacePath</c>: <c>foo.swiftinterface</c> →
+    /// <c>foo.private.swiftinterface</c>), so the two files must share a base name in the
+    /// same directory. Callers clean up the whole directory in their <c>finally</c>.</summary>
+    private static string WriteTempFileWithPrivate(string publicContent, string privateContent)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"InterfaceFactsParity-{Guid.NewGuid()}");
+        Directory.CreateDirectory(dir);
+        var publicPath = Path.Combine(dir, "Module.swiftinterface");
+        var privatePath = Path.Combine(dir, "Module.private.swiftinterface");
+        File.WriteAllText(publicPath, publicContent);
+        File.WriteAllText(privatePath, privateContent);
+        return publicPath;
     }
 
     private static string Join<T>(IEnumerable<T> items) => "[" + string.Join(", ", items.Select(x => x?.ToString() ?? "<null>")) + "]";

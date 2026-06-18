@@ -17,7 +17,7 @@ namespace BindingsGeneration.Producers;
 /// (tools/SwiftInterfaceParser, built by `nuke compile`) with `--input &lt;path&gt;`,
 /// reads JSON from stdout, and converts it into a <see cref="PartialSwiftInterfaceFacts"/>.
 /// <para/>
-/// SwiftSyntax provides 100% fact coverage (24/24): MainActor*, the
+/// SwiftSyntax provides full fact coverage: MainActor*, the
 /// actor isolation cluster, availability cluster, typed throws, type-and-member
 /// collection (<see cref="InterfaceFactKind.PublicTypeNames"/>,
 /// <see cref="InterfaceFactKind.InternalMemberKeys"/>,
@@ -29,7 +29,12 @@ namespace BindingsGeneration.Producers;
 /// <see cref="InterfaceFactKind.DefaultParameterValues"/>,
 /// <see cref="InterfaceFactKind.AutoclosureParameters"/>,
 /// <see cref="InterfaceFactKind.SubscriptLabels"/>,
-/// <see cref="InterfaceFactKind.VariadicMembers"/>), and protocol-level facts
+/// <see cref="InterfaceFactKind.VariadicMembers"/>,
+/// <see cref="InterfaceFactKind.ConstLiteralParameters"/>,
+/// <see cref="InterfaceFactKind.ClosureParameterAttributes"/>),
+/// <see cref="InterfaceFactKind.SpiOnlyConformances"/> (from the sibling
+/// <c>.private.swiftinterface</c>), <see cref="InterfaceFactKind.ObjCRuntimeNames"/>,
+/// and protocol-level facts
 /// (<see cref="InterfaceFactKind.ConventionCProtocols"/>,
 /// <see cref="InterfaceFactKind.ConventionCProtocolPositions"/>,
 /// <see cref="InterfaceFactKind.HiddenRequirementProtocols"/>).
@@ -126,6 +131,19 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
         };
         psi.ArgumentList.Add("--input");
         psi.ArgumentList.Add(swiftInterfacePath);
+
+        // SPI-only conformances live in the sibling `*.private.swiftinterface`. Derive its
+        // path the SAME way the regex producer does (shared helper = single source of truth)
+        // and pass it ONLY when the file actually exists. When absent (most frameworks ship
+        // no private interface), the host still declares SpiOnlyConformances coverage with an
+        // empty payload — matching the regex producer's empty set — so the aggregator never
+        // suppresses a real regex finding with a stale empty.
+        var privatePath = RegexInterfaceFactsProducer.DerivePrivateSwiftInterfacePath(swiftInterfacePath);
+        if (privatePath is not null && File.Exists(privatePath))
+        {
+            psi.ArgumentList.Add("--private-input");
+            psi.ArgumentList.Add(privatePath);
+        }
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Failed to start SwiftInterfaceParser at '{_binaryPath}'.");
@@ -267,11 +285,23 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             AutoclosureParameters = covered.Contains(InterfaceFactKind.AutoclosureParameters)
                 ? ConvertListDict(parsed.Facts.AutoclosureParameters)
                 : null,
+            ConstLiteralParameters = covered.Contains(InterfaceFactKind.ConstLiteralParameters)
+                ? ConvertListDict(parsed.Facts.ConstLiteralParameters)
+                : null,
+            ClosureParameterAttributes = covered.Contains(InterfaceFactKind.ClosureParameterAttributes)
+                ? ConvertListDict(parsed.Facts.ClosureParameterAttributes)
+                : null,
             SubscriptLabels = covered.Contains(InterfaceFactKind.SubscriptLabels)
                 ? ConvertListDict(parsed.Facts.SubscriptLabels)
                 : null,
             VariadicMembers = covered.Contains(InterfaceFactKind.VariadicMembers)
                 ? new HashSet<string>(parsed.Facts.VariadicMembers ?? new List<string>())
+                : null,
+            SpiOnlyConformances = covered.Contains(InterfaceFactKind.SpiOnlyConformances)
+                ? new HashSet<string>(parsed.Facts.SpiOnlyConformances ?? new List<string>())
+                : null,
+            ObjCRuntimeNames = covered.Contains(InterfaceFactKind.ObjCRuntimeNames)
+                ? new Dictionary<string, string>(parsed.Facts.ObjCRuntimeNames ?? new Dictionary<string, string>())
                 : null,
 
             // Protocol-level facts.
@@ -480,10 +510,18 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             throw new InvalidOperationException("SwiftInterfaceParser declared DefaultParameterValues coverage but emitted null facts.defaultParameterValues.");
         if (covered.Contains(InterfaceFactKind.AutoclosureParameters) && payload.AutoclosureParameters is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared AutoclosureParameters coverage but emitted null facts.autoclosureParameters.");
+        if (covered.Contains(InterfaceFactKind.ConstLiteralParameters) && payload.ConstLiteralParameters is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ConstLiteralParameters coverage but emitted null facts.constLiteralParameters.");
+        if (covered.Contains(InterfaceFactKind.ClosureParameterAttributes) && payload.ClosureParameterAttributes is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ClosureParameterAttributes coverage but emitted null facts.closureParameterAttributes.");
         if (covered.Contains(InterfaceFactKind.SubscriptLabels) && payload.SubscriptLabels is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared SubscriptLabels coverage but emitted null facts.subscriptLabels.");
         if (covered.Contains(InterfaceFactKind.VariadicMembers) && payload.VariadicMembers is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared VariadicMembers coverage but emitted null facts.variadicMembers.");
+        if (covered.Contains(InterfaceFactKind.SpiOnlyConformances) && payload.SpiOnlyConformances is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared SpiOnlyConformances coverage but emitted null facts.spiOnlyConformances.");
+        if (covered.Contains(InterfaceFactKind.ObjCRuntimeNames) && payload.ObjCRuntimeNames is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ObjCRuntimeNames coverage but emitted null facts.objcRuntimeNames.");
 
         // Protocol-level facts.
         if (covered.Contains(InterfaceFactKind.ConventionCProtocols) && payload.ConventionCProtocols is null)

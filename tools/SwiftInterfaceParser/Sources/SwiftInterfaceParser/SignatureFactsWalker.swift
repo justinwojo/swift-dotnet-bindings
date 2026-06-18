@@ -5,20 +5,45 @@ import Foundation
 import SwiftSyntax
 import SwiftParser
 
-/// Walks func/init declarations and surfaces four signature-derived facts:
-///   * `parameterNames`         — "Key -> [internalName]" (always, any access)
-///   * `defaultParameterValues` — "Key -> [default?]"     (public/open only)
-///   * `autoclosureParameters`  — "Key -> [bool]"         (public/open only)
-///   * `variadicMembers`        — Set<"Key">              (public/open only)
+/// Walks func/init declarations and surfaces six signature-derived facts:
+///   * `parameterNames`            — "Key -> [internalName]" (always, any access)
+///   * `defaultParameterValues`    — "Key -> [default?]"     (public/open only)
+///   * `autoclosureParameters`     — "Key -> [bool]"         (public/open only)
+///   * `variadicMembers`           — Set<"Key">              (public/open only)
+///   * `constLiteralParameters`    — "Key -> [bool]"         (public/open only)
+///   * `closureParameterAttributes`— "Key -> [[String]]"     (public/open OR protocol req)
 ///
 /// PARITY CONTRACT WITH:
-///   * `SwiftInterfaceAccessParser.GetParameterNames`         (line 3005)
-///   * `SwiftInterfaceAccessParser.GetDefaultParameterValues` (line 3794)
-///   * `SwiftInterfaceAccessParser.GetAutoclosureParameters`  (line 3846)
-///   * `SwiftInterfaceAccessParser.GetVariadicMembers`        (line 3975)
+///   * `SwiftInterfaceAccessParser.GetParameterNames`             (line 3005)
+///   * `SwiftInterfaceAccessParser.GetDefaultParameterValues`     (line 3794)
+///   * `SwiftInterfaceAccessParser.GetAutoclosureParameters`      (line 3846)
+///   * `SwiftInterfaceAccessParser.GetVariadicMembers`            (line 3975)
+///   * `SwiftInterfaceAccessParser.GetConstLiteralParameters`     (line 4974)
+///   * `SwiftInterfaceAccessParser.GetClosureParameterAttributes` (line 5112)
+///
+/// CONST vs CLOSURE member-set asymmetry (critical parity trap):
+///   * `constLiteralParameters` uses `ExtractMemberPrintedName(memberText)` with
+///     `insideProtocol = false`, so bare protocol requirements (no access modifier)
+///     are DROPPED — it emits on the same STRICT public-shape member set as
+///     defaults/autoclosure/variadic.
+///   * `closureParameterAttributes` uses `ExtractMemberPrintedName(memberText,
+///     tracker.IsInsideProtocol)`, so inside a protocol body bare requirements ARE
+///     included (regex `ProtocolFuncRegex`/`ProtocolInitRegex` match any
+///     identifier-named `func`/`init`). It therefore emits on (public-shape OR
+///     inside-protocol) members. Its emit MUST precede the public-shape early return.
 ///
 /// 1. **Decl kinds**: `func` and `init` (including failable `init?`). Subscript,
 ///    var, and other decls do not contribute to these facts.
+///
+///    **FAILABLE-INIT carve-out (const + closure-attr ONLY)**: the regex's
+///    `AnyInitRegex`/`PublicInitRegex` require literal `init(` (`init\s*(?:<…>)?\(`),
+///    so `init?(`/`init!(` match NOTHING — the regex emits no const/closure-attr for a
+///    failable init, not even via a protocol's relaxed `ProtocolInitRegex` (the
+///    downstream `Extract*` re-gate through `AnyInitRegex`). The two NEW facts mirror
+///    this via `isFailableInit`. The four pre-existing facts deliberately keep emitting
+///    for failable inits (their SwiftSyntax behavior predates this work and is already
+///    the live producer-of-record output, e.g. `init?(rawValue:)` gets a real param
+///    name); changing it would be an unvalidated behavior change, out of scope here.
 ///
 /// 2. **printedName**: Swift-canonical `name(label1:label2:)`. Per param, the
 ///    "label" is the FIRST name (i.e. the external/argument label). Unlabeled
@@ -88,14 +113,39 @@ final class SignatureFactsWalker: SyntaxVisitor {
     private(set) var defaultParameterValues: [String: [String?]] = [:]
     private(set) var autoclosureParameters: [String: [Bool]] = [:]
     private(set) var variadicMembers: [String] = []
+    private(set) var constLiteralParameters: [String: [Bool]] = [:]
+    private(set) var closureParameterAttributes: [String: [[String]]] = [:]
 
     private struct Scope {
         /// Used for the parameterNames key (regex `LastIndexOf` strategy).
         let paramNamesKey: String
         /// Used for the defaults/autoclosure/variadic keys (regex tracker strategy).
         let trackerKey: String
+        /// True when this frame is an `extension` (skipped when locating the
+        /// innermost type for the protocol-requirement test).
+        let isExtension: Bool
+        /// True when this frame is a `protocol` body.
+        let isProtocol: Bool
     }
     private var scopeStack: [Scope] = []
+
+    /// Mirrors `SwiftInterfaceContextTracker.IsInsideProtocol`: true when the
+    /// innermost NON-extension type scope is a `protocol` body. Closure-attribute
+    /// extraction reaches for bare protocol requirements only when this holds.
+    private var isInsideProtocol: Bool {
+        for scope in scopeStack.reversed() {
+            if scope.isExtension { continue }
+            return scope.isProtocol
+        }
+        return false
+    }
+
+    /// `@MainActor` / `@Sendable` closure type-level attributes, including the
+    /// module-qualified forms (`@_Concurrency.MainActor`, `@Swift.Sendable`). The
+    /// captured group is the bare attribute name. Mirrors
+    /// `SwiftInterfaceAccessParser.ClosureAttributeRegex`.
+    private static let closureAttributeRegex =
+        try! NSRegularExpression(pattern: "@(?:\\w+\\.)?(MainActor|Sendable)\\b")
 
     /// Parallel stack: each visited type/extension records whether it actually
     /// pushed a `Scope` on the main stack. Mirrors the regex tracker's gated push
@@ -115,14 +165,17 @@ final class SignatureFactsWalker: SyntaxVisitor {
         parameterNames: [String: [String]],
         defaultParameterValues: [String: [String?]],
         autoclosureParameters: [String: [Bool]],
-        variadicMembers: [String]
+        variadicMembers: [String],
+        constLiteralParameters: [String: [Bool]],
+        closureParameterAttributes: [String: [[String]]]
     ) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: filePath, tree: tree)
         let walker = SignatureFactsWalker(converter: converter)
         walker.walk(tree)
         return (walker.parameterNames, walker.defaultParameterValues,
-                walker.autoclosureParameters, walker.variadicMembers)
+                walker.autoclosureParameters, walker.variadicMembers,
+                walker.constLiteralParameters, walker.closureParameterAttributes)
     }
 
     // MARK: - Type decls (gated push, mirroring `TypeDeclRegex` + `openBraces > 0`)
@@ -158,21 +211,24 @@ final class SignatureFactsWalker: SyntaxVisitor {
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
         return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
                               keyword: node.protocolKeyword,
-                              leftBrace: node.memberBlock.leftBrace)
+                              leftBrace: node.memberBlock.leftBrace,
+                              isProtocol: true)
     }
     override func visitPost(_ node: ProtocolDeclSyntax) { leaveTypeScope() }
 
     private func enterTypeScope(name: String,
                                 modifiers: DeclModifierListSyntax,
                                 keyword: TokenSyntax,
-                                leftBrace: TokenSyntax) -> SyntaxVisitorContinueKind {
+                                leftBrace: TokenSyntax,
+                                isProtocol: Bool = false) -> SyntaxVisitorContinueKind {
         // `TypeDeclRegex` ends in bare `(\w+)` — backtick-escaped names fail the
         // Unicode word-class check and miss the regex capture, so SwiftSyntax
         // must also skip pushing them.
         if matchesTypeDeclShape(modifiers),
            RegexShape.isWordIdentifier(name),
            typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace) {
-            scopeStack.append(Scope(paramNamesKey: name, trackerKey: name))
+            scopeStack.append(Scope(paramNamesKey: name, trackerKey: name,
+                                    isExtension: false, isProtocol: isProtocol))
             scopePushed.append(true)
         } else {
             scopePushed.append(false)
@@ -241,7 +297,8 @@ final class SignatureFactsWalker: SyntaxVisitor {
             firstStripped = qualified
         }
 
-        scopeStack.append(Scope(paramNamesKey: lastComponent, trackerKey: firstStripped))
+        scopeStack.append(Scope(paramNamesKey: lastComponent, trackerKey: firstStripped,
+                                isExtension: true, isProtocol: false))
         scopePushed.append(true)
         return .visitChildren
     }
@@ -259,19 +316,65 @@ final class SignatureFactsWalker: SyntaxVisitor {
             funcName: node.name.text,
             params: node.signature.parameterClause.parameters,
             modifiers: node.modifiers,
-            isInit: false
+            isInit: false,
+            isFailableInit: false
         )
         return .skipChildren
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+        // `node.optionalMark` is the `?`/`!` on a failable initializer. The regex's
+        // `AnyInitRegex`/`PublicInitRegex` require literal `init(`, so failable inits
+        // contribute NOTHING to const/closure-attr — see `emitForFunctionLike`.
+        //
+        // BARE-PROTOCOL-INIT printed-name parity (critical trap): every signature fact
+        // keys through `ExtractPrintedName`, which locates the parameter list ONLY by
+        // searching for `" init("` / `" init ("` / `" init?("` / `" init<"` — all
+        // require a SPACE before `init`. A protocol init requirement (`init(handler:)`
+        // with no access modifier) sits at column 0 of its trimmed line, so none match
+        // and `ExtractPrintedName` falls through to `init()` — dropping every label from
+        // the key (the per-parameter VALUES are still parsed). A concrete init always has
+        // a leading `public`/`open`/`required`/attribute on the same line, so it keeps its
+        // labels. Mirror this by collapsing the printed name to `init()` exactly when
+        // `init` has no same-line leading modifier/attribute.
         emitForFunctionLike(
             funcName: "init",
             params: node.signature.parameterClause.parameters,
             modifiers: node.modifiers,
-            isInit: true
+            isInit: true,
+            isFailableInit: node.optionalMark != nil,
+            collapsePrintedNameToZeroArg: !initHasSameLineLeadingToken(node)
         )
         return .skipChildren
+    }
+
+    /// Mirrors `ExtractPrintedName`'s `" init("` leading-space requirement: returns true
+    /// iff a modifier or attribute sits on the SAME source line as the `init` keyword (so
+    /// the regex's space-anchored search would locate the parameter list). A bare protocol
+    /// init requirement — `init` at column 0, no same-line leading token — returns false,
+    /// and its key collapses to `init()`. An attribute on a SEPARATE line above `init`
+    /// (a pending annotation, not part of the regex's member line) also returns false,
+    /// matching the regex's per-line view.
+    private func initHasSameLineLeadingToken(_ node: InitializerDeclSyntax) -> Bool {
+        let initLine = converter.location(
+            for: node.initKeyword.positionAfterSkippingLeadingTrivia).line
+        for modifier in node.modifiers {
+            if converter.location(
+                for: modifier.positionAfterSkippingLeadingTrivia).line == initLine {
+                return true
+            }
+        }
+        for element in node.attributes {
+            let pos: AbsolutePosition
+            switch element {
+            case .attribute(let attr): pos = attr.positionAfterSkippingLeadingTrivia
+            case .ifConfigDecl(let cfg): pos = cfg.positionAfterSkippingLeadingTrivia
+            }
+            if converter.location(for: pos).line == initLine {
+                return true
+            }
+        }
+        return false
     }
 
     // MARK: - Helpers
@@ -280,9 +383,15 @@ final class SignatureFactsWalker: SyntaxVisitor {
         funcName: String,
         params: FunctionParameterListSyntax,
         modifiers: DeclModifierListSyntax,
-        isInit: Bool
+        isInit: Bool,
+        isFailableInit: Bool,
+        collapsePrintedNameToZeroArg: Bool = false
     ) {
-        let (printedName, internalNames, defaults, autoclosures, variadicHit) = analyze(funcName: funcName, params: params)
+        let (printedName, internalNames, defaults, autoclosures, variadicHit, constFlags, closureAttrs) =
+            analyze(
+                funcName: funcName,
+                params: params,
+                collapsePrintedNameToZeroArg: collapsePrintedNameToZeroArg)
         // parameterNames: TOP-OF-STACK only (immediate parent simple name).
         // Other facts: FULL chain joined with dots.
         let paramNamesKey = makeParamNamesKey(printedName: printedName)
@@ -298,14 +407,35 @@ final class SignatureFactsWalker: SyntaxVisitor {
             parameterNames[paramNamesKey] = internalNames
         }
 
-        // Defaults / Autoclosure / Variadic — STRICT public-shape gate.
+        let publicShapeOk = isInit
+            ? matchesPublicInitShape(modifiers)
+            : matchesPublicFuncShape(modifiers)
+
+        // ClosureParameterAttributes — emit on (public-shape OR inside-protocol)
+        // members. `GetClosureParameterAttributes` calls `ExtractMemberPrintedName`
+        // with `tracker.IsInsideProtocol`, so bare protocol requirements (which fail
+        // the public-shape gate) still contribute. This MUST run before the
+        // public-shape early return below. The regex includes a member only when at
+        // least one parameter carries at least one attribute.
+        //
+        // FAILABLE-INIT EXCLUSION: even inside a protocol, where `ProtocolInitRegex`
+        // classifies `init?(` as a member line, the regex's downstream
+        // `ExtractClosureParameterAttributes` re-gates through `AnyInitRegex` (literal
+        // `init(`), which rejects `init?(`/`init!(`. So a failable init NEVER emits a
+        // closure-attr entry on the regex side — mirror with `!isFailableInit`.
+        if (publicShapeOk || isInsideProtocol) && !isFailableInit {
+            if closureAttrs.contains(where: { !$0.isEmpty }) {
+                closureParameterAttributes[trackerKey] = closureAttrs
+            }
+        }
+
+        // Defaults / Autoclosure / Variadic / ConstLiteral — STRICT public-shape gate.
         // Regex `PublicFuncRegex` / `PublicInitRegex` (via SwiftInterfaceContextTracker
         // line 30, 42) accept only specific modifier shapes between `public/open`
         // and `func`/`init`. Mirror those shapes precisely so e.g.
         // `public nonisolated func` and `public required init` do NOT contribute.
-        let publicShapeOk = isInit
-            ? matchesPublicInitShape(modifiers)
-            : matchesPublicFuncShape(modifiers)
+        // `GetConstLiteralParameters` uses `ExtractMemberPrintedName` with
+        // insideProtocol=false, so it lands on exactly this public-shape set.
         if !publicShapeOk { return }
 
         if defaults.contains(where: { $0 != nil }) {
@@ -317,21 +447,36 @@ final class SignatureFactsWalker: SyntaxVisitor {
         if variadicHit {
             variadicMembers.append(trackerKey)
         }
+        // Regex includes a member only when at least one parameter is `_const`.
+        // FAILABLE-INIT EXCLUSION: `GetConstLiteralParameters` -> `ExtractConstLiteralFlags`
+        // re-gates through `AnyInitRegex`, which rejects `init?(`/`init!(`, so a failable
+        // init never emits a const entry on the regex side — mirror with `!isFailableInit`.
+        if !isFailableInit, constFlags.contains(where: { $0 }) {
+            constLiteralParameters[trackerKey] = constFlags
+        }
     }
 
-    /// Walks the parameter list once, building all five outputs in step.
+    /// Walks the parameter list once, building all outputs in step.
+    ///
+    /// `collapsePrintedNameToZeroArg` mirrors `ExtractPrintedName`'s bare-init fallback:
+    /// when set, the returned printed name is `funcName()` regardless of labels (so the
+    /// fact KEY drops its arguments), while the per-parameter VALUE lists are still parsed
+    /// in full — exactly as the regex parses the value lists but keys them under `init()`.
     private func analyze(
         funcName: String,
-        params: FunctionParameterListSyntax
+        params: FunctionParameterListSyntax,
+        collapsePrintedNameToZeroArg: Bool = false
     ) -> (
         printedName: String,
         internalNames: [String],
         defaults: [String?],
         autoclosures: [Bool],
-        variadicHit: Bool
+        variadicHit: Bool,
+        constFlags: [Bool],
+        closureAttrs: [[String]]
     ) {
         if params.isEmpty {
-            return ("\(funcName)()", [], [], [], false)
+            return ("\(funcName)()", [], [], [], false, [], [])
         }
 
         var labels: [String] = []
@@ -339,6 +484,8 @@ final class SignatureFactsWalker: SyntaxVisitor {
         var defaults: [String?] = []
         var autoclosures: [Bool] = []
         var variadicHit = false
+        var constFlags: [Bool] = []
+        var closureAttrs: [[String]] = []
 
         for param in params {
             // Label = first token before colon. SwiftSyntax: param.firstName always present.
@@ -367,10 +514,68 @@ final class SignatureFactsWalker: SyntaxVisitor {
             if param.ellipsis != nil {
                 variadicHit = true
             }
+
+            // `_const` flag and closure attributes both read the type portion AFTER
+            // the parameter's top-level colon, exactly as the regex producer does
+            // (`trimmedPart.Substring(colonIdx + 1).TrimStart()`). Reconstructing the
+            // text rather than reading `param.type` keeps `_const` in scope regardless
+            // of how SwiftSyntax categorizes the specifier.
+            let afterColon = parameterTypeText(param)
+            constFlags.append(afterColon?.hasPrefix("_const ") ?? false)
+            closureAttrs.append(afterColon.map(extractClosureAttributes) ?? [])
         }
 
-        let printed = "\(funcName)(\(labels.map { "\($0):" }.joined()))"
-        return (printed, internals, defaults, autoclosures, variadicHit)
+        let printed = collapsePrintedNameToZeroArg
+            ? "\(funcName)()"
+            : "\(funcName)(\(labels.map { "\($0):" }.joined()))"
+        return (printed, internals, defaults, autoclosures, variadicHit, constFlags, closureAttrs)
+    }
+
+    /// Returns the text following the parameter's top-level colon, left-trimmed —
+    /// mirroring the regex producer's per-parameter `typeStr`. A trailing comma
+    /// token (present on non-final parameters in `param.trimmedDescription`) is
+    /// dropped first so the slice matches the regex's comma-split `trimmedPart`.
+    /// Returns nil when the parameter has no top-level colon (regex's `colonIdx < 0`).
+    private func parameterTypeText(_ param: FunctionParameterSyntax) -> String? {
+        var text = Substring(param.trimmedDescription)
+        while let last = text.last, last == "," || last == " " { text = text.dropLast() }
+        guard let colon = topLevelColonIndex(text) else { return nil }
+        let after = text[text.index(after: colon)...]
+        return String(after.drop(while: { $0 == " " || $0 == "\t" }))
+    }
+
+    /// Finds the first colon at bracket/paren/angle depth 0. Mirrors
+    /// `SwiftInterfaceAccessParser.FindTopLevelColon` (depth decrements are NOT
+    /// clamped at zero, matching the C# loop exactly).
+    private func topLevelColonIndex(_ s: Substring) -> Substring.Index? {
+        var depth = 0
+        var i = s.startIndex
+        while i < s.endIndex {
+            let c = s[i]
+            if c == "<" || c == "(" || c == "[" { depth += 1 }
+            if c == ">" || c == ")" || c == "]" { depth -= 1 }
+            if c == ":" && depth == 0 { return i }
+            i = s.index(after: i)
+        }
+        return nil
+    }
+
+    /// Collects the normalized closure attribute names (`MainActor`, `Sendable`)
+    /// from a parameter type's text, in first-seen order with duplicates removed.
+    /// Mirrors `SwiftInterfaceAccessParser.ExtractClosureParameterAttributes`'
+    /// per-parameter loop over `ClosureAttributeRegex.Matches(typeStr)`.
+    private func extractClosureAttributes(_ typeText: String) -> [String] {
+        var attrs: [String] = []
+        let ns = typeText as NSString
+        let matches = SignatureFactsWalker.closureAttributeRegex.matches(
+            in: typeText, range: NSRange(location: 0, length: ns.length))
+        for m in matches {
+            let g = m.range(at: 1)
+            guard g.location != NSNotFound else { continue }
+            let name = ns.substring(with: g)
+            if !attrs.contains(name) { attrs.append(name) }
+        }
+        return attrs
     }
 
     private func makeKey(printedName: String, useTracker: Bool) -> String {

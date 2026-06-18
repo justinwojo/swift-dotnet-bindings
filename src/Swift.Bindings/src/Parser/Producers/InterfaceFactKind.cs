@@ -7,7 +7,7 @@ namespace BindingsGeneration.Producers;
 
 /// <summary>
 /// Identifies a single fact field on <see cref="SwiftInterfaceFacts"/>. One enum member
-/// per top-level field on the record (28 total today). The aggregator selects per-fact
+/// per top-level field on the record (31 total today). The aggregator selects per-fact
 /// which producer wins, so coverage maps are <see cref="System.Collections.Generic.HashSet{T}"/>
 /// of these.
 /// <para/>

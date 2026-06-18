@@ -153,18 +153,32 @@ internal sealed class InterfaceFactsJsonPayload
     public Dictionary<string, List<bool>>? AutoclosureParameters { get; set; }
 
     // 0.12.0 — per-parameter `_const` annotation (compile-time constant requirement).
-    // Additive field; the SwiftSyntax host does not yet emit this key — the regex
-    // producer is the source of truth. See InterfaceFactsJson schema-versioning policy:
-    // adding optional fields stays at the current version as long as both ends move
-    // together. Host can pick this up later without a schema bump.
+    // Additive field, populated by the SwiftSyntax host (SignatureFactsWalker) for parity
+    // with the regex producer. See InterfaceFactsJson schema-versioning policy: adding
+    // optional fields stays at the current version as long as both ends move together.
     [JsonPropertyName("constLiteralParameters")]
     public Dictionary<string, List<bool>>? ConstLiteralParameters { get; set; }
 
     // Per-parameter closure type-level attributes (@MainActor / @Sendable) on protocol
-    // requirements. Additive field; like constLiteralParameters the SwiftSyntax host does
-    // not yet emit this key — the regex producer is the source of truth, so no schema bump.
+    // requirements. Additive field, populated by the SwiftSyntax host for parity with the
+    // regex producer; no schema bump (both ends move together).
     [JsonPropertyName("closureParameterAttributes")]
     public Dictionary<string, List<List<string>>>? ClosureParameterAttributes { get; set; }
+
+    // SPI-only conformances read from the sibling `*.private.swiftinterface` (the host's
+    // `--private-input`). Each entry is `"QualifiedType::UnqualifiedProtocol"`. Additive
+    // field, populated by the SwiftSyntax host (SpiOnlyConformancesScanner) for parity with
+    // the regex producer's GetSpiOnlyConformances; covered-but-empty when no private
+    // interface exists. No schema bump (both ends move together).
+    [JsonPropertyName("spiOnlyConformances")]
+    public List<string>? SpiOnlyConformances { get; set; }
+
+    // Qualified-type-path → explicit `@objc(CustomName)` runtime name. Additive field,
+    // populated by the SwiftSyntax host (ObjCRuntimeNamesWalker) for parity with the regex
+    // producer's GetObjCRuntimeNames; the ABI JSON drops the ObjC selector argument, so the
+    // swiftinterface is the only source. No schema bump (both ends move together).
+    [JsonPropertyName("objcRuntimeNames")]
+    public Dictionary<string, string>? ObjCRuntimeNames { get; set; }
 
     [JsonPropertyName("subscriptLabels")]
     public Dictionary<string, List<string>>? SubscriptLabels { get; set; }

@@ -48,8 +48,8 @@ struct ParserOutput: Encodable {
 /// but nullable fields prevent silent data loss if `coveredFacts` and the
 /// `facts` payload disagree.
 ///
-/// Covers 24/24 facts. Field names are lowerCamelCase to match System.Text.Json's
-/// default `PropertyNamingPolicy.CamelCase` on the .NET side.
+/// Covers the complete SwiftInterfaceFacts set. Field names are lowerCamelCase to match
+/// System.Text.Json's default `PropertyNamingPolicy.CamelCase` on the .NET side.
 struct Facts: Encodable {
     var mainActorTypes: [String]?
     var mainActorTypePositions: [String: SourcePositionJson]?
@@ -84,6 +84,14 @@ struct Facts: Encodable {
     var autoclosureParameters: [String: [Bool]]?
     var subscriptLabels: [String: [String]]?
     var variadicMembers: [String]?
+    var constLiteralParameters: [String: [Bool]]?
+    var closureParameterAttributes: [String: [[String]]]?
+
+    // SPI-only conformances (read from the sibling `.private.swiftinterface`).
+    var spiOnlyConformances: [String]?
+
+    // Qualified-type-path → explicit `@objc(CustomName)` runtime name.
+    var objcRuntimeNames: [String: String]?
 
     // Protocol-level facts.
     var conventionCProtocols: [String]?

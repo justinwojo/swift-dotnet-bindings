@@ -8,24 +8,30 @@ import Foundation
 /// this binary, parses its JSON stdout, and merges per-fact via
 /// `InterfaceFactsAggregator`.
 ///
-/// Covers 24/24 facts (type collection, enum facts, signature facts, subscript labels,
-/// protocol facts) with byte-equal parity against the regex producer
+/// Covers the complete SwiftInterfaceFacts set (type collection, enum facts, signature
+/// facts incl. const-literal + closure-attribute params, subscript labels, protocol facts,
+/// and SPI-only conformances) with byte-equal parity against the regex producer
 /// (`SwiftInterfaceAccessParser`) across the validation corpus.
 ///
 /// CLI:
-///   SwiftInterfaceParser --input <path-to-swiftinterface>
+///   SwiftInterfaceParser --input <path-to-swiftinterface> [--private-input <path-to-private-swiftinterface>]
+///
+/// `--private-input` is the sibling `*.private.swiftinterface` (derived by the .NET-side
+/// producer). It is the ONLY source of `SpiOnlyConformances`; when omitted, that fact is
+/// covered-but-empty (matching the regex producer when no private interface exists).
 ///
 /// Output: JSON to stdout, ParserOutput shape (see Output.swift).
 /// Exit codes: 0 = ok, 1 = invocation error (bad args or missing input), 2 = parse error.
 
 func usage() -> Never {
-    FileHandle.standardError.write(Data("usage: SwiftInterfaceParser --input <path>\n".utf8))
+    FileHandle.standardError.write(Data("usage: SwiftInterfaceParser --input <path> [--private-input <path>]\n".utf8))
     exit(1)
 }
 
 let args = CommandLine.arguments
 
 var inputPath: String? = nil
+var privateInputPath: String? = nil
 var i = 1
 while i < args.count {
     let a = args[i]
@@ -34,9 +40,13 @@ while i < args.count {
         i += 1
         guard i < args.count else { usage() }
         inputPath = args[i]
+    case "--private-input":
+        i += 1
+        guard i < args.count else { usage() }
+        privateInputPath = args[i]
     case "--help", "-h":
         FileHandle.standardOutput.write(Data("SwiftInterfaceParser: extract SwiftInterfaceFacts via SwiftSyntax.\n".utf8))
-        FileHandle.standardOutput.write(Data("Usage: SwiftInterfaceParser --input <path-to-swiftinterface>\n".utf8))
+        FileHandle.standardOutput.write(Data("Usage: SwiftInterfaceParser --input <path-to-swiftinterface> [--private-input <path>]\n".utf8))
         exit(0)
     default:
         FileHandle.standardError.write(Data("unknown argument: \(a)\n".utf8))
@@ -73,6 +83,21 @@ let protocolFacts = ProtocolFactsWalker.parse(filePath: path, source: source)
 
 let protocolNames = ProtocolNamesWalker.parse(filePath: path, source: source)
 let extensionMemberCandidates = ExtensionsWalker.parse(filePath: path, source: source)
+
+// SPI-only conformances come exclusively from the sibling `*.private.swiftinterface`,
+// derived and passed by the .NET-side producer as `--private-input`. When absent (most
+// libraries ship no private interface), this fact is covered-but-empty — exactly what the
+// regex producer emits when `DerivePrivateSwiftInterfacePath` finds no private sibling.
+// A missing or unreadable private file is NOT an error: it just means no SPI conformances.
+var spiOnlyConformances: [String] = []
+if let privatePath = privateInputPath,
+   let privateData = try? Data(contentsOf: URL(fileURLWithPath: privatePath)),
+   let privateSource = String(data: privateData, encoding: .utf8) {
+    spiOnlyConformances = SpiOnlyConformancesScanner.parse(source: privateSource)
+}
+
+// Explicit `@objc(CustomName)` type renames — read from the public interface.
+let objcRuntimeNames = ObjCRuntimeNamesWalker.parse(filePath: path, source: source)
 
 // Derive protocolExtensionMethods from candidates + protocolNames using the
 // first-dot-stripped lookup. Mirrors `RegexInterfaceFactsProducer.DeriveProtocolExtensionMethods`
@@ -135,6 +160,12 @@ let output = ParserOutput(
         "AutoclosureParameters",
         "SubscriptLabels",
         "VariadicMembers",
+        "ConstLiteralParameters",
+        "ClosureParameterAttributes",
+        // SPI-only conformances (covered-but-empty when no private interface).
+        "SpiOnlyConformances",
+        // Explicit @objc(CustomName) type renames.
+        "ObjCRuntimeNames",
         // Protocol-level facts.
         "ConventionCProtocols",
         "ConventionCProtocolPositions",
@@ -166,6 +197,10 @@ let output = ParserOutput(
         autoclosureParameters: signatureFacts.autoclosureParameters,
         subscriptLabels: subscriptLabels,
         variadicMembers: signatureFacts.variadicMembers,
+        constLiteralParameters: signatureFacts.constLiteralParameters,
+        closureParameterAttributes: signatureFacts.closureParameterAttributes,
+        spiOnlyConformances: spiOnlyConformances,
+        objcRuntimeNames: objcRuntimeNames,
         conventionCProtocols: protocolFacts.conventionCProtocols,
         conventionCProtocolPositions: protocolFacts.conventionCProtocolPositions,
         hiddenRequirementProtocols: protocolFacts.hiddenRequirementProtocols,
