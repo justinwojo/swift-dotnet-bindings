@@ -296,46 +296,21 @@ namespace BindingsGeneration
                 // the Swift-allocated carrier into a C#-allocated buffer before NewFromPayload wraps
                 // it — otherwise the later NativeMemory.Free in SwiftSafeHandle.ReleaseHandle would
                 // run against a Swift UnsafeMutableRawPointer.allocate, mismatching allocators.
-                // Matches the sync path's "ownership transferred" predicate in MethodMarshalPlanBuilder
-                // (isNonFrozenStruct || isComplexEnum). RequiresMemoryManagement is not set on
-                // non-frozen structs by the parser (only on frozen structs containing ref types),
-                // so we classify purely by kind + frozen/simple flags here.
                 //
-                // `carrierNeedsDestroy` is the broader set: Swift always initializes the carrier
-                // with +1 on internal refs via `initializeMemory(as:repeating:)`, so any type with
-                // non-trivial value witnesses (frozen-with-memory, non-frozen struct, complex enum,
-                // or Optional wrapping any of those) must VWT-Destroy the carrier before SBW_Free —
-                // otherwise the carrier's internal refs leak.
+                // The ownership algebra (cbTakesOwnership / carrierNeedsDestroy, plus the
+                // Optional<value-type> widening) is the S13 Pillar A single source in
+                // AsyncResultPlanner — see AsyncResultPlan.cs for the full rationale.
                 bool cbTakesOwnership = false;
                 bool carrierNeedsDestroy = false;
                 if (!isClassType && !isObjCBridgeableValue && !isOptionalClassType && !isOptionalObjCContainer && complexTypeRecord != null)
                 {
-                    bool isNonFrozenStruct = complexTypeRecord.Kind == TypeRecordKind.Struct
-                        && !MarshallingHelpers.IsTypeFrozen(complexTypeRecord);
-                    bool isComplexEnum = complexTypeRecord.Kind == TypeRecordKind.Enum
-                        && !complexTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
-                    bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexTypeRecord);
-                    cbTakesOwnership = isNonFrozenStruct || isComplexEnum;
-                    carrierNeedsDestroy = isNonFrozenStruct || isComplexEnum || isFrozenAsClass;
+                    var ownership = AsyncResultPlanner.ClassifyCarrierOwnership(complexTypeRecord);
+                    cbTakesOwnership = ownership.CallbackTakesOwnership;
+                    carrierNeedsDestroy = ownership.CarrierNeedsDestroy;
                 }
-                // Optional<value-type> plain path (SwiftOptional<T>.ToNullable): Swift-side
-                // initializeMemory runs Optional<T>'s copy witness, so for .some the embedded
-                // non-trivial payload holds its own +1. Widen carrierNeedsDestroy when the inner
-                // type's VWT is non-trivial — SwiftOptional<T>'s NewFromPayload performs its own
-                // InitializeWithCopy into a managed buffer, so the carrier's +1 must be released.
-                if (!carrierNeedsDestroy && !isClassType && !isObjCBridgeableValue && !isOptionalClassType && !isOptionalObjCContainer
-                    && WrapperValidation.IsOptionalType(returnType.SwiftTypeSpec))
+                if (!carrierNeedsDestroy && !isClassType && !isObjCBridgeableValue && !isOptionalClassType && !isOptionalObjCContainer)
                 {
-                    var innerSpec = MarshallingHelpers.UnwrapOptionalTypeSpec(returnType.SwiftTypeSpec);
-                    if (innerSpec != null && _env.TypeDatabase.TryGetTypeRecord(innerSpec, out var innerRecord))
-                    {
-                        bool innerIsFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(innerRecord);
-                        bool innerIsNonFrozenStruct = innerRecord.Kind == TypeRecordKind.Struct
-                            && !MarshallingHelpers.IsTypeFrozen(innerRecord);
-                        bool innerIsComplexEnum = innerRecord.Kind == TypeRecordKind.Enum
-                            && !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
-                        carrierNeedsDestroy = innerIsFrozenAsClass || innerIsNonFrozenStruct || innerIsComplexEnum;
-                    }
+                    carrierNeedsDestroy = AsyncResultPlanner.WidenDestroyForOptionalPayload(returnType.SwiftTypeSpec, _env.TypeDatabase);
                 }
                 // Optional<ObjC-reference-inner>: Swift writes a +1 retained ObjC pointer (or 0 for nil)
                 // into the 8-byte carrier — but the C# read for Optional<UIImage>, Optional<URL>, etc.

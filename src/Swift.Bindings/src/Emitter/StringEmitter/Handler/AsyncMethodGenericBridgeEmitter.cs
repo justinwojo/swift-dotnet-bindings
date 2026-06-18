@@ -885,25 +885,21 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        // ComplexValue dispatch by projection shape — mirrors AsyncHarnessEmitter's
-        // EmitAsyncWrapperForComplexType cbTakesOwnership / carrierNeedsDestroy split.
-        // The Swift wrapper allocates the result carrier via UnsafeMutableRawPointer.allocate
-        // and writes the value via initializeMemory(as:repeating:count:1), which performs
-        // a +1 retain on internal references. The C# callback must release that +1
-        // unless ownership is transferred wholesale to a SafeHandle.
-        bool returnIsNonFrozenStruct = false;
-        bool returnIsComplexEnum = false;
-        bool returnIsFrozenAsClass = false;
+        // ComplexValue dispatch by projection shape. The Swift wrapper allocates the result carrier
+        // via UnsafeMutableRawPointer.allocate and writes the value via
+        // initializeMemory(as:repeating:count:1), which performs a +1 retain on internal references.
+        // The C# callback must release that +1 unless ownership is transferred wholesale to a
+        // SafeHandle. The cbTakesOwnership / carrierNeedsDestroy algebra is the S13 Pillar A single
+        // source in AsyncResultPlanner (see AsyncResultPlan.cs); ClassifyReturnKind bails on all
+        // generics including Optional<T>, so this path never needs the Optional-payload widening.
+        bool cbTakesOwnership = false;
+        bool carrierNeedsDestroy = false;
         if (returnKind == AsyncReturnKind.ComplexValue && returnTypeRecord is not null)
         {
-            returnIsNonFrozenStruct = returnTypeRecord.Kind == TypeRecordKind.Struct
-                && !MarshallingHelpers.IsTypeFrozen(returnTypeRecord);
-            returnIsComplexEnum = returnTypeRecord.Kind == TypeRecordKind.Enum
-                && !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
-            returnIsFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(returnTypeRecord);
+            var ownership = AsyncResultPlanner.ClassifyCarrierOwnership(returnTypeRecord);
+            cbTakesOwnership = ownership.CallbackTakesOwnership;
+            carrierNeedsDestroy = ownership.CarrierNeedsDestroy;
         }
-        bool cbTakesOwnership = returnIsNonFrozenStruct || returnIsComplexEnum;
-        bool carrierNeedsDestroy = cbTakesOwnership || returnIsFrozenAsClass;
 
         // Materialise result expression.
         switch (returnKind)
