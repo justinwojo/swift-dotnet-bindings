@@ -129,4 +129,30 @@ public sealed record GenericSignatureModel(
             }
         }
     }
+
+    /// <summary>
+    /// The verbatim conformance targets of every conformance constraint whose ROOT is one of
+    /// <paramref name="roots"/> (matched ordinally), INCLUDING associated-type member clauses
+    /// (<c>τ_0_0.Item : Swift.BitwiseCopyable</c>) — unlike <see cref="DirectConformanceTargets"/>,
+    /// which yields only the single-segment direct form. Both <c>τ_0_0 : P</c> and
+    /// <c>τ_0_0.Item : P</c> are requirements an initializer body inherits, so a marker-on-member
+    /// clause makes an unconditional open erased form fail to compile exactly as a direct one does;
+    /// the fail-closed admissibility gate must see both.
+    /// </summary>
+    public IEnumerable<string> ConformanceTargetsRootedAt(params string[] roots)
+    {
+        foreach (var r in Requirements)
+        {
+            if (r.Kind != GenericRequirementKind.Conformance)
+                continue;
+            for (int i = 0; i < roots.Length; i++)
+            {
+                if (string.Equals(r.SubjectRoot, roots[i], StringComparison.Ordinal))
+                {
+                    yield return r.Target;
+                    break;
+                }
+            }
+        }
+    }
 }

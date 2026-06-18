@@ -528,47 +528,51 @@ namespace BindingsGeneration
                 }
             }
 
-            // An INADMISSIBLE generic-CLASS constructor has no ABI-correct surface once the
-            // open wrapper is refused. A generic-class init expects type metadata / protocol
-            // witness tables delivered through specific registers (x20 metatype, trailing PWT
-            // args) that a plain CallConvSwift P/Invoke against the raw mangled symbol cannot
-            // set up — so falling through to WrapperEmitter.EmitConstructor would emit an open
-            // C# constructor whose P/Invoke binds the raw generic init symbol via CallConvSwift:
-            // it compiles but the call is not valid.
+            // An INADMISSIBLE generic-type constructor has no ABI-correct surface once the
+            // open wrapper is refused. A generic init expects type metadata / protocol witness
+            // tables delivered through specific registers (x20 metatype, trailing PWT args) that
+            // a plain CallConvSwift P/Invoke against the raw mangled symbol cannot set up — so
+            // falling through to WrapperEmitter.EmitConstructor would emit an open C# constructor
+            // whose P/Invoke binds the raw generic init symbol via CallConvSwift: it compiles but
+            // the call is not valid. This applies to generic CLASSES (open `_SBW_CI_`/GSF) AND
+            // generic STRUCTS (GSF static factory) alike — both route an admissible init through
+            // the wrapper library, so a refused init that reaches here `!UsesWrapperLibrary` would
+            // otherwise emit the invalid raw CallConvSwift P/Invoke.
             //
             // We suppress ONLY when ConstructorAdmissibility refuses the init — i.e. the same
             // predicate that gates the Swift `_SBW_CI_`/GSF wrapper and CSM enumeration:
             //   • a `_const` (compile-time-constant) parameter (no runtime-callable surface), or
             //   • an init confined to a constrained extension the unconstrained type can't
-            //     satisfy (`extension Box where Value.Element == Int`). The only correct surface
-            //     is the CSM closed form per satisfying conformer, which CSM still emits.
-            // This is deliberately narrower than "any generic-class init lacking a wrapper":
-            // other no-wrapper generic-class inits (e.g. a T-typed designated init that GSF
-            // can't yet carry) keep their existing direct path so their in-tree regression
-            // markers continue to compile.
+            //     satisfy (`extension Box where Value.Element == Int`, or a parent-generic-param
+            //     `BitwiseCopyable` constraint the open GSF body cannot honour). The only correct
+            //     surface is the CSM closed form per satisfying conformer, which CSM still emits.
+            // This is deliberately narrower than "any generic init lacking a wrapper": other
+            // no-wrapper generic inits (e.g. a T-typed designated init that GSF can't yet carry)
+            // keep their existing direct path so their in-tree regression markers continue to compile.
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.UsesNativeThunk &&
-                methodEnv.ParentDecl is ClassDecl genericClassParent && genericClassParent.IsGeneric &&
+                methodEnv.ParentDecl is TypeDecl genericParent && genericParent.IsGeneric &&
+                (genericParent is ClassDecl || genericParent is StructDecl) &&
                 (!ConstructorAdmissibility.PassesConstructorCheapFilters(methodEnv.MethodDecl, out _) ||
                  ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(
-                     methodEnv.MethodDecl, genericClassParent)))
+                     methodEnv.MethodDecl, genericParent)))
             {
                 _logger.LogInformation(
-                    "Skipping open constructor {Name} on generic class {Parent}: inadmissible for open dispatch " +
+                    "Skipping open constructor {Name} on generic type {Parent}: inadmissible for open dispatch " +
                     "(ConstructorAdmissibility refused the wrapper); direct CallConvSwift against the raw generic " +
                     "init symbol is not ABI-correct. CSM emits any satisfying closed forms.",
-                    methodEnv.MethodDecl.Name, genericClassParent.Name);
+                    methodEnv.MethodDecl.Name, genericParent.Name);
                 ReportCollector.RecordMemberSkipped(
                     BindingItemKind.Method,
                     methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.ParentDecl,
                     SkipReason.NonBlittableCallConvSwift,
-                    "Generic-class constructor is inadmissible for open dispatch (`_const` parameter or " +
+                    "Generic-type constructor is inadmissible for open dispatch (`_const` parameter or " +
                     "an unsatisfiable parent-generic extension constraint); direct CallConvSwift against the " +
                     "raw generic init symbol is not ABI-correct. Any satisfying concrete-conformer forms are emitted via CSM.");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
                     BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
-                    "generic-class constructor inadmissible for open dispatch (CSM emits concrete forms)",
+                    "generic-type constructor inadmissible for open dispatch (CSM emits concrete forms)",
                     containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }

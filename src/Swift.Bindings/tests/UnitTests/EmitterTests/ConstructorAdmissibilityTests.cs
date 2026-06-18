@@ -168,6 +168,107 @@ public class ConstructorAdmissibilityTests
         Assert.False(ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
     }
 
+    // ── Unerasable parent marker (BitwiseCopyable) ─────────────────────────────────
+    // BitwiseCopyable is dropped from GenericConformances, so it is invisible to the
+    // GenericParameter-list walk above; these cases drive the predicate off the lossless
+    // RawGenericSig instead. The parent param's raw token (τ_0_0) must match the requirement
+    // root, mirroring production (TypeName = τ_0_0, SugaredTypeName = "Value").
+
+    [Theory]
+    [InlineData("Swift.BitwiseCopyable")]
+    [InlineData("BitwiseCopyable")]
+    public void HasUnsatisfiableConstraint_True_ForBitwiseCopyableParentParam(string marker)
+    {
+        // `extension Box where Value: BitwiseCopyable { init(bitwiseCount:) }` — the unconditional
+        // open GSF body `Self(bitwiseCount:)` requires Value: BitwiseCopyable and fails swiftc, and
+        // the marker cannot be a conditional-conformance requirement. No legal open form exists, so
+        // the gate must refuse it.
+        var parent = GenericClass("Box", GenericParam("τ_0_0"));
+        var method = Ctor(ReturnArg(), Param("bitwiseCount", "Swift.Int"));
+        method.RawGenericSig = $"<τ_0_0 where τ_0_0 : {marker}>";
+
+        Assert.True(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
+        Assert.True(ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+    }
+
+    [Theory]
+    [InlineData("Swift.Sendable")]
+    [InlineData("Swift.Copyable")]
+    [InlineData("Swift.Escapable")]
+    [InlineData("Swift.SendableMetatype")]
+    public void HasUnerasableMarker_False_ForErasureSafeMarkers(string marker)
+    {
+        // The other stdlib markers ARE erasure-safe: the unconditional GSF body type-checks against
+        // them (implicit defaults / advisory). They are handled by the where-clause drop, not by a
+        // ctor refusal — so this predicate must leave them admissible.
+        var parent = GenericClass("Box", GenericParam("τ_0_0"));
+        var method = Ctor(ReturnArg(), Param("markerCount", "Swift.Int"));
+        method.RawGenericSig = $"<τ_0_0 where τ_0_0 : {marker}>";
+
+        Assert.False(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
+        Assert.False(ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+    }
+
+    [Fact]
+    public void HasUnerasableMarker_False_ForBitwiseCopyableOnMethodOwnParam()
+    {
+        // A BitwiseCopyable constraint on a METHOD-own param (τ_1_0) is the method-generic
+        // dimension, satisfied by closing over the conformer — not a parent-type-erasure concern.
+        var parent = GenericClass("Box", GenericParam("τ_0_0"));
+        var method = Ctor(ReturnArg(), Param("x", "Swift.Int"));
+        method.RawGenericSig = "<τ_0_0, τ_1_0 where τ_1_0 : Swift.BitwiseCopyable>";
+
+        Assert.False(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
+    }
+
+    [Theory]
+    [InlineData("Swift.BitwiseCopyable")]
+    [InlineData("BitwiseCopyable")]
+    public void HasUnsatisfiableConstraint_True_ForBitwiseCopyableParentMemberClause(string marker)
+    {
+        // `extension Box where Value.Item: BitwiseCopyable { init(bitwiseItemCount:) }` — the
+        // associated-type MEMBER clause (τ_0_0.Item) is rooted at the parent param. The unconditional
+        // open GSF body errors "requires that 'Value.Item' conform to 'BitwiseCopyable'" exactly like
+        // the direct form, so the gate must refuse it too — even though it is NOT a direct constraint.
+        var parent = GenericClass("Box", GenericParam("τ_0_0"));
+        var method = Ctor(ReturnArg(), Param("bitwiseItemCount", "Swift.Int"));
+        method.RawGenericSig = $"<τ_0_0 where τ_0_0 : SomeModule.HasItem, τ_0_0.Item : {marker}>";
+
+        Assert.True(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
+        Assert.True(ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+    }
+
+    [Fact]
+    public void HasUnerasableMarker_False_ForBitwiseCopyableOnMethodOwnMemberClause()
+    {
+        // A member-clause BitwiseCopyable rooted at a METHOD-own param (τ_1_0.Item) is the
+        // method-generic dimension, not a parent-type-erasure concern — must stay admissible.
+        var parent = GenericClass("Box", GenericParam("τ_0_0"));
+        var method = Ctor(ReturnArg(), Param("x", "Swift.Int"));
+        method.RawGenericSig = "<τ_0_0, τ_1_0 where τ_1_0 : SomeModule.HasItem, τ_1_0.Item : Swift.BitwiseCopyable>";
+
+        Assert.False(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
+    }
+
+    [Fact]
+    public void HasUnerasableMarker_False_ForNonGenericParent()
+    {
+        var parent = NonGenericClass("Plain");
+        var method = Ctor(ReturnArg(), Param("x", "Swift.Int"));
+        method.RawGenericSig = "<τ_0_0 where τ_0_0 : Swift.BitwiseCopyable>";
+
+        Assert.False(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
+    }
+
+    [Fact]
+    public void HasUnerasableMarker_False_WhenNoRawGenericSig()
+    {
+        var parent = GenericClass("Box", GenericParam("τ_0_0"));
+        var method = Ctor(ReturnArg(), Param("x", "Swift.Int")); // RawGenericSig stays null
+
+        Assert.False(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
+    }
+
     // ── Shared dropped-pin helper (consulted by BOTH the open gate and CSM) ─────────
 
     [Fact]

@@ -400,4 +400,35 @@ public class GenericSignatureParserTests
         // Nothing was dropped, so the "dropped marker" compensation flag must stay false.
         Assert.False(result[0].HasDroppedNominalMarkerConstraint);
     }
+
+    [Fact]
+    public void ConformanceTargetsRootedAt_IncludesMemberClauses_UnlikeDirectConformanceTargets()
+    {
+        // A direct conformance AND an associated-type member conformance, both rooted at τ_0_0.
+        var sig = "<τ_0_0 where τ_0_0 : SomeModule.HasItem, τ_0_0.Item : Swift.BitwiseCopyable>";
+        var model = GenericSignatureParser.ParseSignature(sig);
+
+        // DirectConformanceTargets is direct-only: the member clause (τ_0_0.Item) is excluded.
+        Assert.Equal(
+            new[] { "SomeModule.HasItem" },
+            model.DirectConformanceTargets("τ_0_0").ToArray());
+
+        // ConformanceTargetsRootedAt is member-inclusive: BOTH the direct and the member clause appear.
+        Assert.Equal(
+            new[] { "SomeModule.HasItem", "Swift.BitwiseCopyable" },
+            model.ConformanceTargetsRootedAt("τ_0_0").ToArray());
+    }
+
+    [Fact]
+    public void ConformanceTargetsRootedAt_MatchesByRoot_ExcludesOtherParams()
+    {
+        // A member-clause marker rooted at a DIFFERENT param (τ_1_0) must not be yielded for τ_0_0.
+        var sig = "<τ_0_0, τ_1_0 where τ_1_0 : SomeModule.HasItem, τ_1_0.Item : Swift.BitwiseCopyable>";
+        var model = GenericSignatureParser.ParseSignature(sig);
+
+        Assert.Empty(model.ConformanceTargetsRootedAt("τ_0_0"));
+        Assert.Equal(
+            new[] { "SomeModule.HasItem", "Swift.BitwiseCopyable" },
+            model.ConformanceTargetsRootedAt("τ_1_0").ToArray());
+    }
 }

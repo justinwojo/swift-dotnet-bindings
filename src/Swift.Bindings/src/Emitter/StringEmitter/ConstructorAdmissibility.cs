@@ -81,7 +81,18 @@ internal static class ConstructorAdmissibility
     public static bool HasUnsatisfiableParentGenericExtensionConstraint(
         MethodDecl method, TypeDecl parentTypeDecl)
     {
-        if (!parentTypeDecl.IsGeneric || method.GenericParameters.Count == 0)
+        if (!parentTypeDecl.IsGeneric)
+            return false;
+
+        // A stdlib @_marker the open erased form cannot honour (BitwiseCopyable) is dropped from
+        // GenericConformances as an unrepresentable nominal conformance, so the conformance-list
+        // walks below never see it; it survives only in the lossless ParsedGenericSignature. Check
+        // it up front, independently of method.GenericParameters — a parameter whose ONLY
+        // constraint was the dropped marker need not carry an entry in that list.
+        if (HasUnerasableParentMarkerConstraint(method, parentTypeDecl))
+            return true;
+
+        if (method.GenericParameters.Count == 0)
             return false;
 
         // A dropped concrete same-type pin (`where RowDecoder == ()`) survives only as a flag and
@@ -153,6 +164,79 @@ internal static class ConstructorAdmissibility
             if (gp.HasUnrepresentableConcreteSameTypePin && parentParamNames.Contains(gp.TypeName))
                 return true;
         return false;
+    }
+
+    /// <summary>
+    /// True when an initializer requires a PARENT-level generic parameter — or one of its
+    /// associated-type members (<c>Value.Item</c>) — to conform to the stdlib <c>@_marker</c> layout
+    /// protocol <c>Swift.BitwiseCopyable</c>, a constraint no open type-erasure form (GSF static
+    /// factory / <c>_SBW_CI_</c>) can legally honour. Both the direct form
+    /// (<c>where Value: BitwiseCopyable</c>) and the member form
+    /// (<c>where Value.Item: BitwiseCopyable</c>) make the unconditional erased body fail to compile,
+    /// so both must be refused — see <see cref="GenericSignatureModel.ConformanceTargetsRootedAt"/>.
+    ///
+    /// Markers are dropped from <see cref="GenericArgumentDecl.GenericConformances"/> as
+    /// unrepresentable nominal conformances, so the conformance-list walk in
+    /// <see cref="HasUnsatisfiableParentGenericExtensionConstraint"/> never sees them; the
+    /// constraint survives verbatim only in <see cref="MethodDecl.ParsedGenericSignature"/>. Most
+    /// stdlib markers are harmless to the open erased form: the unconditional
+    /// <c>extension Box: _SBW_GSF { … Self(init:) … }</c> body type-checks against
+    /// <c>Sendable</c>/<c>SendableMetatype</c> (advisory under <c>-strict-concurrency=minimal</c>)
+    /// and against <c>Copyable</c>/<c>Escapable</c> (implicit defaults a generic parameter already
+    /// carries absent a <c>~</c> opt-out, which the pipeline rejects far upstream).
+    /// <c>BitwiseCopyable</c> is the exception — a real layout requirement: the unconditional
+    /// factory body fails to compile (<c>"requires that 'Value' conform to 'BitwiseCopyable'"</c>),
+    /// and the marker cannot be re-stated as a conditional conformance (a non-marker protocol's
+    /// conditional conformance may not depend on a marker), so there is NO legal open erased form.
+    /// The wrapper would be stripped and the emitted C# constructor would dangle; the init must
+    /// fail closed.
+    ///
+    /// This refuses the whole shape, including the rarer parent-type-declared form
+    /// (<c>struct Box&lt;Value: BitwiseCopyable&gt;</c>): that body type-checks on the Swift side,
+    /// but the C# surface erases the bound away (C# has no <c>BitwiseCopyable</c> constraint), so an
+    /// open erased ctor would let a consumer instantiate <c>Box&lt;NonBitwiseCopyable&gt;</c> and
+    /// trap in Swift's metadata accessor — itself fail-open-unsafe. CSM never enumerates a marker
+    /// conformer (a marker carries no witness table and no conformer list), so no closed form is
+    /// lost by refusing here.
+    /// </summary>
+    public static bool HasUnerasableParentMarkerConstraint(MethodDecl method, TypeDecl parentTypeDecl)
+    {
+        if (!parentTypeDecl.IsGeneric)
+            return false;
+
+        var parentParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToArray();
+        if (parentParamNames.Length == 0)
+            return false;
+
+        // BitwiseCopyable survives only in the lossless parsed signature; match each requirement's
+        // RAW subject root (τ_0_X) against the parent's raw param tokens. This walks DIRECT
+        // (`τ_0_0 : Swift.BitwiseCopyable`) AND associated-type member (`τ_0_0.Item :
+        // Swift.BitwiseCopyable`) clauses alike — both are requirements the init body inherits, so an
+        // unconditional open erased form fails to compile for either (verified: a member-clause GSF
+        // body errors "requires that 'Value.Item' conform to 'BitwiseCopyable'").
+        foreach (var target in method.ParsedGenericSignature.ConformanceTargetsRootedAt(parentParamNames))
+            if (IsUnerasableOpenFormMarker(target))
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True if <paramref name="target"/> names <c>Swift.BitwiseCopyable</c> (module-qualified or
+    /// bare) — the one stdlib marker an unconditional open erased form cannot satisfy. The other
+    /// markers (<c>Sendable</c>/<c>SendableMetatype</c>/<c>Copyable</c>/<c>Escapable</c>) are
+    /// erasure-safe and are merely dropped from the emitted <c>where</c> clause by
+    /// <c>WrapperEmitterHelpers.IsStdlibMarkerProtocol</c> instead.
+    /// </summary>
+    private static bool IsUnerasableOpenFormMarker(string target)
+    {
+        var lt = target.IndexOf('<');
+        var head = lt >= 0 ? target[..lt] : target;
+        var dot = head.LastIndexOf('.');
+        var module = dot >= 0 ? head[..dot] : null;
+        var simpleName = dot >= 0 ? head[(dot + 1)..] : head;
+        return (module is null or "Swift") && simpleName == "BitwiseCopyable";
     }
 
     /// <summary>

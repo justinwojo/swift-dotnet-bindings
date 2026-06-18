@@ -225,7 +225,10 @@ public static class WrapperEmitterHelpers
     /// factory constructor emitter, whose <c>extension Parent: _SBW_GSF_x</c> conformance must
     /// inherit a constructor-only conformance constraint (e.g.
     /// <c>MusicCatalogResourceRequest.init() where MusicItemType : MusicCatalogTopLevelResourceRequesting</c>)
-    /// before <c>Self()</c> in the factory body type-checks.
+    /// before <c>Self()</c> in the factory body type-checks. Stdlib <c>@_marker</c> conformances
+    /// (<c>Sendable</c> etc.) are an exception: they are NOT emitted, because a non-marker
+    /// protocol's conditional conformance may not depend on a marker (Swift rejects it) and a
+    /// marker has no runtime witness, so the unconditional conformance is both legal and correct.
     /// </para>
     /// Returns an empty string when no applicable parent constraint exists.
     /// </summary>
@@ -235,14 +238,23 @@ public static class WrapperEmitterHelpers
         if (parentType?.GenericParameters == null || parentType.GenericParameters.Count == 0)
             return string.Empty;
 
-        var parentParamNames = parentType.GenericParameters
-            .Select(p => p.SugaredTypeName)
-            .ToHashSet(StringComparer.Ordinal);
+        // The requirement roots in `methodDecl.ParsedGenericSignature` come from the RAW
+        // `RawGenericSig` (api-digester form), so their `SubjectRoot` is the raw token
+        // (`τ_0_0`), NOT the sugared name. The parent's generic params carry BOTH the raw
+        // `TypeName` and the `SugaredTypeName` that the emitted `extension Parent` line refers
+        // to params by. Match the requirement root against the raw token, but EMIT the sugared
+        // name — `τ_0_0` is not a visible identifier in the generated Swift extension. (When a
+        // parent has no sugared signature, `TypeName == SugaredTypeName == τ_0_0`, so the
+        // legacy `τ_0_0`-fallback behaviour is preserved exactly.)
+        var rawToSugared = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var p in parentType.GenericParameters)
+            rawToSugared[p.TypeName] = p.SugaredTypeName;
 
         // Per-param set of conformance targets already declared at the parent type level
-        // (both module-qualified and short names). A constructor-only conformance clause whose
-        // target is already required by the parent must be skipped — re-stating it on the
-        // conditional conformance is a redundant-constraint error in Swift.
+        // (both module-qualified and short names), keyed by the same RAW token the requirement
+        // root is matched against. A constructor-only conformance clause whose target is already
+        // required by the parent must be skipped — re-stating it on the conditional conformance
+        // is a redundant-constraint error in Swift.
         var parentLevelConstraints = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         if (includeConformanceConstraints)
         {
@@ -257,7 +269,7 @@ public static class WrapperEmitterHelpers
                     set.Add(target.ModuleQualifiedName);
                     set.Add(target.Name);
                 }
-                parentLevelConstraints[p.SugaredTypeName] = set;
+                parentLevelConstraints[p.TypeName] = set;
             }
         }
 
@@ -269,21 +281,60 @@ public static class WrapperEmitterHelpers
         // valid.
         foreach (var r in methodDecl.ParsedGenericSignature.Requirements)
         {
-            if (!r.IsDirect || !parentParamNames.Contains(r.SubjectRoot)) continue;
+            // Match the requirement's RAW root token (`τ_0_0`) against the parent's raw param
+            // names, but emit the SUGARED name — the generated `extension Parent` refers to its
+            // params by their sugared identifiers, and `τ_0_0` is not a visible identifier there.
+            if (!r.IsDirect || !rawToSugared.TryGetValue(r.SubjectRoot, out var paramName)) continue;
 
             if (r.Kind == GenericRequirementKind.SameType)
             {
-                clauses.Add($"{r.SubjectRoot} == {r.Target}");
+                clauses.Add($"{paramName} == {r.Target}");
                 continue;
             }
 
             if (!includeConformanceConstraints) continue;
+            // Stdlib MARKER protocols (Sendable/Escapable/Copyable/…) are dropped, NOT emitted.
+            // `_SBW_GSF_*` is an ordinary (non-marker) protocol, and Swift forbids a non-marker
+            // protocol's conditional conformance from depending on a marker protocol
+            // ("conditional conformance to non-marker protocol '…' cannot depend on conformance
+            // of '…' to marker protocol 'Sendable'") — emitting `where Value : Swift.Sendable`
+            // fails to compile, so the wrapper is stripped and the C# constructor is left
+            // dangling. Markers carry no runtime witness anyway, so the factory body type-checks
+            // without the clause and unconditional erased dispatch is correct. This mirrors the
+            // parser's own marker-drop (`GenericSignatureParser.ParseConstraint`) and the shared
+            // `IsStdlibMarkerProtocol` set. Real protocol constraints stricter than the parent's
+            // declaration never reach here — they are refused upstream by
+            // `HasUnsatisfiableParentGenericExtensionConstraint`, which ALSO refuses the one marker
+            // an unconditional GSF body cannot satisfy (`BitwiseCopyable`, via
+            // `HasUnerasableParentMarkerConstraint`): so for BitwiseCopyable this drop is defensive
+            // (the constructor is gone before the where clause is built); for the erasure-safe
+            // markers (Sendable/Copyable/Escapable/SendableMetatype) the drop is load-bearing.
+            if (IsStdlibMarkerProtocol(r.Target)) continue;
             // Skip constraints the parent already requires — re-stating them is redundant.
             if (parentLevelConstraints.TryGetValue(r.SubjectRoot, out var declared) && declared.Contains(r.Target))
                 continue;
-            clauses.Add($"{r.SubjectRoot} : {r.Target}");
+            clauses.Add($"{paramName} : {r.Target}");
         }
         return clauses.Count == 0 ? string.Empty : " where " + string.Join(", ", clauses);
+    }
+
+    /// <summary>
+    /// True if <paramref name="target"/> is a stdlib <c>@_marker</c> protocol (carries no runtime
+    /// witness table). Operates on the verbatim conformance-target string from the parsed signature
+    /// (e.g. <c>Swift.Sendable</c> or bare <c>Sendable</c>). Kept in sync with the canonical set in
+    /// <c>GenericTypeEmitter.IsStdlibMarkerProtocol</c> / <c>PInvokeHelperEmitter.IsStdlibMarkerProtocol</c>
+    /// / <c>GenericSignatureParser.ParseConstraint</c>. Deliberately excludes the layout constraints
+    /// <c>AnyObject</c>/<c>Any</c>: those are NOT marker protocols, so a conditional conformance may
+    /// legally depend on them and their factory body needs the clause to type-check.
+    /// </summary>
+    private static bool IsStdlibMarkerProtocol(string target)
+    {
+        var lastDot = target.LastIndexOf('.');
+        var module = lastDot >= 0 ? target[..lastDot] : null;
+        var simpleName = lastDot >= 0 ? target[(lastDot + 1)..] : target;
+        return (module is null or "Swift")
+            && simpleName is "Sendable" or "Escapable" or "Copyable"
+                          or "SendableMetatype" or "BitwiseCopyable";
     }
 
     /// <summary>
