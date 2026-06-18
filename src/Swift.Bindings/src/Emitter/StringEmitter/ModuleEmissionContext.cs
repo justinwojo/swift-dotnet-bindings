@@ -625,6 +625,8 @@ public sealed class ModuleEmissionContext
 
     private readonly List<string> _emittedSwiftObjectTypes = new();
 
+    private readonly List<(string TypeofExpr, Swift.Runtime.PayloadConstructionSemantics Semantics)> _payloadSemantics = new();
+
     private readonly Stack<string> _typeNestingStack = new();
 
     /// <summary>
@@ -633,6 +635,19 @@ public sealed class ModuleEmissionContext
     /// Used by ModuleHandler to emit [ModuleInitializer] factory registration for NativeAOT.
     /// </summary>
     public IReadOnlyList<string> EmittedSwiftObjectTypes => _emittedSwiftObjectTypes;
+
+    /// <summary>
+    /// Each emitted ISwiftObject type's declared <see cref="Swift.Runtime.PayloadConstructionSemantics"/>
+    /// paired with the <c>typeof(...)</c> argument that names it in the module initializer. Non-generic
+    /// types use their qualified name (e.g. <c>"Codec.Encoding"</c>); generic type definitions use the
+    /// <b>open</b> form (e.g. <c>"Pair&lt;,&gt;"</c>) so a single registration covers every closed
+    /// instantiation via the dispatcher's open-generic fallback — the value witness for every
+    /// instantiation of a generic type is the same shape (Copy/Adopt/Inline) by construction.
+    /// Consumed by <see cref="ModuleHandler"/> to emit
+    /// <c>SwiftMarshal.RegisterPayloadSemantics(typeof(T), ...)</c> calls.
+    /// </summary>
+    public IReadOnlyList<(string TypeofExpr, Swift.Runtime.PayloadConstructionSemantics Semantics)> PayloadSemantics =>
+        _payloadSemantics;
 
     /// <summary>Pushes a parent type name onto the nesting stack.</summary>
     public void PushTypeNesting(string parentTypeName) => _typeNestingStack.Push(parentTypeName);
@@ -669,6 +684,38 @@ public sealed class ModuleEmissionContext
             return;
         var qualifiedName = GetQualifiedTypeName(csharpTypeName);
         _emittedSwiftObjectTypes.Add(qualifiedName);
+    }
+
+    /// <summary>
+    /// Records a non-generic ISwiftObject type's declared payload-construction semantics so the module
+    /// initializer can call <c>SwiftMarshal.RegisterPayloadSemantics(typeof(T), ...)</c>. Mirrors the
+    /// nesting/open-generic-ancestor guards of <see cref="RecordSwiftObjectType"/>: a type nested inside
+    /// an open generic outer can't be named in the static-init context, so it falls back to the runtime
+    /// reflection backstop instead.
+    /// </summary>
+    public void RecordPayloadSemantics(string csharpTypeName, Swift.Runtime.PayloadConstructionSemantics semantics)
+    {
+        if (HasOpenGenericAncestor())
+            return;
+        var qualifiedName = GetQualifiedTypeName(csharpTypeName);
+        _payloadSemantics.Add((qualifiedName, semantics));
+    }
+
+    /// <summary>
+    /// Records an open-generic ISwiftObject type definition's payload-construction semantics using the
+    /// <b>open</b> <c>typeof</c> form (e.g. <c>Pair&lt;,&gt;</c>). One registration covers every closed
+    /// instantiation via the dispatcher's open-generic fallback. The handler passes the simple C# name
+    /// (no generic suffix) and the arity; nesting is resolved here.
+    /// </summary>
+    public void RecordOpenGenericPayloadSemantics(string simpleTypeName, int arity, Swift.Runtime.PayloadConstructionSemantics semantics)
+    {
+        if (string.IsNullOrEmpty(simpleTypeName) || arity <= 0)
+            return;
+        if (HasOpenGenericAncestor())
+            return;
+        var qualifiedName = GetQualifiedTypeName(simpleTypeName);
+        var openForm = $"{qualifiedName}<{new string(',', arity - 1)}>";
+        _payloadSemantics.Add((openForm, semantics));
     }
 
     // ==================== Open Generic ISwiftObject Trimmer Roots ====================

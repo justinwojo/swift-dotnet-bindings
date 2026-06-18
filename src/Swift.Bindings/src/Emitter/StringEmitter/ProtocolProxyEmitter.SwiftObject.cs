@@ -228,6 +228,11 @@ public partial class ProtocolProxyEmitter
                 {{newFromPayloadBody}}
             }
 
+            // Proxy types read their existential container by value; the marshal seam frees the wire
+            // temporary and never touches SwiftHandle. Declared public (not explicit) and not module-init
+            // registered, so the runtime reflection backstop reliably finds it on Mono and NativeAOT.
+            public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics => global::Swift.Runtime.PayloadConstructionSemantics.Inline;
+
             IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
 
             public int MarshalToSwift(ref Span<byte> swiftDestSpan)

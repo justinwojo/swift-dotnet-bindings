@@ -20,10 +20,10 @@ import Foundation
 // Adding a Swift-side `defer` would be a double-free.
 //
 // Two failure modes this fixture catches:
-//   (a) MCB callback ownership regression — emitter reverts to
-//       `MarshalBorrowedFromSwift` (suppresses finalization, leaks the heap
-//       buffer). Symptom: `deinitCount < iterationCount` on the finalizer-only
-//       path (no explicit dispose).
+//   (a) MCB callback ownership regression — emitter reverts to the borrowed
+//       `MarshalCallbackArg` path (its Adopt arm suppresses finalization, leaking
+//       the heap buffer). Symptom: `deinitCount < iterationCount` on the
+//       finalizer-only path (no explicit dispose).
 //   (b) Generator regression that adds a Swift-side `defer` for this category.
 //       Symptom: double-free crash inside the bulk loop, or `deinitCount`
 //       advances early before C# dispose.

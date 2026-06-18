@@ -78,6 +78,10 @@ public sealed class EveryProtocol : ISwiftObject
     }
 
     /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
+    /// <inheritdoc/>
     public int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         // EveryProtocol is a class type, so we marshal the pointer

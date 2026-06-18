@@ -539,7 +539,12 @@ public static class MethodClosureBridge
         else if (isInstance)
             callTarget = selfObjName;
         else
-            callTarget = typeName;
+            callTarget = typeName; // Static method: the type name; free function: "" (no parent).
+
+        // Free functions have no receiver (callTarget == ""): call unqualified. A dangling leading
+        // dot (".foo(...)") would chain onto the preceding closure literal instead — the same
+        // free-function-modeled-as-instance hazard guarded on the C# side in EmitPInvoke (:1139).
+        var callPrefix = string.IsNullOrEmpty(callTarget) ? "" : $"{callTarget}.";
 
         // Collect all method call args in parameter order, interleaving non-closure and closure args
         var methodCallArgs = new List<string>();
@@ -629,7 +634,7 @@ public static class MethodClosureBridge
         {
             // Complex path: at least one closure has value-type args needing withUnsafePointer or heap allocation
             EmitSwiftMultiClosureWithPointerWrapping(swiftWriter, method, env, closures,
-                passableNonClosureParams, perClosureAnalysis, returnPrefix, returnSuffix, callTarget);
+                passableNonClosureParams, perClosureAnalysis, returnPrefix, returnSuffix, callPrefix);
         }
         else
         {
@@ -681,7 +686,7 @@ public static class MethodClosureBridge
                 }
             }
 
-            swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)}){returnSuffix}");
+            swiftWriter.WriteLine($"    {returnPrefix}{callPrefix}{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)}){returnSuffix}");
         }
 
         swiftWriter.WriteLine("}");
@@ -704,7 +709,7 @@ public static class MethodClosureBridge
         Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs, List<(int index, string swiftType)> optionalExistentialArgs)> perClosureAnalysis,
         string returnPrefix,
         string returnSuffix,
-        string callTarget)
+        string callPrefix)
     {
         // For the pointer wrapping path, we build let-bindings for each closure adapter,
         // then emit the method call with all args.
@@ -976,7 +981,7 @@ public static class MethodClosureBridge
             }
         }
 
-        swiftWriter.WriteLine($"{indent}{returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)}){returnSuffix}");
+        swiftWriter.WriteLine($"{indent}{returnPrefix}{callPrefix}{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)}){returnSuffix}");
     }
 
     // ─── C# Callback ───────────────────────────────────────────────────
@@ -1133,7 +1138,10 @@ public static class MethodClosureBridge
         // Self parameter — instance methods only.
         // Generic parents use SwiftSelf (Swift calling convention, self in x20 register).
         // Non-generic parents use IntPtr (C calling convention, self as trailing parameter).
-        bool isInstance = method.MethodType != MethodType.Static;
+        // A free/global function is modeled as MethodType.Instance but has no TypeDecl parent (and no
+        // Payload); the @_cdecl wrapper already omits self for it, so the P/Invoke must too. Require a
+        // non-null TypeDecl parent, matching BuildBridgeSymbolName (:48).
+        bool isInstance = method.MethodType != MethodType.Static && method.ParentDecl is TypeDecl;
         bool isGenericParent = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric;
         bool usesSwiftCallingConvention = isGenericParent && isInstance;
         if (isInstance)
@@ -1258,7 +1266,12 @@ public static class MethodClosureBridge
         // same C# parameter list.
         var methodName = env.CSharpMethodName;
 
-        var isStatic = method.MethodType == MethodType.Static;
+        // A free function has a ModuleDecl parent (not a TypeDecl) and is emitted as a
+        // `static` member of the synthetic `Functions` container — mirroring the normal
+        // method path (WrapperEmitter.Signature.cs), which keys the static modifier on
+        // `ParentDecl is ModuleDecl`. Without this it would emit as a non-static instance
+        // method and callers (`Functions.X(...)`) would fail with CS0120.
+        var isStatic = method.MethodType == MethodType.Static || method.ParentDecl is ModuleDecl;
         var staticKeyword = isStatic ? "static " : "";
 
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method);
@@ -1433,7 +1446,10 @@ public static class MethodClosureBridge
         // Self parameter — instance methods only.
         // Generic parents: SwiftSelf (Swift calling convention, self in x20).
         // Non-generic parents: IntPtr directly (C calling convention, self as trailing arg).
-        if (!isStatic)
+        // A free/global function is modeled as MethodType.Instance but has no TypeDecl parent (so no
+        // `Payload`); its @_cdecl wrapper and P/Invoke decl (EmitPInvoke :1139) already omit self, so
+        // the call must too. Require a non-null TypeDecl parent, matching BuildBridgeSymbolName (:48).
+        if (!isStatic && method.ParentDecl is TypeDecl)
         {
             bool usesSwiftSelf = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric;
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
@@ -1557,7 +1573,8 @@ public static class MethodClosureBridge
             // Swift.Result<T, any Error>: Swift adapter wraps the enum with withUnsafePointer
             // so we receive a stack-lifetime pointer. NewFromPayload heap-copies the payload
             // via the VWT (InitializeWithCopy), so the SafeHandle owns the copy — must NOT
-            // suppress finalization (that's MarshalBorrowedFromSwift's job). Use MarshalFromSwift.
+            // suppress finalization (a blanket-suppress borrowed marshal would foreclose the
+            // Destroy). Use MarshalFromSwift.
             csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
         }
         else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is { hasRawValue: true })
@@ -1584,8 +1601,8 @@ public static class MethodClosureBridge
             // + initializeMemory at the heapAllocArgs branch above) and transfers ownership to the
             // C# callback — no Swift-side defer. MarshalFromSwift<T> constructs the ISwiftObject
             // wrapper whose SafeHandle pairs VWT.Destroy + NativeMemory.Free on disposal.
-            // MarshalBorrowedFromSwift would SuppressFinalize the SafeHandle, leaving no one to
-            // free the heap buffer — the no-dispose path would leak the payload.
+            // The borrowed MarshalCallbackArg path would suppress the SafeHandle (its Adopt arm),
+            // leaving no one to free the heap buffer — the no-dispose path would leak the payload.
             csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
         }
         else

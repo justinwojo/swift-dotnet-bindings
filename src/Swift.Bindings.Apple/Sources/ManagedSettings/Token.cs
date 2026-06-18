@@ -59,6 +59,10 @@ public sealed class Token<T> : ISwiftObject, ISwiftStruct, IDisposable where T :
         }
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = _cachedMetadata ??= InitializeMetadata();

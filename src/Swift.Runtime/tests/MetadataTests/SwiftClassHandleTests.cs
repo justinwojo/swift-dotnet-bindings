@@ -43,6 +43,8 @@ public class SwiftClassHandleTests
 
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
         public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
             => throw new NotSupportedException();
@@ -313,6 +315,8 @@ public class SwiftSafeHandleShutdownTests
         public void Dispose() { }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
         public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
             => throw new NotSupportedException();
@@ -385,6 +389,8 @@ public class HandleGCLifecycleTests
         public void Dispose() { }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
         public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
             => throw new NotSupportedException();
@@ -395,6 +401,8 @@ public class HandleGCLifecycleTests
         public void Dispose() { }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
         public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
             => throw new NotSupportedException();

@@ -2494,10 +2494,10 @@ public class ClosureEmitterDirectTests
             "$s10TestModule10logMessageyyF", useCdecl: false);
 
         var result = output.ToString();
-        Assert.Contains("MarshalBorrowedFromSwift<Swift.SwiftString>", result);
+        Assert.Contains("MarshalCallbackArg<Swift.SwiftString>", result);
         Assert.Contains(".ToString()", result);
         Assert.DoesNotContain("MarshalFromSwift<string>", result);
-        Assert.DoesNotContain("MarshalBorrowedFromSwift<string>", result);
+        Assert.DoesNotContain("MarshalCallbackArg<string>", result);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithString()

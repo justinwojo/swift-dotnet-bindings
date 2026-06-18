@@ -135,6 +135,10 @@ public class SwiftClosedRange<Bound> : ISwiftObject, ISwiftStruct, IDisposable
         return new SwiftClosedRange<Bound>(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();

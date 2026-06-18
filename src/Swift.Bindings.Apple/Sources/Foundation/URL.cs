@@ -48,6 +48,10 @@ public sealed class URL : ISwiftObject, ISwiftStruct, IDisposable
         }
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = _cachedMetadata ??= PInvoke_GetMetadata();

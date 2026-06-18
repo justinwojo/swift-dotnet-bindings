@@ -198,6 +198,10 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
         return new SwiftResult<TSuccess, TFailure>(payload);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     /// <summary>
     /// Marshals this object to a Swift destination
     /// </summary>

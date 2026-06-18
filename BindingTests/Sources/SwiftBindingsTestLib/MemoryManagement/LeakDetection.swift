@@ -381,6 +381,34 @@ public func makeTrackedRefResult(success: Bool, value: Int32) -> Result<TrackedR
     return success ? .success(TrackedRef(tag: value)) : .failure(.failed)
 }
 
+// MARK: - Borrowed Callback-Arg Leak Probe (Finding 11 — the borrow leak, T1)
+//
+// The probes above exercise the *return* direction (a Copy-semantics wrapper handed
+// BACK to C#). These two exercise the opposite direction: a Copy-semantics runtime
+// wrapper passed BY VALUE *into* a C# callback. The generated C# reads the callback
+// arg through the borrowed callback-arg marshal (`MarshalCallbackArg<…>`); the
+// SwiftResult/SwiftArray from-handle ctor runs `NativeMemory.Alloc` +
+// `InitializeWithCopy`, owning the native buffer plus a +1 on the embedded payload.
+// The old blanket finalizer-suppression on the borrowed path foreclosed the wrapper's
+// VWT Destroy and leaked that copy per invocation; the declared Copy semantics now keep
+// the finalizer so the buffer + embedded ref are released. Each payload embeds a
+// `LifetimeTracker`-counted `TrackedRef`, so a suppressed Destroy shows up as a non-zero
+// live count after the callback loop and a GC drain — not merely "does not crash".
+
+/// Passes a `Result<TrackedRef, TrackedRefError>` (the Copy-semantics SwiftResult wrapper)
+/// BY VALUE into an escaping-shaped callback. Loop `count` times; the live count must return
+/// to 0 once the borrowed SwiftResult wrappers finalize.
+public func invokeWithBorrowedTrackedResult(count: Int32,
+        _ body: (Result<TrackedRef, TrackedRefError>) -> Void) {
+    for i in 0..<count { body(.success(TrackedRef(tag: i))) }
+}
+
+/// Companion SwiftArray Copy-wrapper shape: passes `[TrackedRef]` BY VALUE into a callback.
+/// Same borrow-without-dispose leak class if the Copy wrapper's finalizer is suppressed.
+public func invokeWithBorrowedTrackedArray(count: Int32, _ body: ([TrackedRef]) -> Void) {
+    for i in 0..<count { body([TrackedRef(tag: i)]) }
+}
+
 // MARK: - Extraction-Side Retain Probe (Optional `.Some` / Result `.Success` copy-out)
 
 /// Strong global holding the SAME `TrackedRef` embedded in the struct handed back through the
@@ -448,7 +476,7 @@ public func stashSharedRefAndReturnResultEnum(value: Int32) -> Result<TrackedRef
 }
 
 /// Returns `Optional<String>` so the C# `SwiftOptional<SwiftString>.Some` extraction exercises the
-/// MOVE-bitwise (`ISwiftMovesPayloadOnConstruction`) NewFromPayload shape: SwiftString allocates its
+/// MOVE-bitwise (`PayloadConstructionSemantics.Move`) NewFromPayload shape: SwiftString allocates its
 /// own buffer and bitwise-copies the temporary, transferring the bridge-object retain. The
 /// extraction must NOT value-witness-destroy the temporary (that would over-release the shared
 /// string storage). A tight extract+dispose loop over this surfaces the over-release as a crash.

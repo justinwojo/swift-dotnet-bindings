@@ -57,6 +57,12 @@ internal sealed class ColorLikeWrapper : ISwiftObject, IDisposable
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => new ColorLikeWrapper(handle);
 
+    // ADOPT: the from-handle ctor stores the buffer pointer directly (no copy, no +1), exactly like
+    // SwiftUI.Color — the borrowed marshal adopts the pointer Swift still owns, so it suppresses the
+    // payload finalizer (it must not free/over-release a buffer it does not own).
+    static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+
     unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         TypeMetadata metadata = TypeMetadata.GetTypeMetadataOrThrow<TrackedRefStruct>();

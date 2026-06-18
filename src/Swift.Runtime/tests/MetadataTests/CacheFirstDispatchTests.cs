@@ -28,6 +28,8 @@ public class CacheFirstDispatchTests
         public void Dispose() { }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         public static ISwiftObject NewFromPayload(IntPtr payload)
             => throw new InvalidOperationException("static-abstract NewFromPayload must not run when a factory is cached");
         public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
@@ -41,6 +43,8 @@ public class CacheFirstDispatchTests
         public void Dispose() { }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         public static ISwiftObject NewFromPayload(IntPtr payload)
             => throw new InvalidOperationException("static-abstract NewFromPayload must not run when a factory is cached");
         public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
@@ -54,6 +58,8 @@ public class CacheFirstDispatchTests
         public void Dispose() { }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         // No factory is registered for this type, so the reflection fallback must find and
         // invoke this static member and round-trip the handle.
         public static ISwiftObject NewFromPayload(IntPtr payload) => new CacheMissReflectionFake(payload);
@@ -68,6 +74,8 @@ public class CacheFirstDispatchTests
         public void Dispose() { }
         public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
         public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
         public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
             => throw new InvalidOperationException("static-abstract GetProtocolConformanceDescriptor must not run when a factory is cached");

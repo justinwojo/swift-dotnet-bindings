@@ -40,6 +40,10 @@ public sealed class Image : ISwiftObject, IDisposable
         return new Image(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = _cachedMetadata ??= PInvoke_GetMetadata();

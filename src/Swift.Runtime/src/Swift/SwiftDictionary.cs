@@ -145,6 +145,10 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         return new SwiftDictionary<TKey, TValue>(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();

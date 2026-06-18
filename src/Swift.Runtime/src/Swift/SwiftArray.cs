@@ -126,6 +126,10 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         return new SwiftArray<Element>(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();

@@ -215,6 +215,10 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         return new SwiftSet<Element>(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();

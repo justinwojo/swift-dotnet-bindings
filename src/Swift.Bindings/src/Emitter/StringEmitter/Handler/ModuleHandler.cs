@@ -53,7 +53,7 @@ namespace BindingsGeneration
         /// <c>Swift.Runtime.RuntimeContract.Version</c> whenever the module-init ↔ runtime
         /// dispatch contract changes shape. See RuntimeContract.cs for the bump discipline.
         /// </summary>
-        internal const int EmittedRuntimeContractVersion = 1;
+        internal const int EmittedRuntimeContractVersion = 2;
 
         private readonly NamespacePatternResolver _namespacePatternResolver;
 
@@ -349,6 +349,8 @@ namespace BindingsGeneration
         private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx)
         {
             var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();
+            var payloadSemantics = emissionCtx?.PayloadSemantics
+                ?? Array.Empty<(string TypeofExpr, PayloadConstructionSemantics Semantics)>();
             var conformances = emissionCtx?.EmittedConformances ?? Array.Empty<(string, string)>();
             var simpleEnumRegistrations = emissionCtx?.SimpleEnumMetadataRegistrations
                 ?? Array.Empty<(string, string, string)>();
@@ -403,6 +405,16 @@ namespace BindingsGeneration
                 {
                     csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata(); }} catch {{ }}");
                 }
+            }
+            // Pre-register each emitted type's declared payload-construction semantics (Finding 11).
+            // The unconstrained marshal seam reads this by-Type contract to balance Swift ARC and free
+            // the wire temporary correctly; a literal enum value here avoids the static-virtual property
+            // read that would assert on Mono. Generic definitions register their open form once and the
+            // dispatcher resolves closed instantiations via the open-generic fallback. Best-effort like
+            // the factory loop — an unregistered type falls back to the runtime reflection backstop.
+            foreach (var (typeofExpr, semantics) in payloadSemantics)
+            {
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof({typeofExpr}), global::Swift.Runtime.PayloadConstructionSemantics.{semantics}); }} catch {{ }}");
             }
             foreach (var (typeName, protocolName) in conformances)
             {
@@ -1930,6 +1942,11 @@ namespace BindingsGeneration
                 {
                     return new {{proxyClassName}}(*({{containerType}}*)payload);
                 }
+
+                // Composition proxy reads its container by value; the seam frees the wire temporary
+                // and never touches SwiftHandle. Public (not explicit) and not module-init registered,
+                // so the runtime reflection backstop finds it on Mono and NativeAOT.
+                public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics => global::Swift.Runtime.PayloadConstructionSemantics.Inline;
 
                 public int MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {

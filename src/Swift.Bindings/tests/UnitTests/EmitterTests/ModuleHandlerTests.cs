@@ -1021,6 +1021,46 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Payload Construction Semantics Registration (Finding 11)
+
+    [Fact]
+    public void Emit_RegistersRecordedPayloadSemantics_InModuleInitializer()
+    {
+        // Finding 11: each emitted ISwiftObject type's declared PayloadConstructionSemantics is
+        // recorded on the emission context during type emission, and ModuleHandler turns each
+        // recorded entry into a SwiftMarshal.RegisterPayloadSemantics(typeof(T), ...) call in the
+        // module initializer — so the unconstrained marshal seam resolves the by-Type contract from
+        // a seeded cache instead of the reflection backstop at runtime. Both the typeof argument and
+        // the literal enum value must round-trip through the register loop.
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx =>
+            {
+                ctx.RecordPayloadSemantics("TestModule.Widget", Swift.Runtime.PayloadConstructionSemantics.Adopt);
+                ctx.RecordPayloadSemantics("TestModule.Buffer", Swift.Runtime.PayloadConstructionSemantics.Copy);
+            });
+
+        Assert.Contains(
+            "RegisterPayloadSemantics(typeof(TestModule.Widget), global::Swift.Runtime.PayloadConstructionSemantics.Adopt)",
+            csOutput);
+        Assert.Contains(
+            "RegisterPayloadSemantics(typeof(TestModule.Buffer), global::Swift.Runtime.PayloadConstructionSemantics.Copy)",
+            csOutput);
+    }
+
+    [Fact]
+    public void Emit_AssertsRuntimeContractVersion_InModuleInitializer()
+    {
+        // Finding 11/32: the module initializer opens with an unconditional
+        // RuntimeContract.AssertCompatible(N) handshake; N tracks the runtime's RuntimeContract.Version,
+        // bumped 1->2 when the payload-semantics contract landed. A binding generated against an older
+        // runtime (or vice versa) fails loudly here at module load rather than mis-dispatching later.
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("global::Swift.Runtime.RuntimeContract.AssertCompatible(2)", csOutput);
+    }
+
+    #endregion
+
     #region Namespace Emission Tests
 
     [Fact]

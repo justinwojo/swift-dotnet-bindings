@@ -59,6 +59,35 @@ public static class SwiftFrameworkResolver
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.AnyType>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.Hasher>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.DispatchQueue>();
+
+        // Pre-register each reference-type runtime ISwiftObject's declared payload-construction
+        // semantics (Finding 11) so the unconstrained marshal seam reads its ownership contract from
+        // the by-Type cache rather than the static-virtual property (which would assert on Mono) or the
+        // reflection backstop (which can miss an explicit-interface impl on NativeAOT). Generic
+        // containers register their OPEN form once — the dispatcher resolves every closed instantiation
+        // via its open-generic fallback. Value-type ISwiftObject structs (AnyHashable, AnyType) are NOT
+        // registered: the seam short-circuits every value type to Inline before consulting the cache.
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftString), PayloadConstructionSemantics.Move);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.Hasher), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.DispatchQueue), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(EveryProtocol), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftArray<>), PayloadConstructionSemantics.Copy);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftDictionary<,>), PayloadConstructionSemantics.Copy);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftSet<>), PayloadConstructionSemantics.Copy);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftOptional<>), PayloadConstructionSemantics.Copy);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftResult<,>), PayloadConstructionSemantics.Copy);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftClosedRange<>), PayloadConstructionSemantics.Copy);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.AnyKeyPath), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.PartialKeyPath<>), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.KeyPath<,>), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.WritableKeyPath<,>), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.ReferenceWritableKeyPath<,>), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.Animation), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.AnyView), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.Color), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.EdgeInsets), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.Font), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.Image), PayloadConstructionSemantics.Adopt);
         // Removed Swift.* hand-rolled wrappers for ObjC-imported classes (URLResponse,
         // UIImage, NSImage, NSColor, OperationQueue, CIContext): they imported
         // `$sSo<ObjCClassName>...` mangled symbols from Swift overlay libraries, but

@@ -40,6 +40,10 @@ public sealed class Font : ISwiftObject, IDisposable
         return new Font(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = _cachedMetadata ??= PInvoke_GetMetadata();

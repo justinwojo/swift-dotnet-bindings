@@ -40,6 +40,10 @@ public sealed class Color : ISwiftObject, IDisposable
         return new Color(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = _cachedMetadata ??= PInvoke_GetMetadata();

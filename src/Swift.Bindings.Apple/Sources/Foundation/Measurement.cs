@@ -109,6 +109,10 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
         }
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = SwiftObjectHelper<Measurement<T>>.GetTypeMetadata();

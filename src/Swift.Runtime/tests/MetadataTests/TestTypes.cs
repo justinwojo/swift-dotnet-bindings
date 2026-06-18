@@ -35,6 +35,11 @@ struct SwiftIntMock : ISwiftObject
         return TypeMetadata.GetTypeMetadataOrThrow<nint>();
     }
 
+    // Value-type ISwiftObject: the marshal seam short-circuits to Inline before reading this,
+    // so the declared value is inert — declared honestly as Inline to satisfy the contract.
+    static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => global::Swift.Runtime.PayloadConstructionSemantics.Inline;
+
     static unsafe ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
         return new SwiftIntMock(*(int*)payload);
@@ -66,6 +71,10 @@ struct AnyTypeMock : ISwiftObject
     {
         return TypeMetadata.Zero;
     }
+
+    // Value-type ISwiftObject: short-circuits to Inline before this is read (inert, declared honestly).
+    static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => global::Swift.Runtime.PayloadConstructionSemantics.Inline;
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {

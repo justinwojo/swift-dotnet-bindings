@@ -310,6 +310,9 @@ public sealed class AppleTypesCsEmitter
         sb.Append(bodyPad); sb.AppendLine("    }");
         sb.Append(bodyPad); sb.AppendLine("}");
         sb.AppendLine();
+        // VWT-opaque supplement types Alloc + InitializeWithCopy a fresh +1 (Copy semantics).
+        sb.Append(bodyPad); sb.AppendLine("static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics => global::Swift.Runtime.PayloadConstructionSemantics.Copy;");
+        sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)");
         sb.Append(bodyPad); sb.AppendLine("{");
         sb.Append(bodyPad); sb.AppendLine("    var metadata = _cachedMetadata ??= PInvoke_GetMetadata();");

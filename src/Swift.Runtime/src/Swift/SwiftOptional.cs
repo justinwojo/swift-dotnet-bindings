@@ -176,6 +176,10 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         return new SwiftOptional<T>(payload);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Copy;
+
     /// <summary>
     /// Marshals this object to a Swift destination
     /// </summary>

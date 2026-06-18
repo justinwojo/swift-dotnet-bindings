@@ -94,6 +94,10 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
             return ProtocolConformanceDescriptor.Zero;
         }
 
+        // Value-type ISwiftObject: short-circuits to Inline before this is read (inert, declared honestly).
+        static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Inline;
+
         public void Dispose() { }
     }
 

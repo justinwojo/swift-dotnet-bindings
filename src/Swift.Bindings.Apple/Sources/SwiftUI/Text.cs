@@ -68,6 +68,10 @@ public sealed class Text : ISwiftObject, IDisposable
         return new Text(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = _cachedMetadata ??= PInvoke_GetMetadata();

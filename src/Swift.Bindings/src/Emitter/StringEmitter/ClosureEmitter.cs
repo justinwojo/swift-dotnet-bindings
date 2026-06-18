@@ -822,7 +822,7 @@ public static partial class ClosureEmitter
             }
 
             // Optional<String>: TranslateTypeSpecToCSharp projects to "string?" but
-            // System.String has no Swift metadata, so MarshalBorrowedFromSwift<string>
+            // System.String has no Swift metadata, so MarshalCallbackArg<string>
             // crashes. Marshal as SwiftString and call ToString() — same shape as the
             // top-level String path. Must run before IsOptionalFrozenStructParam since
             // Swift.String is a frozen struct and would otherwise hit that branch.
@@ -831,7 +831,7 @@ public static partial class ClosureEmitter
                 namedType.GenericParameters.Count == 1 &&
                 namedType.GenericParameters[0] is NamedTypeSpec optInnerStr &&
                 WitnessDispatchEmitter.IsStringType(optInnerStr))
-                return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedFromSwift<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString() : null";
+                return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString() : null";
 
             // Optional<Foundation.Data>: same shape as the top-level Foundation.Data
             // path — projected delegate type is "byte[]?" but byte[] has no Swift metadata.
@@ -840,10 +840,10 @@ public static partial class ClosureEmitter
                 namedType.GenericParameters.Count == 1 &&
                 namedType.GenericParameters[0] is NamedTypeSpec optInnerData &&
                 optInnerData.Name == "Foundation.Data")
-                return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedFromSwift<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray() : null";
+                return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray() : null";
 
-            // Optional<Class>: void* → null check → MarshalBorrowedFromSwift or null
-            // Callback parameters are borrowed references — use MarshalBorrowedFromSwift
+            // Optional<Class>: void* → null check → MarshalCallbackArg or null
+            // Callback parameters are borrowed references — use the borrowed marshal path
             // to prevent double-release when the GC collects the wrapper.
             if (IsOptionalReferenceParam(namedType, closureHandler))
             {
@@ -852,8 +852,8 @@ public static partial class ClosureEmitter
                 if (closureHandler.IsClassType(inner))
                     // The wrapper is handed to the user's closure body and may be Disposed there.
                     // MarshalBorrowedClassFromSwift takes a real +1 (owning), so Dispose + finalize
-                    // both balance it — unlike MarshalBorrowedFromSwift, whose SuppressFinalize-only
-                    // strategy leaves an explicit Dispose double-releasing a +0 handle.
+                    // both balance it — unlike a blanket-suppress borrowed marshal, whose
+                    // SuppressFinalize-only strategy leaves an explicit Dispose double-releasing a +0 handle.
                     return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedClassFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
                 else // ObjC-bridged
                     return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
@@ -874,13 +874,13 @@ public static partial class ClosureEmitter
 
             // Optional<FrozenStruct>: nil-for-none pointer ABI. Swift unwraps and
             // allocates the inner struct via initializeMemory (deallocated after callback).
-            // C# reads the borrowed struct value via MarshalBorrowedFromSwift — Swift
+            // C# reads the borrowed struct value via MarshalCallbackArg — Swift
             // still owns the heap memory, so no Dispose is issued here.
             if (IsOptionalFrozenStructParam(namedType, closureHandler))
             {
                 var inner = namedType.GenericParameters[0];
                 var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
-                return $"arg{argIndex} != null ? ({innerType}?)SwiftMarshal.MarshalBorrowedFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
+                return $"arg{argIndex} != null ? ({innerType}?)SwiftMarshal.MarshalCallbackArg<{innerType}>(new IntPtr(arg{argIndex})) : null";
             }
 
             // Optional<NumericPrimitive>: full Optional on heap → SwiftMarshal.MarshalOptionalFromSwift<T>
@@ -894,19 +894,19 @@ public static partial class ClosureEmitter
             // String parameter: System.String has no Swift metadata, so MarshalFromSwift<string> fails.
             // Marshal as SwiftString (which implements ISwiftObject) and convert to string.
             if (WitnessDispatchEmitter.IsStringType(namedType))
-                return $"SwiftMarshal.MarshalBorrowedFromSwift<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString()";
+                return $"SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString()";
 
             // Foundation.Data → byte[] projection: TranslateTypeSpecToCSharp projects
             // Foundation.Data to byte[], but byte[] has no Swift metadata, so the default
-            // MarshalBorrowedFromSwift<byte[]> path crashes with NotSupportedException.
+            // MarshalCallbackArg<byte[]> path crashes with NotSupportedException.
             // Marshal as Swift.Foundation.Data first, then call ToByteArray() — same shape
             // as DataProjection's ReturnPlan.Direct (".ToByteArray()" on the marshalled value).
             if (namedType.Name == "Foundation.Data")
-                return $"SwiftMarshal.MarshalBorrowedFromSwift<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray()";
+                return $"SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray()";
 
             // ObjC-bridged native remap (e.g., Foundation.URLResponse → Foundation.NSUrlResponse).
             // TranslateTypeSpecToCSharp returns the NativeTypeName (NSUrlResponse) when set,
-            // but MarshalBorrowedFromSwift can't bridge directly. Use FormatObjCBridgeCall
+            // but MarshalCallbackArg can't bridge directly. Use FormatObjCBridgeCall
             // which dispatches between GetNSObject / GetINativeObject — same shape as the
             // Optional-of-ObjC-class path above.
             if (closureHandler.HasObjCNativeRemap(namedType, out var nativeRemapType))
@@ -948,7 +948,7 @@ public static partial class ClosureEmitter
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
             if (closureHandler.IsClassType(typeSpec))
                 return $"SwiftMarshal.MarshalBorrowedClassFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
-            return $"SwiftMarshal.MarshalBorrowedFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
+            return $"SwiftMarshal.MarshalCallbackArg<{delegateType}>(new IntPtr(arg{argIndex}))";
         }
 
         // Well-known protocol wrapping (e.g., any Swift.Error → AnyError)
@@ -995,7 +995,7 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Checks if a type is Optional&lt;FrozenStruct&gt; with nil-for-none pointer ABI.
     /// Swift unwraps the optional, passes pointer to the inner struct value (null for .none).
-    /// C# reads the inner struct via MarshalBorrowedFromSwift.
+    /// C# reads the inner struct via MarshalCallbackArg.
     /// Excludes reference types (classes, ObjC-bridged) which use Optional-reference ABI.
     /// </summary>
     private static bool IsOptionalFrozenStructParam(NamedTypeSpec namedType, ClosureHandler closureHandler)

@@ -24,6 +24,18 @@ public interface ISwiftObject : IDisposable
     public static abstract ISwiftObject NewFromPayload(IntPtr payload);
 
     /// <summary>
+    /// Declares how this type's <see cref="NewFromPayload"/> takes ownership of the wire buffer it is
+    /// constructed from — the single declared source of truth the marshal seam reads to balance Swift
+    /// ARC and free the temporary correctly (see <see cref="PayloadConstructionSemantics"/>). There is
+    /// deliberately no default: every implementer MUST declare its semantics so a new type cannot
+    /// silently inherit the wrong cleanup. The seam never invokes this static-virtually from shared
+    /// generic code (that triggers the Mono JIT assertion); it is read once via the by-<see cref="Type"/>
+    /// <c>PayloadSemanticsDispatcher</c> cache (populated by literal registrations) with a reflection
+    /// backstop, exactly mirroring <see cref="GetTypeMetadata"/>.
+    /// </summary>
+    public static abstract PayloadConstructionSemantics PayloadConstructionSemantics { get; }
+
+    /// <summary>
     /// Marshals this object to a Swift destination
     /// </summary>
     public int MarshalToSwift(ref Span<byte> swiftDestSpan);
@@ -43,7 +55,8 @@ public interface ISwiftObject : IDisposable
 
     /// <summary>
     /// Suppresses the finalizer of this object's backing payload, if it owns one.
-    /// Called by <see cref="InteropServices.SwiftMarshal.MarshalBorrowedFromSwift{T}"/> when a
+    /// Called by <see cref="InteropServices.SwiftMarshal.MarshalCallbackArg{T}"/> for the Adopt/Move
+    /// borrow arms (and the String/Data read-and-discard sites) when a
     /// borrowed (+0) native reference is wrapped: the wrapper must not release a handle it does
     /// not own, so its payload <see cref="System.Runtime.InteropServices.SafeHandle"/> finalizer
     /// (which would call <c>ReleaseHandle</c> → <c>Arc.Release</c> / VWT destroy) must be suppressed.
@@ -176,6 +189,30 @@ internal static class SwiftObjectReflectionHelper
             }
         }
         return TypeMetadata.Zero;
+    }
+
+    /// <summary>
+    /// Reads the static <c>PayloadConstructionSemantics</c> property on the concrete type via reflection.
+    /// The Mono-safe backstop for <see cref="InteropServices.SwiftMarshal.GetPayloadSemanticsForType"/>
+    /// when the by-Type cache has no entry; mirrors <see cref="InvokeGetTypeMetadata"/>. Throws (never
+    /// returns a guessed value) if the member is absent so a missing registration is loud, not a silent
+    /// mis-classified leak/double-free.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2070",
+        Justification = "PayloadConstructionSemantics is always present on ISwiftObject implementations (static abstract, no default); types preserved for consumers by the shipped ILLink.Descriptors.xml exactly as GetTypeMetadata/NewFromPayload are")]
+    internal static PayloadConstructionSemantics InvokePayloadConstructionSemantics([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type)
+    {
+        foreach (var method in type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (method.ReturnType == typeof(PayloadConstructionSemantics) &&
+                method.GetParameters().Length == 0 &&
+                method.Name.Contains("PayloadConstructionSemantics"))
+            {
+                return (PayloadConstructionSemantics)method.Invoke(null, null)!;
+            }
+        }
+        throw new InvalidOperationException(
+            $"Failed to find PayloadConstructionSemantics on {type}. Every ISwiftObject implementer must declare it; a missing declaration or registration would otherwise mis-classify payload ownership.");
     }
 
     /// <summary>

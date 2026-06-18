@@ -238,7 +238,7 @@ public static partial class ClosureEmitter
         // source buffer orphaned. Swift MUST defer-deallocate the source.
         var heapAllocCopiedArgs = new List<(int index, string swiftType)>();
         // Pure (blittable) frozen struct heap args. C# reads the value directly
-        // via `MarshalBorrowedFromSwift<T>` without taking ownership of the buffer.
+        // via `MarshalCallbackArg<T>` without taking ownership of the buffer.
         // Swift MUST defer-deallocate or the buffer leaks per call.
         var blittableFrozenHeapArgs = new List<(int index, string swiftType)>();
         // Primitive-by-value heap args: Optional<NumericPrimitive>. C# reads the
@@ -847,7 +847,7 @@ public static partial class ClosureEmitter
                         return true;
                     // Optional<FrozenStruct> — nil-for-none pointer ABI.
                     // Swift unwraps the Optional, allocates inner value (or passes nil),
-                    // C# reads via MarshalBorrowedFromSwift<T> on non-null.
+                    // C# reads via MarshalCallbackArg<T> on non-null.
                     if (closureHandler.IsFrozenStruct(innerNamed) &&
                         !IsSwiftPrimitive(innerNamed.Name) && innerNamed.Name != "Swift.Bool" &&
                         !innerNamed.Name.Contains("Pointer") && innerNamed.Name != "Swift.OpaquePointer" &&

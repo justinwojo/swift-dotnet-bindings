@@ -147,6 +147,10 @@ public sealed class AnyError : ISwiftObject, IExistentialContainer, ISwiftExiste
         => new AnyError(new ExistentialContainer1 { Payload0 = *(IntPtr*)payload });
 
     /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Inline;
+
+    /// <inheritdoc/>
     public unsafe int MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(AnyError));

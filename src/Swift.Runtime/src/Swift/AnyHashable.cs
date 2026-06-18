@@ -35,6 +35,10 @@ public struct AnyHashable : ISwiftObject
         return new AnyHashable(payload);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Inline;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         throw new InvalidOperationException("Cannot marshal AnyHashable to Swift");

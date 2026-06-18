@@ -21,8 +21,16 @@ namespace Swift.Runtime;
 /// (ModuleHandler) in lockstep whenever the module-init ↔ runtime dispatch contract changes
 /// shape — e.g. the signature/semantics of the dispatcher registration APIs
 /// (<c>RegisterSwiftObjectFactory</c>, <c>RegisterConformanceFactory</c>,
-/// <c>RegisterWitnessTable</c>) or the cache-lookup expectations callers rely on. Pure additive
-/// changes that keep existing generated initializers valid do not require a bump.
+/// <c>RegisterWitnessTable</c>, <c>RegisterPayloadSemantics</c>) or the cache-lookup expectations
+/// callers rely on. Pure additive changes that keep existing generated initializers valid do not
+/// require a bump.
+/// </para>
+/// <para>
+/// <b>v2 (Finding 11):</b> the seam now reads each ISwiftObject type's declared
+/// <see cref="PayloadConstructionSemantics"/>. A v2 binding's initializer calls
+/// <c>RegisterPayloadSemantics</c> (absent from a v1 runtime) and a v1 binding never declares the
+/// semantics a v2 runtime requires — so the version mismatch must fail loudly at load rather than
+/// surface as a mis-classified leak/double-free deep in marshalling.
 /// </para>
 /// </remarks>
 public static class RuntimeContract
@@ -30,7 +38,7 @@ public static class RuntimeContract
     /// <summary>
     /// The dispatch/module-init contract version implemented by this runtime assembly.
     /// </summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>
     /// Asserts that a generated binding built against <paramref name="generatedAgainstVersion"/>

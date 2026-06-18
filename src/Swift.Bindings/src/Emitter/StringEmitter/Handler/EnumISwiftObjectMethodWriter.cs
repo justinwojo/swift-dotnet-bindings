@@ -44,6 +44,10 @@ namespace BindingsGeneration
         {
             WriteGetTypeMetadata();
             WriteNewFromPayload();
+            // A Swift payload enum projects as a class whose SafeHandle adopts the wire handle's +1.
+            _writer.WriteLine(
+                "static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;");
+            _writer.WriteLine();
             WriteMarshalToSwift();
             WriteGetProtocolConformanceDescriptor();
             WriteBoxAsExistential1(_hasBoxable);
@@ -64,10 +68,13 @@ namespace BindingsGeneration
             if (_enumDecl.IsGeneric)
             {
                 _emissionCtx.RecordOpenGenericISwiftObjectType(_enumDecl.Name, _enumDecl.GenericParameters.Count);
+                _emissionCtx.RecordOpenGenericPayloadSemantics(
+                    _enumDecl.Name, _enumDecl.GenericParameters.Count, Swift.Runtime.PayloadConstructionSemantics.Adopt);
                 return;
             }
 
             _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            _emissionCtx.RecordPayloadSemantics(_typeNameWithGenerics, Swift.Runtime.PayloadConstructionSemantics.Adopt);
             foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
                 _enumDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
             {

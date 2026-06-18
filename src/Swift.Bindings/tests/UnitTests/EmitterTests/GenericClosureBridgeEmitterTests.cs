@@ -319,8 +319,8 @@ public class GenericClosureBridgeEmitterTests
         // A class-typed closure argument is handed to Swift with passUnretained (+0) and surfaced to
         // the user's closure body, where it may be Disposed. It must marshal via the OWNING
         // MarshalBorrowedClassFromSwift (real +1 that Dispose/finalize both balance), not the
-        // SuppressFinalize-only MarshalBorrowedFromSwift — whose reflection-based finalizer
-        // suppression is trimmed on NativeAOT, over-releasing the borrowed object (device SIGTRAP).
+        // semantics-dispatched MarshalCallbackArg — the emitter's IsClassType split routes a
+        // statically-known class to the direct owning class marshal at generation time.
         var csOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
         var swiftOutput = new StringWriter();
@@ -368,7 +368,7 @@ public class GenericClosureBridgeEmitterTests
 
         var csResult = csOutput.ToString();
         Assert.Contains("SwiftMarshal.MarshalBorrowedClassFromSwift<TestModule.Database>", csResult);
-        Assert.DoesNotContain("SwiftMarshal.MarshalBorrowedFromSwift<TestModule.Database>", csResult);
+        Assert.DoesNotContain("SwiftMarshal.MarshalCallbackArg<TestModule.Database>", csResult);
     }
 
     #endregion

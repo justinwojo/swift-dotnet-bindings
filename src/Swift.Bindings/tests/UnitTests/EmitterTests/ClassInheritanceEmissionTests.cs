@@ -319,6 +319,19 @@ public class ClassInheritanceEmissionTests
     }
 
     [Fact]
+    public void Class_DeclaresAdoptPayloadConstructionSemantics()
+    {
+        // Finding 11: every emitted ISwiftObject must declare its PayloadConstructionSemantics
+        // (the static-abstract forcing function). A Swift class' NewFromPayload wraps the wire handle
+        // directly into the SafeHandle, so it adopts — the seam reads Adopt and leaves the temp alone.
+        var output = EmitSingleClass(CreateClassDecl("Widget"));
+
+        var body = GetClassBody(output, "Widget");
+        Assert.Contains("ISwiftObject.PayloadConstructionSemantics", body);
+        Assert.Contains("global::Swift.Runtime.PayloadConstructionSemantics.Adopt", body);
+    }
+
+    [Fact]
     public void DerivedClass_ConstructorUsesBaseTypeForSafeHandle()
     {
         var output = EmitClassHierarchy(

@@ -105,6 +105,45 @@ internal static class WitnessTableDispatcher
 }
 
 /// <summary>
+/// Registry mapping each <see cref="ISwiftObject"/> type to its declared
+/// <see cref="PayloadConstructionSemantics"/>, populated by literal registrations from generated and
+/// runtime <c>[ModuleInitializer]</c> code at assembly load time. This is the NativeAOT-safe path the
+/// unconstrained marshal seam uses to read a type's payload-ownership contract without a static-virtual
+/// call (which triggers the Mono JIT assertion jit-info.c:918 from shared generic code). Mirrors
+/// <see cref="NewFromPayloadDispatcher"/>; reflection (<c>SwiftObjectReflectionHelper</c>) is the
+/// backstop for unregistered reference-type implementers.
+/// </summary>
+internal static class PayloadSemanticsDispatcher
+{
+    private static readonly ConcurrentDictionary<Type, PayloadConstructionSemantics> _semantics = new();
+
+    /// <summary>
+    /// Registers a type's declared semantics. Called from generated/runtime <c>[ModuleInitializer]</c>
+    /// code with a literal enum value (never a static-virtual property read). Safe to call repeatedly —
+    /// subsequent calls are no-ops. Generic types register their open definition (<c>typeof(Foo&lt;&gt;)</c>):
+    /// semantics are an invariant of the open generic, never of the closed type argument.
+    /// </summary>
+    internal static void Register(Type type, PayloadConstructionSemantics semantics)
+    {
+        _semantics.TryAdd(type, semantics);
+    }
+
+    /// <summary>
+    /// Looks up a type's semantics: exact match first, then — for a closed generic — its open generic
+    /// definition (so <c>SwiftArray&lt;FetchResult&gt;</c> resolves via the registered
+    /// <c>SwiftArray&lt;&gt;</c>). Returns false on a miss so the caller can fall back to reflection.
+    /// </summary>
+    internal static bool TryGet(Type type, out PayloadConstructionSemantics semantics)
+    {
+        if (_semantics.TryGetValue(type, out semantics))
+            return true;
+        if (type.IsGenericType && _semantics.TryGetValue(type.GetGenericTypeDefinition(), out semantics))
+            return true;
+        return false;
+    }
+}
+
+/// <summary>
 /// Represents a class for marshaling data to and from Swift
 /// </summary>
 public static class SwiftMarshal
@@ -285,7 +324,7 @@ public static class SwiftMarshal
     /// <c>Destroy</c> consumes the slot's original <c>+1</c>. The <c>Destroy</c> runs <b>only after</b>
     /// the copy succeeds, so a throw leaves the slot intact for the caller's exception-path release —
     /// the slot is therefore consumed atomically (fully, or not at all on throw).</item>
-    /// <item><b>Move-on-construction</b> (<see cref="ISwiftMovesPayloadOnConstruction"/>,
+    /// <item><b>Move-on-construction</b> (<see cref="PayloadConstructionSemantics.Move"/>,
     /// i.e. <c>SwiftString</c>), <b>existential containers</b>, and <b>POD</b>/primitives/value-type
     /// structs: a bitwise read transfers the slot's <c>+1</c> (or there is none). An existential
     /// container in particular must NOT be value-witness-copied/destroyed with its static container
@@ -314,14 +353,15 @@ public static class SwiftMarshal
             return MarshalFromSwift<T>(classPointer);
         }
 
-        // ADOPT (non-frozen struct, complex enum, bare-ISwiftObject SwiftUI wrapper) / COPY
-        // (frozen-with-ref, SwiftArray/Dictionary/Set) reference-backed non-POD, excluding
-        // move-on-construction (SwiftString) which transfers its +1 via the bitwise read below.
-        // Copy out an independent wrapper, THEN Destroy the slot's original +1 — Destroy strictly
-        // after the copy so a throw leaves the slot intact (the caller's exception path releases it).
-        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
-            && !typeof(T).IsValueType
-            && !typeof(ISwiftMovesPayloadOnConstruction).IsAssignableFrom(typeof(T))
+        // Adopt (non-frozen struct, complex enum, bare-ISwiftObject SwiftUI wrapper) / Copy
+        // (frozen-with-ref, SwiftArray/Dictionary/Set) reference-backed non-POD. Move (SwiftString)
+        // and Inline (value-type / non-ISwiftObject) transfer or read their +1 via the bitwise read
+        // below, so they are excluded here. Copy out an independent wrapper, THEN Destroy the slot's
+        // original +1 — Destroy strictly after the copy so a throw leaves the slot intact (the caller's
+        // exception path releases it). (sem is Adopt|Copy is exactly the former
+        // "reference-backed && not bitwise-move-on-construction".)
+        PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
+        if ((sem == PayloadConstructionSemantics.Adopt || sem == PayloadConstructionSemantics.Copy)
             && metadata.IsValid
             && metadata.ValueWitnessTable->IsNonPOD)
         {
@@ -366,20 +406,18 @@ public static class SwiftMarshal
     /// a +1 of its own.
     /// </para>
     /// <para>
-    /// <b>Cleanup</b> depends on what <c>NewFromPayload</c> did with the temporary, detected by
-    /// comparing the constructed wrapper's <c>SwiftHandle</c> to the temporary's address:
+    /// <b>Cleanup</b> follows the wrapper type's <b>declared</b> <see cref="PayloadConstructionSemantics"/>
+    /// (read via <see cref="GetPayloadSemantics{T}"/>; see <see cref="CleanupTemporary"/>):
     /// <list type="bullet">
-    /// <item><b>ADOPT</b> (non-frozen structs, complex enums, the SwiftUI value wrappers): the wrapper's
-    /// SafeHandle wraps the temporary pointer directly and frees+destroys it on dispose.
-    /// <c>SwiftHandle == temp</c> — leave it; the wrapper owns the temporary and its <c>+1</c>.</item>
-    /// <item><b>COPY</b> (frozen-projected-as-class structs, <c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>):
-    /// the wrapper allocates its own buffer and <c>InitializeWithCopy</c>s into it, taking a fresh
-    /// <c>+1</c>. <c>SwiftHandle != temp</c>, so the temporary's <c>+1</c> is orphaned — value-witness
-    /// <c>Destroy</c> it, then free the dead buffer.</item>
-    /// <item><b>MOVE</b> (<see cref="ISwiftMovesPayloadOnConstruction"/>, i.e. <c>SwiftString</c>): the
-    /// wrapper allocates its own buffer and <i>bitwise</i>-copies the temporary, transferring our
-    /// <c>+1</c> into it without taking a new one. <c>SwiftHandle != temp</c>, but destroying the
-    /// temporary would over-release the now-shared reference — only free the dead buffer.</item>
+    /// <item><b>Adopt</b> (non-frozen structs, complex enums, the SwiftUI value wrappers): the wrapper's
+    /// SafeHandle adopted the temporary pointer directly — leave it; the wrapper owns the temporary and its <c>+1</c>.</item>
+    /// <item><b>Copy</b> (frozen-projected-as-class structs, <c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>/etc.):
+    /// the wrapper allocated its own buffer and <c>InitializeWithCopy</c>d into it, taking a fresh
+    /// <c>+1</c> — the temporary's <c>+1</c> is orphaned, so value-witness <c>Destroy</c> it, then free the dead buffer.</item>
+    /// <item><b>Move</b> (<c>SwiftString</c>): the wrapper allocated its own buffer and <i>bitwise</i>-copied
+    /// the temporary, transferring our <c>+1</c> into it — destroying would over-release the now-shared
+    /// reference, so only free the dead buffer.</item>
+    /// <item><b>Inline</b>: the wrapper read the value by value and never adopted a buffer — only free the temporary.</item>
     /// </list>
     /// </para>
     /// </summary>
@@ -392,26 +430,26 @@ public static class SwiftMarshal
         nuint bufferSize = ExtractionBufferSize<T>(swiftPayloadSize);
         byte* heapCopy = (byte*)NativeMemory.AllocZeroed(bufferSize);
 
-        // Reference-backed wrappers store the payload in a SwiftSafeHandle and can adopt or copy the
-        // temporary buffer: every ISwiftStruct (non-frozen structs, complex enums, frozen-as-class,
-        // String/Array/Dictionary/Set), plus bare ISwiftObject reference types whose NewFromPayload
-        // adopts the buffer (the hand-written SwiftUI value wrappers — Color, AnyView, Image, Font,
-        // Animation, EdgeInsets — which are Swift structs projected to a sealed class without
-        // ISwiftStruct). Value-type ISwiftObject structs (e.g. LargeValueStruct) are excluded: they
-        // read by value and their SwiftHandle is the throwing default. True Swift classes never reach
-        // here — the callers' class fast path (metadata Kind == Class) handles them first.
-        bool referenceBacked = typeof(ISwiftObject).IsAssignableFrom(typeof(T)) && !typeof(T).IsValueType;
+        // The declared construction contract drives both the retain decision and the cleanup, replacing
+        // the former post-hoc SwiftHandle-vs-temp comparison + bitwise-move-on-construction marker probe.
+        // Adopt/Copy/Move (reference-backed: every ISwiftStruct plus the bare-ISwiftObject SwiftUI
+        // wrappers) take a value-witness +1 into the temporary so the wrapper does not share the
+        // carrier's only reference. Inline (non-ISwiftObject values — existential containers, primitives,
+        // tuples — and frozen blittable value-type ISwiftObject structs whose NewFromPayload reads
+        // *(T*)handle by value) takes a plain bitwise copy. True Swift classes never reach here — the
+        // callers' class fast path (metadata Kind == Class) handles them first.
+        PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
 
-        bool retained = false;
+        bool tempRetained = false;
         TypeMetadata metadata = default;
-        if (referenceBacked
+        if (sem != PayloadConstructionSemantics.Inline
             && TypeMetadata.TryGetTypeMetadata<T>(out var md)
             && md.Value.IsValid
             && md.Value.ValueWitnessTable->IsNonPOD)
         {
             metadata = md.Value;
             metadata.ValueWitnessTable->InitializeWithCopy(heapCopy, source, metadata);
-            retained = true;
+            tempRetained = true;
         }
         else
         {
@@ -426,41 +464,13 @@ public static class SwiftMarshal
         catch
         {
             // NewFromPayload threw before adopting the temporary: release our +1 (if any) and free it.
-            if (retained)
+            if (tempRetained)
                 metadata.ValueWitnessTable->Destroy(heapCopy, metadata);
             NativeMemory.Free(heapCopy);
             throw;
         }
 
-        // Only reference-backed wrappers (SafeHandle-storing — every ISwiftStruct and the bare
-        // ISwiftObject SwiftUI wrappers) can adopt the temporary buffer. Their SwiftHandle is
-        // meaningful, so the adopt/copy/move shape is detected by comparing it to the temporary's
-        // address. (wrapper is ISwiftObject is a null guard; referenceBacked already implies the type.)
-        if (referenceBacked && wrapper is ISwiftObject swiftObj)
-        {
-            if (swiftObj.SwiftHandle != (IntPtr)heapCopy)
-            {
-                // The wrapper made its own buffer (COPY or MOVE shape); the temporary is now dead.
-                // COPY shapes took their own +1, leaving ours orphaned — destroy it. MOVE shapes
-                // (ISwiftMovesPayloadOnConstruction) transferred our +1 into the wrapper, so destroying
-                // would over-release; only free the buffer.
-                if (retained && wrapper is not ISwiftMovesPayloadOnConstruction)
-                    metadata.ValueWitnessTable->Destroy(heapCopy, metadata);
-                NativeMemory.Free(heapCopy);
-            }
-            // else ADOPT: the wrapper's SafeHandle owns the temporary (and its +1); leave it.
-        }
-        else
-        {
-            // Read-by-value wrappers that never adopt the buffer: non-ISwiftObject values (existential
-            // containers, primitives, tuples) via Unsafe.Read, and frozen blittable ISwiftObject value
-            // structs (e.g. LargeValueStruct, whose NewFromPayload returns *(T*)handle by value — note
-            // its SwiftHandle is the throwing default, so it must NOT be compared above). Free the
-            // temporary; nothing references it. (retained is always false here — the retain gate is
-            // referenceBacked — so there is no +1 to release.)
-            NativeMemory.Free(heapCopy);
-        }
-
+        CleanupTemporary(heapCopy, sem, metadata, tempRetained);
         return wrapper;
     }
 
@@ -603,7 +613,7 @@ public static class SwiftMarshal
     /// (not the address of a slot holding it). Takes an independent ARC <c>+1</c> on the borrowed
     /// pointer and builds an <b>owning</b> wrapper, so the wrapper's <c>SwiftSafeHandle</c> balances
     /// that retain on both <c>Dispose</c> and finalize. This replaces the older
-    /// <see cref="MarshalBorrowedFromSwift{T}"/> path for class parameters, whose
+    /// <see cref="MarshalCallbackArg{T}"/> path for class parameters, whose
     /// <c>GC.SuppressFinalize</c>-only strategy left an explicit <c>Dispose</c> in the user's
     /// callback body double-releasing a <c>+0</c> borrowed handle. The retain routes through the
     /// kind-dispatching <see cref="Arc.UnknownObjectRetain"/> so an Objective-C-backed class is
@@ -660,6 +670,99 @@ public static class SwiftMarshal
     public static void RegisterSwiftObjectFactory<T>() where T : ISwiftObject
     {
         NewFromPayloadDispatcher.Register(typeof(T), handle => (object)T.NewFromPayload(handle));
+    }
+
+    /// <summary>
+    /// Pre-registers a type's declared <see cref="PayloadConstructionSemantics"/> so the unconstrained
+    /// marshal seam can read its payload-ownership contract without a static-virtual call. Called by
+    /// generated and runtime <c>[ModuleInitializer]</c> code with a <b>literal</b> enum value (matching
+    /// the type's <c>static PayloadConstructionSemantics</c> declaration) — never a property read on a
+    /// generic parameter, which would re-introduce the Mono static-virtual hazard. Generic types pass
+    /// their open definition (<c>typeof(Foo&lt;&gt;)</c>).
+    /// </summary>
+    /// <param name="type">The ISwiftObject implementer (or its open generic definition).</param>
+    /// <param name="semantics">The literal semantics the type declares.</param>
+    public static void RegisterPayloadSemantics(Type type, PayloadConstructionSemantics semantics)
+    {
+        PayloadSemanticsDispatcher.Register(type, semantics);
+    }
+
+    /// <summary>
+    /// Resolves the declared payload-construction semantics for an unconstrained marshal-seam type
+    /// parameter. Non-<see cref="ISwiftObject"/> payloads (primitives, tuples, existential containers)
+    /// and value-type <see cref="ISwiftObject"/> structs both read by value, so they short-circuit to
+    /// <see cref="PayloadConstructionSemantics.Inline"/> without a lookup — making a cache miss possible
+    /// only for a reference-type <see cref="ISwiftObject"/>, exactly the comprehensively-registered set
+    /// (with a reflection backstop). See <see cref="GetPayloadSemanticsForType"/> for the non-generic sibling.
+    /// </summary>
+    /// <typeparam name="T">The seam type parameter (may be any marshalled type, not just ISwiftObject).</typeparam>
+    [UnconditionalSuppressMessage("Trimming", "IL2087",
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; the static PayloadConstructionSemantics member is preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
+    internal static PayloadConstructionSemantics GetPayloadSemantics<T>()
+        => GetPayloadSemanticsForType(typeof(T));
+
+    /// <summary>
+    /// Non-generic resolution of declared payload-construction semantics, keyed off a runtime
+    /// <see cref="Type"/> (for tuple-element marshalling where the element type is only a <see cref="Type"/>).
+    /// Short-circuits non-<see cref="ISwiftObject"/> and value-type to <see cref="PayloadConstructionSemantics.Inline"/>,
+    /// then the by-Type cache (exact, then open-generic), then the reflection backstop (which registers the
+    /// resolved value and throws loudly on a genuine miss rather than guessing).
+    /// </summary>
+    internal static PayloadConstructionSemantics GetPayloadSemanticsForType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type)
+    {
+        if (!typeof(ISwiftObject).IsAssignableFrom(type))
+            return PayloadConstructionSemantics.Inline;   // primitives / tuples / existential containers — read by value
+        if (type.IsValueType)
+            return PayloadConstructionSemantics.Inline;   // value-type ISwiftObject struct — read by value; SwiftHandle throws
+        if (PayloadSemanticsDispatcher.TryGet(type, out var sem))
+            return sem;                                   // reference type: Adopt / Copy / Move from the literal registry
+
+        // Backstop for a reference-type ISwiftObject not pre-registered (Mono reflection; NativeAOT
+        // relies on registration but the preserved static member resolves here too). Cache + return.
+        sem = SwiftObjectReflectionHelper.InvokePayloadConstructionSemantics(type);
+        PayloadSemanticsDispatcher.Register(type, sem);
+        return sem;
+    }
+
+    /// <summary>
+    /// Frees the temporary buffer a payload extraction constructed a wrapper from, balancing Swift ARC
+    /// per the wrapper's <b>declared</b> <see cref="PayloadConstructionSemantics"/> — the single seam that
+    /// replaces the former post-hoc detection (comparing the wrapper's <c>SwiftHandle</c> to the temp,
+    /// plus probing a dedicated bitwise-move-on-construction marker). The construct step differs by
+    /// caller (generic <c>MarshalFromSwift&lt;T&gt;</c> vs non-generic <c>NewFromPayloadForType</c>) but the
+    /// cleanup is identical, so both extraction sites share this.
+    /// <list type="bullet">
+    /// <item><b>Adopt</b>: the wrapper's SafeHandle adopted <paramref name="temp"/> (and its <c>+1</c>) — leave it.</item>
+    /// <item><b>Copy</b>: the wrapper made its own <c>+1</c> copy, orphaning ours — value-witness
+    /// <c>Destroy</c> <paramref name="temp"/> (if <paramref name="tempRetained"/>), then free the dead buffer.</item>
+    /// <item><b>Move</b>: the wrapper bitwise-transferred our <c>+1</c> — only free the dead buffer (a
+    /// <c>Destroy</c> would over-release the now-shared reference).</item>
+    /// <item><b>Inline</b>: the wrapper read the value by value (never touched <paramref name="temp"/> as a
+    /// handle) — only free the buffer. <paramref name="tempRetained"/> is always false here.</item>
+    /// </list>
+    /// </summary>
+    /// <param name="temp">The temporary buffer the wrapper was constructed from.</param>
+    /// <param name="sem">The wrapper type's declared construction semantics.</param>
+    /// <param name="metadata">Value-witness metadata for the payload (used only for the Copy <c>Destroy</c>).</param>
+    /// <param name="tempRetained">True if the caller took a value-witness <c>+1</c> into <paramref name="temp"/>.</param>
+    private static unsafe void CleanupTemporary(byte* temp, PayloadConstructionSemantics sem, TypeMetadata metadata, bool tempRetained)
+    {
+        switch (sem)
+        {
+            case PayloadConstructionSemantics.Adopt:
+                // The wrapper's SafeHandle owns temp and its +1 — leave it for the wrapper's dispose/finalize.
+                break;
+            case PayloadConstructionSemantics.Copy:
+                if (tempRetained)
+                    metadata.ValueWitnessTable->Destroy(temp, metadata);
+                NativeMemory.Free(temp);
+                break;
+            case PayloadConstructionSemantics.Move:
+            case PayloadConstructionSemantics.Inline:
+                NativeMemory.Free(temp);
+                break;
+        }
     }
 
     /// <summary>
@@ -978,28 +1081,56 @@ public static class SwiftMarshal
     }
 
     /// <summary>
-    /// Marshals a borrowed Swift reference into a non-owning C# wrapper.
-    /// Used for closure callback parameters where the native handle is borrowed from Swift
-    /// (the caller owns the reference). The wrapper's finalizer is suppressed to prevent
-    /// double-release when the GC collects it.
+    /// Marshals a <b>borrowed</b> (+0) Swift reference handed to a closure/callback into a C# wrapper,
+    /// dispatching on the wrapper type's declared <see cref="PayloadConstructionSemantics"/> so each
+    /// ownership shape balances ARC correctly. Replaces the former blanket-suppress
+    /// borrowed-marshal, whose always-suppress strategy <b>leaked</b> a <c>Copy</c> wrapper
+    /// (<c>SwiftResult</c>/<c>SwiftArray</c>/…): its <c>NewFromPayload</c> takes its OWN <c>+1</c> via
+    /// <c>InitializeWithCopy</c> into an owned buffer, so suppressing the SafeHandle finalizer foreclosed
+    /// the value-witness <c>Destroy</c> of that owned copy → a leaked <c>+1</c> + native buffer per call.
+    /// <list type="bullet">
+    /// <item><b>True class</b> (metadata <c>Kind == Class</c>): take an ObjC-aware <c>+1</c> into an OWNING
+    /// wrapper (<see cref="MarshalBorrowedClassFromSwift{T}"/>) — an explicit <c>Dispose</c> in the callback
+    /// and the finalizer both balance it. Also catches a generic-closure-bridge <c>T</c> that closes as a
+    /// class, which the emitter's <c>IsClassType</c> split could not see at generation time.</item>
+    /// <item><b>Copy</b>: construct OWNING (<b>no</b> suppress). The ctor's <c>InitializeWithCopy</c> takes
+    /// an independent <c>+1</c>; the borrowed <c>+1</c> stays with Swift; the wrapper's SafeHandle Destroys
+    /// its own copy. This is the leak fix.</item>
+    /// <item><b>Adopt</b> (borrowed pointer adopted by the SafeHandle) / <b>Move</b> (borrowed <c>+0</c>
+    /// bitwise-transferred): suppress the payload finalizer — the wrapper does not own the reference and
+    /// must not free/over-release a buffer Swift still owns (the read-and-discard contract). This matches
+    /// the old behavior exactly for these two shapes.</item>
+    /// <item><b>Inline</b>: read by value (<c>*(T*)ptr</c> / existential container words) — self-contained,
+    /// nothing to suppress.</item>
+    /// </list>
     /// </summary>
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Delegates to MarshalFromSwiftCore")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Delegates to MarshalFromSwiftCore")]
-    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwiftCore")]
-    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwiftCore")]
-    [UnconditionalSuppressMessage("Trimming", "IL2059", Justification = "Delegates to MarshalFromSwiftCore")]
-    public static T MarshalBorrowedFromSwift<T>(IntPtr swiftSource)
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    public static T MarshalCallbackArg<T>(IntPtr swiftSource)
     {
-        var obj = MarshalFromSwiftCore<T>(swiftSource);
-        if (obj != null)
+        // True Swift class: a borrowed (+0) class pointer needs an ObjC-aware +1 into an owning wrapper.
+        if (TypeMetadata.TryGetTypeMetadata<T>(out var classMd)
+            && classMd.Value.IsValid
+            && classMd.Value.Kind == TypeMetadataKind.Class)
+            return MarshalBorrowedClassFromSwift<T>(swiftSource);
+
+        PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
+        if (sem == PayloadConstructionSemantics.Copy)
         {
+            // Owning, NO suppress: the ctor InitializeWithCopy-s its own +1; the SafeHandle Destroys it.
+            return MarshalFromSwift<T>(swiftSource);
+        }
+
+        var obj = MarshalFromSwift<T>(swiftSource);
+        if ((sem == PayloadConstructionSemantics.Adopt || sem == PayloadConstructionSemantics.Move) && obj != null)
+        {
+            // Wrapper does not own the borrowed reference — suppress its payload finalizer so it does not
+            // free (Adopt) or over-release (Move) a buffer Swift still owns. SuppressPayloadFinalizer is a
+            // non-reflective DIM; its default is a no-op for types with no separately-finalizable payload.
             GC.SuppressFinalize(obj);
-            // Generated wrapper classes hold a SafeHandle payload. The SafeHandle's finalizer
-            // calls ReleaseHandle (Arc.Release / VWT.Destroy), which would double-release a
-            // borrowed (+0) native handle. SuppressPayloadFinalizer is a non-reflective virtual
-            // (ISwiftObject DIM) that suppresses that payload finalizer; the default is a no-op
-            // for types with no separately-finalizable payload. Replaces the former per-call
-            // GetType().GetProperty("Payload") + boxed GetValue reflection (Finding 56a).
             if (obj is ISwiftObject swiftObj)
                 swiftObj.SuppressPayloadFinalizer();
         }
@@ -1617,8 +1748,8 @@ public static class SwiftMarshal
     /// SwiftUI value wrappers, <c>SwiftString</c>/<c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>):
     /// <c>InitializeWithCopy</c> into a temporary to take a fresh <c>+1</c>, then balance ARC across the
     /// adopt/copy/move <c>NewFromPayload</c> shapes exactly as <see cref="MarshalExtractedPayloadValue{T}"/>
-    /// does — detected by comparing the wrapper's <c>SwiftHandle</c> to the temporary. We never destroy
-    /// the source slot (the carrier still owns it).</item>
+    /// does — driven by the element type's declared <see cref="PayloadConstructionSemantics"/>. We never
+    /// destroy the source slot (the carrier still owns it).</item>
     /// <item><b>Value-type <see cref="ISwiftObject"/> struct / POD</b>: bitwise read straight from the
     /// slot, no ARC.</item>
     /// </list>
@@ -1664,15 +1795,11 @@ public static class SwiftMarshal
                 throw;
             }
 
-            if (wrapper is ISwiftObject swiftObj && swiftObj.SwiftHandle != (IntPtr)temp)
-            {
-                // COPY shape took its own +1, orphaning ours — destroy it. MOVE shape
-                // (ISwiftMovesPayloadOnConstruction) transferred our +1 into the wrapper; only free.
-                if (!typeof(ISwiftMovesPayloadOnConstruction).IsAssignableFrom(elementType))
-                    elementMetadata.ValueWitnessTable->Destroy(temp, elementMetadata);
-                NativeMemory.Free(temp);
-            }
-            // else ADOPT: the wrapper's SafeHandle owns the temporary (and its +1); leave it.
+            // Reference-backed (non-class) element: Adopt leaves temp, Copy destroys then frees, Move
+            // frees only — the declared contract, replacing the former SwiftHandle-vs-temp comparison +
+            // bitwise-move-on-construction marker probe. (We always took a +1 via InitializeWithCopy above.)
+            PayloadConstructionSemantics sem = GetPayloadSemanticsForType(elementType);
+            CleanupTemporary(temp, sem, elementMetadata, tempRetained: true);
             return wrapper;
         }
 

@@ -18,7 +18,7 @@ namespace Swift;
 /// <summary>
 /// Represents a Swift string with Foundation.Data payload.
 /// </summary>
-public class SwiftString : ISwiftObject, ISwiftStruct, ISwiftMovesPayloadOnConstruction, IDisposable
+public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
 {
     private static nuint _payloadSize = SwiftObjectHelper<SwiftString>.GetTypeMetadata().Size;
 
@@ -116,6 +116,10 @@ public class SwiftString : ISwiftObject, ISwiftStruct, ISwiftMovesPayloadOnConst
         return new SwiftString(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Move;
+
     /// <summary>
     /// Creates a SwiftString from a raw Swift string payload buffer.
     /// Used for unboxing strings from existential containers.
@@ -175,7 +179,7 @@ public class SwiftString : ISwiftObject, ISwiftStruct, ISwiftMovesPayloadOnConst
     /// This is a <b>bitwise move</b>, not a value-witness copy: it duplicates the two-word
     /// <see cref="Buffer"/> without a bridge-object retain, so the source's <c>+1</c> transfers into
     /// this instance rather than producing an independent one. This is why <see cref="SwiftString"/>
-    /// is flagged <see cref="ISwiftMovesPayloadOnConstruction"/> — payload extraction must NOT
+    /// declares <see cref="PayloadConstructionSemantics.Move"/> — payload extraction must NOT
     /// value-witness-destroy the temporary it hands here (the retain has already moved).
     /// </para>
     /// </summary>

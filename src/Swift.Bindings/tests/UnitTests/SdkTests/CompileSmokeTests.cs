@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics;
@@ -85,6 +86,9 @@ using Swift.Runtime.InteropServices;
         return new " + typeName + @"(handle);
     }
 
+    static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
         where TProtocol : class
     {
@@ -156,6 +160,9 @@ namespace TestModule
         {
             return new ObjCRootedType(handle);
         }
+
+        static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
 
         static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
             where TProtocol : class
@@ -240,6 +247,8 @@ namespace TestModule
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => new ObjCClass(handle);
+        static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
         static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
             where TProtocol : class => throw new NotSupportedException();
         [EditorBrowsable(EditorBrowsableState.Never)]
@@ -446,6 +455,9 @@ namespace TestModule
         {
             return new TestType(handle);
         }
+
+        static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
 
         static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
             where TProtocol : class

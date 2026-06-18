@@ -57,6 +57,10 @@ public struct AnyType : ISwiftObject
         return new AnyType(payload);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Inline;
+
     /// <summary>
     /// Marshals this object to a Swift destination
     /// </summary>

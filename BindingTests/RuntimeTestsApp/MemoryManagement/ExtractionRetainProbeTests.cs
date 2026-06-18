@@ -222,7 +222,7 @@ public class ExtractionRetainProbeTests : TestBase
 
     /// <summary>
     /// SwiftString MOVE-bitwise extraction shape. <c>SwiftString</c>'s from-handle constructor
-    /// (<c>ISwiftMovesPayloadOnConstruction</c>) allocates its own buffer and bitwise-copies the
+    /// (declares <c>PayloadConstructionSemantics.Move</c>) allocates its own buffer and bitwise-copies the
     /// temporary, transferring the bridge-object retain WITHOUT taking a new one — so the extraction
     /// must NOT value-witness-destroy the temporary (that would over-release the shared string
     /// storage). The generated <c>Optional&lt;String&gt;</c>/<c>Result&lt;String, _&gt;</c> factories
@@ -381,7 +381,7 @@ public class ExtractionRetainProbeTests : TestBase
     /// C# <c>class : ISwiftStruct</c> whose <c>NewFromPayload</c> allocates its <b>own</b> buffer and
     /// <c>InitializeWithCopy</c>s into it (taking a fresh <c>+1</c>) — the same COPY shape as
     /// <c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>. Because the wrapper's
-    /// <c>SwiftHandle != heapCopy</c> and it is not <c>ISwiftMovesPayloadOnConstruction</c>, the helper
+    /// <c>SwiftHandle != heapCopy</c> and it declares <c>PayloadConstructionSemantics.Copy</c> (not Move), the helper
     /// must value-witness-<c>Destroy</c> the orphaned temporary's <c>+1</c> and then free it.
     ///
     /// The single embedded <c>TrackedRef</c> is shared by reference-count across <c>seed</c>, the

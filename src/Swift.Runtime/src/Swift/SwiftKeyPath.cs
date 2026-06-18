@@ -161,6 +161,10 @@ public class AnyKeyPath : SwiftKeyPathHandle, ISwiftObject
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload) =>
         new AnyKeyPath(payload);
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() =>
         throw new SwiftRuntimeException(
             $"AnyKeyPath has no protocol conformance descriptor registered for {typeof(TProtocol).Name}.");
@@ -232,6 +236,10 @@ public class PartialKeyPath<TRoot> : AnyKeyPath, ISwiftObject
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload) =>
         new PartialKeyPath<TRoot>(payload);
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() =>
         throw new SwiftRuntimeException(
             $"PartialKeyPath<{typeof(TRoot).Name}> has no protocol conformance descriptor registered for {typeof(TProtocol).Name}.");
@@ -264,6 +272,10 @@ public class KeyPath<TRoot, TValue> : PartialKeyPath<TRoot>, ISwiftObject
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload) =>
         new KeyPath<TRoot, TValue>(payload);
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() =>
         throw new SwiftRuntimeException(
             $"KeyPath<{typeof(TRoot).Name}, {typeof(TValue).Name}> has no protocol conformance descriptor registered for {typeof(TProtocol).Name}.");
@@ -294,6 +306,10 @@ public class WritableKeyPath<TRoot, TValue> : KeyPath<TRoot, TValue>, ISwiftObje
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload) =>
         new WritableKeyPath<TRoot, TValue>(payload);
+
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
 
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() =>
         throw new SwiftRuntimeException(
@@ -326,6 +342,10 @@ public class ReferenceWritableKeyPath<TRoot, TValue> : WritableKeyPath<TRoot, TV
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload) =>
         new ReferenceWritableKeyPath<TRoot, TValue>(payload);
+
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
 
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() =>
         throw new SwiftRuntimeException(

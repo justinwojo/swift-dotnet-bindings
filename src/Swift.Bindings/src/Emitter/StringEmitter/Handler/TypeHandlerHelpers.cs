@@ -43,10 +43,12 @@ namespace BindingsGeneration
         {
             WriteGetTypeMetadata(pinvokeHelperContext);
             WriteNewFromPayloadNonFrozenStruct();
+            // Non-frozen structs project as a class whose SafeHandle adopts the wire handle's +1.
+            WritePayloadConstructionSemantics(PayloadConstructionSemantics.Adopt);
             WriteMarshalToSwiftNonFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
             WriteBoxAsExistential1(emitBoxable);
-            RecordTypeIfNonGeneric();
+            RecordTypeIfNonGeneric(PayloadConstructionSemantics.Adopt);
         }
 
         /// <summary>
@@ -58,10 +60,20 @@ namespace BindingsGeneration
         {
             WriteGetTypeMetadata(pinvokeHelperContext);
             WriteNewFromPayloadFrozenStruct();
+            // Frozen structs that carry reference fields project as a class whose NewFromPayload
+            // Alloc+InitializeWithCopy takes a fresh +1 (Copy); pure value-field frozen structs are
+            // read by value (Inline). Derive from the SAME predicate WriteNewFromPayloadFrozenStruct
+            // branches on so the declared contract always matches the emitted construction shape.
+            var frozenSemantics =
+                MarshallingHelpers.IsFrozenStructProjectedAsClass(
+                    _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName))
+                    ? PayloadConstructionSemantics.Copy
+                    : PayloadConstructionSemantics.Inline;
+            WritePayloadConstructionSemantics(frozenSemantics);
             WriteMarshalToSwiftFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
             WriteBoxAsExistential1(emitBoxable);
-            RecordTypeIfNonGeneric();
+            RecordTypeIfNonGeneric(frozenSemantics);
             if (!isProjectedAsClass)
             {
                 // Frozen value-type structs have no managed resources to dispose
@@ -305,7 +317,7 @@ namespace BindingsGeneration
         /// instead so the trimmer descriptor preserves its reflection metadata.
         /// Also records protocol conformance pairs for NativeAOT pre-registration.
         /// </summary>
-        private void RecordTypeIfNonGeneric()
+        private void RecordTypeIfNonGeneric(PayloadConstructionSemantics semantics)
         {
             if (_emissionCtx == null)
                 return;
@@ -313,15 +325,30 @@ namespace BindingsGeneration
             if (_structDecl.IsGeneric)
             {
                 _emissionCtx.RecordOpenGenericISwiftObjectType(_structDecl.Name, _structDecl.GenericParameters.Count);
+                _emissionCtx.RecordOpenGenericPayloadSemantics(_structDecl.Name, _structDecl.GenericParameters.Count, semantics);
                 return;
             }
 
             _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            _emissionCtx.RecordPayloadSemantics(_typeNameWithGenerics, semantics);
             foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
                 _structDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
             {
                 _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
             }
+        }
+
+        /// <summary>
+        /// Emits the explicit-interface <c>PayloadConstructionSemantics</c> property — the single
+        /// declared source of truth (Finding 11) the marshal seam reads to balance Swift ARC and free
+        /// the wire temporary correctly. Fully qualified so the generated body never collides with the
+        /// like-named property in the emitting type's lookup scope.
+        /// </summary>
+        private void WritePayloadConstructionSemantics(PayloadConstructionSemantics semantics)
+        {
+            _writer.WriteLine(
+                $"static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics => global::Swift.Runtime.PayloadConstructionSemantics.{semantics};");
+            _writer.WriteLine();
         }
 
         /// <summary>

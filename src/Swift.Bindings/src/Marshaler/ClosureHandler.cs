@@ -1107,7 +1107,7 @@ public class ClosureHandler
             AsyncThrowingArgCategory.Primitive =>
                 $"var {managedVar} = {rawVar};",
             AsyncThrowingArgCategory.SwiftString =>
-                $"var {managedVar} = SwiftMarshal.MarshalBorrowedFromSwift<Swift.SwiftString>({rawVar}).ToString();",
+                $"var {managedVar} = SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>({rawVar}).ToString();",
             AsyncThrowingArgCategory.SwiftClass =>
                 // Matches the sync SwiftResult class-extraction pattern: Arc.Retain pins
                 // the object for C#, MarshalFromSwift wraps into an owning SafeHandle
@@ -1978,7 +1978,7 @@ public class ClosureHandler
     /// Reference (class) types route through <see cref="Swift.Runtime.InteropServices.SwiftMarshal.MarshalBorrowedClassFromSwift{T}"/>,
     /// which takes a real <c>+1</c> (<c>Arc.UnknownObjectRetain</c>) and builds an <b>owning</b> wrapper, so an explicit
     /// <c>Dispose</c> in the user's callback body — and the wrapper's SafeHandle finalizer — both balance that retain.
-    /// The older <c>MarshalBorrowedFromSwift</c> SuppressFinalize-only path over-releases the borrowed <c>+0</c> handle when the
+    /// The former always-suppress borrowed-marshal path over-releases the borrowed <c>+0</c> handle when the
     /// wrapper is finalized on NativeAOT, where its reflection-based <c>Payload</c> finalizer suppression is trimmed away
     /// for app-assembly types — a use-after-free of the borrowed object (device GenericClosureBridge crash).
     /// </para>
@@ -1991,7 +1991,7 @@ public class ClosureHandler
     public string BorrowedCallbackArgMarshal(TypeSpec argType, string csType, string ptrExpr)
         => IsClassType(argType)
             ? $"SwiftMarshal.MarshalBorrowedClassFromSwift<{csType}>({ptrExpr})"
-            : $"SwiftMarshal.MarshalBorrowedFromSwift<{csType}>({ptrExpr})";
+            : $"SwiftMarshal.MarshalCallbackArg<{csType}>({ptrExpr})";
 
     /// <summary>
     /// Checks if a type is a simple enum (no-payload) in the type database.
@@ -2088,7 +2088,7 @@ public class ClosureHandler
     /// Checks if a type has an ObjC NativeTypeName remap (e.g., Foundation.URLResponse →
     /// Foundation.NSUrlResponse) that <see cref="TranslateTypeSpecToCSharp"/> projects to.
     /// Closure callbacks need <see cref="MarshallingHelpers.FormatObjCBridgeCall"/> to
-    /// convert the IntPtr to the .NET type, since MarshalBorrowedFromSwift can't bridge
+    /// convert the IntPtr to the .NET type, since MarshalCallbackArg can't bridge
     /// through ObjC.
     /// </summary>
     /// <param name="typeSpec">The Swift type to inspect.</param>

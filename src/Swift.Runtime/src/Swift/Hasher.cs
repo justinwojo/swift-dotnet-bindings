@@ -50,6 +50,10 @@ public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
         return new Hasher(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();

@@ -705,10 +705,14 @@ namespace BindingsGeneration
             }
             WriteGetTypeMetadata();
             WriteNewFromPayload();
+            // A Swift class wrapper's SwiftClassHandle adopts the wire handle's ARC +1.
+            _writer.WriteLine(
+                "static global::Swift.Runtime.PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;");
+            _writer.WriteLine();
             WriteMarshalToSwift();
             WriteGetProtocolConformanceDescriptor();
             WriteBoxAsExistential1(_hasBoxable);
-            RecordTypeIfNonGeneric();
+            RecordTypeIfNonGeneric(PayloadConstructionSemantics.Adopt);
         }
 
         /// <summary>
@@ -990,7 +994,7 @@ namespace BindingsGeneration
         /// instead so the trimmer descriptor preserves its reflection metadata.
         /// Also records protocol conformance pairs for NativeAOT pre-registration.
         /// </summary>
-        private void RecordTypeIfNonGeneric()
+        private void RecordTypeIfNonGeneric(PayloadConstructionSemantics semantics)
         {
             if (_emissionCtx == null)
                 return;
@@ -998,10 +1002,12 @@ namespace BindingsGeneration
             if (_classDecl.IsGeneric)
             {
                 _emissionCtx.RecordOpenGenericISwiftObjectType(_classDecl.Name, _classDecl.GenericParameters.Count);
+                _emissionCtx.RecordOpenGenericPayloadSemantics(_classDecl.Name, _classDecl.GenericParameters.Count, semantics);
                 return;
             }
 
             _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            _emissionCtx.RecordPayloadSemantics(_typeNameWithGenerics, semantics);
             foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
                 _classDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
             {

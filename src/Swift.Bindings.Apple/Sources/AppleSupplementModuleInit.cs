@@ -29,5 +29,18 @@ internal static class AppleSupplementFactoryRegistration
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.URLRequest>();
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.AttributedString>();
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.SwiftUI.Text>();
+
+        // Pre-register each reference-type Apple-supplement ISwiftObject's declared payload-construction
+        // semantics (Finding 11) so the unconstrained marshal seam reads its ownership contract from the
+        // by-Type cache (Runtime cannot — circular package dep). Generic types register their OPEN form
+        // once; the dispatcher resolves closed instantiations via its open-generic fallback. Foundation.Data
+        // is a value-type struct, so the seam short-circuits it to Inline before the cache — not registered.
+        SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.Foundation.URL), PayloadConstructionSemantics.Copy);
+        SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.Foundation.URLRequest), PayloadConstructionSemantics.Copy);
+        SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.Foundation.AttributedString), PayloadConstructionSemantics.Copy);
+        SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.Foundation.AnyError), PayloadConstructionSemantics.Inline);
+        SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.Foundation.Measurement<>), PayloadConstructionSemantics.Copy);
+        SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.ManagedSettings.Token<>), PayloadConstructionSemantics.Copy);
+        SwiftMarshal.RegisterPayloadSemantics(typeof(Swift.SwiftUI.Text), PayloadConstructionSemantics.Adopt);
     }
 }

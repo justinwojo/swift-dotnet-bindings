@@ -952,9 +952,9 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        // Result<T,E> closure args come as IntPtr, marshalled via MarshalBorrowedFromSwift
-        // (callback parameters are borrowed references — prevents double-release)
-        Assert.Contains("SwiftMarshal.MarshalBorrowedFromSwift<Swift.Runtime.SwiftResult<TestModule.MyData, TestModule.MyError>>", cs);
+        // Result<T,E> closure args come as IntPtr, marshalled via MarshalCallbackArg
+        // (callback parameters are borrowed references — dispatched on the wrapper's declared semantics)
+        Assert.Contains("SwiftMarshal.MarshalCallbackArg<Swift.Runtime.SwiftResult<TestModule.MyData, TestModule.MyError>>", cs);
     }
 
     // ─── Multi-Closure (C1) ──────────────────────────────────────────
@@ -1237,10 +1237,10 @@ public class MethodClosureBridgeTests
 
         // C# callback must take ownership of the heap buffer — Swift wrapper has no defer,
         // so MarshalFromSwift wraps the pointer in a SafeHandle whose ReleaseHandle pairs
-        // VWT.Destroy + NativeMemory.Free. MarshalBorrowedFromSwift would SuppressFinalize
-        // and leak the buffer.
+        // VWT.Destroy + NativeMemory.Free. The borrowed MarshalCallbackArg path would not own
+        // the buffer here, so it must not be used.
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.MyError>", cs);
-        Assert.DoesNotContain("SwiftMarshal.MarshalBorrowedFromSwift<TestModule.MyError>", cs);
+        Assert.DoesNotContain("SwiftMarshal.MarshalCallbackArg<TestModule.MyError>", cs);
     }
 
     [Fact]

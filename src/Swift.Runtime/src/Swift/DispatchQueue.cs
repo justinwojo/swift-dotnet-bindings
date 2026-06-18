@@ -54,6 +54,10 @@ public sealed class DispatchQueue : ISwiftObject, ISwiftStruct, IDisposable
         return new DispatchQueue(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Adopt;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = _cachedMetadata ??= ObjCInterop.GetTypeMetadata(ObjCClassName);

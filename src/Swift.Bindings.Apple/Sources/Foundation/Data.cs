@@ -56,6 +56,10 @@ public struct Data : ISwiftObject
         return new Data(handle);
     }
 
+    /// <inheritdoc/>
+    static PayloadConstructionSemantics ISwiftObject.PayloadConstructionSemantics
+        => PayloadConstructionSemantics.Inline;
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = SwiftObjectHelper<Data>.GetTypeMetadata();
