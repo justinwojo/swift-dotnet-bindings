@@ -71,6 +71,32 @@
     </NativeReference>
   </ItemGroup>
 
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Finding 61: positive embed stamp (App Store hygiene tripwire)            -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- The appstore-hygiene binding-tests gate proves the runtime framework actually embedded by
+       inspecting the produced .ipa. But "an .ipa exists" is an inference: if a future .NET Apple
+       workload renames or removes the target that copies <NativeReference Kind="Framework"> dirs into
+       the app bundle, the framework could silently stop embedding while a publish still "succeeds".
+       This target writes a positive sentinel AFTER the workload's framework-embed step actually runs
+       — _CopyDirectoriesToBundle (Xamarin.Shared.Sdk.targets), the `ditto` copy of the .framework
+       directories into <App>.app/Frameworks/ — under the SAME conditions the runtime NativeReference
+       is emitted (IncludeSwiftBindingsRuntimeNative + an Apple TFM). The gate asserts this sentinel
+       post-publish: if the embed target is renamed/removed, AfterTargets binds to nothing, the sentinel
+       is absent, and the gate fails with a named diagnostic instead of silently passing. The sentinel
+       is written into $(IntermediateOutputPath) (obj/) — never into the app bundle or .ipa, so it
+       cannot itself become stray-file litter the hygiene checks would flag. Sibling of the wiring
+       tripwire the review asked for; mirrors the embed conditions of the NativeReference above. -->
+  <Target Name="_StampSwiftRuntimeEmbed"
+          AfterTargets="_CopyDirectoriesToBundle"
+          Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                     AND ($(TargetFramework.Contains('ios')) OR $(TargetFramework.Contains('macos')) OR $(TargetFramework.Contains('maccatalyst')) OR $(TargetFramework.Contains('tvos')))
+                     AND Exists('$(MSBuildThisFileDirectory)../native/SwiftBindingsRuntime.xcframework')">
+    <WriteLinesToFile File="$(IntermediateOutputPath)swiftbindings-runtime-embed.stamp"
+                      Lines="SwiftBindingsRuntime framework embed hook fired after _CopyDirectoriesToBundle"
+                      Overwrite="true" />
+  </Target>
+
   <!-- NativeAOT trimmer descriptor wiring.
        Swift.Runtime ships ILLink.Descriptors.xml as an EmbeddedResource for the IL trimmer's
        auto-discovery path. ILC (NativeAOT) does not auto-discover embedded descriptors from

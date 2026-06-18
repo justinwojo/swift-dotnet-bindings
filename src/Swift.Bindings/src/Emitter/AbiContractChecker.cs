@@ -281,7 +281,7 @@ public static class AbiContractChecker
         if (pinvoke.CallingConvention != "CallConvCdecl")
             return ImmutableArray<AbiCheckViolation>.Empty;
 
-        if (!pinvoke.EntryPoint.StartsWith("$s"))
+        if (!pinvoke.EntryPoint.StartsWith(ManglingProbes.StablePrefix))
             return ImmutableArray<AbiCheckViolation>.Empty;
 
         return ImmutableArray.Create(new AbiCheckViolation
@@ -308,13 +308,13 @@ public static class AbiContractChecker
         foreach (var pinvoke in pinvokes)
         {
             // Only check mangled symbols targeting original library
-            if (!pinvoke.EntryPoint.StartsWith("$s"))
+            if (!pinvoke.EntryPoint.StartsWith(ManglingProbes.StablePrefix))
                 continue;
             if (pinvoke.TargetLibrary != TargetLibraryKind.OriginalLibrary)
                 continue;
 
             // Must be a Tj dispatch thunk
-            if (!pinvoke.EntryPoint.EndsWith("Tj"))
+            if (!pinvoke.EntryPoint.EndsWith(ManglingProbes.DispatchThunkSuffix))
                 continue;
 
             // Extract module name from mangled symbol
@@ -689,7 +689,7 @@ public static class AbiContractChecker
     /// </summary>
     internal static string? ExtractModuleFromMangledSymbol(string entryPoint)
     {
-        if (!entryPoint.StartsWith("$s"))
+        if (!entryPoint.StartsWith(ManglingProbes.StablePrefix))
             return null;
 
         int i = 2; // skip "$s"

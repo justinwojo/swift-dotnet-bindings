@@ -6377,7 +6377,7 @@ public class EveryProtocolEmitter
             return protocolDecl.SwiftTypeName.Module == "Swift";
         // If no module info, check mangled name prefix ($ss = Swift stdlib)
         if (!string.IsNullOrEmpty(protocolDecl.MangledName))
-            return protocolDecl.MangledName.StartsWith("$ss", StringComparison.Ordinal);
+            return ManglingProbes.IsStdlibMangledName(protocolDecl.MangledName);
         // No module info available — assume stdlib for backward compat
         return true;
     }

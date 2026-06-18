@@ -446,6 +446,18 @@ public static class BindingsGeneratorCommand
         // path, since either can record decisions (e.g. a degraded auto-detected dependency).
         InputResolutionReport.Reset();
 
+        // Finding 58: assert the active host toolchain against the tested support envelope before any
+        // parsing. Recorded on the same InputResolutionReport channel (category Toolchain) so an
+        // out-of-envelope Xcode warns loudly (SWIFTBIND055) and fails closed under --strict-inputs via
+        // the EmitStrictInputsFailureIfDegraded gate shared by every completion path below. Placed
+        // after Reset() so the toolchain decision is part of this generation's report, and before the
+        // hasXcframework branch so it covers both the xcframework and direct-input paths. The
+        // --compile-wrapper-only / --compile-bridge-only fast paths return above and are intentionally
+        // NOT covered: they ingest no ABI (there is no parse to mis-calibrate) and run none of the
+        // InputResolutionReport / --strict-inputs lifecycle this records into; the SDK's full build
+        // still asserts here on its generate pass, which precedes the later wrapper-only pass.
+        SupportedToolchain.AssertSupported(new SystemCommandRunner(), logger);
+
         if (hasXcframework)
         {
             Directory.CreateDirectory(outputDirectory);

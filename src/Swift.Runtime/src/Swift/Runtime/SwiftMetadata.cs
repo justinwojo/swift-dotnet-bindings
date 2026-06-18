@@ -308,12 +308,12 @@ namespace Swift.Runtime
                     case 1:
                     {
                         IntPtr address = IntPtr.Zero;
-                        if (next >= 0x01 && next <= 0x17) // Relative symbolic reference
+                        if (SymbolicReferenceGrammar.IsRelative(next)) // Relative symbolic reference
                         {
                             int offset = BitConverter.ToInt32(data, index + 1);
                             address = IntPtr.Add((IntPtr)MangledName.Target, offset + 1);
                         }
-                        else if (next >= 0x18 && next <= 0x1F) // Absolute symbolic reference
+                        else if (SymbolicReferenceGrammar.IsAbsolute(next)) // Absolute symbolic reference
                         {
                             address = (IntPtr)BitConverter.ToInt64(data, index + 1);
                         }
@@ -358,11 +358,11 @@ namespace Swift.Runtime
                 {
                     case 1:
                     {
-                        if (next >= 0x01 && next <= 0x17) // Relative symbolic reference
+                        if (SymbolicReferenceGrammar.IsRelative(next)) // Relative symbolic reference
                         {
                             index += sizeof(int);
                         }
-                        else if (next >= 0x18 && next <= 0x1F) // Absolute symbolic reference
+                        else if (SymbolicReferenceGrammar.IsAbsolute(next)) // Absolute symbolic reference
                         {
                             index += IntPtr.Size;
                         }
@@ -403,36 +403,11 @@ namespace Swift.Runtime
         /// <summary>
         /// https://github.com/apple/swift/blob/main/docs/ABI/Mangling.rst
         /// </summary>
-        private static int GetOffset(byte b)
-        {
-            switch (b)
-            {
-                case 0:
-                    return 0;
-                case byte n when (n >= 0x01 && n <= 0x17):
-                    return 1 + sizeof(int);
-                case byte m when (m >= 0x18 && m <= 0x1F):
-                    return 1 + IntPtr.Size;
-                default:
-                    return 1;
-            }
-        }
+        private static int GetOffset(byte b) => SymbolicReferenceGrammar.ByteLength(b);
 
         /// <summary>
         /// https://github.com/apple/swift/blob/main/docs/ABI/Mangling.rst
         /// </summary>
-        private static int GetComponent(byte b)
-        {
-            switch (b)
-            {
-                case 0:
-                    return 0; // Null
-                case byte n when (n >= 0x01 && n <= 0x17):
-                case byte m when (m >= 0x18 && m <= 0x1F):
-                    return 1; // Symbolic reference
-                default:
-                    return 2; // Normal
-            }
-        }
+        private static int GetComponent(byte b) => (int)SymbolicReferenceGrammar.ComponentOf(b);
     }
 }

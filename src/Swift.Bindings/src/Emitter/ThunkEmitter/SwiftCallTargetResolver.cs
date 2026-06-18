@@ -52,7 +52,7 @@ public static class SwiftCallTargetResolver
             && !methodDecl.IsConstructor
             && !methodDecl.IsExtensionMethod)
         {
-            symbol += "Tj";
+            symbol += ManglingProbes.DispatchThunkSuffix;
         }
 
         return symbol;

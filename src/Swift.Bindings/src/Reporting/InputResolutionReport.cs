@@ -27,6 +27,12 @@ public enum InputResolutionCategory
 
     /// <summary>Loading a dependency module's types.</summary>
     Dependency,
+
+    /// <summary>
+    /// Finding 58: the active host toolchain (Xcode major) vs. the tested support envelope. A version
+    /// outside <see cref="SupportedToolchain"/>'s range is a degradation; an unreadable one is not.
+    /// </summary>
+    Toolchain,
 }
 
 /// <summary>

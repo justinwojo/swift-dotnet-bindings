@@ -191,6 +191,62 @@ public class AbiSafetyTests
         Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
+    // ---- Exact ±1 boundary pins for the param threshold (AbiSizeLimits.MaxParamSize = 16) ----
+    // The Small(16)/Large(24) pair above brackets the boundary but leaves 17..23 undetected if the
+    // constant drifts upward. These two assert the flip happens at EXACTLY 16/17 (IsParamTypeCdeclRequired,
+    // WrapperValidation.cs `InlineSize.Value > 16`). Literals are deliberate — referencing the
+    // AbiSizeLimits constant here would move with any drift and make the pin tautological.
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenIntegerStructParam_Exactly16Bytes_ReturnsFalse()
+    {
+        // InlineSize == MaxParamSize (16) → still ≤ limit → direct CallConvSwift.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithTypeRecord(
+            "TestModule.ParamAt16", new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ParamAt16"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ParamAt16"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam("setData",
+            new NamedTypeSpec("TestModule.ParamAt16"), "data", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenIntegerStructParam_Exactly17Bytes_ReturnsTrue()
+    {
+        // InlineSize == MaxParamSize + 1 (17) → first size over the limit → @_cdecl wrapper.
+        // If MaxParamSize ever drifts to 17..23 this flips to false and fails — the threshold is
+        // pinned at exactly 16.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithTypeRecord(
+            "TestModule.ParamAt17", new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ParamAt17"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ParamAt17"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 17
+            });
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam("setData",
+            new NamedTypeSpec("TestModule.ParamAt17"), "data", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
     [Fact]
     public void RequiresCdeclForAbiSafety_LargeSystemFrozenStruct_CBridging_ReturnsFalse()
     {
@@ -1000,6 +1056,70 @@ public class AbiSafetyTests
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    // ---- Exact ±1 boundary pins for the self threshold (AbiSizeLimits.MaxSelfSize = 8) ----
+    // The Small(4)/Larger(24) instance-method pair brackets the boundary but leaves 9..23 undetected
+    // if the constant drifts upward. These two assert the flip happens at EXACTLY 8/9
+    // (IsSelfTypeCdeclRequired, WrapperValidation.cs `InlineSize.Value > 8`). Literals are deliberate —
+    // referencing the AbiSizeLimits constant would move with any drift and make the pin tautological.
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenStructSelf_Exactly8Bytes_InstanceMethod_ReturnsFalse()
+    {
+        // self InlineSize == MaxSelfSize (8) → fits one SwiftSelf<T> register → direct CallConvSwift.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.SelfAt8");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SelfAt8"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = 8
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateStructDecl("SelfAt8", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("selfValue", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenStructSelf_Exactly9Bytes_InstanceMethod_ReturnsTrue()
+    {
+        // self InlineSize == MaxSelfSize + 1 (9) → first size that spills SwiftSelf<T> across
+        // registers → @_cdecl wrapper. If MaxSelfSize ever drifts to 9..23 this flips to false and
+        // fails — the threshold is pinned at exactly 8.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.SelfAt9");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SelfAt9"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = 9
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateStructDecl("SelfAt9", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("selfValue", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
     [Fact]

@@ -43,6 +43,7 @@ public class AbiLayoutTripwireTests : TestBase
     private const int TypeOptionalInt = 6;
     private const int TypeProbeClass = 7;
     private const int TypeTuple = 8;
+    private const int TypeWeakBox = 9;
 
     [DllImport(TestLib, EntryPoint = "abi_layout_size")]
     private static extern nint AbiLayoutSize(int typeId);
@@ -67,6 +68,15 @@ public class AbiLayoutTripwireTests : TestBase
 
     [DllImport(TestLib, EntryPoint = "abi_probe_struct_init")]
     private static extern unsafe void AbiProbeStructInit(void* storage);
+
+    [DllImport(TestLib, EntryPoint = "abi_is_pod")]
+    private static extern int AbiIsPod(int typeId);
+
+    [DllImport(TestLib, EntryPoint = "abi_is_bitwise_takable")]
+    private static extern int AbiIsBitwiseTakable(int typeId);
+
+    [DllImport(TestLib, EntryPoint = "abi_optional_layout_facts")]
+    private static extern unsafe void AbiOptionalLayoutFacts(int payloadTypeId, nint* outFacts);
 
     /// <summary>
     /// ExistentialContainer0-8 mirror the opaque existential container of arity N as
@@ -254,5 +264,132 @@ public class AbiLayoutTripwireTests : TestBase
         AssertEqual((int)AbiLayoutSize(TypeString), Unsafe.SizeOf<SwiftString.Buffer>(),
             "SwiftString.Buffer size vs live MemoryLayout<String>.size");
         TestLogger.Info($"SwiftString.Buffer size matches live String size ({AbiLayoutSize(TypeString)} bytes)");
+    }
+
+    /// <summary>
+    /// <c>ValueWitnessTable.IsNonPOD</c> (mask 0x00010000) and <c>IsNonBitwiseTakable</c>
+    /// (mask 0x00100000) decode two value-witness flag bits. The Swift fixture reports the
+    /// SEMANTIC truth via the <c>_isPOD</c> / <c>_isBitwiseTakable</c> stdlib intrinsics — which
+    /// never read the flag word — so this cross-check is independent of the C# bit positions, not
+    /// tautological: an Apple change to either bit fails the comparison instead of silently
+    /// corrupting a copy. The flags are the negative form of the Swift predicates, so the
+    /// expected relationship is <c>IsNonPOD == !isPOD</c> and <c>IsNonBitwiseTakable ==
+    /// !isBitwiseTakable</c>. <see cref="TypeWeakBox"/> is the only probe type that is
+    /// non-bitwise-takable, so the explicit anchors below guarantee the matrix exercises the
+    /// <c>true</c> case of each flag rather than passing vacuously on all-<c>false</c> inputs.
+    /// </summary>
+    public unsafe void TestValueWitnessPodAndBitwiseTakableFlagsMatchLive()
+    {
+        AssertVwtPodFlags(TypeInt, "Int");
+        AssertVwtPodFlags(TypeBool, "Bool");
+        AssertVwtPodFlags(TypeDouble, "Double");
+        AssertVwtPodFlags(TypeString, "String");
+        AssertVwtPodFlags(TypeProbeStruct, "AbiTripwireProbeStruct");
+        AssertVwtPodFlags(TypeProbeEnum, "AbiTripwireProbeEnum");
+        AssertVwtPodFlags(TypeOptionalInt, "Optional<Int>");
+        AssertVwtPodFlags(TypeProbeClass, "AbiTripwireProbeClass");
+        AssertVwtPodFlags(TypeTuple, "(Int8, Int, Bool)");
+        AssertVwtPodFlags(TypeWeakBox, "AbiTripwireWeakBox");
+
+        // Coverage anchors: prove the cross-check above is not vacuous by pinning the known
+        // positive cases of each flag. A trivial Int is POD and bitwise-takable; a String/class
+        // is non-POD (refcounted) but still bitwise-takable; a weak-ref struct is the one type
+        // that is BOTH non-POD and non-bitwise-takable, the only probe hitting IsNonBitwiseTakable.
+        AssertTrue(!VwtFor(TypeInt)->IsNonPOD, "Int is POD (coverage anchor)");
+        AssertTrue(!VwtFor(TypeInt)->IsNonBitwiseTakable, "Int is bitwise-takable (coverage anchor)");
+        AssertTrue(VwtFor(TypeString)->IsNonPOD, "String is non-POD (coverage anchor)");
+        AssertTrue(!VwtFor(TypeString)->IsNonBitwiseTakable, "String is bitwise-takable (coverage anchor)");
+        AssertTrue(VwtFor(TypeWeakBox)->IsNonPOD, "Weak-ref struct is non-POD (coverage anchor)");
+        AssertTrue(VwtFor(TypeWeakBox)->IsNonBitwiseTakable,
+            "Weak-ref struct is non-bitwise-takable (load-bearing IsNonBitwiseTakable=true anchor)");
+
+        TestLogger.Info("Value-witness POD / bitwise-takable flags match live _isPOD / _isBitwiseTakable for all probe types");
+    }
+
+    private unsafe ValueWitnessTable* VwtFor(int typeId)
+    {
+        var metadata = TypeMetadata.FromHandle(AbiTypeMetadata(typeId));
+        AssertTrue(metadata.IsValid, $"typeId {typeId}: live metadata pointer is non-null");
+        return metadata.ValueWitnessTable;
+    }
+
+    private unsafe void AssertVwtPodFlags(int typeId, string name)
+    {
+        ValueWitnessTable* vwt = VwtFor(typeId);
+        int swiftPodRaw = AbiIsPod(typeId);
+        int swiftBitwiseTakableRaw = AbiIsBitwiseTakable(typeId);
+        // The Swift probes return 0/1 for a known typeId and the sentinel -1 for an unknown one. A
+        // sentinel must fail this tripwire loudly, not coerce to a truthy "POD" via `!= 0` — a drift
+        // detector that silently reads an unknown type as POD would defeat its own purpose.
+        AssertTrue(swiftPodRaw >= 0, $"{name}: AbiIsPod returned sentinel {swiftPodRaw} for typeId {typeId} (unknown probe type?)");
+        AssertTrue(swiftBitwiseTakableRaw >= 0, $"{name}: AbiIsBitwiseTakable returned sentinel {swiftBitwiseTakableRaw} for typeId {typeId} (unknown probe type?)");
+        bool swiftIsPod = swiftPodRaw != 0;
+        bool swiftIsBitwiseTakable = swiftBitwiseTakableRaw != 0;
+        AssertEqual(!swiftIsPod, vwt->IsNonPOD,
+            $"{name}: VWT IsNonPOD (mask 0x00010000) vs live !_isPOD");
+        AssertEqual(!swiftIsBitwiseTakable, vwt->IsNonBitwiseTakable,
+            $"{name}: VWT IsNonBitwiseTakable (mask 0x00100000) vs live !_isBitwiseTakable");
+    }
+
+    /// <summary>
+    /// <c>SwiftOptional&lt;T&gt;.GetTagByteOffset</c> chooses the Some/None encoding from one live
+    /// fact: whether <c>Optional&lt;T&gt;</c> is larger than <c>T</c>. A larger Optional means the
+    /// payload had no spare bit patterns, so Swift appends a tag byte at offset <c>T.size</c>; an
+    /// equal-size Optional means the payload encodes None in an extra inhabitant (a class's nil, a
+    /// String's spare bits, a Bool's 2…255) with no tag byte. This asserts that size relationship
+    /// from the live <c>MemoryLayout</c> the fixture exports — not a constant re-typed on the
+    /// Swift side. <c>Optional&lt;Bool&gt;</c> is the footgun the production code special-cases:
+    /// it is size-equal like a class (1 == 1, not 1 + 1), so it must take the extra-inhabitant
+    /// path; if Apple ever gave it a tag byte this wire trips instead of silently reading None as
+    /// Some.
+    ///
+    /// It then ties the live layout to the C# mirror itself for the primitive fast-path case
+    /// (Swift <c>Int</c> → C# <c>nint</c>): <c>SwiftOptional&lt;nint&gt;.GetTagByteOffset()</c>
+    /// hardcodes <c>nint</c> → <c>IntPtr.Size</c> via <c>GetBlittablePrimitiveTagOffset</c>, never
+    /// consulting live metadata. The size rule above only proves Apple's layout; this proves our
+    /// hardcoded fast-path constant still AGREES with that layout — catching a divergence where the
+    /// fast path returns the wrong offset (e.g. 4 for a 9-byte <c>Optional&lt;Int&gt;</c>), which the
+    /// size-relationship check alone cannot see.
+    /// </summary>
+    public unsafe void TestOptionalSizeRuleMatchesLiveLayout()
+    {
+        AssertOptionalSizeRule(TypeInt, "Int", expectsTagByte: true);
+        AssertOptionalSizeRule(TypeBool, "Bool", expectsTagByte: false);
+        AssertOptionalSizeRule(TypeString, "String", expectsTagByte: false);
+        AssertOptionalSizeRule(TypeProbeClass, "AbiTripwireProbeClass", expectsTagByte: false);
+
+        // Tie the C# mirror's hardcoded primitive fast path to the live layout for Swift Int → nint.
+        // expectedTagOffset is derived from live facts (not a hardcoded 8), so it tracks BOTH Apple's
+        // layout AND our GetBlittablePrimitiveTagOffset constant — a drift in either side trips it.
+        nint* intFacts = stackalloc nint[2];
+        AbiOptionalLayoutFacts(TypeInt, intFacts);
+        int intOptSize = (int)intFacts[0];
+        int intPayloadSize = (int)intFacts[1];
+        int expectedTagOffset = intOptSize > intPayloadSize ? intPayloadSize : -1;
+        AssertEqual(expectedTagOffset, SwiftOptional<nint>.GetTagByteOffset(),
+            "SwiftOptional<nint>.GetTagByteOffset() agrees with the live Optional<Int> tag-byte offset");
+
+        TestLogger.Info("Optional size rule (tag byte vs extra inhabitant) matches live MemoryLayout for all payload types; nint fast path agrees with live layout");
+    }
+
+    private unsafe void AssertOptionalSizeRule(int payloadTypeId, string name, bool expectsTagByte)
+    {
+        nint* facts = stackalloc nint[2];
+        AbiOptionalLayoutFacts(payloadTypeId, facts);
+        int optSize = (int)facts[0];
+        int payloadSize = (int)facts[1];
+        AssertTrue(optSize > 0 && payloadSize > 0, $"Optional<{name}>: sane Optional/payload sizes from live layout");
+        if (expectsTagByte)
+        {
+            // optSize > payloadSize -> GetTagByteOffset returns payloadSize (appended tag byte).
+            AssertEqual(payloadSize + 1, optSize,
+                $"Optional<{name}> appends a tag byte (Optional.size == payload.size + 1)");
+        }
+        else
+        {
+            // optSize == payloadSize -> GetTagByteOffset returns -1 (extra-inhabitant encoded).
+            AssertEqual(payloadSize, optSize,
+                $"Optional<{name}> uses extra inhabitants (Optional.size == payload.size, no tag byte)");
+        }
     }
 }

@@ -1670,14 +1670,14 @@ namespace BindingsGeneration
                 return false;
 
             // The expected mangled prefix is "$s" + length + moduleName
-            var expectedPrefix = $"$s{moduleName.Length}{moduleName}";
+            var expectedPrefix = ManglingProbes.ModulePrefix(moduleName);
             if (mangledName.StartsWith(expectedPrefix, StringComparison.Ordinal))
                 return true;
 
             var umbrella = AppleFrameworkRegistry.MapModuleToCompileImport(moduleName);
             if (!string.IsNullOrEmpty(umbrella) && !string.Equals(umbrella, moduleName, StringComparison.Ordinal))
             {
-                var umbrellaPrefix = $"$s{umbrella.Length}{umbrella}";
+                var umbrellaPrefix = ManglingProbes.ModulePrefix(umbrella);
                 if (mangledName.StartsWith(umbrellaPrefix, StringComparison.Ordinal))
                     return true;
             }

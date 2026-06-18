@@ -217,7 +217,33 @@ namespace BindingsGeneration
         /// <see cref="InputResolutionCategory.AbiJson"/> degradation so <c>--strict-inputs</c> can
         /// fail the generation rather than silently mis-parse a drifted output shape.
         /// </summary>
-        internal const int ExpectedAbiFormatVersion = 8;
+        /// <remarks>
+        /// Finding 58: the literal lives in <see cref="SupportedToolchain.ExpectedAbiFormatVersion"/>
+        /// (the single owner of the tested toolchain envelope); this is a forwarding constant so the
+        /// digester format version and the supported-matrix can never disagree.
+        /// </remarks>
+        internal const int ExpectedAbiFormatVersion = SupportedToolchain.ExpectedAbiFormatVersion;
+
+        /// <summary>
+        /// Finding 58 (ABI-JSON node-kind golden, amendment C): the committed vocabulary of node
+        /// <c>Kind</c> strings the <see cref="HandleNode"/> dispatch switch actually models — every
+        /// recognized case, whether it is bound (<c>TypeDecl</c>/<c>Function</c>/<c>Constructor</c>/
+        /// <c>Var</c>/<c>Subscript</c>) or recognized-and-skipped (<c>Import</c>/<c>AssociatedType</c>/
+        /// <c>OperatorDecl</c>). Anything outside this set falls to the switch's <c>default</c> arm and is
+        /// censused + warned as <c>SWIFTBIND034</c> (the runtime arm — this set does not duplicate it).
+        /// This set is the compile-time guard: <c>AbiIngestionContractTests</c> asserts every member is
+        /// recognized (never lands in the unknown census), so teaching the parser a new kind is a
+        /// deliberate, test-pinned update — mirroring the clang path's
+        /// <c>ClangAstParser.KnownTopLevelNodeKinds</c>. Keep in lockstep with the
+        /// <c>switch (node.Kind)</c> in <see cref="HandleNode"/>.
+        /// </summary>
+        internal static readonly IReadOnlySet<string> KnownAbiNodeKinds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            // Bound into the model:
+            "TypeDecl", "Function", "Constructor", "Var", "Subscript",
+            // Recognized and deliberately skipped (bound elsewhere / not a bindable member):
+            "Import", "AssociatedType", "OperatorDecl",
+        };
 
         /// <summary>
         /// TypeWitness mappings from conformance entries.
@@ -1499,7 +1525,7 @@ namespace BindingsGeneration
                                 continue;
                             if (string.IsNullOrEmpty(method.MangledName))
                                 continue;
-                            if (!_demangledTbd.AllSymbols.Contains(method.MangledName + "Tq"))
+                            if (!ManglingProbes.HasMethodDescriptor(_demangledTbd.AllSymbols, method.MangledName))
                             {
                                 protocolDecl2.HasMissingTbdMethodDescriptors = true;
                                 _logger.LogDebug("Protocol {Name}: required method '{Method}' has no Tq method descriptor in TBD ({Mangled}Tq missing); skipping EveryProtocol conformance.",
@@ -1556,7 +1582,7 @@ namespace BindingsGeneration
                 // mangled name, so it matches; only the implementing type's module diverges.
                 // Retry the lookup with the implementing type's original (mangled) module so these
                 // conformances resolve a real descriptor instead of silently emitting an empty one.
-                if (TryGetModuleFromMangledName(implementingTypeMangledName, out var abiModule) &&
+                if (ManglingProbes.TryGetModuleFromMangledName(implementingTypeMangledName, out var abiModule) &&
                     !string.Equals(abiModule, typeName.Module, StringComparison.Ordinal))
                 {
                     var abiParts = typeName.ModuleQualifiedName.Split('.', StringSplitOptions.RemoveEmptyEntries);
@@ -2863,12 +2889,11 @@ namespace BindingsGeneration
 
         private GetAccessorDecl CreateGetAccessor(Node accessor, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
-            // Detect async getters by checking if the TBD contains the "Tu" (async function pointer) suffix
-            // for this accessor's mangled name. The ABI JSON doesn't mark accessors as async directly.
-            // For class properties, the exported symbol uses a dispatch thunk (Tj suffix), so the async
-            // marker appears as "TjTu" rather than bare "Tu". Check both variants.
-            var isAsync = _demangledTbd.AllSymbols.Contains(accessor.MangledName + "Tu")
-                || _demangledTbd.AllSymbols.Contains(accessor.MangledName + "TjTu");
+            // Detect async getters by checking if the TBD marks this accessor's mangled name as async.
+            // The ABI JSON doesn't mark accessors as async directly. For class properties, the exported
+            // symbol uses a dispatch thunk (Tj suffix), so the async marker appears as "TjTu" rather than
+            // bare "Tu" — ManglingProbes.IsAsyncAccessor owns both variants.
+            var isAsync = ManglingProbes.IsAsyncAccessor(_demangledTbd.AllSymbols, accessor.MangledName);
 
             // Build generic parameters for the accessor method.
             // If the accessor has its own GenericSig, parse it. Otherwise, if the parent type is generic,
@@ -3974,36 +3999,6 @@ namespace BindingsGeneration
             if (i + len > usr.Length)
                 return false;
             module = usr.Substring(i, len);
-            return true;
-        }
-
-        /// <summary>
-        /// Extracts the defining module from a Swift stable mangled name's first
-        /// length-prefixed segment. <c>$s10RealityKit12AnchorEntityC</c> → "RealityKit".
-        /// Unlike the USR (which records a symbol's CURRENT module), the mangled name carries
-        /// the ORIGINAL module of an <c>@_originallyDefinedIn</c> type, which is what the TBD's
-        /// protocol-conformance-descriptor symbols are mangled with. Returns false for stdlib
-        /// short-form substitutions (<c>$ss8SendableP</c>, <c>$sSH</c>) and any non-stable name —
-        /// callers keep their existing (USR-derived) module in those cases.
-        /// </summary>
-        internal static bool TryGetModuleFromMangledName(string? mangled, [NotNullWhen(true)] out string? module)
-        {
-            module = null;
-            if (string.IsNullOrEmpty(mangled))
-                return false;
-            int i;
-            if (mangled.StartsWith("_$s", StringComparison.Ordinal)) i = 3;
-            else if (mangled.StartsWith("$s", StringComparison.Ordinal)) i = 2;
-            else return false;
-            int digitStart = i;
-            while (i < mangled.Length && char.IsDigit(mangled[i])) i++;
-            if (i == digitStart) // stdlib substitution (e.g. "$ss8...", "$sSH") — no length prefix
-                return false;
-            if (!int.TryParse(mangled.AsSpan(digitStart, i - digitStart), out int len) || len <= 0)
-                return false;
-            if (i + len > mangled.Length)
-                return false;
-            module = mangled.Substring(i, len);
             return true;
         }
 

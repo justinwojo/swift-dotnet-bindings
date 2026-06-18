@@ -1036,6 +1036,14 @@ trailing-slot convention, the type-test walk.
 ## Finding 17 [V] — The symbol demangler is dead at its entry point, and a family of
 substring heuristics over compiler-owned mangled names grew to compensate
 
+> **Status — resolved in Session 19 (`cf6c1353`, `60a6bbdc`; 2026-06-17).** Demangler
+> entry-point port bug fixed and the three `_KnownPortingBug` tests flipped red→green;
+> async / `@convention(c)` / allocator detection now reads the demangle tree
+> (`HasAsyncMarker` / `HasCFunctionPointerMarker`) instead of `mangledName.Contains(...)`,
+> eliminating the `"XC"` / `"Ya"` false positives at the root. `PatchMangledName` deliberately
+> retained — load-bearing for async-constructor grammar detection, not a substring probe.
+> Gates: unit 0-fail, sim 2880 / device 2892.
+
 `DemangleSymbol` has a porting bug: the `foreach` that populates the result sits **inside**
 the `while (PopNode(IsFunctionAttr))` loop (`Swift5Demangler.cs:353–370` [V]), so any symbol
 with zero function attributes — essentially every normal symbol — returns null. The breakage
@@ -1059,6 +1067,12 @@ long-term the suffix-probe idiom.
 ## Finding 18 [A] — Swift5Reducer is a whitelist whose misses silently disable semantic
 detection — with two in-code confessions of past incidents
 
+> **Status — resolved in Session 19 (`75ba43ba`; 2026-06-17).** Reducer rule-misses are now
+> loud — SWIFTBIND058 plus a corpus gate that demangles every name in the BindingTests /
+> validation ABI JSON and fails on "no rule for a reachable node kind" — instead of silently
+> degrading to substring scans. This was the prerequisite that let F17's fallbacks be deleted
+> safely (the corpus gate immediately caught an empty-tuple-singleton self-regression).
+
 Any node kind without a rule yields `ReductionError` (`RuleRunner.cs:34`), and callers treat
 that as "no information": `IsAsync = functionReduction?.Function?.IsAsync ??
 DetectAsyncFromMangledName(…)` (`SwiftABIParser.cs:1996–1997`) — a reduction failure for any
@@ -1075,6 +1089,12 @@ deleting Finding 17's fallbacks.
 ## Finding 19 [A] — The generic-signature text format is parsed by three independent grammars
 that must agree
 
+> **Status — resolved in Session 19 (`125d19aa`; 2026-06-17).** Each generic signature is
+> parsed once into a structured AST stored on the decl; the scattered predicate sites and the
+> CSM constraint enumeration became queries against it, and a parity test freezes the old
+> per-site logic as a reference oracle across a curated + live ABI corpus. (`RawGenericSig`
+> retained for now, as the finding anticipated.)
+
 The same compiler-owned text (`<τ_0_0 where τ_0_0 : P, Self.X == Y>`) is interpreted by
 (1) `GenericSignatureParser` (the real one), (2) `ConcreteSpecializationEngine`'s hand parser
 (`:1437–1517` — manual `>` strip, top-level comma split, `==`/`:` clause split, plus a
@@ -1090,6 +1110,15 @@ load-bearing field.
 
 ## Finding 20 [A] — Conformance/constraint truth is a shadow solver with hardcoded oracles,
 two fail-open paths, and an out-of-band hint file
+
+> **Status — resolved in Session 19 (`d8ca0522`, `d142e268`, `ccaddf0b`, `0a432141`,
+> `3ece3c4c`, `3ba80488`; 2026-06-17).** A single ConformanceOracle replaces the hardcoded
+> oracle tables; the two fail-open paths and the Uncertain-accepts branch now fail **closed**
+> and logged. The stdlib fact table is generated, not hand-curated (`nuke
+> regen-stdlib-conformances`; the regen pruned a false `String : RangeExpression` entry), and
+> a fail-closed BindingTests fixture guards the policy. Gates: sim 2880 / device 2892, with
+> `CsmDataProtocolTests` green on device (Data / `byte[]` → DataProtocol survive the
+> fail-closed oracle).
 
 `BoundGenericsHandler` re-implements "does T satisfy constraint C" as a nine-method private
 heuristic chain drawing on **five disagreeable sources**, including
@@ -1131,6 +1160,16 @@ constructor sites, the configured/unconfigured fork, ~600 lines of forked transl
 ## Finding 22 [V] — The entire ObjC availability subsystem is dead code in production — and
 an in-code comment admits it
 
+> **Status — resolved in Session 20 (`c3024237`; 2026-06-17).** Availability was **recovered**,
+> not deleted (option a): the parser reads the annotation back from the header source at the
+> attribute's `range.begin` byte offset (preferring the user-site `expansionLoc`), runs a
+> parenthesis-aware macro-arg scan, and emits the same `SupportedOSPlatform` /
+> `ObsoletedOSPlatform` / `UnsupportedOSPlatform` shape as the Swift `@available` path —
+> covering the `API_AVAILABLE` / `API_DEPRECATED` / `API_UNAVAILABLE`,
+> `__attribute__((availability))`, and `NS_AVAILABLE_*` / `NS_DEPRECATED_*` families, with a
+> macCatalyst-floor lift. Nested wrapper macros and `API_TO_BE_DEPRECATED` degrade to no
+> attribute rather than guessing.
+
 `ParseAvailability` returns null unless the clang JSON node has a `"platform"` property
 (`ObjC/Parser/ClangAstParser.cs:1175–1178` [V]) — and the parser's own comment states clang's
 JSON AST dump "omits the platform/deprecated/unavailable fields on AvailabilityAttr nodes, so
@@ -1150,6 +1189,13 @@ the limitation. Either is defensible; the current state is not.
 
 ## Finding 23 [V] — Mixed-framework type ownership is a regex scrape of emitted C# text; the
 protocol leg of the contract cannot fire
+
+> **Status — resolved in Session 20 (`c3024237`; 2026-06-17).** The mixed-framework dedup key
+> set now comes from a schema-versioned `swift-types.json` ownership manifest keyed on each
+> type's real Objective-C runtime name — including `@objc(CustomName)` renames and the protocol
+> `Foo` / `IFoo` split — replacing the scrape of emitted C# type names. The protocol leg now
+> fires, and the stale-`.cs`-file and same-name-collision hazards are gone. Closed end-to-end
+> on the iOS runtimes by `--mixed-pack` / `--mixed-direct`.
 
 `CollectSwiftEmittedTypeNames` regex-scans every `*.cs` in the output directory for `public
 class|struct|enum|interface NAME` (`Program.cs:2265–2286` [V]) and the result is the entire
@@ -1172,6 +1218,14 @@ unimplementable doc claim.
 
 ## Finding 24 [A] — The ObjC parser does string surgery on four compiler-owned text formats,
 and patches type identity by whole-file regex after emission
+
+> **Status — resolved in Session 20 (`c3024237`; 2026-06-17).** ObjC type-mapping tables folded
+> into `AppleFrameworkRegistry` (now schema-backed via `objc-type-mappings.json` +
+> `.schema.json`); `StripPrefixedMacros` re-anchored to real token boundaries
+> (`IndexOfMacroPrefixAtTokenBoundary` + a `StrippedOnlyAtTokenBoundary` regression test) so it
+> no longer eats `OS_` mid-identifier; and the whole-file `IFoo` → `Foo` regex pass replaced by
+> source-level emission. Recovery was done via source-offset slicing rather than the finding's
+> suggested libclang dependency — same destination, no new native dep.
 
 The type model is recovered from clang's pretty-printed `qualType` strings by hand
 (`ObjCTypeRefParser.cs`, 582 lines) — including `StripPrefixedMacros`, whose `IndexOf`-anywhere
@@ -1965,6 +2019,17 @@ extraction + set lookup.
 ## Finding 58 [V] — No toolchain identity exists anywhere: the project sits on ~10 unstable
 upstream formats with a version gate on none of them
 
+> **Status — resolved in Session 16 (2026-06-18).** `SupportedToolchain` is now the single owner of
+> the host-toolchain envelope (min/max Xcode major, the digester `json_format_version` that
+> `SwiftABIParser.ExpectedAbiFormatVersion` forwards to, the pinned swift-syntax tag + revision, the
+> declarative .NET-SDK floor), with `build/supported-toolchain.json` and the README "Requires" line
+> held in lockstep by `SupportedToolchainMatrixTests`. `AssertSupported` probes the live Xcode at
+> startup and records the outcome on the `InputResolutionReport` Toolchain channel — in-envelope is
+> info, out-of-envelope (below floor *or* above the max-tested ceiling, amendment E) emits SWIFTBIND055
+> and a degradation that `--strict-inputs` escalates to a hard failure, and an unobservable Xcode warns
+> without failing closed. The golden-census strand ships as `KnownAbiNodeKinds`, coexisting with the
+> pre-existing SWIFTBIND034 unknown-node diagnostic rather than duplicating it (amendment C).
+
 The generator, SDK, and build contain zero toolchain version detection ([V] grep); the only
 declared support matrix is README's "Xcode 26 or later, and .NET 10 SDK" — open-ended in
 exactly the direction drift arrives from. The one schema handshake in the repo
@@ -2002,12 +2067,27 @@ the constants and XML, run in every BindingTests platform leg.
 > **Status — core shipped in 0.15.0 (`1fc81403`; see the Finding 4 status note).** The
 > mirror-vs-live-truth self-test runs in the simulator and device BindingTests legs and covers VWT
 > size/stride, existential arity 0–8 sizes, metadata-kind discriminators (incl. the `> 0x7ff` class
-> heuristic), tuple element offsets, and the frozen `String` buffer size. **Not yet pinned:** VWT
-> flag-bit positions, symbolic-reference byte ranges, Optional extra-inhabitant rules, and the
-> `MaxSelfSize` / `MaxParamSize` calling-convention thresholds.
+> heuristic), tuple element offsets, and the frozen `String` buffer size.
+>
+> **Remaining corners pinned in Session 16 (2026-06-18).** The four inventory items the 0.15.0 core
+> left open are now covered: VWT flag-bit positions and bitwise-takable are cross-checked live by the
+> `AbiLayoutTripwire` legs (POD/bitwise-takable raw probes assert against `>= 0` sentinels rather than
+> coercing an unknown to truthy), the symbolic-reference byte-range grammar is pinned by a golden
+> grammar test, and the `MaxSelfSize=8` / `MaxParamSize=16` calling-convention thresholds are pinned by
+> `AbiSafetyTests` with `@frozen` 8/16/24-byte straddle fixtures routed through the generator's
+> wrapper-selection path (amendment A) rather than a plain `@_cdecl` bypass.
 
 ## Finding 60 [V] — Async-ness and conformance eligibility are decided by string-concatenating
 mangling suffixes onto compiler-owned symbol names, in the main parser path
+
+> **Status — resolved in Session 16 (2026-06-18).** Every assumed mangling fragment now lives in one
+> `ManglingProbes` module (the `Tj`/`Tq`/`Tu`/`TjTu` suffixes and the `$s`/`$ss`/`$s{len}{module}`
+> prefix family), and a golden parity test enumerates the grammar so a toolchain change is a one-file
+> audit rather than a silent async-classification flip. The four-plus suffix/prefix concatenation call
+> sites in `SwiftABIParser` were refactored to reference the module's literals without changing the
+> emitted strings (a literal-preserving refactor — pinned by the golden test). Same eventual
+> destination as Finding 17 (route through the in-tree demangler once its entry-point bug is fixed);
+> the probe module is the interim single-owner.
 
 `MangledName + "Tq"` gates protocol-conformance eligibility ([V] `SwiftABIParser.cs:1236`);
 `+ "Tu"` / `+ "TjTu"` decides accessor async-ness, under the honest comment "The ABI JSON
@@ -2023,6 +2103,17 @@ one-file audit.
 
 ## Finding 61 [A✓ chain] — The App Store compliance pipeline is a tower of silent couplings
 whose failure symptom is Apple's rejection email
+
+> **Status — resolved in Session 16 (2026-06-18).** Absence is now loud. A positive
+> `_StampSwiftRuntimeEmbed` tripwire (AfterTargets `_CopyDirectoriesToBundle`) asserts the embed hook
+> actually fired, conditioned on the same Apple-TFM + `Exists(SwiftBindingsRuntime.xcframework)` guards
+> the runtime's own `NativeReference` carries (amendment D) so it never false-trips off-platform. The
+> brittle `otool -D` / column-scrape install_name read is replaced by a dependency-free `MachOReader`
+> (thin + fat/fat-64 slices, `LC_ID_DYLIB` walk, `cmdSize`-overflow hardened to return null on
+> anything unparseable), and the App Store hygiene gate now reports a tri-state result. Verified on a
+> real signed `.ipa` by the `--appstore-hygiene` leg. The remaining SwiftSupport-folder strand was
+> dropped by design (amendment B): a stable-ABI min-iOS-15 app links the OS-resident `/usr/lib/swift`
+> and ships no back-deployment dylibs, so there is no `SwiftSupport/` to omit.
 
 Each link verified: MS-owned `AfterTargets="CreateIpa"/"Archive"` hooks — MSBuild raises no
 error if the workload renames either; the target just never runs. Apple toolchain path
@@ -2167,6 +2258,12 @@ any future maintainer — cannot ship a release from what's checked in. **Fix:**
 `src/docs/releasing.md` capturing the full choreography + repo topology, and either a `nuke
 publish` target consuming the dead parameter or its deletion.
 
+> **Resolved (owner decision):** the release choreography + cross-repo topology were folded
+> into **CLAUDE.md** (the Releasing section) rather than a standalone `src/docs/releasing.md` —
+> the owner rejected the separate doc, so do not create or re-propose it (memory
+> `project_no_releasing_md`). The dead `NuGetApiKey` parameter was deleted (no `nuke publish`
+> target; releases are cut by GitHub Actions, which calls `dotnet nuget push` directly).
+
 ## Finding 67 [V/A] — Tribal knowledge lives outside the repo, and some of it had begun to
 poison backwards
 
@@ -2245,7 +2342,8 @@ recommendation — impact × cheapness for the short term, dependency order for 
 14. **Quick wins:** Finding 55 (`GenerateDocumentationFile` — one property), Finding 27/29
     gate-integrity ~10-liners (crash≠Success, no-JSONL≠green, Save-after-gate,
     `regressions.Count`), Finding 65's doc-truth corrections, Finding 64's HISTORICAL
-    banners, Finding 66's `releasing.md`, the `.agent/STATUS.md` one-liner.
+    banners, Finding 66's release choreography (folded into CLAUDE.md by owner decision — **no
+    standalone `releasing.md`**), the `.agent/STATUS.md` one-liner.
 
 ## Bucket 2 — Long term: architecture, design, maintainability (dependency order)
 
@@ -2279,6 +2377,14 @@ recommendation — impact × cheapness for the short term, dependency order for 
     fix in Bucket 1 lands with its regression test).
 
 ## Session gameplan (proposed execution breakdown)
+
+> **Phase 2 progress (updated 2026-06-15).** Landed on `main`: **Session 6** (observability —
+> Findings 14/53/50/63 + 47's conflict logging), **Session 9** (TypeDatabase truth — Findings
+> 45/47/48; **Finding 10 deferred**), **Session 10** (grammar — Finding 49; **Finding 46
+> partial**), **Session 11** (per-call tax — Finding 56 b/c/d), **Session 14** (SDK
+> simplification — Findings 1/62, plus the Phase-2-exit `nuke validate` sweep). Phase 0
+> (Session 0) and assorted Phase-1/0.15.0 items were marked complete inline earlier. Per-entry
+> status is noted below; commit SHAs live in git history, not stamped here.
 
 Operating model this is written for: one fresh session per entry, run to completion,
 pair-reviewed (Grok/Codex) afterward; sessions sized large but held to one subsystem for
@@ -2315,8 +2421,9 @@ see Finding 64); write the missing reverse-dispatch deep-dive doc (EveryProtocol
 `IProtocolProxyImpl<T>`) to replace the deleted corpus; CLAUDE.md corrections (pack row → 4 packages +
 `--apple-version`/`--skip-apple` forms, one validate cost figure, `--swiftsupport` row +
 .xcarchive); roadmap posture line + dead `apple-framework-deferred-work.md` reference;
-`src/docs/releasing.md` (full choreography + cross-repo topology) + decide `nuke publish`
-target vs deleting the dead `NuGetApiKey` parameter; `.agent/STATUS.md` one-liner;
+Finding 66's release choreography + cross-repo topology (**folded into CLAUDE.md by owner
+decision — no standalone `releasing.md`**) + decide `nuke publish` target vs deleting the dead
+`NuGetApiKey` parameter; `.agent/STATUS.md` one-liner;
 `BindingTests/README.md` sync; promote the load-bearing memory rules (stale-generator trap,
 skip-attribute taxonomy, PreservedProtocols rule, triage lore) into `.claude/rules/` /
 CLAUDE.md Known Issues. Zero code risk; fully parallel-safe with anything. It runs first
@@ -2395,6 +2502,12 @@ an SB-diagnostic), 50 (input-resolution report, fail-closed under `--strict`), 6
 many files to pair with anything — runs alone. Everything after this is diagnosed through
 what this session builds.
 
+> **Done 2026-06-15.** Findings 14/53/50/63 + 47's conflict logging shipped: loud reporting
+> channels (`Reporting/`), `GenerationMode`, SWIFTBIND025–028, `--strict-inputs` fail-closed.
+> One minor follow-up noted (not scope-forked): the ObjC pipeline does not yet persist a
+> structured input-resolution manifest section — degradations there already warn and are gated
+> by SWIFTBIND027.
+
 **Sessions 7a/7b — Retire generate-then-strip** 🔍design. Declared as a two-session arc up
 front (not a cascade): **7a** = the C# leg — CoGater retirement via Finding 12's
 predict/emit unification, behind a parity gate that diffs old-vs-new output across
@@ -2412,15 +2525,50 @@ format-version gate, unknown-kind allowlist census, consume `AssociatedType` —
 parser's share of 19/20), 47 (`Register(record, ConflictPolicy)` + freeze point), 48
 (`Visibility` de-fictioning), 10 (single identity home).
 
+> **Done 2026-06-15 — Findings 45, 47, 48.** Ingestion contract (format-version gate
+> SWIFTBIND033, unknown-kind census SWIFTBIND034, structural `AssociatedType` consumption, loud
+> missing-`mangledName` drop), `ModuleDatabase.Register(record, ConflictPolicy)` + freeze point,
+> and the `Visibility` fiction deleted (→ `IsSynthesizedAccessor`, 132-file ripple). F45's
+> literal "strict-deserialize" premise proved infeasible (Newtonsoft ignores `required`; ~477
+> corpus TypeDecls legitimately lack `mangledName`) and was delivered as observable degradation —
+> faithful to the loud-not-silent intent.
+> **Finding 10 deferred** (not done this round): the two resolution universes were *not*
+> collapsed and the `Ref`-alias rewrite is still module-wide. F10's overhaul was gated on the
+> `nuke validate` canary, which Session 14 has now run green — so it is unblocked for a future
+> session (rides the Finding 3 / Session 15 toolchain work).
+
 **Session 10 — Grammar consolidation** (after 9; mergeable with 9 into one front-half
 mega-session if appetite allows — same subsystem, large combined diff). Findings 49 (one
 grammar library: EOF-strict, typed exceptions, migrate the 26 sites) + 46
 (identity-anchored availability join; deletes `MemberSignatureNormalizer`).
 
+> **Finding 49 done 2026-06-15** — one EOF-strict grammar (`TypeSpecParser.Parse`/`ParsePrefix`,
+> typed `TypeSpecParseException`, shared `SwiftTypeListText` splitter; clones collapsed,
+> ObjC→Foundation rewrite relocated).
+> **Finding 46 partial.** Its stated overhaul (re-key the join on `usr`/mangled identity, delete
+> `MemberSignatureNormalizer` + the byte-parity contract) was verified *infeasible as written*:
+> the rich availability data lives only in `.swiftinterface`, which carries no `usr`/mangled
+> name, and routing the normalizer through the shared grammar would change bytes and silently
+> desync the cross-language mirror. Delivered the faithful in-scope subset —
+> `MemberSignatureNormalizer` relocated into the grammar lib, the C#-only clause split routed
+> through the shared splitter, and a cross-producer parity corpus + ABI-consumer assertion added
+> as the drift defense (parity is now enforced by *test*, not by construction). True
+> identity-anchoring is deferred to the Finding 3 / Session 15 toolchain (USR-keyed availability
+> from symbolgraph/SourceKit).
+
 **Session 11 — Per-call tax** ⚠device ∥ Sessions 9/10 (runtime + emitted shapes vs parser).
 Finding 56(b–d): delete the redundant wrapper finalizers (583 sites), stackalloc the
 constant-size scratch shapes, string-argument by-value fast path, `MarshalShape<T>`
 interning.
+
+> **Done 2026-06-15 — Finding 56(b), (c), (d).** Redundant wrapper `~T()` finalizers removed
+> (the payload SafeHandle already runs VWT-destroy), constant-size `@_cdecl` scratch buffers
+> stackalloc'd (the non-frozen-struct ownership-transfer path is deliberately excluded — it still
+> mallocs by design), and a stack `EphemeralSwiftString` fast path for transient string
+> arguments. No calling-convention/signature/marshalling-order change; device leg green
+> (2875/0/0, NativeAOT). The `MarshalShape<T>` interning item listed above was *not* part of
+> (b–d) — it is the runtime-side mirror of Finding 9 (Session 8, not run this round) and stays
+> deferred with it. Finding 56(a) (borrowed-marshal reflection) belongs to Session 3.
 
 **Session 12 — Marshaler context object.** Finding 21 (~120 handler constructions → one
 context; Defect E's configured/unconfigured fork is the proven casualty) + Defect E's real
@@ -2446,6 +2594,12 @@ envelope), if the Session 2 enum consolidation proves insufficient.
 CLI verbs) + Finding 62 (hook-wiring tripwire — fewer hooks survive Session 14, so the
 tripwire covers what remains).
 
+> **Done 2026-06-15 — Findings 1 and 62.** Auto-dep resolution moved out of escaped POSIX-sh
+> into a typed `--resolve-auto-deps` generator verb (`AutoDepResolver`, grammar preserved
+> byte-for-byte); fail-closed MSBuild wiring tripwire added (SWIFTBIND062–065, applicability-gated,
+> off during design-time builds). As the last Phase-2 entry it also ran the exit `nuke validate`
+> sweep (130/130, no regressions) and committed the refreshed `validation-baseline.json`.
+
 **Session 15 — swiftinterface end-state** ∥ Session 16. Findings 3 + 26 (SwiftSyntax
 authoritative, regex demoted to cross-check; parity inversion).
 
@@ -2454,6 +2608,53 @@ committed supported-matrix + golden censuses), 59 (live ABI tripwire in every Bi
 platform leg — **core shipped early in 0.15.0 via `1fc81403`; remaining inventory corners
 listed in the Finding 59 status note**), 60 (`ManglingProbes` module + golden grammar test),
 61 (App Store pipeline loudness: hook-fired stamp, script tri-state, Mach-O reader).
+
+> **✅ Resolved & implemented 2026-06-18 — Findings 58/59/60/61.** Toolchain identity envelope
+> (`SupportedToolchain` + committed matrix + startup `AssertSupported` gate, SWIFTBIND055), the four
+> remaining ABI-inventory corners pinned (VWT flag bits, symbolic-reference grammar, `MaxSelfSize` /
+> `MaxParamSize` thresholds via `@frozen` straddle fixtures), `ManglingProbes` golden grammar, and App
+> Store loudness (positive embed stamp + dependency-free `MachOReader` + tri-state hygiene gate). See
+> the per-finding Status notes above. Gates: `nuke test` 13553/0; `binding-tests --skip-regen` sim
+> 2892/0/0; `binding-tests --appstore-hygiene` OK on a signed `.ipa`.
+
+> **Descope reversal (owner decision, 2026-06-16).** Findings **17/18/19/20** and **22/23/24**
+> appear only in the superseded "Appendix — earlier sequencing" below; the *final consolidated
+> backlog* folded their cheapest slices into other items (45 retired the parser's share of 19/20;
+> 49 gave the grammar library) and dropped the rest. A current-state re-verification confirmed the
+> remaining cores are **still open in code** — the dead `DemangleSymbol` entry + raw-mangled-string
+> convention/async probes (17), silent reducer whitelist-misses (18), the ≥4 independent
+> generic-signature grammars (19), the conformance shadow-solver's hardcoded oracle tables + two
+> fail-**open** branches (20), the never-collected ObjC availability subsystem (22), the
+> regex-scrape mixed-framework ownership handoff (23), and the ObjC type-string surgery + 190-entry
+> hardcoded tables (24). The owner reinstated both clusters as sessions rather than leave them as
+> silent drops. See [`sessions/S19-demangler-conformance-grammar.md`](sessions/S19-demangler-conformance-grammar.md)
+> and [`sessions/S20-objc-pipeline-truth.md`](sessions/S20-objc-pipeline-truth.md) for the
+> implementation-ready plans.
+
+**Session 19 — Demangler, reducer loudness, generic-sig grammar & conformance oracle**
+⚠device 🔍design. **Before Session 16** (S16's `ManglingProbes` rebases onto S19's
+post-demangler async-detection state). Findings 17 (repair `DemangleSymbol` *and* reroute the
+convention/async/allocator probes off raw mangled-string scans onto real `Run()`-reductions —
+the deletions are the value), 18 (reducer whitelist-miss loudness — the safety net F17's
+deletions depend on, lands first), 19 (parse the generic-signature text once into a structured
+AST the ≥4 grammars query), 20 (one conformance oracle returning `{yes,no,unknown}`, unknown
+fail-**closed** and logged; replaces the hardcoded tables + both fail-open branches + the
+Uncertain-accepts hint path). Lands its passes **18 → 17 → 19 → 20**; F45/F49 already did the
+associated-type + tokenizer slices, so this is the remainder. Declares per-region ownership of
+`SwiftABIParser.cs` vs S15/S16.
+
+**Session 20 — ObjC pipeline truth.** Parallel-safe with the rest of the ObjC subtree;
+coordinates additively with Session 15 on `AppleFrameworkRegistry` (land S20's table fold
+first) and with Session 16 on `ClangAstParser.cs` (different methods). 🔍design, **not**
+⚠device (parser/emitter/data-table work upstream of the ABI). Findings 22 (resolve the ObjC
+availability subsystem that emits never-collected data — recover via header source-offset
+slicing or delete + record the limitation), 23 (replace the regex-scrape-the-emitted-`.cs`
+ownership handoff with a real type-ownership manifest keyed on the ObjC runtime name — fixes
+the empty-intersection `IFoo`-vs-`Foo` drop bug; closing legs `--mixed-pack`/`--mixed-direct`),
+24 (fold the five ~190-entry hardcoded Apple type tables into the single-source
+`AppleFrameworkRegistry`, fix the `StripPrefixedMacros` token-boundary bug, delete the
+whole-file post-emission `IFoo→Foo` regex by threading delegate-protocol identity in before
+emission).
 
 **Session 17 — Consumer contract & semantics.** Findings 34 (object identity — owner
 decision at session start), 51 (version-window end-state — owner decision), 52 (public-API
@@ -2473,15 +2674,27 @@ it rewrites the test corpus everything before it just changed under.
   block vs loud reject).
 - **Session 17:** object identity model (Finding 34 — option (b) pointer-identity
   Equals/GetHashCode recommended as the cheap kill); version-window scheme end-state (51).
+- **Session 19:** ✅ *Resolved & implemented 2026-06-17 — see the Findings 17–20 Status notes
+  and `src/docs/sessions/batch-1-decisions.md`.* Decided: F20 fail-closed policy (withhold
+  `Unknown` specializations — trades some currently-emitted working-by-luck specializations
+  against zero runtime ABI faults); F17 reroute scope → full probe deletion (`PatchMangledName`
+  retained as load-bearing); F20 stdlib fact-table → committed + startup-asserted + regenerable;
+  F19 fourth grammar → in-scope.
+- **Session 20:** ✅ *Resolved & implemented 2026-06-17 — see the Findings 22–24 Status notes
+  (`c3024237`).* Decided: F22 recover-vs-delete → **recovered** via source-offset slicing (no
+  new dependency, not libclang); F23 manifest surface → schema-versioned `swift-types.json`
+  ownership manifest.
 
 ### Shape summary
 
 Phase 0: `S0` → Phase 1: `[S1→S2] ∥ [S3→S4] ∥ S5` → merge + sweep → Phase 2:
-`S6 → [S7a→S7b] → S8 → [S9→S10] ∥ S11 → S12 → S13 ∥ S14 → S15 ∥ S16 → S17 → S18`.
-Eighteen sessions of deliberately large scope; merge candidates if fewer/bigger is
-preferred: S9+S10 (front half), S15+S16 (both additive-gate-heavy), S3+S4 (one packaging+
-runtime-seam lane). The phase boundaries are the hard ordering constraints; everything
-inside a phase can re-lane.
+`S6 → [S7a→S7b] → S8 → [S9→S10] ∥ S11 → S12 → S13 ∥ S14 → S15 ∥ [S19 → S16] ∥ S20 → S17 → S18`.
+Twenty sessions of deliberately large scope (S19/S20 reinstated 2026-06-16 — see the descope
+reversal above); merge candidates if fewer/bigger is preferred: S9+S10 (front half), S15+S16
+(both additive-gate-heavy), S3+S4 (one packaging+ runtime-seam lane). The hard ordering
+constraints are the phase boundaries plus **S19 before S16**; everything else inside a phase
+can re-lane (S19 contends with S15/S16 on `SwiftABIParser.cs`; S20 coordinates additively with
+S15 on `AppleFrameworkRegistry` and S16 on `ClangAstParser.cs`).
 
 ## Appendix — earlier sequencing (as of Parts III–IV; superseded by the consolidated backlog above)
 

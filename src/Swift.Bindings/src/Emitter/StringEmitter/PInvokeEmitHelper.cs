@@ -153,7 +153,7 @@ public static class PInvokeEmitHelper
         // here — combined with the post-emit reflection audit — ensures the 0.10.0 mangled-
         // symbol + Cdecl bug cannot ship even when an upstream caller (test fixture or
         // production gate) leaves the convention at its default.
-        if (entryPoint.StartsWith("$s", StringComparison.Ordinal))
+        if (entryPoint.StartsWith(ManglingProbes.StablePrefix, StringComparison.Ordinal))
             return PInvokeCallingConvention.Swift;
 
         // SBSW_ is reserved for @_silgen_name (Swift CC) wrappers — used when the wrapper

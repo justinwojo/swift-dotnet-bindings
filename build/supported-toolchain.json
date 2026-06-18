@@ -1,0 +1,9 @@
+{
+  "_doc": "Finding 58 — the tested host-toolchain envelope for the binding generator. Human-facing mirror of the C# constants in src/Swift.Bindings/src/Configuration/SupportedToolchain.cs; SupportedToolchainMatrixTests asserts the two can never drift, and pins the README 'Requires' line to minXcodeMajor. Edit both together when bumping the supported toolchain.",
+  "minXcodeMajor": 26,
+  "maxXcodeMajor": 26,
+  "minDotnetSdk": "10.0",
+  "expectedAbiFormatVersion": 8,
+  "pinnedSwiftSyntaxVersion": "601.0.1",
+  "pinnedSwiftSyntaxRevision": "f99ae8aa18f0cf0d53481901f88a0991dc3bd4a2"
+}

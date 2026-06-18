@@ -29,7 +29,7 @@ namespace BindingsGeneration.Tests;
 /// <c>RealityFoundation.HasAnchoring</c> later fails to resolve a witness table.
 ///
 /// The fix: on a primary-lookup miss, derive the original module from the type's own
-/// mangled name (<see cref="SwiftABIParser.TryGetModuleFromMangledName"/>) and retry the
+/// mangled name (<see cref="ManglingProbes.TryGetModuleFromMangledName"/>) and retry the
 /// descriptor lookup keyed under the original-module identity. The protocol identity is
 /// unaffected (it already comes from the conformance's mangled name), so only the
 /// implementing type's module diverges.

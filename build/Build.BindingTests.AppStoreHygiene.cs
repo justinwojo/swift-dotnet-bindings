@@ -76,6 +76,12 @@ partial class Build
     // test is the iphoneos (device) IPA.
     const string AppStoreHygieneIosRid = "ios-arm64";
 
+    // The codesigning identity this gate signs the device IPA with (Justin's wildcard dev identity,
+    // matching RuntimeTestsApp / the mixed legs). Hoisted to one constant so the consumer csproj's
+    // <CodesignKey> and the up-front "can this host sign?" tri-state check (Finding 61) reference the
+    // same string and cannot drift — a host missing this identity is an honest skip, not a failure.
+    const string AppStoreHygieneCodesignKey = "Apple Development: Justin Wojciechowski (KBKS29A36Q)";
+
     AbsolutePath AppStoreHygieneScratch => RootDirectory / "artifacts" / "appstore-hygiene";
 
     // Entry point invoked from the BindingTests dispatch when --appstore-hygiene is set.
@@ -100,10 +106,41 @@ partial class Build
         // xcframework with the right slices and no loose dylib / injector script.
         AssertRuntimeNupkgPackaging(nupkgDir);
 
+        // Tri-state (Finding 61): the structural nupkg checks above need no signing and have run. The
+        // device-IPA leg requires this host to sign with AppStoreHygieneCodesignKey. If it can't, report
+        // an honest SKIP (non-failing) instead of throwing deep inside the publish — "this host cannot
+        // sign" is neither a PASS (the IPA hygiene was never proven) nor a hygiene FAIL.
+        if (!HostCanSignAppStoreHygiene())
+        {
+            Log.Warning(
+                "--appstore-hygiene: SKIP the device-IPA leg — codesigning identity '{Key}' is not present on " +
+                "this host (checked via `security find-identity -v -p codesigning`). The structural runtime-nupkg " +
+                "checks PASSED; the device-IPA hygiene assertions require a signing identity, so they are skipped, " +
+                "not passed. Run on a host with the identity (or before a release) for the full gate.",
+                AppStoreHygieneCodesignKey);
+            return;
+        }
+
         WriteAppStoreHygieneConsumerApp(appDir);
         File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
 
         RunAppStoreHygieneIpaLeg(appDir, scratch);
+    }
+
+    // Tri-state input (Finding 61): does this host have the codesigning identity this gate signs the
+    // device IPA with? `security find-identity -v -p codesigning` lists only *valid* codesigning
+    // identities; if ours is absent the device publish cannot sign, which is an honest skip rather
+    // than a defect. Mirrors how lipo/ditto are invoked directly (security is a system tool on PATH).
+    static bool HostCanSignAppStoreHygiene()
+    {
+        var proc = ProcessTasks.StartProcess(
+                "security",
+                ArgumentEscaper.Join(new[] { "find-identity", "-v", "-p", "codesigning" }),
+                logOutput: false)
+            .AssertWaitForExit();
+        if (proc.ExitCode != 0) return false;
+        return proc.Output.Select(o => o.Text)
+            .Any(line => line.Contains(AppStoreHygieneCodesignKey, StringComparison.Ordinal));
     }
 
     // Packs SwiftBindings.Runtime at the throwaway version into the local feed and clears any stale
@@ -232,6 +269,22 @@ partial class Build
             .EnableNoLogo()
             .SetVerbosity(DotNetVerbosity.quiet));
 
+        // Positive embed stamp (Finding 61): _StampSwiftRuntimeEmbed (SwiftBindings.Runtime.targets)
+        // fires AfterTargets the workload's framework-embed step (_CopyDirectoriesToBundle) and writes
+        // this sentinel into the app's obj/. Its absence means that embed target did NOT run — e.g. a
+        // future .NET workload renamed/removed it — so the runtime framework embed is no longer proven
+        // by a successful publish alone. Assert it positively here, before inferring anything from the
+        // produced .ipa.
+        var stamps = Directory.GetFiles(appDir / "obj", "swiftbindings-runtime-embed.stamp", SearchOption.AllDirectories);
+        if (stamps.Length == 0)
+            throw new Exception(
+                $"--appstore-hygiene: the runtime embed sentinel (swiftbindings-runtime-embed.stamp) was not produced " +
+                $"under {appDir / "obj"}. _StampSwiftRuntimeEmbed (SwiftBindings.Runtime.targets) anchors AfterTargets " +
+                "the workload's framework-embed target (_CopyDirectoriesToBundle); its absence means that target did " +
+                "not run — most likely renamed or removed by the .NET Apple workload — so the runtime framework embed " +
+                "is no longer proven. Re-anchor the stamp to the current embed target.");
+        Log.Information("    embed stamp present: {Path}", stamps[0]);
+
         // Locate the produced .ipa. The exact intermediate layout varies, so search the bin tree
         // for any *.ipa under the device RID. Deterministic selection: shortest path then ordinal.
         var ipas = Directory
@@ -281,8 +334,9 @@ partial class Build
                      and the runtime framework is embedded + signed into the app bundle. -->
                 <BuildIpa>true</BuildIpa>
 
-                <!-- Justin's wildcard dev identity (matches RuntimeTestsApp / the mixed legs). -->
-                <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
+                <!-- Justin's wildcard dev identity (matches RuntimeTestsApp / the mixed legs). One
+                     constant shared with the up-front tri-state skip check so the two can't drift. -->
+                <CodesignKey>{AppStoreHygieneCodesignKey}</CodesignKey>
                 <CodesignProvision>Wildcard Dev</CodesignProvision>
                 <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
               </PropertyGroup>
@@ -405,8 +459,12 @@ partial class Build
         else
         {
             const string expectedInstallName = "@rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime";
-            var installName = MachOInstallName(runtimeFwBinary);
-            if (installName != expectedInstallName)
+            var installName = MachOReader.ReadInstallName(runtimeFwBinary);
+            if (installName is null)
+                failures.Add(
+                    "could not read an LC_ID_DYLIB install_name from the embedded runtime framework binary " +
+                    $"({Path.GetFileName(runtimeFwBinary)}) — a present-but-unreadable Mach-O is a defect, not a pass.");
+            else if (installName != expectedInstallName)
                 failures.Add(
                     $"embedded runtime framework has install_name '{installName}', expected '{expectedInstallName}' " +
                     "— @rpath resolution into the app's Frameworks/ depends on this.");
@@ -449,20 +507,6 @@ partial class Build
             failures.Add(
                 $"codesign --verify --strict failed (exit {verify.ExitCode}) on {what} ({path.Name}):\n" +
                 string.Join("\n", verify.Output.Select(o => o.Text)));
-    }
-
-    // The install_name (LC_ID_DYLIB) of a Mach-O via `otool -D`. Output is two lines:
-    //   <path>:
-    //   <install-name>
-    static string MachOInstallName(string machoPath)
-    {
-        var proc = ProcessTasks.StartProcess("otool", ArgumentEscaper.Join(new[] { "-D", machoPath }), logOutput: false)
-            .AssertWaitForExit();
-        // Skip the "<path>:" header line; the install name is the next non-empty line.
-        return proc.Output.Select(o => o.Text)
-            .Select(t => t.Trim())
-            .Where(t => t.Length > 0 && !t.EndsWith(":", StringComparison.Ordinal))
-            .FirstOrDefault() ?? "";
     }
 
     // Common pass/fail reporting: fail the gate with all collected defects, or log the OK line.

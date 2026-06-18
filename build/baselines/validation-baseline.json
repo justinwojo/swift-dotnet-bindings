@@ -1,5 +1,5 @@
 {
-  "git_sha": "e47826bb",
+  "git_sha": "d4414562",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -75,28 +75,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 72580,
+        "lines": 72546,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 66600,
+        "lines": 66566,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 66791,
+        "lines": 66757,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 71810,
+        "lines": 71776,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -124,7 +124,7 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 199901,
+        "lines": 199861,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -250,7 +250,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57910,
+        "lines": 57846,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12148,
+        "lines": 12114,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -915,8 +915,8 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 25008,
-    "total_skipped_members": 7665,
+    "total_emitted_members": 25000,
+    "total_skipped_members": 7673,
     "skip_rate_pct": 23.5,
     "skip_reasons": {
       "UnsupportedSignature": 1422,
@@ -936,9 +936,9 @@
       "GenericTypeCallback": 128,
       "StaticProtocolMember": 67,
       "SwiftUIView": 53,
+      "NonBlittableCallConvSwift": 19,
       "SuppressedProxyMethodBody": 16,
       "OwnedByAppleSupplement": 12,
-      "NonBlittableCallConvSwift": 11,
       "IndeterminatePwtShape": 9,
       "UnderscorePrefixInternal": 4,
       "UnsupportedAsyncStream": 4
@@ -951,13 +951,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2886,
+      "pass": 2892,
       "fail": 0,
       "skip": 36,
       "crash": 0
     },
     "device": {
-      "pass": 2892,
+      "pass": 2904,
       "fail": 0,
       "skip": 24,
       "crash": 0

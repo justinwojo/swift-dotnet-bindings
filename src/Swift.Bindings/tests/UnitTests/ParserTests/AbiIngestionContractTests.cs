@@ -115,6 +115,50 @@ public class AbiIngestionContractTests
                  && d.Detail.Contains("__UnmodeledFutureKind"));
     }
 
+    // ---- ABI node-kind golden (Finding 58, amendment C) ----
+    // The committed KnownAbiNodeKinds vocabulary stays in lockstep with the HandleNode dispatch
+    // switch. This is the compile-time guard; it does NOT duplicate the SWIFTBIND034 runtime arm
+    // (exercised above) — it pins that every declared-known kind is actually recognized.
+
+    [Fact]
+    public void KnownAbiNodeKinds_EveryMember_IsRecognized_NeverCensusedAsUnknown()
+    {
+        // Ties the set to the switch: a kind declared known but routed to the `default` (unknown)
+        // arm — or a switch case removed without updating the set — turns this red.
+        foreach (var kind in SwiftABIParser.KnownAbiNodeKinds)
+        {
+            InputResolutionReport.Reset();
+            var logger = new CapturingLogger();
+            using var fixture = CreateParser(
+                jsonFormatVersion: ExpectedVersion, logger,
+                CreateNode(kind, name: "member", moduleName: "TestModule"));
+
+            var result = fixture.Parser.ParseModule();
+
+            Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("SWIFTBIND034"));
+            Assert.True(
+                result.Reconciliation.UnknownNodeKinds is null
+                || !result.Reconciliation.UnknownNodeKinds.ContainsKey(kind),
+                $"'{kind}' is in KnownAbiNodeKinds but the dispatch switch censused it as unknown — "
+                + "the set and the switch have drifted.");
+        }
+    }
+
+    [Fact]
+    public void KnownAbiNodeKinds_IsTheExactDispatchSwitchVocabulary()
+    {
+        // Frozen golden: bound kinds + recognized-and-skipped kinds, exactly. A new switch case (or a
+        // removed one) must update this set deliberately — mirroring ClangAstParser.KnownTopLevelNodeKinds.
+        var expected = new[]
+        {
+            "TypeDecl", "Function", "Constructor", "Var", "Subscript",
+            "Import", "AssociatedType", "OperatorDecl",
+        };
+        Assert.Equal(
+            expected.OrderBy(k => k, StringComparer.Ordinal),
+            SwiftABIParser.KnownAbiNodeKinds.OrderBy(k => k, StringComparer.Ordinal));
+    }
+
     // ---- recognized-and-skipped kinds (Finding 45: AssociatedType / OperatorDecl) ----
 
     [Theory]

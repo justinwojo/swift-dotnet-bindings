@@ -49,6 +49,17 @@ final class AbiTripwireProbeClass {
     var value: Int = 0
 }
 
+/// A struct whose only field is a `weak` reference. A weak reference is registered in the
+/// runtime's weak-reference side table, so moving the value requires a runtime fixup — making
+/// this type both non-POD (needs a release on destroy) AND non-bitwise-takable (cannot be moved
+/// with a plain memcpy). It is the ONLY probe type that exercises the IsNonBitwiseTakable flag
+/// bit against a `true` value: Int/Bool/Double/String/class/enum/tuple are all bitwise-takable,
+/// so without this type a wrong IsNonBitwiseTakable mask would never be caught. (Cross-checks
+/// the value-witness POD / bitwise-takable flags in AbiLayoutTripwireTests.cs.)
+struct AbiTripwireWeakBox {
+    weak var ref: AbiTripwireProbeClass?
+}
+
 // Empty marker protocols composed to build existentials of arity 1-8. Each protocol in the
 // composition adds one witness-table word to the opaque existential container, so an arity-N
 // existential is (4 + N) machine words — the layout ExistentialContainerN mirrors.
@@ -64,6 +75,7 @@ protocol AbiTW8 {}
 // MARK: - Type-id dispatch
 // Keep these ids in lockstep with the constants in AbiLayoutTripwireTests.cs:
 // 0=Int 1=Bool 2=Double 3=String 4=ProbeStruct 5=ProbeEnum 6=Optional<Int> 7=ProbeClass 8=(Int8,Int,Bool)
+// 9=WeakBox (value-witness POD/bitwise-takable flag probe only — see abi_is_pod / abi_is_bitwise_takable)
 
 @inline(never)
 private func metadataPointer<T>(_ type: T.Type) -> UnsafeRawPointer {
@@ -82,6 +94,7 @@ private func metadataPointer(forTypeId typeId: Int32) -> UnsafeRawPointer {
     case 6: return metadataPointer(Optional<Int>.self)
     case 7: return metadataPointer(AbiTripwireProbeClass.self)
     case 8: return metadataPointer((Int8, Int, Bool).self)
+    case 9: return metadataPointer(AbiTripwireWeakBox.self)
     default: return metadataPointer(Int.self)
     }
 }
@@ -149,6 +162,98 @@ public func abi_metadata_kind_word(_ typeId: Int32) -> Int {
     // for non-class kinds it is exactly the kind value (e.g. Struct = 0x200, Tuple = 0x301);
     // for classes it is an isa/address greater than 0x7ff.
     return metadataPointer(forTypeId: typeId).load(as: Int.self)
+}
+
+// MARK: - Live value-witness POD / bitwise-takable predicates (corner 1)
+//
+// The C# mirror (Swift.Runtime ValueWitnessTable) decodes two flag bits of the value-witness
+// table: IsNonPOD = 0x00010000 and IsNonBitwiseTakable = 0x00100000. Reading those bits on BOTH
+// sides would be tautological — it would only prove C# and Swift made the same offset/mask
+// assumption, never that the assumption matches Apple's runtime. Instead the Swift side asks the
+// compiler/stdlib for the SEMANTIC predicate via the underscored `_isPOD` / `_isBitwiseTakable`
+// intrinsics (the same source of truth `MemoryLayout` draws on), which never touch the VWT flag
+// word. The C# test then asserts `vwt->IsNonPOD == !abi_is_pod(...)` and
+// `vwt->IsNonBitwiseTakable == !abi_is_bitwise_takable(...)`: an Apple change to either bit
+// position fails the comparison instead of corrupting memory silently. The polarity is inverted
+// because the C# flags are the NEGATIVE form (IsNon…) of the Swift predicates.
+
+@inline(never)
+private func isPOD<T>(_ type: T.Type) -> Bool {
+    return _isPOD(type)
+}
+
+@inline(never)
+private func isBitwiseTakable<T>(_ type: T.Type) -> Bool {
+    return _isBitwiseTakable(type)
+}
+
+@_cdecl("abi_is_pod")
+public func abi_is_pod(_ typeId: Int32) -> Int32 {
+    switch typeId {
+    case 0: return isPOD(Int.self) ? 1 : 0
+    case 1: return isPOD(Bool.self) ? 1 : 0
+    case 2: return isPOD(Double.self) ? 1 : 0
+    case 3: return isPOD(String.self) ? 1 : 0
+    case 4: return isPOD(AbiTripwireProbeStruct.self) ? 1 : 0
+    case 5: return isPOD(AbiTripwireProbeEnum.self) ? 1 : 0
+    case 6: return isPOD(Optional<Int>.self) ? 1 : 0
+    case 7: return isPOD(AbiTripwireProbeClass.self) ? 1 : 0
+    case 8: return isPOD((Int8, Int, Bool).self) ? 1 : 0
+    case 9: return isPOD(AbiTripwireWeakBox.self) ? 1 : 0
+    default: return -1
+    }
+}
+
+@_cdecl("abi_is_bitwise_takable")
+public func abi_is_bitwise_takable(_ typeId: Int32) -> Int32 {
+    switch typeId {
+    case 0: return isBitwiseTakable(Int.self) ? 1 : 0
+    case 1: return isBitwiseTakable(Bool.self) ? 1 : 0
+    case 2: return isBitwiseTakable(Double.self) ? 1 : 0
+    case 3: return isBitwiseTakable(String.self) ? 1 : 0
+    case 4: return isBitwiseTakable(AbiTripwireProbeStruct.self) ? 1 : 0
+    case 5: return isBitwiseTakable(AbiTripwireProbeEnum.self) ? 1 : 0
+    case 6: return isBitwiseTakable(Optional<Int>.self) ? 1 : 0
+    case 7: return isBitwiseTakable(AbiTripwireProbeClass.self) ? 1 : 0
+    case 8: return isBitwiseTakable((Int8, Int, Bool).self) ? 1 : 0
+    case 9: return isBitwiseTakable(AbiTripwireWeakBox.self) ? 1 : 0
+    default: return -1
+    }
+}
+
+// MARK: - Live Optional size rule (corner 3)
+//
+// SwiftOptional<T> (Swift.Runtime) decides how to encode the Some/None discriminator from a
+// single live fact: whether Optional<T> is LARGER than T. When `Optional<T>.size > T.size` the
+// payload has no spare bit patterns, so Swift appends a tag byte at offset `T.size`
+// (GetTagByteOffset returns it). When `Optional<T>.size == T.size` the payload has extra
+// inhabitants (a class's nil pointer, a Bool's 2…255, a String's spare bits) that encode None
+// in-place, so there is no tag byte (GetTagByteOffset returns -1). `Optional<Bool>` is the
+// footgun the production code special-cases: it is size-equal like a class (1 == 1, NOT 1 + 1),
+// so it must take the extra-inhabitant path, not the tag-byte path. This probe exports the two
+// live sizes per payload type so the C# test can assert that relationship from observed layout
+// rather than from a constant re-typed on the Swift side.
+
+@_cdecl("abi_optional_layout_facts")
+public func abi_optional_layout_facts(_ payloadTypeId: Int32, _ out: UnsafeMutablePointer<Int>) {
+    // out[0] = MemoryLayout<Optional<T>>.size, out[1] = MemoryLayout<T>.size, for the payload T.
+    switch payloadTypeId {
+    case 0:
+        out[0] = MemoryLayout<Optional<Int>>.size
+        out[1] = MemoryLayout<Int>.size
+    case 1:
+        out[0] = MemoryLayout<Optional<Bool>>.size
+        out[1] = MemoryLayout<Bool>.size
+    case 3:
+        out[0] = MemoryLayout<Optional<String>>.size
+        out[1] = MemoryLayout<String>.size
+    case 7:
+        out[0] = MemoryLayout<Optional<AbiTripwireProbeClass>>.size
+        out[1] = MemoryLayout<AbiTripwireProbeClass>.size
+    default:
+        out[0] = -1
+        out[1] = -1
+    }
 }
 
 // MARK: - Live existential-container sizes (arity 0-8)
