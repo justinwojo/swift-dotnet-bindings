@@ -9,27 +9,27 @@ namespace BindingsGeneration.Tests;
 /// Tests for the holder-cleanup code emitted by
 /// <see cref="AsyncHarnessEmitter.BuildHolderCleanupCode"/> and its siblings.
 ///
-/// As of S2 round-3 the slot walk itself lives in the runtime helper
-/// <c>global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup</c> (exception-safe + idempotent), so
+/// The field walk itself lives in the typed holder's instance method
+/// <c>global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup()</c> (exception-safe + idempotent), so
 /// the emitters only need to delegate. These tests lock the emitted call shape; the behavioural
-/// invariants (every holder slot type is freed exactly once, the second pass is a no-op, a
+/// invariants (every holder field is freed exactly once, the second pass is a no-op, a
 /// throwing release does not escape) are covered by the runtime test
-/// <c>SwiftAsyncCallHolderTests</c>. Extraction also collapsed the former three-way mirror
+/// <c>SwiftAsyncCallHolderTests</c>. The typed holder also collapsed the former three-way mirror
 /// (AsyncHarnessEmitter, WrapperEmitter.Async, BuildCancellationCleanupLoop), removing the
 /// hand-maintained drift hazard the previous string-match tests guarded against.
 /// </summary>
 public class AsyncHarnessEmitterCleanupTests
 {
-    private const string CleanupCall = "global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup";
-    private const string CaptureCall = "global::Swift.Runtime.SwiftAsyncCallHolder.CaptureCancellationToken";
+    private const string CleanupCall = ".Cleanup()";
+    private const string CaptureCall = ".CaptureCancellationToken()";
 
     [Fact]
-    public void BuildHolderCleanupCode_EmitsRuntimeHelperCall()
+    public void BuildHolderCleanupCode_EmitsTypedHolderInstanceCall()
     {
         var code = AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", indent: "    ");
 
-        Assert.Equal("    global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(_asyncCallHolder);", code);
-        // The slot walk is no longer inlined — it belongs to the runtime helper.
+        Assert.Equal("    _asyncCallHolder.Cleanup();", code);
+        // The field walk is no longer inlined — it belongs to the typed holder's Cleanup().
         Assert.DoesNotContain("for (", code);
         Assert.DoesNotContain("RetainedSelfPtr", code);
         Assert.DoesNotContain("ExistentialContainerHeap", code);
@@ -40,7 +40,7 @@ public class AsyncHarnessEmitterCleanupTests
     {
         var code = AsyncHarnessEmitter.BuildHolderCleanupCode("holder", indent: "        ");
 
-        Assert.Equal("        global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(holder);", code);
+        Assert.Equal("        holder.Cleanup();", code);
     }
 
     [Fact]
@@ -48,8 +48,8 @@ public class AsyncHarnessEmitterCleanupTests
     {
         // The user-facing async wrapper bodies (foreground pre-cancel + foreground catch) and the
         // harness callbacks now emit byte-for-byte identical cleanup, because both route through
-        // the single AsyncHarnessEmitter.BuildHolderCleanupCode → runtime helper. Lock that so the
-        // two async emission paths cannot diverge (the gap that originally hid the async holder leak).
+        // the single AsyncHarnessEmitter.BuildHolderCleanupCode → typed holder Cleanup(). Lock that
+        // so the two async emission paths cannot diverge (the gap that originally hid the async leak).
         var harness = AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", indent: "    ");
         var wrapper = BindingsGeneration.WrapperEmitter.BuildHolderCleanupCode("_asyncCallHolder", indent: "    ");
 
@@ -62,14 +62,14 @@ public class AsyncHarnessEmitterCleanupTests
     {
         // The cancellation path must read the registered token (read-only) BEFORE cleanup disposes
         // the registration, so TrySetCanceled propagates the right token. The emitted code assigns
-        // a pre-declared `cancelToken` local from CaptureCancellationToken, then runs Cleanup.
+        // a pre-declared `cancelToken` local from CaptureCancellationToken(), then runs Cleanup().
         var code = AsyncHarnessEmitter.BuildCancellationCleanupLoop("holder", indent: "    ");
 
         var captureIdx = code.IndexOf(CaptureCall, System.StringComparison.Ordinal);
         var cleanupIdx = code.IndexOf(CleanupCall, System.StringComparison.Ordinal);
         Assert.True(captureIdx >= 0, "cancellation path must capture the token");
         Assert.True(cleanupIdx > captureIdx, "token capture must precede cleanup (cleanup disposes the registration)");
-        Assert.Contains("cancelToken = global::Swift.Runtime.SwiftAsyncCallHolder.CaptureCancellationToken(holder);", code);
+        Assert.Contains("cancelToken = holder.CaptureCancellationToken();", code);
         // Assigns the pre-declared local (does not redeclare it).
         Assert.DoesNotContain("CancellationToken cancelToken", code);
     }

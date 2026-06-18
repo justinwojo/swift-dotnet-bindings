@@ -862,7 +862,7 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.Indent++;
         csWriter.WriteLine("// Never let a managed exception unwind into native Swift (SIGABRT); fault the");
         csWriter.WriteLine("// awaiting Task instead so the failure is observable and the awaiter cannot hang.");
-        csWriter.WriteLine($"if (handle.Target is object[] __holder && __holder[0] is TaskCompletionSource{tcsTypeParam} __faultTcs)");
+        csWriter.WriteLine($"if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder __holder && __holder.Tcs is TaskCompletionSource{tcsTypeParam} __faultTcs)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         // The fault is reachable from result marshalling, which runs BEFORE the success path's
@@ -955,9 +955,9 @@ public static class AsyncMethodGenericBridgeEmitter
                 break;
         }
 
-        csWriter.WriteLine("var holder = (object[])handle.Target!;");
+        csWriter.WriteLine("var holder = (global::Swift.Runtime.SwiftAsyncCallHolder)handle.Target!;");
         csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("holder", "    "));
-        csWriter.WriteLine($"var _tcs = (TaskCompletionSource{(csReturnType == "void" ? "" : $"<{csReturnType}>")})holder[0];");
+        csWriter.WriteLine($"var _tcs = (TaskCompletionSource{(csReturnType == "void" ? "" : $"<{csReturnType}>")})holder.Tcs;");
 
         if (returnKind == AsyncReturnKind.Void)
             csWriter.WriteLine("_tcs.TrySetResult();");
@@ -993,8 +993,8 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("var holder = (object[])handle.Target!;");
-        csWriter.WriteLine($"var _tcs = (TaskCompletionSource{tcsTypeParam})holder[0];");
+        csWriter.WriteLine("var holder = (global::Swift.Runtime.SwiftAsyncCallHolder)handle.Target!;");
+        csWriter.WriteLine($"var _tcs = (TaskCompletionSource{tcsTypeParam})holder.Tcs;");
         csWriter.WriteLine("var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? \"Unknown Swift error\";");
         csWriter.WriteLine("if (isCancellation != 0)");
         csWriter.WriteLine("{");
@@ -1003,7 +1003,7 @@ public static class AsyncMethodGenericBridgeEmitter
         // running cleanup, which disposes the registration. Both steps delegate to the
         // exception-safe, idempotent runtime helper so the cancel/success/fault paths share
         // one slot-walk and cannot drift.
-        csWriter.WriteLine("global::System.Threading.CancellationToken cancelToken = global::Swift.Runtime.SwiftAsyncCallHolder.CaptureCancellationToken(holder);");
+        csWriter.WriteLine("global::System.Threading.CancellationToken cancelToken = holder.CaptureCancellationToken();");
         csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("holder", "    "));
         // Cascade dispatcher and untyped fallback both pass errorPtr=nil on cancellation,
         // so no carrier free is needed here. For the success-with-throw path, the dispatcher
@@ -1269,21 +1269,31 @@ public static class AsyncMethodGenericBridgeEmitter
                 heldObjectArgs.Add(csNameHold);
             }
         }
-        string heldArgsSlot = heldObjectArgs.Count == 0
+        // ISwiftObject-typed held args (the class-bound generic param itself, ObjC/payload handles)
+        // are GC-root keep-alives, joined here for the typed holder's KeepAlives collection.
+        string heldArgsKeepAlive = heldObjectArgs.Count == 0
             ? ""
-            : ", " + string.Join(", ", heldObjectArgs.Select(n => $"(object){n}"));
-        string deferredListSlot = needsDeferredList ? ", _asyncDeferredList" : "";
+            : string.Join(", ", heldObjectArgs.Select(n => $"(object){n}"));
         if (isInstance && isClass)
         {
-            csWriter.WriteLine($"object[] _asyncCallHolder = new object[] {{ _tcs, new RetainedSelfPtr(_selfPtr), (object)this{heldArgsSlot}{deferredListSlot}, null! }};");
+            csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
+                "_asyncCallHolder", "_tcs", "SelfRetain = new RetainedSelfPtr(_selfPtr)",
+                needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "",
+                AsyncHarnessEmitter.CombineKeepAlives("(object)this", heldArgsKeepAlive)));
         }
         else if (isInstance)
         {
-            csWriter.WriteLine($"object[] _asyncCallHolder = new object[] {{ _tcs, new DeferredSafeHandleRelease(_payload), (object)this{heldArgsSlot}{deferredListSlot}, null! }};");
+            csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
+                "_asyncCallHolder", "_tcs", "DeferredSelfHandle = new DeferredSafeHandleRelease(_payload)",
+                needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "",
+                AsyncHarnessEmitter.CombineKeepAlives("(object)this", heldArgsKeepAlive)));
         }
         else
         {
-            csWriter.WriteLine($"object[] _asyncCallHolder = new object[] {{ _tcs{heldArgsSlot}{deferredListSlot}, null! }};");
+            csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
+                "_asyncCallHolder", "_tcs", selfFieldInit: "",
+                needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "",
+                heldArgsKeepAlive));
         }
         csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
 
@@ -1313,7 +1323,7 @@ public static class AsyncMethodGenericBridgeEmitter
                         tcs.TrySetCanceled(token);
                     },
                     (_tcs, cancellationToken, _sbwCancelKey));
-                _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
+                _asyncCallHolder.CancellationRegistration = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             """);
 

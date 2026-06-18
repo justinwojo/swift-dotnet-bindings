@@ -57,23 +57,14 @@ namespace BindingsGeneration
             // Detect Array<String> return type - requires flat buffer marshalling
             bool isArrayStringReturn = !isEmptyTuple && IsArrayOfString(returnTypeSpec);
 
-            // Reserve one trailing slot per existential heap allocation so the
-            // async callback cleanup loop can free each NativeMemory.Alloc buffer
-            // backing an existential container. Populated names live in
-            // _existentialHeapNames (filled by EmitExistentialHeapDeclarations
-            // which runs before EmitAsync). The matching ExistentialContainerHeap
-            // assignments are emitted by EmitExistentialContainerMarshalling.
-            //
-            // For an async instance method the foreground wrapper has no finally
-            // block (NeedsTryFinallyForMethod returns false), so without these
-            // holder slots the heap leaks. For static async / async constructors
-            // the foreground finally would otherwise free the buffer while Swift
-            // still reads from it on the continuation thread (UAF) — registering
-            // the buffer in the holder also defers cleanup until the callback.
-            int existentialSlotCount = _existentialHeapNames.Count;
-            string existentialPlaceholders = existentialSlotCount > 0
-                ? string.Concat(Enumerable.Repeat(", null!", existentialSlotCount))
-                : "";
+            // Existential heap buffers backing an existential container are appended to the typed
+            // holder's ExistentialHeaps list at their marshalling site (EmitExistentialContainerMarshalling
+            // → _asyncCallHolder.ExistentialHeaps.Add(...)); the async-callback cleanup frees each
+            // NativeMemory.Alloc buffer. For an async instance method the foreground wrapper has no
+            // finally block (NeedsTryFinallyForMethod returns false), so without this the heap leaks;
+            // for static async / async constructors the foreground finally would otherwise free the
+            // buffer while Swift still reads it on the continuation thread (UAF) — deferring to the
+            // callback via the holder fixes both.
 
             // Identify parameters that need copy-buffer treatment for async safety.
             // Non-frozen types always need this. Enum types also need it regardless of
@@ -245,7 +236,10 @@ namespace BindingsGeneration
                 // swift_release over-releases an @objc self (issue #40). SwiftSelf passes a
                 // raw pointer with no ARC semantics; by the time Swift's Task{} closure runs 'self'
                 // may be deallocated, so the retain ensures Swift ARC tracks it.
-                string selfInHolder;
+                // Receiver handling: the single SelfRetain (class) or DeferredSelfHandle (struct)
+                // field, plus a (object)this keep-alive. Static methods set neither.
+                string selfFieldInit;
+                string selfKeepAlive;
                 bool isObjCRootedClass = isSwiftClass && _env.ParentDecl is ClassDecl asyncClassDecl && asyncClassDecl.IsObjCRooted;
                 if (isInstanceMethod && isObjCRootedClass)
                 {
@@ -254,7 +248,8 @@ namespace BindingsGeneration
             IntPtr _selfPtr = Handle;
             Arc.UnknownObjectRetain(_selfPtr);
             """);
-                    selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
+                    selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
+                    selfKeepAlive = "(object)this";
                 }
                 else if (isInstanceMethod && isSwiftClass)
                 {
@@ -268,20 +263,27 @@ namespace BindingsGeneration
             Arc.UnknownObjectRetain(_selfPtr);
             _handle.DangerousRelease();
             """);
-                    selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
+                    selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
+                    selfKeepAlive = "(object)this";
                 }
                 else if (isInstanceMethod)
                 {
                     // For structs, keep 'this' alive and defer SafeHandle release until callback
-                    selfInHolder = ", new DeferredSafeHandleRelease(_payload), (object)this";
+                    selfFieldInit = "DeferredSelfHandle = new DeferredSafeHandleRelease(_payload)";
+                    selfKeepAlive = "(object)this";
                 }
                 else
                 {
-                    selfInHolder = "";
+                    selfFieldInit = "";
+                    selfKeepAlive = "";
                 }
 
-                // Build the holder elements: originalParamList may be empty when only frozen blittable params exist
-                var originalParamSuffix = originalParamList.Length > 0 ? $", {originalParamList}" : "";
+                // Keep-alives: the receiver 'this' (instance methods) plus the original non-frozen
+                // parameter objects — pinned so GC can't Destroy them while the async task runs
+                // (InitializeWithCopy bumped the refcount, but a destroyed original could free the
+                // internal storage prematurely). originalParamList is empty when only frozen
+                // blittable params exist.
+                string keepAliveList = AsyncHarnessEmitter.CombineKeepAlives(selfKeepAlive, originalParamList);
                 // Async deferred-dispose containers (SwiftArray<T> / SwiftSet<T> /
                 // SwiftDictionary<K,V>) are allocated below by EmitTypeConversions and
                 // appended to _asyncDeferredList so their lifetime extends past tcs.Task —
@@ -289,16 +291,15 @@ namespace BindingsGeneration
                 // foreground wrapper has returned. Without this hand-off the container's
                 // 'using var' would dispose the buffer before Swift dereferences it.
                 bool needsDeferredList = RequiresAsyncDeferredDisposeList();
-                string deferredListInHolder = needsDeferredList ? ", _asyncDeferredList" : "";
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             """);
                 if (needsDeferredList)
                     csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
-                csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}{{originalParamSuffix}}{{selfInHolder}}{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
-            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
-            """);
+                csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
+                    "_asyncCallHolder", "_tcs", selfFieldInit,
+                    needsDeferredList ? "_asyncDeferredList" : null, copyBufferList, keepAliveList));
+                csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
             }
             else if (isInstanceMethod)
             {
@@ -306,7 +307,7 @@ namespace BindingsGeneration
                 // For Swift classes, also retain self to prevent deallocation during async execution
                 bool isObjCRootedClassNoParams = isSwiftClass && _env.ParentDecl is ClassDecl asyncClassDeclNoParams && asyncClassDeclNoParams.IsObjCRooted;
                 bool needsDeferredList = RequiresAsyncDeferredDisposeList();
-                string deferredListInHolder = needsDeferredList ? ", _asyncDeferredList" : "";
+                string selfFieldInit;
                 if (isObjCRootedClassNoParams)
                 {
                     // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
@@ -315,12 +316,7 @@ namespace BindingsGeneration
             IntPtr _selfPtr = Handle;
             Arc.UnknownObjectRetain(_selfPtr);
             """);
-                    if (needsDeferredList)
-                        csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
-                    csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
-            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
-            """);
+                    selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
                 }
                 else if (isSwiftClass)
                 {
@@ -334,12 +330,7 @@ namespace BindingsGeneration
             Arc.UnknownObjectRetain(_selfPtr);
             _handle.DangerousRelease();
             """);
-                    if (needsDeferredList)
-                        csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
-                    csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
-            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
-            """);
+                    selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
                 }
                 else
                 {
@@ -347,30 +338,28 @@ namespace BindingsGeneration
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             """);
-                    if (needsDeferredList)
-                        csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
-                    csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
-            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
-            """);
+                    selfFieldInit = "DeferredSelfHandle = new DeferredSafeHandleRelease(_payload)";
                 }
+                if (needsDeferredList)
+                    csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
+                csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
+                    "_asyncCallHolder", "_tcs", selfFieldInit,
+                    needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "", keepAliveList: "(object)this"));
+                csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
             }
             else
             {
                 // Static method with no non-frozen parameters
                 bool needsDeferredList = RequiresAsyncDeferredDisposeList();
-                // Static-method holder with no other slots is `{ _tcs, null! }`. Inserting the
-                // deferred list adds a slot before the trailing cancellation slot.
-                string deferredListInHolder = needsDeferredList ? ", _asyncDeferredList" : "";
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             """);
                 if (needsDeferredList)
                     csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
-                csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
-            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
-            """);
+                csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
+                    "_asyncCallHolder", "_tcs", selfFieldInit: "",
+                    needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "", keepAliveList: ""));
+                csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
             }
 
             // Pre-cancel check: if token is already cancelled, clean up and return immediately
@@ -398,7 +387,7 @@ namespace BindingsGeneration
                         tcs.TrySetCanceled(token);
                     },
                     (_tcs, cancellationToken, _sbwCancelKey));
-                _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
+                _asyncCallHolder.CancellationRegistration = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             """);
 
@@ -1629,13 +1618,12 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the holder-cleanup call for freeing async call resources. Thin delegate to
         /// <see cref="AsyncHarnessEmitter.BuildHolderCleanupCode"/> — both async emission paths
-        /// (this wrapper and the harness callbacks) now share the single runtime helper
-        /// <c>global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup</c>, which owns the slot walk and
-        /// is exception-safe + idempotent. Retained as a named method (rather than calling the
-        /// harness helper directly at the call sites) so the unit suite can still assert the two
-        /// async paths emit identical cleanup.
+        /// (this wrapper and the harness callbacks) now share the typed holder's instance
+        /// <c>Cleanup()</c>, which owns the field walk and is exception-safe + idempotent. Retained
+        /// as a named method (rather than calling the harness helper directly at the call sites) so
+        /// the unit suite can still assert the two async paths emit identical cleanup.
         /// </summary>
-        /// <param name="holderVar">The variable name for the holder array (e.g., "holder" or "_asyncCallHolder").</param>
+        /// <param name="holderVar">The variable name for the holder (e.g., "holder" or "_asyncCallHolder").</param>
         /// <param name="indent">The whitespace indent prefix for the emitted line.</param>
         internal static string BuildHolderCleanupCode(string holderVar, string indent)
             => AsyncHarnessEmitter.BuildHolderCleanupCode(holderVar, indent);

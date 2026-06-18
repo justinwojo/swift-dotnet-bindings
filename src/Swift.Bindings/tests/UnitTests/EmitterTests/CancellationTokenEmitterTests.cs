@@ -463,18 +463,19 @@ public class CancellationTokenEmitterTests
     #region Holder Tests
 
     [Fact]
-    public void AsyncMethod_HolderHasNullSlotForRegistration()
+    public void AsyncMethod_HolderHasCancellationRegistrationField()
     {
+        // The typed holder carries the registration in its named CancellationRegistration field,
+        // filled conditionally when the token can be cancelled — no pre-reserved positional slot.
         var (csOutput, _) = GenerateAsyncMethod();
-        Assert.Contains("null!", csOutput);
+        Assert.Contains(".CancellationRegistration = new CancellationRegistrationHolder(", csOutput);
     }
 
     [Fact]
-    public void AsyncStaticMethod_UsesHolderArray()
+    public void AsyncStaticMethod_UsesTypedHolder()
     {
         var (csOutput, _) = GenerateAsyncStaticMethod();
-        Assert.Contains("object[] _asyncCallHolder", csOutput);
-        Assert.Contains("null!", csOutput);
+        Assert.Contains("new global::Swift.Runtime.SwiftAsyncCallHolder", csOutput);
     }
 
     #endregion
@@ -726,15 +727,15 @@ public class CancellationTokenEmitterTests
 
     /// <summary>
     /// Asserts that holder cleanup runs on the termination path that reaches
-    /// <paramref name="completionCall"/> — i.e. a <c>SwiftAsyncCallHolder.Cleanup(...)</c> call
-    /// textually precedes it. The cleanup helper is what disposes the cancellation registration
+    /// <paramref name="completionCall"/> — i.e. a typed-holder <c>.Cleanup()</c> call textually
+    /// precedes it. Cleanup is what disposes the cancellation registration
     /// (proven exactly-once by <c>SwiftAsyncCallHolderTests.Cleanup_DisposesCancellationRegistration</c>),
     /// so this is the faithful per-return-shape "registration is freed on this path" check after
     /// the disposal was extracted out of the inline callback bodies.
     /// </summary>
     private static void AssertHolderCleanupPrecedes(string csOutput, string completionCall)
     {
-        const string cleanup = "global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(";
+        const string cleanup = ".Cleanup();";
         int completionIdx = csOutput.IndexOf(completionCall, StringComparison.Ordinal);
         Assert.True(completionIdx >= 0, $"expected completion call '{completionCall}' in generated output");
         int cleanupIdx = csOutput.LastIndexOf(cleanup, completionIdx, StringComparison.Ordinal);

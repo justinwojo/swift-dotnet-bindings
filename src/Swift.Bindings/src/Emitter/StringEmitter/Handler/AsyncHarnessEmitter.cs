@@ -437,8 +437,8 @@ namespace BindingsGeneration
                                 {{(requiresInitWithCopy ? $"Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];" : "")}}
                                 {{(requiresInitWithCopy ? $"IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));" : "")}}
                                 {{(requiresInitWithCopy ? $"SwiftMarshal.MarshalToSwift(result, ref payloadSpan);" : "")}}
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} holderTcs)
+                                // Handle both cases: direct TCS or typed SwiftAsyncCallHolder (with copy buffer pointers etc.)
+                                if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder holder && holder.Tcs is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                    ")}}
@@ -522,8 +522,8 @@ namespace BindingsGeneration
                             {
                                 {{marshalResultCode}}
                                 {{tupleConstruction}}
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                // Handle both cases: direct TCS or typed SwiftAsyncCallHolder (with copy buffer pointers etc.)
+                                if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder holder && holder.Tcs is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                    ")}}
@@ -574,8 +574,8 @@ namespace BindingsGeneration
                                     result = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
                                 }
 
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                // Handle both cases: direct TCS or typed SwiftAsyncCallHolder (with copy buffer pointers etc.)
+                                if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder holder && holder.Tcs is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                    ")}}
@@ -685,8 +685,8 @@ namespace BindingsGeneration
 
                             try
                             {
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                // Handle both cases: direct TCS or typed SwiftAsyncCallHolder (with copy buffer pointers etc.)
+                                if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder holder && holder.Tcs is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                    ")}}
@@ -942,8 +942,8 @@ namespace BindingsGeneration
                                 // Read result from pointer (Swift allocated memory and stored the value)
                                 {{marshalResultCode}}
 
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                // Handle both cases: direct TCS or typed SwiftAsyncCallHolder (with copy buffer pointers etc.)
+                                if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder holder && holder.Tcs is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                    ")}}
@@ -1220,8 +1220,8 @@ namespace BindingsGeneration
                             {
                                 {{marshalLines}}
 
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                // Handle both cases: direct TCS or typed SwiftAsyncCallHolder (with copy buffer pointers etc.)
+                                if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder holder && holder.Tcs is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                    ")}}
@@ -1271,7 +1271,7 @@ namespace BindingsGeneration
                 $"{indent}    // success-branch cleanup, so the holder's native resources (retained self, copy\n" +
                 $"{indent}    // buffers, existential heap, deferred containers, cancellation registration) are\n" +
                 $"{indent}    // still live and must be freed here too — finally only releases the GCHandle.\n" +
-                $"{indent}    if (handle.Target is object[] __holder && __holder[0] is TaskCompletionSource{tcsType} __holderTcs)\n" +
+                $"{indent}    if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder __holder && __holder.Tcs is TaskCompletionSource{tcsType} __holderTcs)\n" +
                 $"{indent}    {{\n" +
                 $"{BuildHolderCleanupCode("__holder", indent + "        ")}\n" +
                 $"{indent}        __holderTcs.TrySetException(__ex);\n" +
@@ -1447,8 +1447,8 @@ namespace BindingsGeneration
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
                             {
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{tcsType}} holderTcs)
+                                // Handle both cases: direct TCS or typed SwiftAsyncCallHolder (with copy buffer pointers etc.)
+                                if (handle.Target is global::Swift.Runtime.SwiftAsyncCallHolder holder && holder.Tcs is TaskCompletionSource{{tcsType}} holderTcs)
                                 {
                 {{cancellationBlock}}
                                     else
@@ -1497,22 +1497,22 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits the holder-cleanup call for freeing async call resources. Delegates to the
-        /// runtime helper <c>global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup</c>, which walks
-        /// every owned slot (RetainedSelfPtr, DeferredSafeHandleRelease, CopyBufferWithType,
-        /// ExistentialContainerHeap, AsyncDeferredDisposeList, CancellationRegistrationHolder).
+        /// Emits the holder-cleanup call for freeing async call resources. Delegates to the typed
+        /// holder's instance <c>Cleanup()</c> method, which walks every owned field (SelfRetain,
+        /// DeferredSelfHandle, CopyBuffers, ExistentialHeaps, DeferredDisposes,
+        /// CancellationRegistration, KeepAlives).
         ///
         /// The helper is exception-safe and idempotent, so this single line is correct on every
         /// async termination path — including the [UnmanagedCallersOnly] fault <c>catch</c>, where
-        /// an inlined slot walk could throw into native Swift (SIGABRT) or double-free slots the
-        /// success path had already released. Centralizing the slot set in the runtime also removes
+        /// an inlined field walk could throw into native Swift (SIGABRT) or double-free fields the
+        /// success path had already released. Centralizing the field set in the runtime also removes
         /// the old three-way mirror (this helper, WrapperEmitter.Async, BuildCancellationCleanupLoop)
         /// that previously had to be kept in lockstep by hand.
         /// </summary>
-        /// <param name="holderVar">The variable name for the holder array (e.g., "holder" or "_asyncCallHolder").</param>
+        /// <param name="holderVar">The variable name for the holder (e.g., "holder" or "_asyncCallHolder").</param>
         /// <param name="indent">The whitespace indent prefix for the emitted line.</param>
         public static string BuildHolderCleanupCode(string holderVar, string indent)
-            => $"{indent}global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup({holderVar});";
+            => $"{indent}{holderVar}.Cleanup();";
 
         /// <summary>
         /// Emits the cancellation-path cleanup for <c>BuildErrorCallbackBlock</c> when Swift reports
@@ -1522,8 +1522,51 @@ namespace BindingsGeneration
         /// site (does not declare it).
         /// </summary>
         internal static string BuildCancellationCleanupLoop(string holderVar, string indent)
-            => $"{indent}cancelToken = global::Swift.Runtime.SwiftAsyncCallHolder.CaptureCancellationToken({holderVar});\n" +
-               $"{indent}global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup({holderVar});";
+            => $"{indent}cancelToken = {holderVar}.CaptureCancellationToken();\n" +
+               $"{indent}{holderVar}.Cleanup();";
+
+        /// <summary>
+        /// Builds the typed-holder construction statement (<c>var {holderVar} = new
+        /// global::Swift.Runtime.SwiftAsyncCallHolder {{ ... }};</c>). Named-field / collection
+        /// initializers replace the historical positional <c>object[]</c> layout: <c>Tcs</c> is
+        /// always set; the receiver is the single <c>SelfRetain</c> or <c>DeferredSelfHandle</c>
+        /// field (<paramref name="selfFieldInit"/>); per-call resources (copy buffers, keep-alive
+        /// GC roots) use collection initializers. The existential heaps and the cancellation
+        /// registration are filled later at their own emission sites (<c>.ExistentialHeaps.Add(...)</c>
+        /// / <c>.CancellationRegistration = ...</c>), so they are not listed here. An emitter that
+        /// stashes an unrecognized resource has no field for it — a compile error, not the silent
+        /// leak the positional layout allowed.
+        /// </summary>
+        /// <param name="holderVar">The holder variable name (e.g. "_asyncCallHolder").</param>
+        /// <param name="tcsExpr">The TaskCompletionSource expression (e.g. "_tcs").</param>
+        /// <param name="selfFieldInit">"" for static, else a single field assignment such as
+        /// "SelfRetain = new RetainedSelfPtr(_selfPtr)" or "DeferredSelfHandle = new DeferredSafeHandleRelease(_payload)".</param>
+        /// <param name="deferredListVar">The AsyncDeferredDisposeList variable name, or null when none is needed.</param>
+        /// <param name="copyBufferList">Comma-joined CopyBufferWithType expressions, or "" when none.</param>
+        /// <param name="keepAliveList">Comma-joined GC-root expressions (e.g. "(object)this, (object)p0"), or "" when none.</param>
+        internal static string BuildTypedHolderConstruction(
+            string holderVar, string tcsExpr, string selfFieldInit,
+            string? deferredListVar, string copyBufferList, string keepAliveList)
+        {
+            var members = new System.Collections.Generic.List<string> { $"Tcs = {tcsExpr}" };
+            if (!string.IsNullOrEmpty(selfFieldInit))
+                members.Add(selfFieldInit);
+            if (!string.IsNullOrEmpty(deferredListVar))
+                members.Add($"DeferredDisposes = {deferredListVar}");
+            if (!string.IsNullOrEmpty(copyBufferList))
+                members.Add($"CopyBuffers = {{ {copyBufferList} }}");
+            if (!string.IsNullOrEmpty(keepAliveList))
+                members.Add($"KeepAlives = {{ {keepAliveList} }}");
+            return $"var {holderVar} = new global::Swift.Runtime.SwiftAsyncCallHolder {{ {string.Join(", ", members)} }};";
+        }
+
+        /// <summary>
+        /// Joins non-empty comma-separated GC-root fragments for the holder's <c>KeepAlives</c>
+        /// collection initializer (e.g. the receiver <c>(object)this</c> and the original
+        /// non-frozen parameter objects).
+        /// </summary>
+        internal static string CombineKeepAlives(params string[] fragments)
+            => string.Join(", ", fragments.Where(f => !string.IsNullOrEmpty(f)));
 
         /// <summary>
         /// Determines if a TypeSpec represents Swift.Array&lt;Swift.String&gt;.

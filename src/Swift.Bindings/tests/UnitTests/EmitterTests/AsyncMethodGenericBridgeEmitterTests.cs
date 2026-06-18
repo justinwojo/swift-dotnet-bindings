@@ -804,12 +804,11 @@ public class AsyncMethodGenericBridgeEmitterTests
     [Fact]
     public void TryEmit_UserParamNamedI_NoCS0136_BecauseCleanupIsHelperCall()
     {
-        // Holder cleanup is delegated to the runtime helper
-        // (global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup), so the public ...Async method body
-        // no longer inlines a cleanup `for` loop. A Swift parameter projected to `i` therefore
-        // cannot shadow a loop index — there is no inlined index to collide with — so CS0136 is
-        // structurally impossible without any per-method name reservation. The user parameter must
-        // still survive verbatim in the public signature.
+        // Holder cleanup is delegated to the typed holder's instance Cleanup(), so the public
+        // ...Async method body no longer inlines a cleanup `for` loop. A Swift parameter projected
+        // to `i` therefore cannot shadow a loop index — there is no inlined index to collide with —
+        // so CS0136 is structurally impossible without any per-method name reservation. The user
+        // parameter must still survive verbatim in the public signature.
         var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
         var method = CreateMethodDeclWithExtraPrimitiveParam("i");
         var parent = (ClassDecl)method.ParentDecl!;
@@ -824,8 +823,8 @@ public class AsyncMethodGenericBridgeEmitterTests
         var sigLine = csResult.Split('\n').First(l => l.Contains("ProcessAsync("));
         // The user parameter `i` survives verbatim in the public signature (not dropped/renamed).
         Assert.Contains(" i,", sigLine);
-        // The public method frees the holder via the runtime helper call...
-        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(_asyncCallHolder);", csResult);
+        // The public method frees the holder via the typed holder's instance Cleanup()...
+        Assert.Contains("_asyncCallHolder.Cleanup();", csResult);
         // ...and emits no inlined holder-cleanup loop over the holder array (which is what would
         // have shadowed the `i` parameter and required the old SyntheticNameScope rename).
         Assert.DoesNotContain("< _asyncCallHolder.Length;", csResult);
@@ -852,8 +851,8 @@ public class AsyncMethodGenericBridgeEmitterTests
 
         var csResult = csOutput.ToString();
         // Public-method scope (pre-cancel + launch catch) and callback scope both delegate.
-        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(_asyncCallHolder);", csResult);
-        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(holder);", csResult);
+        Assert.Contains("_asyncCallHolder.Cleanup();", csResult);
+        Assert.Contains("holder.Cleanup();", csResult);
         // The inline slot-walk loop is gone from every scope (no RetainedSelfPtr pattern inlined).
         Assert.DoesNotContain("is RetainedSelfPtr retained", csResult);
     }
@@ -881,13 +880,13 @@ public class AsyncMethodGenericBridgeEmitterTests
         AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
 
         var csResult = csOutput.ToString();
-        var faultBindIdx = csResult.IndexOf("__holder[0] is TaskCompletionSource", System.StringComparison.Ordinal);
+        var faultBindIdx = csResult.IndexOf("__holder.Tcs is TaskCompletionSource", System.StringComparison.Ordinal);
         var faultSetIdx = csResult.IndexOf("__faultTcs.TrySetException(__ex)", System.StringComparison.Ordinal);
         Assert.True(faultBindIdx >= 0, "UCO fault catch holder bind not found");
         Assert.True(faultSetIdx > faultBindIdx, "TrySetException must follow the holder bind");
         var faultBlock = csResult.Substring(faultBindIdx, faultSetIdx - faultBindIdx);
-        // Holder cleanup runs inside the catch (via the runtime helper), before the fault is set.
-        Assert.Contains("global::Swift.Runtime.SwiftAsyncCallHolder.Cleanup(__holder);", faultBlock);
+        // Holder cleanup runs inside the catch (via the typed holder's Cleanup()), before the fault is set.
+        Assert.Contains("__holder.Cleanup();", faultBlock);
     }
 
     #endregion

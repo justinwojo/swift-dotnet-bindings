@@ -207,125 +207,172 @@ namespace Swift.Runtime
     }
 
     /// <summary>
-    /// Exception-safe, idempotent cleanup of the async-call holder array shared by every
-    /// async <c>[UnmanagedCallersOnly]</c> callback (success / fault / error / cancellation)
-    /// and the foreground launch paths (pre-cancel / launch-catch).
+    /// Typed, GCHandle-rooted holder for the resources an async <c>[UnmanagedCallersOnly]</c>
+    /// callback (success / fault / error / cancellation) and the foreground launch paths
+    /// (pre-cancel / launch-catch) must release exactly once after the Swift continuation finishes
+    /// reading them. Replaces the historical untyped <c>object[]</c> with named fields: each
+    /// resource kind has its own field, so an emitter that stashes an unrecognized resource is a
+    /// compile error (no field for it) rather than the silent leak the positional <c>object[]</c>
+    /// + type-test walk allowed (Finding 16). <see cref="Tcs"/> is the completion source and is
+    /// never released by <see cref="Cleanup"/>.
     ///
-    /// The holder's slots own native resources that must be released exactly once after the
-    /// Swift continuation finishes reading them: a retained self pointer, a deferred SafeHandle
-    /// release, non-frozen-parameter copy buffers, an existential-container heap buffer,
-    /// deferred <see cref="IDisposable"/> containers, and the cancellation registration. Slot 0
-    /// is always the <c>TaskCompletionSource</c> and is never freed here.
-    ///
-    /// Centralizing the slot walk in one runtime helper — instead of inlining the loop at every
-    /// emission site — gives it two properties the inlined loop lacked:
+    /// <see cref="Cleanup"/> walks the fields and gives the cleanup two properties the inlined
+    /// per-site loop lacked:
     ///
     /// <list type="number">
     /// <item><b>Exception-safe.</b> The success path runs cleanup inside the callback <c>try</c>;
     /// the fault path runs it again inside the guarding <c>catch</c>. A throw escaping a
     /// <c>[UnmanagedCallersOnly]</c> callback unwinds into the native Swift caller and aborts the
     /// process (SIGABRT) — the exact failure the async UCO hardening exists to prevent. Each
-    /// slot's release is wrapped so one faulting release (for example a user
+    /// field's release is wrapped so one faulting release (for example a user
     /// <see cref="IDisposable.Dispose"/> in a deferred list) can neither abort the process nor
-    /// skip the remaining slots.</item>
-    /// <item><b>Idempotent.</b> Each processed slot is cleared to <c>null</c>, so a second pass —
-    /// the fault <c>catch</c> re-running after the success path freed some slots and then threw —
-    /// cannot double <see cref="Arc.UnknownObjectRelease"/>, <c>DangerousRelease</c>,
-    /// <c>NativeMemory.Free</c>, or dispose.</item>
+    /// skip the remaining releases.</item>
+    /// <item><b>Idempotent.</b> Each processed field is cleared (nulled / list emptied), so a
+    /// second pass — the fault <c>catch</c> re-running after the success path freed some fields
+    /// and then threw — cannot double <see cref="Arc.UnknownObjectRelease"/>,
+    /// <c>DangerousRelease</c>, <c>NativeMemory.Free</c>, or dispose.</item>
     /// </list>
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public static class SwiftAsyncCallHolder
+    public sealed class SwiftAsyncCallHolder
     {
+        /// <summary>The completion source the callback resolves; never released by <see cref="Cleanup"/>.</summary>
+        public required object Tcs { get; init; }
+
         /// <summary>
-        /// Releases every owned slot in <paramref name="holder"/> from
-        /// <paramref name="startIndex"/> onward. Safe to call more than once on the same array
-        /// (processed slots are nulled) and never throws (per-slot releases are best-effort).
+        /// A class self pointer retained via the isa-dispatching <see cref="Arc.UnknownObjectRetain"/>;
+        /// released by the matching <see cref="Arc.UnknownObjectRelease"/>. Mutually exclusive with
+        /// <see cref="DeferredSelfHandle"/> (a call is class-self, struct-self, or static).
         /// </summary>
-        /// <param name="holder">The GCHandle-rooted holder array; slot 0 is the TaskCompletionSource.</param>
-        /// <param name="startIndex">First slot to clean. 1 by default — slot 0 (the TCS) is never freed here.</param>
-        public static unsafe void Cleanup(object[] holder, int startIndex = 1)
+        public RetainedSelfPtr? SelfRetain { get; set; }
+
+        /// <summary>A struct receiver's SafeHandle whose DangerousAddRef is balanced by DangerousRelease here.</summary>
+        public DeferredSafeHandleRelease? DeferredSelfHandle { get; set; }
+
+        /// <summary>Non-frozen / frozen-blittable parameter copy buffers, destroyed then freed.</summary>
+        public List<CopyBufferWithType> CopyBuffers { get; } = new();
+
+        /// <summary>Existential-container heap buffers, destroyed (when owned) then freed.</summary>
+        public List<ExistentialContainerHeap> ExistentialHeaps { get; } = new();
+
+        /// <summary>Deferred <see cref="IDisposable"/> containers (serialization buffers) disposed after the call.</summary>
+        public AsyncDeferredDisposeList? DeferredDisposes { get; set; }
+
+        /// <summary>The cancellation-token registration disposed after the call.</summary>
+        public CancellationRegistrationHolder? CancellationRegistration { get; set; }
+
+        /// <summary>
+        /// Managed references kept alive purely as GC roots for the duration of the call (the
+        /// receiver <c>this</c>, original non-frozen parameter objects whose buffers were copied,
+        /// and ISwiftObject-typed held arguments). No release action — cleared after the call so
+        /// they become collectible.
+        /// </summary>
+        public List<object> KeepAlives { get; } = new();
+
+        /// <summary>
+        /// Releases every owned field. Safe to call more than once (processed fields are cleared)
+        /// and never throws (each release is best-effort). <see cref="Tcs"/> is never released.
+        /// </summary>
+        public unsafe void Cleanup()
         {
-            for (int i = startIndex; i < holder.Length; i++)
+            if (SelfRetain is { } retained)
             {
                 try
                 {
-                    if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        // Self was retained via the isa-dispatching Arc.UnknownObjectRetain at every
-                        // emission site (self may be an @objc:NSObject-rooted class or a pure-Swift
-                        // class), so the balancing release MUST also isa-dispatch. Native-only
-                        // Arc.Release (swift_release) over-releases an @objc self — its
-                        // swift_isDeallocating precheck misreads the ObjC refcount word and the
-                        // decrement drives the object to premature deinit (issue #40 self-retain
-                        // SIGSEGV). This runs on the Swift continuation thread, never the GC
-                        // finalizer, so the direct UnknownObjectRelease is the correct entry point.
+                    // Self was retained via the isa-dispatching Arc.UnknownObjectRetain at the
+                    // emission site (self may be an @objc:NSObject-rooted class or a pure-Swift
+                    // class), so the balancing release MUST also isa-dispatch. Native-only
+                    // Arc.Release (swift_release) over-releases an @objc self — its
+                    // swift_isDeallocating precheck misreads the ObjC refcount word and the
+                    // decrement drives the object to premature deinit (issue #40 self-retain
+                    // SIGSEGV). This runs on the Swift continuation thread, never the GC
+                    // finalizer, so the direct UnknownObjectRelease is the correct entry point.
+                    if (retained.Ptr != IntPtr.Zero)
                         Arc.UnknownObjectRelease(retained.Ptr);
-                    else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        deferred.Handle.DangerousRelease();
-                    else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                }
+                catch { }
+                finally { SelfRetain = null; }
+            }
+
+            if (DeferredSelfHandle is { } deferred)
+            {
+                try { deferred.Handle.DangerousRelease(); }
+                catch { }
+                finally { DeferredSelfHandle = null; }
+            }
+
+            if (CopyBuffers.Count > 0)
+            {
+                foreach (var copyBuffer in CopyBuffers)
+                {
+                    try
                     {
-                        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                        NativeMemory.Free((void*)copyBuffer.Buffer);
+                        if (copyBuffer.Buffer != IntPtr.Zero)
+                        {
+                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                        }
                     }
-                    else if (holder[i] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
+                    catch { }
+                }
+                CopyBuffers.Clear();
+            }
+
+            if (ExistentialHeaps.Count > 0)
+            {
+                foreach (var existentialHeap in ExistentialHeaps)
+                {
+                    try
                     {
-                        // A boxable value conformer was freshly boxed at +1 into this
-                        // buffer; balance it with the existential value-witness destroy now that
-                        // the continuation has finished reading the @in_guaranteed buffer. The
+                        // A boxable value conformer was freshly boxed at +1 into this buffer;
+                        // balance it with the existential value-witness destroy now that the
+                        // continuation has finished reading the @in_guaranteed buffer. The
                         // centralized helper applies the owns-gate (borrowed proxy containers,
                         // OwnsContainer == false, are freed but never destroyed), the
                         // metadata-unavailable try/catch, and the buffer free.
-                        ExistentialContainerFactory.DestroyAndFreeExistential(
-                            (void*)existentialHeap.Ptr,
-                            existentialHeap.WitnessTableCount,
-                            existentialHeap.OwnsContainer);
+                        if (existentialHeap.Ptr != IntPtr.Zero)
+                            ExistentialContainerFactory.DestroyAndFreeExistential(
+                                (void*)existentialHeap.Ptr,
+                                existentialHeap.WitnessTableCount,
+                                existentialHeap.OwnsContainer);
                     }
-                    else if (holder[i] is AsyncDeferredDisposeList deferredList)
-                    {
-                        foreach (var item in deferredList.Items)
-                        {
-                            try { item.Dispose(); }
-                            catch
-                            {
-                                // Best-effort: a faulting user Dispose must not abort the
-                                // [UnmanagedCallersOnly] callback or skip its sibling frees.
-                            }
-                        }
-                    }
-                    else if (holder[i] is CancellationRegistrationHolder cancelReg)
-                        cancelReg.Registration.Dispose();
+                    catch { }
                 }
-                catch
-                {
-                    // Best-effort: cleanup runs on the callback thread that re-enters from native
-                    // Swift. A throw escaping here unwinds into native and aborts the process
-                    // (SIGABRT). Swallow per-slot so one faulting release can neither abort the
-                    // process nor skip the remaining slots.
-                }
-                finally
-                {
-                    // Idempotent: clear the slot so a second cleanup pass (the fault catch
-                    // re-running after a partially-completed success path) cannot double-free.
-                    holder[i] = null!;
-                }
+                ExistentialHeaps.Clear();
             }
+
+            if (DeferredDisposes is { } deferredList)
+            {
+                foreach (var item in deferredList.Items)
+                {
+                    try { item.Dispose(); }
+                    catch
+                    {
+                        // Best-effort: a faulting user Dispose must not abort the
+                        // [UnmanagedCallersOnly] callback or skip its sibling frees.
+                    }
+                }
+                DeferredDisposes = null;
+            }
+
+            if (CancellationRegistration is { } cancelReg)
+            {
+                try { cancelReg.Registration.Dispose(); }
+                catch { }
+                finally { CancellationRegistration = null; }
+            }
+
+            // GC roots only — no release action; clear so they become collectible.
+            KeepAlives.Clear();
         }
 
         /// <summary>
         /// Returns the <see cref="System.Threading.CancellationToken"/> captured at registration
-        /// time from the holder's <see cref="CancellationRegistrationHolder"/> slot (or
-        /// <c>default</c> if none). Read-only — does NOT free or clear any slot — so it is safe
-        /// to call before <see cref="Cleanup"/> on the Swift-reported cancellation path, where the
-        /// token is needed for <c>TrySetCanceled</c>.
+        /// time (or <c>default</c> if none). Read-only — does NOT free or clear any field — so it
+        /// is safe to call before <see cref="Cleanup"/> on the Swift-reported cancellation path,
+        /// where the token is needed for <c>TrySetCanceled</c>.
         /// </summary>
-        public static System.Threading.CancellationToken CaptureCancellationToken(object[] holder, int startIndex = 1)
-        {
-            for (int i = startIndex; i < holder.Length; i++)
-            {
-                if (holder[i] is CancellationRegistrationHolder cancelReg)
-                    return cancelReg.Token;
-            }
-            return default;
-        }
+        public System.Threading.CancellationToken CaptureCancellationToken()
+            => CancellationRegistration?.Token ?? default;
     }
 }

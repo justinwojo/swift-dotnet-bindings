@@ -512,15 +512,10 @@ namespace BindingsGeneration
             if (!_env.MethodDecl.UsesCdeclWrapper)
                 return;
 
-            // For async methods the cleanup is owned by the callback's holder-cleanup loop
-            // (see ExistentialContainerHeap in AsyncHelpers.cs and the matching branch in
-            // AsyncHarnessEmitter.BuildHolderCleanupCode). Track which holder slot each
-            // heap takes — the trailing `null!` cancellation slot stays last, so the
-            // existential slots sit at Length-1-existentialCount .. Length-2. They were
-            // reserved in EmitAsync via existentialPlaceholders.
+            // For async methods the cleanup is owned by the typed holder's Cleanup() (see
+            // ExistentialContainerHeap in AsyncHelpers.cs). Each heap buffer is appended to the
+            // holder's ExistentialHeaps list in marshalling order; the callback frees them.
             bool isAsync = _requiresSwiftAsync;
-            int existentialIndex = 0;
-            int existentialTotal = _existentialHeapNames.Count;
 
             foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
                 .Where(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec)))
@@ -566,9 +561,6 @@ namespace BindingsGeneration
 
                 if (isAsync)
                 {
-                    // Slot index counts back from the trailing cancellation slot (Length-1)
-                    // and forward through the reserved existential slots.
-                    int reverseOffset = existentialTotal - existentialIndex;
                     // The foreground finally is skipped for async; the holder carries the owns-bit
                     // + witness count so the callback cleanup runs the existential destroy after
                     // the continuation drains the @in_guaranteed buffer. BOTH holders also carry the
@@ -579,8 +571,7 @@ namespace BindingsGeneration
                     var holderCtor = owningCandidate
                         ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {protocolList.Protocols.Count}, {csName}KeepAlive)"
                         : $"new ExistentialContainerHeap((IntPtr){csName}Heap, false, {protocolList.Protocols.Count}, {csName})";
-                    csWriter.WriteLine($"_asyncCallHolder[_asyncCallHolder.Length - 1 - {reverseOffset}] = {holderCtor};");
-                    existentialIndex++;
+                    csWriter.WriteLine($"_asyncCallHolder.ExistentialHeaps.Add({holderCtor});");
                 }
             }
         }
@@ -1449,7 +1440,7 @@ namespace BindingsGeneration
             }
 
             // NOTE: Async non-frozen parameters are NOT released here.
-            // They are kept alive by the GCHandle (in the object[] holder) until the callback fires.
+            // They are kept alive by the GCHandle (in the typed holder's KeepAlives/CopyBuffers) until the callback fires.
             // This prevents SIGSEGV crashes caused by GC finalizing the parameter while Swift's
             // async Task is still pending and may access copy-on-write shared storage.
         }
