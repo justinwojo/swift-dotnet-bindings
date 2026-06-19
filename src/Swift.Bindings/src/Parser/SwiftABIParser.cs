@@ -473,12 +473,11 @@ namespace BindingsGeneration
         /// the node has no parameter children.
         /// <para/>
         /// Exposed to the test assembly via <c>InternalsVisibleTo</c> (same precedent as
-        /// <see cref="MergeAccessorAvailability"/>) so the third producer of the
-        /// availability disamb signature — the ABI consumer — can be asserted byte-equal
-        /// to the two interface-text producers (regex + SwiftSyntax) without staging a
+        /// <see cref="MergeAccessorAvailability"/>) so the ABI consumer side of the
+        /// availability disamb signature can be asserted byte-equal to
+        /// <see cref="SwiftSyntaxInterfaceFactsProducer"/>'s output without staging a
         /// full ABI-JSON fixture. The index-0 return-type skip and the per-child
-        /// <c>printedName</c> normalization are the consumer-specific behavior the
-        /// cross-producer parity corpus (regex ⇄ SwiftSyntax) cannot reach (Finding 46).
+        /// <c>printedName</c> normalization are the consumer-specific behavior (Finding 46).
         /// </summary>
         internal static string ComputeAbiParamSignature(Node node)
         {
@@ -1638,9 +1637,9 @@ namespace BindingsGeneration
         /// (non-<c>@_spi</c>) <c>import</c> at wrapper compile time. ABI JSON ships every
         /// conformance regardless of access, so without this filter the generator would emit
         /// wrapper code (<c>==</c> operator wrappers, <c>JSONEncoder().encode(value)</c>
-        /// stubs, etc.) that fails to typecheck. The SPI fact is harvested by
-        /// <see cref="SwiftInterfaceAccessParser.GetSpiOnlyConformances"/> and threaded in
-        /// via <see cref="SwiftInterfaceFacts.SpiOnlyConformances"/>.
+        /// stubs, etc.) that fails to typecheck. The SPI fact is extracted from the sibling
+        /// <c>*.private.swiftinterface</c> and threaded in via
+        /// <see cref="SwiftInterfaceFacts.SpiOnlyConformances"/>.
         /// </summary>
         private List<TypeConformance> BuildFilteredConformances(Node node, SwiftTypeName swiftTypeName)
         {
@@ -2120,8 +2119,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Builds a fully-qualified type path by walking up the parent chain.
-        /// Matches the dot-joined format used by SwiftInterfaceAccessParser's type stack.
-        /// e.g., for Status nested inside OrderContainer: "OrderContainer.Status"
+        /// Returns a dot-joined string, e.g., "OrderContainer.Status" for Status nested
+        /// inside OrderContainer.
         /// </summary>
         private static string BuildTypeQualifiedPath(TypeDecl typeDecl)
         {

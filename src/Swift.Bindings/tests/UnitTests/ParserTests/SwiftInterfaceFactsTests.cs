@@ -58,8 +58,8 @@ public class SwiftInterfaceFactsTests
     {
         // Each fact field must be a HashSet<...>, Dictionary<...,...>, or List<...> — concrete
         // collection types that Program.GenerateBindings can populate without interface
-        // conversions. List backs ExtensionMemberCandidates, which
-        // is order-sensitive (regex producer walks the file top-to-bottom).
+        // conversions. List backs ExtensionMemberCandidates, which is order-sensitive
+        // (the SwiftSyntax host walks the file top-to-bottom).
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null);
@@ -258,7 +258,7 @@ public class SwiftInterfaceFactsTests
 
     // Finding 23 — @objc(CustomName) end-to-end generator-golden (full chain, not just pass-through).
     [Fact]
-    public void ObjCRuntimeName_RealSwiftInterface_FlowsThroughToEmittedSidecar()
+    public void ObjCRuntimeName_FlowsThroughToEmittedSidecar()
     {
         // ISSUE C(#1) generator-golden for F23's linchpin (@objc(CustomName)). A true sim
         // "round-trip through ObjC registration" is infeasible AND meaningless here: the custom
@@ -267,26 +267,21 @@ public class SwiftInterfaceFactsTests
         // time to drop ObjC @interface decls a mixed framework's Swift side already owns. BindingTests
         // is a pure-Swift pipeline, so that consumer never fires on-device. The single ABI-observable
         // artifact is therefore the emitted sidecar, asserted full-chain below:
-        //   real .swiftinterface text → GetObjCRuntimeNames (regex parse)
-        //     → SwiftInterfaceFacts.ObjCRuntimeNames
+        //   ObjCRuntimeNames fact (top-level key "Widget" → "MOSWidget")
         //     → SwiftABIParser.ApplyObjCRuntimeName (qualified-path bridge → TypeDecl.ObjCRuntimeName)
         //     → SwiftTypeOwnershipManifestEmitter.Emit (swift-types.json) → ReadOwnedObjCRuntimeNames
-        var ifacePath = Path.GetTempFileName();
+        // The host's extraction of @objc(CustomName) from real .swiftinterface text into the
+        // ObjCRuntimeNames fact is covered by
+        // SwiftSyntaxInterfaceFactsProducerTests.ObjCRuntimeName_ExtractsCustomName; this test starts
+        // from that fact and exercises the ApplyObjCRuntimeName bridge no other test covers.
         var outDir = Directory.CreateTempSubdirectory("sb-objc-customname-");
         try
         {
-            File.WriteAllText(ifacePath,
-                "import Foundation\n" +
-                "@objc(MOSWidget) public class Widget {\n" +
-                "  @objc public init()\n" +
-                "}\n");
-
-            // 1. Real regex parse of the .swiftinterface → runtime-name map (top-level key = "Widget").
-            var runtimeNames = SwiftInterfaceAccessParser.GetObjCRuntimeNames(ifacePath);
-            Assert.Equal("MOSWidget", runtimeNames["Widget"]);
+            // 1. The ObjCRuntimeNames fact as the host produces it (top-level key = "Widget").
+            var runtimeNames = new Dictionary<string, string> { ["Widget"] = "MOSWidget" };
 
             // 2. Facts → parser → model. Exercises ApplyObjCRuntimeName + BuildTypeQualifiedPath, the
-            //    one bridge no other test covers (parser tests stop at the map; manifest tests start
+            //    one bridge no other test covers (producer tests stop at the map; manifest tests start
             //    from a model with ObjCRuntimeName already set).
             var facts = SwiftInterfaceFacts.Empty with { ObjCRuntimeNames = runtimeNames };
             var module = ParseModuleDecl(facts, "Widget", "Class");
@@ -305,7 +300,6 @@ public class SwiftInterfaceFactsTests
         }
         finally
         {
-            File.Delete(ifacePath);
             outDir.Delete(recursive: true);
         }
     }
@@ -458,7 +452,7 @@ public class SwiftInterfaceFactsTests
     {
         // `Mod.MyProto` where the typePath segment ("MyProto") matches a ProtocolNames entry —
         // even though it's qualified, the protocol-exclusion check uses typePath after the
-        // first dot. This is the same behavior as the legacy regex producer.
+        // first dot.
         var facts = SwiftInterfaceFacts.Empty with
         {
             ProtocolNames = new HashSet<string> { "MyProto" },

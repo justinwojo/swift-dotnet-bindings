@@ -50,8 +50,8 @@ public struct OverloadDeprecationCarrier {
 // 1. Parser side: `@available` survival on protocol members declared
 //    without an explicit access modifier (the @objc optional func / bare
 //    protocol requirement shape). Covered by
-//    `GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier`
-//    in `SwiftInterfaceAccessParserTests.cs`.
+//    `Availability_OnProtocolRequirementsWithoutAccessModifier_IsHarvested`
+//    in `SwiftSyntaxInterfaceFactsProducerTests.cs`.
 //
 // 2. Emitter side: the auto-emitted protocol-proxy class for any
 //    `@available`-gated protocol must inherit the protocol's

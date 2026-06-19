@@ -8,10 +8,9 @@ import SwiftParser
 /// Walks the syntax tree of a .swiftinterface and surfaces `availabilityAnnotations`
 /// + `availabilityAnnotationPositions`.
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser.GetAvailabilityAnnotations`:
+/// EXTRACTION CONTRACT:
 ///
-/// 1. **Three sources combined per decl** (see `CollectAvailabilityAnnotations`,
-///    SwiftInterfaceAccessParser.cs:3505). For each emitting decl, we concatenate
+/// 1. **Three sources combined per decl**. For each emitting decl, we concatenate
 ///    in order:
 ///      a) Pending annotation lines (preceding `@available(...)` lines on
 ///         standalone attribute lines). SwiftSyntax already groups all attributes
@@ -22,49 +21,44 @@ import SwiftParser
 ///      c) Inline `@available` clauses on the decl itself. Same pool as (a) for
 ///         SwiftSyntax.
 ///
-/// 2. **Decl key shape** (matches `tracker.QualifiedTypePath` /
-///    `tracker.BuildMemberKey`):
+/// 2. **Decl key shape**:
 ///      - Type-level: full nested type path (e.g., `"Outer.Inner"`). For extensions,
 ///        the leading module dot-component is stripped (`extension Mod.X` → key prefix
 ///        is `"X"`).
 ///      - Member: `"<typePath>.<printedName>"`. For free functions: bare `printedName`.
 ///      - Grouped enum cases (`case foo, bar(Int)`): one entry per case name.
 ///
-/// 3. **Member-printedName extraction policy**: only public/open members + any
-///    enum case + any subscript with `public|open` qualify
-///    (`SwiftInterfaceContextTracker.ExtractMemberPrintedName`, lines 231-253). Bare
-///    protocol requirements are NOT keyed by the regex parser — we mirror that. A
-///    SEMANTIC CLIFF: SwiftSyntax could see and key bare protocol-requirement
-///    members; the regex misses them.
+/// 3. **Member-printedName extraction policy**: OUTSIDE a protocol body only
+///    public/open members + any enum case + any subscript with `public|open`
+///    qualify (the modifier-shape gate). INSIDE a protocol body that shape gate
+///    is SKIPPED, so bare protocol requirements — which carry no access modifier
+///    in `.swiftinterface` text — ARE keyed with their `@available` floor. This is
+///    the Family-F-2 protocol-scope lift (member visitors gate on `isInsideProtocol`);
+///    pinned by `Availability_OnProtocolRequirementsWithoutAccessModifier_IsHarvested`.
 ///
 /// 4. **Position calculation**: 1-based line/column landing on the decl keyword
-///    after skipping inline `@xxx(...)` annotations, mirroring
-///    `SkipLeadingAnnotations` (line 3683). For SwiftSyntax we use the position of
-///    the FIRST decl modifier or — when no modifiers — the decl keyword token.
-///    Multi-line member signatures: the regex points at the line where the multi-
-///    line completes (line 3373), not the opening line. SwiftSyntax naturally has
-///    the opening line — we deliberately apply a one-line-shift for byte parity.
+///    after skipping inline `@xxx(...)` annotations. The position is the FIRST
+///    decl modifier or — when no modifiers — the decl keyword token.
+///    Multi-line member signatures: the walker uses the CLOSING line of the
+///    signature (where the paren-balanced parameter list completes), not the
+///    opening line. For single-line decls the two coincide.
 ///
-///    SEMANTIC CLIFF: the regex's last-line behavior is documented as imprecision
-///    that "tightens when SwiftSyntax replaces the regex parser post-1.0". To
-///    maintain byte-equal parity we mirror the regex (last-line); a future pass
-///    will flip this to the correct opening-line behavior.
+///    SEMANTIC CLIFF: closing-line positioning is a known imprecision; a future
+///    pass will flip this to opening-line behavior.
 ///
-/// 5. **First-position-wins**: `if (!positions.ContainsKey(key))` at line 3416.
-///    Repeated decls with the same key keep the first observed line.
+/// 5. **First-position-wins**: repeated decls with the same key keep the first
+///    observed line.
 ///
-/// 6. **Annotations append on duplicate keys** (`AddAnnotations` at line 3773).
-///    Stacked declarations of the same key (e.g., extension members) accumulate
-///    annotations; we mirror.
+/// 6. **Annotations append on duplicate keys**: stacked declarations of the same
+///    key (e.g., extension members) accumulate annotations.
 ///
-/// 7. **Three @available clause forms** parsed inside `parseAvailableClause`
-///    (lines 3571-3675):
+/// 7. **Three @available clause forms** parsed inside `parseAvailableClause`:
 ///      a) Per-platform lifecycle: `@available(iOS, introduced: 10, deprecated: 12)`.
 ///      b) Unconditional: `@available(*, deprecated, message: "...")`.
 ///      c) Shorthand multi-platform: `@available(iOS 16.0, macOS 13, *)`.
 ///    Skip `swift`, `SwiftStdlib`, `_PackageDescription` first-tokens entirely.
-///    Only known platforms (`IsKnownPlatform`, line 3741) emit; unknown shorthand
-///    platforms drop silently (regex parity quirk).
+///    Only known platforms (`IsKnownPlatform`) emit; unknown shorthand
+///    platforms drop silently (`visionOSApplicationExtension` is excluded).
 ///
 /// 8. **Platform name normalization**: ApplicationExtension variants normalize to
 ///    their base platform (`iOSApplicationExtension` → `iOS`).
@@ -78,24 +72,23 @@ final class AvailabilityWalker: SyntaxVisitor {
     private(set) var availabilityAnnotationPositions: [String: SourcePositionJson] = [:]
 
     /// Scope tracking. `name` is the simple type name (or first-dot-stripped path
-    /// for extensions). `isExtension` matches the regex tracker's flag.
+    /// for extensions). `isExtension` is true for extension scopes.
     /// `isProtocol` is true when the scope is a `protocol` body — used to lift
     /// the modifier-shape gate on protocol requirements (Family-F-2: protocol
     /// methods have no `public`/`open` modifier and are otherwise skipped by the
-    /// shape regex, dropping their `@available` clauses).
+    /// shape gate, dropping their `@available` clauses).
     private struct Scope {
         let name: String
         let isExtension: Bool
         let isProtocol: Bool
         /// Annotations declared on the extension decl itself, applied to every
-        /// member inside. Only populated when `isExtension == true`. Mirrors the
-        /// regex tracker's pending-OR-inline exclusivity (line 145-157).
+        /// member inside. Only populated when `isExtension == true`. See
+        /// pending-OR-inline exclusivity logic in `visit(_: ExtensionDeclSyntax)`.
         let extensionScopeAttributes: [AttributeSyntax]
     }
     private var scopeStack: [Scope] = []
 
-    /// True when the innermost non-extension scope is a protocol body. Mirrors
-    /// `SwiftInterfaceContextTracker.IsInsideProtocol` on the .NET side.
+    /// True when the innermost non-extension scope is a protocol body.
     private var isInsideProtocol: Bool {
         for scope in scopeStack.reversed() where !scope.isExtension {
             return scope.isProtocol
@@ -120,15 +113,14 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// overloaded → disambiguate.
     private var memberSignatures: [String: Set<String>] = [:]
 
-    // Modifier-shape gates mirroring the regex's PublicFuncRegex / PublicInitRegex /
-    // PublicVarRegex / subscript regex. ORDER matters in the regex (anchored
-    // sequence), so we step through `node.modifiers` in source order and reject any
-    // modifier outside the regex's pattern OR appearing in the wrong slot. ANY
-    // modifier mismatch causes the regex to skip the line entirely (`override`,
-    // `weak`, `required`, `nonisolated`, `dynamic`, `lazy`, `unowned`,
-    // `nonmutating`, `indirect`, `final`-after-`mutating`, etc.). For byte-equal
-    // parity we mirror the rejection. SEMANTIC CLIFF: SwiftSyntax could see all of
-    // these modifiers, but the regex parser cannot.
+    // Modifier-shape gates for PublicFuncRegex / PublicInitRegex / PublicVarRegex /
+    // subscript shapes. ORDER matters — the walker steps through `node.modifiers` in
+    // source order and rejects any modifier that falls outside the allowed sequence
+    // or appears in the wrong slot. ANY modifier mismatch causes the decl to be
+    // skipped entirely (`override`, `weak`, `required`, `nonisolated`, `dynamic`,
+    // `lazy`, `unowned`, `nonmutating`, `indirect`, `final`-after-`mutating`, etc.).
+    // SEMANTIC CLIFF: SwiftSyntax sees all of these modifiers, but the line-shape
+    // patterns do not admit them.
 
     init(filePath: String, source: String) {
         self.filePath = filePath
@@ -158,8 +150,7 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// Folds staged member annotations into `availabilityAnnotations` after the
-    /// visit pass completes. Mirrors the .NET-side staging logic in
-    /// `SwiftInterfaceAccessParser.GetAvailabilityAnnotations`:
+    /// visit pass completes:
     ///   - bare key has 1 distinct sig → store under bare key (legacy)
     ///   - bare key has 2+ distinct sigs → store each annotation list under
     ///     `{bareKey}|{sig}` and remove the bare-key position entry so an
@@ -267,25 +258,20 @@ final class AvailabilityWalker: SyntaxVisitor {
         return out
     }
 
-    /// Compute byte-equal position for a decl. Matches the regex parser's
-    /// per-line semantics:
+    /// Compute the position for a decl. Column lands on the first non-attribute
+    /// token (modifier or keyword), derived as:
     ///   `column = leading + SkipLeadingAnnotations(trimmed) + 1`
-    /// applied on the LINE WHERE THE TRACKER FIRES MemberLine. For single-line
-    /// decls that's the only line. For multi-line member signatures the regex
-    /// fires on the CLOSING line of the parens (line 3373 in the parser); the
-    /// stored position is `(closingLine, leading + 1)` since the closing line
-    /// has no `@xxx` annotations to skip.
     ///
     /// IMPLEMENTATION:
     /// - `anchor` is the first non-attribute token of the decl (modifier or
     ///   keyword) — gives us the opening-line column post-attribute-skip.
     /// - `endPos` is the line of the decl's last token before trailing trivia.
     /// - If single-line: emit (anchor.line, anchor.column).
-    /// - If multi-line: emit (endLine, leadingWhitespace(endLine)+1) — exactly
-    ///   what the regex emits on the closing line.
+    /// - If multi-line: emit (endLine, leadingWhitespace(endLine)+1) — the
+    ///   closing-line value.
     ///
-    /// SEMANTIC CLIFF: multi-line opening-line would be more correct; we mirror
-    /// the regex's last-line behavior for byte-equal parity.
+    /// SEMANTIC CLIFF: multi-line opening-line would be more correct; uses the
+    /// last-line value for now.
     private func declarationPosition(anchor: TokenSyntax, declEnd: AbsolutePosition) -> SourcePositionJson? {
         let anchorLoc = converter.location(for: anchor.positionAfterSkippingLeadingTrivia)
         let endLoc = converter.location(for: declEnd)
@@ -307,8 +293,8 @@ final class AvailabilityWalker: SyntaxVisitor {
 
     /// Return the 1-based column of the first non-whitespace character on the
     /// given 1-based source line. Returns 1 if the line is missing or blank.
-    /// Mirrors `leading + 1` from the regex parser where `leading = line.Length -
-    /// line.TrimStart().Length`.
+    /// Computed as `leading + 1` where `leading` is the count of leading
+    /// space/tab characters.
     private func leadingWhitespaceColumn(forLine line1Based: Int) -> Int {
         let idx = line1Based - 1
         guard idx >= 0 && idx < sourceLines.count else { return 1 }
@@ -352,14 +338,13 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// PublicFuncRegex shape: `(public|open) final? (static|class)? (mutating|consuming|borrowing)? func`.
-    /// CRITICAL PARITY DETAIL: the regex is UNANCHORED — `Match` scans the line for
-    /// the access keyword and checks the ALLOWED-AFTER sequence up to `func`. Any
-    /// modifiers BEFORE the access keyword (`@MainActor`, `nonisolated`, `final`,
-    /// `weak`, `dynamic`, attributes that survive into the modifier list, …) are
-    /// invisible to the regex because it didn't see them at the access keyword.
+    /// UNANCHORED scan: the match starts at the first `public`/`open` modifier and
+    /// checks the ALLOWED-AFTER sequence up to `func`. Any modifiers BEFORE the
+    /// access keyword (`@MainActor`, `nonisolated`, `final`, `weak`, `dynamic`,
+    /// attributes that survive into the modifier list, …) are tolerated and ignored.
     /// Once the access keyword is found, modifiers AFTER it must follow the strict
     /// pattern — anything outside that sequence (e.g., `nonisolated` between
-    /// `public` and `func`) breaks the match. We mirror by ignoring everything up
+    /// `public` and `func`) breaks the match. Implemented by ignoring everything up
     /// to and including the first `public`/`open` modifier and validating the tail.
     private func matchesPublicFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
@@ -380,7 +365,7 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// PublicInitRegex shape: `(public|open) convenience? init`.
-    /// Same unanchored-match parity rule as `matchesPublicFuncShape`.
+    /// Same unanchored-match rule as `matchesPublicFuncShape`.
     private func matchesPublicInitShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "open"]) else { return false }
@@ -392,7 +377,7 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// PublicVarRegex shape: `(public|open) ((private|internal|public)\(set\))?
-    /// final? (static|class)? (var|let)`. Same unanchored-match parity rule.
+    /// final? (static|class)? (var|let)`. Same unanchored-match rule.
     private func matchesPublicVarShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "open"]) else { return false }
@@ -414,13 +399,12 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// TypeDeclRegex shape: `(public|internal|open) final? (class|struct|enum|actor|protocol) Name`.
-    /// Tracker also requires the line to contain `{` (line 125: `openBraces > 0`),
-    /// which we mirror by checking that the type-keyword and `{` are on the same
-    /// source line. Mirrors the regex's same-line gating.
+    /// The type-keyword and `{` must be on the same source line — the walker
+    /// enforces this via `typeOpensOnSameLine`.
     ///
-    /// Same unanchored-match parity rule as `matchesPublicFuncShape` — modifiers
-    /// before access (`final public class TipGroup`, `@objc public class Foo`, …)
-    /// are tolerated because the regex doesn't see them.
+    /// Same unanchored-match rule as `matchesPublicFuncShape` — modifiers before
+    /// access (`final public class TipGroup`, `@objc public class Foo`, …) are
+    /// tolerated and ignored.
     private func matchesPublicTypeShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "internal", "open"]) else { return false }
@@ -434,8 +418,8 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// Iterator helper: consume modifiers until we find one whose `name.text` is in
     /// `accessTexts` AND whose `detail` is nil. Returns `true` and leaves the iterator
     /// positioned just after the access modifier; `false` if no matching access
-    /// modifier exists in the list. Mirrors the regex's unanchored search for the
-    /// access keyword in the line.
+    /// modifier exists in the list. Implements the unanchored scan for the access
+    /// keyword.
     private func advanceToAccess(_ iter: inout DeclModifierListSyntax.Iterator, _ accessTexts: [String]) -> Bool {
         while let mod = iter.next() {
             if accessTexts.contains(mod.name.text) && mod.detail == nil {
@@ -446,16 +430,16 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// True iff the type's keyword and its body's opening `{` are on the same
-    /// source line (regex requires this — `openBraces > 0` on the same trimmedLine
-    /// as the TypeDeclRegex match at line 125 of the tracker).
+    /// source line. Types whose body opens on a later line are not pushed onto
+    /// the scope stack.
     private func typeOpensOnSameLine(keyword: TokenSyntax, leftBrace: TokenSyntax) -> Bool {
         let kwLine = converter.location(for: keyword.positionAfterSkippingLeadingTrivia).line
         let braceLine = converter.location(for: leftBrace.positionAfterSkippingLeadingTrivia).line
         return kwLine == braceLine
     }
 
-    /// Subscript regex shape: `(public|open) static? subscript`.
-    /// Same unanchored-match parity rule as `matchesPublicFuncShape`.
+    /// Subscript shape: `(public|open) static? subscript`.
+    /// Same unanchored-match rule as `matchesPublicFuncShape`.
     private func matchesPublicSubscriptShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "open"]) else { return false }
@@ -466,19 +450,17 @@ final class AvailabilityWalker: SyntaxVisitor {
         return current == nil
     }
 
-    /// Returns the AbsolutePosition that the regex parser would treat as "the line
-    /// where MemberLine fires" — the position of the last token of the decl
-    /// signature (excluding any body / accessor block / trailing trivia). Mirrors
-    /// the regex's pumped-line completion semantics.
+    /// Returns the position of the last token of the decl signature (excluding
+    /// any body / accessor block / trailing trivia) — the point where paren-
+    /// balanced signature completion is detected.
     private func declSignatureEnd(_ node: SyntaxProtocol) -> AbsolutePosition {
         return node.endPositionBeforeTrailingTrivia
     }
 
     /// Signature end for VariableDeclSyntax — stops BEFORE the accessor block (`{
-    /// get }`). The regex tracker tracks paren balance only (HasUnmatchedOpenParen),
-    /// so a property's accessor block doesn't trigger a multi-line continuation;
-    /// MemberLine fires on the line containing `var <name>: <Type>`. We mirror
-    /// by ending the signature at whichever-comes-last among:
+    /// get }`). Paren-balance tracking only considers the type annotation and
+    /// initializer, not the accessor block, so the signature ends on the line
+    /// containing `var <name>: <Type>`. Uses whichever-comes-last among:
     /// `accessorBlock.position`, `initializer.endPos`, `typeAnnotation.endPos`,
     /// `pattern.endPos`.
     private func signatureEndForVar(_ node: VariableDeclSyntax) -> AbsolutePosition {
@@ -499,8 +481,8 @@ final class AvailabilityWalker: SyntaxVisitor {
 
     /// Signature end for SubscriptDeclSyntax — stops BEFORE the accessor block.
     /// Like properties, subscripts have a paren-balanced signature and an
-    /// optional `{ get set }` block; the regex's MemberLine fires on the line
-    /// where the param-clause parens close.
+    /// optional `{ get set }` block; the signature end is the line where the
+    /// param-clause parens close.
     private func signatureEndForSubscript(_ node: SubscriptDeclSyntax) -> AbsolutePosition {
         if let accessor = node.accessorBlock {
             return accessor.position
@@ -517,14 +499,14 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// `visitPost` consults this to decide whether to pop. Stored as a stack so
     /// nested types each manage their own push state. The inner Bool is `true`
     /// when scope was pushed (so should be popped); `false` when the type failed
-    /// the regex-parity gate and no scope was pushed.
+    /// the shape gate and no scope was pushed.
     private var scopePushed: [Bool] = []
 
     /// Common type-decl visit logic. Push scope and emit only when the type
-    /// passes the regex shape + same-line `{` gate. Member keying inside the
+    /// passes the modifier-shape + same-line `{` gate. Member keying inside the
     /// body still works because we push the scope in the gated path; for the
-    /// failing path, members under the body get keyed at module scope (matching
-    /// the regex tracker's behavior of never pushing the type onto its stack).
+    /// failing path, members under the body get keyed at module scope (the type
+    /// is never pushed onto the scope stack).
     private func visitTypeDecl(name: String,
                                 modifiers: DeclModifierListSyntax,
                                 attributes: AttributeListSyntax,
@@ -532,8 +514,8 @@ final class AvailabilityWalker: SyntaxVisitor {
                                 leftBrace: TokenSyntax,
                                 isProtocol: Bool = false) -> SyntaxVisitorContinueKind {
         // `PublicTypeDeclRegex` ends in bare `(\w+)` — backtick-escaped names
-        // (`public struct \`class\``) miss the regex capture, so SwiftSyntax must
-        // also skip pushing them.
+        // (`public struct \`class\``) fail the word-identifier gate and are not
+        // pushed onto the scope stack.
         if matchesPublicTypeShape(modifiers),
            RegexShape.isWordIdentifier(name),
            typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace) {
@@ -610,9 +592,8 @@ final class AvailabilityWalker: SyntaxVisitor {
     private var extensionScopePushed: [Bool] = []
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Regex parity: tracker only fires ExtensionDeclaration when the
-        // extension keyword and `{` are on the same source line (line 138:
-        // openBraces > 0). Mirror by checking the same.
+        // Extension scope is pushed only when the extension keyword and `{` are
+        // on the same source line.
         if !typeOpensOnSameLine(keyword: node.extensionKeyword, leftBrace: node.memberBlock.leftBrace) {
             extensionScopePushed.append(false)
             return .visitChildren
@@ -631,10 +612,9 @@ final class AvailabilityWalker: SyntaxVisitor {
         } else {
             stripped = qualified
         }
-        // Mirror regex tracker's pending-OR-inline exclusivity (lines 145-157):
-        // - "Pending" = attributes on lines BEFORE the `extension` keyword line.
-        // - "Inline" = attributes on the SAME line as the `extension` keyword.
-        // If pending exist, use only pending; otherwise use only inline.
+        // Pending-OR-inline exclusivity: if any attributes appear on lines BEFORE
+        // the `extension` keyword line ("pending"), use only those; otherwise use
+        // only attributes on the SAME line as the keyword ("inline").
         let extensionLine = converter.location(for: node.extensionKeyword.positionAfterSkippingLeadingTrivia).line
         var pending: [AttributeSyntax] = []
         var inline: [AttributeSyntax] = []
@@ -651,9 +631,8 @@ final class AvailabilityWalker: SyntaxVisitor {
         scopeStack.append(Scope(name: stripped, isExtension: true, isProtocol: false, extensionScopeAttributes: scopeAttrs))
         extensionScopePushed.append(true)
         // Note: extension decls themselves do NOT emit a key into
-        // `availabilityAnnotations` — the regex parser handles them via
-        // `tracker.ConsumePendingAnnotations()` in the ExtensionDeclaration case
-        // (line 3424-3426) without inserting into `result`. We mirror exactly.
+        // `availabilityAnnotations` — the extension's own annotations are
+        // consumed as scope annotations and applied to its members.
         return .visitChildren
     }
     override func visitPost(_ node: ExtensionDeclSyntax) {
@@ -670,10 +649,9 @@ final class AvailabilityWalker: SyntaxVisitor {
     // MARK: - Member declarations
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Order-strict shape gate matching PublicFuncRegex. SKIPPED inside protocol
+        // Order-strict PublicFuncRegex shape gate. SKIPPED inside protocol
         // bodies — protocol requirements have no access modifier in swiftinterface
-        // text (Family-F-2). The .NET-side regex parser uses bare regexes inside
-        // protocol scope; we mirror that here.
+        // text (Family-F-2).
         if !isInsideProtocol {
             guard matchesPublicFuncShape(node.modifiers) else {
                 return .skipChildren
@@ -685,8 +663,8 @@ final class AvailabilityWalker: SyntaxVisitor {
         // equality wrapper for retroactive Equatable conformances (e.g.
         // RealityFoundation.TextureResource — class is iOS 13+, Equatable is
         // iOS 18+) compiles at the type's lower @available than the conformance
-        // requires. Backtick-escaped identifier names (`var \`class\``) still miss
-        // the regex's `\w+` capture and are skipped.
+        // requires. Backtick-escaped identifier names (`var \`class\``) fail the
+        // word-identifier gate (`\w+`) and are skipped.
         guard RegexShape.isWordIdentifier(node.name.text) ||
               RegexShape.isOperatorIdentifier(node.name.text) else {
             return .skipChildren
@@ -727,8 +705,8 @@ final class AvailabilityWalker: SyntaxVisitor {
                 return .skipChildren
             }
         }
-        // First-binding identifier: regex `PublicVarRegex` captures only the first
-        // `(\w+)` after `var`/`let`. Mirror.
+        // First-binding identifier: the word-identifier gate (`\w+`) captures only
+        // the first identifier after `var`/`let`.
         guard let firstBinding = node.bindings.first,
               let identifier = firstBinding.pattern.as(IdentifierPatternSyntax.self) else {
             return .skipChildren
@@ -803,9 +781,9 @@ final class AvailabilityWalker: SyntaxVisitor {
         let paramList = params.parameters
         if paramList.isEmpty { return "\(funcName)()" }
         // Operators have no argument labels at the call site — the ABI printedName
-        // uses `_` for every parameter (`==(_:_:)`, not `==(lhs:rhs:)`). Mirror the
-        // C# regex parser's `IsOperatorName` substitution so the SwiftSyntax-produced
-        // key matches the ABI lookup key.
+        // uses `_` for every parameter (`==(_:_:)`, not `==(lhs:rhs:)`). The
+        // `IsOperatorName` substitution ensures the walker-produced key matches
+        // the ABI lookup key.
         let funcIsOperator = RegexShape.isOperatorIdentifier(funcName)
         var labels: [String] = []
         for param in paramList {
@@ -844,7 +822,7 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// `Array<String>`) keep distinct signatures — stripping the generics outright
     /// would reintroduce the Family-F broadcast / merge bug.
     ///
-    /// LOAD-BEARING CROSS-LANGUAGE PARITY POINT (Finding 46). This function and its
+    /// LOAD-BEARING CROSS-LANGUAGE CONTRACT (Finding 46). This function and its
     /// helpers (`splitTopLevelCommas`, `canonicalizeCollectionSugar`) are a hand-written
     /// parallel implementation of the C# `MemberSignatureNormalizer.NormalizeParamType`.
     /// The contract is that both sides emit byte-identical output keys on every input
@@ -855,19 +833,17 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// string-literal-bearing type (those extra C# defenses are no-ops on these inputs).
     /// This Swift tool cannot call into the .NET generator, so the two implementations
     /// are duplicated by hand and their output keys must stay byte-identical — if they
-    /// drift, the availability annotation this producer stages under `"Type.printedName|sig"`
+    /// drift, the availability annotation staged under `"Type.printedName|sig"`
     /// lands under a key the .NET ABI consumer never looks up, and the `@available`
     /// floor silently detaches from its member. Any edit here MUST be mirrored verbatim
     /// in `MemberSignatureNormalizer.cs` (and vice versa) and re-proven by the
-    /// cross-producer corpus in `InterfaceFactsProducerParityTests`. The drift is
-    /// enforced-by-test, not enforced-by-construction: the C# side deliberately does NOT
+    /// cross-language normalizer corpus tests. The C# side deliberately does NOT
     /// route this through its unified `TypeSpecParser` grammar, because that grammar
     /// reprints differently (spaced generic commas, `Optional<Int>`, `()` for `Void`,
-    /// EOF-strict) and would desync this unchanged mirror. The clean fix that would
-    /// delete this duplication entirely is to key availability on a stable identity
-    /// (usr / mangled name) instead of a normalized textual signature — but a
-    /// `.swiftinterface` carries no usr/mangled name, so that is out-of-scope
-    /// Session 15 / Finding 3 work.
+    /// EOF-strict) and would desync this mirror. The clean fix that would delete this
+    /// duplication entirely is to key availability on a stable identity (usr / mangled
+    /// name) instead of a normalized textual signature — but a `.swiftinterface`
+    /// carries no usr/mangled name, so that is out-of-scope Finding 3 work.
     static func normalizeParamType(_ raw: String) -> String {
         var s = raw.trimmingCharacters(in: .whitespaces)
         let prefixes = ["inout", "borrowing", "consuming", "some", "any", "__owned", "__shared"]
@@ -983,10 +959,10 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// Splits `text` on commas at depth-0 with respect to `(`, `[`, and `<`.
     /// Mirrors `MemberSignatureNormalizer.SplitGenericArgsTopLevel` — necessary because
     /// `Dictionary<String, Array<Int>>`'s outer comma must split, but the inner
-    /// args of `Array<Int>` must not. (The C# side is intentionally the *unguarded*
+    /// args of `Array<Int>` must not. The C# side is intentionally the *unguarded*
     /// generic-arg splitter — NOT the arrow-guarded `SwiftTypeListText.SplitTopLevelParameters`
-    /// — so this Swift mirror must stay byte-equal; see the parity block above
-    /// `normalizeParamType`.)
+    /// — so this Swift implementation must produce the same splits; see the contract
+    /// block above `normalizeParamType`.
     private static func splitTopLevelCommas(_ text: String) -> [String] {
         var results: [String] = []
         var depth = 0
@@ -1038,13 +1014,11 @@ final class AvailabilityWalker: SyntaxVisitor {
     // MARK: - @available parsing
 
     /// Parse a single `@available(...)` attribute into one or more
-    /// AvailabilityAnnotationJson records. Mirrors `ParseAvailableClause`
-    /// (SwiftInterfaceAccessParser.cs:3571).
+    /// AvailabilityAnnotationJson records. Delegates to `AvailabilityClauseParser`.
     private func parseAvailableAttribute(_ attr: AttributeSyntax) -> [AvailabilityAnnotationJson] {
         // The argument list shape for `@available` varies (per-platform vs. shorthand
-        // vs. unconditional). The most reliable approach for byte-equal parity with
-        // the regex-based parser is to format the arguments back to source text and
-        // reuse the same comma-splitting logic the regex applies. SwiftSyntax's
+        // vs. unconditional). The arguments are formatted back to source text and
+        // passed to the shared clause-splitting logic. SwiftSyntax's
         // `arguments?.trimmedDescription` gives us the inside-the-parens content.
         guard let arguments = attr.arguments else { return [] }
         let clauseText = arguments.trimmedDescription
@@ -1059,11 +1033,10 @@ struct AvailabilityResult {
 }
 
 /// Pure-string parser for `@available` clause contents. Lifted out of the walker
-/// so its byte-equal-with-regex semantics can be unit-tested independently.
+/// so its semantics can be unit-tested independently.
 ///
 /// Accepts the inside-the-parens text of `@available(...)` and returns one or more
-/// parsed annotation records. Mirrors `SwiftInterfaceAccessParser.ParseAvailableClause`
-/// (line 3571) including:
+/// parsed annotation records. Extraction rules:
 ///  - `swift` / `SwiftStdlib` / `_PackageDescription` first-token skip.
 ///  - `IsKnownPlatform` allow-list (excludes `visionOSApplicationExtension`).
 ///  - Three-form dispatch (per-platform / unconditional / shorthand multi-platform).
@@ -1184,7 +1157,6 @@ enum AvailabilityClauseParser {
     }
 
     /// Split clause by commas, respecting double-quoted strings and nested parens.
-    /// Mirrors `SplitAvailableClause` (line 3719).
     private static func splitClause(clause: String) -> [String] {
         var parts: [String] = []
         var start = clause.startIndex
@@ -1220,9 +1192,8 @@ enum AvailabilityClauseParser {
         }
     }
 
-    /// Mirrors `NormalizePlatformName` (line 3752). `visionOSApplicationExtension`
-    /// is INTENTIONALLY not in `isKnownPlatform` (regex parity quirk — the regex
-    /// parser does not recognize this platform), so it never reaches this function.
+    /// `visionOSApplicationExtension` is INTENTIONALLY not in `isKnownPlatform`,
+    /// so it never reaches this function and is silently dropped.
     private static func normalizePlatformName(_ name: String) -> String {
         switch name {
         case "iOS", "iOSApplicationExtension": return "iOS"

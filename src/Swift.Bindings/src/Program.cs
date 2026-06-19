@@ -262,16 +262,19 @@ namespace BindingsGeneration
             // Parse the TBD file
             Demangling.DemanglingResults demangledTbdFile = Demangling.DemanglingResults.FromTbd(tbdPath, loggerFactory);
 
-            // Parse swiftinterface into a single SwiftInterfaceFacts via the producer aggregator.
-            // The default aggregator runs only the regex producer (existing behavior; per-fact
-            // try/catch lives inside RegexInterfaceFactsProducer). Callers that pass a custom
-            // aggregator (e.g. CLI flag --interface-facts-producer swift-syntax) get fact-by-fact
-            // merging — see Producers/InterfaceFactsAggregator.cs for the merge rule.
+            // Parse swiftinterface into a single SwiftInterfaceFacts via the producer aggregator,
+            // built lazily here and only when a .swiftinterface is actually present. Callers normally
+            // leave factsAggregator null (the CLI handler validates --interface-facts-producer but
+            // defers construction to this point) and get the default SwiftSyntax host aggregator
+            // (macOS-only, hard-fails if the host binary is missing); constructing it inside this
+            // try/catch keeps that hard error on the structured failure path, and skipping it on the
+            // no-swiftinterface branch means an ABI/TBD-only run never requires the host. See
+            // Producers/InterfaceFactsAggregator.cs for the per-fact merge rule.
             SwiftInterfaceFacts facts;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 var aggregator = factsAggregator
-                    ?? new Producers.InterfaceFactsAggregator(new[] { (Producers.IInterfaceFactsProducer)new Producers.RegexInterfaceFactsProducer() });
+                    ?? Producers.InterfaceFactsAggregator.CreateDefault(logger);
                 facts = aggregator.Aggregate(swiftInterfacePath, logger);
             }
             else
@@ -433,10 +436,8 @@ namespace BindingsGeneration
                 emissionContext.SpecializationEngine = specializationEngine;
 
                 // Protocol names, protocol-extension methods, and foreign-type extension members
-                // all come from the producer-aggregated SwiftInterfaceFacts. The aggregator
-                // already routed each fact through whichever producer (regex or SwiftSyntax)
-                // covers it; downstream phases consume facts.* directly so the choice of
-                // producer is transparent here.
+                // all come from the aggregated SwiftInterfaceFacts, extracted by the SwiftSyntax
+                // host producer; downstream phases consume facts.* directly.
                 var protocolNames = facts.ProtocolNames;
 
                 // Inject protocol extension methods onto conforming types.

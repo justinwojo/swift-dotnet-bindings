@@ -42,8 +42,8 @@ public enum InterfaceFactKind
     MainActorTypePositions,
     AvailabilityAnnotationPositions,
     ConventionCProtocolPositions,
-    // Non-fact methods migrated from SwiftInterfaceAccessParser to the producer
-    // abstraction so Program.cs no longer reaches past IInterfaceFactsProducer.
+    // Protocol-discovery results surfaced through the producer abstraction so
+    // Program.cs does not need to reach past IInterfaceFactsProducer.
     ProtocolNames,
     ProtocolExtensionMethods,
     ExtensionMemberCandidates,
@@ -73,9 +73,9 @@ internal static class InterfaceFactKindHelpers
 {
     /// <summary>All fact kinds, including the producer-abstracted fields
     /// (ProtocolNames/ProtocolExtensionMethods/ExtensionMemberCandidates), SPI-only conformances
-    /// (0.11.0 R2), and const-literal parameters (0.12.0). Used by RegexProducer to declare
-    /// full coverage and by tests asserting 1:1 alignment with
-    /// <see cref="SwiftInterfaceFacts"/>.</summary>
+    /// (0.11.0 R2), and const-literal parameters (0.12.0). Used by
+    /// <see cref="SwiftSyntaxInterfaceFactsProducer"/> to declare full coverage and by tests
+    /// asserting 1:1 alignment with <see cref="SwiftInterfaceFacts"/>.</summary>
     internal static readonly HashSet<InterfaceFactKind> AllFactKinds = new(
         System.Enum.GetValues<InterfaceFactKind>());
 }

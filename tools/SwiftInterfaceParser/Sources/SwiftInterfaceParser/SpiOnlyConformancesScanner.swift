@@ -8,26 +8,24 @@ import Foundation
 /// blocks whose conformances are unreachable under a plain (non-`@_spi`) `import`.
 /// Each entry has the form `"QualifiedType::UnqualifiedProtocol"`.
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser.GetSpiOnlyConformances` (line 1160)
-/// and its helpers `ExtractConformanceSection` (1219), `FindTopLevelWhereKeyword` (1260),
-/// `SplitConformancesAtTopLevel` (1290), `StripLeadingAttributes` (1318).
+/// EXTRACTION CONTRACT (helpers: `ExtractConformanceSection`, `FindTopLevelWhereKeyword`,
+/// `SplitConformancesAtTopLevel`, `StripLeadingAttributes`):
 ///
-/// STRICTLY SINGLE-LINE (critical parity trap): the regex producer matches only when
-/// `@_spi(`, the `extension` header, the `:` conformance list, AND the body-opening `{`
-/// all sit on ONE trimmed source line — `ExtractConformanceSection` returns nil when no
-/// depth-zero `{` is found on that same post-colon slice. A structured
-/// `ExtensionDeclSyntax` walk would also match multi-line headers, which would be MORE
-/// permissive than the regex and a behavior change the parity-emulator charter defers.
+/// STRICTLY SINGLE-LINE: `@_spi(`, the `extension` header, the `:` conformance list, AND
+/// the body-opening `{` must all sit on ONE trimmed source line — `ExtractConformanceSection`
+/// returns nil when no depth-zero `{` is found on that same post-colon slice. A structured
+/// `ExtensionDeclSyntax` walk would also match multi-line headers, which is intentionally
+/// NOT done here.
 /// This is therefore a textual line scanner, NOT a SwiftSyntax tree walk, and it reads
-/// the conformance list by the same slice/split/strip pipeline the regex uses rather than
-/// trusting structured `inheritedTypes` (which diverges on `@retroactive`/`@available`
-/// attributes, generic conformances, qualified names, and `Codable`).
+/// the conformance list by the same slice/split/strip pipeline rather than trusting
+/// structured `inheritedTypes` (which diverges on `@retroactive`/`@available` attributes,
+/// generic conformances, qualified names, and `Codable`).
 ///
 /// Returns a sorted, de-duplicated array (the .NET side rehydrates it into a
 /// `HashSet<string>`, so element order is immaterial to consumers; sorting only keeps
 /// stdout byte-stable for golden diffs).
 enum SpiOnlyConformancesScanner {
-    /// Mirrors `SwiftInterfaceAccessParser.SpiExtensionHeaderRegex` (line 1138):
+    /// `SpiExtensionHeaderRegex`:
     /// `^@_spi\([^)]*\)\s+(?:public\s+|open\s+)?extension\s+([\w.]+)\s*:\s*`.
     /// The qualified extended type is captured as group 1; the conformance list is NOT
     /// captured here — the post-colon slice is handed to the textual pipeline below.
@@ -38,7 +36,7 @@ enum SpiOnlyConformancesScanner {
         var result = Set<String>()
 
         // `String.enumerateLines` strips the terminator and treats `\n`, `\r\n`, and `\r`
-        // as line breaks — matching `File.ReadAllLines` (which the regex producer feeds).
+        // as line breaks — the same split that `File.ReadAllLines` would produce.
         source.enumerateLines { rawLine, _ in
             // TrimStart: drop leading whitespace, matching C# `string.TrimStart()`.
             let trimmed = String(rawLine.drop(while: { $0.isWhitespace }))

@@ -9,21 +9,21 @@ import SwiftParser
 /// "TypePath.subscript(label1:label2:) -> [label1, label2]" where each entry
 /// is either the explicit external label or `"_"` for unlabeled positions.
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser.GetSubscriptLabels` (line 2802):
+/// EXTRACTION CONTRACT:
 ///
 /// 1. **Decl kind**: only `subscript`. Generic subscripts (`subscript<T>(...)`)
 ///    are matched. `static subscript` is matched.
 ///
-/// 2. **Access modifier**: regex `SubscriptDeclRegex` requires `public` or `open` —
+/// 2. **Access modifier**: `SubscriptDeclRegex` requires `public` or `open` —
 ///    bare protocol-requirement subscripts are NOT in the result.
 ///
-/// 3. **Module-level subscripts skipped**: regex bails when typeStack is empty.
-///    Mirror by guarding on a non-empty scope stack.
+/// 3. **Module-level subscripts skipped**: the scope stack must be non-empty
+///    (at least one enclosing type). Module-level subscripts are skipped.
 ///
 /// 4. **Extension key shape**: FIRST-dot-strip (preserve nesting). So
 ///    `extension Mod.P256.Signing { subscript(...) }` keys as `"P256.Signing.subscript(...)"`.
-///    This matches `GetEnumCaseLabels` etc., NOT the `LastIndexOf` strategy used
-///    by `GetParameterNames`/`GetInternalMembers`.
+///    This matches `EnumCaseLabels` etc., NOT the `LastIndexOf` strategy used
+///    by `ParameterNames`/`InternalMembers`.
 ///
 /// 5. **Label semantics** (per parameter):
 ///      * Explicit external label (Swift `subscript(bitAt index: Int)`):
@@ -35,27 +35,25 @@ import SwiftParser
 ///        secondName=`index` → label `"_"`.
 ///
 /// 6. **Key shape**: `"TypePath.subscript(label1:label2:)"`. Labels join with
-///    trailing `:` per regex.
+///    trailing `:`.
 ///
-/// 7. **Collision quirk**: regex silently overwrites duplicate keys. Mirror —
-///    last write wins. The collision is rare in canonical swiftinterfaces;
-///    documented in the spec but not normalized.
+/// 7. **Collision quirk**: duplicate keys are silently overwritten — last write
+///    wins. The collision is rare in canonical swiftinterfaces; documented in the
+///    spec but not normalized.
 ///
-/// 8. **Type-scope push gate (regex parity)**: the regex tracker only pushes a
-///    type onto its scope stack when `TypeDeclRegex` (public/internal/open +
-///    optional `final`) matches AND the body's `{` is on the same source line.
+/// 8. **Type-scope push gate**: `TypeDeclRegex` (public/internal/open + optional
+///    `final`) must match AND the body's `{` must be on the same source line.
 ///    Non-matching shapes such as `public indirect enum`, or types whose body
-///    opens on a later line, are NOT pushed; subscripts inside such bodies
-///    therefore see an empty scope stack and (per rule 3) are skipped — exactly
-///    matching the regex producer's emission.
+///    opens on a later line, are NOT pushed; subscripts inside such bodies see
+///    an empty scope stack and (per rule 3) are skipped.
 final class SubscriptLabelsWalker: SyntaxVisitor {
     private(set) var subscriptLabels: [String: [String]] = [:]
 
     private var scopeStack: [String] = []
 
     /// Parallel stack: each visited type/extension records whether it actually
-    /// pushed a frame on `scopeStack`. Mirrors the regex tracker's gated push so
-    /// `visitPost` knows whether to pop.
+    /// pushed a frame on `scopeStack`. The gated-push pattern ensures `visitPost`
+    /// only pops when the corresponding `visit` actually pushed.
     private var scopePushed: [Bool] = []
 
     private let converter: SourceLocationConverter
@@ -159,10 +157,10 @@ final class SubscriptLabelsWalker: SyntaxVisitor {
         }
     }
 
-    /// Mirrors `TypeDeclRegex = (?:public|internal|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)`.
-    /// Modifiers BEFORE access are tolerated (regex unanchored Match scan); after
-    /// access only an optional `final` is allowed. `public indirect enum`, etc.
-    /// fail this gate and are not pushed onto the scope stack.
+    /// `TypeDeclRegex = (?:public|internal|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)`.
+    /// Modifiers BEFORE access are tolerated (unanchored scan); after access only
+    /// an optional `final` is allowed. `public indirect enum`, etc. fail this gate
+    /// and are not pushed onto the scope stack.
     private func matchesTypeDeclShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "internal", "open"]) else { return false }
@@ -174,8 +172,8 @@ final class SubscriptLabelsWalker: SyntaxVisitor {
     }
 
     /// True iff the type/extension keyword and its body's opening `{` are on the
-    /// same source line. Mirrors `openBraces > 0` on the TypeDeclRegex match line
-    /// in `SwiftInterfaceContextTracker`.
+    /// same source line — the `openBraces > 0` condition on the `TypeDeclRegex`
+    /// match line.
     private func typeOpensOnSameLine(keyword: TokenSyntax, leftBrace: TokenSyntax) -> Bool {
         let kwLine = converter.location(for: keyword.positionAfterSkippingLeadingTrivia).line
         let braceLine = converter.location(for: leftBrace.positionAfterSkippingLeadingTrivia).line
@@ -185,7 +183,7 @@ final class SubscriptLabelsWalker: SyntaxVisitor {
     // MARK: - Subscripts
 
     override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Module-level subscripts skipped (regex parity).
+        // Module-level subscripts skipped (empty scope stack = no enclosing type).
         guard !scopeStack.isEmpty else { return .skipChildren }
         guard matchesPublicSubscriptShape(node.modifiers) else { return .skipChildren }
 
@@ -197,7 +195,7 @@ final class SubscriptLabelsWalker: SyntaxVisitor {
             let firstText = param.firstName.text
             let hasSecond = param.secondName != nil
 
-            // Mirror the regex's `words.Length >= 2 && words[0] != "_"` rule.
+            // External-label rule: `words.Length >= 2 && words[0] != "_"`.
             if hasSecond && firstText != "_" {
                 labels.append(firstText)
             } else {
@@ -208,15 +206,14 @@ final class SubscriptLabelsWalker: SyntaxVisitor {
         let typePrefix = scopeStack.joined(separator: ".")
         let labelStr = labels.map { "\($0):" }.joined()
         let key = "\(typePrefix).subscript(\(labelStr))"
-        subscriptLabels[key] = labels  // last-write-wins (regex parity)
+        subscriptLabels[key] = labels  // last-write-wins on duplicate keys
 
         return .skipChildren
     }
 
     /// `SubscriptDeclRegex` shape: `(?:public|open)\s+(?:static\s+)?subscript`.
     /// STRICT order — only `static` is allowed between access and `subscript`.
-    /// `nonisolated`, `final`, `dynamic`, etc. would not match the regex, so
-    /// SwiftSyntax must skip them too.
+    /// `nonisolated`, `final`, `dynamic`, etc. fail the shape and are skipped.
     private func matchesPublicSubscriptShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "open"]) else { return false }
@@ -228,8 +225,8 @@ final class SubscriptLabelsWalker: SyntaxVisitor {
     }
 
     /// Iterator helper: consume modifiers until we find one whose `name.text` is in
-    /// `accessTexts` AND whose `detail` is nil. Mirrors the regex's unanchored search
-    /// for the access keyword (modifiers before the access are tolerated).
+    /// `accessTexts` AND whose `detail` is nil. Modifiers before the access keyword
+    /// are tolerated (unanchored scan).
     private func advanceToAccess(_ iter: inout DeclModifierListSyntax.Iterator, _ accessTexts: [String]) -> Bool {
         while let mod = iter.next() {
             if accessTexts.contains(mod.name.text) && mod.detail == nil {

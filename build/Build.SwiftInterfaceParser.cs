@@ -28,9 +28,8 @@ partial class Build
     /// <summary>
     /// Compile the SwiftInterfaceParser SPM tool. Darwin-gated so the .NET-only
     /// <see cref="Compile"/> path still works on non-Apple hosts; skipped (with a warning)
-    /// when xcrun cannot locate the swift toolchain so a missing Xcode degrades to the
-    /// regex producer instead of failing the build. The Pack target hard-fails when the
-    /// staged binary is missing.
+    /// when xcrun cannot locate the swift toolchain. The Pack target hard-fails when the
+    /// staged binary is missing — there is no fallback producer.
     /// </summary>
     // .After(Clean) is a pure ordering edge: both targets have no other dependencies and
     // are otherwise co-equal roots, which Nuke --strict rejects.
@@ -53,8 +52,7 @@ partial class Build
                 Log.Warning(
                     "Skipping CompileSwiftInterfaceParser: could not locate `swift` via xcrun ({Reason}). " +
                     "Install Xcode or the Command Line Tools to build the SwiftSyntax fact producer. " +
-                    "The .NET seam still defaults to the regex producer; this only affects the " +
-                    "swift-syntax CLI option in the generator.",
+                    "Pack will hard-fail if the binary is missing.",
                     ex.Message);
                 // Wipe staging on the early-return path so a previously-built single-arch binary
                 // from a prior `nuke compile` cannot survive a toolchain regression and quietly

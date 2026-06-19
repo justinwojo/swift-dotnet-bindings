@@ -1809,7 +1809,7 @@ public class EveryProtocolEmitter
         // supplies a default. The parser never sees the requirement, so the EveryProtocol
         // extension emits no witness — Swift rejects the conformance at compile time
         // (e.g. RealityFoundation.MaterialFunction.__linkSPI). Detected via swiftinterface
-        // cross-reference; see SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements.
+        // cross-reference by the SwiftSyntax host.
         if (protocolDecl.HasUnsatisfiedHiddenRequirements)
             return true;
 

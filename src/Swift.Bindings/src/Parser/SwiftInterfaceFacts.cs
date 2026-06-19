@@ -7,17 +7,15 @@ using System.Collections.Generic;
 namespace BindingsGeneration
 {
     /// <summary>
-    /// Immutable aggregate of every supplementary fact <see cref="SwiftInterfaceAccessParser"/>
-    /// extracts from a public swiftinterface and feeds into <see cref="SwiftABIParser"/>.
-    /// Replaces 21 individually-threaded nullable side-channel maps with one drift-loud
-    /// hand-off: every field is a <c>required</c> init property, so adding one without also
-    /// updating <see cref="Empty"/> and the producer/consumer call sites is a compile error,
-    /// not a silent miss.
+    /// Immutable aggregate of every supplementary fact
+    /// <see cref="SwiftSyntaxInterfaceFactsProducer"/> extracts from a public swiftinterface
+    /// and feeds into <see cref="SwiftABIParser"/>. Replaces 21 individually-threaded nullable
+    /// side-channel maps with one drift-loud hand-off: every field is a <c>required</c> init
+    /// property, so adding one without also updating <see cref="Empty"/> and the
+    /// producer/consumer call sites is a compile error, not a silent miss.
     /// <para/>
-    /// Field types match what <see cref="SwiftInterfaceAccessParser"/> returns and what
-    /// downstream consumers (parser fields, <c>StringEmitter</c>) already expect — the record
-    /// itself is the immutable surface; collection contents inherit the mutability profile
-    /// of the existing pre-aggregator code.
+    /// Collection contents inherit the mutability profile of the existing pre-aggregator code;
+    /// the record itself is the immutable surface.
     /// </summary>
     public sealed record SwiftInterfaceFacts
     {
@@ -226,8 +224,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Partitions <see cref="ExtensionMemberCandidates"/> into a foreign-type-extension
-        /// dictionary using the same first-dot rule as the legacy
-        /// <c>SwiftInterfaceAccessParser.GetForeignTypeExtensionMembers</c>:
+        /// dictionary using the first-dot rule:
         /// <list type="bullet">
         /// <item>Qualified extension target (<c>Mod.X</c>) is foreign when the first segment
         /// is not <paramref name="moduleName"/>.</item>

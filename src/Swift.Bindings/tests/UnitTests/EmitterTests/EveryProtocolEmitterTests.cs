@@ -4438,8 +4438,8 @@ public class EveryProtocolEmitterTests
         // Supplement: swift-api-digester strips __-prefixed protocol requirements
         // (e.g. RealityFoundation.MaterialFunction.__linkSPI) from the ABI JSON, so the
         // parser never sees them. The Swift compiler still enforces them at conformance
-        // type-check time. SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements
-        // surfaces these from the swiftinterface; the emitter must skip the conformance.
+        // type-check time. The SwiftSyntax host surfaces these from the swiftinterface;
+        // the emitter must skip the conformance.
         var protocol = CreateProtocolWithMethod("MaterialFunction", "name");
         protocol.HasUnsatisfiedHiddenRequirements = true;
 

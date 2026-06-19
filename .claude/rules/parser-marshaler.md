@@ -26,7 +26,7 @@ Nodes have NO children — protocols encoded solely in `printedName` (e.g., "any
 ## Key Model Fields
 - `MethodDecl.IsMutating` — parsed from `funcSelfKind` in ABI JSON
 - `MethodDecl.UsesWrapperLibrary` — routes P/Invoke to wrapper lib
-- `SwiftInterfaceAccessParser` — CLI option `-s`/`--swiftinterface`, detects `@inlinable internal` members
+- `--swiftinterface` (`-s`) — path to the `.swiftinterface`, fed to the SwiftSyntax producer (`SwiftSyntaxInterfaceFactsProducer` via `InterfaceFactsAggregator`) to detect `@inlinable`/`@usableFromInline internal` members the ABI JSON can't distinguish from public
 
 ## ArraySlice Normalization Scope Guards
 Skip normalization for: accessor, constructor, mutating struct, generic, inout ArraySlice, closure/tuple/optional containing ArraySlice, internal method/type.

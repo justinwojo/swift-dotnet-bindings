@@ -27,7 +27,7 @@ public enum ResolutionConfidence
 /// <param name="Source">
 /// Free-form description of where the resolution came from (e.g.,
 /// <c>"strategy:DynamicSelf"</c>). May later be extended with Swift
-/// <c>file:line:column</c> positions sourced from the regex parser.
+/// <c>file:line:column</c> positions from the swiftinterface.
 /// </param>
 public sealed record ResolutionProvenance(string Source);
 

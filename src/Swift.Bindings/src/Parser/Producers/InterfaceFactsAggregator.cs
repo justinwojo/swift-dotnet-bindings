@@ -17,13 +17,12 @@ namespace BindingsGeneration.Producers;
 /// cover a fact are skipped for that fact. If no producer covers a fact, the empty
 /// collection from <see cref="SwiftInterfaceFacts.Empty"/> is used.
 /// <para/>
-/// PARTIAL COVERAGE IS A FIRST-CLASS STATE: M2 migrates facts incrementally. The SwiftSyntax
-/// producer initially covers exactly two facts (MainActorTypes + MainActorTypePositions);
-/// the regex producer covers all 24. With the order [SwiftSyntax, Regex], MainActor* come
-/// from SwiftSyntax and the other 22 facts fall through to Regex automatically. As more
-/// facts migrate, the SwiftSyntax producer's coverage grows; the regex producer's coverage
-/// stays at 24. The aggregator does not need to know migration progress — coverage
-/// is data, not policy.
+/// The production wiring is a single producer — <see cref="SwiftSyntaxInterfaceFactsProducer"/>,
+/// which covers every <see cref="InterfaceFactKind"/> (see <see cref="CreateDefault"/>). The
+/// ordered-merge machinery is retained because it is the natural shape for layering an
+/// additional producer in the future; with one producer the "first with coverage wins" rule
+/// degenerates to "use that producer's payload for every fact it covers." Coverage is data,
+/// not policy — the aggregator does not hard-code how many producers it runs.
 /// </summary>
 public sealed class InterfaceFactsAggregator
 {
@@ -31,8 +30,8 @@ public sealed class InterfaceFactsAggregator
 
     /// <summary>
     /// Construct an aggregator with producers in priority order. Earlier producers shadow
-    /// later producers' coverage of the same fact. A typical layout puts the migration
-    /// candidate first (SwiftSyntax) and the legacy fallback last (Regex).
+    /// later producers' coverage of the same fact. The default wiring is a single
+    /// <see cref="SwiftSyntaxInterfaceFactsProducer"/>; see <see cref="CreateDefault"/>.
     /// </summary>
     public InterfaceFactsAggregator(IReadOnlyList<IInterfaceFactsProducer> producers)
     {
@@ -42,12 +41,42 @@ public sealed class InterfaceFactsAggregator
     }
 
     /// <summary>
+    /// Build the production interface-facts aggregator: a single
+    /// <see cref="SwiftSyntaxInterfaceFactsProducer"/> backed by the SwiftInterfaceParser
+    /// host binary, which covers every <see cref="InterfaceFactKind"/>.
+    /// <para/>
+    /// This generator is macOS-only by design: the host binary is built only for Darwin and
+    /// there is no fallback producer. Hard-fails (rather than silently degrading) on non-Darwin
+    /// or when the host binary cannot be located — emitting bindings without interface facts
+    /// would silently drop actor-isolation, availability, typed-throws, default-parameter, and
+    /// SPI metadata.
+    /// </summary>
+    public static InterfaceFactsAggregator CreateDefault(ILogger logger)
+    {
+        if (!OperatingSystem.IsMacOS())
+            throw new InvalidOperationException(
+                "Swift bindings generation requires macOS: the SwiftInterfaceParser host binary " +
+                "(which extracts .swiftinterface facts) is built only for Darwin, and there is no " +
+                "fallback producer. Run the generator on macOS.");
+
+        var binaryPath = SwiftSyntaxInterfaceFactsProducer.TryLocateBinary()
+            ?? throw new InvalidOperationException(
+                "Could not locate the SwiftInterfaceParser host binary. Run `nuke compile` to build " +
+                "tools/SwiftInterfaceParser, or set SWIFT_INTERFACE_PARSER_PATH to point at it.");
+
+        logger.LogInformation("Using SwiftSyntax interface facts producer at: {Path}", binaryPath);
+        return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
+        {
+            new SwiftSyntaxInterfaceFactsProducer(binaryPath),
+        });
+    }
+
+    /// <summary>
     /// Run every producer over <paramref name="swiftInterfacePath"/> and assemble a single
-    /// <see cref="SwiftInterfaceFacts"/> from their merged output. Producers run sequentially;
-    /// the regex pass over an entire interface is fast enough (small file, regex-compiled)
-    /// that parallelism would buy noise. Any producer throw bubbles — the regex producer is
-    /// expected to degrade per-fact internally; a thrown SwiftSyntax exception is the audit's
-    /// chosen drift-signal.
+    /// <see cref="SwiftInterfaceFacts"/> from their merged output. Producers run sequentially.
+    /// Any producer throw bubbles: a thrown <see cref="SwiftSyntaxInterfaceFactsProducer"/>
+    /// exception is the chosen drift-signal — we fail visibly rather than emit half-correct
+    /// bindings.
     /// </summary>
     public SwiftInterfaceFacts Aggregate(string swiftInterfacePath, ILogger logger)
     {

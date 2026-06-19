@@ -9,59 +9,51 @@ import SwiftParser
 /// (per-method typed-throws error type, e.g.
 /// `func parseNumber(_:) throws(Module.ParseError)`).
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser.GetTypedThrowsErrors`:
+/// EXTRACTION CONTRACT:
 ///
 /// 1. **Decl kinds**: any `func` or `init` with `throws(<Type>)`. Subscripts and
-///    properties are not in scope (regex's `IsFuncOrInitLine` only covers func/init).
+///    properties are not in scope.
 ///
-/// 2. **Key shape**: TOP-OF-STACK simple type name + `.` + printedName. The regex's
-///    `ProcessFuncLineForTypedThrows` (line 3202-3204) uses `typeStack.Peek().Name`,
-///    NOT the full nested path. For free functions: bare `printedName`. For
-///    extension members: the simple last-component name from `extension Mod.X`
-///    (regex strips to last component at line 3151-3152).
+/// 2. **Key shape**: TOP-OF-STACK simple type name + `.` + printedName — NOT the
+///    full nested path. For free functions: bare `printedName`. For extension
+///    members: the simple last-component name from `extension Mod.X`.
 ///
 ///    SEMANTIC NOTE: this is intentionally less qualified than ActorIsolatedMembers
-///    (which uses full path). The reason: the ABI parser queries
-///    `_typedThrowsErrors` with `parentDecl.Name` (simple name only).
+///    (which uses the full path). The reason: the ABI parser queries
+///    `_typedThrowsErrors` with `parentDecl.Name` (simple name only), so the key
+///    must drop the enclosing path to match.
 ///
-/// 3. **Value**: the syntactic spelling of the error type as written in source.
-///    The regex `throws\(([^)]+)\)` captures up to the FIRST `)` and trims; SwiftSyntax
-///    gives us the precise error-type syntax node, which we render back via
-///    `trimmedDescription`. Both produce the same string for legal Swift code (the
-///    Swift grammar doesn't allow `)` inside `throws(...)` types).
+/// 3. **Value**: the syntactic spelling of the error type as written in source,
+///    rendered from the error-type syntax node via `trimmedDescription`.
 ///
-/// 4. **Untyped throws is excluded**: only `throws(T)` form contributes; `throws`
+/// 4. **Untyped throws is excluded**: only the `throws(T)` form contributes; `throws`
 ///    or non-throwing functions never key.
 ///
-/// 5. **Access modifier**: regex's `AnyFuncRegex` accepts `public|open|internal|`
-///    bare-no-modifier. We mirror — both public/open AND no-modifier (protocol
-///    requirement) members emit. The regex's logic also covers extension-internal
-///    members.
+/// 5. **Access modifier**: both public/open AND no-modifier (protocol requirement)
+///    members emit, including extension-internal members.
 ///
-/// 6. **Type-scope push gate**: regex's tracker (line 3136) only pushes a type
-///    scope when `TypeDeclRegex` (public|internal|open + optional final) matches
-///    AND the body's `{` is on the same source line. Non-matching shapes such as
+/// 6. **Type-scope push gate**: a type scope is pushed only when the declaration
+///    carries a `public`/`internal`/`open` modifier (optionally `final`) AND the
+///    body's `{` is on the same source line. Non-matching shapes such as
 ///    `public indirect enum` or split-line bodies do NOT push, so their members
-///    end up keyed at module scope. Mirror via `enterTypeScope`/`leaveTypeScope`.
-///    Extension push is gated on same-line `{` and a `[\w.]+` extended-type
-///    capture (regex `ExtensionDeclRegex`).
+///    end up keyed at module scope (`enterTypeScope`/`leaveTypeScope`). Extension
+///    push is gated on a same-line `{` and a `[\w.]+` extended-type capture.
 final class ThrowsWalker: SyntaxVisitor {
     let filePath: String
     let converter: SourceLocationConverter
 
     private(set) var typedThrowsErrors: [String: String] = [:]
 
-    /// Scope stack with isExtension flag — extensions push the LAST-DOT-COMPONENT
-    /// (simple) name for typed-throws keying (matching regex line 3151-3152).
-    /// Nested types push their simple name. Top-of-stack is always queried for
-    /// the key prefix.
+    /// Scope stack — extensions push the LAST-DOT-COMPONENT (simple) name for
+    /// typed-throws keying. Nested types push their simple name. Top-of-stack is
+    /// always queried for the key prefix.
     private struct Scope {
         let name: String
     }
     private var scopeStack: [Scope] = []
 
     /// Parallel stack: each visited type/extension records whether it actually
-    /// pushed a frame on `scopeStack`. Mirrors the regex tracker's gated push.
+    /// pushed a frame on `scopeStack` (the gated push above).
     private var scopePushed: [Bool] = []
 
     init(filePath: String, source: String) {
@@ -114,9 +106,8 @@ final class ThrowsWalker: SyntaxVisitor {
     }
     override func visitPost(_ node: ActorDeclSyntax) { leaveTypeScope() }
 
-    /// Extensions: push LAST-component of the qualified type as the simple name.
-    /// Mirrors the regex's `qualifiedName.Substring(LastIndexOf('.') + 1)` at
-    /// line 3151-3152 — typed throws uses simple name, NOT first-stripped path.
+    /// Extensions: push the LAST component of the qualified type as the simple name
+    /// (typed throws keys on the simple name, NOT a first-stripped path).
     /// Push gated on same-line `{` AND extended-type matching `[\w.]+`.
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
         guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,

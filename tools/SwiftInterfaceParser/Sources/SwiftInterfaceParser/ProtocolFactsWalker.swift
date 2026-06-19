@@ -19,18 +19,15 @@ import SwiftParser
 ///     type (e.g. `func _resolve(in: __Ctx) -> __Resolved`). Used downstream to suppress
 ///     EveryProtocol generation.
 ///
-/// PARITY CONTRACTS:
-///   * `SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures` (line 1045)
-///   * `SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements`
-///     (line 1207)
+/// EXTRACTION CONTRACT:
 ///
 /// 1. **Public/open protocol filter**: only protocols with `public` or `open`
 ///    modifier participate. Bare/internal protocols are ignored.
 ///
 /// 2. **Module name source**: extracted from the swiftinterface header comment
 ///    `// swift-module-flags: ... -module-name X` (first 64 lines). When absent,
-///    cross-module extension matching degrades to "no qualified extensions
-///    satisfy" (the regex's `moduleName != null` guard).
+///    qualified extensions never match (no module name means no qualified extension
+///    can be confirmed same-module).
 ///
 /// 3. **`@convention` typealias resolution** (one level): a top-level typealias
 ///    whose initializer text contains `@convention(c)` or `@convention(block)`
@@ -43,8 +40,8 @@ import SwiftParser
 ///    protocol declaration.
 ///
 /// 5. **`__`-prefix detection**: `var`/`let` and `func` decls whose name starts with two
-///    literal underscores. `typealias`/`associatedtype` with `__` names are NOT detected
-///    (regex parity). The separate **type-hidden** path (signature references a `__`-type)
+///    literal underscores. `typealias`/`associatedtype` with `__` names are NOT detected.
+///    The separate **type-hidden** path (signature references a `__`-type)
 ///    additionally covers `init` and `subscript`, keyed by `"init"`/`"subscript"`.
 ///
 /// 6. **Same-module extension matching**: an extension's qualifier (text before
@@ -141,12 +138,11 @@ final class ProtocolFactsWalker: SyntaxVisitor {
     }
 
     /// Collect names of typealiases (at ANY nesting depth) whose initializer
-    /// references `@convention(c)` or `@convention(block)`. Mirrors the regex's
-    /// flat per-line scan, which sees nested aliases such as
-    /// `public enum E { public typealias Callback = @convention(c) ... }` exactly
-    /// the same as top-level ones — the regex captures the bare alias name and
-    /// the protocol-body word-boundary check on the unqualified name is what
-    /// finds matches like `E.Callback`.
+    /// references `@convention(c)` or `@convention(block)`. Nested aliases such as
+    /// `public enum E { public typealias Callback = @convention(c) ... }` are
+    /// captured the same as top-level ones — the bare alias name is recorded and
+    /// the protocol-body word-boundary check on the unqualified name finds
+    /// matches like `E.Callback`.
     private static func collectConventionAliases(tree: SourceFileSyntax) -> Set<String> {
         let collector = ConventionAliasCollector()
         collector.walk(tree)
@@ -186,15 +182,15 @@ final class ProtocolFactsWalker: SyntaxVisitor {
         }
 
         // Pass 1 (hidden requirements): collect __-prefixed var/let/func names at
-        // the direct member level. Accessors inside those decls are NOT scanned —
-        // mirroring the regex's `innerNestedDepth == 0` gate.
+        // the direct member level only (depth 0). Accessors inside those decls are
+        // NOT scanned.
         var candidates: Set<String> = []
         for member in node.memberBlock.members {
             collectUnderscoredRequirements(from: member.decl, into: &candidates)
         }
         if !candidates.isEmpty {
-            // First-protocol-wins (regex's "if (currentProtocol == null)" guard).
-            // In practice protocol names don't repeat, but mirror the semantics.
+            // First-protocol-wins: in practice protocol names don't repeat within
+            // a file, but guard against it explicitly.
             if requirementCandidates[protoName] == nil {
                 requirementCandidates[protoName] = candidates
             }
@@ -213,7 +209,7 @@ final class ProtocolFactsWalker: SyntaxVisitor {
             let qualifier = String(qualified[..<dot])
             // Same-module check: the file's `-module-name` (extracted from header)
             // must equal the qualifier. If we have no module name, qualified
-            // extensions are NEVER same-module (regex's `moduleName != null` guard).
+            // extensions are never considered same-module.
             guard let mod = moduleName, qualifier == mod else { return .visitChildren }
             simpleName = String(qualified[qualified.index(after: dot)...])
         } else {
@@ -222,16 +218,14 @@ final class ProtocolFactsWalker: SyntaxVisitor {
         }
         guard let target = simpleName else { return .visitChildren }
 
-        // SOURCE-ORDER PARITY: do NOT gate on `requirementCandidates[target] != nil`.
-        // The regex producer runs two passes over the entire file (Pass 1 collects
-        // protocols + their __-requirements; Pass 2 collects extension defaults),
-        // so an extension default declared BEFORE its protocol still satisfies the
-        // hidden requirement. A SwiftSyntax `walk()` visits in source order, so an
-        // earlier extension wouldn't see a later protocol's requirementCandidates
-        // entry. Instead, collect defaults unconditionally (keyed by simple name)
-        // and let the final reduction in `parse()` consume only the protocols we
-        // actually tracked. Storage is bounded — we only collect names with the
-        // `__` prefix, which is rare.
+        // SOURCE-ORDER: do NOT gate on `requirementCandidates[target] != nil`.
+        // An extension default declared BEFORE its protocol in source order still
+        // satisfies the hidden requirement. A SwiftSyntax `walk()` visits in source
+        // order, so an earlier extension wouldn't yet see a later protocol's
+        // requirementCandidates entry. Instead, collect defaults unconditionally
+        // (keyed by simple name) and let the final reduction in `parse()` consume
+        // only the protocols we actually tracked. Storage is bounded — we only
+        // collect names with the `__` prefix, which is rare.
         var defaults = extensionDefaults[target] ?? []
         for member in node.memberBlock.members {
             collectUnderscoredRequirements(from: member.decl, into: &defaults)
@@ -279,9 +273,8 @@ final class ProtocolFactsWalker: SyntaxVisitor {
     }
 
     /// True when `text` references a `__`-prefixed identifier (typically an SPI type such as
-    /// `RealityFoundation.__ResolvedRealityCoordinateSpace`). Mirrors the C# regex producer's
-    /// `UnderscoredTypeReferenceRegex` exactly so the two producers stay in parity: the
-    /// negative lookbehind excludes alnum/underscore but NOT `.`, so module-qualified SPI
+    /// `RealityFoundation.__ResolvedRealityCoordinateSpace`). Pattern: `(?<![A-Za-z0-9_])__\w+`.
+    /// The negative lookbehind excludes alnum/underscore but NOT `.`, so module-qualified SPI
     /// types still match while mid-identifier hits like `foo__bar` are rejected.
     private static let underscoredTypeReferenceRegex = try! NSRegularExpression(
         pattern: "(?<![A-Za-z0-9_])__\\w+", options: [])
@@ -301,9 +294,8 @@ final class ProtocolFactsWalker: SyntaxVisitor {
 }
 
 /// Internal visitor used by `ProtocolFactsWalker.collectConventionAliases` to find
-/// typealiases of any nesting depth. Mirrors the regex producer's flat per-line
-/// scan — a `typealias X = @convention(c) ...` declared inside an enum, struct,
-/// or protocol body is captured the same as one at module scope.
+/// typealiases of any nesting depth. A `typealias X = @convention(c) ...` declared
+/// inside an enum, struct, or protocol body is captured the same as one at module scope.
 private final class ConventionAliasCollector: SyntaxVisitor {
     var aliases: Set<String> = []
 

@@ -61,6 +61,29 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
     }
 
     /// <summary>
+    /// Convert a public swiftinterface path to its private companion path
+    /// (<c>foo.swiftinterface</c> → <c>foo.private.swiftinterface</c>).
+    /// Returns null when the input does not end in <c>.swiftinterface</c> so callers
+    /// can treat absence as "no private interface" rather than constructing a bogus
+    /// path and probing for it. Idempotent: a path already ending in
+    /// <c>.private.swiftinterface</c> is returned unchanged.
+    /// </summary>
+    internal static string? DerivePrivateSwiftInterfacePath(string swiftInterfacePath)
+    {
+        const string suffix = ".swiftinterface";
+        if (string.IsNullOrEmpty(swiftInterfacePath) ||
+            !swiftInterfacePath.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // Idempotent: if the caller already passed the private path, return it as-is.
+        const string privateSuffix = ".private.swiftinterface";
+        if (swiftInterfacePath.EndsWith(privateSuffix, StringComparison.OrdinalIgnoreCase))
+            return swiftInterfacePath;
+
+        return swiftInterfacePath.Substring(0, swiftInterfacePath.Length - suffix.Length) + privateSuffix;
+    }
+
+    /// <summary>
     /// Locate the SwiftInterfaceParser binary. Probe order:
     /// <list type="number">
     /// <item><c>SWIFT_INTERFACE_PARSER_PATH</c> environment variable (tests / overrides).</item>
@@ -70,9 +93,9 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
     /// <item>Walk up to the repo root and try <c>src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser</c>
     ///   (dev-mode fallback when running from <c>src/Swift.Bindings/src/bin/.../</c>).</item>
     /// </list>
-    /// Returns null when no candidate exists. Callers (CLI handler) decide whether that's
-    /// fatal — the regex producer has no equivalent dependency, so this only matters when
-    /// SwiftSyntax is selected.
+    /// Returns null when no candidate exists. This generator is macOS-only and the host
+    /// binary is required to extract interface facts, so callers treat a null here as a
+    /// hard error rather than degrading.
     /// </summary>
     public static string? TryLocateBinary()
     {
@@ -109,8 +132,8 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
     {
         if (string.IsNullOrWhiteSpace(swiftInterfacePath) || !File.Exists(swiftInterfacePath))
         {
-            // No swiftinterface — no facts to produce. Declare zero coverage so the aggregator
-            // falls through to whatever covers each fact next (regex or, eventually, nothing).
+            // No swiftinterface — no facts to produce. Declare zero coverage so every fact
+            // falls back to the empty default in SwiftInterfaceFacts.Empty.
             return new ProducerResult(PartialSwiftInterfaceFacts.Empty, new HashSet<InterfaceFactKind>());
         }
 
@@ -133,12 +156,11 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
         psi.ArgumentList.Add(swiftInterfacePath);
 
         // SPI-only conformances live in the sibling `*.private.swiftinterface`. Derive its
-        // path the SAME way the regex producer does (shared helper = single source of truth)
-        // and pass it ONLY when the file actually exists. When absent (most frameworks ship
-        // no private interface), the host still declares SpiOnlyConformances coverage with an
-        // empty payload — matching the regex producer's empty set — so the aggregator never
-        // suppresses a real regex finding with a stale empty.
-        var privatePath = RegexInterfaceFactsProducer.DerivePrivateSwiftInterfacePath(swiftInterfacePath);
+        // path and pass it ONLY when the file actually exists. When absent (most frameworks
+        // ship no private interface), the host still declares SpiOnlyConformances coverage
+        // with an empty payload, so an absent private interface reads as "no SPI conformances"
+        // rather than "fact not covered".
+        var privatePath = DerivePrivateSwiftInterfacePath(swiftInterfacePath);
         if (privatePath is not null && File.Exists(privatePath))
         {
             psi.ArgumentList.Add("--private-input");

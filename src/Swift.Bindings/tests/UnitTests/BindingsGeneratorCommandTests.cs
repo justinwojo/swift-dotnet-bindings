@@ -398,6 +398,80 @@ public class RequiresExplicitPlatformVersionTests
 
 #endregion
 
+#region --interface-facts-producer validation + option
+
+/// <summary>
+/// Phase B left a single SwiftSyntax interface-facts producer; the legacy <c>regex</c>
+/// value was retired. <see cref="BindingsGeneratorCommand.Execute"/> now validates the
+/// <c>--interface-facts-producer</c> flag through this predicate up front and exits
+/// cleanly (logged error + <c>ExitCode = 1</c>) on an unrecognized value, rather than
+/// constructing an aggregator that would throw. Pin the accept/reject set so a future
+/// edit can't silently re-admit <c>regex</c> (which no longer maps to any producer) or
+/// start accepting arbitrary strings that would then fall through to the host aggregator.
+/// </summary>
+public class InterfaceFactsProducerValidationTests
+{
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("swift-syntax")]
+    public void Accepts_TheTwoRetainedProducers(string value)
+    {
+        Assert.True(BindingsGeneratorCommand.IsValidInterfaceFactsProducer(value));
+    }
+
+    [Theory]
+    [InlineData("regex")]        // retired in Phase B — must NOT be silently re-admitted
+    [InlineData("Regex")]        // case-sensitive: only the exact lowercase tokens map
+    [InlineData("Auto")]
+    [InlineData("swiftsyntax")]  // missing the hyphen
+    [InlineData("syntax")]
+    [InlineData("")]
+    [InlineData(" auto ")]       // whitespace is not trimmed by the predicate
+    [InlineData("unknown")]
+    public void Rejects_RetiredOrUnknownProducers(string value)
+    {
+        Assert.False(BindingsGeneratorCommand.IsValidInterfaceFactsProducer(value));
+    }
+}
+
+/// <summary>
+/// The <c>--interface-facts-producer</c> option must (a) default to <c>auto</c> so callers
+/// that never pass it keep the SwiftSyntax host behavior, (b) parse <c>swift-syntax</c> off
+/// the CLI, and (c) be registered on the root command so System.CommandLine binds it.
+/// </summary>
+public class InterfaceFactsProducerCliOptionTests
+{
+    [Fact]
+    public void Option_DefaultsToAuto_WhenNotSupplied()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(Array.Empty<string>());
+        var value = parsed.GetValueForOption(opts.InterfaceFactsProducer);
+        Assert.Equal("auto", value);
+    }
+
+    [Fact]
+    public void Option_Parses_SwiftSyntax_FromCommandLine()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(new[] { "--interface-facts-producer", "swift-syntax" });
+        var value = parsed.GetValueForOption(opts.InterfaceFactsProducer);
+        Assert.Equal("swift-syntax", value);
+    }
+
+    [Fact]
+    public void Option_IsRegisteredOnRootCommand()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        Assert.Contains(opts.InterfaceFactsProducer, root.Options);
+    }
+}
+
+#endregion
+
 #region DeriveModuleNameFromSwiftInterfacePath
 
 /// <summary>

@@ -64,7 +64,7 @@ const TRACKS = {
   A8: {
     report: 'Track-A8_Parser-Demangler-Fidelity.md',
     title: 'Parser / ABI-ingestion / demangler fidelity',
-    targets: 'Parser/SwiftABIParser.cs, SwiftInterfaceAccessParser.cs (esp. CollectPublicMember + IsModuleInternal); Demangler/Swift5Demangler.cs; Parser/GenericSignatureParser.cs; tests/UnitTests/ParserTests/*, DemanglerTests/*',
+    targets: 'Parser/SwiftABIParser.cs; Parser/Producers/* (SwiftSyntaxInterfaceFactsProducer + InterfaceFactsAggregator) and the Swift host tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/*Walker.swift (esp. MemberCollectionWalker public/internal-member detection); Demangler/Swift5Demangler.cs; Parser/GenericSignatureParser.cs; tests/UnitTests/ParserTests/*, DemanglerTests/*',
     hunt: 'public protocol requirements misclassified internal (and vice-versa); @usableFromInline internal reqs missed; mangling divergence (async, typed throws, InlineArray); ABI-JSON shape drift (Swift 6+); incorrect IsMutating/funcSelfKind/availability; ObjC nested-enum naming; ProtocolComposition printedName fallback; dependent-member parse loss. Roundtrip real .abi.json -> parsed Model -> emitted surface.',
   },
 
@@ -72,7 +72,7 @@ const TRACKS = {
   C1: {
     report: 'Track-C1_Maintainability-Hazard-Map.md',
     title: 'AI-maintainability & hotspot hazard-map',
-    targets: 'Mega-files: Emitter/StringEmitter/EveryProtocolEmitter.cs (5595), Parser/SwiftInterfaceAccessParser.cs (5250), Emitter/StringEmitter/SwiftUIBridgeEmitter.cs (3962), Parser/SwiftABIParser.cs (3481), Demangler/Swift5Demangler.cs (3239); + top churn hotspots (ModuleEmissionContext, ConcreteProtocolSpecializationEmitter, ModuleHandler, WrapperEmitter.Async, MethodClosureBridge, ClassHandler)',
+    targets: 'Mega-files: Emitter/StringEmitter/EveryProtocolEmitter.cs (5595), Emitter/StringEmitter/SwiftUIBridgeEmitter.cs (3962), Parser/SwiftABIParser.cs (3481), Demangler/Swift5Demangler.cs (3239); + top churn hotspots (ModuleEmissionContext, ConcreteProtocolSpecializationEmitter, ModuleHandler, WrapperEmitter.Async, MethodClosureBridge, ClassHandler)',
     hunt: 'duplicated decision logic; undocumented invariants; switch fallbacks returning null; generated-local name collisions (hardcoded tag/resultPtr/swiftResult shadowing projected params); hidden ordering constraints; tests asserting implementation rather than behavior. Produce a "future-AI hazard map": where an agent is likely to make a locally-plausible-but-globally-wrong change.',
   },
   C2: {

@@ -10,37 +10,38 @@ import SwiftParser
 /// `mainActorIsolatedMembers`, and `nonisolatedMembers`.
 ///
 /// The five facts share a single tree pass because their inputs are intertwined —
-/// `customActorTypes` feeds the short-name set the regex builds for member-level
-/// custom-actor matching, and `mainActorIsolatedMembers` is a strict subset of
+/// `customActorTypes` feeds the short-name set used for member-level custom-actor
+/// matching, and `mainActorIsolatedMembers` is a strict subset of
 /// `actorIsolatedMembers` keyed off the same per-decl attribute scan.
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser`:
+/// EXTRACTION CONTRACT:
 ///
 /// 1. **Member key shape (`actorIsolatedMembers`, `mainActorIsolatedMembers`,
 ///    `nonisolatedMembers`)**: full dot-joined nested type path + `.` + printedName.
 ///    For free functions: bare `printedName` only (no type prefix). Extension
-///    declarations push the FIRST-DOT-STRIPPED qualified type path (matching
-///    `GetActorIsolatedMembers` lines 696-708 / `GetNonisolatedMembers` lines 863-876).
+///    declarations push the FIRST-DOT-STRIPPED qualified type path.
 ///
 /// 2. **Custom-actor short-name set**: built from `customActorTypes` qualified paths
-///    by taking each path's last `.`-separated component (regex equivalent at
-///    `GetCustomActorIsolatorMap` lines 452-457). Used for:
-///      a) The local-actor regex `@(?:\w+\.)?(<name>|...)\b` in
-///         `GetCustomActorIsolatorMap` line 467.
-///      b) The custom-actor regex `@(?:\w+\.)?(?:<name>|...)\b` in
-///         `GetActorIsolatedMembers` line 607.
-///    These two regexes are nearly identical — local has a capture group, member
-///    detection does not — but both demand the same name set and treat module-prefix
-///    optionally.
+///    by taking each path's last `.`-separated component. Used for:
+///      a) The local-actor pattern `@(?:\w+\.)?(<name>|...)\b` when building
+///         `customActorIsolatorMap`.
+///      b) The custom-actor pattern `@(?:\w+\.)?(?:<name>|...)\b` when detecting
+///         actor-isolated members.
+///    Both patterns demand the same name set and treat module-prefix optionally.
 ///
 /// 3. **Imported custom-actor heuristic** (`@(?:\w+\.)+(?!MainActor\b)(\w*Actor)\b`):
-///    only `customActorIsolatorMap` uses this fallback. Member-level `actorIsolatedMembers`
-///    detection does NOT include the imported pattern — match the regex parser exactly.
+///    BOTH `customActorIsolatorMap` (type level) and `actorIsolatedMembers` (member level)
+///    use this fallback after the local short-name set fails. This is a DELIBERATE
+///    extension: earlier, member-level detection consulted only `customActorTypeNames`
+///    and so missed a member isolated to a global actor imported from another module.
+///    Member-level detection now includes the imported fallback — a deliberate, bounded
+///    extension. A member isolated to an imported custom global actor is async from
+///    outside that domain just like a same-file one, so the walker surfaces it correctly.
 ///
 /// 4. **Suppressions**:
 ///    - `actor` keyword decls are NOT eligible for member-level isolation processing
-///      (regex's customActorRegex/MainActorAnnotationRegex still hits them, but the
-///      type's own decl is filtered by `ActorDeclRegex` checks). For
+///      (the `customActorRegex`/`MainActorAnnotationRegex` shape still hits them, but
+///      the type's own decl is filtered by `ActorDeclRegex` checks). For
 ///      `customActorIsolatorMap`, we skip when the decl line itself matches `actor`
 ///      because `@MyActor public actor MyActor` is the actor-keyword form — already
 ///      tracked by `customActorTypes`.
@@ -49,18 +50,16 @@ import SwiftParser
 ///      `@_Concurrency.MainActor`. Custom-actor-only isolation goes to
 ///      `actorIsolatedMembers` only.
 ///
-/// 5. **Free-function path**: only `public`/`open` `func` at top level. The regex
-///    parser's free-function path uses `PublicFuncRegex` — no init, no var, no bare
-///    func. We mirror exactly: top-level `init`/`var` are not tracked even with
+/// 5. **Free-function path**: only `public`/`open` `func` at top level — no init,
+///    no var, no bare func. Top-level `init`/`var` are not tracked even with
 ///    `@MainActor`.
 ///
 /// 6. **Custom-actor decl-level skip**: `customActorIsolatorMap` records only when
-///    the type decl is NOT an `actor` keyword decl. This matches the regex's
-///    `!ActorDeclRegex.IsMatch(trimmed)` guard at `GetCustomActorIsolatorMap`
-///    line 540 — `@MyActor public actor MyActor` doesn't get a self-entry.
+///    the type decl is NOT an `actor` keyword decl — `@MyActor public actor MyActor`
+///    doesn't get a self-entry.
 ///
-/// 7. **CustomActorIsolatorMap "first match wins"**: regex line 545 — repeated
-///    annotations on the same qualified path don't overwrite. We mirror.
+/// 7. **CustomActorIsolatorMap "first match wins"**: repeated annotations on the same
+///    qualified path don't overwrite. We emit only the first match.
 ///
 /// 8. **Top-level free function with @MainActor**: bare `printedName` key (no type
 ///    prefix). Free top-level vars/inits with @MainActor are NOT tracked.
@@ -92,8 +91,8 @@ final class ActorIsolationWalker: SyntaxVisitor {
     private var scopeStack: [Scope] = []
 
     /// Parallel stack: each visited type/extension records whether it actually
-    /// pushed a frame on `scopeStack`. Mirrors the regex tracker's gated push so
-    /// `visitPost` knows whether to pop.
+    /// pushed a frame on `scopeStack`. The gated-push pattern ensures `visitPost`
+    /// only pops when the corresponding `visit` actually pushed.
     private var scopePushed: [Bool] = []
 
     init(filePath: String, source: String, customActorShortNames: Set<String> = []) {
@@ -105,8 +104,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
 
     /// Two-pass entry. Pass 1 walks the tree to collect `customActorTypes`. Pass 2
     /// re-walks with the resulting short-name set so member-level custom-actor
-    /// detection works the same way as the regex parser's
-    /// `GetActorIsolatedMembers(..., customActorTypeNames, ...)` two-step.
+    /// detection can match against actor names declared anywhere in the same file.
     static func parse(filePath: String, source: String) -> ActorIsolationResult {
         let tree = Parser.parse(source: source)
 
@@ -115,8 +113,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
         pass1.collectCustomActorTypesOnly = true
         pass1.walk(tree)
 
-        // Build short-name set, matching `GetCustomActorIsolatorMap` lines 452-457:
-        // strip everything before the last `.`, drop empty leftovers, dedupe.
+        // Build short-name set: strip everything before the last `.`, drop empty leftovers, dedupe.
         var shortNames = Set<String>()
         for qualified in pass1.customActorTypes {
             let leaf: String
@@ -181,7 +178,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
     override func visitPost(_ node: ProtocolDeclSyntax) { exitTypeDecl() }
 
     /// `actor X { }` declarations — eligible for `customActorTypes` only when the
-    /// access modifier is `public` or `open` (matching `ActorDeclRegex` at line 70-72:
+    /// access modifier is `public` or `open` (the `ActorDeclRegex` shape:
     /// `(?:public|open)\s+actor\s+(\w+)`). Scope push gated through the same
     /// TypeDeclRegex shape as other types so non-matching shapes (e.g., bodies
     /// that open on a later line, backtick-escaped names) don't push.
@@ -200,16 +197,14 @@ final class ActorIsolationWalker: SyntaxVisitor {
                 customActorTypes.append(qualifiedPath)
             }
         }
-        // CustomActorIsolatorMap regex skips `ActorDeclRegex.IsMatch(trimmed)` lines
-        // (line 540). The actor-keyword form is tracked by `customActorTypes`, not here.
+        // CustomActorIsolatorMap skips actor-keyword decls (the `ActorDeclRegex` shape).
+        // The actor-keyword form is tracked by `customActorTypes`, not here.
         return .visitChildren
     }
     override func visitPost(_ node: ActorDeclSyntax) { exitTypeDecl() }
 
-    /// Extensions push scope with first-dot-stripped qualified type path
-    /// (matching GetActorIsolatedMembers lines 696-708, GetNonisolatedMembers
-    /// lines 863-876, GetCustomActorIsolatorMap lines 552-559). Push gated on
-    /// same-line `{` AND a `[\w.]+` extended-type capture.
+    /// Extensions push scope with first-dot-stripped qualified type path.
+    /// Push gated on same-line `{` AND a `[\w.]+` extended-type capture.
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
         guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,
                                          leftBrace: node.memberBlock.leftBrace,
@@ -252,8 +247,8 @@ final class ActorIsolationWalker: SyntaxVisitor {
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
         if collectCustomActorTypesOnly { return .skipChildren }
-        // VariableDecl can declare multiple bindings (`var x, y, z`); regex keys each
-        // off the FIRST identifier in `(?:var|let)\s+(\w+)` — match that.
+        // VariableDecl can declare multiple bindings (`var x, y, z`); only the FIRST
+        // identifier (the `(?:var|let)\s+(\w+)` word-identifier capture) is keyed.
         guard let firstBinding = node.bindings.first,
               let identifier = firstBinding.pattern.as(IdentifierPatternSyntax.self) else {
             return .skipChildren
@@ -266,7 +261,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
     // MARK: - Helpers
 
     /// Used by `enterTypeDecl` for class/struct/enum/protocol — and by the actor
-    /// branch directly. Pushes scope through the gated regex-shape predicate.
+    /// branch directly. Pushes scope through the gated type-decl shape predicate.
     /// Then, if the decl is a non-actor type with a custom-actor attribute,
     /// contributes to `customActorIsolatorMap`.
     private func enterTypeDecl(name: String, isActor: Bool,
@@ -281,13 +276,13 @@ final class ActorIsolationWalker: SyntaxVisitor {
         // Skip pass 1 — only need actor types from it.
         if collectCustomActorTypesOnly { return .visitChildren }
 
-        // Skip the `actor` keyword case (excluded by `!ActorDeclRegex.IsMatch(trimmed)`
-        // at GetCustomActorIsolatorMap line 540).
+        // Skip the `actor` keyword case — actor-keyword decls are tracked by
+        // `customActorTypes`, not `customActorIsolatorMap`.
         if isActor { return .visitChildren }
 
         if pushed, let actorName = matchAnyCustomActor(attributes: attributes, includeImported: true) {
             let qualifiedPath = scopeStack.map { $0.name }.joined(separator: ".")
-            // First match wins (regex line 545).
+            // First match wins.
             if customActorIsolatorMap[qualifiedPath] == nil {
                 customActorIsolatorMap[qualifiedPath] = actorName
             }
@@ -296,10 +291,10 @@ final class ActorIsolationWalker: SyntaxVisitor {
         return .visitChildren
     }
 
-    /// Push the type onto the scope stack iff the regex tracker would have:
-    /// `TypeDeclRegex` (public|internal|open + optional final) matches, the name
-    /// satisfies `\w+`, and the body's `{` is on the same source line as the
-    /// keyword. Returns whether the push happened so callers can gate side-effects.
+    /// Push the type onto the scope stack when `TypeDeclRegex`
+    /// (public|internal|open + optional final) matches, the name satisfies `\w+`,
+    /// and the body's `{` is on the same source line as the keyword. Returns
+    /// whether the push happened so callers can gate side-effects.
     @discardableResult
     private func pushTypeScopeIfMatching(name: String,
                                          modifiers: DeclModifierListSyntax,
@@ -323,8 +318,8 @@ final class ActorIsolationWalker: SyntaxVisitor {
         }
     }
 
-    /// MemberKind feeds key construction; the regex parser uses `printedName` for
-    /// func / init and the bare identifier for var/let.
+    /// MemberKind feeds key construction: `printedName` for func / init and the
+    /// bare identifier for var/let.
     private enum MemberKind {
         case function(name: String)
         case initializer
@@ -337,10 +332,17 @@ final class ActorIsolationWalker: SyntaxVisitor {
     ///  - nonisolated (member has the `nonisolated` modifier)
     private func emitMember(kind: MemberKind, attributes: AttributeListSyntax, modifiers: DeclModifierListSyntax, params: FunctionParameterClauseSyntax?) {
         let isMainActor = hasMainActorAttribute(attributes)
-        // Member-level custom-actor matching uses the SHORT-NAME set only, NOT the
-        // imported `\w*Actor` heuristic — matches `GetActorIsolatedMembers` line 605-609
-        // which builds the regex purely from `customActorTypeNames`.
-        let isCustomActor = matchAnyCustomActor(attributes: attributes, includeImported: false) != nil
+        // Member-level custom-actor matching uses the short-name set AND the imported
+        // `@(?:\w+\.)+(?!MainActor\b)(\w*Actor)\b` heuristic — same as type-level
+        // `customActorIsolatorMap`. This is a DELIBERATE extension: earlier, member-level
+        // detection used only the local short-name set and so missed a member isolated to
+        // a global actor imported from another module (e.g. `@OtherModule.SomeActor
+        // func work()`). A member isolated to a custom global actor is async from outside
+        // that actor's domain exactly like a same-file one, so it must surface as a
+        // `Task<T>` API. Same-file actors are still caught first via the local short-name
+        // set (`localMatch ?? importedMatch`); the imported fallback only adds the
+        // cross-module case the local set cannot see.
+        let isCustomActor = matchAnyCustomActor(attributes: attributes, includeImported: true) != nil
         let isAnyActor = isMainActor || isCustomActor
         let isNonisolated = hasNonisolatedModifier(modifiers)
 
@@ -364,10 +366,9 @@ final class ActorIsolationWalker: SyntaxVisitor {
 
         let qualifiedType = scopeStack.map { $0.name }.joined(separator: ".")
 
-        // Free function path: only `public`/`open` `func` qualifies. Regex restricts
-        // top-level free-func tracking to `PublicFuncRegex` (lines 732-748) — no
-        // init/var/subscript at module scope, no bare/protocol-style unmodified
-        // funcs at top level.
+        // Free function path: only `public`/`open` `func` qualifies (the `PublicFuncRegex`
+        // shape) — no init/var/subscript at module scope, no bare/protocol-style
+        // unmodified funcs at top level.
         if scopeStack.isEmpty {
             guard case .function = kind,
                   let access = firstAccessModifier(modifiers),
@@ -379,9 +380,9 @@ final class ActorIsolationWalker: SyntaxVisitor {
                     mainActorIsolatedMembers.insert(pname)
                 }
             }
-            // NOTE: nonisolated free functions are NOT tracked by the regex parser
-            // (GetNonisolatedMembers requires `typeStack.Count > 0` at line 879). We
-            // mirror — drop nonisolated at module scope.
+            // NOTE: nonisolated free functions are NOT tracked — `nonisolatedMembers`
+            // requires a non-empty scope stack (at least one enclosing type). Drop
+            // nonisolated at module scope.
             return
         }
 
@@ -412,12 +413,12 @@ final class ActorIsolationWalker: SyntaxVisitor {
 
     /// Match attribute against either the local short-name set or, optionally, the
     /// imported `(\w+\.)+(?!MainActor\b)\w*Actor` heuristic. Returns the matched
-    /// actor's leaf identifier (the same string the regex captures with its first
-    /// group).
+    /// actor's leaf identifier.
     ///
     /// - parameter includeImported: when true, falls back to the imported pattern
-    ///   after the local short-name set fails. Used by `customActorIsolatorMap`
-    ///   only — `actorIsolatedMembers` does NOT enable this fallback.
+    ///   after the local short-name set fails. Enabled by BOTH the type-level
+    ///   `customActorIsolatorMap` and member-level `actorIsolatedMembers` detection so a
+    ///   member isolated to an imported custom global actor is recognized as actor-isolated.
     private func matchAnyCustomActor(attributes: AttributeListSyntax, includeImported: Bool) -> String? {
         var localMatch: String? = nil
         var importedMatch: String? = nil
@@ -437,9 +438,9 @@ final class ActorIsolationWalker: SyntaxVisitor {
                 }
             }
 
-            // Imported regex: `@(?:\w+\.)+(?!MainActor\b)(\w*Actor)\b` — requires AT
-            // LEAST one `Module.` prefix and a leaf ending in `Actor`. Uses the same
-            // `MainActor` exclusion as the regex parser's negative lookahead.
+            // Imported pattern: `@(?:\w+\.)+(?!MainActor\b)(\w*Actor)\b` — requires AT
+            // LEAST one `Module.` prefix and a leaf ending in `Actor`. The negative
+            // lookahead excludes `MainActor`, which is handled separately.
             if includeImported && importedMatch == nil {
                 if let leaf = qualifiedLeafEndingInActor(typeName), leaf != "MainActor" {
                     importedMatch = leaf
@@ -447,7 +448,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
             }
         }
 
-        // Priority: local (same-module) match wins over imported (matches regex line 508-509).
+        // Priority: local (same-module) match wins over imported.
         return localMatch ?? importedMatch
     }
 
@@ -486,13 +487,13 @@ final class ActorIsolationWalker: SyntaxVisitor {
     private func hasNonisolatedModifier(_ modifiers: DeclModifierListSyntax) -> Bool {
         for modifier in modifiers {
             // `nonisolated` plain or `nonisolated(unsafe)` — both have name == "nonisolated".
-            // SEMANTIC CLIFF: the regex's `NonisolatedRegex`
+            // SEMANTIC CLIFF: the `NonisolatedRegex` shape
             // (`nonisolated\s+(?:public|open|final|var|let|func|static|class)`) misses
             // `nonisolated(unsafe)` because the `(` after `nonisolated` breaks the
             // `\s+keyword` requirement. SwiftSyntax sees both forms as the same modifier
-            // and would correctly emit them. To preserve byte-equal parity with the
-            // regex parser, we DROP `nonisolated(unsafe)` matches — this is a known
-            // semantic cliff that will be fixed when the regex parser is retired.
+            // and would correctly emit them. We intentionally DROP `nonisolated(unsafe)`
+            // matches to preserve the established emission shape — this is a known
+            // semantic cliff that can be revisited when the downstream consumer is ready.
             if modifier.name.text == "nonisolated" {
                 if let detail = modifier.detail, detail.detail.text == "unsafe" {
                     continue

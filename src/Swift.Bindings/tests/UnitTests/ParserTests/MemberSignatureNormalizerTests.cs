@@ -8,12 +8,11 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Unit tests for <see cref="MemberSignatureNormalizer"/>. The normalization helper
-/// is the contract that lets the C# regex parser, the Swift parser, and the ABI
-/// parser all converge on the same disambiguation suffix for an overload — every
-/// case here MUST collapse to the same string regardless of which parser the
-/// input came from. The Swift-side mirror in <c>AvailabilityWalker.normalizeParamType</c>
-/// is exercised end-to-end by the BindingTests Layer A fixtures; this class
-/// covers the .NET-side normalizer in isolation.
+/// is the contract that lets the SwiftSyntax host and the ABI parser converge on the same
+/// disambiguation suffix for an overload — every case here MUST collapse to the same string
+/// regardless of which input source the type spelling came from. The Swift-side mirror in
+/// <c>AvailabilityWalker.normalizeParamType</c> is exercised end-to-end by the BindingTests
+/// Layer A fixtures; this class covers the .NET-side normalizer in isolation.
 /// </summary>
 public class MemberSignatureNormalizerTests
 {
@@ -114,13 +113,13 @@ public class MemberSignatureNormalizerTests
     }
 
     /// <summary>
-    /// Finding 46 — the regex producer string-splits the parameter clause, while the
-    /// SwiftSyntax producer and the ABI consumer walk STRUCTURED parameters. The two paths
-    /// must yield the same disamb signature. The non-final closure parameter is the case
-    /// that requires the arrow-guarded shared grammar splitter
+    /// Finding 46 — the string-splitting path for parameter clauses must yield the same
+    /// disamb signature as the SwiftSyntax host and the ABI consumer, which walk STRUCTURED
+    /// parameters. The non-final closure parameter is the case that requires the
+    /// arrow-guarded shared grammar splitter
     /// (<c>SwiftTypeListText.SplitTopLevelParameters</c>); the old unguarded split drove the
     /// depth counter negative at <c>-&gt;</c> and mis-merged the trailing parameters into
-    /// one mangled segment, diverging from the structured producers.
+    /// one mangled segment.
     /// </summary>
     [Fact]
     public void ExtractParamTypesFromSwiftClause_NonFinalClosure_MatchesStructuredProducer()

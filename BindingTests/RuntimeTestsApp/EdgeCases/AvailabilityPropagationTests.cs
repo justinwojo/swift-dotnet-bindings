@@ -212,8 +212,8 @@ public class AvailabilityPropagationTests : TestBase
     }
 
     // F-2 is covered by the unit test
-    // `GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier`
-    // in SwiftInterfaceAccessParserTests.cs. A BindingTests fixture for F-2
+    // `Availability_OnProtocolRequirementsWithoutAccessModifier_IsHarvested`
+    // in SwiftSyntaxInterfaceFactsProducerTests.cs. A BindingTests fixture for F-2
     // is intentionally omitted — see the matching note in
     // BindingTests/Sources/SwiftBindingsTestLib/EdgeCases/AvailabilityFamilyF.swift.
 

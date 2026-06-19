@@ -441,31 +441,10 @@ public class ProtocolExtensionStructConformerTests
         Assert.Contains("Unmanaged.passRetained", wrapperLines);
     }
 
-    [Fact]
-    public void Parser_MutatingFunc_SetsIsMutating()
-    {
-        var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
-        SwiftInterfaceAccessParser.ProcessProtocolExtensionMemberForTesting(
-            "  public mutating func upsert(_ db: RecordStore.Database) throws",
-            "RecordStore.MutablePersistableRecord",
-            new List<string>(), false, result);
-
-        Assert.Single(result);
-        Assert.True(result["RecordStore.MutablePersistableRecord"][0].IsMutating);
-    }
-
-    [Fact]
-    public void Parser_NonMutatingFunc_IsMutatingFalse()
-    {
-        var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
-        SwiftInterfaceAccessParser.ProcessProtocolExtensionMemberForTesting(
-            "  public func doWork()",
-            "TestModule.TestProtocol",
-            new List<string>(), false, result);
-
-        Assert.Single(result);
-        Assert.False(result["TestModule.TestProtocol"][0].IsMutating);
-    }
+    // Protocol-extension member mutating-detection (the parser path that sets
+    // ProtocolExtensionMethodDecl.IsMutating) is covered against the SwiftSyntax producer in
+    // SwiftSyntaxInterfaceFactsProducerTests.ProtocolExtensionMember_MutatingDetectionDiscriminatesPerMethod.
+    // The emitter's consumption of that flag is covered by the InjectExtensionMethods tests above.
 
     // ─── Helper Methods ──────────────────────────────────────────────
 

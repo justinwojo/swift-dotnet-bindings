@@ -10,8 +10,7 @@ import SwiftParser
 ///   * `enumCaseLabels`:    `"TypePath.caseName" -> [associatedValueLabel?]`
 ///   * `enumCaseRawValues`: `"TypePath.caseName" -> rawValueString` (string literal only)
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser.GetEnumCaseLabels` (line 2539)
-/// and `GetEnumRawValues` (line 2713).
+/// EXTRACTION CONTRACT:
 ///
 /// 1. **Decl kinds**: only `case` declarations inside an enum (or extension of enum)
 ///    scope. Module-level cases (impossible in real Swift) are skipped.
@@ -25,42 +24,37 @@ import SwiftParser
 ///    - `extension Mod.P256.Signing { enum Mode { case x } }` → `"P256.Signing.Mode.x"`
 ///
 /// 3. **Associated-value labels (`enumCaseLabels`)**: only cases with parentheses
-///    AND at least one parameter contribute. Per parameter, regex emits:
+///    AND at least one parameter contribute. Per parameter:
 ///    - `null` if the param has no top-level colon, or before-colon is `_`, or
 ///      the colon is inside brackets (e.g. `[String : String]` is unlabeled).
 ///    - the trimmed before-colon string otherwise.
 ///    Empty parens (`case foo()`) emit no entry. Cases without parens emit no entry.
 ///
-/// 4. **Grouped `case a(Int), b(Int)` / `case a = "A", b = "B"`**: both
-///    `EnumCaseRegex` (`case\s+(\w+)\s*\(`) and `EnumCaseRawValueRegex`
-///    (`case\s+(\w+)\s*=\s*"..."`) call `.Match(line)` which returns only the
-///    FIRST hit per line. Subsequent elements (`b`, `c`, ...) on the same source
-///    line are dropped by the regex, so the walker MUST also stop after the first
-///    element of an `EnumCaseDeclSyntax` to maintain byte-equal parity. This is a
-///    semantic cliff (SwiftSyntax can see all elements; we deliberately mirror
-///    the regex's first-only emission).
+/// 4. **Grouped `case a(Int), b(Int)` / `case a = "A", b = "B"`**: only the FIRST
+///    element of each `EnumCaseDeclSyntax` is emitted. Subsequent elements (`b`,
+///    `c`, ...) on the same source line are dropped. This is a semantic cliff
+///    (SwiftSyntax can see all elements; only the first is emitted because the
+///    downstream consumer expects first-only emission per case-line).
 ///
 /// 5. **Raw values (`enumCaseRawValues`)**: only string-literal raw values
-///    contribute. Integer or other raw value kinds are absent (regex requires
-///    `= "..."`). Escape sequences are preserved verbatim as written in source —
-///    SwiftSyntax's segment text for a basic string literal yields the same.
-///    The stored value is the unquoted content.
+///    contribute (the `= "..."` form). Integer or other raw value kinds are absent.
+///    Escape sequences are preserved verbatim as written in source — SwiftSyntax's
+///    segment text for a basic string literal yields the same. The stored value is
+///    the unquoted content.
 ///
-/// 6. **`indirect case`**: handled — both regex and SwiftSyntax see the case
-///    declaration the same way (regex strips `indirect ` prefix; SwiftSyntax
-///    treats `IndirectModifier` as a modifier on the case decl).
+/// 6. **`indirect case`**: handled — SwiftSyntax exposes `indirect` as a modifier
+///    on the case decl and the case name is extracted the same way as a direct case.
 ///
 /// 7. **No access modifier filter**: cases have no access modifier in
 ///    swiftinterface output; emit all.
 ///
-/// 8. **Type-scope push gate (regex parity)**: the regex producer's tracker only
-///    pushes a type onto its scope stack when `TypeDeclRegex` (public/internal/
-///    open + optional `final`) matches AND the body's `{` is on the same source
-///    line (`openBraces > 0`). Non-matching shapes such as `public indirect enum`
-///    or types whose body opens on a later line are NOT pushed; their members
-///    end up keyed at module scope (or, if nested, at the outer scope). Mirror
-///    by gating each `visit(<TypeDecl>)` push through `enterTypeScope` and the
-///    matching `visitPost` pop through `leaveTypeScope`.
+/// 8. **Type-scope push gate**: a type is pushed onto the scope stack only when
+///    the declaration carries a `public`/`internal`/`open` modifier (optionally
+///    `final`) AND the body's `{` is on the same source line. Non-matching shapes
+///    such as `public indirect enum` or types whose body opens on a later line are
+///    NOT pushed; their members end up keyed at module scope (or, if nested, at
+///    the outer scope). Each `visit(<TypeDecl>)` push is gated through
+///    `enterTypeScope` and the matching `visitPost` pop through `leaveTypeScope`.
 final class EnumFactsWalker: SyntaxVisitor {
     private(set) var enumCaseLabels: [String: [String?]] = [:]
     private(set) var enumCaseRawValues: [String: String] = [:]
@@ -71,8 +65,7 @@ final class EnumFactsWalker: SyntaxVisitor {
     private var scopeStack: [String] = []
 
     /// Parallel stack: each visited type/extension records whether it actually
-    /// pushed a frame on `scopeStack`. Mirrors the regex tracker's gated push so
-    /// `visitPost` knows whether to pop.
+    /// pushed a frame on `scopeStack`, so `visitPost` knows whether to pop.
     private var scopePushed: [Bool] = []
 
     private let converter: SourceLocationConverter
@@ -93,7 +86,7 @@ final class EnumFactsWalker: SyntaxVisitor {
         return (walker.enumCaseLabels, walker.enumCaseRawValues)
     }
 
-    // MARK: - Type decls (gated push, mirroring `TypeDeclRegex` + `openBraces > 0`)
+    // MARK: - Type decls (gated push: access-modifier shape + same-line `{`)
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
@@ -139,8 +132,8 @@ final class EnumFactsWalker: SyntaxVisitor {
             return .visitChildren
         }
         let qualified = node.extendedType.trimmedDescription
-        // Regex `ExtensionDeclRegex` captures only `[\w.]+` for the extended type;
-        // anything else (generics, parens, composition) breaks the regex match.
+        // The extended type must match `[\w.]+` (word characters and dots only);
+        // generics, parens, or composition types are not captured.
         guard RegexShape.isWordOrDotOnly(qualified) else {
             scopePushed.append(false)
             return .visitChildren
@@ -161,9 +154,9 @@ final class EnumFactsWalker: SyntaxVisitor {
                                 modifiers: DeclModifierListSyntax,
                                 keyword: TokenSyntax,
                                 leftBrace: TokenSyntax) -> SyntaxVisitorContinueKind {
-        // `TypeDeclRegex` ends in bare `(\w+)` — backtick-escaped names fail the
-        // Unicode word-class check and miss the regex capture, so SwiftSyntax
-        // must also skip pushing them.
+        // The type-name capture requires a word identifier (`\w+`) — backtick-escaped
+        // names fail the Unicode word-class check, so SwiftSyntax must also skip
+        // pushing them.
         if matchesTypeDeclShape(modifiers),
            RegexShape.isWordIdentifier(name),
            typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace) {
@@ -181,11 +174,10 @@ final class EnumFactsWalker: SyntaxVisitor {
         }
     }
 
-    /// Mirrors `TypeDeclRegex = (?:public|internal|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)`.
-    /// Modifiers BEFORE access are tolerated (regex unanchored Match scan); after
-    /// access only an optional `final` is allowed before the type keyword.
-    /// `public indirect enum`, `public nonisolated class`, etc. fail this gate
-    /// and are NOT pushed onto the scope stack — matching the regex tracker.
+    /// Shape: `(?:public|internal|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)`.
+    /// Modifiers BEFORE access are tolerated (unanchored scan); after access only
+    /// an optional `final` is allowed before the type keyword. `public indirect enum`,
+    /// `public nonisolated class`, etc. fail this gate and are NOT pushed.
     private func matchesTypeDeclShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
         guard advanceToAccess(&iter, ["public", "internal", "open"]) else { return false }
@@ -197,8 +189,7 @@ final class EnumFactsWalker: SyntaxVisitor {
     }
 
     /// True iff the type/extension keyword and its body's opening `{` are on the
-    /// same source line. Mirrors `openBraces > 0` on the TypeDeclRegex match line
-    /// in `SwiftInterfaceContextTracker`.
+    /// same source line (same-line brace gate).
     private func typeOpensOnSameLine(keyword: TokenSyntax, leftBrace: TokenSyntax) -> Bool {
         let kwLine = converter.location(for: keyword.positionAfterSkippingLeadingTrivia).line
         let braceLine = converter.location(for: leftBrace.positionAfterSkippingLeadingTrivia).line
@@ -206,8 +197,8 @@ final class EnumFactsWalker: SyntaxVisitor {
     }
 
     /// Iterator helper: consume modifiers until we find one whose `name.text` is in
-    /// `accessTexts` AND whose `detail` is nil. Mirrors the regex's unanchored search
-    /// for the access keyword (modifiers before the access are tolerated).
+    /// `accessTexts` AND whose `detail` is nil. Modifiers before the access modifier
+    /// are tolerated (unanchored scan).
     private func advanceToAccess(_ iter: inout DeclModifierListSyntax.Iterator, _ accessTexts: [String]) -> Bool {
         while let mod = iter.next() {
             if accessTexts.contains(mod.name.text) && mod.detail == nil {
@@ -221,17 +212,15 @@ final class EnumFactsWalker: SyntaxVisitor {
 
     override func visit(_ node: EnumCaseDeclSyntax) -> SyntaxVisitorContinueKind {
         // Only emit when inside a type scope. Free `case` declarations cannot exist
-        // syntactically, but mirror the regex `typeStack.Count > 0` guard for safety.
+        // syntactically, but guard on a non-empty stack for safety.
         guard !scopeStack.isEmpty else { return .skipChildren }
         let typePrefix = scopeStack.joined(separator: ".")
 
-        // Regex parity: both `EnumCaseRegex.Match` and `EnumCaseRawValueRegex.Match`
-        // anchor on the FIRST `case <name>` token only; subsequent elements on the
-        // same source line are invisible to the regex even if THEIR element would
-        // satisfy the pattern. So `case a, b(Int)` must emit nothing (regex sees
-        // `case a` — no `(`, no match) and `case a, b = "B"` must emit nothing for
-        // raw values either. Inspect ONLY `elements.first` and decide based on its
-        // own associated value / raw value (or absence thereof).
+        // Only the FIRST element of the case decl is inspected. `case a, b(Int)`
+        // emits nothing (first element `a` has no associated value and no raw value),
+        // and `case a, b = "B"` also emits nothing for raw values. Inspect ONLY
+        // `elements.first` and decide based on its own associated value / raw value
+        // (or absence thereof).
         guard let element = node.elements.first else { return .skipChildren }
         let caseName = element.name.text
         let key = "\(typePrefix).\(caseName)"
@@ -240,7 +229,7 @@ final class EnumFactsWalker: SyntaxVisitor {
         if let assoc = element.parameterClause, !assoc.parameters.isEmpty {
             var labels: [String?] = []
             for param in assoc.parameters {
-                // SwiftSyntax exposes firstName explicitly. Regex parity:
+                // SwiftSyntax exposes firstName explicitly.
                 // - missing first-name (no label, just `Type`): null
                 // - explicit `_` first-name: null
                 // - any other first-name: that label
@@ -267,14 +256,13 @@ final class EnumFactsWalker: SyntaxVisitor {
     }
 
     /// Extract the verbatim source text of a basic (non-multiline, non-interpolated)
-    /// string literal's contents, preserving escape sequences as-written. The regex
-    /// captures `(?:[^"\\]|\\.)*` and emits whatever's inside the quotes — including
+    /// string literal's contents, preserving escape sequences as-written — including
     /// `\t`, `\n`, `\\`, `\"` as the two-character escape sequences from source.
-    /// Returns nil for interpolated or multi-line literals (regex would not match
-    /// those either since it requires straight `"..."`).
+    /// Returns nil for interpolated or multi-line literals (only straight `"..."`
+    /// forms produce a value).
     private func extractRawSegments(_ literal: StringLiteralExprSyntax) -> String? {
         // Multi-line (`"""..."""`) and raw (`#"..."#`) strings have non-empty
-        // openingPounds or use multi-line delimiters; the regex never matched these.
+        // openingPounds or use multi-line delimiters; these are not extracted.
         if literal.openingPounds != nil { return nil }
         if literal.openingQuote.tokenKind == .multilineStringQuote { return nil }
 
@@ -285,8 +273,7 @@ final class EnumFactsWalker: SyntaxVisitor {
                 // .text holds the raw source spelling: escape sequences are kept as-is.
                 result.append(seg.content.text)
             case .expressionSegment:
-                // Interpolation cannot be a constant raw value — the regex would not
-                // match it either (the inner `(?:[^"\\]|\\.)*` permits no `\(` boundary).
+                // Interpolation cannot be a constant raw value; return nil.
                 return nil
             }
         }

@@ -11,16 +11,15 @@ import SwiftParser
 /// Empty-body conformance is the structural signal a "marker protocol" is in use
 /// (the conforming type adds nothing to the protocol).
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser.GetMarkerProtocolConformances` (line 944):
+/// EXTRACTION CONTRACT:
 ///
 /// 1. **Decl kind**: `extension` only. The extension must declare at least one
 ///    inheritance entry (i.e. `extension Foo : Bar { }`). Bodyless extensions
 ///    without `: Proto` are silently ignored.
 ///
-/// 2. **Empty-body detection**: regex parser checks two patterns —
-///    same-line `{ }` OR opening `{` followed by next-non-blank line being `}`.
-///    SwiftSyntax replaces this with `members.members.isEmpty` — structurally
-///    equivalent (no decls inside).
+/// 2. **Empty-body detection**: `members.members.isEmpty` — structurally equivalent
+///    to the two textual patterns (same-line `{ }` OR opening `{` followed by the
+///    next non-blank line being `}`).
 ///
 /// 3. **Key shape**: the dictionary key is the LAST dot-component of each
 ///    conforming protocol name. So `extension Swift.Int : SomeModule.ConstraintOffsetTarget`
@@ -37,7 +36,7 @@ import SwiftParser
 ///    all match.
 ///
 /// 7. **Insertion order preserved**: lists keep file order; duplicates suppressed
-///    via Contains check (matches regex's `!result[key].Contains(...)` guard).
+///    via a contains-before-insert check.
 final class MarkerProtocolWalker: SyntaxVisitor {
     private(set) var markerProtocolConformances: [String: [String]] = [:]
 
@@ -57,10 +56,10 @@ final class MarkerProtocolWalker: SyntaxVisitor {
         guard let inheritance = node.inheritanceClause else { return .visitChildren }
         guard node.memberBlock.members.isEmpty else { return .visitChildren }
 
-        // Regex parity: `ConformanceExtensionRegex` is
+        // `ConformanceExtensionRegex` shape:
         //   extension\s+([\w.]+)\s*:\s*([\w.,\s]+)\s*\{
         // — the brace MUST follow directly after the inheritance list with only
-        // whitespace between, so any `where` clause forces the regex to fail.
+        // whitespace between, so any `where` clause fails the shape.
         // Reject extensions with a generic where clause to mirror that.
         if node.genericWhereClause != nil { return .visitChildren }
 
@@ -70,9 +69,9 @@ final class MarkerProtocolWalker: SyntaxVisitor {
         if !isWordOrDotOnly(extendedType) { return .visitChildren }
 
         // Inheritance capture is `[\w.,\s]+` — each individual protocol must be
-        // word-and-dot only (the comma + whitespace are list separators). Anything
-        // else (composition `&`, generics `<>`, optionality `?`, etc.) forces the
-        // regex to bail on the entire line, so reject the whole extension.
+        // word-and-dot only (commas + whitespace are list separators). Anything
+        // else (composition `&`, generics `<>`, optionality `?`, etc.) fails the
+        // capture shape, so reject the whole extension.
         for entry in inheritance.inheritedTypes {
             let proto = entry.type.trimmedDescription
             if !isWordOrDotOnly(proto) { return .visitChildren }
@@ -80,7 +79,7 @@ final class MarkerProtocolWalker: SyntaxVisitor {
 
         for entry in inheritance.inheritedTypes {
             let proto = entry.type.trimmedDescription
-            // Last-dot-component as key (regex parser strips qualifiers similarly).
+            // Last-dot-component as key (qualifiers stripped).
             let key: String
             if let lastDot = proto.lastIndex(of: ".") {
                 key = String(proto[proto.index(after: lastDot)...])
@@ -98,8 +97,8 @@ final class MarkerProtocolWalker: SyntaxVisitor {
         return .visitChildren
     }
 
-    /// True iff every character in `s` is either `.` or a `\w` (Unicode word) char.
-    /// Mirrors the regex `[\w.]+` capture class.
+    /// True iff every character in `s` is either `.` or a `\w` (Unicode word) char
+    /// — the `[\w.]+` capture class.
     private func isWordOrDotOnly(_ s: String) -> Bool {
         if s.isEmpty { return false }
         for scalar in s.unicodeScalars {

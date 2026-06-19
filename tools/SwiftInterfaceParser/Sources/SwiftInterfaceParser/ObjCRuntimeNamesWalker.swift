@@ -9,33 +9,32 @@ import SwiftParser
 /// carries an explicit `@objc(CustomName)` runtime-name rename, keyed by its dot-qualified
 /// type path (e.g. `"Widget"` or `"Outer.Inner"` → the custom ObjC runtime name).
 ///
-/// PARITY CONTRACT WITH `SwiftInterfaceAccessParser.GetObjCRuntimeNames` (line 613):
+/// EXTRACTION CONTRACT:
 ///
 /// 1. **Decl kinds**: `class` / `struct` / `enum` / `actor` / `protocol` — exactly the
-///    `TypeDeclRegex` set. Unlike `GetMainActorTypes` there is NO public/open suppression
+///    `TypeDeclRegex` set. Unlike `MainActorWalker` there is NO public/open suppression
 ///    for `actor`: the ObjC scanner uses `TypeDeclRegex` directly, so any public/internal/
 ///    open type (optional `final`) is eligible. `extension` pushes a scope frame for nested
-///    qualified paths but never records its own `@objc` (the regex records only on the
+///    qualified paths but never records its own `@objc` (recorded only on the
 ///    `TypeDeclRegex` branch, never the `ExtensionDeclRegex` branch).
 ///
-/// 2. **Attribute match**: `ObjCCustomNameRegex = @objc\s*\(\s*([A-Za-z_]\w*)\s*\)`
-///    (line 79). A bare `@objc` (no argument) leaves the runtime name equal to the Swift
+/// 2. **Attribute match**: `ObjCCustomNameRegex = @objc\s*\(\s*([A-Za-z_]\w*)\s*\)`.
+///    A bare `@objc` (no argument) leaves the runtime name equal to the Swift
 ///    name and is NOT recorded. Method/property selector renames (`@objc(foo:bar:)`,
-///    `@objc(initWithName:)`) carry a trailing colon and fail the regex's
-///    `([A-Za-z_]\w*)\s*\)` shape, so they're excluded too. We run the same regex over each
-///    attribute's text rather than guessing SwiftSyntax's selector-piece model.
+///    `@objc(initWithName:)`) carry a trailing colon and fail the
+///    `([A-Za-z_]\w*)\s*\)` shape, so they're excluded too. We run the same regex over
+///    each attribute's text rather than guessing SwiftSyntax's selector-piece model.
 ///
-/// 3. **Same-line / own-line attribute**: the regex records `@objc(Name)` whether it sits
-///    on the declaration line or is deferred from the line immediately above. SwiftSyntax
+/// 3. **Same-line / own-line attribute**: `@objc(Name)` is recorded whether it sits on
+///    the declaration line or is deferred from the line immediately above. SwiftSyntax
 ///    attaches a leading attribute to its declaration regardless of line, so scanning
 ///    `node.attributes` covers both. An `@objc(Name)` followed by a member declaration
-///    binds to that member (which a type-only walk ignores) — matching the regex, whose
-///    deferred slot is consumed without recording when the next line is a member.
+///    binds to that member (which a type-only walk ignores).
 ///
 /// 4. **First-match wins**: a later member-level `@objc(name)` cannot overwrite a type-level
 ///    rename already recorded for the same qualified path.
 ///
-/// 5. **Type-scope push gate**: identical to `MainActorWalker` — regex's `TypeDeclRegex`
+/// 5. **Type-scope push gate**: identical to `MainActorWalker` — `TypeDeclRegex`
 ///    (public|internal|open + optional final) match AND same-line `{` AND a `\w+` name.
 ///    Extension push is additionally gated on same-line `{` AND a `[\w.]+` extended-type
 ///    capture, with the leading module component stripped (first-dot).
@@ -47,10 +46,11 @@ final class ObjCRuntimeNamesWalker: SyntaxVisitor {
     private var scopeStack: [String] = []
 
     /// Parallel stack: each visited type/extension records whether it actually pushed a
-    /// frame on `scopeStack`. Mirrors the regex tracker's gated push.
+    /// frame on `scopeStack`. The gated-push pattern ensures `visitPost` only pops when
+    /// the corresponding `visit` actually pushed.
     private var scopePushed: [Bool] = []
 
-    /// Mirrors `SwiftInterfaceAccessParser.ObjCCustomNameRegex` (line 79). The argument is a
+    /// `ObjCCustomNameRegex`: `@objc\s*\(\s*([A-Za-z_]\w*)\s*\)`. The argument is a
     /// bare identifier; the closing paren immediately after it excludes selector renames.
     private static let objcCustomNameRegex =
         try! NSRegularExpression(pattern: "@objc\\s*\\(\\s*([A-Za-z_]\\w*)\\s*\\)")
@@ -145,7 +145,7 @@ final class ObjCRuntimeNamesWalker: SyntaxVisitor {
         keyword: TokenSyntax,
         leftBrace: TokenSyntax
     ) -> SyntaxVisitorContinueKind {
-        // Gated scope push, identical to the regex tracker / MainActorWalker.
+        // Gated scope push, identical to MainActorWalker.
         guard RegexShape.matchesTypeDeclShape(modifiers),
               RegexShape.isWordIdentifier(name),
               RegexShape.opensOnSameLine(keyword: keyword, leftBrace: leftBrace, converter: converter) else {
@@ -171,9 +171,9 @@ final class ObjCRuntimeNamesWalker: SyntaxVisitor {
         }
     }
 
-    /// Returns the first attribute matching `@objc(BareIdentifier)`, or nil. Runs the same
-    /// regex the regex producer scans the source line with, so selector renames
-    /// (`@objc(foo:bar:)`) and bare `@objc` are excluded identically.
+    /// Returns the first attribute matching `@objc(BareIdentifier)`, or nil. Runs
+    /// `ObjCCustomNameRegex` over the attribute text, so selector renames
+    /// (`@objc(foo:bar:)`) and bare `@objc` are excluded by the shape.
     private func objcCustomName(_ attributes: AttributeListSyntax) -> String? {
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }

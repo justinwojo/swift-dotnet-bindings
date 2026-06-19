@@ -101,8 +101,7 @@ throws but `Parse("any X")` succeeds — `some`-vs-`any` asymmetry); `ProtocolEx
 
 **Deferred — Family B (`SwiftTypeListText` shared-splitter behavior changes):**
 `SwiftTypeListText.cs:85` — arrow guard (`'>' && prev=='-'`) suppresses depth-decrement for *any*
-`-`-preceded `>`, and a behavior flip for the `SwiftInterfaceContextTracker` subscript-label clone
-(unpinned); `:85` again — no `if (depth>0)` floor, so a comparison `>` in an un-stripped default
+`-`-preceded `>` (unpinned); `:85` again — no `if (depth>0)` floor, so a comparison `>` in an un-stripped default
 drives depth negative and merges params; `:106` — `IndexOfTopLevelArrow` returns `-1` on a
 truncated slice where `IndexOf("->")` found the arrow → three migrated arrow scans mis-slice. P2.
 
@@ -116,7 +115,7 @@ converges; shared by both mirrors). P2.
 **Open coverage gaps:** no subscript-`some-P`-param coverage; no `sending`-in-closure-type
 coverage; EOF-strict throw paths unpinned (no "un-consumed leading modifier must not drop the
 decl" guard test); C#↔Swift mirror parity corpus has no trailing-dot / space-ellipsis /
-closure-element-collection edge inputs; `SwiftInterfaceContextTracker` splitter path unpinned.
+closure-element-collection edge inputs.
 
 ---
 
@@ -227,12 +226,14 @@ call sites (#7).
 - `AbiContractChecker.cs:516` — `IsNonBlittable` defaults every unknown type to blittable behind a
   7-name allowlist; a genuinely new non-blittable type (`T[]`, `char`, `decimal`, class wrapper,
   `SwiftArray<T>` projection) escapes CC-001/CC-002. The "~100% recall" claim is unsupported.
-- `SwiftInterfaceContextTracker.cs:653` — `HasUnmatchedOpenParen` is string-literal-blind; a `)` in
-  a multi-line default-value string completes a signature continuation early → availability-key
-  desync → dropped `[SupportedOSPlatform]` floor. (Sibling `CountBraces` *does* track strings.)
-- `SwiftInterfaceContextTracker.cs:174` — type/extension push gated on a same-line `{`; a
-  brace-on-next-line type is never pushed → members key at module scope and lose their `@available`
-  floor.
+- `SwiftInterfaceContextTracker.cs:653` `HasUnmatchedOpenParen` string-literal-blindness —
+  RESOLVED by S15 Phase B's SwiftSyntax migration: the host parses the real syntax tree, so a
+  signature continuation no longer depends on string-blind paren counting and a `)` inside a
+  default-value string can't desync the availability key.
+- `SwiftInterfaceContextTracker.cs:174` same-line-`{` push gate — RELOCATED to the host's
+  `RegexShape.opensOnSameLine`: type/extension scope push is still gated on a same-line `{` (kept
+  for output-neutrality), so a brace-on-next-line type is never pushed → members key at module scope
+  and lose their `@available` floor. Re-probe in the host walkers (`AvailabilityWalker`/`MemberCollectionWalker`).
 - `CSharpWrapperCoGater.cs:549` — `BuildLineToTypeMap` counts every literal `{`/`}` with no
   string/comment lexer; a net-imbalanced brace in an emitted string/comment mis-attributes every
   later line's type scope, defeating *all* co-gater "same-type" safety at once.
@@ -250,9 +251,10 @@ call sites (#7).
   divergent rules; an empty `firstName` desyncs the typed-throws key → error type drops to
   untyped-throws ABI. Two copies of one key-builder.
 
-> The four `CSharpWrapperCoGater.cs` leads live in code **S07a** plans to delete; the two
-> `SwiftInterfaceContextTracker.cs` leads live in code **S15** plans to delete. Prefer fixing them
-> as part of those deletions over patching doomed code.
+> The four `CSharpWrapperCoGater.cs` leads live in code **S07a** plans to delete; prefer fixing
+> them as part of that deletion over patching doomed code. (The two `SwiftInterfaceContextTracker.cs`
+> leads above were retired by S15 Phase B's deletion of the regex `.swiftinterface` parser — see
+> their resolved/relocated notes.)
 
 **Open coverage gaps:** `SwiftWrapperPostProcessor.ReferencesInternalType` cross-module case has no
 test (only a same-module collision is covered); `MatchesThunkBlock` name-only fallback has no
@@ -310,6 +312,6 @@ Logged so future audits don't re-discover them (per `roadmap.md`'s "input-poor" 
   *does* propagate across the ProjectReference edge); non-generic enum nested in a generic parent
   (digester stamps the parent generic-sig → fail-close is correct); cache-first + de-reflected
   finalizer seam (live probe: every emitter emits the correct `SuppressPayloadFinalizer` field).
-- **R6:** `SwiftInterfaceAccessParser` internal-member regex modifier-order / `package` claim (the
-  headline string is invalid Swift; the regex is unanchored; `package` members are stripped from the
-  public swiftinterface entirely).
+- **R6:** the internal-member detection modifier-order / `package` claim (the headline string is
+  invalid Swift; the match is unanchored; `package` members are stripped from the public
+  swiftinterface entirely). Internal-member detection now lives in the host's `MemberCollectionWalker`.

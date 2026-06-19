@@ -840,12 +840,12 @@ public class SwiftABIParserRuntimeTests
 
     #region Finding 46 — ABI-consumer availability-signature parity
 
-    // The availability disamb signature has THREE producers that MUST converge byte-equal:
-    // the regex interface producer and the SwiftSyntax interface producer (both asserted in
-    // InterfaceFactsProducerParityTests), and the ABI consumer — SwiftABIParser's own
-    // ComputeAbiParamSignature, which reads STRUCTURED ABI children rather than interface
-    // text. The cross-producer corpus (regex ⇄ SwiftSyntax) cannot reach the consumer; the
-    // tests below close that third leg by driving the real ComputeAbiParamSignature.
+    // The availability disamb signature has TWO sites that MUST converge byte-equal: the
+    // SwiftSyntax interface producer (which reads .swiftinterface text) and the ABI consumer
+    // — SwiftABIParser's own ComputeAbiParamSignature, which reads STRUCTURED ABI children
+    // rather than interface text. The producer's interface-side corpus cannot reach the
+    // consumer; the tests below close that consumer leg by driving the real
+    // ComputeAbiParamSignature.
 
     [Theory]
     // (abi return printedName, abi param printedNames '|'-joined, interface param printedNames '|'-joined).

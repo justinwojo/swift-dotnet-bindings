@@ -259,6 +259,9 @@ tools/SwiftInterfaceParser/.build/
 # AI review files
 /*Review.md
 
+# Local session planning docs
+src/docs/sessions/*
+
 # CMake generated files in IntegrationTests
 # Note: Source files are in FunctionalTests/ and StressTests/ subdirectories
 src/Swift.Bindings/tests/IntegrationTests/CMakeCache.txt

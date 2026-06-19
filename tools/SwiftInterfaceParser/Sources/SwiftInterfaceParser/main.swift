@@ -10,15 +10,14 @@ import Foundation
 ///
 /// Covers the complete SwiftInterfaceFacts set (type collection, enum facts, signature
 /// facts incl. const-literal + closure-attribute params, subscript labels, protocol facts,
-/// and SPI-only conformances) with byte-equal parity against the regex producer
-/// (`SwiftInterfaceAccessParser`) across the validation corpus.
+/// and SPI-only conformances).
 ///
 /// CLI:
 ///   SwiftInterfaceParser --input <path-to-swiftinterface> [--private-input <path-to-private-swiftinterface>]
 ///
 /// `--private-input` is the sibling `*.private.swiftinterface` (derived by the .NET-side
 /// producer). It is the ONLY source of `SpiOnlyConformances`; when omitted, that fact is
-/// covered-but-empty (matching the regex producer when no private interface exists).
+/// covered-but-empty (no SPI conformances when no private interface exists).
 ///
 /// Output: JSON to stdout, ParserOutput shape (see Output.swift).
 /// Exit codes: 0 = ok, 1 = invocation error (bad args or missing input), 2 = parse error.
@@ -86,8 +85,7 @@ let extensionMemberCandidates = ExtensionsWalker.parse(filePath: path, source: s
 
 // SPI-only conformances come exclusively from the sibling `*.private.swiftinterface`,
 // derived and passed by the .NET-side producer as `--private-input`. When absent (most
-// libraries ship no private interface), this fact is covered-but-empty — exactly what the
-// regex producer emits when `DerivePrivateSwiftInterfacePath` finds no private sibling.
+// libraries ship no private interface), this fact is covered-but-empty.
 // A missing or unreadable private file is NOT an error: it just means no SPI conformances.
 var spiOnlyConformances: [String] = []
 if let privatePath = privateInputPath,
@@ -100,8 +98,8 @@ if let privatePath = privateInputPath,
 let objcRuntimeNames = ObjCRuntimeNamesWalker.parse(filePath: path, source: source)
 
 // Derive protocolExtensionMethods from candidates + protocolNames using the
-// first-dot-stripped lookup. Mirrors `RegexInterfaceFactsProducer.DeriveProtocolExtensionMethods`
-// so both producers parity-match on this dict shape.
+// first-dot-stripped lookup: strip the leading module component from the extension's
+// qualified type name, then match against the protocol-names set.
 var protocolExtensionMethods: [String: [ProtocolExtensionMethodInfo]] = [:]
 let protocolNameSet = Set(protocolNames)
 if !protocolNameSet.isEmpty {
@@ -211,7 +209,7 @@ let output = ParserOutput(
 )
 
 let encoder = JSONEncoder()
-// Sorted keys keep stdout byte-stable for golden tests and parity diffs.
+// Sorted keys keep stdout byte-stable for golden tests and reproducible diffs.
 encoder.outputFormatting = [.sortedKeys]
 let json: Data
 do {

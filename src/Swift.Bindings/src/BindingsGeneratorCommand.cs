@@ -754,8 +754,26 @@ public static class BindingsGeneratorCommand
         symbolGraph = BindingsGenerator.ResolveSymbolGraphPath(symbolGraph, noDocs, resolution, outputDirectory, logger, platformInfo: platformInfo);
 
         var depModuleNames = GetDependencyModuleNamesForSwiftImports(resolvedDependencies);
-        var factsAggregator = BuildInterfaceFactsAggregator(interfaceFactsProducer, logger);
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, factsAggregator: factsAggregator, descriptorAssemblyNameOverride: assemblyNameOverride);
+
+        // Validate the --interface-facts-producer flag here (cheap, platform-independent), but DEFER
+        // aggregator construction into GenerateBindings. InterfaceFactsAggregator.CreateDefault
+        // enforces the macOS-only / host-binary-present invariant by throwing; constructing it here —
+        // outside GenerateBindings' try/catch — would surface that expected hard error as an unhandled
+        // command exception instead of the structured "logged + ExitCode = 1" failure every other
+        // generation error uses. GenerateBindings builds the default aggregator lazily, only when a
+        // .swiftinterface is actually aggregated, so an ABI/TBD-only run never requires the host.
+        if (!IsValidInterfaceFactsProducer(interfaceFactsProducer))
+        {
+            logger.LogError(
+                "Unknown --interface-facts-producer value '{Flag}'. Expected 'auto' or 'swift-syntax'. " +
+                "(The legacy 'regex' producer was removed; interface-facts parsing is SwiftSyntax-only " +
+                "and requires macOS.)",
+                interfaceFactsProducer);
+            context.ExitCode = 1;
+            return;
+        }
+
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride);
         if (!success)
         {
             context.ExitCode = 1;
@@ -1854,99 +1872,28 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
-        Console.WriteLine("  --interface-facts-producer  'auto' (default), 'swift-syntax', or 'regex'. 'auto' picks swift-syntax on Darwin when the host binary is present, else regex.");
+        Console.WriteLine("  --interface-facts-producer  'auto' (default) or 'swift-syntax'. Both shell out to the SwiftInterfaceParser host binary (macOS-only); the legacy 'regex' producer was removed.");
         Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
     }
 
     /// <summary>
-    /// Construct the <see cref="InterfaceFactsAggregator"/> from the CLI flag.
+    /// Validates the <c>--interface-facts-producer</c> flag. The two retained values both map to the
+    /// same SwiftSyntax host aggregator (<see cref="InterfaceFactsAggregator"/>), which
+    /// <c>BindingsGenerator.GenerateBindings</c> builds lazily — so this is a pure predicate, not a
+    /// constructor:
     /// <list type="bullet">
-    /// <item><c>auto</c> (default): on Darwin, attempts to locate the SwiftInterfaceParser
-    /// host binary; if present, prepends the SwiftSyntax producer to the regex fallback. On
-    /// non-Darwin or when the binary cannot be located, transparently degrades to regex-only.
-    /// This is the cross-platform-safe path — Linux CI builds keep working without the
-    /// SwiftSyntax host binary.</item>
-    /// <item><c>swift-syntax</c>: hard-requires the host binary. Hard-fails on non-Darwin or
-    /// when the binary cannot be located. Used by parity tests and developers who want to
-    /// detect a missing-binary regression rather than silently fall back.</item>
-    /// <item><c>regex</c>: legacy single-producer aggregator using the original inline
-    /// parsing flow. Kept available for parity diffing and emergency rollback.</item>
+    /// <item><c>auto</c> (default) and <c>swift-syntax</c>: the SwiftSyntax host producer. This
+    /// generator is macOS-only by design — both values require the SwiftInterfaceParser host binary
+    /// and hard-fail (inside <c>GenerateBindings</c>' structured failure path) on non-Darwin or when
+    /// it cannot be located. The two values are kept distinct for backward compatibility but behave
+    /// identically.</item>
     /// </list>
-    /// Unknown values throw — silent fallback would defeat the explicit-switch design.
+    /// The legacy <c>regex</c> producer was removed; <c>regex</c> (or any other value) returns
+    /// <see langword="false"/> so the caller can reject it — silent fallback would defeat the
+    /// explicit-switch design. <c>internal</c> (not <c>private</c>) so the unit-test assembly can
+    /// pin the accept/reject set directly, matching the sibling CLI predicates
+    /// (<see cref="IsValidPlatformVersion"/>, <see cref="ShouldFailClosedOnDegradedInputs"/>).
     /// </summary>
-    private static InterfaceFactsAggregator BuildInterfaceFactsAggregator(string flag, ILogger logger)
-    {
-        return flag switch
-        {
-            "auto" => BuildAutoAggregator(logger),
-            "regex" => new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
-            {
-                new RegexInterfaceFactsProducer(),
-            }),
-            "swift-syntax" => BuildSwiftSyntaxAggregator(logger),
-            _ => throw new ArgumentException(
-                $"Unknown --interface-facts-producer value '{flag}'. Expected 'auto', 'swift-syntax', or 'regex'."),
-        };
-    }
-
-    /// <summary>
-    /// 'auto' mode: cross-platform-safe wiring. Prefers the SwiftSyntax host binary on Darwin
-    /// when present; transparently falls back to regex-only on non-Darwin or when the binary
-    /// can't be located. Logs the chosen path so consumers can see which producer ran.
-    /// </summary>
-    private static InterfaceFactsAggregator BuildAutoAggregator(ILogger logger)
-    {
-        if (!OperatingSystem.IsMacOS())
-        {
-            logger.LogInformation("--interface-facts-producer=auto: non-Darwin host, using regex producer only.");
-            return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
-            {
-                new RegexInterfaceFactsProducer(),
-            });
-        }
-
-        var binaryPath = SwiftSyntaxInterfaceFactsProducer.TryLocateBinary();
-        if (binaryPath is null)
-        {
-            logger.LogInformation(
-                "--interface-facts-producer=auto: SwiftInterfaceParser host binary not found; falling back to regex producer. " +
-                "Run `nuke compile` to build the host binary, or set SWIFT_INTERFACE_PARSER_PATH.");
-            return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
-            {
-                new RegexInterfaceFactsProducer(),
-            });
-        }
-
-        logger.LogInformation("--interface-facts-producer=auto: using SwiftSyntax producer at {Path} (regex producer is fallback).", binaryPath);
-        return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
-        {
-            new SwiftSyntaxInterfaceFactsProducer(binaryPath),
-            new RegexInterfaceFactsProducer(),
-        });
-    }
-
-    private static InterfaceFactsAggregator BuildSwiftSyntaxAggregator(ILogger logger)
-    {
-        if (!OperatingSystem.IsMacOS())
-        {
-            throw new InvalidOperationException(
-                "--interface-facts-producer=swift-syntax requires Darwin (macOS): the SwiftInterfaceParser " +
-                "host binary is built only for Darwin. Use --interface-facts-producer=auto for " +
-                "cross-platform-safe selection, or 'regex' to force the legacy producer.");
-        }
-
-        var binaryPath = SwiftSyntaxInterfaceFactsProducer.TryLocateBinary();
-        if (binaryPath is null)
-        {
-            throw new InvalidOperationException(
-                "SwiftSyntaxInterfaceFactsProducer: could not locate SwiftInterfaceParser binary. " +
-                "Run `nuke compile` (Darwin only) or set SWIFT_INTERFACE_PARSER_PATH.");
-        }
-        logger.LogInformation("Using SwiftSyntax interface facts producer at: {Path}", binaryPath);
-        return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
-        {
-            new SwiftSyntaxInterfaceFactsProducer(binaryPath),
-            new RegexInterfaceFactsProducer(),
-        });
-    }
+    internal static bool IsValidInterfaceFactsProducer(string flag) =>
+        flag is "auto" or "swift-syntax";
 }

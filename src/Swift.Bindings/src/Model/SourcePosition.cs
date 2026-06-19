@@ -8,7 +8,7 @@ namespace BindingsGeneration;
 /// file. Renders as the standard <c>path:line:col:</c> prefix in human diagnostics
 /// (matches <c>clang</c>, <c>swiftc</c>, MSBuild). Lines and columns are 1-based.
 /// <para/>
-/// Emitted only where the regex parser can attribute a fact to a specific match offset.
+/// Emitted only where the SwiftSyntax host can attribute a fact to a specific source offset.
 /// Facts derived solely from ABI JSON, synthesized declarations, and dependency modules
 /// without a swiftinterface input have no position — callers represent that as a
 /// nullable <see cref="SourcePosition"/> rather than fabricating a fake location.

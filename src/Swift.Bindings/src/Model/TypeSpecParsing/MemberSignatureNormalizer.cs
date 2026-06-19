@@ -19,10 +19,10 @@ namespace BindingsGeneration;
 /// normalized parameter-type tail to the key lets producer + consumer agree on which
 /// overload owns which annotations.
 /// <para/>
-/// The normalization needs to be deterministic across <em>three</em> input sources:
-/// the C# regex parser (raw swiftinterface text), the SwiftSyntax parser
-/// (<c>FunctionParameterSyntax</c> nodes serialised to JSON), and the ABI JSON
-/// parser (<c>node.Children</c> with their <c>printedName</c>). Every input is reduced
+/// The normalization needs to be deterministic across <em>two</em> input sources:
+/// the SwiftSyntax host (<c>FunctionParameterSyntax</c> nodes serialised to JSON) and the
+/// ABI JSON parser (<c>node.Children</c> with their <c>printedName</c>). Every input is
+/// reduced
 /// to the same canonical tail by:
 /// <list type="number">
 /// <item>Stripping ownership / opaque-type modifiers (<c>inout</c>, <c>borrowing</c>,
@@ -78,9 +78,9 @@ namespace BindingsGeneration;
 /// desync the unchanged Swift side. True identity-anchoring (keying on usr / mangled
 /// name instead of a normalized textual signature) would remove this residual entirely,
 /// but <c>.swiftinterface</c> carries no usr/mangled name — that is out-of-scope
-/// Session 15 / Finding 3 work. Until then the parity is enforced <b>by test</b>
-/// (the cross-producer corpus in <c>InterfaceFactsProducerParityTests</c> +
-/// <c>MemberSignatureNormalizerTests</c>), not by construction. Any edit here MUST be
+/// follow-on work. Until then the parity between this C# normalizer and the Swift
+/// host's hand-mirrored reimplementation is enforced <b>by test</b>
+/// (<c>MemberSignatureNormalizerTests</c>), not by construction. Any edit here MUST be
 /// mirrored verbatim in <c>AvailabilityWalker.swift</c> and proven by those tests.
 /// </summary>
 internal static class MemberSignatureNormalizer
@@ -295,7 +295,8 @@ internal static class MemberSignatureNormalizer
     /// no Swift mirror to desync. The shared splitter is byte-identical to the former private
     /// splitter on every current input and additionally guards the closure return arrow, which
     /// only matters for the latent shape <c>f(cb: (A)->B, x: Int)</c> — where guarding makes
-    /// this regex-producer path agree with the structured producers instead of mis-merging.
+    /// this string-splitting path agree with the structured SwiftSyntax producer instead of
+    /// mis-merging.
     /// </summary>
     public static List<string> ExtractParamTypesFromSwiftClause(string paramClauseText)
     {

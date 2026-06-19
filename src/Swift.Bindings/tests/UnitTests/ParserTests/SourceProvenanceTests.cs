@@ -13,9 +13,10 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Best-effort source-provenance pipeline: exercises <see cref="SourcePosition"/>
-/// through the regex parser, the <see cref="SwiftInterfaceFacts"/> aggregator,
-/// and the <see cref="SkippedItem"/> diagnostic shape that lands in
-/// <c>binding-report.json</c>.
+/// formatting, the <see cref="SwiftInterfaceFacts"/> position lookup, and the
+/// <see cref="SkippedItem"/> diagnostic shape that lands in <c>binding-report.json</c>.
+/// The producer-level "positions are emitted for MainActor / availability / convention(c)"
+/// coverage lives in <c>SwiftSyntaxInterfaceFactsProducerTests</c>.
 /// </summary>
 [Collection("ReportCollector")]
 public class SourceProvenanceTests
@@ -46,177 +47,6 @@ public class SourceProvenanceTests
 
     #endregion
 
-    #region Positive — regex parser supplies positions for 3 fact types
-
-    [Fact]
-    public void GetMainActorTypes_EmitsLineAndColumnFromTypeDeclaration()
-    {
-        // Line 1: header import
-        // Line 2: blank
-        // Line 3: @MainActor pending annotation
-        // Line 4: type declaration — position should point here
-        var swiftInterface =
-            "import Swift\n" +
-            "\n" +
-            "@MainActor\n" +
-            "public struct Widget {\n" +
-            "}\n";
-
-        var path = WriteTempFile(swiftInterface);
-        try
-        {
-            var result = SwiftInterfaceAccessParser.GetMainActorTypes(path, out var positions);
-
-            Assert.Contains("Widget", result);
-            Assert.True(positions.TryGetValue("Widget", out var pos),
-                "Widget should have a recorded position.");
-            Assert.Equal(path, pos.FilePath);
-            Assert.Equal(4, pos.Line);
-            // "public struct Widget" begins at column 1 (no leading whitespace), and
-            // TypeDeclRegex matches the "public" keyword as the first capture site.
-            Assert.Equal(1, pos.Column);
-        }
-        finally { File.Delete(path); }
-    }
-
-    [Fact]
-    public void GetAvailabilityAnnotations_EmitsLineAndColumnAtDeclaration()
-    {
-        // Line 1: header
-        // Line 2: pending @available
-        // Line 3: type — position should point here, NOT at the annotation line
-        var swiftInterface =
-            "import Foundation\n" +
-            "@available(iOS 16.0, *)\n" +
-            "public struct Gadget {\n" +
-            "}\n";
-
-        var path = WriteTempFile(swiftInterface);
-        try
-        {
-            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path, out var positions);
-
-            Assert.True(result.ContainsKey("Gadget"));
-            Assert.True(positions.TryGetValue("Gadget", out var pos),
-                "Gadget should have a recorded position.");
-            Assert.Equal(path, pos.FilePath);
-            Assert.Equal(3, pos.Line);
-            Assert.Equal(1, pos.Column);
-        }
-        finally { File.Delete(path); }
-    }
-
-    [Fact]
-    public void GetAvailabilityAnnotations_InlineAnnotation_ColumnSkipsPastAtToken()
-    {
-        // `@available(iOS 16, *) public struct Inline {` — the column should point at
-        // `public` (after the inline @available), not at `@`. Matches the @MainActor /
-        // @convention(c) parsers, which already use regex match offsets to advance past
-        // leading annotations.
-        var swiftInterface =
-            "import Foundation\n" +
-            "@available(iOS 16.0, *) public struct Inline {\n" +
-            "}\n";
-
-        var path = WriteTempFile(swiftInterface);
-        try
-        {
-            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path, out var positions);
-
-            Assert.True(result.ContainsKey("Inline"));
-            Assert.True(positions.TryGetValue("Inline", out var pos),
-                "Inline should have a recorded position.");
-            Assert.Equal(2, pos.Line);
-            // "@available(iOS 16.0, *) " is 24 chars; "public" starts at column 25.
-            Assert.Equal(25, pos.Column);
-        }
-        finally { File.Delete(path); }
-    }
-
-    [Fact]
-    public void GetAvailabilityAnnotations_QualifiedInlineAttribute_ColumnSkipsPastDottedAt()
-    {
-        // Swiftinterface attributes can be dotted (`@_Concurrency.MainActor`,
-        // `@Module.Actor`). The annotation skipper must walk through the dot-separated
-        // identifier components, not stop at the first `.`.
-        var swiftInterface =
-            "import Foundation\n" +
-            "@available(iOS 16.0, *) @_Concurrency.MainActor public struct Stacked {\n" +
-            "}\n";
-
-        var path = WriteTempFile(swiftInterface);
-        try
-        {
-            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path, out var positions);
-
-            Assert.True(result.ContainsKey("Stacked"));
-            Assert.True(positions.TryGetValue("Stacked", out var pos),
-                "Stacked should have a recorded position.");
-            Assert.Equal(2, pos.Line);
-            // "@available(iOS 16.0, *) @_Concurrency.MainActor " is 48 chars; "public" at column 49.
-            Assert.Equal(49, pos.Column);
-        }
-        finally { File.Delete(path); }
-    }
-
-    [Fact]
-    public void GetProtocolsWithConventionClosures_EmitsPositionAtProtocolHeader()
-    {
-        // Line 1: header
-        // Line 2: blank
-        // Line 3: protocol declaration — position target
-        // Line 4: convention(c) param triggers detection
-        // Line 5: closing brace
-        var swiftInterface =
-            "import Swift\n" +
-            "\n" +
-            "public protocol Callback {\n" +
-            "  func register(_ cb: @convention(c) (Swift.Int) -> Swift.Void)\n" +
-            "}\n";
-
-        var path = WriteTempFile(swiftInterface);
-        try
-        {
-            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path, out var positions);
-
-            Assert.Contains("Callback", result);
-            Assert.True(positions.TryGetValue("Callback", out var pos),
-                "Callback should have a recorded position.");
-            Assert.Equal(path, pos.FilePath);
-            Assert.Equal(3, pos.Line);
-            Assert.Equal(1, pos.Column);
-        }
-        finally { File.Delete(path); }
-    }
-
-    [Fact]
-    public void Parser_RecordsLeadingWhitespaceColumn()
-    {
-        // Indented type — column must reflect the leading whitespace, not start at 1.
-        // "  public struct Inner" — "public" begins at column 3.
-        var swiftInterface =
-            "public struct Outer {\n" +
-            "  @MainActor\n" +
-            "  public struct Inner {\n" +
-            "  }\n" +
-            "}\n";
-
-        var path = WriteTempFile(swiftInterface);
-        try
-        {
-            var result = SwiftInterfaceAccessParser.GetMainActorTypes(path, out var positions);
-
-            // Outer.Inner is the qualified path for the nested @MainActor type.
-            Assert.True(positions.TryGetValue("Outer.Inner", out var pos),
-                "Outer.Inner should have a recorded position.");
-            Assert.Equal(3, pos.Line);
-            Assert.Equal(3, pos.Column);
-        }
-        finally { File.Delete(path); }
-    }
-
-    #endregion
-
     #region Negative — graceful degradation
 
     [Fact]
@@ -232,22 +62,6 @@ public class SourceProvenanceTests
 
         Assert.Null(facts.TryGetPosition("AbiOnlyType"));
         Assert.Empty(facts.MainActorTypePositions);
-    }
-
-    [Fact]
-    public void Parser_NoSwiftInterfaceFile_EmitsEmptyPositions()
-    {
-        // Dependency module with no swiftinterface: the parser returns empty results AND
-        // an empty position dictionary — no fabricated entries.
-        var bogusPath = "/tmp/this-file-does-not-exist-" + System.Guid.NewGuid() + ".swiftinterface";
-
-        SwiftInterfaceAccessParser.GetMainActorTypes(bogusPath, out var mainActorPositions);
-        SwiftInterfaceAccessParser.GetAvailabilityAnnotations(bogusPath, out var availabilityPositions);
-        SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(bogusPath, out var conventionCPositions);
-
-        Assert.Empty(mainActorPositions);
-        Assert.Empty(availabilityPositions);
-        Assert.Empty(conventionCPositions);
     }
 
     [Fact]
@@ -363,11 +177,4 @@ public class SourceProvenanceTests
     }
 
     #endregion
-
-    private static string WriteTempFile(string content)
-    {
-        var path = Path.GetTempFileName();
-        File.WriteAllText(path, content);
-        return path;
-    }
 }
