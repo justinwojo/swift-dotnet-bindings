@@ -371,9 +371,9 @@ public static class NativeThunkEmitter
     /// <param name="env">The method environment.</param>
     /// <param name="moduleName">The Swift module name.</param>
     /// <param name="asmBuilder">StringBuilder to append the ARM64 assembly output to.</param>
-    /// <param name="originalSwiftMangledName">The original Swift mangled name (before MangledName was overwritten with the thunk symbol).
-    /// Required because callers set MangledName to the thunk symbol before calling EmitThunk.
-    /// If null, falls back to methodDecl.MangledName (for backward compatibility in tests).</param>
+    /// <param name="originalSwiftMangledName">The original Swift mangled name. The thunk symbol lives on
+    /// the env's emission symbol, never on the decl, so methodDecl.MangledName already holds the silgen
+    /// symbol; callers may still pass it explicitly. If null, falls back to methodDecl.MangledName.</param>
     /// <param name="x64AsmBuilder">Optional StringBuilder to append the x86_64 (SysV) assembly output to.
     /// When null, only ARM64 is emitted (preserving single-arch callers and tests).</param>
     /// <returns>True if the (ARM64) thunk was emitted; false if lowering failed.</returns>
@@ -382,8 +382,8 @@ public static class NativeThunkEmitter
         var methodDecl = env.MethodDecl;
 
         // Use the original Swift mangled name for thunk symbol generation and Swift call target resolution.
-        // The caller overwrites methodDecl.MangledName with the thunk symbol BEFORE calling EmitThunk,
-        // so we must use the original name to avoid double-hashing and incorrect call targets.
+        // Since the thunk symbol lives on the env's emission symbol (never on the decl), methodDecl.MangledName
+        // already holds the original silgen name — using it avoids double-hashing and incorrect call targets.
         var swiftMangledName = originalSwiftMangledName ?? methodDecl.MangledName;
 
         // Build the thunk symbol from the original mangled name

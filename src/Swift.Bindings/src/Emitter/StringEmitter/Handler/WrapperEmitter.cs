@@ -513,7 +513,7 @@ namespace BindingsGeneration
             }
 
             // Emit the static helper method first
-            var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName((MethodDecl)_env.MethodDecl)}";
+            var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName(_env.EmissionSymbol, (MethodDecl)_env.MethodDecl)}";
             var helperParams = _wrapperSignature.ParametersString();
             csWriter.WriteLine($"private static unsafe ObjCRuntime.NativeHandle {helperName}({helperParams})");
             csWriter.WriteLine("{");
@@ -818,7 +818,7 @@ namespace BindingsGeneration
             {
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) ||
-                    !_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount) ||
+                    !_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, closureParamCount) ||
                     _env.ClosureHandler.IsAsyncClosure(closureTypeSpec) ||
                     _env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) ||
                     _env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureTypeSpec))

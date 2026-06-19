@@ -135,9 +135,9 @@ public class CrossModuleExtensionEmitterTests
         var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
 
         var ownerModuleDecl = CreateFullModuleDecl("TestModule");
-        var getterMethod = CreateMethodDecl("get_count", "TestModule", classDecl);
+        var getterMethod = CreateMethodDecl("get_count", "TestModule", classDecl,
+            mangledName: "$s10TestModule5count_getter");
         getterMethod.IsAccessor = true;
-        getterMethod.MangledName = "$s10TestModule5count_getter";
         var getter = new GetAccessorDecl { Method = getterMethod };
 
         var property = new PropertyDecl
@@ -244,9 +244,9 @@ public class CrossModuleExtensionEmitterTests
         var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
 
         var ownerModuleDecl = CreateFullModuleDecl("TestModule");
-        var getterMethod = CreateMethodDecl("get_count", "TestModule", classDecl);
+        var getterMethod = CreateMethodDecl("get_count", "TestModule", classDecl,
+            mangledName: "$s10TestModule5count_getter");
         getterMethod.IsAccessor = true;
-        getterMethod.MangledName = "$s10TestModule5count_getter";
         var getter = new GetAccessorDecl { Method = getterMethod };
 
         var property = new PropertyDecl
@@ -411,12 +411,12 @@ public class CrossModuleExtensionEmitterTests
             = CreateStructSetupWithSimpleEnum(frozen: true);
 
         var ownerModuleDecl = CreateFullModuleDecl("TestModule");
-        var getterMethod = CreateMethodDecl("get_state", "TestModule", structDecl);
+        var getterMethod = CreateMethodDecl("get_state", "TestModule", structDecl,
+            mangledName: "$s10TestModule5state_getter");
         getterMethod.IsAccessor = true;
-        getterMethod.MangledName = "$s10TestModule5state_getter";
-        var setterMethod = CreateMethodDecl("set_state", "TestModule", structDecl);
+        var setterMethod = CreateMethodDecl("set_state", "TestModule", structDecl,
+            mangledName: "$s10TestModule5state_setter");
         setterMethod.IsAccessor = true;
-        setterMethod.MangledName = "$s10TestModule5state_setter";
 
         var property = new PropertyDecl
         {
@@ -552,7 +552,8 @@ public class CrossModuleExtensionEmitterTests
         };
     }
 
-    private static MethodDecl CreateMethodDecl(string name, string ownerModule, ClassDecl parentDecl)
+    private static MethodDecl CreateMethodDecl(string name, string ownerModule, ClassDecl parentDecl,
+        string? mangledName = null)
     {
         var ownerModuleDecl = new ModuleDecl
         {
@@ -569,7 +570,7 @@ public class CrossModuleExtensionEmitterTests
         return new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10{ownerModule}{name.Length}{name}yyF",
+            MangledName = mangledName ?? $"$s10{ownerModule}{name.Length}{name}yyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = false,
@@ -631,7 +632,8 @@ public class CrossModuleExtensionEmitterTests
         return (csWriter, swiftWriter, csOutput, swiftOutput, moduleDecl, structDecl, conductor, env);
     }
 
-    private static MethodDecl CreateMethodDecl(string name, string ownerModule, StructDecl parentDecl)
+    private static MethodDecl CreateMethodDecl(string name, string ownerModule, StructDecl parentDecl,
+        string? mangledName = null)
     {
         var ownerModuleDecl = new ModuleDecl
         {
@@ -648,7 +650,7 @@ public class CrossModuleExtensionEmitterTests
         return new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10{ownerModule}{name.Length}{name}yyF",
+            MangledName = mangledName ?? $"$s10{ownerModule}{name.Length}{name}yyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             Throws = false,

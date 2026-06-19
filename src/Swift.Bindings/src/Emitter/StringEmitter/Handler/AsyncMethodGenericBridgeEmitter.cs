@@ -161,7 +161,7 @@ public static class AsyncMethodGenericBridgeEmitter
         methodDecl.UsesWrapperLibrary = true;
         methodDecl.UsesFreeFunctionWrapper = true;
         methodDecl.HasGenericClosureBridge = true; // suppresses normal async path
-        methodDecl.MangledName = primaryCdeclSymbol;
+        env.PromoteSymbol(primaryCdeclSymbol);
 
         // Emit shared C# infrastructure (cancel P/Invoke + success/error callbacks)
         // before the per-variant emission loop. Callback fields are tied to method
@@ -177,8 +177,8 @@ public static class AsyncMethodGenericBridgeEmitter
                 ? primaryCdeclSymbol
                 : $"{primaryCdeclSymbol}_T{trim}";
             string variantPInvokeName = trim == 0
-                ? $"{NameProvider.GetPInvokeName(methodDecl)}_XMA"
-                : $"{NameProvider.GetPInvokeName(methodDecl)}_T{trim}_XMA";
+                ? $"{NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}_XMA"
+                : $"{NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}_T{trim}_XMA";
 
             EmitSwiftWrapper(swiftWriter, env, parentDecl, genericInfo, variantSymbol, keptArgs,
                 returnKind.Value, returnTypeSpec, returnTypeRecord, ctx);
@@ -717,10 +717,10 @@ public static class AsyncMethodGenericBridgeEmitter
             ?? throw new InvalidOperationException("MethodDecl.ModuleDecl required for async wrapper");
         var moduleLibPath = env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
         var wrapperLibPath = env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
-        var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(methodDecl);
-        var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(methodDecl);
-        var errorCallbackFieldName = NameProvider.GetAsyncErrorCallbackFieldName(methodDecl);
-        var errorCallbackMethodName = NameProvider.GetAsyncErrorCallbackMethodName(methodDecl);
+        var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(env.EmissionSymbol, methodDecl);
+        var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(env.EmissionSymbol, methodDecl);
+        var errorCallbackFieldName = NameProvider.GetAsyncErrorCallbackFieldName(env.EmissionSymbol, methodDecl);
+        var errorCallbackMethodName = NameProvider.GetAsyncErrorCallbackMethodName(env.EmissionSymbol, methodDecl);
 
         bool throws = methodDecl.Throws;
 
@@ -1120,8 +1120,8 @@ public static class AsyncMethodGenericBridgeEmitter
             ? "global::System.Threading.Tasks.Task"
             : $"global::System.Threading.Tasks.Task<{csReturnType}>";
 
-        var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(methodDecl);
-        var errorCallbackFieldName = NameProvider.GetAsyncErrorCallbackFieldName(methodDecl);
+        var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(env.EmissionSymbol, methodDecl);
+        var errorCallbackFieldName = NameProvider.GetAsyncErrorCallbackFieldName(env.EmissionSymbol, methodDecl);
 
         bool isInstance = methodDecl.MethodType != MethodType.Static;
         bool isClass = parentDecl is ClassDecl;

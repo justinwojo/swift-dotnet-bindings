@@ -165,8 +165,7 @@ public class MethodWrapperClosureTests
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
             TupleTypeSpec.Empty);
 
-        var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl);
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
+        var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_doWork_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -197,8 +196,7 @@ public class MethodWrapperClosureTests
         var optionalClosure = new NamedTypeSpec("Swift.Optional");
         optionalClosure.GenericParameters.Add(closureType);
 
-        var method = CreateMethodWithParam("doWork", optionalClosure, "callback", parentDecl, moduleDecl);
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
+        var method = CreateMethodWithParam("doWork", optionalClosure, "callback", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_doWork_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -231,8 +229,7 @@ public class MethodWrapperClosureTests
         };
         closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
 
-        var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl);
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
+        var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_doWork_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -263,8 +260,7 @@ public class MethodWrapperClosureTests
 
         var method = CreateMethodWithParams("doWork",
             new[] { (new NamedTypeSpec("Swift.Int") as TypeSpec, "count"), (closureType as TypeSpec, "callback") },
-            parentDecl, moduleDecl);
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
+            parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_doWork_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -359,8 +355,7 @@ public class MethodWrapperClosureTests
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
             TupleTypeSpec.Empty);
 
-        var method = CreateConstructorWithParam(closureType, "handler", parentDecl, moduleDecl);
-        method.MangledName = "SBW_TestModule_MyType_init_abc12345";
+        var method = CreateConstructorWithParam(closureType, "handler", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_init_abc12345");
         method.UsesCdeclConstructorWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -478,12 +473,12 @@ public class MethodWrapperClosureTests
         };
     }
 
-    private static MethodDecl CreateMethodWithParam(string name, TypeSpec paramType, string paramName, TypeDecl parentDecl, ModuleDecl moduleDecl)
+    private static MethodDecl CreateMethodWithParam(string name, TypeSpec paramType, string paramName, TypeDecl parentDecl, ModuleDecl moduleDecl, string? mangledName = null)
     {
         return new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule_{name}",
+            MangledName = mangledName ?? $"$s10TestModule_{name}",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
@@ -518,7 +513,7 @@ public class MethodWrapperClosureTests
         };
     }
 
-    private static MethodDecl CreateMethodWithParams(string name, (TypeSpec type, string name)[] parameters, TypeDecl parentDecl, ModuleDecl moduleDecl)
+    private static MethodDecl CreateMethodWithParams(string name, (TypeSpec type, string name)[] parameters, TypeDecl parentDecl, ModuleDecl moduleDecl, string? mangledName = null)
     {
         var csSignature = new List<ArgumentDecl>
         {
@@ -551,7 +546,7 @@ public class MethodWrapperClosureTests
         return new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule_{name}",
+            MangledName = mangledName ?? $"$s10TestModule_{name}",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = csSignature,
@@ -564,12 +559,12 @@ public class MethodWrapperClosureTests
         };
     }
 
-    private static MethodDecl CreateConstructorWithParam(TypeSpec paramType, string paramName, TypeDecl parentDecl, ModuleDecl moduleDecl)
+    private static MethodDecl CreateConstructorWithParam(TypeSpec paramType, string paramName, TypeDecl parentDecl, ModuleDecl moduleDecl, string? mangledName = null)
     {
         return new MethodDecl
         {
             Name = "init",
-            MangledName = $"$s10TestModule_init",
+            MangledName = mangledName ?? $"$s10TestModule_init",
             MethodType = MethodType.Instance,
             IsConstructor = true,
             CSSignature = new List<ArgumentDecl>

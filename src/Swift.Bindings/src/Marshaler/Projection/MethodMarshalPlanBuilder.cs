@@ -334,7 +334,7 @@ internal class MethodMarshalPlanBuilder
         {
             var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
             if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount) &&
+                _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, closureParamCount) &&
                 !(_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
                   _env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec)))
             {
@@ -1254,7 +1254,7 @@ internal class MethodMarshalPlanBuilder
         bool hasOptionalReturnBuffer = _env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
             (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary);
         var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn || hasOptionalReturnBuffer) ? "" : $"var {returnLocalName} = ";
-        var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
+        var pInvokeName = NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl);
         var callArgs = _pInvokeSignature.CallArgumentsString();
 
         if (_env.PInvokeHelperContext != null)

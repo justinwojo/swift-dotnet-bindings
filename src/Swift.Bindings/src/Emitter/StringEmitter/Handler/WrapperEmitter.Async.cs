@@ -1294,7 +1294,7 @@ namespace BindingsGeneration
             // Per-kind method bucket is collision-safe.
             if (_emissionContext != null && _env.MethodDecl.UsesCdeclMethodWrapper)
             {
-                _emissionContext.TryAddMethodWrapperSymbol(NameProvider.GetMangledName(_env.MethodDecl));
+                _emissionContext.TryAddMethodWrapperSymbol(NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl));
             }
 
             swiftWriter.WriteLine(BuildSwiftAsyncWrapperCode(
@@ -1474,8 +1474,8 @@ namespace BindingsGeneration
             bool needsMainActor = false,
             string adapterSetupCode = "")
         {
-            var mangledName = NameProvider.GetMangledName(_env.MethodDecl);
-            var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
+            var mangledName = NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl);
+            var pInvokeName = NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl);
             var resultAssign = isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ";
 
             // Extension adds 4-space indent to everything inside the extension { } block

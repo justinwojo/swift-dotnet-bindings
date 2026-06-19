@@ -1382,9 +1382,9 @@ public class ConstructorWrapperEmitterTests
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Settings", method.MangledName);
         method.UsesCdeclConstructorWrapper = true;
-        method.MangledName = cdeclSymbol;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1443,9 +1443,9 @@ public class ConstructorWrapperEmitterTests
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Settings", method.MangledName);
         method.UsesCdeclConstructorWrapper = true;
-        method.MangledName = cdeclSymbol;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1503,10 +1503,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Container", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1610,10 +1610,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Container", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1668,10 +1668,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Container", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1728,10 +1728,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Widget", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1789,10 +1789,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Border", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1848,10 +1848,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Widget", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1909,10 +1909,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "ContentView", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -1987,9 +1987,9 @@ public class ConstructorWrapperEmitterTests
         // Set the mangled name to the cdecl symbol (as MethodHandler would do)
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "MyStruct", method.MangledName);
-        method.MangledName = cdeclSymbol;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2038,9 +2038,9 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "MyStruct", method.MangledName);
-        method.MangledName = cdeclSymbol;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2107,10 +2107,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "ImageCache", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2165,10 +2165,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "ImageCache", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2303,10 +2303,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "AnimationLayer", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2360,10 +2360,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Container", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2413,10 +2413,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "ImageRequest", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2476,10 +2476,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "Pair", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2547,10 +2547,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "GenericCache", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2615,10 +2615,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "GenericCache", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2672,10 +2672,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "GenericCache", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2732,10 +2732,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "GenericCache", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -2809,10 +2809,10 @@ public class ConstructorWrapperEmitterTests
 
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", "GenericPair", method.MangledName);
-        method.MangledName = cdeclSymbol;
         method.UsesCdeclConstructorWrapper = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
@@ -3461,13 +3461,13 @@ public class ConstructorWrapperEmitterTests
         };
         parentDecl.Methods.Add(method);
 
-        // Simulate what MethodHandler does: set mangled name to cdecl symbol
+        // Simulate what MethodHandler does: promote symbol on the env side table
         var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
             "TestModule", typeName, method.MangledName);
         method.UsesCdeclConstructorWrapper = true;
-        method.MangledName = cdeclSymbol;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
         var ctx = new ModuleEmissionContext();
         return (env, ctx);
     }

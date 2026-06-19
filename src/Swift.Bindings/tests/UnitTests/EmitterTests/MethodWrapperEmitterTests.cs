@@ -1560,8 +1560,7 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "doWork", TupleTypeSpec.Empty, isClass: true);
-
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
+        env.PromoteSymbol("SBW_TestModule_MyType_doWork_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1578,8 +1577,7 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "getValue", new NamedTypeSpec("Swift.Int"), isClass: false);
-
-        method.MangledName = "SBW_TestModule_MyType_getValue_abc12345";
+        env.PromoteSymbol("SBW_TestModule_MyType_getValue_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1596,9 +1594,8 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "mutate", TupleTypeSpec.Empty, isClass: false);
-
+        env.PromoteSymbol("SBW_TestModule_MyType_mutate_abc12345");
         method.IsMutating = true;
-        method.MangledName = "SBW_TestModule_MyType_mutate_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1614,9 +1611,8 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "create", new NamedTypeSpec("Swift.Int"), isClass: true);
+        env.PromoteSymbol("SBW_TestModule_MyType_create_abc12345");
         method.MethodType = MethodType.Static;
-
-        method.MangledName = "SBW_TestModule_MyType_create_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1632,9 +1628,8 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "doWork", TupleTypeSpec.Empty, isClass: true);
+        env.PromoteSymbol("SBW_TestModule_MyType_doWork_abc12345");
         method.Throws = true;
-
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1652,8 +1647,7 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "getName", new NamedTypeSpec("Swift.String"), isClass: true);
-
-        method.MangledName = "SBW_TestModule_MyType_getName_abc12345";
+        env.PromoteSymbol("SBW_TestModule_MyType_getName_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1676,11 +1670,11 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var method = CreateMethodWithReturn("getOther", new NamedTypeSpec("TestModule.OtherClass"), parentDecl, moduleDecl);
 
-        method.MangledName = "SBW_TestModule_MyType_getOther_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_getOther_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1697,8 +1691,7 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "isValid", new NamedTypeSpec("Swift.Bool"), isClass: true);
-
-        method.MangledName = "SBW_TestModule_MyType_isValid_abc12345";
+        env.PromoteSymbol("SBW_TestModule_MyType_isValid_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1719,11 +1712,11 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var method = CreateMethodWithReturn("getStatus", new NamedTypeSpec("TestModule.Status"), parentDecl, moduleDecl);
 
-        method.MangledName = "SBW_TestModule_MyType_getStatus_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_getStatus_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1745,11 +1738,11 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var method = CreateMethodWithReturn("getBigStruct", new NamedTypeSpec("TestModule.BigStruct"), parentDecl, moduleDecl);
 
-        method.MangledName = "SBW_TestModule_MyType_getBigStruct_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_getBigStruct_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1768,8 +1761,7 @@ public class MethodWrapperEmitterTests
         // to share isolation context. @MainActor on @_cdecl is compile-time only (no ABI change).
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "doWork", TupleTypeSpec.Empty, isClass: true, isMainActorIsolated: true);
-
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
+        env.PromoteSymbol("SBW_TestModule_MyType_doWork_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1785,8 +1777,7 @@ public class MethodWrapperEmitterTests
     {
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "doWork", TupleTypeSpec.Empty, isClass: true);
-
-        method.MangledName = "SBW_TestModule_MyType_doWork_abc12345";
+        env.PromoteSymbol("SBW_TestModule_MyType_doWork_abc12345");
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
@@ -1813,11 +1804,11 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var method = CreateMethodWithParam("setCount", new NamedTypeSpec("Swift.Int"), "count", parentDecl, moduleDecl);
 
-        method.MangledName = "SBW_TestModule_MyType_setCount_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_setCount_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1839,12 +1830,11 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var method = CreateMethodWithReturn("getOther", new NamedTypeSpec("TestModule.OtherClass"), parentDecl, moduleDecl);
         method.Throws = true;
-
-        method.MangledName = "SBW_TestModule_MyType_getOther_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_getOther_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1866,11 +1856,11 @@ public class MethodWrapperEmitterTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var method = CreateFreeFunction("globalHelper", moduleDecl);
-        method.MangledName = "SBW_TestModule_Free_globalHelper_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_Free_globalHelper_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1889,11 +1879,11 @@ public class MethodWrapperEmitterTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var method = CreateFreeFunctionWithReturn("computeValue", new NamedTypeSpec("Swift.Int"), moduleDecl);
-        method.MangledName = "SBW_TestModule_Free_computeValue_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_Free_computeValue_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1921,8 +1911,8 @@ public class MethodWrapperEmitterTests
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
         method.UsesFreeFunctionWrapper = true;
-        method.MangledName = "SBW_TestModule_GenericBox_reset";
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_GenericBox_reset");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -1960,8 +1950,8 @@ public class MethodWrapperEmitterTests
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
         method.UsesFreeFunctionWrapper = true;
-        method.MangledName = "SBW_TestModule_GenericBox_getValue";
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_GenericBox_getValue");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -3334,11 +3324,11 @@ public class MethodWrapperEmitterTests
         });
         var method = CreateMethodWithReturn("makeEncryptor", protocolComposition, parentDecl, moduleDecl);
 
-        method.MangledName = "SBW_TestModule_MyType_makeEncryptor_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_makeEncryptor_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -3367,11 +3357,11 @@ public class MethodWrapperEmitterTests
         });
         var method = CreateMethodWithReturn("getUpdatable", protocolReturn, parentDecl, moduleDecl);
 
-        method.MangledName = "SBW_TestModule_MyType_getUpdatable_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_getUpdatable_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -3394,11 +3384,11 @@ public class MethodWrapperEmitterTests
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var method = CreateMethodWithReturn("getBigStruct", new NamedTypeSpec("TestModule.BigStruct"), parentDecl, moduleDecl);
 
-        method.MangledName = "SBW_TestModule_MyType_getBigStruct_abc12345";
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
 
         var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_MyType_getBigStruct_abc12345");
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -4426,9 +4416,11 @@ public class MethodWrapperEmitterTests
         };
     }
 
-    private static string EmitOne(MethodDecl method, TypeDatabase typeDb)
+    private static string EmitOne(MethodDecl method, TypeDatabase typeDb, string? promotedSymbol = null)
     {
         var env = new MethodEnvironment(method, typeDb);
+        if (promotedSymbol != null)
+            env.PromoteSymbol(promotedSymbol);
         var ctx = new ModuleEmissionContext();
         var sw = new StringWriter();
         var swiftWriter = new SwiftWriter(sw);
@@ -4485,9 +4477,8 @@ public class MethodWrapperEmitterTests
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
         method.UsesFreeFunctionWrapper = true;
-        method.MangledName = "SBW_TestModule_Mapper_map";
 
-        var output = EmitOne(method, typeDb);
+        var output = EmitOne(method, typeDb, promotedSymbol: "SBW_TestModule_Mapper_map");
 
         // The protocol-based static dispatch extension must declare `result` with the
         // full Optional<N> shape so Swift overload resolution picks the Optional
@@ -4539,9 +4530,8 @@ public class MethodWrapperEmitterTests
         method.UsesCdeclMethodWrapper = true;
         method.UsesWrapperLibrary = true;
         method.UsesFreeFunctionWrapper = true;
-        method.MangledName = "SBW_TestModule_Mapper_mapArrayOptional";
 
-        var output = EmitOne(method, typeDb);
+        var output = EmitOne(method, typeDb, promotedSymbol: "SBW_TestModule_Mapper_mapArrayOptional");
 
         Assert.Contains("let result: Optional<Array<N>>", output);
         Assert.Contains("initializeMemory(as: Optional<Array<N>>.self", output);

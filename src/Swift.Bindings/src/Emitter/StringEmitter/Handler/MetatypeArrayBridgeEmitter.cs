@@ -96,7 +96,9 @@ public static class MetatypeArrayBridgeEmitter
             moduleName, "Free", normalized.Name, normalized.MangledName);
         normalized.UsesCdeclMethodWrapper = true;
         normalized.UsesFreeFunctionWrapper = true;
-        normalized.MangledName = cdeclSymbol;
+        // AF13: promote the emission symbol to the @_cdecl wrapper symbol. The base read
+        // by GetMethodSymbolName above is the clone's construction-time wrapper symbol.
+        normalizedEnv.PromoteSymbol(cdeclSymbol);
 
         // Make sure the normalized signature can be fully marshalled by the pipeline
         var signatureHandler = new SignatureHandler(normalizedEnv);

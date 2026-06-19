@@ -945,7 +945,7 @@ public static partial class ClosureEmitter
     {
         var methodDecl = env.MethodDecl;
         var closureHandler = env.ClosureHandler;
-        var wrapperSymbol = NameProvider.GetMangledName(methodDecl);
+        var wrapperSymbol = NameProvider.GetMangledName(env.EmissionSymbol, methodDecl);
 
         // Build Swift parameter list
         var swiftParams = new List<string>();
@@ -969,7 +969,7 @@ public static partial class ClosureEmitter
 
             if (closureTypeSpec != null &&
                 closureHandler.IsSupportedClosure(closureTypeSpec) &&
-                closureHandler.RequiresThunk(closureTypeSpec, methodDecl.MangledName, closureParamCount) &&
+                closureHandler.RequiresThunk(closureTypeSpec, env.EmissionSymbol, closureParamCount) &&
                 !closureHandler.IsAsyncClosure(closureTypeSpec))
             {
                 // Replace closure param with (funcPtr, context) pair
@@ -1156,7 +1156,7 @@ public static partial class ClosureEmitter
         if (useCdecl)
             emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
+        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");
         swiftWriter.WriteLine($"){throwsStr}{returnTypeStr} {{");
 
@@ -1258,7 +1258,7 @@ public static partial class ClosureEmitter
                 && closureHandler.IsSupportedClosure(closureReturnSpec)
                 && CanUseInvokeThunk(closureReturnSpec, closureHandler))
             {
-                var thunkEntryPoint = GetInvokeThunkEntryPoint(methodDecl.MangledName);
+                var thunkEntryPoint = GetInvokeThunkEntryPoint(env.EmissionSymbol);
                 var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";
                 EmitSwiftInvokeThunk(swiftWriter, closureReturnSpec, closureHandler,
                     thunkEntryPoint, thunkFuncName, emissionContext);

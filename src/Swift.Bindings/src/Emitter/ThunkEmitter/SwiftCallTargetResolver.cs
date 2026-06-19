@@ -26,7 +26,9 @@ public static class SwiftCallTargetResolver
     /// <summary>
     /// Resolves the full callable Swift symbol using an explicit mangled name, including
     /// the Tj suffix for non-final class instance methods that use vtable dispatch.
-    /// Use this overload when methodDecl.MangledName has been overwritten (e.g., with a thunk symbol).
+    /// Use this overload to resolve against an explicit silgen mangled name — e.g. when the env's
+    /// emission symbol has been promoted to a thunk symbol and the caller holds the original silgen
+    /// name separately (the decl's MangledName is never overwritten).
     /// </summary>
     /// <param name="mangledName">The original Swift mangled name to resolve.</param>
     /// <param name="methodDecl">The method declaration (used for dispatch classification, not for MangledName).</param>
@@ -71,7 +73,9 @@ public static class SwiftCallTargetResolver
 
     /// <summary>
     /// Returns the symbol with the Apple linker underscore prefix, using an explicit mangled name.
-    /// Use this overload when methodDecl.MangledName has been overwritten (e.g., with a thunk symbol).
+    /// Use this overload to resolve against an explicit silgen mangled name — e.g. when the env's
+    /// emission symbol has been promoted to a thunk symbol and the caller holds the original silgen
+    /// name separately (the decl's MangledName is never overwritten).
     /// </summary>
     /// <param name="mangledName">The original Swift mangled name.</param>
     /// <param name="methodDecl">The method declaration (used for dispatch classification).</param>

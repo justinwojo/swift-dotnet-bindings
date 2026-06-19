@@ -118,7 +118,7 @@ namespace BindingsGeneration
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     swiftWriter.WriteLine($$"""
             {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}}{{extensionWhereClause}} {
-                {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+                {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}}")
                 public {{staticModifier}}var _sb_{{propertyName}}: {{anyReturnType}} {
                     return {{(!isInstanceMethod ? parentTypeName.ModuleQualifiedName + "." : "self.")}}{{propertyName}}
                 }
@@ -132,8 +132,8 @@ namespace BindingsGeneration
                     var callPrefix = !isInstanceMethod ? $"{parentTypeName.ModuleQualifiedName}." : "self.";
                     swiftWriter.WriteLine($$"""
             {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}}{{extensionWhereClause}} {
-                {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-                public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
+                {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}}")
+                public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
                     {{extDerefCode}}return {{callPrefix}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
                 }
             }
@@ -149,8 +149,8 @@ namespace BindingsGeneration
                     ? freeAvailabilityLines + "\n            "
                     : string.Empty;
                 swiftWriter.WriteLine($$"""
-            {{freeAvailabilityPrefix}}{{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
+            {{freeAvailabilityPrefix}}{{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}}")
+            public func {{NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
                 {{freeDerefCode}}return {{(moduleName.Length > 0 ? moduleName + "." : "")}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
             }
             """);
@@ -335,7 +335,7 @@ namespace BindingsGeneration
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
                 bool isOptional = _env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
 
-                if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
+                if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.EmissionSymbol, closureParamCount))
                 {
                     var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
@@ -388,9 +388,9 @@ namespace BindingsGeneration
                         csName,
                         closureTypeSpec,
                         _env.ClosureHandler,
-                        _env.MethodDecl.MangledName);
+                        _env.EmissionSymbol);
                 }
-                else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
+                else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, closureParamCount))
                 {
                     if (_env.MethodDecl.HasCdeclClosureMarshalling)
                     {
@@ -416,7 +416,7 @@ namespace BindingsGeneration
                         // so Swift's release of the closure frees the handle exactly once. The box
                         // pointer falls back to the raw GCHandle pointer when the runtime dylib is
                         // not packaged — preserving prior behaviour (leak rather than crash).
-                        var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
+                        var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.EmissionSymbol);
                         bool legacyEscaping = WrapperValidation.IsEffectivelyEscaping(
                             closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
 
@@ -893,7 +893,7 @@ namespace BindingsGeneration
                 // which requires JIT (crashes on iOS AOT/Mono). Optional @convention(c) closures skip this —
                 // they use Marshal.GetFunctionPointerForDelegate because Optional implies escaping
                 // (Swift may store and invoke the function pointer later on any thread).
-                if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount)
+                if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.EmissionSymbol, closureParamCount)
                     && !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
                 {
                     EmitConventionCCallback(csWriter, argumentDecl, closureTypeSpec);
@@ -901,7 +901,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
+                if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, closureParamCount))
                 {
                     // Box-vs-raw context gate, shared by all three escaping-callback shapes
                     // below (non-throwing, throwing, indirect-return). On the non-cdecl legacy
@@ -928,8 +928,8 @@ namespace BindingsGeneration
                     {
                         if (_env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec))
                         {
-                            ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
-                            ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                            ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol);
+                            ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol);
                         }
                     }
                     // Check if this is a throwing closure (but not async+throwing)
@@ -943,16 +943,16 @@ namespace BindingsGeneration
                         var errorMintLib = _env.TypeDatabase.AsyncLibraryName
                             ?? _env.TypeDatabase.GetLibraryPath(moduleName);
                         SwiftErrorMintEmitter.EmitPInvokeIfNeeded(csWriter, moduleName, errorMintLib, _env, _emissionContext);
-                        ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
-                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, moduleName, useCdecl, useBoxedContext);
+                        ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl);
+                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, moduleName, useCdecl, useBoxedContext);
                     }
                     // Check if this closure needs indirect return marshalling
                     else if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
                     {
                         // A non-cdecl escaping closure with an indirect (bound-generic / non-frozen)
                         // return reaches this branch with a boxed context (see shared gate above).
-                        ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
-                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl, useBoxedContext);
+                        ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl);
+                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl, useBoxedContext);
                     }
                     else
                     {
@@ -961,8 +961,8 @@ namespace BindingsGeneration
                         // so Swift's release of the closure deinits the box and frees the
                         // wrapped GCHandle. The trampoline must unbox to recover the GCHandle
                         // (useBoxedContext from the shared gate above).
-                        ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
-                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl, useBoxedContext);
+                        ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl);
+                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl, useBoxedContext);
                     }
                     csWriter.WriteLine();
                 }
@@ -992,8 +992,8 @@ namespace BindingsGeneration
             if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec)) return;
             if (!ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, _env.ClosureHandler)) return;
 
-            var helperName = ClosureEmitter.GetInvokeThunkHelperName(_env.MethodDecl.MangledName);
-            var entryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(_env.MethodDecl.MangledName);
+            var helperName = ClosureEmitter.GetInvokeThunkHelperName(_env.EmissionSymbol);
+            var entryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(_env.EmissionSymbol);
             var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
             var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             var libPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
@@ -1386,14 +1386,14 @@ namespace BindingsGeneration
                         closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
 
                     // Clear non-escaping @convention(c) ThreadStatic delegate to release references.
-                    if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount)
+                    if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.EmissionSymbol, cleanupClosureCount)
                         && !isEffectivelyEscaping)
                     {
                         var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
                         csWriter.WriteLine($"{baseName}_del = null;");
                     }
                     else if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, cleanupClosureCount) &&
                         !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
                         !isEffectivelyEscaping)
                     {
@@ -1401,7 +1401,7 @@ namespace BindingsGeneration
                     }
                     else if (_env.MethodDecl.HasCdeclClosureMarshalling &&
                         _env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, cleanupClosureCount) &&
                         !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
                         isEffectivelyEscaping)
                     {
@@ -1412,7 +1412,7 @@ namespace BindingsGeneration
                     }
                     else if (!_env.MethodDecl.HasCdeclClosureMarshalling &&
                         _env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, cleanupClosureCount) &&
                         !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
                         isEffectivelyEscaping)
                     {

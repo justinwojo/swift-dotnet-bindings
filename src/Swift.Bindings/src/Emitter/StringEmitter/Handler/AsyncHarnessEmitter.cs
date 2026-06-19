@@ -208,10 +208,10 @@ namespace BindingsGeneration
                                 (_env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnType.SwiftTypeSpec) ||
                                  _env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnType.SwiftTypeSpec, genericContext));
 
-            var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
-            var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.MethodDecl);
-            var errorCallbackFieldName = NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl);
-            var errorCallbackMethodName = NameProvider.GetAsyncErrorCallbackMethodName(_env.MethodDecl);
+            var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.EmissionSymbol, _env.MethodDecl);
+            var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.EmissionSymbol, _env.MethodDecl);
+            var errorCallbackFieldName = NameProvider.GetAsyncErrorCallbackFieldName(_env.EmissionSymbol, _env.MethodDecl);
+            var errorCallbackMethodName = NameProvider.GetAsyncErrorCallbackMethodName(_env.EmissionSymbol, _env.MethodDecl);
 
             // For tuple returns, we need to marshal each element individually
             if (isTupleReturn)

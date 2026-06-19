@@ -746,9 +746,9 @@ public class ClosureCdeclEmitterTests
         var parentDecl = CreateClassDecl("CFunctionTest", moduleDecl);
         var method = CreateMethodDecl("callCFunction", parentDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int32"), isAsync: false, throws: false,
-            methodType: MethodType.Static);
-        // Set mangled name with XC marker for @convention(c)
-        method.MangledName = "$s20SwiftBindingsTestLib13callCFunctionys5Int32VA2DXCF";
+            methodType: MethodType.Static,
+            mangledName: "$s20SwiftBindingsTestLib13callCFunctionys5Int32VA2DXCF");
+        // Mangled name carries XC marker for @convention(c)
         method.CSSignature.Add(CreateArgument("fn", closureType, moduleDecl));
 
         EmitMethod(method, typeDatabase);
@@ -985,8 +985,8 @@ public class ClosureCdeclEmitterTests
 
         var method = CreateMethodDecl("callCFunction", parentDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int32"), isAsync: false, throws: false,
-            methodType: MethodType.Static);
-        method.MangledName = "$s20SwiftBindingsTestLib13callCFunctionys5Int32VA2DXCF";
+            methodType: MethodType.Static,
+            mangledName: "$s20SwiftBindingsTestLib13callCFunctionys5Int32VA2DXCF");
         method.CSSignature.Add(CreateArgument("fn", closureType, moduleDecl));
 
         Assert.True(closureHandler.MethodHasConventionCClosure(method.MangledName),
@@ -2011,12 +2011,13 @@ public class ClosureCdeclEmitterTests
         TypeSpec returnType,
         bool isAsync,
         bool throws,
-        MethodType methodType)
+        MethodType methodType,
+        string? mangledName = null)
     {
         var method = new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule6LoaderC{name}SiyF",
+            MangledName = mangledName ?? $"$s10TestModule6LoaderC{name}SiyF",
             MethodType = methodType,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>

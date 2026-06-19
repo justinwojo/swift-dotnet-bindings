@@ -174,7 +174,7 @@ namespace BindingsGeneration
                 var cdeclSymbol = EmitOperatorSwiftWrapper(swiftWriter, operatorDecl, parentDecl, emissionContext);
                 if (cdeclSymbol != null)
                 {
-                    methodDecl.MangledName = cdeclSymbol;
+                    methodEnv.PromoteSymbol(cdeclSymbol);
                     methodDecl.UsesWrapperLibrary = true;
                 }
                 else
@@ -647,7 +647,7 @@ namespace BindingsGeneration
                 var declaration = new PInvokeDeclaration
                 {
                     LibraryPath = libPath,
-                    EntryPoint = methodDecl.MangledName,
+                    EntryPoint = methodEnv.EmissionSymbol,
                     MethodName = pinvokeName,
                     ReturnType = returnType,
                     ParametersString = parametersString,
@@ -663,7 +663,7 @@ namespace BindingsGeneration
                 PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
                 {
                     LibraryPath = libPath,
-                    EntryPoint = methodDecl.MangledName,
+                    EntryPoint = methodEnv.EmissionSymbol,
                     MethodName = pinvokeName,
                     ReturnType = returnType,
                     ParametersString = parametersString,

@@ -376,8 +376,8 @@ namespace BindingsGeneration
                 // No context parameter needed - we handle the callback in Swift
                 // For generic parent types, callbacks are hoisted to the PInvokeHelper class.
                 // CallExpression provides the qualified reference for the P/Invoke call site.
-                var callbackName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
-                var errorCallbackName = NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl);
+                var callbackName = NameProvider.GetAsyncCallbackFieldName(_env.EmissionSymbol, _env.MethodDecl);
+                var errorCallbackName = NameProvider.GetAsyncErrorCallbackFieldName(_env.EmissionSymbol, _env.MethodDecl);
                 string? callbackCallExpr = null;
                 string? errorCallbackCallExpr = null;
                 if (_env.PInvokeHelperContext != null)
@@ -484,7 +484,7 @@ namespace BindingsGeneration
                             if (asyncBridgeEligible)
                             {
                                 var callbackName = ClosureHandler.GetCallbackFunctionName(
-                                    _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
+                                    _env.MethodDecl.Name, argument.Name, _env.EmissionSymbol);
                                 var funcPtrType = _env.ClosureHandler.GetAsyncThrowingStartFunctionPointerType(closureTypeSpec);
                                 AddParameter(new MarshalledType.AsyncThrowingContext(csName), csName + "Context");
                                 AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName, funcPtrType), csName + "StartFunc");
@@ -503,7 +503,7 @@ namespace BindingsGeneration
                             if (asyncBridgeEligible)
                             {
                                 var callbackName = ClosureHandler.GetCallbackFunctionName(
-                                    _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
+                                    _env.MethodDecl.Name, argument.Name, _env.EmissionSymbol);
                                 var funcPtrType = _env.ClosureHandler.GetAsyncThrowingStartFunctionPointerType(closureTypeSpec);
                                 AddParameter(new MarshalledType.AsyncThrowingContext(csName), csName + "Context");
                                 AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName, funcPtrType), csName + "StartFunc");
@@ -513,13 +513,13 @@ namespace BindingsGeneration
                                 AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
                             }
                         }
-                        else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
+                        else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, closureParamCount))
                         {
                             if (_env.MethodDecl.HasCdeclClosureMarshalling)
                             {
                                 // Cdecl closure wrapper (standalone or @_cdecl inline): pass func ptr + context as separate IntPtr params
                                 var callbackName = ClosureHandler.GetCallbackFunctionName(
-                                    _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
+                                    _env.MethodDecl.Name, argument.Name, _env.EmissionSymbol);
                                 AddParameter(new MarshalledType.CdeclClosureFuncPtr(callbackName, csName), csName + "FuncPtr");
                                 AddParameter(new MarshalledType.CdeclClosureContext(csName), csName + "Context");
                             }
@@ -1095,8 +1095,7 @@ namespace BindingsGeneration
         /// <returns>A tuple of (entryPoint symbol, needsWrapperLib flag).</returns>
         internal static (string entryPoint, bool needsWrapperLib) ComputeEntryPoint(MethodDecl methodDecl)
         {
-            var hasOpaqueReturn = methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
-            var needsWrapperLib = methodDecl.IsAsync || hasOpaqueReturn || methodDecl.UsesWrapperLibrary;
+            var needsWrapperLib = NeedsWrapperLib(methodDecl);
 
             // Native thunks and @_cdecl wrappers: entry point is the thunk/wrapper symbol
             // (already set in MangledName by MethodHandler/PropertyHandler/SubscriptHandler).
@@ -1113,6 +1112,51 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// AF13 (Finding 13): environment-scoped entry-point resolution. The wrapper/thunk entry
+        /// point is reconstructed from the emission-scoped promoted symbol
+        /// (<see cref="MethodEnvironment.EmissionSymbol"/>) — not a mutated decl field — plus the
+        /// wrapper-kind suffix the decl's flags select. The direct-Swift path resolves from the
+        /// immutable silgen symbol via <see cref="SwiftCallTargetResolver"/>. <c>needsWrapperLib</c>
+        /// (which selects the library path) stays derived from the decl's routing flags.
+        /// </summary>
+        internal static (string entryPoint, bool needsWrapperLib) ComputeEntryPoint(MethodEnvironment env)
+        {
+            var methodDecl = env.MethodDecl;
+            var needsWrapperLib = NeedsWrapperLib(methodDecl);
+
+            // Native thunks and @_cdecl wrappers: entry point is the promoted thunk/wrapper symbol
+            // (the wrapper library hosts both thunk .o files and @_cdecl Swift functions), with any
+            // wrapper-kind suffix (_async/_opaque/_optbuf/_cdecl/_XC) reapplied.
+            if (needsWrapperLib)
+            {
+                return (NameProvider.GetMangledName(GetPromotedSymbol(env), methodDecl), needsWrapperLib);
+            }
+
+            // Direct Swift call: resolve from the immutable silgen symbol for Tj dispatch thunk logic.
+            var entryPoint = SwiftCallTargetResolver.Resolve(methodDecl, methodDecl.ParentDecl);
+            return (entryPoint, needsWrapperLib);
+        }
+
+        /// <summary>
+        /// AF13 (Finding 13): the promoted emission symbol for this method's P/Invoke. Sourced from
+        /// the emission-scoped <see cref="MethodEnvironment.EmissionSymbol"/> side table — the value
+        /// <see cref="MethodEnvironment.PromoteSymbol"/> records when a wrapper/thunk strategy promotes
+        /// the symbol, defaulting to the decl's immutable silgen symbol when nothing promotes it. The
+        /// decl's <see cref="MethodDecl.MangledName"/> is no longer mutated during emission.
+        /// </summary>
+        private static string GetPromotedSymbol(MethodEnvironment env) => env.EmissionSymbol;
+
+        /// <summary>
+        /// Whether this method's P/Invoke must bind into the wrapper library (async/opaque-return
+        /// or an explicit wrapper-library routing flag) rather than the module library.
+        /// </summary>
+        private static bool NeedsWrapperLib(MethodDecl methodDecl)
+        {
+            var hasOpaqueReturn = methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
+            return methodDecl.IsAsync || hasOpaqueReturn || methodDecl.UsesWrapperLibrary;
+        }
+
+        /// <summary>
         /// Emits the PInvoke signature or collects it to a helper context for generic types.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -1123,9 +1167,9 @@ namespace BindingsGeneration
             var methodDecl = (MethodDecl)methodEnv.MethodDecl;
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
 
-            var pInvokeName = NameProvider.GetPInvokeName(methodDecl);
+            var pInvokeName = NameProvider.GetPInvokeName(GetPromotedSymbol(methodEnv), methodDecl);
             var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            var (entryPoint, needsWrapperLib) = ComputeEntryPoint(methodDecl);
+            var (entryPoint, needsWrapperLib) = ComputeEntryPoint(methodEnv);
             var libPath = needsWrapperLib && methodEnv.TypeDatabase.AsyncLibraryName != null
                 ? methodEnv.TypeDatabase.AsyncLibraryName
                 : moduleLibPath;

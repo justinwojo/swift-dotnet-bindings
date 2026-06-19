@@ -27,8 +27,8 @@ public class DispatchThunkEmitterTests
         var classDecl = CreateClassDecl("Animal", moduleDecl, isFinal: false);
         var method = CreateMethodDecl("speak", classDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int"),
-            methodType: MethodType.Instance, isFinal: false);
-        method.MangledName = "$s10TestModule6AnimalC5speakSiyF";
+            methodType: MethodType.Instance, isFinal: false,
+            mangledName: "$s10TestModule6AnimalC5speakSiyF");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -41,8 +41,8 @@ public class DispatchThunkEmitterTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateClassDecl("Animal", moduleDecl, isFinal: false);
         var method = CreatePropertyGetMethod("name", classDecl, moduleDecl,
-            returnType: new NamedTypeSpec("Swift.Int"), isFinal: false);
-        method.MangledName = "$s10TestModule6AnimalC4nameSivg";
+            returnType: new NamedTypeSpec("Swift.Int"), isFinal: false,
+            mangledName: "$s10TestModule6AnimalC4nameSivg");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -55,8 +55,8 @@ public class DispatchThunkEmitterTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateClassDecl("Animal", moduleDecl, isFinal: false);
         var method = CreatePropertySetMethod("name", classDecl, moduleDecl,
-            valueType: new NamedTypeSpec("Swift.Int"), isFinal: false);
-        method.MangledName = "$s10TestModule6AnimalC4nameSivs";
+            valueType: new NamedTypeSpec("Swift.Int"), isFinal: false,
+            mangledName: "$s10TestModule6AnimalC4nameSivs");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -74,8 +74,8 @@ public class DispatchThunkEmitterTests
         var classDecl = CreateClassDecl("Service", moduleDecl, isFinal: false);
         var method = CreateMethodDecl("getKey", classDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int"),
-            methodType: MethodType.Instance, isFinal: true);
-        method.MangledName = "$s10TestModule7ServiceC6getKeySiyF";
+            methodType: MethodType.Instance, isFinal: true,
+            mangledName: "$s10TestModule7ServiceC6getKeySiyF");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -90,8 +90,8 @@ public class DispatchThunkEmitterTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateClassDecl("Service", moduleDecl, isFinal: false);
         var method = CreatePropertyGetMethod("key", classDecl, moduleDecl,
-            returnType: new NamedTypeSpec("Swift.Int"), isFinal: true);
-        method.MangledName = "$s10TestModule7ServiceC3keySivg";
+            returnType: new NamedTypeSpec("Swift.Int"), isFinal: true,
+            mangledName: "$s10TestModule7ServiceC3keySivg");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -110,8 +110,8 @@ public class DispatchThunkEmitterTests
         var classDecl = CreateClassDecl("Handler", moduleDecl, isFinal: true);
         var method = CreateMethodDecl("fire", classDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int"),
-            methodType: MethodType.Instance, isFinal: false);
-        method.MangledName = "$s10TestModule7HandlerC4fireSiyF";
+            methodType: MethodType.Instance, isFinal: false,
+            mangledName: "$s10TestModule7HandlerC4fireSiyF");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -125,8 +125,8 @@ public class DispatchThunkEmitterTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateClassDecl("Handler", moduleDecl, isFinal: true);
         var method = CreatePropertyGetMethod("label", classDecl, moduleDecl,
-            returnType: new NamedTypeSpec("Swift.Int"), isFinal: false);
-        method.MangledName = "$s10TestModule7HandlerC5labelSivg";
+            returnType: new NamedTypeSpec("Swift.Int"), isFinal: false,
+            mangledName: "$s10TestModule7HandlerC5labelSivg");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -145,8 +145,8 @@ public class DispatchThunkEmitterTests
         var classDecl = CreateClassDecl("Animal", moduleDecl, isFinal: false);
         var method = CreateMethodDecl("createDefault", classDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int"),
-            methodType: MethodType.Static, isFinal: false);
-        method.MangledName = "$s10TestModule6AnimalC13createDefaultSiyFZ";
+            methodType: MethodType.Static, isFinal: false,
+            mangledName: "$s10TestModule6AnimalC13createDefaultSiyFZ");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -193,8 +193,8 @@ public class DispatchThunkEmitterTests
         var structDecl = CreateStructDecl("Point", moduleDecl, isFrozen: true);
         var method = CreateMethodDecl("getX", structDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int"),
-            methodType: MethodType.Instance, isFinal: false);
-        method.MangledName = "$s10TestModule5PointV4getXSiyF";
+            methodType: MethodType.Instance, isFinal: false,
+            mangledName: "$s10TestModule5PointV4getXSiyF");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());
 
@@ -212,8 +212,8 @@ public class DispatchThunkEmitterTests
         var classDecl = CreateClassDecl("Animal", moduleDecl, isFinal: false);
         var method = CreateMethodDecl("speak", classDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int"),
-            methodType: MethodType.Instance, isFinal: false);
-        method.MangledName = "$s10TestModule6AnimalC5speakSiyF";
+            methodType: MethodType.Instance, isFinal: false,
+            mangledName: "$s10TestModule6AnimalC5speakSiyF");
         method.UsesWrapperLibrary = true;
 
         var typeDb = CreateTypeDatabase();
@@ -366,12 +366,13 @@ public class DispatchThunkEmitterTests
         ModuleDecl moduleDecl,
         TypeSpec returnType,
         MethodType methodType,
-        bool isFinal)
+        bool isFinal,
+        string? mangledName = null)
     {
         var method = new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule6LoaderC{name}SiyF",
+            MangledName = mangledName ?? $"$s10TestModule6LoaderC{name}SiyF",
             MethodType = methodType,
             IsConstructor = false,
             IsFinal = isFinal,
@@ -398,12 +399,13 @@ public class DispatchThunkEmitterTests
         TypeDecl parentDecl,
         ModuleDecl moduleDecl,
         TypeSpec returnType,
-        bool isFinal)
+        bool isFinal,
+        string? mangledName = null)
     {
         var method = new MethodDecl
         {
             Name = $"{fieldName}_Get",
-            MangledName = $"$s10TestModule6LoaderC{fieldName}Sivg",
+            MangledName = mangledName ?? $"$s10TestModule6LoaderC{fieldName}Sivg",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             IsAccessor = true,
@@ -429,12 +431,13 @@ public class DispatchThunkEmitterTests
         TypeDecl parentDecl,
         ModuleDecl moduleDecl,
         TypeSpec valueType,
-        bool isFinal)
+        bool isFinal,
+        string? mangledName = null)
     {
         var method = new MethodDecl
         {
             Name = $"{fieldName}_Set",
-            MangledName = $"$s10TestModule6LoaderC{fieldName}Sivs",
+            MangledName = mangledName ?? $"$s10TestModule6LoaderC{fieldName}Sivs",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             IsAccessor = true,

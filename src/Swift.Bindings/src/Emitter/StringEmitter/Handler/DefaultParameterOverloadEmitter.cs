@@ -106,7 +106,7 @@ public static class DefaultParameterOverloadEmitter
         // (fewest params first in source output)
         for (int trim = overloadCount; trim >= 1; trim--)
         {
-            var overloadDecl = BuildOverloadDecl(methodDecl, trim);
+            var overloadDecl = BuildOverloadDecl(env.EmissionSymbol, methodDecl, trim);
 
             // Note: HasClosureCdeclWrapper is NOT set on cloned overload decls.
             // DefaultParam wrappers use @_silgen_name to intercept the original Swift symbol,
@@ -146,7 +146,7 @@ public static class DefaultParameterOverloadEmitter
                 cdeclSymbolForRestore = cdeclSymbol;
                 overloadDecl.UsesCdeclConstructorWrapper = true;
                 // UsesWrapperLibrary already set by BuildOverloadDecl
-                overloadDecl.MangledName = cdeclSymbol;
+                overloadEnv.PromoteSymbol(cdeclSymbol);
 
                 // Propagate HasClosureParams for @_cdecl constructor overloads with closures
                 if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
@@ -175,7 +175,7 @@ public static class DefaultParameterOverloadEmitter
                 cdeclSymbolForMethodRestore = cdeclSymbol;
                 overloadDecl.UsesCdeclMethodWrapper = true;
                 // UsesWrapperLibrary already set by BuildOverloadDecl
-                overloadDecl.MangledName = cdeclSymbol;
+                overloadEnv.PromoteSymbol(cdeclSymbol);
 
                 // Propagate HasClosureParams for @_cdecl method overloads with closures
                 if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
@@ -206,7 +206,7 @@ public static class DefaultParameterOverloadEmitter
                         overloadDecl.MangledName);
                     cdeclSymbolForMethodRestore = cdeclSymbol;
                     overloadDecl.UsesCdeclMethodWrapper = true;
-                    overloadDecl.MangledName = cdeclSymbol;
+                    overloadEnv.PromoteSymbol(cdeclSymbol);
                     if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
                         overloadDecl.HasClosureParams = true;
                 }
@@ -258,29 +258,30 @@ public static class DefaultParameterOverloadEmitter
                 }
             }
 
-            // EmitSwiftWrapper reads overloadDecl.MangledName as the @_silgen_name symbol.
-            // If using cdecl, temporarily restore the DBW_... symbol for the Swift wrapper emission.
+            // EmitSwiftWrapper reads overloadDecl.MangledName (immutable) as the @_silgen_name target.
+            // If using cdecl, promote the env's emission symbol to the silgen symbol so P/Invoke
+            // routing resolves the original before the cdecl re-promotion below.
             if (cdeclSymbolForRestore != null)
-                overloadDecl.MangledName = silgenSymbolForCdecl!;
+                overloadEnv.PromoteSymbol(silgenSymbolForCdecl!);
             if (cdeclSymbolForMethodRestore != null)
-                overloadDecl.MangledName = silgenSymbolForMethodCdecl!;
+                overloadEnv.PromoteSymbol(silgenSymbolForMethodCdecl!);
 
             // Emit Swift @_silgen_name wrapper
             EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim);
 
-            // Restore the cdecl symbol as the final MangledName for P/Invoke routing.
-            // EmitSwiftWrapper sets MangledName = wrapperSymbol (the DBW_... name) — overwrite with cdecl.
+            // Promote the env's emission symbol to the cdecl symbol — the value P/Invoke routing reads.
+            // (overloadDecl.MangledName is immutable; EmitSwiftWrapper read it directly for the @_silgen_name.)
             if (cdeclSymbolForRestore != null)
-                overloadDecl.MangledName = cdeclSymbolForRestore;
+                overloadEnv.PromoteSymbol(cdeclSymbolForRestore);
             if (cdeclSymbolForMethodRestore != null)
-                overloadDecl.MangledName = cdeclSymbolForMethodRestore;
+                overloadEnv.PromoteSymbol(cdeclSymbolForMethodRestore);
 
             // Emit @_cdecl constructor wrapper that calls the @_silgen_name function
             if (silgenSymbolForCdecl != null && overloadDecl.UsesCdeclConstructorWrapper)
             {
                 // Use the canonical trim count from the loop variable to ensure the
                 // silgen function name matches what EmitSwiftWrapper emitted.
-                var silgenFuncName = GetSilgenFuncName(methodDecl, trim);
+                var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
                 ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
                     swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
             }
@@ -293,7 +294,7 @@ public static class DefaultParameterOverloadEmitter
             {
                 // Use the canonical trim count from the loop variable to ensure the
                 // silgen function name matches what EmitSwiftWrapper emitted.
-                var silgenFuncName = GetSilgenFuncName(methodDecl, trim);
+                var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
                 bool silgenUsesResultBuf = env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl);
                 MethodWrapperEmitter.EmitSwiftMethodWrapper(
                     swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName,
@@ -377,8 +378,16 @@ public static class DefaultParameterOverloadEmitter
     /// The MangledName points to the Swift wrapper symbol.
     /// </summary>
     internal static MethodDecl BuildOverloadDecl(MethodDecl original, int trimCount)
+        => BuildOverloadDecl(original.MangledName, original, trimCount);
+
+    /// <summary>
+    /// AF13: emission-scoped overload — uses <paramref name="baseSymbol"/> (the primary method's
+    /// <c>env.EmissionSymbol</c>) as the hash base for the cloned overload's DBW_ wrapper symbol, so the
+    /// generated symbol tracks the promoted symbol rather than the decl's (now-immutable) MangledName.
+    /// </summary>
+    internal static MethodDecl BuildOverloadDecl(string baseSymbol, MethodDecl original, int trimCount)
     {
-        var wrapperSymbol = BuildWrapperSymbol(original, trimCount);
+        var wrapperSymbol = BuildWrapperSymbol(baseSymbol, original, trimCount);
 
         var overload = new MethodDecl
         {
@@ -581,7 +590,7 @@ public static class DefaultParameterOverloadEmitter
         var tryPrefix = throws ? "try " : "";
         // Use the canonical trim count passed from the loop, not a recomputed value.
         // This ensures the silgen function name matches the @_cdecl dispatch reference.
-        var swiftFuncName = GetSilgenFuncName(originalMethodDecl, trim);
+        var swiftFuncName = GetSilgenFuncName(env.EmissionSymbol, originalMethodDecl, trim);
 
         swiftWriter.WriteLine();
 
@@ -815,10 +824,20 @@ public static class DefaultParameterOverloadEmitter
     /// Builds the wrapper symbol name: DBW_{TypeName}_{MethodName}_{Hash8}_{TrimCount}
     /// </summary>
     private static string BuildWrapperSymbol(MethodDecl methodDecl, int trimCount)
+        => BuildWrapperSymbol(methodDecl.MangledName, methodDecl, trimCount);
+
+    /// <summary>
+    /// AF13: emission-scoped overload — hashes the supplied <paramref name="baseSymbol"/>
+    /// (the primary method's <c>env.EmissionSymbol</c>, promoted by MethodHandler before DPO runs)
+    /// instead of <c>methodDecl.MangledName</c>. Once the parsed model stops mutating, the decl's
+    /// MangledName reverts to its silgen value, so hashing the emission symbol keeps the DBW_ symbol
+    /// stable on the promoted-symbol hash the wrapper actually intercepts.
+    /// </summary>
+    private static string BuildWrapperSymbol(string baseSymbol, MethodDecl methodDecl, int trimCount)
     {
         var parentDecl = methodDecl.ParentDecl as TypeDecl;
         var typeName = parentDecl?.Name ?? "Global";
-        var hash = DeterministicHash8(methodDecl.MangledName);
+        var hash = DeterministicHash8(baseSymbol);
         return $"DBW_{typeName}_{methodDecl.Name}_{hash}_{trimCount}";
     }
 
@@ -839,8 +858,11 @@ public static class DefaultParameterOverloadEmitter
         var parentTypeDecl = methodDecl.ParentDecl as TypeDecl;
         bool isFreeFunction = parentTypeDecl == null;
 
-        // Build wrapper symbol
-        var hash = DeterministicHash8(methodDecl.MangledName);
+        // Build wrapper symbol. AF13: hash env.EmissionSymbol (== methodDecl.MangledName until the
+        // model stops mutating; the promoted symbol thereafter) so the DBG_ symbol and the env
+        // promotion below stay on the same base. wrapperSymbol feeds both the Swift @_silgen_name
+        // string and the env promotion at the end, so both move together.
+        var hash = DeterministicHash8(env.EmissionSymbol);
         var typeName = parentTypeDecl?.Name ?? "Global";
         var wrapperSymbol = $"DBG_{typeName}_{methodDecl.Name}_{hash}";
 
@@ -1027,8 +1049,8 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine("}");
         }
 
-        // Update the method's mangled name to target the wrapper
-        methodDecl.MangledName = wrapperSymbol;
+        // Promote the emission env's symbol to target the wrapper.
+        env.PromoteSymbol(wrapperSymbol);
         methodDecl.UsesWrapperLibrary = true;
 
         // Remove debug params from CSSignature so downstream iterators
@@ -1082,9 +1104,18 @@ public static class DefaultParameterOverloadEmitter
     /// reference the same function name.
     /// </summary>
     internal static string GetSilgenFuncName(MethodDecl methodDecl, int trimCount)
+        => GetSilgenFuncName(methodDecl.MangledName, methodDecl, trimCount);
+
+    /// <summary>
+    /// AF13: emission-scoped overload — hashes the supplied <paramref name="baseSymbol"/>
+    /// (the primary method's <c>env.EmissionSymbol</c>) so the <c>_dbw_</c> Swift function name
+    /// matches the DBW_ symbol built from the same promoted symbol, independent of the decl's
+    /// (now-immutable, silgen-valued) MangledName.
+    /// </summary>
+    internal static string GetSilgenFuncName(string baseSymbol, MethodDecl methodDecl, int trimCount)
     {
         var rawMethodName = methodDecl.GetSwiftName();
-        return $"_dbw_{rawMethodName}_{DeterministicHash8(methodDecl.MangledName)}_{trimCount}";
+        return $"_dbw_{rawMethodName}_{DeterministicHash8(baseSymbol)}_{trimCount}";
     }
 
     internal static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);

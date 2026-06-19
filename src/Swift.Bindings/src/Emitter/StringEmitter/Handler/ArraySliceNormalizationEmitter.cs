@@ -296,14 +296,16 @@ public static class ArraySliceNormalizationEmitter
                 normalizedMethodDecl.MangledName);
             normalizedMethodDecl.UsesCdeclMethodWrapper = true;
             normalizedMethodDecl.UsesFreeFunctionWrapper = true;
-            normalizedMethodDecl.MangledName = cdeclSymbol;
+            // AF13: promote the emission symbol to the @_cdecl wrapper symbol. The base read
+            // by GetMethodSymbolName above is the clone's construction-time wrapper symbol.
+            normalizedEnv.PromoteSymbol(cdeclSymbol);
         }
         else if (normalizedMethodDecl.MangledName.StartsWith("SBW_", StringComparison.Ordinal))
         {
             // Falling back to @_silgen_name (Swift CC P/Invoke) — rename SBW_ → SBSW_ so
             // the entry-point prefix matches the calling convention. PInvokeEmitHelper
             // enforces SBW_ ↔ Cdecl exclusively.
-            normalizedMethodDecl.MangledName = "SBSW_" + normalizedMethodDecl.MangledName.Substring(4);
+            normalizedEnv.PromoteSymbol("SBSW_" + normalizedMethodDecl.MangledName.Substring(4));
         }
 
         // Check if the normalized signature is fully marshallable
@@ -315,7 +317,7 @@ public static class ArraySliceNormalizationEmitter
         }
 
         // Emit Swift wrapper
-        EmitSwiftWrapper(swiftWriter, methodDecl, normalizedMethodDecl, env, useCdecl, emissionContext);
+        EmitSwiftWrapper(swiftWriter, methodDecl, normalizedMethodDecl, normalizedEnv, useCdecl, emissionContext);
 
         // Delegate C# emission to normal pipeline
         TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
@@ -477,11 +479,17 @@ public static class ArraySliceNormalizationEmitter
         SwiftWriter swiftWriter,
         MethodDecl originalMethodDecl,
         MethodDecl normalizedMethodDecl,
-        MethodEnvironment env,
+        MethodEnvironment normalizedEnv,
         bool useCdecl = false,
         ModuleEmissionContext? emissionContext = null)
     {
-        var wrapperSymbol = normalizedMethodDecl.MangledName;
+        // AF13: the wrapper symbol — used for the @_cdecl/@_silgen_name annotation AND the
+        // wrapper-symbol-contract registration below — is the emission-promoted symbol on
+        // normalizedEnv (the cdecl SBW_… or the SBSW_… Swift-CC fallback), NOT the clone's
+        // construction-time MangledName. Before the parsed model stopped mutating, the
+        // PromoteSymbol call rewrote normalizedMethodDecl.MangledName in place, so reading it
+        // here happened to yield the promoted value; now the promoted symbol lives only on the env.
+        var wrapperSymbol = normalizedEnv.EmissionSymbol;
         var parentTypeDecl = originalMethodDecl.ParentDecl as TypeDecl;
         bool isFreeFunction = parentTypeDecl == null;
 
@@ -506,17 +514,17 @@ public static class ArraySliceNormalizationEmitter
                 rawLabel, CdeclParamMapper.ExcludeSelf(sliceSiblings, rawLabel));
 
             // Large Optional params: accept UnsafeRawPointer, dereference in body
-            if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+            if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, normalizedEnv.BoundGenericsHandler))
             {
                 swiftParams.Add($"_ {label}: UnsafeRawPointer");
-                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, env.TypeDatabase));
+                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, normalizedEnv.TypeDatabase));
             }
             else if (useCdecl)
             {
                 // @_cdecl mode: convert to C-compatible type. label is already sibling-escaped;
                 // passing siblings keeps Map's internal re-escape sibling-aware (idempotent here).
                 var (cdeclParam, reconstruction, _) =
-                    CdeclParamMapper.Map(arg, label, env, omitLabels: true, reservedSiblings: sliceSiblings);
+                    CdeclParamMapper.Map(arg, label, normalizedEnv, omitLabels: true, reservedSiblings: sliceSiblings);
                 swiftParams.Add(cdeclParam);
                 if (reconstruction != null) derefLines.Add(reconstruction);
             }
@@ -529,7 +537,7 @@ public static class ArraySliceNormalizationEmitter
         }
 
         // Check if the return type is a large Optional that needs an out-buffer
-        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(normalizedMethodDecl);
+        bool hasLargeOptionalReturn = normalizedEnv.BoundGenericsHandler.IsLargeOptionalReturn(normalizedMethodDecl);
         if (hasLargeOptionalReturn)
         {
             swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
@@ -567,7 +575,7 @@ public static class ArraySliceNormalizationEmitter
                 rawNormName, CdeclParamMapper.ExcludeSelf(sliceSiblings, rawNormName));
 
             // Use dereferenced value for large Optional params
-            var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(normArg, env.BoundGenericsHandler)
+            var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(normArg, normalizedEnv.BoundGenericsHandler)
                 ? $"{privateName}Val" : privateName;
 
             // For @_cdecl converted params, use the reconstructed value
@@ -605,7 +613,7 @@ public static class ArraySliceNormalizationEmitter
         string returnClause;
         if (useCdecl && !isVoid && !hasLargeOptionalReturn)
         {
-            var (returnMapping, needsResultPtr) = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
+            var (returnMapping, needsResultPtr) = CdeclReturnMapping.Classify(returnTypeSpec, normalizedEnv.TypeDatabase);
             cdeclReturnMapping = returnMapping;
             cdeclIsStringReturn = WitnessDispatchEmitter.IsStringType(returnTypeSpec);
             if (cdeclIsStringReturn) needsResultPtr = true;
@@ -700,7 +708,7 @@ public static class ArraySliceNormalizationEmitter
                         swiftWriter.WriteLine(bufLine);
                 else
                     EmitCdeclReturnLine(swiftWriter, callExpr, isVoid, cdeclIsStringReturn, cdeclNeedsResultPtr,
-                        returnTypeSpec, env.TypeDatabase, cdeclReturnMapping);
+                        returnTypeSpec, normalizedEnv.TypeDatabase, cdeclReturnMapping);
                 swiftWriter.Indent--;
                 swiftWriter.WriteLines("""
                     } catch {
@@ -718,7 +726,7 @@ public static class ArraySliceNormalizationEmitter
                         swiftWriter.WriteLine(bufLine);
                 else
                     EmitCdeclReturnLine(swiftWriter, callExpr, isVoid, cdeclIsStringReturn, cdeclNeedsResultPtr,
-                        returnTypeSpec, env.TypeDatabase, cdeclReturnMapping);
+                        returnTypeSpec, normalizedEnv.TypeDatabase, cdeclReturnMapping);
             }
             else
             {

@@ -234,6 +234,11 @@ namespace BindingsGeneration
                     {
                         accessor.Method.IsAccessor = true;
 
+                        // AF13: the cdecl/thunk symbol decided below is carried on the emission env via
+                        // PromoteSymbol rather than mutated onto the shared accessor decl. null = no
+                        // promotion (the accessor's original silgen MangledName is the entry point).
+                        string? promotedSymbol = null;
+
                         // Native ARM64 thunk: set flags BEFORE Marshal/Emit.
                         // If EmitThunk fails, revert flags and fall through to @_cdecl path.
                         bool thunkHandled = false;
@@ -245,10 +250,10 @@ namespace BindingsGeneration
                             accessor.Method.WrapperStrategy = WrapperStrategy.NativeThunk;
                             accessor.Method.IsSubscriptAccessor = true;
                             accessor.Method.UsesWrapperLibrary = true;
-                            accessor.Method.MangledName = thunkSymbol;
 
-                            // Emit thunk assembly — pass the original mangled name since MangledName
-                            // has been overwritten with the thunk symbol above
+                            // Emit thunk assembly. The accessor decl keeps its original silgen MangledName
+                            // (the thunk symbol is carried on the emission env via PromoteSymbol below);
+                            // pass that name so EmitThunk derives the thunk + call-target symbols from it.
                             var thunkEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
                             bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, typeDecl.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName, context.GetEmissionContext().X64AssemblyBuilder);
                             if (emitted)
@@ -256,6 +261,7 @@ namespace BindingsGeneration
                                 // Mark as emitted to prevent duplicate emission in MethodHandler.Emit
                                 accessor.Method.ThunkAssemblyEmitted = true;
                                 thunkHandled = true;
+                                promotedSymbol = thunkSymbol;
                             }
                             else
                             {
@@ -263,7 +269,6 @@ namespace BindingsGeneration
                                 accessor.Method.WrapperStrategy = WrapperStrategy.None;
                                 accessor.Method.IsSubscriptAccessor = false;
                                 accessor.Method.UsesWrapperLibrary = false;
-                                accessor.Method.MangledName = originalMangledName;
                             }
                         }
                         // @_cdecl subscript wrapper: set flags BEFORE Marshal/Emit
@@ -293,7 +298,7 @@ namespace BindingsGeneration
                             accessor.Method.IsSubscriptAccessor = true;
                             accessor.Method.UsesWrapperLibrary = true;
                             accessor.Method.UsesFreeFunctionWrapper = true;
-                            accessor.Method.MangledName = symbol;
+                            promotedSymbol = symbol;
 
                             var cdeclEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
                             if (isGetter)
@@ -312,6 +317,11 @@ namespace BindingsGeneration
                         }
                         if (context.CompositionCollector != null)
                             accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
+                        // AF13: carry the wrapper/thunk symbol decided above onto the emission env. The
+                        // thunk asm and @_cdecl wrappers took the symbol explicitly, so promoting only
+                        // this final env is parity-identical to mutating the shared accessor decl.
+                        if (promotedSymbol != null)
+                            accessorEnv.PromoteSymbol(promotedSymbol);
                         methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
                     }
                 }

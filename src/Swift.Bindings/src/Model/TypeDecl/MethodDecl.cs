@@ -10,9 +10,14 @@ namespace BindingsGeneration
     public sealed record MethodDecl : BaseDecl
     {
         /// <summary>
-        /// Mangled name of the declaration.
+        /// The immutable parser ABI fact: the <c>@_silgen_name</c> / silgen mangled symbol for this
+        /// declaration, as read from the ABI JSON. AF13 (Finding 13) made this <c>init</c>-only — it is
+        /// never rewritten during emission. Emission-time symbol promotion (cdecl/thunk/wrapper
+        /// re-targeting) lives on the emission-scoped <see cref="MethodEnvironment.EmissionSymbol"/>
+        /// side table instead of mutating this in place. The <c>init</c> accessor still permits
+        /// object-initializer and <c>with</c>-expression construction (e.g. synthesized overload decls).
         /// </summary>
-        public required string MangledName { get; set; }
+        public required string MangledName { get; init; }
 
         /// <summary>
         /// Indicates if the method is a static method.

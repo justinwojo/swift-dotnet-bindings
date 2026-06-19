@@ -106,7 +106,7 @@ public static class MethodGenericBridgeEmitter
         methodDecl.UsesWrapperLibrary = true;
         methodDecl.UsesFreeFunctionWrapper = true;
         methodDecl.HasGenericClosureBridge = true; // Reuse flag to signal bridge emission
-        methodDecl.MangledName = cdeclSymbol;
+        env.PromoteSymbol(cdeclSymbol);
 
         // Emit C# code (P/Invoke + public method)
         EmitCSharp(csWriter, env, parentDecl, genericInfo, cdeclSymbol);
@@ -583,7 +583,7 @@ public static class MethodGenericBridgeEmitter
         var methodDecl = env.MethodDecl;
         var asyncLibName = env.TypeDatabase.AsyncLibraryName ?? "SwiftBindings";
         var methodName = NameProvider.ToPascalCase(methodDecl.Name);
-        var pInvokeName = NameProvider.GetPInvokeName(methodDecl);
+        var pInvokeName = NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl);
 
         // Determine return type
         var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;

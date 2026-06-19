@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+#nullable enable
+
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -904,13 +906,11 @@ public class SignatureBuilderTests
         var moduleDecl = CreateModuleDeclFull();
         var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
 
-        var parameterlessInit = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        var parameterlessInit = CreateMethodDeclFull("init", parentDecl, moduleDecl, mangledName: "$s10TestModule9AttributeCACycfc");
         parameterlessInit.IsConstructor = true;
-        parameterlessInit.MangledName = "$s10TestModule9AttributeCACycfc";
 
-        var emptyTupleInit = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        var emptyTupleInit = CreateMethodDeclFull("init", parentDecl, moduleDecl, mangledName: "$s10TestModule9AttributeC10nilLiteralACyt_tcfc");
         emptyTupleInit.IsConstructor = true;
-        emptyTupleInit.MangledName = "$s10TestModule9AttributeC10nilLiteralACyt_tcfc";
         emptyTupleInit.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
 
         Assert.True(ConstructorHandler.HasParameterlessConstructorSibling(emptyTupleInit));
@@ -924,14 +924,12 @@ public class SignatureBuilderTests
         var moduleDecl = CreateModuleDeclFull();
         var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
 
-        var emptyTupleInit1 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        var emptyTupleInit1 = CreateMethodDeclFull("init", parentDecl, moduleDecl, mangledName: "$s10TestModule9AttributeC10nilLiteralACyt_tcfc");
         emptyTupleInit1.IsConstructor = true;
-        emptyTupleInit1.MangledName = "$s10TestModule9AttributeC10nilLiteralACyt_tcfc";
         emptyTupleInit1.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
 
-        var emptyTupleInit2 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        var emptyTupleInit2 = CreateMethodDeclFull("init", parentDecl, moduleDecl, mangledName: "$s10TestModule9AttributeC5otherACyt_tcfc");
         emptyTupleInit2.IsConstructor = true;
-        emptyTupleInit2.MangledName = "$s10TestModule9AttributeC5otherACyt_tcfc";
         emptyTupleInit2.CSSignature.Add(CreateArgumentDeclFull("other", TupleTypeSpec.Empty, moduleDecl));
 
         // Neither should see the other as a parameterless sibling
@@ -947,18 +945,15 @@ public class SignatureBuilderTests
         var moduleDecl = CreateModuleDeclFull();
         var parentDecl = CreateClassDeclFull("Attribute", moduleDecl);
 
-        var parameterlessInit = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        var parameterlessInit = CreateMethodDeclFull("init", parentDecl, moduleDecl, mangledName: "$s10TestModule9AttributeCACycfc");
         parameterlessInit.IsConstructor = true;
-        parameterlessInit.MangledName = "$s10TestModule9AttributeCACycfc";
 
-        var emptyTupleInit1 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        var emptyTupleInit1 = CreateMethodDeclFull("init", parentDecl, moduleDecl, mangledName: "$s10TestModule9AttributeC10nilLiteralACyt_tcfc");
         emptyTupleInit1.IsConstructor = true;
-        emptyTupleInit1.MangledName = "$s10TestModule9AttributeC10nilLiteralACyt_tcfc";
         emptyTupleInit1.CSSignature.Add(CreateArgumentDeclFull("nilLiteral", TupleTypeSpec.Empty, moduleDecl));
 
-        var emptyTupleInit2 = CreateMethodDeclFull("init", parentDecl, moduleDecl);
+        var emptyTupleInit2 = CreateMethodDeclFull("init", parentDecl, moduleDecl, mangledName: "$s10TestModule9AttributeC5otherACyt_tcfc");
         emptyTupleInit2.IsConstructor = true;
-        emptyTupleInit2.MangledName = "$s10TestModule9AttributeC5otherACyt_tcfc";
         emptyTupleInit2.CSSignature.Add(CreateArgumentDeclFull("other", TupleTypeSpec.Empty, moduleDecl));
 
         // Both empty-tuple inits see the real parameterless init → true
@@ -1174,12 +1169,12 @@ public class SignatureBuilderTests
         return classDecl;
     }
 
-    private static MethodDecl CreateMethodDeclFull(string name, ClassDecl parentDecl, ModuleDecl moduleDecl)
+    private static MethodDecl CreateMethodDeclFull(string name, ClassDecl parentDecl, ModuleDecl moduleDecl, string? mangledName = null)
     {
         var method = new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule6LoaderC{name.Length}{name}SiyF",
+            MangledName = mangledName ?? $"$s10TestModule6LoaderC{name.Length}{name}SiyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>

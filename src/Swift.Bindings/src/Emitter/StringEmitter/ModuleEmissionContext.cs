@@ -1139,6 +1139,36 @@ public sealed class ModuleEmissionContext
     public bool TryAddMethodWrapperSymbol(string symbol) =>
         RegisterWrapperSymbolInternal(_methodWrapperSymbols, symbol);
 
+    // ==================== Emission Symbol Side Table (AF13) ====================
+
+    // Keyed by MethodDecl *reference identity* — MethodDecl is a record (value equality),
+    // so a default dictionary would collapse two structurally-equal-but-distinct decls and
+    // a `with`-synthesized decl would never match its source. ReferenceEqualityComparer
+    // pins the key to the exact decl instance the base handler emitted.
+    private readonly Dictionary<MethodDecl, string> _emissionSymbolByMethod =
+        new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// AF13: records the emission-time symbol (<see cref="MethodEnvironment.EmissionSymbol"/>) a
+    /// method's main emission settled on, keyed by the decl instance. Lets a later, env-less
+    /// emitter that historically read a *sibling* method's promoted <c>MangledName</c> off the
+    /// shared decl (e.g. <c>ConcreteProtocolSpecializationEmitter</c> reading a constructor's
+    /// promoted symbol after <c>ClassHandler</c> emitted the type's methods) recover that exact
+    /// value from the emission-scoped side table instead of from in-place mutation of the parser
+    /// model. Called once per method from the base-handler post-emit hook.
+    /// </summary>
+    public void RecordMethodEmissionSymbol(MethodDecl methodDecl, string emissionSymbol) =>
+        _emissionSymbolByMethod[methodDecl] = emissionSymbol;
+
+    /// <summary>
+    /// Returns the recorded emission-time symbol for <paramref name="methodDecl"/>, or the decl's
+    /// own silgen <see cref="MethodDecl.MangledName"/> when the method was never emitted through the
+    /// base handler (or never promoted). The fallback reproduces the historical read of an
+    /// un-promoted decl exactly, so consumers stay byte-stable for methods absent from the table.
+    /// </summary>
+    public string GetMethodEmissionSymbolOrMangled(MethodDecl methodDecl) =>
+        _emissionSymbolByMethod.TryGetValue(methodDecl, out var symbol) ? symbol : methodDecl.MangledName;
+
     // ==================== Cross-Emitter Structural Identity ====================
     //
     // Two emitters can produce wrappers for the same Swift method with *different*

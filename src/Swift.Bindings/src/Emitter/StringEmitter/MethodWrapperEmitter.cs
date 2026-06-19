@@ -227,7 +227,7 @@ public static class MethodWrapperEmitter
         var parentModuleDecl = env.ParentDecl as ModuleDecl;
         if (parentTypeDecl == null && parentModuleDecl == null) return;
 
-        var symbolName = methodDecl.MangledName; // Already set to cdecl symbol by caller
+        var symbolName = env.EmissionSymbol; // AF13: the cdecl symbol promoted by the caller
 
         // Detect skip-paths BEFORE registering the symbol, so the wrapper-symbol contract
         // never reports a symbol as registered when the @_cdecl wasn't actually written.
@@ -402,7 +402,7 @@ public static class MethodWrapperEmitter
                         var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
                         if (closureTypeSpec != null &&
                             env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                            env.ClosureHandler.RequiresThunk(closureTypeSpec, methodDecl.MangledName, closureParamCount) &&
+                            env.ClosureHandler.RequiresThunk(closureTypeSpec, env.EmissionSymbol, closureParamCount) &&
                             !env.ClosureHandler.IsAsyncClosure(closureTypeSpec))
                         {
                             var csName = NameProvider.StripVerbatimPrefix(

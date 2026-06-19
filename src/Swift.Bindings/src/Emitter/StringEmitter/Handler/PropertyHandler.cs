@@ -596,6 +596,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Type conversions would cause a mismatch between property type and accessor return/param types
                 accessor.Method.IsAccessor = true;
 
+                // AF13: the cdecl/thunk/objc symbol decided below is carried on the emission env via
+                // PromoteSymbol rather than mutated onto the shared accessor decl. null = no promotion
+                // (the accessor's original silgen MangledName is the entry point).
+                string? promotedSymbol = null;
+
                 // Native ARM64 thunk: set flags BEFORE Marshal/Emit.
                 // If EmitThunk fails, revert flags and fall through to @_cdecl path.
                 // Per-accessor thunk eligibility: each accessor independently decides thunk vs @_cdecl.
@@ -607,10 +612,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(accessor.Method, thunkParentType.SwiftTypeName.Module);
                     accessor.Method.WrapperStrategy = WrapperStrategy.NativeThunk;
                     accessor.Method.UsesWrapperLibrary = true;
-                    accessor.Method.MangledName = thunkSymbol;
 
-                    // Emit the thunk assembly — pass the original mangled name since MangledName
-                    // has been overwritten with the thunk symbol above
+                    // Emit the thunk assembly. The accessor decl keeps its original silgen MangledName
+                    // (the thunk symbol is carried on the emission env via PromoteSymbol below); pass that
+                    // name so EmitThunk derives the thunk + Swift call-target symbols from it.
                     var thunkEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                     bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, thunkParentType.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName, context.GetEmissionContext().X64AssemblyBuilder);
                     if (emitted)
@@ -618,13 +623,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         // Mark as emitted to prevent duplicate emission in MethodHandler.Emit
                         accessor.Method.ThunkAssemblyEmitted = true;
                         thunkHandled = true;
+                        promotedSymbol = thunkSymbol;
                     }
                     else
                     {
                         // Revert thunk state — fall through to @_cdecl path below
                         accessor.Method.WrapperStrategy = WrapperStrategy.None;
                         accessor.Method.UsesWrapperLibrary = false;
-                        accessor.Method.MangledName = originalMangledName;
                     }
                 }
                 // @_cdecl property wrapper: set flags BEFORE Marshal/Emit so that
@@ -663,7 +668,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     accessor.Method.UsesCdeclPropertyWrapper = true;
                     accessor.Method.UsesWrapperLibrary = true;
                     accessor.Method.UsesFreeFunctionWrapper = true;
-                    accessor.Method.MangledName = symbol;
+                    promotedSymbol = symbol;
 
                     // Optional<closure> setter: mark closure params for Cdecl marshalling
                     // so PInvokeEmitter emits IntPtr funcPtr + IntPtr context params.
@@ -709,7 +714,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         isGetter);
                     accessor.Method.UsesWrapperLibrary = true;
                     accessor.Method.UsesFreeFunctionWrapper = true;
-                    accessor.Method.MangledName = symbol;
+                    promotedSymbol = symbol;
 
                     // Emit the Swift wrapper function
                     if (isGetter)
@@ -735,6 +740,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Inject composition collector into accessor's ExistentialHandler
                 if (context.CompositionCollector != null)
                     accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
+                // AF13: carry the wrapper/thunk symbol decided above onto the emission env. Every
+                // intermediate emitter (thunk asm, @_cdecl/objc wrappers) took the symbol explicitly, so
+                // promoting only this final env is parity-identical to mutating the shared accessor decl.
+                if (promotedSymbol != null)
+                    accessorEnv.PromoteSymbol(promotedSymbol);
                 // Wire the specialization engine onto the accessor's existential oracle so the backing
                 // accessor method's RETURN TYPE projects to ExistentialUnion in lockstep with the
                 // property type and the accessor body. MethodHandler.Emit only sets EmissionContext for

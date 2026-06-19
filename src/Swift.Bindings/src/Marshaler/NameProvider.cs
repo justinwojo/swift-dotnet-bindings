@@ -269,10 +269,19 @@ public static class NameProvider
     /// <param name="methodDecl">The method declaration.</param>
     /// <returns>The name of the PInvoke method.</returns>
     public static string GetPInvokeName(MethodDecl methodDecl)
+        => GetPInvokeName(methodDecl.MangledName, methodDecl);
+
+    /// <summary>
+    /// AF13 (Finding 13): hashes an explicit <paramref name="baseSymbol"/> (the promoted emission
+    /// symbol) instead of the decl's <see cref="MethodDecl.MangledName"/>, so the C# extern method
+    /// name stays keyed on the wrapper symbol that disambiguates overloads while the decl keeps its
+    /// immutable silgen symbol. Callers with a <c>MethodEnvironment</c> pass <c>env.EmissionSymbol</c>.
+    /// </summary>
+    public static string GetPInvokeName(string baseSymbol, MethodDecl methodDecl)
     {
         // Use last 8 chars of mangled name hash to disambiguate overloads
         // whose parameters marshal to the same C# types (e.g., URL and ImageRequest both become SafeHandle)
-        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
+        var mangledHash = EmitterUtility.DeterministicHash8(baseSymbol);
         // Sanitize the method name: strip backticks (Swift keyword escaping) and
         // invalid C# identifier chars (emoji like 🚫 used in ObjC compatibility shims)
         var sanitizedName = SanitizeIdentifierChars(methodDecl.Name.Replace("`", ""));
@@ -288,37 +297,47 @@ public static class NameProvider
     /// <param name="methodDecl">The method declaration.</param>
     /// <returns>The mangled name of the PInvoke method.</returns>
     public static string GetMangledName(MethodDecl methodDecl)
+        => GetMangledName(methodDecl.MangledName, methodDecl);
+
+    /// <summary>
+    /// AF13 (Finding 13): the suffix-ladder reconstruction over an explicit <paramref name="baseSymbol"/>
+    /// (the promoted emission symbol) rather than the decl's <see cref="MethodDecl.MangledName"/>, so
+    /// callers can source the base from <c>MethodEnvironment.EmissionSymbol</c> while the decl keeps its
+    /// immutable silgen symbol. The wrapper-kind flags that select which suffix applies stay on the decl.
+    /// <see cref="GetMangledName(MethodDecl)"/> is the (silgen-base) special case.
+    /// </summary>
+    public static string GetMangledName(string baseSymbol, MethodDecl methodDecl)
     {
         if (methodDecl.IsAsync)
-            return $"{methodDecl.MangledName}_async";
+            return $"{baseSymbol}_async";
 
         // Opaque return types (some Protocol) need a @_silgen_name wrapper with a unique symbol
         // to avoid self-recursion when the wrapper calls the original function.
         // When a @_cdecl wrapper handles the return (boxing `some Protocol` → `any Protocol`),
-        // the MangledName already points to the @_cdecl symbol — no suffix needed.
+        // the base symbol already points to the @_cdecl symbol — no suffix needed.
         if (methodDecl.CSSignature.Count > 0 &&
             methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true } &&
             !methodDecl.UsesCdeclMethodWrapper && !methodDecl.UsesCdeclPropertyWrapper)
-            return $"{methodDecl.MangledName}_opaque";
+            return $"{baseSymbol}_opaque";
 
         // Optional pointer wrappers need a unique symbol because the wrapper function takes
         // UnsafeRawPointer where the original takes Optional<String> by value.
         if (methodDecl.HasOptionalPointerWrapper)
-            return $"{methodDecl.MangledName}_optbuf";
+            return $"{baseSymbol}_optbuf";
 
         // Closure Cdecl wrappers need a unique symbol because the wrapper function has
         // different parameter types (UnsafeMutableRawPointer pairs) than the original
         // Swift function (native closure types). @_silgen_name with the original symbol
         // would cause a function type mismatch error.
         if (methodDecl.HasClosureCdeclWrapper)
-            return $"{methodDecl.MangledName}_cdecl";
+            return $"{baseSymbol}_cdecl";
 
         // Generic closure bridge wrappers specialize T=UnsafeMutableRawPointer and use
         // cdecl callback pairs, requiring a unique symbol distinct from the original.
         if (methodDecl.HasGenericClosureBridge)
-            return $"{methodDecl.MangledName}_XC";
+            return $"{baseSymbol}_XC";
 
-        return methodDecl.MangledName;
+        return baseSymbol;
     }
 
     /// <summary>
@@ -1254,8 +1273,16 @@ public static class NameProvider
     /// Uses a hash to ensure uniqueness for method overloads.
     /// </summary>
     public static string GetAsyncCallbackFieldName(MethodDecl methodDecl)
+        => GetAsyncCallbackFieldName(methodDecl.MangledName, methodDecl);
+
+    /// <summary>
+    /// AF13: emission-scoped overload — hashes the supplied <paramref name="baseSymbol"/>
+    /// (the caller's <c>env.EmissionSymbol</c>) instead of <c>methodDecl.MangledName</c>, so the
+    /// callback name tracks the promoted cdecl/wrapper symbol once the parsed model stops mutating.
+    /// </summary>
+    public static string GetAsyncCallbackFieldName(string baseSymbol, MethodDecl methodDecl)
     {
-        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
+        var mangledHash = EmitterUtility.DeterministicHash8(baseSymbol);
         return $"s_{methodDecl.Name}Callback_{mangledHash}";
     }
 
@@ -1264,8 +1291,14 @@ public static class NameProvider
     /// Uses a hash to ensure uniqueness for method overloads.
     /// </summary>
     public static string GetAsyncCallbackMethodName(MethodDecl methodDecl)
+        => GetAsyncCallbackMethodName(methodDecl.MangledName, methodDecl);
+
+    /// <summary>
+    /// AF13: emission-scoped overload — see <see cref="GetAsyncCallbackFieldName(string, MethodDecl)"/>.
+    /// </summary>
+    public static string GetAsyncCallbackMethodName(string baseSymbol, MethodDecl methodDecl)
     {
-        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
+        var mangledHash = EmitterUtility.DeterministicHash8(baseSymbol);
         return $"{methodDecl.Name}OnComplete_{mangledHash}";
     }
 
@@ -1274,8 +1307,14 @@ public static class NameProvider
     /// Uses a hash to ensure uniqueness for method overloads.
     /// </summary>
     public static string GetAsyncErrorCallbackFieldName(MethodDecl methodDecl)
+        => GetAsyncErrorCallbackFieldName(methodDecl.MangledName, methodDecl);
+
+    /// <summary>
+    /// AF13: emission-scoped overload — see <see cref="GetAsyncCallbackFieldName(string, MethodDecl)"/>.
+    /// </summary>
+    public static string GetAsyncErrorCallbackFieldName(string baseSymbol, MethodDecl methodDecl)
     {
-        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
+        var mangledHash = EmitterUtility.DeterministicHash8(baseSymbol);
         return $"s_{methodDecl.Name}ErrorCallback_{mangledHash}";
     }
 
@@ -1284,8 +1323,14 @@ public static class NameProvider
     /// Uses a hash to ensure uniqueness for method overloads.
     /// </summary>
     public static string GetAsyncErrorCallbackMethodName(MethodDecl methodDecl)
+        => GetAsyncErrorCallbackMethodName(methodDecl.MangledName, methodDecl);
+
+    /// <summary>
+    /// AF13: emission-scoped overload — see <see cref="GetAsyncCallbackFieldName(string, MethodDecl)"/>.
+    /// </summary>
+    public static string GetAsyncErrorCallbackMethodName(string baseSymbol, MethodDecl methodDecl)
     {
-        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
+        var mangledHash = EmitterUtility.DeterministicHash8(baseSymbol);
         return $"{methodDecl.Name}OnError_{mangledHash}";
     }
 

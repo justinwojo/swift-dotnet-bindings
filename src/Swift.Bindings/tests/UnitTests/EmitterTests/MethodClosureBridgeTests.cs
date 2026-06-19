@@ -1536,12 +1536,12 @@ public class MethodClosureBridgeTests
 
         // Same method name, different parents → different MangledName → different hash
         var methodA = CreateMethodDecl("response", parentA, moduleDecl,
-            TupleTypeSpec.Empty, closureType1, "handler");
-        methodA.MangledName = "$s10TestModule5TypeAC8responseyACyF";
+            TupleTypeSpec.Empty, closureType1, "handler",
+            mangledName: "$s10TestModule5TypeAC8responseyACyF");
 
         var methodB = CreateMethodDecl("response", parentB, moduleDecl,
-            TupleTypeSpec.Empty, closureType2, "handler");
-        methodB.MangledName = "$s10TestModule5TypeBC8responseyACyF";
+            TupleTypeSpec.Empty, closureType2, "handler",
+            mangledName: "$s10TestModule5TypeBC8responseyACyF");
 
         var swiftOutputA = new StringWriter();
         var swiftWriterA = new SwiftWriter(swiftOutputA);
@@ -2193,12 +2193,13 @@ public class MethodClosureBridgeTests
     /// </summary>
     private static MethodDecl CreateMethodDecl(
         string name, ClassDecl parentDecl, ModuleDecl moduleDecl,
-        TypeSpec returnType, ClosureTypeSpec closureType, string closureParamName)
+        TypeSpec returnType, ClosureTypeSpec closureType, string closureParamName,
+        string? mangledName = null)
     {
         var method = new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule7MyClassC{name.Length}{name}yACyF",
+            MangledName = mangledName ?? $"$s10TestModule7MyClassC{name.Length}{name}yACyF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>

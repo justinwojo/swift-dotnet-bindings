@@ -24,7 +24,7 @@ namespace BindingsGeneration
             {
                 // ObjC-rooted: static helper resolves handle BEFORE base() is called.
                 // The helper name uses the Swift init name to disambiguate overloads.
-                var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName((MethodDecl)_env.MethodDecl)}";
+                var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName(_env.EmissionSymbol, (MethodDecl)_env.MethodDecl)}";
                 var paramArgs = string.Join(", ", _wrapperSignature.Parameters.Select(p => p.Name));
                 csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}) : base({helperName}({paramArgs}))");
             }

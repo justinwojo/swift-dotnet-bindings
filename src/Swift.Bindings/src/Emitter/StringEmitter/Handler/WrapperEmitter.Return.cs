@@ -34,8 +34,8 @@ namespace BindingsGeneration
                 return null;
             if (!ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, _env.ClosureHandler))
                 return null;
-            var entryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(_env.MethodDecl.MangledName);
-            var helperName = ClosureEmitter.GetInvokeThunkHelperName(_env.MethodDecl.MangledName);
+            var entryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(_env.EmissionSymbol);
+            var helperName = ClosureEmitter.GetInvokeThunkHelperName(_env.EmissionSymbol);
             var moduleDecl = _env.MethodDecl.ModuleDecl;
             if (moduleDecl == null) return null;
             var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);

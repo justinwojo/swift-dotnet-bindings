@@ -56,7 +56,7 @@ public static class OptionalPointerWrapperEmitter
         ModuleEmissionContext? emissionContext = null)
     {
         var methodDecl = env.MethodDecl;
-        var wrapperSymbol = NameProvider.GetMangledName(methodDecl);
+        var wrapperSymbol = NameProvider.GetMangledName(env.EmissionSymbol, methodDecl);
 
         // NOTE: a throwing-closure parameter on this _optbuf path is forwarded to Swift
         // NATIVELY (no `_adapted_` closure adapter), so it never funnels through
@@ -412,7 +412,7 @@ public static class OptionalPointerWrapperEmitter
         if (useCdecl)
             emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
+        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");
         swiftWriter.WriteLine($"){throwsStr}{returnTypeStr} {{");
 

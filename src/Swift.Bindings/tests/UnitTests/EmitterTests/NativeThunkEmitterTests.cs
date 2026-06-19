@@ -1023,8 +1023,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void GetThunkSymbol_DelegatesToThunkAssemblyEmitter()
         {
-            var method = CreateMethodDecl();
-            method.MangledName = "$s4Test6simpleyyF";
+            var method = CreateMethodDecl(mangledName: "$s4Test6simpleyyF");
 
             var symbol = NativeThunkEmitter.GetThunkSymbol(method, "Test");
 
@@ -1052,8 +1051,8 @@ namespace BindingsGeneration.Tests
             var parentDecl = CreateClassDecl();
             var method = CreateMethodDecl(
                 methodType: MethodType.Static,
-                parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClass6doWorkyyFZ";
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClass6doWorkyyFZ");
 
             var env = new MethodEnvironment(method, db);
 
@@ -1075,8 +1074,8 @@ namespace BindingsGeneration.Tests
             var method = CreateMethodDecl(
                 methodType: MethodType.Instance,
                 isConstructor: true,
-                parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClassCACycfc";
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClassCACycfc");
 
             var env = new MethodEnvironment(method, db);
 
@@ -1095,7 +1094,6 @@ namespace BindingsGeneration.Tests
             var method = CreateMethodDecl(
                 methodType: MethodType.Instance,
                 parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClass6doWorkyyF";
 
             var env = new MethodEnvironment(method, db);
 
@@ -1202,14 +1200,15 @@ namespace BindingsGeneration.Tests
         private static MethodDecl CreateMethodDecl(
             MethodType methodType = MethodType.Static,
             bool isConstructor = false,
-            BaseDecl? parentDecl = null)
+            BaseDecl? parentDecl = null,
+            string? mangledName = null)
         {
             parentDecl ??= CreateClassDecl();
 
             return new MethodDecl
             {
                 Name = isConstructor ? "init" : "doWork",
-                MangledName = "$s4Test7MyClass6doWorkyyF",
+                MangledName = mangledName ?? "$s4Test7MyClass6doWorkyyF",
                 MethodType = methodType,
                 IsConstructor = isConstructor,
                 IsAsync = false,
@@ -1313,17 +1312,17 @@ namespace BindingsGeneration.Tests
             });
 
             var parentDecl = CreateClassDecl();
+            var originalName = "$s4Test7MyClass6doWorkyyFZ";
             var method = CreateMethodDecl(
                 methodType: MethodType.Static,
-                parentDecl: parentDecl);
-            var originalName = "$s4Test7MyClass6doWorkyyFZ";
-            method.MangledName = originalName;
+                parentDecl: parentDecl,
+                mangledName: originalName);
 
-            // Simulate what MethodHandler does: overwrite MangledName with thunk symbol
+            // Simulate what MethodHandler does: promote the emission symbol to the thunk symbol
             var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(method, "Test");
-            method.MangledName = thunkSymbol; // NOW MangledName is the thunk symbol
 
             var env = new MethodEnvironment(method, db);
+            env.PromoteSymbol(thunkSymbol); // NOW the emission symbol is the thunk symbol
             var asmBuilder = new System.Text.StringBuilder();
 
             // Pass the ORIGINAL name — EmitThunk should use it, not the mutated MangledName
@@ -1359,8 +1358,8 @@ namespace BindingsGeneration.Tests
             var parentDecl = CreateClassDecl();
             var method = CreateMethodDecl(
                 methodType: MethodType.Static,
-                parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClass6doWorkyyFZ";
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClass6doWorkyyFZ");
 
             var env = new MethodEnvironment(method, db);
             var asmBuilder = new System.Text.StringBuilder();
@@ -1550,10 +1549,10 @@ namespace BindingsGeneration.Tests
         {
             var parentDecl = CreateClassDecl();
             parentDecl.IsFinal = true; // No Tj suffix
-            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
-
-            // Overwrite MangledName to simulate thunk routing
-            method.MangledName = "_thunk_Test_12345678";
+            var method = CreateMethodDecl(
+                methodType: MethodType.Instance,
+                parentDecl: parentDecl,
+                mangledName: "_thunk_Test_12345678");
             var originalName = "$s4Test7MyClass6doWorkyyF";
 
             // Resolve using explicit mangled name — should use the original, not the mutated one
@@ -2045,8 +2044,10 @@ namespace BindingsGeneration.Tests
             var parentDecl = CreateClassDecl();
             parentDecl.ModuleDecl = module;
 
-            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClass6doWorkyyFZ";
+            var method = CreateMethodDecl(
+                methodType: MethodType.Static,
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClass6doWorkyyFZ");
             method.ModuleDecl = module;
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
 
@@ -2079,8 +2080,10 @@ namespace BindingsGeneration.Tests
             var parentDecl = CreateClassDecl();
             parentDecl.ModuleDecl = module;
 
-            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClass6doWorkyyFZ";
+            var method = CreateMethodDecl(
+                methodType: MethodType.Static,
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClass6doWorkyyFZ");
             method.ModuleDecl = module;
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
 
@@ -2116,7 +2119,6 @@ namespace BindingsGeneration.Tests
             parentDecl.ModuleDecl = module;
 
             var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClass6doWorkyyF";
             method.IsFinal = false;
             method.ModuleDecl = module;
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
@@ -2222,8 +2224,8 @@ namespace BindingsGeneration.Tests
             var method = CreateMethodDecl(
                 methodType: MethodType.Instance,
                 isConstructor: true,
-                parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClassCACycfC";
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClassCACycfC");
 
             var env = new MethodEnvironment(method, db);
 
@@ -2259,8 +2261,8 @@ namespace BindingsGeneration.Tests
             var method = CreateMethodDecl(
                 methodType: MethodType.Instance,
                 isConstructor: true,
-                parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClassC4nameACSS_tcfC";
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClassC4nameACSS_tcfC");
             method.CSSignature = new List<ArgumentDecl>
             {
                 MakeArg(TupleTypeSpec.Empty, ""),
@@ -2303,8 +2305,8 @@ namespace BindingsGeneration.Tests
             var method = CreateMethodDecl(
                 methodType: MethodType.Instance,
                 isConstructor: true,
-                parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClassCACycfC";
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClassCACycfC");
 
             var resolved = SwiftCallTargetResolver.Resolve(method, parentDecl);
 
@@ -2442,8 +2444,8 @@ namespace BindingsGeneration.Tests
             var method = CreateMethodDecl(
                 methodType: MethodType.Instance,
                 isConstructor: true,
-                parentDecl: parentDecl);
-            method.MangledName = "$s4Test7MyClassC1a1bACs5Int32V_AGtKcfC";
+                parentDecl: parentDecl,
+                mangledName: "$s4Test7MyClassC1a1bACs5Int32V_AGtKcfC");
             method.Throws = true;
             method.CSSignature = new List<ArgumentDecl>
             {

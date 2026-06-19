@@ -354,7 +354,7 @@ public static class ConstructorWrapperEmitter
         var parentTypeDecl = env.ParentDecl as TypeDecl;
         if (parentTypeDecl == null) return;
 
-        var symbolName = methodDecl.MangledName; // Already set to cdecl symbol by caller
+        var symbolName = env.EmissionSymbol; // AF13: the cdecl symbol promoted by the caller
         // The constructor bucket is structurally distinct from the method/property/subscript
         // buckets — no other emitter ever registers a constructor mangled name. The cdecl
         // symbol is unique per overload by construction, so the per-kind dedup gate is
@@ -438,7 +438,7 @@ public static class ConstructorWrapperEmitter
                         var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
                         if (closureTypeSpec != null &&
                             env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                            env.ClosureHandler.RequiresThunk(closureTypeSpec, methodDecl.MangledName, closureParamCount) &&
+                            env.ClosureHandler.RequiresThunk(closureTypeSpec, env.EmissionSymbol, closureParamCount) &&
                             !env.ClosureHandler.IsAsyncClosure(closureTypeSpec))
                         {
                             var csName = NameProvider.StripVerbatimPrefix(

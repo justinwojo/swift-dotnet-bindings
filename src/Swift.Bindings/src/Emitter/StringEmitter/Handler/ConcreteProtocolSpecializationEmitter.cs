@@ -282,7 +282,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         var methodName = isConstructor ? "init" : method.Name;
-        var hashInput = method.MangledName
+        // AF13: the disambiguating hash base is the symbol the method's *own* main emission
+        // settled on (constructor-wrapper promotion etc.), recovered from the emission-scoped
+        // side table the base handler populated when it emitted this type's methods. Historically
+        // this read `method.MangledName` after that emission mutated it in place; the side table
+        // preserves the exact promoted (or, when un-promoted, silgen) value without mutation.
+        var hashInput = emissionContext.GetMethodEmissionSymbolOrMangled(method)
             + string.Concat(pairing.Select(p => "|" + p.Conformer.SwiftQualifiedName));
         var mangledHash = EmitterUtility.DeterministicHash8(hashInput);
         var cdeclSymbol = $"SBW_CSM_{moduleName}_{parentTypeDecl.Name}_{safeConformerName}_{methodName}_{mangledHash}";

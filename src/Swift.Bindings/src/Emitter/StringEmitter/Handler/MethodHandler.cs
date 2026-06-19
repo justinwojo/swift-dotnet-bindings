@@ -328,7 +328,7 @@ namespace BindingsGeneration
                 originalMangledNameForCtorThunk = methodEnv.MethodDecl.MangledName;
                 methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.NativeThunk;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.MangledName = thunkSymbol;
+                methodEnv.PromoteSymbol(thunkSymbol);
             }
             // Fall back to @_cdecl constructor wrapper.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
@@ -342,7 +342,7 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.MangledName);
                 methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                methodEnv.PromoteSymbol(cdeclSymbol);
 
                 // Mark if this @_cdecl constructor wrapper handles closure params inline
                 if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
@@ -411,7 +411,7 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.MangledName);
                     methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
                     methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                    methodEnv.PromoteSymbol(cdeclSymbol);
                     methodEnv.MethodDecl.HasNilOptionalClosures = true;
                     methodEnv.MethodDecl.OriginalArgsWithNilClosures = originalArgs;
 
@@ -507,7 +507,7 @@ namespace BindingsGeneration
                 if (!emitted && originalMangledNameForCtorThunk != null)
                 {
                     // Revert thunk state
-                    methodEnv.MethodDecl.MangledName = originalMangledNameForCtorThunk;
+                    methodEnv.PromoteSymbol(originalMangledNameForCtorThunk);
                     methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.None;
                     methodEnv.MethodDecl.UsesWrapperLibrary = false;
 
@@ -520,7 +520,7 @@ namespace BindingsGeneration
                             methodEnv.MethodDecl.MangledName);
                         methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
                         methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                        methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                        methodEnv.PromoteSymbol(cdeclSymbol);
 
                         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
                             swiftWriter, methodEnv, context.GetEmissionContext());
@@ -1007,7 +1007,7 @@ namespace BindingsGeneration
                 originalMangledNameForCtor = methodEnv.MethodDecl.MangledName;
                 methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.NativeThunk;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.MangledName = thunkSymbol;
+                methodEnv.PromoteSymbol(thunkSymbol);
             }
             // Fall back to @_cdecl constructor wrapper.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
@@ -1022,7 +1022,7 @@ namespace BindingsGeneration
                 originalMangledNameForCtor = methodEnv.MethodDecl.MangledName;
                 methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                methodEnv.PromoteSymbol(cdeclSymbol);
 
                 // Mark if this @_cdecl constructor wrapper handles closure params inline
                 if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
@@ -1058,7 +1058,7 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.Name,
                         methodEnv.MethodDecl.MangledName);
                     methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
-                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                    methodEnv.PromoteSymbol(cdeclSymbol);
                 }
             }
 
@@ -1080,7 +1080,7 @@ namespace BindingsGeneration
                 originalMangledNameForThunk = methodEnv.MethodDecl.MangledName;
                 methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.NativeThunk;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.MangledName = thunkSymbol;
+                methodEnv.PromoteSymbol(thunkSymbol);
             }
             // Fall back to @_cdecl method wrapper if thunk is not available.
             // All eligible methods get @_cdecl wrappers — CallConvSwift is eliminated.
@@ -1101,7 +1101,7 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.MangledName);
                 methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                methodEnv.PromoteSymbol(cdeclSymbol);
 
                 // Mark if this @_cdecl method wrapper handles closure params inline
                 if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
@@ -1134,7 +1134,7 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.Name,
                         methodEnv.MethodDecl.MangledName);
                     methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
-                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                    methodEnv.PromoteSymbol(cdeclSymbol);
                 }
             }
 
@@ -1186,7 +1186,7 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.Name,
                         methodEnv.MethodDecl.MangledName);
                     methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
-                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                    methodEnv.PromoteSymbol(cdeclSymbol);
                 }
             }
 
@@ -1236,7 +1236,7 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.MangledName);
                 methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
-                methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                methodEnv.PromoteSymbol(cdeclSymbol);
             }
 
             // Log when a method in xcframework mode has no wrapper or thunk.
@@ -1412,7 +1412,7 @@ namespace BindingsGeneration
                 if (!emitted && originalMangledForThunkEmit != null)
                 {
                     // Revert thunk state
-                    methodEnv.MethodDecl.MangledName = originalMangledForThunkEmit;
+                    methodEnv.PromoteSymbol(originalMangledForThunkEmit);
                     methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.None;
                     methodEnv.MethodDecl.UsesWrapperLibrary = false;
 
@@ -1428,7 +1428,7 @@ namespace BindingsGeneration
                                 methodEnv.MethodDecl.MangledName);
                             methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
                             methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                            methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                            methodEnv.PromoteSymbol(cdeclSymbol);
                         }
                     }
                     else if (WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
@@ -1444,7 +1444,7 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.CdeclMethod;
                         methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
                         methodEnv.MethodDecl.UsesWrapperLibrary = true;
-                        methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                        methodEnv.PromoteSymbol(cdeclSymbol);
                     }
                 }
             }
@@ -1572,7 +1572,7 @@ namespace BindingsGeneration
             var moduleDecl = methodDecl.ModuleDecl;
             if (moduleDecl?.ExportedSymbols == null) return;
 
-            var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(methodDecl);
+            var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(methodEnv);
             if (needsWrapperLib) return; // Wrapper symbols are generated, not in TBD
 
             if (!moduleDecl.ExportedSymbols.Contains(entryPoint))

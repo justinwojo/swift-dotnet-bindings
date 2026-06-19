@@ -530,6 +530,12 @@ namespace BindingsGeneration
                         // verifier so a parent emitted as `Foo2` is recorded as `Foo2`, not `Foo`.
                         if (methodDecl.WasEmitted)
                             methodDecl.EmittedCSharpName = env.CSharpMethodName;
+                        // AF13: stash the emission-time symbol this method settled on, keyed by
+                        // decl identity, so a later env-less emitter (e.g. the concrete-protocol
+                        // specialization emitter, which historically read a sibling constructor's
+                        // promoted MangledName off the shared decl) recovers it from the
+                        // emission-scoped side table instead of in-place model mutation.
+                        emissionCtx.RecordMethodEmissionSymbol(methodDecl, env.EmissionSymbol);
                     }
                     else
                     {

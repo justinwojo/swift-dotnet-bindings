@@ -82,6 +82,37 @@ namespace BindingsGeneration
         public MethodDecl MethodDecl { get; private set; } = methodDecl;
 
         /// <summary>
+        /// AF13 (Finding 13): the current emission-time symbol for this method — the linker-visible
+        /// cdecl/thunk/wrapper symbol that wrapper-strategy promotion selects. This is the
+        /// emission-scoped side table that replaces in-place mutation of
+        /// <see cref="MethodDecl.MangledName"/> (which stays the immutable parser ABI fact, the
+        /// <c>@_silgen_name</c> symbol). Initialized to the decl's silgen symbol; emitters call
+        /// <see cref="PromoteSymbol"/> when a wrapper/thunk re-targets the symbol.
+        ///
+        /// Every emission-time reader of the *promoted* symbol reads this — the P/Invoke
+        /// <c>EntryPoint</c> (via <c>PInvokeEmitter.ComputeEntryPoint</c>), the
+        /// <c>GetPInvokeName</c> hash that names the C# extern, the <c>@_cdecl</c> symbol emitted
+        /// into the wrapper, and the closure invoke-thunk keys. Readers that want the *original*
+        /// silgen symbol (dispatch-thunk resolution, native-thunk internals, demangling,
+        /// diagnostics) keep reading <see cref="MethodDecl.MangledName"/>.
+        /// </summary>
+        public string EmissionSymbol { get; private set; } = methodDecl.MangledName;
+
+        /// <summary>
+        /// Promotes the emission-time symbol to <paramref name="symbol"/> — the side-table analogue
+        /// of the former <c>MethodDecl.MangledName = symbol</c> mutation. Returns the previous value
+        /// so a caller that promotes optimistically and then falls back on a different emission path
+        /// can restore it (the former save/restore protocol becomes a local value round-trip, with
+        /// no shared-decl mutation to leak across methods).
+        /// </summary>
+        internal string PromoteSymbol(string symbol)
+        {
+            var previous = EmissionSymbol;
+            EmissionSymbol = symbol;
+            return previous;
+        }
+
+        /// <summary>
         /// Gets the parent declaration.
         /// </summary>
         public BaseDecl ParentDecl { get; } = methodDecl.ParentDecl ?? throw new ArgumentNullException($"Parent declaration on method {methodDecl.Name} is null.");
