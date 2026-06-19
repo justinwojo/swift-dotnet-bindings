@@ -147,6 +147,14 @@ namespace BindingsGeneration
         public bool WasEmitted { get; set; } = false;
 
         /// <summary>
+        /// Marks this method as emitted. The single mutation entry point for <see cref="WasEmitted"/>
+        /// — every emitter that successfully writes a method stamps it through here rather than
+        /// assigning the flag inline, so "an emitter that produced a member stamps it" lives in one
+        /// place (pinned by <c>WasEmittedAssignmentCountTests</c>).
+        /// </summary>
+        public void MarkEmitted() => WasEmitted = true;
+
+        /// <summary>
         /// The actual emitted public C# method name as it appears in the generated source —
         /// post-NameProvider renames (property/nested-type collisions, "Get" prefix, "Async"
         /// suffix, builder rules) AND post-collision-disambiguation suffix (when two Swift

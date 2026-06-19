@@ -270,7 +270,7 @@ public static class NestedClosureBridge
         EmitPublicMethod(csWriter, method, nestedClosures, passableNonClosureParams,
             env, parentDecl, helperClassName);
 
-        method.WasEmitted = true;
+        method.MarkEmitted();
         return true;
     }
 

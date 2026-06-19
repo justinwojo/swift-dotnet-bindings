@@ -262,7 +262,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         // consults WasEmitted; setting it here closes the "D's lesson" three-way
         // contract for any method that produced at least one closed-V overload.
         foreach (var m in methodsThatEmittedAnything)
-            m.WasEmitted = true;
+            m.MarkEmitted();
     }
 
     /// <summary>

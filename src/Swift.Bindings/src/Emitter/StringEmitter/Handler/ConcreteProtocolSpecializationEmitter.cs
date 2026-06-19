@@ -1868,7 +1868,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
-        method.WasEmitted = true;
+        method.MarkEmitted();
     }
 
     // ─── Classification helpers ──────────────────────────────────────

@@ -124,15 +124,13 @@ internal static class ProtocolSignatureHelper
     /// </summary>
     public static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null)
     {
-        // Compute the public method name the same way EmitInterfaceMethod does
-        var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-        bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
-        // Capture hasReturnValue BEFORE async conversion turns void→Task
-        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
-            propertyNames: propertyNames,
-            isSelfReturning: isSelfReturning,
-            parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+        // Compute the public method name the same way EmitInterfaceMethod does. ParentTypeName is
+        // suppressed here: the protocol-interface key historically omits it (a protocol has no
+        // concrete enclosing type name at the interface-key level). Whether the shared core should
+        // apply parentTypeName to the protocol path is the unresolved roadmap:27 question, deferred
+        // to the key-builder merge (Target D); keeping it null preserves current behavior.
+        var methodName = NameProvider.GetPublicMethodName(
+            PublicMethodNameContext.ForMethod(methodDecl, propertyNames) with { ParentTypeName = null });
 
         var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
         var paramTypes = new List<string>();

@@ -56,7 +56,7 @@ public static class GenericClosureBridgeEmitter
         // Emit C# code (callbacks + P/Invokes + public methods)
         EmitCSharp(csWriter, env, parentDecl, closureArg, closureTypeSpec, moduleName, ctx);
 
-        methodDecl.WasEmitted = true;
+        methodDecl.MarkEmitted();
         return true;
     }
 

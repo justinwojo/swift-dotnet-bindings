@@ -564,20 +564,16 @@ namespace BindingsGeneration
         /// </summary>
         internal static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null, IReadOnlySet<string>? siblingPropertyNames = null, bool treatAsClosureTombstone = false)
         {
-            var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-            bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
-            var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-            // Thread the sibling-property set so the key's name component applies the
-            // same Foo→FooMethod / Foo→WithFoo property-collision rename that the authoritative
-            // emitted name (MethodEnvironment.CSharpMethodName, which passes SiblingPropertyNames)
-            // applies. Without it, two Swift members that emit the same renamed C# name register
-            // different dedup keys and the real CS0111 collision slips past B15. Mirrors
+            // Build the name from the same context the authoritative emitted name
+            // (MethodEnvironment.CSharpMethodName) uses, so the key's name component applies the same
+            // Foo→FooMethod / Foo→WithFoo property-collision rename (PublicMethodNameContext.ForMethod
+            // threads siblingPropertyNames). Without it, two Swift members that emit the same renamed C#
+            // name register different dedup keys and the real CS0111 collision slips past B15. Mirrors
             // ProtocolSignatureHelper.GetProjectedCSharpMethodKey. Constructors hardcode "ctor"
             // (the rename never applies), so callers without a sibling set in scope pass null.
             var methodName = methodDecl.IsConstructor
                 ? "ctor"
-                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, propertyNames: siblingPropertyNames, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name,
-                    parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                : NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(methodDecl, siblingPropertyNames));
 
             // Build the set of generic parameter names visible in this method's scope —
             // both the parent type's params (e.g. `Value` from `class FromToByAction<Value>`)

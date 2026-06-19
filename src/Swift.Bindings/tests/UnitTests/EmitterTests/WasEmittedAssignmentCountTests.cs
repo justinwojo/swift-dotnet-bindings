@@ -11,44 +11,67 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Source-invariant guard pinning the <c>.WasEmitted = true;</c> assignment population
-/// (the "WasEmitted flag" trap constraint).
+/// Source-invariant guard pinning the single-writer invariant for the WasEmitted emission flag.
 ///
 /// <para><c>MethodDecl.WasEmitted</c> / <c>PropertyDecl.WasEmitted</c> is the signal
 /// <c>HasMethodInResolvedAncestors</c> / <c>HasPropertyInResolvedAncestors</c> reads to decide whether
 /// an inherited member was actually emitted (and therefore whether a derived member is an
 /// <c>override</c> vs a fresh declaration). Every emitter that genuinely produces a member MUST stamp
-/// it. When that population drifts — a new bridge emitter forgets to stamp, or a stamp is removed —
-/// override resolution silently mis-binds, and the population count goes stale. This test fails
-/// the moment the count moves, forcing both the fix and the count update into the same change.</para>
+/// it — and it stamps it by calling <c>MarkEmitted()</c>, the single mutation entry point, NOT by
+/// assigning the flag inline. This test enforces that invariant two ways: (a) there are zero raw
+/// <c>x.WasEmitted = true;</c> assignments anywhere outside the two decl models (so the only writer is
+/// <c>MarkEmitted()</c>), and (b) the <c>MarkEmitted()</c> call-site population is pinned, so a new
+/// bridge emitter that forgets to stamp still shows up as a count change.</para>
 ///
-/// <para>The canonical population is the set of real <c>X.WasEmitted = true;</c> assignments. Two
-/// textual look-alikes are deliberately NOT assignments and must stay excluded:
-/// the <c>bool WasEmitted = true</c> record-default parameter in <c>IMethodBridgeEmitter.cs</c>
-/// (a record positional default, not a stamp) and the <c>&lt;c&gt;WasEmitted = true&lt;/c&gt;</c>
-/// reference inside a doc-comment in <c>ClosureParamTombstoneEmitter.cs</c>. The matching regex
-/// requires a leading member-access dot and a trailing semicolon, so both are excluded structurally
-/// rather than by name.</para>
+/// <para>The two decl models (<c>MethodDecl.cs</c>, <c>PropertyDecl.cs</c>) carry the canonical writer
+/// <c>MarkEmitted() => WasEmitted = true;</c>. That body is dot-less, so it does not match the
+/// assignment regex; the model files are nonetheless carved out of the zero-assignment check as a
+/// safety margin against a future <c>this.WasEmitted = true</c> writer.</para>
 ///
-/// <para>If this fails: re-run
-/// <c>grep -rn '\.WasEmitted = true;' src/Swift.Bindings/src --include='*.cs'</c> and update the two
-/// expected totals below to match.</para>
+/// <para>If (a) fails: an emitter assigned <c>WasEmitted</c> inline — route it through
+/// <c>MarkEmitted()</c>. If (b) fails: re-run
+/// <c>grep -rn '\.MarkEmitted()' src/Swift.Bindings/src --include='*.cs'</c> and update the two
+/// expected totals below (the count moved because an emission point was added or removed).</para>
 /// </summary>
 public class WasEmittedAssignmentCountTests
 {
-    // The pinned WasEmitted assignment population.
-    private const int ExpectedAssignmentCount = 23;
-    private const int ExpectedFileCount = 12;
+    // The pinned MarkEmitted call-site population (the former inline-assignment population, now routed
+    // through the single writer).
+    private const int ExpectedMarkEmittedCallCount = 23;
+    private const int ExpectedMarkEmittedFileCount = 12;
 
-    // Leading member-access dot + trailing semicolon: matches `x.WasEmitted = true;` but NOT the
-    // `bool WasEmitted = true)` record-default or the `<c>WasEmitted = true</c>` doc-comment.
-    private static readonly Regex AssignmentPattern =
+    // The two decl models that legitimately hold the raw writer (`MarkEmitted() => WasEmitted = true;`).
+    private static readonly string[] DeclModelFiles = { "MethodDecl.cs", "PropertyDecl.cs" };
+
+    // Leading member-access dot + trailing semicolon: matches an inline `x.WasEmitted = true;`
+    // assignment but NOT the dot-less `WasEmitted = true;` writer body, the `bool WasEmitted = true)`
+    // record-default, or the `<c>WasEmitted = true</c>` doc-comment.
+    private static readonly Regex InlineAssignmentPattern =
         new(@"\.WasEmitted\s*=\s*true\s*;", RegexOptions.Compiled);
 
+    // A `.MarkEmitted()` invocation (leading dot) — excludes the dot-less `void MarkEmitted()` definition.
+    private static readonly Regex MarkEmittedCallPattern =
+        new(@"\.MarkEmitted\(\)", RegexOptions.Compiled);
+
     [Fact]
-    public void WasEmittedAssignments_MatchDocumentedCount()
+    public void MarkEmitted_IsTheOnlyWriter_NoInlineAssignments()
     {
-        var perFile = CollectAssignmentsPerFile();
+        var offenders = CollectMatchesPerFile(InlineAssignmentPattern)
+            .Where(kv => !DeclModelFiles.Contains(Path.GetFileName(kv.Key), StringComparer.Ordinal))
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            "WasEmitted must only be written through MarkEmitted(); found inline `x.WasEmitted = true;` " +
+            "assignments in:" + Environment.NewLine +
+            string.Join(Environment.NewLine, offenders.Select(kv => $"    {kv.Value,2}  {kv.Key}")));
+    }
+
+    [Fact]
+    public void MarkEmittedCallSites_MatchDocumentedCount()
+    {
+        var perFile = CollectMatchesPerFile(MarkEmittedCallPattern);
         int total = perFile.Sum(kv => kv.Value);
         int fileCount = perFile.Count;
 
@@ -58,15 +81,15 @@ public class WasEmittedAssignmentCountTests
                    .Select(kv => $"    {kv.Value,2}  {kv.Key}"));
 
         Assert.True(
-            total == ExpectedAssignmentCount && fileCount == ExpectedFileCount,
-            $"`.WasEmitted = true;` population drifted from the documented {ExpectedAssignmentCount} " +
-            $"assignments across {ExpectedFileCount} files to {total} across {fileCount}. " +
+            total == ExpectedMarkEmittedCallCount && fileCount == ExpectedMarkEmittedFileCount,
+            $"`.MarkEmitted()` call population drifted from the documented {ExpectedMarkEmittedCallCount} " +
+            $"calls across {ExpectedMarkEmittedFileCount} files to {total} across {fileCount}. " +
             "If this is intentional, update the constants in this test to match the new emission-point " +
             "count. Live breakdown:" + Environment.NewLine + breakdown);
     }
 
-    /// <summary>file (repo-relative) → count of real WasEmitted assignments in it.</summary>
-    private static Dictionary<string, int> CollectAssignmentsPerFile()
+    /// <summary>file (repo-relative) → count of <paramref name="pattern"/> matches in it.</summary>
+    private static Dictionary<string, int> CollectMatchesPerFile(Regex pattern)
     {
         string sourceRoot = GeneratorSourceRoot();
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -77,11 +100,11 @@ public class WasEmittedAssignmentCountTests
             if (PathHasSegment(path, "bin") || PathHasSegment(path, "obj"))
                 continue;
 
-            int count = AssignmentPattern.Matches(File.ReadAllText(path)).Count;
+            int count = pattern.Matches(File.ReadAllText(path)).Count;
             if (count > 0)
                 // Key by the source-root-relative path (NOT the bare filename): two files sharing a
                 // basename in different directories would otherwise clobber each other and silently
-                // undercount both the assignment total and the file count.
+                // undercount both the match total and the file count.
                 result[Path.GetRelativePath(sourceRoot, path).Replace('\\', '/')] = count;
         }
 

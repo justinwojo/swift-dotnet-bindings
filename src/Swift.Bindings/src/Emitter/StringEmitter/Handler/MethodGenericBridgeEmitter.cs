@@ -111,7 +111,7 @@ public static class MethodGenericBridgeEmitter
         // Emit C# code (P/Invoke + public method)
         EmitCSharp(csWriter, env, parentDecl, genericInfo, cdeclSymbol);
 
-        methodDecl.WasEmitted = true;
+        methodDecl.MarkEmitted();
         return true;
     }
 

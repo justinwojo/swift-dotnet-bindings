@@ -12,6 +12,45 @@ namespace BindingsGeneration;
 public record struct GenericParameterCSName(string TypeParameter);
 
 /// <summary>
+/// The complete set of collision-shaping inputs to <see cref="NameProvider.GetPublicMethodName(in PublicMethodNameContext)"/>.
+/// Bundling them into one value means a call site cannot silently drop one (e.g. <see cref="ParentTypeName"/>) —
+/// the P1-21 root cause where a fresh name recomputation omitted an axis the authoritative emitted name folds in.
+/// Build it from a <see cref="MethodDecl"/> via <see cref="ForMethod"/> so the derivation lives in one place.
+/// </summary>
+/// <param name="MethodName">The original Swift method name.</param>
+/// <param name="IsAsync">Whether the method is async.</param>
+/// <param name="HasReturnValue">Whether the method has a non-void return value (drives the noun→"Get" prefix).</param>
+/// <param name="PropertyNames">Sibling property names in PascalCase (drives the Foo→FooMethod/WithFoo rename).</param>
+/// <param name="IsSelfReturning">Whether the method returns Self (builder/fluent pattern).</param>
+/// <param name="ParentTypeName">The enclosing type name (drives the CS0542 parent-name collision rename).</param>
+/// <param name="ParameterCount">The public-signature parameter count (drives the "Get" prefix gate).</param>
+public readonly record struct PublicMethodNameContext(
+    string MethodName,
+    bool IsAsync,
+    bool HasReturnValue,
+    IReadOnlySet<string>? PropertyNames,
+    bool IsSelfReturning,
+    string? ParentTypeName,
+    int ParameterCount)
+{
+    /// <summary>
+    /// Builds the context from a <see cref="MethodDecl"/> the same way the authoritative emitted name
+    /// (<see cref="MethodEnvironment.CSharpMethodName"/>) derives its arguments, so every method-derived
+    /// call site shapes the name identically instead of re-deriving the seven args inline (where one can
+    /// be dropped). Callers that must diverge from a field do so explicitly via <c>with</c> (e.g. the
+    /// protocol-interface key omits <see cref="ParentTypeName"/>).
+    /// </summary>
+    public static PublicMethodNameContext ForMethod(MethodDecl decl, IReadOnlySet<string>? siblingPropertyNames) => new(
+        MethodName: decl.Name,
+        IsAsync: decl.IsAsync,
+        HasReturnValue: !decl.IsAccessor && decl.CSSignature.Count > 0 && !decl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
+        PropertyNames: siblingPropertyNames,
+        IsSelfReturning: MethodEnvironment.IsSelfReturningMethod(decl),
+        ParentTypeName: (decl.ParentDecl as TypeDecl)?.Name,
+        ParameterCount: decl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+}
+
+/// <summary>
 /// Provides a merged generic context combining type-level and method-level generic parameters.
 /// This avoids C# name collisions when a method inside a generic type also has its own generic params.
 /// Swift uses depth-indexed names (τ_0_0 = type-level, τ_1_0 = method-level) so dictionary keys don't collide,
@@ -1444,11 +1483,20 @@ public static class NameProvider
     /// <param name="propertyNames">Set of property names in the same type (already in PascalCase).</param>
     /// <returns>The public-facing method name.</returns>
     public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null, bool isSelfReturning = false, string? parentTypeName = null, int parameterCount = 0)
+        => GetPublicMethodName(new PublicMethodNameContext(methodName, isAsync, hasReturnValue, propertyNames, isSelfReturning, parentTypeName, parameterCount));
+
+    /// <summary>
+    /// Context-object overload of <see cref="GetPublicMethodName(string, bool, bool, IReadOnlySet{string}, bool, string, int)"/>.
+    /// Holds the actual name-shaping logic; the positional overload is a thin shim. Building the context once
+    /// (via <see cref="PublicMethodNameContext.ForMethod"/>) makes it impossible for a method-derived call site
+    /// to silently drop a collision-shaping arg.
+    /// </summary>
+    public static string GetPublicMethodName(in PublicMethodNameContext ctx)
     {
         // 1. Strip leading async/Async prefix (Swift convention → .NET suffix convention)
         //    Only strip for actual async methods — a sync property named "asyncInstance"
         //    should keep its prefix to avoid getter name collisions (e.g., Instance_Get).
-        var strippedName = isAsync ? StripAsyncPrefix(methodName) : methodName;
+        var strippedName = ctx.IsAsync ? StripAsyncPrefix(ctx.MethodName) : ctx.MethodName;
 
         // 2. PascalCase
         var name = ToPascalCase(strippedName);
@@ -1456,13 +1504,13 @@ public static class NameProvider
         // 3. Add "Get" prefix for noun-only names with a return value
         //    Do this BEFORE property collision check so "Data" → "GetData" no longer collides
         //    Skip for self-returning methods (fluent/builder pattern: EqualTo(), Accessibility(), etc.)
-        if (hasReturnValue && !StartsWithVerb(name) && !isAsync && !isSelfReturning && parameterCount == 0)
+        if (ctx.HasReturnValue && !StartsWithVerb(name) && !ctx.IsAsync && !ctx.IsSelfReturning && ctx.ParameterCount == 0)
             name = $"Get{name}";
 
         // 4. Property collision resolution (only if still colliding after verb prefix)
-        if (propertyNames != null && propertyNames.Contains(name))
+        if (ctx.PropertyNames != null && ctx.PropertyNames.Contains(name))
         {
-            if (isSelfReturning)
+            if (ctx.IsSelfReturning)
                 name = $"With{name}";  // Builder pattern: WithAccessibility()
             else
                 name = $"{name}Method";
@@ -1477,11 +1525,11 @@ public static class NameProvider
         // 4c. Type name collision: C# forbids member names identical to the enclosing type (CS0542).
         // This can happen when a Swift type has a method whose PascalCase name matches the type name
         // (e.g., `DatabaseRegion.databaseRegion(_:)` → `DatabaseRegion.DatabaseRegion(Database)`).
-        if (parentTypeName != null && name == parentTypeName)
+        if (ctx.ParentTypeName != null && name == ctx.ParentTypeName)
             name = $"Get{name}";
 
         // 5. Append "Async" suffix for async methods (per .NET convention)
-        if (isAsync && !name.EndsWith("Async"))
+        if (ctx.IsAsync && !name.EndsWith("Async"))
             name = $"{name}Async";
 
         return name;

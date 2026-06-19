@@ -108,7 +108,7 @@ namespace BindingsGeneration
             if (methodEnv.MethodDecl.IsClosureParamTombstone)
             {
                 ClosureParamTombstoneEmitter.Emit(csWriter, methodEnv);
-                methodEnv.MethodDecl.WasEmitted = true;
+                methodEnv.MethodDecl.MarkEmitted();
                 ReportCollector.RecordMemberWrapped(
                     BindingItemKind.Method, methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
@@ -206,7 +206,7 @@ namespace BindingsGeneration
                 // Try to generate a bypass wrapper instead of skipping
                 if (ExistentialBypassEmitter.TryEmitConstructorBypass(csWriter, swiftWriter, methodEnv, _logger))
                 {
-                    methodEnv.MethodDecl.WasEmitted = true;
+                    methodEnv.MethodDecl.MarkEmitted();
                     ReportCollector.RecordMemberWrapped(
                         BindingItemKind.Method,
                         methodEnv.MethodDecl.Name,
@@ -227,7 +227,7 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.ParentDecl,
                         "ConstrainedExistentialBridge",
                         "Constrained existential parameter(s) bridged via @_silgen_name wrapper.");
-                    methodEnv.MethodDecl.WasEmitted = true;
+                    methodEnv.MethodDecl.MarkEmitted();
                     return;
                 }
 
@@ -274,7 +274,7 @@ namespace BindingsGeneration
                     // Reserve the reduced key now that emission succeeded
                     if (reducedCtorKey != null)
                         methodEnv.EmittedProjectedSignatures?.Add(reducedCtorKey);
-                    methodEnv.MethodDecl.WasEmitted = true;
+                    methodEnv.MethodDecl.MarkEmitted();
                     ReportCollector.RecordMemberWrapped(
                         BindingItemKind.Method,
                         methodEnv.MethodDecl.Name,
@@ -305,7 +305,7 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.ParentDecl,
                     "ConstrainedExistentialBridge",
                     "Constrained existential parameter(s) bridged via @_silgen_name wrapper.");
-                methodEnv.MethodDecl.WasEmitted = true;
+                methodEnv.MethodDecl.MarkEmitted();
                 return;
             }
 
@@ -651,7 +651,7 @@ namespace BindingsGeneration
                 WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
                 return;
             }
-            methodEnv.MethodDecl.WasEmitted = true;
+            methodEnv.MethodDecl.MarkEmitted();
             ReportCollector.RecordMemberEmitted(methodEnv.MethodDecl);
 
             // Post-processor table: only Scope=All processors run for constructors
@@ -858,7 +858,7 @@ namespace BindingsGeneration
             if (methodEnv.MethodDecl.IsClosureParamTombstone)
             {
                 ClosureParamTombstoneEmitter.Emit(csWriter, methodEnv);
-                methodEnv.MethodDecl.WasEmitted = true;
+                methodEnv.MethodDecl.MarkEmitted();
                 ReportCollector.RecordMemberWrapped(
                     BindingItemKind.Method, methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
@@ -965,7 +965,7 @@ namespace BindingsGeneration
                     {
                         if (result.WasEmitted)
                         {
-                            methodEnv.MethodDecl.WasEmitted = true;
+                            methodEnv.MethodDecl.MarkEmitted();
                             ReportCollector.RecordMemberWrapped(
                                 BindingItemKind.Method, methodEnv.MethodDecl.Name,
                                 methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
@@ -1538,7 +1538,7 @@ namespace BindingsGeneration
                 WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
                 return;
             }
-            methodEnv.MethodDecl.WasEmitted = true;
+            methodEnv.MethodDecl.MarkEmitted();
             if (isAccessor)
             {
                 ReportCollector.RecordMemberSynthesized(methodEnv.MethodDecl);

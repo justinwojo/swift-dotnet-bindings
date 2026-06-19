@@ -189,7 +189,7 @@ public static class AsyncMethodGenericBridgeEmitter
                 returnKind.Value, returnTypeSpec, returnTypeRecord, methodDecl.Throws, keptArgs);
         }
 
-        methodDecl.WasEmitted = true;
+        methodDecl.MarkEmitted();
         return true;
     }
 

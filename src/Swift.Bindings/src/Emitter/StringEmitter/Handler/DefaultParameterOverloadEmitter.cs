@@ -722,19 +722,15 @@ public static class DefaultParameterOverloadEmitter
     /// </summary>
     internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null)
     {
-        var returnTypeSpec = overloadDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-        bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
-        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(overloadDecl);
-        // Thread the sibling-property set in lockstep with IHandler.GetProjectedCSharpMethodKey
-        // — these two keys must match exactly. The name component must apply
-        // the same property-collision rename the authoritative emitted name applies, or the
+        // Build the name from the same context as IHandler.GetProjectedCSharpMethodKey (via
+        // PublicMethodNameContext.ForMethod) — these two keys must match exactly. The name component
+        // must apply the same property-collision rename the authoritative emitted name applies, or the
         // default-overload pool and the main-pass pool disagree about which projected key a method
         // owns. The :228 caller passes env.SiblingPropertyNames; the CSM-seed callers pass null,
         // consistent with their trimEnv (which carries no sibling set).
         var methodName = overloadDecl.IsConstructor
             ? "ctor"
-            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, propertyNames: siblingPropertyNames, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name,
-                parameterCount: overloadDecl.CSSignature.Skip(1).Count(a => !IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+            : NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(overloadDecl, siblingPropertyNames));
 
         // Mirror IHandler.GetProjectedCSharpMethodKey: collect parent + method generic
         // names so Optional<GenericParam> collapses onto the bare GenericParam form.

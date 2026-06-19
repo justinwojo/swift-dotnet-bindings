@@ -281,7 +281,7 @@ public static class MethodClosureBridge
         // Public method always in the class body
         EmitPublicMethod(csWriter, method, closures, passableNonClosureParams, env, parentDecl, helperClassName);
 
-        method.WasEmitted = true;
+        method.MarkEmitted();
         return true;
     }
 

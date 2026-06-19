@@ -141,7 +141,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 return;
             }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.GetEmissionContext(), context.PropertyRenames);
-            propertyDecl.WasEmitted = true;
+            propertyDecl.MarkEmitted();
             ReportCollector.RecordMemberEmitted(propertyDecl);
             return;
         }
@@ -910,7 +910,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         csWriter.WriteLine();
-        propertyDecl.WasEmitted = true;
+        propertyDecl.MarkEmitted();
         ReportCollector.RecordMemberEmitted(propertyDecl);
     }
 
@@ -1437,7 +1437,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
         }
 
-        propertyDecl.WasEmitted = true;
+        propertyDecl.MarkEmitted();
         ReportCollector.RecordMemberEmitted(propertyDecl);
     }
 

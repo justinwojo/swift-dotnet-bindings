@@ -324,7 +324,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             cdeclSymbol, csMethodName, wrapperLibPath, throws,
             mergedAvailability, parentTypeDecl, typeDatabase, returnIsBlittable);
 
-        method.WasEmitted = true;
+        method.MarkEmitted();
 
         logger.LogInformation(
             "Emitted parent-only async specialization: {Type}.{Method}<{Pairing}> → {Symbol}",

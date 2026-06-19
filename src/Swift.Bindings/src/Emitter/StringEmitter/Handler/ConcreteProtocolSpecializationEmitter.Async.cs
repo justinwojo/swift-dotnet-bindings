@@ -74,8 +74,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         wrapperEmitter.EmitMethod(csWriter, swiftWriter);
         PInvokeEmitter.EmitPInvoke(csWriter, env, signatureHandler);
 
-        originalMethod.WasEmitted = true;
-        synthesized.WasEmitted = true;
+        originalMethod.MarkEmitted();
+        synthesized.MarkEmitted();
 
         // Emit trim overloads on the per-conformer specialized signature. The synthesized
         // MethodDecl has GenericParameters cleared (IsGeneric == false) and CSSignature

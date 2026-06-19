@@ -1504,23 +1504,7 @@ public partial class ProtocolProxyEmitter
             new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
-        return projection switch
-        {
-            StringProjection => $"new SwiftString({varName})",
-            DataProjection => $"Swift.Foundation.Data.FromByteArray({varName})",
-            DateProjection => $"({varName} - {DateProjection.SwiftEpoch}).TotalSeconds",
-            NativeRemappedProjection nrp => nrp.FromFactoryMethod != null
-                ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName})"
-                : $"new {nrp.SwiftWrapperType}({varName})",
-            ObjCBridgedProjection => $"{varName}.Handle",
-            ObjCBridgeableProjection => $"{varName}.Handle",
-            ObjCRootedClassProjection => $"{varName}.Handle",
-            ArrayProjection arr => GetReceiverArrayGetterConversion(arr, varName),
-            DictionaryProjection dict => GetReceiverDictGetterConversion(dict, varName),
-            SetProjection set => GetReceiverSetGetterConversion(set, varName),
-            OptionalProjection opt => GetReceiverOptionalGetterConversion(opt, varName),
-            _ => null
-        };
+        return projection.Accept(new ReceiverGetterConversionVisitor(varName, this));
     }
 
     private string? GetReceiverSetGetterConversion(SetProjection set, string varName)
@@ -1669,13 +1653,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return false;
         var projection = s_projectionFactory.Project(typeSpec,
             new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
-        return projection switch
-        {
-            ArrayProjection => true,
-            DictionaryProjection => true,
-            SetProjection => true,
-            _ => false
-        };
+        return projection?.Accept(new ReceiverParamNeedsObjectMarshalVisitor()) ?? false;
     }
 
     private string? GetReceiverClassCopyOutExpr(string slotExpr, TypeSpec? typeSpec)
@@ -1686,17 +1664,7 @@ public partial class ProtocolProxyEmitter
             new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
-        const string marshal = "global::Swift.Runtime.InteropServices.SwiftMarshal";
-        return projection switch
-        {
-            ClassProjection cls => $"{marshal}.MarshalBorrowedClassFromSlot<{cls.PublicType}>({slotExpr})",
-            ObjCRootedClassProjection objc => $"{marshal}.MarshalBorrowedClassFromSlot<{objc.PublicType}>({slotExpr})",
-            OptionalProjection { InnerProjection: ClassProjection innerCls } =>
-                $"{marshal}.MarshalBorrowedOptionalClassFromSlot<{innerCls.PublicType}>({slotExpr})",
-            OptionalProjection { InnerProjection: ObjCRootedClassProjection innerObjc } =>
-                $"{marshal}.MarshalBorrowedOptionalClassFromSlot<{innerObjc.PublicType}>({slotExpr})",
-            _ => null
-        };
+        return projection.Accept(new ReceiverClassCopyOutVisitor(slotExpr));
     }
 
     /// <summary>
@@ -1716,20 +1684,7 @@ public partial class ProtocolProxyEmitter
             new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
         if (projection == null) return null;
 
-        return projection switch
-        {
-            StringProjection => $"{varName}.ToString()",
-            DataProjection => $"{varName}.ToByteArray()",
-            DateProjection => $"{DateProjection.SwiftEpoch}.AddSeconds({varName})",
-            NativeRemappedProjection nrp => $"{varName}.{nrp.ToConversionMethod}()",
-            ObjCBridgedProjection objc => MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, varName, nonNull: true),
-            ObjCBridgeableProjection objc => MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, varName, nonNull: true),
-            ArrayProjection arr => GetReceiverArraySetterConversion(arr, varName),
-            DictionaryProjection dict => GetReceiverDictSetterConversion(dict, varName),
-            SetProjection set => GetReceiverSetSetterConversion(set, varName),
-            OptionalProjection opt => GetReceiverOptionalSetterConversion(opt, varName),
-            _ => null
-        };
+        return projection.Accept(new ReceiverSetterConversionVisitor(varName, this));
     }
 
     private string? GetReceiverArraySetterConversion(ArrayProjection arr, string varName)

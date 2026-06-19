@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration
@@ -46,6 +47,14 @@ namespace BindingsGeneration
         /// base class property exists in the emitted C# hierarchy (not just the parsed model).
         /// </summary>
         public bool WasEmitted { get; set; } = false;
+
+        /// <summary>
+        /// Marks this property as emitted. The single mutation entry point for <see cref="WasEmitted"/>
+        /// — every emitter that successfully writes a property stamps it through here rather than
+        /// assigning the flag inline, so "an emitter that produced a member stamps it" lives in one
+        /// place (pinned by <c>WasEmittedAssignmentCountTests</c>).
+        /// </summary>
+        public void MarkEmitted() => WasEmitted = true;
 
         /// <summary>
         /// Whether this property is marked @_spi (System Programming Interface).

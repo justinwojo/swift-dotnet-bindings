@@ -272,13 +272,7 @@ namespace BindingsGeneration
                 // ancestor name already carries whatever B15 suffix that ancestor's class body assigned.
                 if (AdoptedOverrideCSharpName != null)
                     return AdoptedOverrideCSharpName;
-                var name = NameProvider.GetPublicMethodName(
-                    MethodDecl.Name, MethodDecl.IsAsync,
-                    hasReturnValue: !MethodDecl.IsAccessor && MethodDecl.CSSignature.Count > 0 && !MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
-                    SiblingPropertyNames,
-                    isSelfReturning: IsSelfReturning,
-                    parentTypeName: (MethodDecl.ParentDecl as TypeDecl)?.Name,
-                    parameterCount: MethodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                var name = NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(MethodDecl, SiblingPropertyNames));
                 return CollisionIndex > 0 ? $"{name}{CollisionIndex + 1}" : name;
             }
         }

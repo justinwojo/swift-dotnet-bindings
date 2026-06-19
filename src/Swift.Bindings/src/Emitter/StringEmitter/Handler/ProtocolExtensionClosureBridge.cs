@@ -116,7 +116,7 @@ public static class ProtocolExtensionClosureBridge
             closureArgs, closureReturnIsVoid, closureReturnIsBool, closureReturnIsMethodGeneric,
             methodLevelGenerics, callbackBaseName, closureParamName, env, parentDecl, helperClassName);
 
-        method.WasEmitted = true;
+        method.MarkEmitted();
         return true;
     }
 
