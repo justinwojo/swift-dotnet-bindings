@@ -467,14 +467,9 @@ namespace BindingsGeneration
                 !_env.MethodDecl.IsSubscriptAccessor &&
                 OptionalMarshalClassifier.IsDecomposed(argument.SwiftTypeSpec, _env.TypeDatabase))
             {
-                var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
-                {
-                    TypeDatabase = _env.TypeDatabase,
-                    IsParameter = false,
-                    GenericContext = _genericContext,
-                    ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                });
+                var projection = _factory.Project(argument.SwiftTypeSpec,
+                    _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                        parentTypeDecl: _env.ParentDecl as TypeDecl));
                 if (projection is OptionalProjection optProj)
                 {
                     // Existential inner: use the public type (IProtocol?) not the container (ExistentialContainer1?)
@@ -526,14 +521,9 @@ namespace BindingsGeneration
             // (String→string, Array→IReadOnlyList, etc.) to maintain raw-type consistency.
             if (argument.SwiftTypeSpec is not TupleTypeSpec)
             {
-                var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
-                {
-                    TypeDatabase = _env.TypeDatabase,
-                    IsParameter = false,
-                    GenericContext = _genericContext,
-                    ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                });
+                var projection = _factory.Project(argument.SwiftTypeSpec,
+                    _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                        parentTypeDecl: _env.ParentDecl as TypeDecl));
                 // Class-bound existential array accessor: keep the raw SwiftArray<T> carrier
                 // (ShouldSkipProjectionForAccessor is true for arrays) but source the element type from
                 // the projection's ContainerTypeName, not the legacy bound-generic translation below.
@@ -580,14 +570,9 @@ namespace BindingsGeneration
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, typeSpec =>
                     {
                         // Try factory projection first for bound generics (Optional, Array, Dictionary)
-                        var projection = _factory.Project(typeSpec, new ProjectionContext
-                        {
-                            TypeDatabase = _env.TypeDatabase,
-                            IsParameter = false,
-                            GenericContext = _genericContext,
-                            ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                        });
+                        var projection = _factory.Project(typeSpec,
+                            _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                                parentTypeDecl: _env.ParentDecl as TypeDecl));
                         if (projection != null)
                             return projection.PublicType;
 
@@ -714,14 +699,9 @@ namespace BindingsGeneration
                     !_env.MethodDecl.IsSubscriptAccessor &&
                     OptionalMarshalClassifier.IsDecomposed(argument.SwiftTypeSpec, _env.TypeDatabase))
                 {
-                    var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
-                    {
-                        TypeDatabase = _env.TypeDatabase,
-                        IsParameter = true,
-                        GenericContext = _genericContext,
-                        ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                    });
+                    var projection = _factory.Project(argument.SwiftTypeSpec,
+                        _env.NewProjectionContext(isParameter: true, genericContext: _genericContext,
+                            parentTypeDecl: _env.ParentDecl as TypeDecl));
                     if (projection is OptionalProjection optProj)
                     {
                         AddParameter("IntPtr", "payload");
@@ -733,14 +713,9 @@ namespace BindingsGeneration
                 // Try factory-based projection for non-tuple types (same guards as HandleReturnType)
                 if (argument.SwiftTypeSpec is not TupleTypeSpec)
                 {
-                    var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
-                    {
-                        TypeDatabase = _env.TypeDatabase,
-                        IsParameter = true,
-                        GenericContext = _genericContext,
-                        ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                    });
+                    var projection = _factory.Project(argument.SwiftTypeSpec,
+                        _env.NewProjectionContext(isParameter: true, genericContext: _genericContext,
+                            parentTypeDecl: _env.ParentDecl as TypeDecl));
                     if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                     {
                         // Emit `ref` for ALL inout params, not just generic ones. Every concrete inout

@@ -1713,6 +1713,15 @@ public sealed class ModuleEmissionContext
     /// protocol-constrained generic parameters. Set once per module.
     /// </summary>
     public ConcreteSpecializationEngine? SpecializationEngine { get; set; }
+
+    /// <summary>
+    /// The per-module marshalling context: the constructed-once, fully-configured handler
+    /// instances every marshalling environment shares. Set once per module immediately after
+    /// <see cref="SpecializationEngine"/>. When present, <c>MethodEnvironment</c>/<c>PropertyEnvironment</c>
+    /// delegate their handler properties to it instead of newing up a per-decl handler quintet,
+    /// so the projection path and the env path can never diverge on engine/module configuration.
+    /// </summary>
+    public MarshalingContext? Marshaling { get; set; }
 }
 
 /// <summary>

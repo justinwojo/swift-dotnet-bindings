@@ -128,33 +128,109 @@ namespace BindingsGeneration
         public Dictionary<string, GenericParameterCSName> GenericTypeMapping { get; } = NameProvider.GetGenericTypeMapping(methodDecl);
 
         /// <summary>
-        /// Bound generic helper instance.
+        /// The per-module marshalling context attached via <see cref="EmissionContext"/>, or null when
+        /// this environment was constructed outside the handler pipeline. When non-null, the handler
+        /// properties below delegate to its shared, fully-configured instances instead of newing up a
+        /// per-decl handler quintet — the Finding-21 collapse that removes the "configured vs. bare" fork.
         /// </summary>
-        public BoundGenericsHandler BoundGenericsHandler { get; } = new BoundGenericsHandler(typeDatabase,
-            (methodDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph);
+        internal MarshalingContext? Marshaling => _emissionContext?.Marshaling;
 
         /// <summary>
-        /// Closure handler instance.
+        /// Bound generic helper instance. Delegates to the per-module <see cref="MarshalingContext"/>
+        /// shared handler when one is attached (the normal pipeline); otherwise lazily builds and caches
+        /// a local handler configured exactly as before — same type database, same module
+        /// <c>ConformanceGraph</c> — so out-of-pipeline rebuilds keep identical behavior.
         /// </summary>
-        public ClosureHandler ClosureHandler { get; } = new ClosureHandler(typeDatabase);
+        private BoundGenericsHandler? _localBoundGenericsHandler;
+        public BoundGenericsHandler BoundGenericsHandler =>
+            Marshaling?.BoundGenerics
+            ?? (_localBoundGenericsHandler ??= new BoundGenericsHandler(TypeDatabase,
+                (MethodDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph));
 
         /// <summary>
-        /// Tuple handler instance.
+        /// Closure handler instance. See <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
-        public TupleHandler TupleHandler { get; } = new TupleHandler(typeDatabase);
+        private ClosureHandler? _localClosureHandler;
+        public ClosureHandler ClosureHandler =>
+            Marshaling?.Closure ?? (_localClosureHandler ??= new ClosureHandler(TypeDatabase));
 
         /// <summary>
-        /// Type conversion handler instance for automatic .NET type conversions.
+        /// Tuple handler instance. See <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
-        public TypeConversionHandler TypeConversionHandler { get; } = new TypeConversionHandler(typeDatabase);
+        private TupleHandler? _localTupleHandler;
+        public TupleHandler TupleHandler =>
+            Marshaling?.Tuple ?? (_localTupleHandler ??= new TupleHandler(TypeDatabase));
+
+        /// <summary>
+        /// Type conversion handler instance for automatic .NET type conversions. See
+        /// <see cref="BoundGenericsHandler"/> for the shared/local contract.
+        /// </summary>
+        private TypeConversionHandler? _localTypeConversionHandler;
+        public TypeConversionHandler TypeConversionHandler =>
+            Marshaling?.TypeConversion ?? (_localTypeConversionHandler ??= new TypeConversionHandler(TypeDatabase));
 
         /// <summary>
         /// Existential handler instance for handling protocol existential types.
+        /// <para>
+        /// Returns the per-module <see cref="MarshalingContext"/> shared handler whenever an
+        /// <see cref="EmissionContext"/> carrying a <see cref="MarshalingContext"/> is attached: that
+        /// handler is born with the module's <c>CurrentModuleName</c> and <c>SpecializationEngine</c> and
+        /// is the SINGLE instance the per-module composition collector is injected onto (at module-emit
+        /// start in <c>ModuleHandler</c>). The shared path is intentionally NOT cached — it is already a
+        /// per-module singleton, and not caching lets the accessor switch from the local fallback to the
+        /// shared handler the moment <see cref="EmissionContext"/> is attached. (The collector is injected
+        /// at <c>MethodHandler</c> BEFORE <see cref="EmissionContext"/>, so a cached early access would
+        /// otherwise pin the local fallback for the whole emission.) When no context is attached
+        /// (out-of-pipeline rebuilds), a local handler is lazily built and cached with the same module name
+        /// and composition collector the env was constructed with; its engine is wired later by the
+        /// <see cref="EmissionContext"/> setter exactly as before.
+        /// </para>
         /// </summary>
-        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector)
+        private ExistentialHandler? _localExistentialHandler;
+        public ExistentialHandler ExistentialHandler =>
+            Marshaling?.Existential
+            ?? (_localExistentialHandler ??= new ExistentialHandler(TypeDatabase, CompositionCollector)
+            {
+                CurrentModuleName = (MethodDecl.ModuleDecl as ModuleDecl)?.Name
+            });
+
+        /// <summary>
+        /// Builds a <see cref="ProjectionContext"/> for a type projection requested from this
+        /// environment. Delegates to the per-module <see cref="MarshalingContext"/> when one is
+        /// attached, so the projection inherits the module's <c>CurrentModuleName</c> and
+        /// <c>SpecializationEngine</c> from the single source the env-path existential oracle uses —
+        /// instead of each emitter hand-assembling a context and reaching into
+        /// <see cref="ExistentialHandler"/> for the module name (the Finding-21 "forked translator"
+        /// shape). Out of pipeline (no context attached) it reproduces exactly what those call sites
+        /// did: the local existential handler's module name and no engine.
+        /// <para>
+        /// Output is byte-identical either way: the projection factory consults the engine only via
+        /// <see cref="ExistentialHandler.GetPublicExistentialType"/> with <c>allowUnionProjection: false</c>
+        /// (<c>TypeProjectionFactory.ProjectExistential</c>), so threading the engine here is inert today —
+        /// it is the forward-looking wiring that lets the projection path become union-capable without a
+        /// second engine source, while <c>CurrentModuleName</c> is preserved at the same value the bare
+        /// sites read from <see cref="ExistentialHandler"/>.
+        /// </para>
+        /// </summary>
+        internal ProjectionContext NewProjectionContext(
+            bool isParameter,
+            GenericContext? genericContext = null,
+            TypeDecl? parentTypeDecl = null,
+            SortedDictionary<string, List<string>>? compositionCollector = null)
         {
-            CurrentModuleName = (methodDecl.ModuleDecl as ModuleDecl)?.Name
-        };
+            if (Marshaling is { } marshaling)
+                return marshaling.NewProjectionContext(isParameter, genericContext, parentTypeDecl, compositionCollector);
+
+            return new ProjectionContext
+            {
+                TypeDatabase = TypeDatabase,
+                IsParameter = isParameter,
+                GenericContext = genericContext,
+                ParentTypeDecl = parentTypeDecl,
+                CurrentModuleName = ExistentialHandler.CurrentModuleName,
+                CompositionCollector = compositionCollector,
+            };
+        }
 
         /// <summary>
         /// Gets the set of property names in the same parent type.
@@ -405,28 +481,53 @@ namespace BindingsGeneration
         public IReadOnlySet<string>? SiblingNestedTypeNames { get; } = siblingNestedTypeNames;
 
         /// <summary>
-        /// Bound generic helper instance.
+        /// The per-module marshalling context attached via <see cref="EmissionContext"/>, or null when
+        /// this environment was constructed outside the handler pipeline. When non-null, the handler
+        /// properties below delegate to its shared, fully-configured instances (the Finding-21 collapse).
         /// </summary>
-        public BoundGenericsHandler BoundGenericsHandler { get; } = new BoundGenericsHandler(typeDatabase,
-            (propertyDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph);
+        internal MarshalingContext? Marshaling => _emissionContext?.Marshaling;
 
         /// <summary>
-        /// Tuple handler instance.
+        /// Bound generic helper instance. Delegates to the per-module <see cref="MarshalingContext"/>
+        /// shared handler when one is attached; otherwise lazily builds and caches a local handler
+        /// configured exactly as before (same type database, same module <c>ConformanceGraph</c>).
         /// </summary>
-        public TupleHandler TupleHandler { get; } = new TupleHandler(typeDatabase);
+        private BoundGenericsHandler? _localBoundGenericsHandler;
+        public BoundGenericsHandler BoundGenericsHandler =>
+            Marshaling?.BoundGenerics
+            ?? (_localBoundGenericsHandler ??= new BoundGenericsHandler(TypeDatabase,
+                (PropertyDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph));
 
         /// <summary>
-        /// Type conversion handler instance for automatic .NET type conversions.
+        /// Tuple handler instance. See <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
-        public TypeConversionHandler TypeConversionHandler { get; } = new TypeConversionHandler(typeDatabase);
+        private TupleHandler? _localTupleHandler;
+        public TupleHandler TupleHandler =>
+            Marshaling?.Tuple ?? (_localTupleHandler ??= new TupleHandler(TypeDatabase));
 
         /// <summary>
-        /// Existential handler instance for handling protocol existential types.
+        /// Type conversion handler instance for automatic .NET type conversions. See
+        /// <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
-        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase, compositionCollector)
-        {
-            CurrentModuleName = (propertyDecl.ModuleDecl as ModuleDecl)?.Name
-        };
+        private TypeConversionHandler? _localTypeConversionHandler;
+        public TypeConversionHandler TypeConversionHandler =>
+            Marshaling?.TypeConversion ?? (_localTypeConversionHandler ??= new TypeConversionHandler(TypeDatabase));
+
+        /// <summary>
+        /// Existential handler instance for handling protocol existential types. Returns the per-module
+        /// shared handler (engine + module name + the single injected composition collector) when an
+        /// <see cref="EmissionContext"/> is attached; otherwise a cached local handler built with the
+        /// env's module name + composition collector, its engine wired by the <see cref="EmissionContext"/>
+        /// setter. The shared path is uncached so attaching the context switches to it immediately. See
+        /// the <c>MethodEnvironment.ExistentialHandler</c> remarks for the full shared/local rationale.
+        /// </summary>
+        private ExistentialHandler? _localExistentialHandler;
+        public ExistentialHandler ExistentialHandler =>
+            Marshaling?.Existential
+            ?? (_localExistentialHandler ??= new ExistentialHandler(TypeDatabase, CompositionCollector)
+            {
+                CurrentModuleName = (PropertyDecl.ModuleDecl as ModuleDecl)?.Name
+            });
 
         /// <summary>
         /// Composition collector for multi-protocol existential interfaces.
@@ -434,14 +535,20 @@ namespace BindingsGeneration
         public SortedDictionary<string, List<string>>? CompositionCollector { get; } = compositionCollector;
 
         /// <summary>
-        /// Closure handler instance for handling closure (function) types.
+        /// Closure handler instance for handling closure (function) types. See
+        /// <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
-        public ClosureHandler ClosureHandler { get; } = new ClosureHandler(typeDatabase);
+        private ClosureHandler? _localClosureHandler;
+        public ClosureHandler ClosureHandler =>
+            Marshaling?.Closure ?? (_localClosureHandler ??= new ClosureHandler(TypeDatabase));
 
         /// <summary>
-        /// AsyncStream handler instance for handling Swift AsyncStream types.
+        /// AsyncStream handler instance for handling Swift AsyncStream types. See
+        /// <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
-        public AsyncStreamHandler AsyncStreamHandler { get; } = new AsyncStreamHandler(typeDatabase);
+        private AsyncStreamHandler? _localAsyncStreamHandler;
+        public AsyncStreamHandler AsyncStreamHandler =>
+            Marshaling?.AsyncStream ?? (_localAsyncStreamHandler ??= new AsyncStreamHandler(TypeDatabase));
 
         /// <summary>
         /// Per-module emission context, threaded by the property handler. Setting it publishes the

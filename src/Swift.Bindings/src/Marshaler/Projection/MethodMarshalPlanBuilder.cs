@@ -386,7 +386,8 @@ internal class MethodMarshalPlanBuilder
 
         var returnArg = _env.MethodDecl.CSSignature.First();
         var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+            _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                parentTypeDecl: _env.ParentDecl as TypeDecl));
         var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
 
         return new OptionalPointerWrapperSetup
@@ -648,10 +649,8 @@ internal class MethodMarshalPlanBuilder
                     CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase)))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                            GenericContext = _genericContext,
-                            ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                        _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                            parentTypeDecl: _env.ParentDecl as TypeDecl));
                     if (projection != null)
                         allocTypeName = projection.MarshalFromSwiftType;
                 }
@@ -693,9 +692,8 @@ internal class MethodMarshalPlanBuilder
                     {
                         var innerSpec = ((NamedTypeSpec)returnArg.SwiftTypeSpec).GenericParameters[0];
                         var innerProjection = s_projectionFactory.Project(innerSpec,
-                            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                                GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                            _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                                parentTypeDecl: _env.ParentDecl as TypeDecl));
                         // Generic parameters: layout is unknown at compile time, so size the buffer from the
                         // C# generic param's runtime metadata. The wrapper writes Value.self into resultPtr,
                         // so a class T (8-byte pointer) and a large struct T must each get exactly Size bytes
@@ -818,9 +816,8 @@ internal class MethodMarshalPlanBuilder
                     if (returnArg.SwiftTypeSpec is NamedTypeSpec returnNts)
                     {
                         var returnProjection = s_projectionFactory.Project(returnNts,
-                            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                                GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                            _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                                parentTypeDecl: _env.ParentDecl as TypeDecl));
                         if (returnProjection is OptionalProjection
                             && WrapperValidation.IsOptionalClassBoundExistentialReturn(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                         {
@@ -978,9 +975,8 @@ internal class MethodMarshalPlanBuilder
             if (returnArg2.SwiftTypeSpec is NamedTypeSpec returnNts2)
             {
                 var returnProjection2 = s_projectionFactory.Project(returnNts2,
-                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                        GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                    _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                        parentTypeDecl: _env.ParentDecl as TypeDecl));
                 if (returnProjection2 is ArrayProjection or DictionaryProjection or SetProjection
                     or OptionalProjection or ResultProjection or FrozenWithMemoryProjection)
                 {

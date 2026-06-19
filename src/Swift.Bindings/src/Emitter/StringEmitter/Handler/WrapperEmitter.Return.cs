@@ -244,9 +244,7 @@ namespace BindingsGeneration
                     OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                            GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                        _env.NewProjectionContext(isParameter: false, genericContext: _genericContext, parentTypeDecl: _env.ParentDecl as TypeDecl));
                     if (projection is OptionalProjection optProj)
                     {
                         var innerType = optProj.InnerProjection.MarshalFromSwiftType;
@@ -333,9 +331,7 @@ namespace BindingsGeneration
                     !CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                            GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                        _env.NewProjectionContext(isParameter: false, genericContext: _genericContext, parentTypeDecl: _env.ParentDecl as TypeDecl));
 
                     // Blittable primitive fast path: read tag byte directly from result buffer
                     // instead of going through SwiftOptional<T> + VWT GetEnumTag, which returns
@@ -563,7 +559,7 @@ namespace BindingsGeneration
                 (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
             {
                 var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                    _env.NewProjectionContext(isParameter: false, genericContext: _genericContext, parentTypeDecl: _env.ParentDecl as TypeDecl));
                 var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
                 csWriter.WriteLines($$"""
                     return SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
@@ -634,7 +630,7 @@ namespace BindingsGeneration
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
                 var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                    _env.NewProjectionContext(isParameter: false, genericContext: _genericContext, parentTypeDecl: _env.ParentDecl as TypeDecl));
                 if (projection != null)
                 {
                     var marshalType = projection.ContainerTypeName;
@@ -969,7 +965,7 @@ namespace BindingsGeneration
             if (returnArg.IsGeneric) return false;
 
             var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
-                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                _env.NewProjectionContext(isParameter: false, genericContext: _genericContext, parentTypeDecl: _env.ParentDecl as TypeDecl));
             if (projection == null) return false;
 
             var strategy = DetermineReturnStrategy();
@@ -1305,13 +1301,8 @@ namespace BindingsGeneration
             // Handle bound generics — try factory projection first for idiomatic types
             if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
             {
-                var projection = s_projectionFactory.Project(element, new ProjectionContext
-                {
-                    TypeDatabase = _env.TypeDatabase,
-                    IsParameter = false,
-                    GenericContext = _genericContext,
-                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                });
+                var projection = s_projectionFactory.Project(element,
+                    _env.NewProjectionContext(isParameter: false, genericContext: _genericContext));
                 if (projection != null)
                     return projection.PublicType;
 
@@ -1411,13 +1402,8 @@ namespace BindingsGeneration
                 // Try factory projection for idiomatic return marshalling (skip Optional<ObjC>)
                 if (!isOptionalObjC)
                 {
-                    var projection = s_projectionFactory.Project(element, new ProjectionContext
-                    {
-                        TypeDatabase = _env.TypeDatabase,
-                        IsParameter = false,
-                        GenericContext = _genericContext,
-                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                    });
+                    var projection = s_projectionFactory.Project(element,
+                        _env.NewProjectionContext(isParameter: false, genericContext: _genericContext));
                     if (projection != null)
                     {
                         var containerType = projection.ContainerTypeName;

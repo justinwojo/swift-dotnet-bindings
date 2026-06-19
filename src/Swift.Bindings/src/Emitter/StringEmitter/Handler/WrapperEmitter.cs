@@ -370,14 +370,7 @@ namespace BindingsGeneration
             if (!MarshallingHelpers.IsConvertibleType(p.SwiftTypeSpec)) return false;
 
             var projection = s_projectionFactory.Project(p.SwiftTypeSpec,
-                new ProjectionContext
-                {
-                    TypeDatabase = _env.TypeDatabase,
-                    IsParameter = true,
-                    GenericContext = _genericContext,
-                    ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
-                });
+                _env.NewProjectionContext(isParameter: true, genericContext: _genericContext, parentTypeDecl: _env.ParentDecl as TypeDecl));
             if (projection == null) return false;
             // ObjC bridge containers don't create a SwiftArray-like 'using var' — they
             // emit `using var {name}NSArray = ...` whose lifetime is foreground-only and

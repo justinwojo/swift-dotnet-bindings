@@ -435,6 +435,12 @@ namespace BindingsGeneration
                 specializationEngine.IndexModuleConformances(decl);
                 emissionContext.SpecializationEngine = specializationEngine;
 
+                // Build the constructed-once-per-module marshalling context: the fully-configured
+                // (engine + module name) handler instances every marshalling environment shares.
+                // The composition collector is injected later, at module-emit start, via the same
+                // SetCompositionCollector late-injection point the per-env path already uses.
+                emissionContext.Marshaling = new MarshalingContext(decl, typeDatabase, specializationEngine);
+
                 // Protocol names, protocol-extension methods, and foreign-type extension members
                 // all come from the aggregated SwiftInterfaceFacts, extracted by the SwiftSyntax
                 // host producer; downstream phases consume facts.* directly.

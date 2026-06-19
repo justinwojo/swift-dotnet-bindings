@@ -134,6 +134,13 @@ namespace BindingsGeneration
             // MethodEnvironment/PropertyEnvironment → ExistentialHandler during emission.
             conductor.CompositionInterfaces.Clear();
             context = context with { CompositionCollector = conductor.CompositionInterfaces };
+            // Inject the single per-module composition collector onto the shared MarshalingContext
+            // existential handler — the one instance every MethodEnvironment/PropertyEnvironment delegates
+            // to during emission. The per-env SetCompositionCollector calls (MethodHandler/PropertyHandler)
+            // run BEFORE EmissionContext is attached and so land on a local fallback; doing it here, once,
+            // is what actually gives the shared handler the module collector for the whole emission. Same
+            // single late-injection point the per-env path always used, just on the shared instance.
+            context.GetEmissionContext().Marshaling?.Existential.SetCompositionCollector(conductor.CompositionInterfaces);
             {
                 // Emit top-level methods
                 if (moduleDecl.Methods.Any())
