@@ -25,14 +25,14 @@ public class BaseHandlerDedupTests
     [Fact]
     public void GetProjectedCSharpMethodKey_KnownType_UsesIdiomaticType()
     {
-        // Swift.Int is converted to "long" via idiomatic type conversion
+        // Swift.Int is converted to "nint" via idiomatic type conversion
         var typeDatabase = new BasicTypeDatabase();
         var method = CreateMethod("doSomething", new NamedTypeSpec("Swift.Int"));
 
         var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
 
         Assert.NotNull(result);
-        Assert.Contains("long", result);
+        Assert.Contains("nint", result);
     }
 
     [Fact]
@@ -84,9 +84,9 @@ public class BaseHandlerDedupTests
         var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
 
         Assert.NotNull(result);
-        // Factory resolves tuple: Swift.Int from DB → long (System.Int64 keyword alias),
+        // Factory resolves tuple: Swift.Int from DB → nint (pointer-sized),
         // Swift.Bool well-known → bool
-        Assert.Contains("(long, bool)", result);
+        Assert.Contains("(nint, bool)", result);
     }
 
     [Fact]
@@ -140,14 +140,14 @@ public class BaseHandlerDedupTests
     [Fact]
     public void GetMethodSignatureKey_KnownType_UsesResolvedCSharpName()
     {
-        // Swift.Int resolves to CSharpTypeName "long" (keyword alias)
+        // Swift.Int resolves to CSharpTypeName "nint" (pointer-sized)
         var typeDatabase = new BasicTypeDatabase();
         var method = CreateMethod("doSomething", new NamedTypeSpec("Swift.Int"));
 
         var result = InvokeGetMethodSignatureKey(method, typeDatabase);
 
         Assert.NotNull(result);
-        Assert.Contains("long", result);
+        Assert.Contains("nint", result);
         Assert.StartsWith("method:", result);
     }
 
@@ -228,7 +228,7 @@ public class BaseHandlerDedupTests
         var result = InvokeGetMethodSignatureKey(method, typeDatabase);
 
         Assert.NotNull(result);
-        Assert.Contains("(long,bool)", result);
+        Assert.Contains("(nint,bool)", result);
     }
 
     [Fact]
@@ -250,7 +250,7 @@ public class BaseHandlerDedupTests
         var keyB = InvokeGetMethodSignatureKey(methodB, typeDatabase);
 
         Assert.NotEqual(keyA, keyB);
-        Assert.Contains("<long>", keyA);
+        Assert.Contains("<nint>", keyA);
         Assert.Contains("Swift.SwiftString", keyB);
     }
 
@@ -290,7 +290,7 @@ public class BaseHandlerDedupTests
         var keyB = InvokeGetMethodSignatureKey(methodB, typeDatabase);
 
         Assert.NotEqual(keyA, keyB);
-        Assert.Contains("Swift.SwiftArray<Swift.SwiftArray<long>>", keyA);
+        Assert.Contains("Swift.SwiftArray<Swift.SwiftArray<nint>>", keyA);
         Assert.Contains("Swift.SwiftArray<Swift.SwiftArray<Swift.SwiftString>>", keyB);
     }
 
@@ -756,7 +756,7 @@ public class BaseHandlerDedupTests
         {
             ["Swift.Int"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.Frozen,
@@ -842,7 +842,7 @@ public class BaseHandlerDedupTests
         {
             ["Swift.Int"] = new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.Frozen,

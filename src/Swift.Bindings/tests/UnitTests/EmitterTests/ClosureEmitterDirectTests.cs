@@ -391,7 +391,7 @@ public class ClosureEmitterDirectTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -424,7 +424,7 @@ public class ClosureEmitterDirectTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -625,7 +625,7 @@ public class ClosureEmitterDirectTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -668,7 +668,7 @@ public class ClosureEmitterDirectTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -770,7 +770,7 @@ public class ClosureEmitterDirectTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1101,7 +1101,7 @@ public class ClosureEmitterDirectTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1840,7 +1840,7 @@ public class ClosureEmitterDirectTests
         Assert.Contains("private static unsafe extern", result);
         // Invoker is unsafe (SwiftError ctor takes void*) and returns SwiftResult.
         // Swift.Int translates to long on the C# return-type side.
-        Assert.Contains("internal unsafe Swift.SwiftResult<long, SwiftError> Invoke(", result);
+        Assert.Contains("internal unsafe Swift.SwiftResult<nint, SwiftError> Invoke(", result);
         // Stack local pointer passed through unsafe context (no fixed required for
         // unmanaged IntPtr).
         Assert.Contains("&_err", result);
@@ -2509,7 +2509,7 @@ public class ClosureEmitterDirectTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,

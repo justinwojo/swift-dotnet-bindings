@@ -53,7 +53,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -267,7 +267,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -288,7 +288,7 @@ public class AsyncStreamEmitterTests
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
         Assert.Null(skipReason);
-        Assert.Equal("long", projectedTypeName);
+        Assert.Equal("nint", projectedTypeName);
     }
 
     [Fact]
@@ -546,7 +546,7 @@ public class AsyncStreamEmitterTests
             {
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,

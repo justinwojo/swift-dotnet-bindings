@@ -33,7 +33,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
-        Assert.Contains("public virtual Task<long> FetchAsync(global::System.Threading.CancellationToken cancellationToken = default)", csOutput);
+        Assert.Contains("public virtual Task<nint> FetchAsync(global::System.Threading.CancellationToken cancellationToken = default)", csOutput);
         Assert.Contains("return _tcs.Task;", csOutput);
     }
 
@@ -72,7 +72,7 @@ public class MethodHandlerOutputTests
         var (runCs, _) = EmitMethod(runMethod, typeDatabase);
         var (stopCs, _) = EmitMethod(stopMethod, typeDatabase);
 
-        Assert.Contains("public virtual Task<long> RunAsync(", runCs);
+        Assert.Contains("public virtual Task<nint> RunAsync(", runCs);
         Assert.Contains("return _tcs.Task;", runCs);
 
         Assert.Contains("public virtual Task StopAsync(", stopCs);
@@ -119,10 +119,10 @@ public class MethodHandlerOutputTests
         parentDecl.Methods.Add(method);
 
         // Pre-populate with the key that a native async method would have produced.
-        // Swift.Int projects to long (System.Int64) via TypeProjectionFactory.
+        // Swift.Int projects to nint (pointer-sized) via TypeProjectionFactory.
         var emittedSignatures = new HashSet<string>
         {
-            "CollectAsync(long,System.Threading.CancellationToken)"
+            "CollectAsync(nint,System.Threading.CancellationToken)"
         };
 
         var (csOutput, _) = EmitMethodWithSignatures(method, typeDatabase, emittedSignatures);
@@ -222,7 +222,7 @@ public class MethodHandlerOutputTests
         var siblingProperties = new HashSet<string> { "Fetch" };
         var (csOutput, _) = EmitMethod(method, typeDatabase, siblingProperties);
 
-        Assert.Contains("public virtual long FetchMethod()", csOutput);
+        Assert.Contains("public virtual nint FetchMethod()", csOutput);
     }
 
     [Fact]
@@ -242,8 +242,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public static long GetCount()", csOutput);
-        var signatureLine = Array.Find(csOutput.Split('\n'), line => line.Contains("public static long GetCount()", StringComparison.Ordinal));
+        Assert.Contains("public static nint GetCount()", csOutput);
+        var signatureLine = Array.Find(csOutput.Split('\n'), line => line.Contains("public static nint GetCount()", StringComparison.Ordinal));
         Assert.NotNull(signatureLine);
         Assert.DoesNotContain("unsafe", signatureLine!, StringComparison.Ordinal);
     }
@@ -271,7 +271,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public virtual long Decode<T>()", csOutput);
+        Assert.Contains("public virtual nint Decode<T>()", csOutput);
         Assert.Contains("where T : ISwiftObject, ILoadable", csOutput);
     }
 
@@ -329,7 +329,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public static long GetVersion()", csOutput);
+        Assert.Contains("public static nint GetVersion()", csOutput);
     }
 
     [Fact]
@@ -805,7 +805,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // Wrapper return type should use idiomatic 'string', not 'SwiftString'
-        Assert.Contains("(string, long)", csOutput);
+        Assert.Contains("(string, nint)", csOutput);
         // P/Invoke should still use SwiftString.Buffer (ABI type)
         Assert.Contains("Swift.SwiftString.Buffer", csOutput);
         // Marshalling should include .ToString() for the string element
@@ -838,9 +838,9 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // P/Invoke return uses ValueTuple with SwiftString.Buffer (fully qualified)
-        Assert.Contains("ValueTuple<long, Swift.SwiftString.Buffer>", csOutput);
+        Assert.Contains("ValueTuple<nint, Swift.SwiftString.Buffer>", csOutput);
         // Wrapper signature uses idiomatic string
-        Assert.Contains("(long, string)", csOutput);
+        Assert.Contains("(nint, string)", csOutput);
     }
 
     [Fact]
@@ -867,7 +867,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // Labels preserved, String converted to string
-        Assert.Contains("(string name, long count)", csOutput);
+        Assert.Contains("(string name, nint count)", csOutput);
     }
 
     [Fact]
@@ -898,7 +898,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // Optional<String> is now projected to string? via factory in the public signature
-        Assert.Contains("(string?, long)", csOutput);
+        Assert.Contains("(string?, nint)", csOutput);
         // Raw types may still appear in marshalling body (MarshalFromSwift calls) — that's correct
     }
 
@@ -963,7 +963,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // Both bare String and Optional<String> now use idiomatic types in the public signature
-        Assert.Contains("(string, string?, long)", csOutput);
+        Assert.Contains("(string, string?, nint)", csOutput);
         // Raw types may still appear in marshalling body (MarshalFromSwift calls) — that's correct
     }
 
@@ -1352,7 +1352,7 @@ public class MethodHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,

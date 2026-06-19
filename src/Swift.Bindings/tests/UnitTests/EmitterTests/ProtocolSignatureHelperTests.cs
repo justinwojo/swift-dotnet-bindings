@@ -255,7 +255,7 @@ public class ProtocolSignatureHelperTests
         var key = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase);
 
         // Parameters use IEnumerable, not IReadOnlyList
-        Assert.Equal("Process(IEnumerable<long>)", key);
+        Assert.Equal("Process(IEnumerable<nint>)", key);
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class ProtocolSignatureHelperTests
 
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(arrayTypeSpec, typeDatabase, isParameter: false);
 
-        Assert.Equal("IReadOnlyList<long>", result);
+        Assert.Equal("IReadOnlyList<nint>", result);
     }
 
     [Fact]
@@ -372,7 +372,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -486,10 +486,10 @@ public class ProtocolSignatureHelperTests
         optionalType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
 
         var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
-            "long?", optionalType, typeDatabase);
+            "nint?", optionalType, typeDatabase);
 
         // Value types (structs) preserve the ? — not stripped
-        Assert.Equal("long?", result);
+        Assert.Equal("nint?", result);
     }
 
     [Fact]
@@ -499,9 +499,9 @@ public class ProtocolSignatureHelperTests
         var namedType = new NamedTypeSpec("Swift.Int");
 
         var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
-            "long", namedType, typeDatabase);
+            "nint", namedType, typeDatabase);
 
-        Assert.Equal("long", result);
+        Assert.Equal("nint", result);
     }
 
     [Fact]
@@ -702,7 +702,7 @@ public class ProtocolSignatureHelperTests
 
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(intType, typeDatabase);
 
-        Assert.Equal("long", result);
+        Assert.Equal("nint", result);
     }
 
     [Fact]
@@ -731,7 +731,7 @@ public class ProtocolSignatureHelperTests
             mode: TypeResolutionMode.NarrowNativeInt);
 
         // Swift.Int projects to nint, which is narrowed to int
-        Assert.Equal("long", result);
+        Assert.Equal("int", result);
     }
 
     [Fact]
@@ -746,7 +746,7 @@ public class ProtocolSignatureHelperTests
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
             intType, typeDatabase, mode: TypeResolutionMode.ExistentialFallback);
 
-        Assert.Equal("long", result);
+        Assert.Equal("nint", result);
     }
 
     [Fact]
@@ -781,7 +781,7 @@ public class ProtocolSignatureHelperTests
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
             intType, typeDatabase, genericContext: GenericContext.Empty);
 
-        Assert.Equal("long", result);
+        Assert.Equal("nint", result);
     }
 
     [Fact]
@@ -792,11 +792,11 @@ public class ProtocolSignatureHelperTests
         var typeDatabase = CreateTypeDatabaseWithString();
         var proxyMode = TypeResolutionMode.ExistentialFallback | TypeResolutionMode.IncludeTupleLabels;
 
-        // Swift.Int → long
+        // Swift.Int → nint
         var intResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
             new NamedTypeSpec("Swift.Int"), typeDatabase,
             genericContext: GenericContext.Empty, mode: proxyMode);
-        Assert.Equal("long", intResult);
+        Assert.Equal("nint", intResult);
 
         // Swift.String → string
         var stringResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
@@ -819,11 +819,11 @@ public class ProtocolSignatureHelperTests
             genericContext: GenericContext.Empty, mode: abiMode);
         Assert.Equal("SwiftString", stringResult);
 
-        // Swift.Int with ABI → long (primitives are same for public/ABI)
+        // Swift.Int with ABI → nint (primitives are same for public/ABI)
         var intResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
             new NamedTypeSpec("Swift.Int"), typeDatabase,
             genericContext: GenericContext.Empty, mode: abiMode);
-        Assert.Equal("long", intResult);
+        Assert.Equal("nint", intResult);
     }
 
     [Fact]
@@ -833,12 +833,12 @@ public class ProtocolSignatureHelperTests
         // the original GetInterfaceCompatiblePropertyTypeName behavior.
         var typeDatabase = CreateTypeDatabaseWithString();
 
-        // Simple type with NarrowNativeInt (no actual narrowing needed for Int64)
+        // Simple type with NarrowNativeInt (NarrowNativeInt narrows nint -> int in property context)
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
             new NamedTypeSpec("Swift.Int"), typeDatabase, isParameter: false,
             genericContext: GenericContext.Empty, mode: TypeResolutionMode.NarrowNativeInt);
 
-        Assert.Equal("long", result);
+        Assert.Equal("int", result);
     }
 
     [Fact]
@@ -876,7 +876,7 @@ public class ProtocolSignatureHelperTests
             tupleType, typeDatabase, mode: TypeResolutionMode.NarrowNativeInt);
 
         // Tuple itself should be narrowed at top level
-        Assert.Equal("(long, long)", result);
+        Assert.Equal("(nint, nint)", result);
     }
 
     [Fact]
@@ -940,7 +940,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -961,7 +961,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1012,7 +1012,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1030,7 +1030,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1080,7 +1080,7 @@ public class ProtocolSignatureHelperTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1392,8 +1392,8 @@ public class ProtocolSignatureHelperTests
 
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(closureType, typeDatabase, isParameter: false);
 
-        // Should be Func<IReadOnlyList<long>>, not Func<IEnumerable<long>>
-        Assert.Equal("global::System.Func<IReadOnlyList<long>>", result);
+        // Should be Func<IReadOnlyList<nint>>, not Func<IEnumerable<nint>>
+        Assert.Equal("global::System.Func<IReadOnlyList<nint>>", result);
     }
 
     #endregion

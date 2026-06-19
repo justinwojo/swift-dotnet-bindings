@@ -373,7 +373,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("global::System.Action<(long, bool)>", result);
+        Assert.Equal("global::System.Action<(nint, bool)>", result);
     }
 
     [Fact]
@@ -396,7 +396,7 @@ public class ClosureHandlerTests
         // the tuple branch used
         // TupleHandler.TranslateElementTypeToCSharp which short-circuited to
         // typeRecord.CSharpTypeName ("Swift.SwiftString").
-        Assert.Equal("global::System.Func<(long, string)>", result);
+        Assert.Equal("global::System.Func<(nint, string)>", result);
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public class ClosureHandlerTests
         // Both tuples now route through ClosureHandler's recursive translator, so
         // Swift.String projects to "string" inside the tuple — see comment on
         // GetCSharpDelegateType_WithTupleReturn_ReturnsCorrectType.
-        Assert.Equal("global::System.Func<(long, bool), (double, string)>", result);
+        Assert.Equal("global::System.Func<(nint, bool), (double, string)>", result);
     }
 
     [Fact]
@@ -444,7 +444,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerType(closure);
 
-        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<long, bool>, void>", result);
+        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<nint, bool>, void>", result);
     }
 
     [Fact]
@@ -462,7 +462,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerType(closure);
 
-        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<long, double>>", result);
+        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<nint, double>>", result);
     }
 
     #endregion
@@ -703,7 +703,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<long>", result);
+        Assert.Equal("global::System.Func<nint>", result);
     }
 
     [Fact]
@@ -718,7 +718,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<long, bool>", result);
+        Assert.Equal("global::System.Func<nint, bool>", result);
     }
 
     [Fact]
@@ -737,7 +737,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Action<long, bool, double>", result);
+        Assert.Equal("global::System.Action<nint, bool, double>", result);
     }
 
     [Fact]
@@ -864,7 +864,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("global::System.Action<Swift.SwiftResult<long, Swift.SwiftError>>", result);
+        Assert.Equal("global::System.Action<Swift.SwiftResult<nint, Swift.SwiftError>>", result);
     }
 
     [Fact]
@@ -892,7 +892,7 @@ public class ClosureHandlerTests
         var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
         var result = handler.TranslateTypeSpecToCSharp(optionalInt);
 
-        Assert.Equal("long?", result);
+        Assert.Equal("nint?", result);
     }
 
     [Fact]
@@ -980,10 +980,10 @@ public class ClosureHandlerTests
 
         var result = handler.TranslateTypeSpecToCSharp(tuple);
 
-        // Pre-fix the same input came out as "(long, Swift.SwiftString, bool,
+        // Pre-fix the same input came out as "(nint, Swift.SwiftString, bool,
         // Swift.SwiftOptional<Swift.SwiftString>)" because TupleHandler's stripped-down
         // element translator skipped the IsSwiftString and Optional-projection rules.
-        Assert.Equal("(long, string, bool, string?)", result);
+        Assert.Equal("(nint, string, bool, string?)", result);
     }
 
     [Fact]
@@ -1003,7 +1003,7 @@ public class ClosureHandlerTests
         var result = handler.TranslateTypeSpecToCSharp(optionalTuple);
 
         // Inner tuple element Swift.String projects to "string" — same rule as top-level closure args.
-        Assert.Equal("Swift.SwiftOptional<(long, string)>", result);
+        Assert.Equal("Swift.SwiftOptional<(nint, string)>", result);
     }
 
     [Fact]
@@ -1018,7 +1018,7 @@ public class ClosureHandlerTests
 
         var result = handler.TranslateTypeSpecToCSharp(resultType);
 
-        Assert.Equal("Swift.SwiftResult<Swift.SwiftArray<long>, Swift.SwiftError>", result);
+        Assert.Equal("Swift.SwiftResult<Swift.SwiftArray<nint>, Swift.SwiftError>", result);
     }
 
     [Fact]
@@ -1187,7 +1187,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("global::System.Func<long?>", result);
+        Assert.Equal("global::System.Func<nint?>", result);
     }
 
     #endregion
@@ -1221,7 +1221,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task<long>>", result);
+        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task<nint>>", result);
     }
 
     [Fact]
@@ -1237,7 +1237,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<long, global::System.Threading.Tasks.Task>", result);
+        Assert.Equal("global::System.Func<nint, global::System.Threading.Tasks.Task>", result);
     }
 
     [Fact]
@@ -1253,7 +1253,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<long, global::System.Threading.Tasks.Task<bool>>", result);
+        Assert.Equal("global::System.Func<nint, global::System.Threading.Tasks.Task<bool>>", result);
     }
 
     [Fact]
@@ -1310,7 +1310,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<Swift.SwiftResult<long, SwiftError>>", result);
+        Assert.Equal("global::System.Func<Swift.SwiftResult<nint, SwiftError>>", result);
     }
 
     [Fact]
@@ -1326,7 +1326,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<long, Swift.SwiftResult<bool, SwiftError>>", result);
+        Assert.Equal("global::System.Func<nint, Swift.SwiftResult<bool, SwiftError>>", result);
     }
 
     // Note: Async+throwing closure delegate type tests are in the "Async+Throwing Closure Tests" region below.
@@ -2162,7 +2162,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task<long>>", result);
+        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task<nint>>", result);
     }
 
     [Fact]
@@ -2181,7 +2181,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("global::System.Func<long, global::System.Threading.Tasks.Task<bool>>", result);
+        Assert.Equal("global::System.Func<nint, global::System.Threading.Tasks.Task<bool>>", result);
     }
 
     [Fact]
@@ -2803,7 +2803,7 @@ public class ClosureHandlerTests
             new NamedTypeSpec("Swift.Int"));
         var result = handler.TranslateTypeSpecToCSharp(typedDict);
 
-        Assert.Equal("Swift.SwiftDictionary<string, long>", result);
+        Assert.Equal("Swift.SwiftDictionary<string, nint>", result);
     }
 
     #endregion
@@ -2899,7 +2899,7 @@ public class ClosureHandlerTests
             {
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,

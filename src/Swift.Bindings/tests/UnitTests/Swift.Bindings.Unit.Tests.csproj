@@ -13,6 +13,16 @@
     <ProjectReference Include="../../src/Swift.Bindings.csproj">
       <ReferenceSourceTarget></ReferenceSourceTarget>
     </ProjectReference>
+    <!-- Plain (non-analyzer) reference to the TestDiscovery source generator so its
+         SBTD001/002/003 near-miss diagnostics can be driven directly via
+         CSharpGeneratorDriver in TestDiscoveryDiagnosticsTests. PrivateAssets=all on the
+         generator's own Roslyn refs means they don't flow; the Microsoft.CodeAnalysis.CSharp
+         package below (4.8.0, matching the generator's compile-time Roslyn) supplies them. -->
+    <ProjectReference Include="../../../SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
   </ItemGroup>
 
   <!-- Link-compile the parity-gate logic from the Nuke build assembly so its pure
@@ -26,6 +36,11 @@
          (Finding 61, replacing the otool scrape) is unit-tested against hand-built Mach-O fixtures
          that run in `nuke test`, independent of a signing host. Same pattern as ArtifactParityGate. -->
     <Compile Include="../../../../build/Helpers/MachOReader.cs" Link="MachO/MachOReader.cs" />
+    <!-- Link-compile the per-test-identity runtime baseline model so its pure Compare/FromResults
+         ratchet logic (Finding 28) is unit-tested here without a project reference to _build. The
+         model is BCL-only with source-generated JSON (RuntimeIdentityBaselineJsonContext), so it
+         compiles AOT-clean under this project's IsAotCompatible + warnings-as-errors. -->
+    <Compile Include="../../../../build/Models/RuntimeIdentityBaseline.cs" Link="Models/RuntimeIdentityBaseline.cs" />
   </ItemGroup>
 
   <ItemGroup>

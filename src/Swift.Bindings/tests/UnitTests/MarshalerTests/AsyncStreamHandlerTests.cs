@@ -160,7 +160,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
 
-        Assert.Equal("IAsyncEnumerable<long>", result);
+        Assert.Equal("IAsyncEnumerable<nint>", result);
     }
 
     [Fact]
@@ -203,7 +203,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
 
-        Assert.Equal("IAsyncEnumerable<IReadOnlyList<long>>", result);
+        Assert.Equal("IAsyncEnumerable<IReadOnlyList<nint>>", result);
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
 
-        Assert.Equal("IAsyncEnumerable<IReadOnlySet<long>>", result);
+        Assert.Equal("IAsyncEnumerable<IReadOnlySet<nint>>", result);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
 
-        Assert.Equal("IAsyncEnumerable<IReadOnlyDictionary<Swift.SwiftString, long>>", result);
+        Assert.Equal("IAsyncEnumerable<IReadOnlyDictionary<Swift.SwiftString, nint>>", result);
     }
 
     #endregion
@@ -259,7 +259,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpInternalChannelElementType(typeSpec);
 
-        Assert.Equal("Swift.SwiftArray<long>", result);
+        Assert.Equal("Swift.SwiftArray<nint>", result);
     }
 
     [Fact]
@@ -273,7 +273,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpInternalChannelElementType(typeSpec);
 
-        Assert.Equal("Swift.SwiftSet<long>", result);
+        Assert.Equal("Swift.SwiftSet<nint>", result);
     }
 
     [Fact]
@@ -290,7 +290,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpInternalChannelElementType(typeSpec);
 
-        Assert.Equal("Swift.SwiftDictionary<Swift.SwiftString, long>", result);
+        Assert.Equal("Swift.SwiftDictionary<Swift.SwiftString, nint>", result);
     }
 
     #endregion
@@ -333,7 +333,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpElementType(typeSpec);
 
-        Assert.Equal("long", result);
+        Assert.Equal("nint", result);
     }
 
     [Fact]
@@ -365,7 +365,7 @@ public class AsyncStreamHandlerTests
             {
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,

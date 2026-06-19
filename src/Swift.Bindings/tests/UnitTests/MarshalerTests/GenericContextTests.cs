@@ -462,7 +462,7 @@ public class GenericContextTests
             {
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,

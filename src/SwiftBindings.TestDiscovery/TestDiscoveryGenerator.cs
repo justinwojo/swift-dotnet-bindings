@@ -31,6 +31,35 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    /// <summary>
+    /// SBTD002: a <c>Test*</c>-named method on a <c>TestBase</c> class that discovery silently drops
+    /// because it is non-public, <c>static</c>, or parameterized — none of which the registry-driven
+    /// invoker can call. A method that looks like a test but never runs is a false green, so this is
+    /// an Error: make it public/instance/parameterless, or rename it so it doesn't start with "Test".
+    /// (<c>async void</c> is NOT covered here — it IS discovered, then flagged by SBTD001.)
+    /// </summary>
+    private static readonly DiagnosticDescriptor NearMissTestMethodRule = new(
+        id: "SBTD002",
+        title: "Test method will not be discovered",
+        messageFormat: "Test method '{0}' on a 'TestBase' class is {1}, so test discovery silently skips it and it never runs (a false green). Make it public, instance, and parameterless, or rename it so it does not start with 'Test'.",
+        category: "SwiftBindings.TestDiscovery",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// SBTD003: a class named <c>*Tests</c> that declares public, instance, parameterless
+    /// <c>Test*</c> method(s) but does NOT derive <c>TestBase</c>, so discovery never sees it and
+    /// none of its tests run. Error severity — a whole silently-undiscovered test class is the
+    /// largest false-green shape. Add <c>: TestBase</c>.
+    /// </summary>
+    private static readonly DiagnosticDescriptor NonTestBaseTestClassRule = new(
+        id: "SBTD003",
+        title: "Test-named class does not derive TestBase",
+        messageFormat: "Class '{0}' is named like a test class and declares public 'Test*' method(s) but does not derive from 'TestBase'. Discovery never sees it, so none of its tests run; add ': TestBase'.",
+        category: "SwiftBindings.TestDiscovery",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Find all class declarations that inherit from TestBase
@@ -64,6 +93,36 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
 
             spc.AddSource("TestRegistry.g.cs", GenerateTestRegistry(validClasses));
             spc.AddSource("TestManifest.g.cs", GenerateTestManifest(validClasses));
+        });
+
+        // Separate, diagnostics-only pipeline for the discovery near-misses (SBTD002/SBTD003). It is
+        // intentionally NOT folded into the registry pipeline above: that one's syntactic predicate
+        // requires a base list (so a `*Tests` class missing `: TestBase` entirely would never be
+        // seen), and keeping the registry path untouched removes any risk of these widened candidates
+        // perturbing generated output. This pipeline emits no source — only diagnostics.
+        var nearMisses = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => IsDiagnosticCandidate(node),
+                transform: static (ctx, ct) => GetNearMissDiagnostics(ctx, ct))
+            .Where(static d => !d.IsDefaultOrEmpty)
+            .Collect();
+
+        context.RegisterSourceOutput(nearMisses, static (spc, perClass) =>
+        {
+            // A partial class can surface the same near-miss from more than one declaration node
+            // (the widened predicate admits base-less partials); collapse by (rule, args) so each
+            // problem is reported exactly once.
+            var reported = new HashSet<string>();
+            foreach (var perClassDiagnostics in perClass)
+            {
+                foreach (var nm in perClassDiagnostics)
+                {
+                    if (!reported.Add(nm.RuleId + "|" + string.Join("|", nm.Args)))
+                        continue;
+                    var descriptor = nm.RuleId == "SBTD002" ? NearMissTestMethodRule : NonTestBaseTestClassRule;
+                    spc.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None, nm.Args.ToArray()));
+                }
+            }
         });
     }
 
@@ -181,6 +240,84 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
             current = current.BaseType;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Syntactic filter for the SBTD002/SBTD003 diagnostics pipeline. Admits any non-abstract class
+    /// that either has a base type (a potential <c>TestBase</c> subclass with near-miss methods) or
+    /// is named <c>*Tests</c> (a potential test class missing <c>: TestBase</c> — which the registry
+    /// pipeline's base-list-required predicate would miss).
+    /// </summary>
+    private static bool IsDiagnosticCandidate(SyntaxNode node)
+    {
+        if (node is not ClassDeclarationSyntax classDecl)
+            return false;
+
+        if (classDecl.Modifiers.Any(SyntaxKind.AbstractKeyword))
+            return false;
+
+        var hasBaseList = classDecl.BaseList != null && classDecl.BaseList.Types.Count > 0;
+        return hasBaseList || classDecl.Identifier.Text.EndsWith("Tests", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Semantic pass for the near-miss diagnostics. On a <c>TestBase</c> subclass, flags every
+    /// <c>Test*</c> method discovery would silently drop (non-public / static / parameterized) as
+    /// SBTD002. On a <c>*Tests</c>-named class that does NOT derive <c>TestBase</c> but has a
+    /// would-be-discoverable <c>Test*</c> method, flags the class as SBTD003.
+    /// </summary>
+    private static ImmutableArray<NearMiss> GetNearMissDiagnostics(GeneratorSyntaxContext context, CancellationToken ct)
+    {
+        var classDecl = (ClassDeclarationSyntax)context.Node;
+        var classSymbol = context.SemanticModel.GetDeclaredSymbol(classDecl, ct);
+        if (classSymbol == null)
+            return ImmutableArray<NearMiss>.Empty;
+
+        var className = classSymbol.Name;
+        var builder = ImmutableArray.CreateBuilder<NearMiss>();
+
+        if (InheritsFromTestBase(classSymbol))
+        {
+            // SBTD002: a Test*-named method the registry-driven invoker cannot call. The reason
+            // ordering mirrors the discovery filter in GetTestClassInfo (public → instance →
+            // parameterless). async-void is excluded — it passes the filter and is SBTD001's job.
+            foreach (var member in classSymbol.GetMembers())
+            {
+                if (member is not IMethodSymbol method)
+                    continue;
+                if (method.MethodKind != MethodKind.Ordinary)
+                    continue;
+                if (!method.Name.StartsWith("Test", StringComparison.Ordinal))
+                    continue;
+
+                var reason =
+                    method.DeclaredAccessibility != Accessibility.Public ? "non-public" :
+                    method.IsStatic ? "static" :
+                    method.Parameters.Length != 0 ? "parameterized" :
+                    null;
+                if (reason == null)
+                    continue; // a fully-discoverable method — not a near-miss
+
+                builder.Add(new NearMiss("SBTD002",
+                    ImmutableArray.Create($"{className}.{method.Name}", reason)));
+            }
+        }
+        else if (className.EndsWith("Tests", StringComparison.Ordinal))
+        {
+            // SBTD003: a *Tests-named class that misses TestBase but has at least one method shaped
+            // exactly like a discoverable test (public, instance, parameterless, Test*-named).
+            var hasDiscoverableShape = classSymbol.GetMembers()
+                .OfType<IMethodSymbol>()
+                .Any(m => m.MethodKind == MethodKind.Ordinary
+                    && m.Name.StartsWith("Test", StringComparison.Ordinal)
+                    && m.DeclaredAccessibility == Accessibility.Public
+                    && !m.IsStatic
+                    && m.Parameters.Length == 0);
+            if (hasDiscoverableShape)
+                builder.Add(new NearMiss("SBTD003", ImmutableArray.Create(className)));
+        }
+
+        return builder.ToImmutable();
     }
 
     private static bool IsAsyncMethod(IMethodSymbol method)
@@ -340,6 +477,29 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
     }
 
     // Data models for incremental caching
+
+    /// <summary>
+    /// One near-miss diagnostic carried out of the syntax-transform stage. Value equality (with a
+    /// sequence-compared <see cref="Args"/>) keeps the incremental pipeline from re-reporting on an
+    /// unrelated edit, matching the hand-rolled equality on the other cached models below.
+    /// </summary>
+    private sealed class NearMiss : IEquatable<NearMiss>
+    {
+        public string RuleId { get; }
+        public ImmutableArray<string> Args { get; }
+
+        public NearMiss(string ruleId, ImmutableArray<string> args)
+        {
+            RuleId = ruleId;
+            Args = args;
+        }
+
+        public bool Equals(NearMiss? other)
+            => other is not null && RuleId == other.RuleId && Args.SequenceEqual(other.Args);
+
+        public override bool Equals(object? obj) => Equals(obj as NearMiss);
+        public override int GetHashCode() => RuleId.GetHashCode();
+    }
 
     private sealed class TestClassInfo : IEquatable<TestClassInfo>
     {

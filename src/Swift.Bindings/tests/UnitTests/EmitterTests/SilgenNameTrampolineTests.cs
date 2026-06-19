@@ -1119,7 +1119,7 @@ public class SilgenNameTrampolineTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,

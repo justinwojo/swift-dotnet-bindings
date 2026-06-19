@@ -97,7 +97,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<long>", result);
+        Assert.Equal("Swift.SwiftOptional<nint>", result);
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument);
 
-        Assert.Equal("Swift.SwiftOptional<long>", result);
+        Assert.Equal("Swift.SwiftOptional<nint>", result);
     }
 
     #endregion
@@ -166,7 +166,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<Swift.SwiftOptional<long>>", result);
+        Assert.Equal("Swift.SwiftOptional<Swift.SwiftOptional<nint>>", result);
     }
 
     #endregion
@@ -187,7 +187,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<Swift.SwiftArray<long>>", result);
+        Assert.Equal("Swift.SwiftOptional<Swift.SwiftArray<nint>>", result);
     }
 
     #endregion
@@ -241,7 +241,7 @@ public class OptionalHandlerTests
             {
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "$sSiMa",
                     Flags = TypeRecordFlags.Frozen,

@@ -423,9 +423,9 @@ public class TypeHandlerHelpersTests
         var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
             structDecl, "MyIterator", "TestModule", typeDatabase, validator);
 
-        // FullyQualifiedName for Swift.Int → CSharpTypeName.FromNamespaceAndName("System", "Int64")
-        // returns the C# alias form "long" (matches the rendering used elsewhere in the emitter).
-        Assert.Contains(interfaces, i => i == "IIterable<long>");
+        // FullyQualifiedName for Swift.Int → CSharpTypeName.NIntType
+        // returns the C# alias form "nint" (matches the rendering used elsewhere in the emitter).
+        Assert.Contains(interfaces, i => i == "IIterable<nint>");
     }
 
     [Fact]
@@ -446,7 +446,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -544,9 +544,9 @@ public class TypeHandlerHelpersTests
 
         Assert.True(resolved, "Closed PAT with concrete binding must resolve");
         Assert.Single(bindings);
-        // FullyQualifiedName for (System, Int64) is the C# alias "long" — same form
+        // FullyQualifiedName for NIntType is "nint" — same form
         // used in implements-list rendering.
-        Assert.Equal("long", bindings[0]);
+        Assert.Equal("nint", bindings[0]);
     }
 
     [Fact]
@@ -1840,7 +1840,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1859,7 +1859,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1889,7 +1889,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1919,7 +1919,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1962,7 +1962,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2000,7 +2000,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2031,7 +2031,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2087,7 +2087,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,

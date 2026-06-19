@@ -43,6 +43,20 @@ partial class Build
     [Parameter("Skip all builds, just install + run")] readonly bool SkipBuild;
     [Parameter("Pre-booted simulator or device UDID")] readonly string? DeviceUdid;
 
+    // Establishes (or re-establishes) the per-test-identity floor for the platform(s) run this
+    // invocation, instead of comparing against it. Used for the initial seed and to bless a
+    // newly-added intentional `[Skip]` (the runtime analog of hand-editing the pass count in
+    // validation-baseline.json downward). Only ever writes on a full, freshly-built, otherwise-green
+    // run — the same predicate the comparison and the count auto-update require.
+    [Parameter("Seed/refresh runtime-identity-baseline.json from this run instead of comparing")]
+    readonly bool SeedRuntimeIdentityBaseline;
+
+    // The per-test-identity ratchet layered over the scalar pass-count floor in
+    // validation-baseline.json. A separate file (a plain dictionary keyed by platform) so the
+    // unit-test project can link-compile RuntimeIdentityBaseline and test its Compare logic without
+    // dragging in the whole ValidationBaseline shape.
+    AbsolutePath RuntimeIdentityBaselinePath => BaselinesDir / "runtime-identity-baseline.json";
+
     // Platform selection for the consolidated `binding-tests` target. When none of these
     // flags are passed and --compile-only is not set, the target defaults to running the
     // iOS Simulator suite (the common developer inner loop). Multiple flags compose, so
@@ -2270,6 +2284,26 @@ partial class Build
             return;
         }
 
+        // Partial runs are not comparable to the canonical full-suite baseline, so skip the WHOLE
+        // comparison — both the scalar pass-count floor and the per-identity ratchet below.
+        //   * --class-filter runs a strict subset: its pass count is a fraction of the baseline
+        //     (the scalar floor would false-regress) and every other class's pass/skip identity is
+        //     absent (the identity ratchet would read mass "regressions").
+        //   * --skip-build reuses a possibly-stale installed app, whose results may not reflect
+        //     current source — comparing identities against it can both false-regress and false-green.
+        // This is the same conservative stance AbiGrid takes for partial runs (Build.AbiGrid.cs).
+        // NOTE: --skip-regen alone is deliberately NOT partial here. It reuses only the generated
+        // bindings; the app is still rebuilt and the FULL test suite runs, so every pass/skip
+        // identity is present and the comparison is valid (this is the documented runtime-change
+        // gate flow, `nuke binding-tests --skip-regen`).
+        if (!string.IsNullOrEmpty(ClassFilter) || SkipBuild)
+        {
+            Log.Information(
+                "Skipping runtime baseline comparison for {Platform}: partial run ({Reason}).",
+                platform, !string.IsNullOrEmpty(ClassFilter) ? $"--class-filter {ClassFilter}" : "--skip-build");
+            return;
+        }
+
         var baseline = ValidationBaseline.Load(BaselinePath);
         var runtimeBaseline = baseline.RuntimeTests;
 
@@ -2326,6 +2360,68 @@ partial class Build
                 $"Runtime test regression on {platform}: pass count dropped from {baselinePass} to {currentPass} (-{delta})");
         }
 
+        // ---------------------------------------------------------------------------------------
+        // Per-test-identity ratchet (Finding 28). The scalar floor above nets out per-test churn:
+        // a test that flips pass→skip while a sibling flips →pass leaves the pass count unchanged
+        // and stays green. The identity gate (runtime-identity-baseline.json — a separate file)
+        // closes that hole by gating on the identity of each non-pass test. It runs for both the
+        // unchanged-count and increased-count cases (a net-zero swap reaches here and is caught).
+        //
+        // Only meaningful on a clean-green run: a run with live fails/crashes already hard-fails
+        // upstream (the effectiveResult switch throws regardless), so comparing identities there
+        // would only add confusing dual diagnostics. A `skip → fail/crash` therefore still goes red
+        // via that upstream throw — it is simply not also diagnosed here. (Passes are stored by
+        // count only, not by name, so a 1:1 rename-with-replacement that holds the pass count
+        // constant is the accepted residual blind spot — see RuntimeIdentityBaseline's remarks.)
+        if (jsonlResults.CrashCount == 0 && jsonlResults.FailCount == 0)
+        {
+            var identityRecords = jsonlResults.Tests
+                .Select(t => new RuntimeIdentityBaseline.TestRecord(
+                    t.ClassName, t.TestName, t.Status, t.Error ?? ""))
+                .ToList();
+
+            if (SeedRuntimeIdentityBaseline)
+            {
+                // Explicit (re-)seed: bless the current identities as the floor for this platform.
+                // Used for the initial seed and to record a newly-added intentional skip. Does NOT
+                // touch validation-baseline.json — if you added a skip, also lower that platform's
+                // pass count there (count auto-update only ever raises, so lowering is a manual edit).
+                var seeded = (RuntimeIdentityBaseline.Load(RuntimeIdentityBaselinePath)
+                    .WithPlatform(platformKey, RuntimeIdentityBaseline.FromResults(identityRecords)))
+                    with { GitSha = ReadHeadShaShort() };
+                seeded.Save(RuntimeIdentityBaselinePath);
+                Log.Information(
+                    "Seeded runtime identity baseline for {Platform}: {Skips} skip(s), pass={Pass}.",
+                    platform, seeded.Platforms[platformKey].Skips.Count, currentPass);
+            }
+            else
+            {
+                var identityBaseline = RuntimeIdentityBaseline.Load(RuntimeIdentityBaselinePath);
+                var (idRegressions, idImprovements) =
+                    identityBaseline.Compare(platformKey, identityRecords);
+
+                foreach (var improvement in idImprovements)
+                    Log.Warning("IDENTITY IMPROVEMENT ({Platform}): {Detail}", platform, improvement);
+
+                if (idRegressions.Count > 0)
+                {
+                    foreach (var regression in idRegressions)
+                        Log.Error("IDENTITY REGRESSION ({Platform}): {Detail}", platform, regression);
+                    throw new Exception(
+                        $"Runtime test identity regression on {platform}: {idRegressions.Count} test(s) " +
+                        "changed status with no matching baseline entry. If intentional, re-seed with " +
+                        "`nuke binding-tests --skip-regen --seed-runtime-identity-baseline`.");
+                }
+
+                if (identityBaseline.Platforms.ContainsKey(platformKey))
+                    Log.Information("Identity baseline OK ({Platform}): no per-test status regressions.", platform);
+                else
+                    Log.Information(
+                        "No runtime identity baseline for {Platform} yet — identity gate inert until seeded " +
+                        "(run with --seed-runtime-identity-baseline).", platform);
+            }
+        }
+
         if (currentPass > baselinePass)
         {
             var delta = currentPass - baselinePass;
@@ -2362,6 +2458,28 @@ partial class Build
                 var newBaseline = baseline with { RuntimeTests = newRuntimeBaseline };
                 newBaseline.Save(BaselinePath);
                 Log.Information("Baseline auto-updated for {Platform}: pass={Pass}", platform, currentPass);
+
+                // Keep the identity floor in lockstep with the count floor (Finding 28 — the two
+                // stores must move together, else `pass` and skip-list cardinality drift). Refresh
+                // only an EXISTING platform entry: a green pass-count bump should prune resolved
+                // skips, but it must not silently establish a brand-new platform's skip set — initial
+                // seeding stays explicit via --seed-runtime-identity-baseline (which ran above if set).
+                if (!SeedRuntimeIdentityBaseline)
+                {
+                    var idBaseline = RuntimeIdentityBaseline.Load(RuntimeIdentityBaselinePath);
+                    if (idBaseline.Platforms.ContainsKey(platformKey))
+                    {
+                        var refreshed = idBaseline.WithPlatform(
+                            platformKey,
+                            RuntimeIdentityBaseline.FromResults(jsonlResults.Tests
+                                .Select(t => new RuntimeIdentityBaseline.TestRecord(
+                                    t.ClassName, t.TestName, t.Status, t.Error ?? ""))
+                                .ToList()))
+                            with { GitSha = ReadHeadShaShort() };
+                        refreshed.Save(RuntimeIdentityBaselinePath);
+                        Log.Information("Identity baseline refreshed for {Platform} (green improvement).", platform);
+                    }
+                }
             }
         }
         else

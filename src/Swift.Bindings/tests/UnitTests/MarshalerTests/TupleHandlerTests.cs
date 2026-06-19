@@ -240,7 +240,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetCSharpTupleType(tuple);
 
-        Assert.Equal("(long, Swift.SwiftString)", result);
+        Assert.Equal("(nint, Swift.SwiftString)", result);
     }
 
     [Fact]
@@ -252,7 +252,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetCSharpTupleType(tuple);
 
-        Assert.Equal("(long x, bool y)", result);
+        Assert.Equal("(nint x, bool y)", result);
     }
 
     [Fact]
@@ -280,7 +280,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetCSharpTupleType(tuple);
 
-        Assert.Equal("(long, bool, double)", result);
+        Assert.Equal("(nint, bool, double)", result);
     }
 
     #endregion
@@ -298,7 +298,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<long, Swift.SwiftString>", result);
+        Assert.Equal("ValueTuple<nint, Swift.SwiftString>", result);
     }
 
     [Fact]
@@ -313,7 +313,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<long, bool, double>", result);
+        Assert.Equal("ValueTuple<nint, bool, double>", result);
     }
 
     [Fact]
@@ -379,7 +379,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<IntPtr, long>", result);
+        Assert.Equal("ValueTuple<IntPtr, nint>", result);
     }
 
     [Fact]
@@ -408,7 +408,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<IntPtr, long>", result);
+        Assert.Equal("ValueTuple<IntPtr, nint>", result);
     }
 
     [Fact]
@@ -926,7 +926,7 @@ public class TupleHandlerTests
             {
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,

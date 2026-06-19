@@ -47,9 +47,9 @@ public class ConformanceGraphResolutionTests
 
         var result = handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
-        // Graph resolves Element → Swift.Int → System.Int64
+        // Graph resolves Element → Swift.Int → nint (pointer-sized)
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("long", result);
+        Assert.Contains("nint", result);
         Assert.DoesNotContain("AnyType", result);
     }
 
@@ -302,8 +302,8 @@ public class ConformanceGraphResolutionTests
 
         var result = handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
-        // Both protocols agree: Element → Swift.Int → Int64
-        Assert.Contains("long", result);
+        // Both protocols agree: Element → Swift.Int → nint (pointer-sized)
+        Assert.Contains("nint", result);
         Assert.DoesNotContain("AnyType", result);
     }
 
@@ -365,7 +365,7 @@ public class ConformanceGraphResolutionTests
                 },
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,

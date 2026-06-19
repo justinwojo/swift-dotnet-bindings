@@ -171,10 +171,10 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        Assert.Contains("public virtual long Count", csOutput);
-        Assert.Contains("get => Count_Get();", csOutput);
-        Assert.Contains("set => Count_Set(value);", csOutput);
-        Assert.Contains("public long Count_Get()", csOutput);
+        Assert.Contains("public virtual int Count", csOutput);
+        Assert.Contains("get => (int)Count_Get();", csOutput);
+        Assert.Contains("set => Count_Set((nint)value);", csOutput);
+        Assert.Contains("public nint Count_Get()", csOutput);
         Assert.Contains("public void Count_Set(", csOutput);
     }
 
@@ -208,7 +208,7 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        Assert.Contains("public virtual long AnimationValue", csOutput);
+        Assert.Contains("public virtual int AnimationValue", csOutput);
         Assert.DoesNotContain("public virtual long Animation\n", csOutput);
     }
 
@@ -231,7 +231,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Contains("public IAsyncEnumerable<long> Updates", csOutput);
+        Assert.Contains("public IAsyncEnumerable<nint> Updates", csOutput);
         Assert.Contains("private static unsafe byte updates_AsyncStream_OnElement", csOutput);
         Assert.Contains("PInvoke_Feed_updates_AsyncStream", csOutput);
         Assert.Contains("public func Feed_updates_AsyncStream", swiftOutput);
@@ -489,14 +489,14 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        // Property type should be IReadOnlyList<long>
-        Assert.Contains("public virtual IReadOnlyList<long> Items", csOutput);
+        // Property type should be IReadOnlyList<nint>
+        Assert.Contains("public virtual IReadOnlyList<nint> Items", csOutput);
         // Getter: SwiftArray IS the returned IReadOnlyList — NO using (disposing would invalidate it)
         Assert.DoesNotContain("using var __ret", csOutput);
         Assert.Contains("get => Items_Get();", csOutput);
         // Setter: FromEnumerable creates a disposable SwiftArray — needs using
         Assert.Contains("using var __val", csOutput);
-        Assert.Contains("SwiftArray<long>.FromEnumerable(value)", csOutput);
+        Assert.Contains("SwiftArray<nint>.FromEnumerable(value)", csOutput);
     }
 
     [Fact]
@@ -530,7 +530,7 @@ public class PropertyHandlerTests
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
         // Property type should be long?
-        Assert.Contains("public virtual long? Timeout", csOutput);
+        Assert.Contains("public virtual int? Timeout", csOutput);
         // Getter: SwiftOptional is IDisposable — needs using, explicit HasValue/Some check
         // (implicit operator T?(SwiftOptional<T>) is broken for value types)
         Assert.Contains("using var __ret", csOutput);
@@ -538,7 +538,7 @@ public class PropertyHandlerTests
         Assert.Contains(".Some", csOutput);
         // Setter: SwiftOptional.NewSome/NewNone creates IDisposable — needs using
         Assert.Contains("using var __val", csOutput);
-        Assert.Contains("SwiftOptional<long>.NewSome", csOutput);
+        Assert.Contains("SwiftOptional<nint>.NewSome", csOutput);
     }
 
     [Fact]
@@ -831,7 +831,7 @@ public class PropertyHandlerTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1839,7 +1839,7 @@ public class PropertyHandlerTests
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
         // The main property should be renamed to DisplayableValue (CS0542 avoidance)
-        Assert.Contains("public virtual long DisplayableValue", csOutput);
+        Assert.Contains("public virtual int DisplayableValue", csOutput);
         // Explicit interface implementation should exist
         Assert.Contains("IDisplayable.Displayable", csOutput);
         // The explicit interface impl should have ONLY a getter (matching protocol shape)

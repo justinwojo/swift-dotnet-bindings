@@ -1055,7 +1055,7 @@ public class AsyncSwiftWrapperTests
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
         swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            CSharpTypeName = CSharpTypeName.NIntType,
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             MetadataAccessor = "$sSiMa",
             Flags = TypeRecordFlags.Frozen,
@@ -1158,7 +1158,7 @@ public class AsyncSwiftWrapperTests
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
         swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            CSharpTypeName = CSharpTypeName.NIntType,
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             MetadataAccessor = "$sSiMa",
             Flags = TypeRecordFlags.Frozen,
@@ -1195,7 +1195,7 @@ public class AsyncSwiftWrapperTests
         var module = new ModuleTypeDatabase("TestModule", "/path/to/TestModule.framework/TestModule");
         var swiftIntRecord = new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            CSharpTypeName = CSharpTypeName.NIntType,
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             MetadataAccessor = "$sSiMa",
             Flags = TypeRecordFlags.Frozen,
@@ -1276,7 +1276,7 @@ public class AsyncSwiftWrapperTests
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
         swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            CSharpTypeName = CSharpTypeName.NIntType,
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             MetadataAccessor = "$sSiMa",
             Flags = TypeRecordFlags.Frozen,

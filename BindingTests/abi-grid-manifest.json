@@ -357,6 +357,42 @@
       "reason": "OWNER leg of the async closure-param fan-out — same rationale as generics.closure-fanout.async.closure-param.peer: the shared sync witness cannot route an async receiver thunk's Task result through the sync @convention(c) pointer, so async closure-param reverse dispatch is compile-gated only and the runtime fixture is [Skip]. The fixture gates that the async conformance compiles without regressing the sync fan-out.",
       "runtimes": ["sim", "device"],
       "mapping": [{ "class": "ClosureFanOutTests", "method": "TestAsyncClosureFan_OwnerExistential" }]
+    },
+
+    {
+      "id": "generics.enum.nested-generic.unverified.factory",
+      "disposition": "expect-green",
+      "runtimeNote": "CONSUMER-DIRECTION (C#-construction) round-trip on a generic enum with a nested type on the generic outer: C# builds `VerificationOutcome<SwiftString>.Failure.Expired` and hands it INTO Swift via MakeUnverifiedOutcomeString (param leg, C#->Swift), then destructures the returned `.unverified(String, Failure)` outer case (return leg, Swift->C#). Guards the nested-type-on-generic-outer emission fix (the nested `Failure` subtracts ancestor-inherited generic params so it declares no own params; previously CS0693/CS0305). This is the inverted direction the symbol/arity/vtable parity gates do not assert — they cover Swift->C# artifact emission, not a C#-built generic-enum case crossing back in. Both runtimes: tuple-payload marshalling + generic-enum metadata differ between Mono JIT (sim) and NativeAOT (device).",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "VerificationOutcomeTests", "method": "TestUnverifiedFactoryPreservesStringAndFailureTag" }]
+    },
+    {
+      "id": "generics.enum.nested-generic.unverified.tuple-destructure",
+      "disposition": "expect-green",
+      "runtimeNote": "Return-leg detail of the same C#-construction round-trip: asserts TryGetUnverified destructures the `.unverified` payload tuple positionally — element 0 the String payload, element 1 the nested `Failure.Expired` case. Exercises mixed-payload (String + nested-enum) tuple extraction from a generic enum back into C#. Both runtimes for the same tuple-marshalling/metadata reason.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "VerificationOutcomeTests", "method": "TestTryGetUnverifiedDestructuresTupleCorrectly" }]
+    },
+    {
+      "id": "generics.enum.nested-generic.unverified.all-failure-cases",
+      "disposition": "expect-green",
+      "runtimeNote": "Breadth leg: C# constructs each nested `Failure` case (Expired/Malformed/NotAuthorized) and round-trips it through Swift, asserting the case tag and String payload survive both directions for every case. Proves the nested-case C#-construction surface is complete, not just the first case. Both runtimes.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "VerificationOutcomeTests", "method": "TestUnverifiedRoundTripsAllFailureCases" }]
+    },
+    {
+      "id": "generics.enum.nested-generic.unverified.large-payload",
+      "disposition": "expect-green",
+      "runtimeNote": "Payload-size leg: a 64 KiB String payload round-trips through the C#-constructed generic-enum factory, guarding the SBW_Utf8Slice bridge against truncation/boundary bugs on a large associated value carried inside a generic enum. Both runtimes.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "VerificationOutcomeTests", "method": "TestUnverifiedHandlesLargeStringPayload" }]
+    },
+    {
+      "id": "generics.enum.nested-generic.verified.roundtrip",
+      "disposition": "expect-green",
+      "runtimeNote": "The non-failure sibling case: C# round-trips the `.verified(String)` case (MakeVerifiedOutcomeString) and asserts TryGetVerified yields the payload while TryGetUnverified correctly returns false on a Verified value. Confirms the nested-type fix did not regress the outer enum's other case. Both runtimes.",
+      "runtimes": ["sim", "device"],
+      "mapping": [{ "class": "VerificationOutcomeTests", "method": "TestVerifiedStillWorksAfterNestedTypeFix" }]
     }
   ]
 }

@@ -690,7 +690,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public bool TryGetPair([MaybeNullWhen(false)] out long value0, [MaybeNullWhen(false)] out bool value1)", csOutput);
+        Assert.Contains("public bool TryGetPair([MaybeNullWhen(false)] out nint value0, [MaybeNullWhen(false)] out bool value1)", csOutput);
         Assert.Contains("Pair = 0,", csOutput);
         Assert.Contains("None = 1,", csOutput);
     }
@@ -712,8 +712,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         Assert.Contains("public static unsafe PlaybackMode Paused(", csOutput);
-        Assert.Contains("public static long Active", csOutput);
-        Assert.DoesNotContain("public static long Paused", csOutput);
+        Assert.Contains("public static int Active", csOutput);
+        Assert.DoesNotContain("public static int Paused", csOutput);
     }
 
     [Fact]
@@ -1089,7 +1089,7 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1538,7 +1538,7 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2022,7 +2022,7 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2122,7 +2122,7 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2399,7 +2399,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // P/Invoke signature: unknown element becomes IntPtr in the ValueTuple
-        Assert.Contains("ValueTuple<long, IntPtr> value)", csOutput);
+        Assert.Contains("ValueTuple<nint, IntPtr> value)", csOutput);
         // Call site: known element passes directly, unknown element extracts SafeHandle payload
         Assert.Contains("value.Item2.Payload.DangerousGetHandle()", csOutput);
         // The AnyType class name should NOT appear in the P/Invoke ValueTuple
@@ -2780,7 +2780,7 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,

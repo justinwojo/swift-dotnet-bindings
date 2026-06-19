@@ -225,6 +225,20 @@ closure-param cells (which are naturally reverse-dispatch-shaped) land the `Pres
 entry as part of fixture authoring, not after a red. Direct (non-reverse) closure-return cells
 don't need it.
 
+**Standing rule — directionality is tracked by the grid, not by humans.** Every new
+**reverse-dispatch** (C# implements a Swift protocol, Swift calls back) or **C#-construction**
+(C# builds a value — e.g. a generic-enum case — and hands it *into* Swift, then reads it back)
+fixture gets an `expect-green` cell in `abi-grid-manifest.json`. These are the inverted
+direction the count-only per-commit gates net out (a `pass→skip` on a consumer-direction test
+hides behind an unchanged total): the symbol/arity/vtable parity gates assert the *artifact*
+direction (Swift→C# emission), but only an `expect-green` cell makes a **missing** or skipped
+consumer-direction round-trip surface as a non-green cell instead of passing silently. So when
+you author a fixture whose value crosses C#→Swift (a factory round-trip, an `inout` writeback,
+a reverse-dispatched callback), add its cell in the same change — the grid, not a reviewer,
+then owns the guarantee that the inverted direction stays covered. The generic-enum
+`VerificationOutcome<T>` factory round-trips (`generics.enum.nested-generic.unverified.*` /
+`.verified.roundtrip`) are the worked example.
+
 ## 9. Ratchet / baseline — deferred
 
 The first slice is **discovery**: the first full run establishes ground truth. A committed

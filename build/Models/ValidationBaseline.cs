@@ -25,6 +25,9 @@ public record ValidationBaseline
     [JsonPropertyName("runtime_tests")]
     public RuntimeTestsBaseline? RuntimeTests { get; init; }
 
+    [JsonPropertyName("unit_tests")]
+    public UnitTestsBaseline? UnitTests { get; init; }
+
     public record CompileGate
     {
         [JsonPropertyName("libraries")]
@@ -74,6 +77,18 @@ public record ValidationBaseline
         [JsonPropertyName("fail")] public int Fail { get; init; }
         [JsonPropertyName("skip")] public int Skip { get; init; }
         [JsonPropertyName("crash")] public int Crash { get; init; }
+    }
+
+    /// <summary>
+    /// Pass-count floor for the unit-test layer (Finding 28's "unit tests have no baseline at all").
+    /// Keyed on <c>Swift.Bindings.Unit.Tests</c> ONLY: <c>Swift.Analyzers.Tests</c> is deliberately
+    /// excluded because its reference-pack download fails in the sandbox (environmental — see memory
+    /// <c>feedback_analyzer_tests_need_refpack</c>), so flooring it would red the gate spuriously.
+    /// </summary>
+    public record UnitTestsBaseline
+    {
+        [JsonPropertyName("swift_bindings_unit_pass_floor")]
+        public int SwiftBindingsUnitPassFloor { get; init; }
     }
 
     public record SkipMetricsBaseline

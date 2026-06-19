@@ -1125,7 +1125,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftDictionary", result);
-        Assert.Contains("long", result); // Int maps to long (keyword alias)
+        Assert.Contains("nint", result); // Int maps to nint (pointer-sized)
         Assert.Contains("ExistentialContainer0", result);
         Assert.DoesNotContain("AnyType", result);
     }
@@ -2437,7 +2437,7 @@ public class BoundGenericsHandlerTests
             {
                 ["Swift.Int"] = new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    CSharpTypeName = CSharpTypeName.NIntType,
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
@@ -3349,7 +3349,7 @@ public class BoundGenericsHandlerTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,

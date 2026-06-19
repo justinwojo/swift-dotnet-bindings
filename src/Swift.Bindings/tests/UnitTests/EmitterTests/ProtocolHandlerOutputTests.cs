@@ -179,8 +179,8 @@ public class ProtocolHandlerOutputTests
         // C# interface inheritance is disabled (GetInheritedInterfaceList returns empty)
         Assert.Contains("public interface ICacheable", csOutput);
         Assert.DoesNotContain(": ISwiftHashable", csOutput);
-        Assert.Contains("long Count { get; }", csOutput);
-        Assert.Contains("Task<long> FetchAsync(long key, global::System.Threading.CancellationToken cancellationToken = default);", csOutput);
+        Assert.Contains("int Count { get; }", csOutput);
+        Assert.Contains("Task<nint> FetchAsync(nint key, global::System.Threading.CancellationToken cancellationToken = default);", csOutput);
         Assert.Contains("public unsafe partial class CacheableProxy : ICacheable, ISwiftObject, IDisposable", csOutput);
     }
 
@@ -300,7 +300,7 @@ public class ProtocolHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -573,9 +573,9 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Interface should contain GetData with valid Container<long> return
-        Assert.Contains("TestModule.Container<long> GetData();", csOutput);
+        Assert.Contains("TestModule.Container<nint> GetData();", csOutput);
         // Proxy should also have GetData
-        Assert.Contains("public TestModule.Container<long> GetData()", csOutput);
+        Assert.Contains("public TestModule.Container<nint> GetData()", csOutput);
     }
 
     [Theory]
@@ -1257,7 +1257,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("void Interpolate(long value, string value2);", csOutput);
+        Assert.Contains("void Interpolate(nint value, string value2);", csOutput);
     }
 
     #endregion
@@ -1314,7 +1314,7 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Interface subscript should use nullable int?, not SwiftOptional
-        Assert.Contains("long?", csOutput);
+        Assert.Contains("int?", csOutput);
         Assert.Contains("this[", csOutput);
         // Parameters should also be converted (SwiftString → string)
         Assert.Contains("string", csOutput);
@@ -1422,7 +1422,7 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Parameter "value" is no longer sanitized — it's valid as a parameter name
-        Assert.Contains("this[long value]", csOutput);
+        Assert.Contains("this[nint value]", csOutput);
         Assert.DoesNotContain("this[long _value]", csOutput);
     }
 
@@ -1490,7 +1490,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("this[long value, string value2]", csOutput);
+        Assert.Contains("this[nint value, string value2]", csOutput);
     }
 
     #endregion
@@ -1569,7 +1569,7 @@ public class ProtocolHandlerOutputTests
 
         var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class CalculatorProxy"));
         Assert.Contains("void Reset()", interfacePart);
-        Assert.Contains("long GetResult()", interfacePart);
+        Assert.Contains("nint GetResult()", interfacePart);
     }
 
     [Fact]
@@ -1749,7 +1749,7 @@ public class ProtocolHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -1956,7 +1956,7 @@ public class ProtocolHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -2520,7 +2520,7 @@ public class ProtocolHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
@@ -4298,7 +4298,7 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Inspect emitted method declaration; allow NameProvider whatever name it derives.
-        Assert.Matches(@"long\s+\w+\(\)\s*\n?\s*=>\s+default!;", csOutput);
+        Assert.Matches(@"nint\s+\w+\(\)\s*\n?\s*=>\s+default!;", csOutput);
         Assert.DoesNotContain("ProgressTotal();", csOutput); // no plain interface requirement form
     }
 
@@ -4361,7 +4361,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("long Label => default!;", csOutput);
+        Assert.Contains("int Label => default!;", csOutput);
         Assert.DoesNotContain("long Label { get; }", csOutput);
     }
 
@@ -4415,9 +4415,9 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // The DIM body must use Task.FromResult<long>(default!) — NOT `=> default!;`.
-        Assert.Matches(@"Task<long>\s+\w+\([^)]*\)\s*\n?\s*=>\s+global::System\.Threading\.Tasks\.Task\.FromResult<long>\(default!\);", csOutput);
+        Assert.Matches(@"Task<nint>\s+\w+\([^)]*\)\s*\n?\s*=>\s+global::System\.Threading\.Tasks\.Task\.FromResult<nint>\(default!\);", csOutput);
         // Negative: must NOT fall through to the bare `=> default!;` body for Task<T>.
-        Assert.DoesNotMatch(@"Task<long>\s+\w+\([^)]*\)\s*\n?\s*=>\s+default!;", csOutput);
+        Assert.DoesNotMatch(@"Task<nint>\s+\w+\([^)]*\)\s*\n?\s*=>\s+default!;", csOutput);
     }
 
     #endregion

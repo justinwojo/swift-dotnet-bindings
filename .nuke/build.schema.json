@@ -272,6 +272,10 @@
           "type": "boolean",
           "description": "Reuse cached validation output"
         },
+        "SeedRuntimeIdentityBaseline": {
+          "type": "boolean",
+          "description": "Seed/refresh runtime-identity-baseline.json from this run instead of comparing"
+        },
         "Serial": {
           "type": "boolean",
           "description": "Run sequentially (no parallelism)"
