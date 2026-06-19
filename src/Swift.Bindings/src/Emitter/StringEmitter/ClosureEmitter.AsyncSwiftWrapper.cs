@@ -487,6 +487,26 @@ public static partial class ClosureEmitter
             : $"_SBW_{sanitizedModule}_asyncBoxNT_{hash}";
     }
 
+    /// <summary>
+    /// Resolves the continuation-box class name and the success/error <c>@_cdecl</c> symbol root for a
+    /// given <c>(module, T, isThrowing)</c> triple — the SAME names <see cref="EmitAsyncClosureBoxIfNeeded"/>
+    /// emits. Lets a non-closure caller (the S13 Pillar C real-async reverse-dispatch witness, emitted by
+    /// <c>EveryProtocolEmitter</c>) reference the shared box symbols its Swift suspend body hands the
+    /// continuation to, instead of duplicating the hash/sanitize/shape derivation. The box itself must be
+    /// emitted (once) via <see cref="EmitAsyncClosureBoxIfNeeded"/> with the same triple.
+    /// </summary>
+    public static (string BoxClassName, string SymbolRoot) GetAsyncClosureBoxSymbols(
+        string moduleName, string swiftReturnType, bool isThrowing)
+    {
+        var sanitizedModule = SanitizeModuleName(moduleName);
+        var hash = EmitterUtility.DeterministicHash8(swiftReturnType);
+        var isDataReturn = IsDataReturnType(swiftReturnType);
+        var isStringReturn = IsStringReturnType(swiftReturnType);
+        return (
+            GetAsyncClosureBoxClassName(sanitizedModule, hash, isThrowing, isDataReturn, isStringReturn),
+            GetAsyncClosureSymbolRoot(sanitizedModule, hash, isThrowing, isDataReturn, isStringReturn));
+    }
+
     private static bool IsDataReturnType(string swiftReturnType)
         => swiftReturnType == "Foundation.Data" || swiftReturnType == "Swift.Foundation.Data";
 

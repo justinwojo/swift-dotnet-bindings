@@ -396,6 +396,46 @@ public class VtableLayoutBuilderTests
         Assert.Equal(2, Assert.Single(layout.IncludedMethods).Width);
     }
 
+    [Fact]
+    public void Build_RealAsyncWitnessMethod_AddsThreeTrailingSlotsOverSyncTwin()
+    {
+        // A real-async reverse-dispatch witness (S13 Pillar C) keeps the same slot INDEX but a wider
+        // Start-thunk signature: +3 trailing pointer slots (continuation box, success FP, error FP) on
+        // top of the value-param width. The sync twin of the identical shape carries only the value-param
+        // width — pinning that the +3 is real-async-specific, and that this width oracle (keyed on
+        // EmitsRealAsyncWitness) is the SAME one the Swift `_vtable` struct field, the C# local delegate
+        // field, and the receiver all read so the slot cannot skew across artifacts (Bug #21 class).
+        var asyncProto = CreateProtocol("A");
+        asyncProto.Methods.Add(RealAsyncMethod("compute", throws: false));
+        var asyncWidth = Assert.Single(_builder.Build(asyncProto).IncludedMethods).Width;
+
+        var syncProto = CreateProtocol("S");
+        var syncTwin = RealAsyncMethod("compute", throws: false);
+        syncTwin.IsAsync = false; // identical shape, minus the async effect → no widening
+        syncProto.Methods.Add(syncTwin);
+        var syncWidth = Assert.Single(_builder.Build(syncProto).IncludedMethods).Width;
+
+        Assert.Equal(syncWidth + 3, asyncWidth);
+        Assert.Equal(1, syncWidth);   // one Int32 value param → one pointer slot
+        Assert.Equal(4, asyncWidth);  // 1 value-param slot + 3 real-async trailing slots
+    }
+
+    [Fact]
+    public void Build_RealAsyncWitnessMethod_WidthIsThrowingAgnostic()
+    {
+        // The widened slot is +3 whether the requirement is `async` or `async throws`: the throwing box
+        // still hands back exactly (continuation box, success FP, error FP). The throwing effect selects
+        // the box variant per-site (CheckedContinuation<T, Error> vs <T, Never>), never the slot width.
+        var nonThrowing = CreateProtocol("N");
+        nonThrowing.Methods.Add(RealAsyncMethod("compute", throws: false));
+        var throwing = CreateProtocol("T");
+        throwing.Methods.Add(RealAsyncMethod("compute", throws: true));
+
+        Assert.Equal(
+            Assert.Single(_builder.Build(nonThrowing).IncludedMethods).Width,
+            Assert.Single(_builder.Build(throwing).IncludedMethods).Width);
+    }
+
     // ---- determinism / path-independence ----------------------------------------------------
 
     [Fact]
@@ -499,5 +539,27 @@ public class VtableLayoutBuilderTests
         IsGeneric = false,
         ParentDecl = null,
         ModuleDecl = null,
+    };
+
+    // A real-async-eligible witness: `func name(_ n: Int32) async [throws] -> Int32`. CSSignature[0] is
+    // the Int32 return slot; [1] is one Int32 value param — the exact shape EmitsRealAsyncWitness accepts,
+    // so GetWidth widens it by +3.
+    private static MethodDecl RealAsyncMethod(string name, bool throws) => new MethodDecl
+    {
+        Name = name,
+        MangledName = $"$s{name}",
+        MethodType = MethodType.Instance,
+        IsConstructor = false,
+        CSSignature = new List<ArgumentDecl>
+        {
+            Param("", new NamedTypeSpec("Swift.Int32")),  // return
+            Param("n", new NamedTypeSpec("Swift.Int32")), // value param
+        },
+        GenericParameters = new List<GenericArgumentDecl>(),
+        ParentDecl = null,
+        ModuleDecl = null,
+        Throws = throws,
+        IsAsync = true,
+        IsSynthesizedAccessor = false,
     };
 }

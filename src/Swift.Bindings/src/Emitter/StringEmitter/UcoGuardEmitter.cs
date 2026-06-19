@@ -37,14 +37,20 @@ namespace BindingsGeneration;
 /// <para>The <c>member</c> parameter of <see cref="EmitClose"/> selects a member-named refinement
 /// of the <see cref="UcoFaultPolicy.FailFast"/> close for async protocol-requirement receivers
 /// (<see cref="EmitCloseAsyncWitnessFailFast"/> is a thin convenience wrapper over it, so there is
-/// one close-emitter, not two). The async witness is satisfied through the synchronously-blocked
-/// reverse-dispatch slot (the async witness ABI hits the Mono reverse-async assertion, upstream
-/// Issue 1), which exposes no Swift error channel — even for an <c>async throws</c> requirement —
-/// so any escaping exception is still process-terminating. The refinement only makes the FailFast
-/// loud and attributable: a cancellation-specific arm (<see cref="System.OperationCanceledException"/>,
-/// the routine C# control-flow exception a token wired into the conformance would raise) and a
-/// general arm, both naming the protocol member (Finding 36). The real async/error witness that
-/// would carry the error back is Session 13.</para>
+/// one close-emitter, not two). It applies to the <em>legacy blocking</em> async receiver only —
+/// the fallback for async requirements the real reverse-async witness predicate rejects
+/// (<see cref="EveryProtocolEmitter.EmitsRealAsyncWitness"/>: non-primitive return, arity &gt; 4,
+/// generic/Self shapes). That fallback still satisfies the async requirement
+/// through a synchronously-blocked reverse-dispatch slot (which hits the Mono reverse-async
+/// assertion, upstream Issue 1) exposing no Swift error channel — even for an <c>async throws</c>
+/// requirement — so any escaping exception is process-terminating. The refinement only makes the
+/// FailFast loud and attributable: a cancellation-specific arm
+/// (<see cref="System.OperationCanceledException"/>, the routine C# control-flow exception a token
+/// wired into the conformance would raise) and a general arm, both naming the protocol member
+/// (Finding 36). Primitive-shaped async requirements no longer reach this close: the S13 Pillar C
+/// real reverse-async witness hands the continuation back to Swift and resumes it with the error
+/// (throwing requirement) via <see cref="UcoFaultPolicy.ResumeBoxError"/>, or FailFasts only on a
+/// non-throwing fault.</para>
 /// </summary>
 public static class UcoGuardEmitter
 {
@@ -185,14 +191,18 @@ public static class UcoGuardEmitter
     }
 
     /// <summary>
-    /// Closes the <c>try</c> opened by <see cref="EmitOpen"/> for an <b>async</b> protocol-requirement
-    /// receiver with a member-named refinement of the <see cref="UcoFaultPolicy.FailFast"/> close
-    /// (Finding 36). A thin convenience wrapper over <see cref="EmitClose"/> with <c>member</c> set, so
-    /// there is one close-emitter, not two. The async witness blocks the C# <c>Task</c> on the
-    /// synchronously-blocked reverse-dispatch slot (upstream Issue 1) and has no Swift error channel,
-    /// so any escaping exception is process-terminating exactly as for the plain FailFast policy — this
-    /// only names the member and splits out the cancellation case so the fault is attributable rather
-    /// than anonymous.
+    /// Closes the <c>try</c> opened by <see cref="EmitOpen"/> for a <b>legacy blocking async</b>
+    /// protocol-requirement receiver with a member-named refinement of the
+    /// <see cref="UcoFaultPolicy.FailFast"/> close (Finding 36). A thin convenience wrapper over
+    /// <see cref="EmitClose"/> with <c>member</c> set, so there is one close-emitter, not two. This is
+    /// the fallback close only — async requirements the real reverse-async witness predicate rejects
+    /// (<see cref="EveryProtocolEmitter.EmitsRealAsyncWitness"/>: non-primitive return, arity &gt; 4,
+    /// generic/Self). That fallback blocks the C# <c>Task</c> on the synchronously-blocked
+    /// reverse-dispatch slot (upstream Issue 1) and has no Swift error channel, so any escaping
+    /// exception is process-terminating exactly as for the plain FailFast policy — this only names the
+    /// member and splits out the cancellation case so the fault is attributable rather than anonymous.
+    /// Primitive-shaped async requirements use the real reverse-async witness, which resumes the Swift
+    /// continuation box with the error instead of FailFasting.
     /// </summary>
     /// <param name="member">
     /// A human-readable protocol-member descriptor (e.g. <c>Protocol.method</c>) embedded verbatim in

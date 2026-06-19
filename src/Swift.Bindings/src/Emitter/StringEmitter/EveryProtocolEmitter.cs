@@ -978,10 +978,14 @@ public class EveryProtocolEmitter
         {
             foreach (var (method, idx) in EnumerateProtocolMethodsForDispatch(p))
             {
-                // Owner/peer dedup keys off the EMITTED Swift witness (default: async omitted), so a
-                // sync method and the async one it refines share one owner + an empty-extension peer.
+                // Owner/peer dedup keys off the EMITTED Swift witness shape. A real-async witness
+                // (S13 Pillar C) emits `func m(...) async throws -> T` — a DISTINCT Swift declaration
+                // from the sync witness `func m(...) -> T` (effect overloading), so it must carry the
+                // `async` effect in the key and form its OWN owner group, emitting its own async body.
+                // A sync method, and an async method whose shape falls back to the blocking sync witness,
+                // both keep the async-OMITTED key so they still share one owner + empty-extension peer.
                 // The C# fan-out distinction lives in ComputeSiblingMethodFallbacks (includeAsyncEffect:true).
-                var key = GetSwiftMethodFullSignature(method);
+                var key = GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method));
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, MethodDecl, int)>();
@@ -998,7 +1002,7 @@ public class EveryProtocolEmitter
         {
             foreach (var p in filteredPeers)
                 foreach (var (method, _) in EnumerateProtocolMethodsForDispatch(p))
-                    filteredKeys.Add(GetSwiftMethodFullSignature(method));
+                    filteredKeys.Add(GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method)));
         }
 
         // A sibling only contributes a fan-out BRANCH if its protocol actually emits a per-protocol
@@ -1022,10 +1026,14 @@ public class EveryProtocolEmitter
             // CLOSURE-param method that body is the non-dispatchable fatalError stub (all real
             // closure dispatch gates reject method.IsAsync) — leaving the sync siblings' empty
             // extensions unsatisfied ("does not conform") and force-routing the sync siblings through
-            // a stub. Because the grouping is async/throws-INSENSITIVE (GetSwiftMethodFullSignature
-            // omits both), a mixed group must hand the body to a sync, non-throwing sibling when one
-            // exists. All-sync / all-async / all-throwing groups keep GetProtocolFallbackKey order
-            // (stable sort), so output is byte-identical for every non-mixed group.
+            // a stub. The grouping key carries `async` ONLY for a real-async witness
+            // (includeAsyncEffect: EmitsRealAsyncWitness), so a real-async method forms its OWN
+            // async-keyed group and never lands here mixed with sync siblings; the residual mixed
+            // groups are sync members plus NON-real-async async members (e.g. closure-param async,
+            // whose key omits `async`), and such a group must still hand the body to a sync,
+            // non-throwing sibling when one exists. All-sync / all-async(-non-real) / all-throwing
+            // groups keep GetProtocolFallbackKey order (stable sort), so output is byte-identical for
+            // every non-mixed group.
             var ownerEntry = entries
                 .OrderBy(e => e.Method.IsAsync ? 1 : 0)
                 .ThenBy(e => e.Method.Throws ? 1 : 0)
@@ -1112,7 +1120,21 @@ public class EveryProtocolEmitter
                 // `FooAsync`), so they must land in SEPARATE groups — the sync receiver must not
                 // fall back into the async-base interface (CS1061). Contrast ComputeMethodEmissionPlans,
                 // which keys off the emitted Swift witness (async omitted) so the two share one owner.
-                var key = GetSwiftMethodFullSignature(method, includeAsyncEffect: true);
+                //
+                // Inout-sensitivity: a value param and an inout param of the same type also project to
+                // DIFFERENT C# members (`T arg` vs `ref T arg`), so a value-param method and an
+                // otherwise-identical inout-param method are NOT siblings. The base key's renderer
+                // (GetSwiftTypeName) drops the `inout` annotation, so without a discriminator the two
+                // collapse into one group; a value receiver would then fall back into the inout
+                // sibling's interface and emit `impl.F(arg)` against an `F(ref T)` member (CS1620), and
+                // the real-async fan-out would do the same on its widened slot. Append a per-param
+                // inout shape to split them — restoring the inout sensitivity GetMethodSiblingMapKey
+                // (the storage/lookup key) already carries via TypeSpec.ToString. A homogeneous
+                // (all-value or all-inout) group keeps an identical shape across members, so the only
+                // groups this splits are the mixed value/inout ones the receivers cannot dispatch.
+                var inoutShape = string.Join(",", method.CSSignature.Skip(1)
+                    .Select(p => (p.IsInOut || (p.SwiftTypeSpec?.IsInOut ?? false)) ? "1" : "0"));
+                var key = GetSwiftMethodFullSignature(method, includeAsyncEffect: true) + "|inout:" + inoutShape;
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, MethodDecl, int)>();
@@ -1214,6 +1236,35 @@ public class EveryProtocolEmitter
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
         var closureHandler = new ClosureHandler(_typeDatabase);
+
+        // Real-async reverse-dispatch witnesses (S13 Pillar C) suspend on withCheckedThrowingContinuation
+        // and hand the continuation to C# through the widened Start-thunk slot; the resume path reuses the
+        // forward async-closure continuation box (keyed per (module, return-type, throwing) triple) verbatim.
+        // That box is a file-scope class + its success/error @_cdecl symbols, which CANNOT nest inside the
+        // `extension {` method body — so emit them HERE, before the conformance comment / @available /
+        // `extension` lines (a `@available` emitted at 1225 would otherwise bind to the box, not the
+        // extension). EmitAsyncClosureBoxIfNeeded dedups across protocols and shares the box with any
+        // forward closure of the same return type; the witness body (EmitRealAsyncWitnessImplementation)
+        // references the SAME box symbols via ClosureEmitter.GetAsyncClosureBoxSymbols.
+        var realAsyncBoxCtx = _emissionContext ?? ModuleEmissionContext.Default;
+        bool emittedRealAsyncPreamble = false;
+        foreach (var realAsyncMethod in protocolDecl.Methods)
+        {
+            if (!EmitsRealAsyncWitness(realAsyncMethod))
+                continue;
+            if (!emittedRealAsyncPreamble)
+            {
+                ClosureEmitter.EmitAsyncClosureBridgePreambleIfNeeded(writer, realAsyncBoxCtx);
+                emittedRealAsyncPreamble = true;
+            }
+            var realAsyncReturnType = GetSwiftTypeName(realAsyncMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec);
+            var realAsyncModule = realAsyncMethod.ModuleDecl?.Name ?? _moduleName;
+            // Throwing vs non-throwing box: a throwing requirement boxes CheckedContinuation<T, Error>
+            // (emits paired _success/_error @_cdecl symbols); a non-throwing requirement boxes
+            // CheckedContinuation<T, Never> (emits _success only, no error channel). The witness body and
+            // the C# receiver read method.Throws to match, so the box must be keyed on it too.
+            ClosureEmitter.EmitAsyncClosureBoxIfNeeded(writer, realAsyncModule, realAsyncReturnType, realAsyncBoxCtx, isThrowing: realAsyncMethod.Throws);
+        }
 
         writer.WriteLine($"// {BaseClassName} conformance to {protocolDecl.Name}");
         var availAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
@@ -1353,10 +1404,10 @@ public class EveryProtocolEmitter
         // per raw-distinct requirement); only the index VALUE is now model-sourced.
         var methodSlotIndices = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl).MethodSlotIndexByKey;
         var methodIndices = new Dictionary<string, int>();
-        // Tracks emitted EveryProtocol witness-body signatures (async-omitted full signatures)
-        // so each rendered Swift `func` body appears at most once per extension. Distinct from
-        // methodIndices, which is async-SENSITIVE and allocates a separate vtable slot per
-        // effect-overloaded requirement. See the intra-protocol effect-overload guard below.
+        // Tracks emitted EveryProtocol witness-body signatures (witnessGroupKey — async-included only
+        // for a real-async witness) so each rendered Swift `func` body appears at most once per
+        // extension. Distinct from methodIndices, which is async-SENSITIVE and allocates a separate
+        // vtable slot per effect-overloaded requirement. See the intra-protocol effect-overload guard below.
         var emittedBodySignatures = new HashSet<string>();
         var protoQNameForMethods = GetProtocolFallbackKey(protocolDecl);
         foreach (var method in protocolDecl.Methods)
@@ -1383,6 +1434,14 @@ public class EveryProtocolEmitter
 
             var swiftSignature = GetSwiftMethodSignature(method);
             var fullSignature = GetSwiftMethodFullSignature(method);
+            // The witness GROUP/DEDUP key carries the `async` effect ONLY for a real-async witness
+            // (S13 Pillar C), which emits a distinct `func m(...) async throws -> T` declaration and so
+            // must group, look up its plan, and dedup its body separately from the sync witness sharing
+            // the same name/params/return. Matches the key ComputeMethodEmissionPlans grouped on, so the
+            // plan lookup below resolves. `fullSignature` (async-OMITTED) stays the key for the
+            // nonThrowingOverrides lookup, which is tracked async-blind by design (a non-throwing method
+            // satisfies a throwing requirement regardless of effect).
+            var witnessGroupKey = GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method));
 
             // Ownership-aware dedup: when a method full-signature (name + parameter types + return
             // type) is shared across multiple protocols, exactly one — chosen by lexicographic
@@ -1398,7 +1457,7 @@ public class EveryProtocolEmitter
             // groups (return is part of the key), so each still emits its own body — same as the
             // legacy dedup, which the wrapper strip/retry mechanism handles.
             MethodEmissionPlan? methodPlan = null;
-            if (methodPlans != null && methodPlans.TryGetValue((protoQNameForMethods, fullSignature), out methodPlan))
+            if (methodPlans != null && methodPlans.TryGetValue((protoQNameForMethods, witnessGroupKey), out methodPlan))
             {
                 if (methodPlan.Owner != protocolDecl)
                 {
@@ -1407,7 +1466,7 @@ public class EveryProtocolEmitter
                 }
             }
             // Legacy first-seen-wins dedup for callers that don't supply method plans.
-            else if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(fullSignature))
+            else if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(witnessGroupKey))
             {
                 _logger.LogDebug($"Skipping method '{method.Name}' in {protocolDecl.Name}: conflicts with already-emitted method");
                 continue;
@@ -1430,7 +1489,13 @@ public class EveryProtocolEmitter
             // return-type-only same-protocol conflict already has `isNewMethod == false` for the
             // second method (return-insensitive GetMethodKey), and genuine overloads have distinct
             // full signatures, so HashSet.Add returns true.
-            if (isNewMethod && emittedBodySignatures.Add(fullSignature))
+            //
+            // The key is witnessGroupKey, NOT the async-omitted fullSignature: a real-async witness
+            // (S13 Pillar C) emits `func m(...) async throws -> T`, a DISTINCT Swift declaration from
+            // the sync `func m(...) -> T`, so an intra-protocol sync+real-async effect overload must
+            // emit BOTH bodies. Keying on witnessGroupKey (async-included only for the real-async one)
+            // lets both Add, whereas the async-omitted key would suppress the second as a redeclaration.
+            if (isNewMethod && emittedBodySignatures.Add(witnessGroupKey))
             {
                 // Closure methods on the dispatch surface get a real implementation that
                 // extracts (fnPtr, ctx) and forwards to C# through the expanded cdecl
@@ -1482,6 +1547,16 @@ public class EveryProtocolEmitter
                 else if (MethodHasInOutObjCBridgeableParam(method))
                 {
                     EmitInOutObjCBridgeableMethodStub(writer, method);
+                }
+                // Real-async reverse-dispatch witness (S13 Pillar C): emit a genuine
+                // `func m(...) async throws -> T` that suspends on withCheckedThrowingContinuation and
+                // hands the continuation to C# through the widened Start-thunk slot, replacing the
+                // thread-BLOCKING sync witness. Subordinate to every structural guard above
+                // (closure / generic / Self / mixed-generic / inout), which EmitsRealAsyncWitness also
+                // rejects, so a method only reaches here once it is the plain value-marshalled shape.
+                else if (EmitsRealAsyncWitness(method))
+                {
+                    EmitRealAsyncWitnessImplementation(writer, method, protocolDecl, vtableInstanceName, idx, methodPlan, availAnnotations);
                 }
                 else
                 {
@@ -2399,12 +2474,26 @@ public class EveryProtocolEmitter
                 slotTypes.Add("UnsafeRawPointer");
             }
         }
-        var paramList = string.Join(", ", slotTypes);
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
 
-        var returnTypeStr = hasReturn ? "UnsafeRawPointer" : "Void";
+        // Real-async reverse-dispatch witness (S13 Pillar C): the slot is a Start-thunk, not a
+        // value-returning call. It carries THREE extra trailing pointers — the Swift continuation box,
+        // and the success/error @_cdecl resume function pointers — and returns Void (the result and any
+        // error flow back asynchronously through the box, never as the slot's return). Width here MUST
+        // match VtableLayoutBuilder.GetWidth (+3) and the C# local delegate field, both keyed on the
+        // SAME EmitsRealAsyncWitness verdict, so the @convention(c) ABI cannot drift.
+        bool realAsync = EmitsRealAsyncWitness(method);
+        if (realAsync)
+        {
+            slotTypes.Add("UnsafeRawPointer"); // continuation box
+            slotTypes.Add("UnsafeRawPointer"); // success FP
+            slotTypes.Add("UnsafeRawPointer"); // error FP
+        }
+        var paramList = string.Join(", ", slotTypes);
+
+        var returnTypeStr = (hasReturn && !realAsync) ? "UnsafeRawPointer" : "Void";
         var funcType = $"(@convention(c)({paramList}) -> {returnTypeStr})?";
 
         writer.WriteLine($"var {fieldName}: {funcType}");
@@ -3827,6 +3916,166 @@ public class EveryProtocolEmitter
             writer.WriteLine("resultPtr.deallocate()");
             writer.WriteLine("return __result");
         }
+    }
+
+    /// <summary>
+    /// Emits the S13 Pillar C real-async reverse-dispatch witness body for a primitive-shaped
+    /// <c>async throws</c> requirement — the genuine continuation handoff that REPLACES the legacy
+    /// thread-blocking sync witness (<see cref="EmitMethodImplementation"/> + the C# receiver's
+    /// <c>.GetAwaiter().GetResult()</c>). It emits a real <c>func m(...) async throws -&gt; T</c> that
+    /// suspends on <c>withCheckedThrowingContinuation</c>, retains the continuation in the shared box,
+    /// and hands the box pointer + the success/error resume function pointers to C# through the widened
+    /// Start-thunk vtable slot — the exact inverse of the forward async-closure handoff. The C# receiver
+    /// (<c>EmitRealAsyncWitnessReceiver</c>) kicks the impl's <c>Task</c> off and resumes the box later
+    /// via those function pointers, so this Swift thread suspends instead of blocking.
+    /// <para>The continuation box (class + success/error <c>@_cdecl</c>) is the SAME per-(module, T,
+    /// throwing) box the forward async-closure path emits — declared at file scope by the box pre-pass in
+    /// <see cref="EmitProtocolExtension"/>, since a class/<c>@_cdecl</c> cannot nest in the extension
+    /// method body — so this body only references its symbols via
+    /// <see cref="ClosureEmitter.GetAsyncClosureBoxSymbols"/>. <see cref="EmitsRealAsyncWitness"/> gates
+    /// this to the plain value-marshalled primitive shape (non-inout blittable-primitive params + return,
+    /// no closures/generics/Self), so there are no ObjC-bridge / value-pointer / inout-writeback arms to
+    /// reproduce here.</para>
+    /// </summary>
+    private void EmitRealAsyncWitnessImplementation(SwiftWriter writer, MethodDecl method,
+        ProtocolDecl protocolDecl, string vtableInstanceName, int index, MethodEmissionPlan? plan = null,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
+    {
+        var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+        var fieldName = GetMethodVtableFieldName(method, index);
+
+        // EmitsRealAsyncWitness guarantees a single blittable-primitive scalar return (no Void variant
+        // in Phase 1/2), so returnType is non-null and renders to a concrete Swift primitive name.
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var returnTypeName = GetSwiftTypeName(returnType!);
+
+        // Same (module, T, throwing) triple the box pre-pass emitted the box under — so these symbol
+        // names resolve to the file-scope box class + its success (and, when throwing, error) @_cdecl
+        // functions. A non-throwing requirement boxes CheckedContinuation<T, Never> and emits NO _error
+        // symbol, so its witness suspends on withCheckedContinuation and passes a sentinel error FP.
+        var isThrowing = method.Throws;
+        var moduleName = method.ModuleDecl?.Name ?? _moduleName;
+        var (boxClassName, symbolRoot) = ClosureEmitter.GetAsyncClosureBoxSymbols(moduleName, returnTypeName, isThrowing);
+
+        // Build the labeled parameter list and the matching `&copy` argument refs. Each param is a
+        // non-inout blittable primitive (EmitsRealAsyncWitness), so the only arg form is `var copy`
+        // passed by `&copy` — identical to EmitMethodImplementation's value-param else-branch, minus
+        // the ObjC-bridge / explicit-value-pointer / inout-writeback cases it can never reach.
+        var parameters = new List<string>();
+        var argCopyLines = new List<string>();
+        var argRefList = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(param) || param.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            var paramTypeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            var externalLabel = GetSwiftParameterLabel(param, i);
+            var internalName = GetSwiftParameterName(param, i);
+            var escaped = NameProvider.EscapeSwiftKeyword(internalName);
+            if (externalLabel == "_")
+                parameters.Add($"_ {internalName}: {paramTypeName}");
+            else if (externalLabel == internalName)
+                parameters.Add($"{internalName}: {paramTypeName}");
+            else
+                parameters.Add($"{externalLabel} {internalName}: {paramTypeName}");
+            argCopyLines.Add($"var {internalName}Copy = {escaped}");
+            argRefList.Add($"&{internalName}Copy");
+        }
+        var parametersString = string.Join(", ", parameters);
+        var argRefs = argRefList.Count > 0 ? ", " + string.Join(", ", argRefList) : "";
+
+        // Effect clause + continuation kind track method.Throws: a throwing requirement suspends on
+        // withCheckedThrowingContinuation (CheckedContinuation<T, Error>) and is itself `async throws`;
+        // a non-throwing one suspends on withCheckedContinuation (CheckedContinuation<T, Never>) and is
+        // plain `async`. The vtable slot's trailing error-FP stays in the ABI either way (the slot width
+        // is throwing-agnostic, +3) — the non-throwing witness fills it with a never-dereferenced
+        // sentinel, since its box emits no _error symbol.
+        var effectClause = isThrowing ? "async throws" : "async";
+        var continuationFn = isThrowing ? "withCheckedThrowingContinuation" : "withCheckedContinuation";
+        var continuationErr = isThrowing ? "Swift.Error" : "Never";
+        var awaitExpr = isThrowing ? "return try await" : "return await";
+
+        // Resolve dispatch branches — mirror EmitMethodImplementation / EmitMethodFanOutBody. A solo
+        // group (no same-signature siblings) keeps the byte-identical single force-unwrap of THIS
+        // protocol's own widened slot. A real sibling group (two+ protocols declaring the same
+        // real-async signature) fans out across each sibling's per-protocol widened vtable slot,
+        // dispatching through the FIRST one whose function pointer is non-nil — so a C# impl conforming
+        // to only a non-owner sibling lands on ITS populated vtable instead of the owner's nil global
+        // vtable, which the force-unwrap would otherwise SIGSEGV on (exactly the Bug #2 crash class the
+        // sync witness already fans out to avoid). HasFilteredPeers forces the nil-check fan-out even
+        // for a single emitted branch. Only the OWNER reaches this body (gated on plan.Owner upstream),
+        // so `protocolDecl`/`protocolName` is the owner — `self` is boxed as the owner protocol type for
+        // every branch, matching EmitMethodFanOutBody (the C# receiver reads only word 0 of the
+        // existential, never the witness table, so the box type is behaviorally immaterial).
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> branches = plan?.Siblings.Count > 1
+            ? plan.Siblings
+            : new[] { (protocolDecl, index) };
+        bool forceSafeFanOut = plan?.HasFilteredPeers == true;
+
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({parametersString}) {effectClause} -> {returnTypeName} {{");
+        writer.Indent++;
+
+        // Suspend and hand the continuation to C#. The continuation closure is non-escaping and
+        // non-@Sendable, so capturing `self` (the EveryProtocol instance) and the primitive args is
+        // fine; everything inside it is synchronous and local. The C# receiver reads word 0 of
+        // `&selfProto` (the class reference) to look the proxy up — identical to the sync witness — and
+        // returns immediately after spawning the impl's Task; the box resumes `__cont` exactly once.
+        writer.WriteLine($"{awaitExpr} {continuationFn} {{ (__cont: CheckedContinuation<{returnTypeName}, {continuationErr}>) in");
+        writer.Indent++;
+        writer.WriteLine($"var selfProto: {protocolName} = self");
+        foreach (var line in argCopyLines)
+            writer.WriteLine(line);
+        writer.WriteLine($"let __box = {boxClassName}(__cont)");
+        writer.WriteLine("let __boxPtr = Unmanaged.passRetained(__box).toOpaque()");
+        writer.WriteLine($"let __successFP = unsafeBitCast({symbolRoot}_success as @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void, to: UnsafeRawPointer.self)");
+        if (isThrowing)
+            writer.WriteLine($"let __errorFP = unsafeBitCast({symbolRoot}_error as @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void, to: UnsafeRawPointer.self)");
+        else
+            // Non-throwing box has no _error symbol; the slot's error-FP is never invoked (the C#
+            // receiver FailFasts on a fault instead of resuming-with-error), so a non-null sentinel
+            // keeps the ABI uniform without referencing a missing symbol.
+            writer.WriteLine("let __errorFP = UnsafeRawPointer(bitPattern: 1)!");
+
+        // The box + resume FPs + arg copies above are handle-INDEPENDENT (built once); only the vtable
+        // instance/field differ per branch, so the dispatch is the sole per-branch fragment.
+        if (branches.Count == 1 && !forceSafeFanOut)
+        {
+            // Solo group: byte-identical single force-unwrap of this protocol's own widened slot.
+            writer.WriteLine($"{vtableInstanceName}.{fieldName}!({vtableInstanceName}.csVTHandle, &selfProto{argRefs}, __boxPtr, __successFP, __errorFP)");
+        }
+        else
+        {
+            // Sibling fan-out: dispatch through the first sibling whose widened slot is non-nil. Each
+            // branch reads func_{name}_{Index} off that sibling's per-protocol global vtable (the SAME
+            // MethodEmitsVtableField gate that emitted the field, so no branch references a missing
+            // member). A box retained but never handed off (no branch fires) leaks, but fatalError
+            // terminates — matching EmitMethodFanOutBody's unrecoverable-invariant fallback.
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var (branchProto, branchIndex) = branches[i];
+                var branchVtable = GetVtableInstanceName(branchProto);
+                var branchField = GetMethodVtableFieldName(method, branchIndex);
+                var clause = i == 0 ? "if" : "else if";
+                var guard = BuildBranchGuardPrefix(branchProto, extensionAvailability);
+                writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.{branchField} {{");
+                writer.Indent++;
+                writer.WriteLine($"fn({branchVtable}.csVTHandle, &selfProto{argRefs}, __boxPtr, __successFP, __errorFP)");
+                writer.Indent--;
+                writer.Write("} ");
+            }
+            writer.WriteLine("else {");
+            writer.Indent++;
+            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for method {method.Name}\")");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
     }
 
     /// <summary>
@@ -5512,6 +5761,82 @@ public class EveryProtocolEmitter
         return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p =>
             (p.GetSwiftName() ?? p.Name) + ":" + (p.SwiftTypeSpec?.ToString() ?? ""))) + ")" + asyncSuffix;
     }
+
+    /// <summary>
+    /// THE single classifier oracle for whether an <c>async</c> protocol requirement is satisfied by a
+    /// REAL asynchronous reverse-dispatch witness (Swift suspends on <c>withCheckedThrowingContinuation</c>
+    /// and hands the continuation to C# through the widened vtable slot) rather than the legacy
+    /// thread-BLOCKING sync witness (<c>impl.FooAsync(...).GetAwaiter().GetResult()</c>, S13 Pillar C).
+    ///
+    /// <para>Method-shape-ONLY by construction: it consults nothing but the method's own signature, so
+    /// every site that must agree on the slot's width and effect — <see cref="VtableLayoutBuilder.GetWidth"/>
+    /// (which has no access to <c>_useObjCBase</c>), <see cref="EmitMethodVtableField"/>, the C# local
+    /// delegate field, the receiver, and this extension's witness body — reaches the IDENTICAL verdict and
+    /// cannot drift the slot's parameter count or return effect (the Bug #21 SIGSEGV class). A real-async
+    /// slot keeps the SAME index (one function pointer) but a WIDER signature: +3 trailing pointers
+    /// (continuation box, success FP, error FP) and a <c>Void</c> return — the suspend/resume handoff
+    /// reuses the forward async-closure box machinery verbatim (<see cref="ClosureEmitter"/>).</para>
+    ///
+    /// <para>The supported shape is deliberately narrow: an <c>async</c> instance requirement
+    /// returning a blittable primitive scalar, with blittable-primitive value params only, bounded arity,
+    /// and none of the shapes that take a different emit path (closures, method-level generics, Self-typed
+    /// params, inout, constructors, statics, @objc-optional). Anything outside the shape returns
+    /// <see langword="false"/> and keeps the legacy blocking sync witness — a clean fallback, never a
+    /// half-real witness. The blittable-primitive gate is what lets the box marshal the result through
+    /// <c>resultPtr.load(as: T.self)</c> / <c>SwiftMarshal.MarshalToSwift</c> without a value-witness copy.</para>
+    ///
+    /// <para>Both <c>async throws</c> and non-throwing <c>async</c> requirements qualify; the throwing
+    /// effect is NOT part of this predicate. Each emission site reads <see cref="MethodDecl.Throws"/> to
+    /// pick the variant: a throwing witness boxes a <c>CheckedContinuation&lt;T, Error&gt;</c> and resumes
+    /// with the error on a C# fault; a non-throwing witness boxes a <c>CheckedContinuation&lt;T, Never&gt;</c>
+    /// (no Swift error channel) and FailFasts on a C# fault — mirroring the forward async-closure throwing
+    /// vs. non-throwing box exactly. The two are genuinely distinct emitted shapes, gated on
+    /// <see cref="MethodDecl.Throws"/> per-site, not a flag on one path.</para>
+    /// </summary>
+    public static bool EmitsRealAsyncWitness(MethodDecl method)
+    {
+        if (!method.IsAsync)
+            return false;
+        if (method.IsConstructor || method.MethodType == MethodType.Static || method.IsObjCOptional)
+            return false;
+        // Shapes that take a dedicated, non-vtable-value emit path — exactly the predicates
+        // ClassifyMethod uses to exclude or specially route a slot. A real-async witness is the
+        // plain value-marshalled reverse-dispatch shape, so it must reject all of them.
+        if (HasClosureInMethodSignature(method))
+            return false;
+        if (HasOnlyMethodLevelGenerics(method) || HasMethodLevelGenericInSignature(method))
+            return false;
+        if (HasSelfTypeParamInSignature(method))
+            return false;
+
+        // Return: a single blittable primitive scalar. The Swift box resumes via
+        // `resultPtr.load(as: T.self)` and C# fills the buffer via SwiftMarshal.MarshalToSwift<T>,
+        // both of which require a BitwiseCopyable fixed-layout scalar (Phase 1 omits the Void variant).
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        if (returnType is null || returnType.IsEmptyTuple)
+            return false;
+        if (returnType is not NamedTypeSpec retNts || !CdeclParamMapper.IsBlittablePrimitiveSwiftType(retNts.Name))
+            return false;
+
+        // Params: blittable primitive scalars only, no inout, bounded arity. Each is passed to the
+        // widened slot as a value pointer (&copy) exactly as the sync witness passes a value param.
+        var valueParams = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
+        if (valueParams.Count > RealAsyncWitnessMaxArity)
+            return false;
+        foreach (var p in valueParams)
+        {
+            if (p.IsInOut)
+                return false;
+            if (p.SwiftTypeSpec is not NamedTypeSpec pNts || !CdeclParamMapper.IsBlittablePrimitiveSwiftType(pNts.Name))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Upper bound on the value-param arity a real-async reverse-dispatch witness supports.</summary>
+    private const int RealAsyncWitnessMaxArity = 4;
 
     private static string GetSubscriptKey(SubscriptDecl subscript, int index)
     {

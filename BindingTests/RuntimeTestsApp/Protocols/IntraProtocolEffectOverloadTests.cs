@@ -29,13 +29,18 @@ namespace RuntimeTestsApp.Protocols;
 ///   • COMPILE time — the second (async) slot was allocated: the generated C# interface
 ///     declares BOTH <c>IntraEffectTag(int)</c> and <c>IntraEffectTagAsync(int, CancellationToken)</c>,
 ///     so <see cref="IntraEffectTaggedImpl"/> must implement both or the file would not build.
-///   • RUNTIME (simulator + device) — the SYNC slot dispatches at the correct index:
-///     <see cref="TestIntraEffectTagged_SyncDispatch"/> round-trips through the sync slot; a
-///     collapsed/misindexed slot would mis-dispatch or fail to compile.
-/// The async slot is NOT invoked at runtime — there is deliberately no async driver. An async
-/// requirement reverse-dispatched over CallConvSwift hits the confirmed-upstream Mono async
-/// assertion (Issue 1), so exercising it would be a known-bad path, not a regression signal;
-/// the compile-time slot-count guarantee plus the sync-slot round-trip are the durable gate.
+///   • RUNTIME (simulator + device) — BOTH slots dispatch at their correct indices:
+///     <see cref="TestIntraEffectTagged_SyncDispatch"/> round-trips through the sync slot, and
+///     <see cref="TestIntraEffectTagged_AsyncDispatch"/> round-trips through the async slot via
+///     the S13 Pillar C real reverse-async witness — the non-throwing <c>async</c> requirement
+///     genuinely suspends on <c>withCheckedContinuation</c> and hands the continuation back to
+///     C#. <see cref="TestIntraEffectTagged_BothSlotsOnOneInstance"/> drives BOTH on one instance,
+///     proving the two distinct effect-overload slots dispatch with the dual layout intact (a
+///     collapsed/misindexed slot would mis-dispatch one of them).
+///
+/// The async slot was once compile-gated only (the legacy thread-blocking witness hit the
+/// confirmed-upstream Mono async assertion, Issue 1); the real reverse-async witness replaces
+/// the blocking slot with a continuation handoff, so the async path now runs on Mono.
 /// </summary>
 public class IntraProtocolEffectOverloadTests : TestBase
 {
@@ -55,19 +60,85 @@ public class IntraProtocolEffectOverloadTests : TestBase
         AssertEqual(21, result,
             "Sync requirement of an intra-protocol async/sync overload dispatches to the C# impl's sync slot (the async slot occupies its own distinct slot)");
     }
+
+    /// <summary>
+    /// Dispatch the ASYNC requirement of the same single protocol through the real reverse-async
+    /// witness (S13 Pillar C). The await genuinely suspends the Swift task until C# resumes the
+    /// boxed continuation, reaching the impl's <c>IntraEffectTagAsync(int)</c> at the SECOND
+    /// (async) slot — distinct from the sync slot. Pre-fix this slot was collapsed onto the sync
+    /// slot or compile-gated only.
+    /// </summary>
+    public async Task TestIntraEffectTagged_AsyncDispatch()
+    {
+        var impl = new IntraEffectTaggedImpl(multiplier: 3);
+        var result = await WithTimeout(
+            Functions.CallIntraEffectTagAsync(impl, 7),
+            DefaultAsyncTimeout);
+        AssertEqual(7 * 3 + 1000, result,
+            "Async requirement dispatches to the C# impl's async slot via the real reverse-async witness (distinct from the sync slot)");
+        TestLogger.Info($"IntraEffectTagged.AsyncDispatch = {result}");
+    }
+
+    /// <summary>
+    /// Drive BOTH the sync and the async requirement on the SAME protocol instance. Proves the
+    /// two distinct effect-overload slots dispatch to their respective C# members with the dual
+    /// vtable layout intact — a collapsed slot would mis-dispatch one of the two.
+    /// </summary>
+    public async Task TestIntraEffectTagged_BothSlotsOnOneInstance()
+    {
+        var impl = new IntraEffectTaggedImpl(multiplier: 4);
+        var sync = Functions.CallIntraEffectTagSync(impl, 5);
+        var async = await WithTimeout(
+            Functions.CallIntraEffectTagAsync(impl, 5),
+            DefaultAsyncTimeout);
+        AssertEqual(20, sync, "Sync slot dispatches to IntraEffectTag on the dual-slot instance");
+        AssertEqual(1020, async, "Async slot dispatches to IntraEffectTagAsync on the dual-slot instance");
+        TestLogger.Info($"IntraEffectTagged.BothSlots sync={sync} async={async}");
+    }
+
+    /// <summary>
+    /// Deferred completion of the async slot: a genuine yield before producing the value still
+    /// resumes the continuation. The legacy thread-blocked slot could not yield; the continuation
+    /// handoff completes cleanly.
+    /// </summary>
+    public async Task TestIntraEffectTagged_AsyncDeferredCompletion()
+    {
+        var impl = new IntraEffectTaggedImpl(multiplier: 2, deferAsync: true);
+        var result = await WithTimeout(
+            Functions.CallIntraEffectTagAsync(impl, 9),
+            DefaultAsyncTimeout);
+        AssertEqual(9 * 2 + 1000, result,
+            "Async slot resumes after an awaited yield in the C# impl");
+        TestLogger.Info($"IntraEffectTagged.AsyncDeferred = {result}");
+    }
 }
 
 // Implements BOTH members of the single protocol IIntraEffectTagged: the sync
-// IntraEffectTag(int) and the async IntraEffectTagAsync(int, CancellationToken). Only the
-// sync path is exercised at runtime; the async member's presence proves the second slot was
-// allocated (the interface declares both, so the impl must satisfy both).
+// IntraEffectTag(int) and the async IntraEffectTagAsync(int, CancellationToken). BOTH paths are
+// exercised at runtime — the sync member through the sync slot, the async member through the
+// real reverse-async witness. The async result is offset by +1000 so a mis-dispatch between the
+// two slots is caught by the assertion. When deferAsync is set the async member yields before
+// returning, exercising a genuine suspend/resume rather than an immediately-completed Task.
 internal class IntraEffectTaggedImpl : IIntraEffectTagged
 {
     private readonly int _multiplier;
-    public IntraEffectTaggedImpl(int multiplier) { _multiplier = multiplier; }
+    private readonly bool _deferAsync;
+    public IntraEffectTaggedImpl(int multiplier, bool deferAsync = false)
+    {
+        _multiplier = multiplier;
+        _deferAsync = deferAsync;
+    }
 
     public int IntraEffectTag(int n) => n * _multiplier;
 
     public System.Threading.Tasks.Task<int> IntraEffectTagAsync(int n, System.Threading.CancellationToken cancellationToken = default)
-        => System.Threading.Tasks.Task.FromResult(n * _multiplier + 1000);
+        => _deferAsync
+            ? DeferredAsync(n)
+            : System.Threading.Tasks.Task.FromResult(n * _multiplier + 1000);
+
+    private async System.Threading.Tasks.Task<int> DeferredAsync(int n)
+    {
+        await System.Threading.Tasks.Task.Yield();
+        return n * _multiplier + 1000;
+    }
 }

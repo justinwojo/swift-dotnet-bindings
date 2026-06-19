@@ -313,6 +313,31 @@ public static class SwiftSourceStripper
         // must survive stripping for the existential-construction P/Invoke to resolve. This is
         // the intra-protocol twin of the AsyncRefineModifierBase/SyncRefineModifier pair above.
         "IntraEffectTagged",
+        // S13 Pillar C real async reverse-dispatch witness (Finding 36). AsyncReverseCompute
+        // declares the primitive-shaped `compute(_:) async throws -> Int32`, emitted as a GENUINE
+        // `func compute(_:) async throws -> Int32` witness that suspends on
+        // withCheckedThrowingContinuation and hands the continuation to C# through a widened
+        // Start-thunk slot. AsyncReverseWitnessTests round-trips a C# conformer through
+        // callAsyncReverseCompute (a forward async driver), so the EveryProtocol conformance and
+        // Get_EveryProtocol_AsyncReverseCompute_WitnessTable must survive stripping or the
+        // existential-construction P/Invoke fails with EntryPointNotFoundException.
+        "AsyncReverseCompute",
+        // S13 Pillar C real-async SIBLING fan-out (the async twin of SiblingMethodOwner/Peer).
+        // Two class-bound protocols declare the SAME real-async-eligible signature, so they form
+        // ONE owner group whose witness is a genuine continuation handoff. AsyncSiblingOwner (lex-min)
+        // emits the shared real-async body and AsyncSiblingPeer gets an EMPTY stitched extension; the
+        // owner body must fan out across BOTH widened vtable slots and the owner receiver must resolve
+        // across each sibling interface, else a peer-only C# impl SIGSEGVs on the nil owner slot (or
+        // FailFasts a live impl once the owner vtable is globally primed). AsyncSiblingMethodDispatchTests
+        // reverse-dispatches a peer-only conformer through callAsyncSiblingViaPeer, so both EveryProtocol
+        // conformances and Get_EveryProtocol_AsyncSibling{Owner,Peer}_WitnessTable must survive stripping
+        // — and because the peer extension is empty, the owner extension carrying the witness must too.
+        // The throwing pair (AsyncSiblingThrowing{Owner,Peer}) is the effect-agnostic twin: same +3
+        // widened slot, throwing continuation box.
+        "AsyncSiblingOwner",
+        "AsyncSiblingPeer",
+        "AsyncSiblingThrowingOwner",
+        "AsyncSiblingThrowingPeer",
         // Same-signature CLOSURE-PARAM method fan-out (ABI Coverage Grid closure corner). Two
         // protocols (ClosureFanOwner < ClosureFanPeer) declare the same closure-param method
         // `applyFactory(_: @escaping () -> Int32)`. The owner emits the shared closure-method

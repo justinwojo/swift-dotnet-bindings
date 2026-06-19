@@ -475,6 +475,48 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void ComputeSiblingMethodFallbacks_ValueAndInoutSameSignature_AreNotSiblings()
+    {
+        // A value-param method and an otherwise-identical inout-param method project to DIFFERENT C#
+        // members (`T arg` vs `ref T arg`), so they are NOT siblings. The grouping key's renderer
+        // (GetSwiftTypeName) drops the `inout` annotation, so without the inout discriminator the two
+        // collapse into one group — and a value receiver would then fall back into the inout sibling's
+        // `F(ref T)` member (CS1620), or the real-async fan-out would mis-dispatch its widened slot.
+        // They must land in SEPARATE groups, so neither records a cross-protocol sibling.
+        var valueProto = CreateProtocolWithRealAsyncMethod("ValueProto", "compute");
+        var inoutProto = CreateProtocolWithInoutAsyncMethod("InoutProto", "compute");
+
+        var fallbacks = _emitter.ComputeSiblingMethodFallbacks(new[] { valueProto, inoutProto });
+
+        var valueKey = (EveryProtocolEmitter.GetProtocolFallbackKey(valueProto),
+                        EveryProtocolEmitter.GetMethodSiblingMapKey(valueProto.Methods[0]));
+        var inoutKey = (EveryProtocolEmitter.GetProtocolFallbackKey(inoutProto),
+                        EveryProtocolEmitter.GetMethodSiblingMapKey(inoutProto.Methods[0]));
+        Assert.False(fallbacks.ContainsKey(valueKey),
+            "a value-param method must not list an inout-param method as a sibling");
+        Assert.False(fallbacks.ContainsKey(inoutKey),
+            "an inout-param method must not list a value-param method as a sibling");
+    }
+
+    [Fact]
+    public void ComputeSiblingMethodFallbacks_TwoValueParamMethods_RemainSiblings()
+    {
+        // Control: the inout discriminator must NOT over-split — two genuinely same-shape value-param
+        // methods across two protocols still form one sibling group (an all-value group has an
+        // identical inout shape across members, so its grouping key is unchanged by the discriminator).
+        var first = CreateProtocolWithRealAsyncMethod("FirstValueProto", "compute");
+        var second = CreateProtocolWithRealAsyncMethod("SecondValueProto", "compute");
+
+        var fallbacks = _emitter.ComputeSiblingMethodFallbacks(new[] { first, second });
+
+        var firstKey = (EveryProtocolEmitter.GetProtocolFallbackKey(first),
+                        EveryProtocolEmitter.GetMethodSiblingMapKey(first.Methods[0]));
+        Assert.True(fallbacks.TryGetValue(firstKey, out var firstSiblings));
+        Assert.Single(firstSiblings!);
+        Assert.Equal("SecondValueProto", firstSiblings![0].Proto.Name);
+    }
+
+    [Fact]
     public void GetMethodSiblingMapKey_IsDeterministicAndNameDiscriminating()
     {
         var describe = CreateMethodDecl("describe");
@@ -490,6 +532,124 @@ public class EveryProtocolEmitterTests
             EveryProtocolEmitter.GetMethodSiblingMapKey(other));
         Assert.StartsWith("describe(", EveryProtocolEmitter.GetMethodSiblingMapKey(describe));
     }
+
+    #region S13 Pillar C — real-async reverse-dispatch witness
+
+    // -- The classifier oracle EmitsRealAsyncWitness is method-shape-ONLY: it consults nothing but the
+    //    method's own signature, so every emission site (Swift `_vtable` field, VtableLayoutBuilder.GetWidth,
+    //    the C# local delegate field, the receiver, and this extension's witness body) reaches the IDENTICAL
+    //    verdict and cannot drift the slot's width or effect. These boundary rows pin the accept/reject edge. --
+
+    public static IEnumerable<object[]> RealAsyncWitnessCases()
+    {
+        // Accepts: the narrow supported shape — async instance requirement, blittable-primitive return,
+        // blittable-primitive non-inout value params, arity ≤ 4, throwing OR non-throwing.
+        yield return Row(RealAsyncEligible(arity: 1), true, "async, Int32 -> Int32, arity 1");
+        yield return Row(RealAsyncEligible(arity: 0), true, "async, () -> Int32 (no value params)");
+        yield return Row(RealAsyncEligible(arity: 4), true, "async, arity 4 (at the cap)");
+        yield return Row(RealAsyncEligible(arity: 1, throws: true), true, "async throws is still real-async");
+
+        // Rejects: every shape that takes a different emit path or escapes the supported corner.
+        yield return Row(Mutate(RealAsyncEligible(), m => m.IsAsync = false), false, "not async → legacy sync witness");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.IsConstructor = true), false, "constructor");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.MethodType = MethodType.Static), false, "static");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.IsObjCOptional = true), false, "@objc optional");
+        yield return Row(RealAsyncEligible(arity: 5), false, "arity 5 (over the cap)");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.CSSignature[1].IsInOut = true), false, "inout value param");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.CSSignature[0].SwiftTypeSpec = TupleTypeSpec.Empty),
+            false, "Void (empty-tuple) return");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec("TestModule.Widget")),
+            false, "non-primitive return");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.CSSignature[1].SwiftTypeSpec = new NamedTypeSpec("TestModule.Widget")),
+            false, "non-primitive value param");
+        yield return Row(RealAsyncWithClosureParam(), false, "closure param (dedicated closure emit path)");
+    }
+
+    [Theory]
+    [MemberData(nameof(RealAsyncWitnessCases))]
+    public void EmitsRealAsyncWitness_ClassifiesMethodShapeAtTheBoundary(MethodDecl method, bool expected, string because)
+    {
+        Assert.Equal(expected, EveryProtocolEmitter.EmitsRealAsyncWitness(method));
+        _ = because; // documents the row; asserted via the xUnit display name
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_RealAsyncSoloMethod_EmitsContinuationHandoffSingleBranch()
+    {
+        // A solo (no same-signature sibling) NON-throwing real-async requirement emits a genuine
+        // continuation handoff — withCheckedContinuation over CheckedContinuation<T, Never> — and keeps the
+        // byte-identical single force-unwrap of THIS protocol's own widened slot (no fan-out scaffolding).
+        var solo = CreateProtocolWithRealAsyncMethod("AsyncSolo", "compute");
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { solo });
+
+        var output = EmitFullConformanceWithMethodPlans(solo, plans);
+
+        Assert.Contains("public func compute(", output);
+        Assert.Contains("async -> Swift.Int32", output);                  // non-throwing effect clause
+        Assert.Contains("withCheckedContinuation", output);
+        Assert.Contains("CheckedContinuation<Swift.Int32, Never>", output);
+        // Widened slot: the trailing continuation box + success/error FPs handed to the C# vtable thunk (+3).
+        Assert.Contains("__boxPtr", output);
+        Assert.Contains("__successFP", output);
+        Assert.Contains("__errorFP", output);
+        // Solo → single force-unwrap, never the sibling fan-out.
+        Assert.DoesNotContain("else if", output);
+        Assert.DoesNotContain("no sibling vtable populated for method compute", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_RealAsyncThrowingSoloMethod_UsesThrowingContinuation()
+    {
+        // The throwing variant carries a real Swift error channel: withCheckedThrowingContinuation over
+        // CheckedContinuation<T, Error>, and the witness is itself `async throws`. The slot width is
+        // unchanged (+3, throwing-agnostic); only the box/continuation variant differs.
+        var solo = CreateProtocolWithRealAsyncMethod("AsyncThrowingSolo", "compute", throws: true);
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { solo });
+
+        var output = EmitFullConformanceWithMethodPlans(solo, plans);
+
+        Assert.Contains("async throws -> Swift.Int32", output);
+        Assert.Contains("withCheckedThrowingContinuation", output);
+        Assert.Contains("CheckedContinuation<Swift.Int32, Swift.Error>", output);
+        Assert.DoesNotContain("else if", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_RealAsyncSiblingGroup_OwnerFansOutAcrossSiblingWidenedSlots()
+    {
+        // The Codex-High regression: two class-bound protocols declare the SAME real-async signature, so
+        // they form one owner group whose witness is a continuation handoff. The lex-min owner's body must
+        // FAN OUT across both siblings' widened vtable slots (dispatch through the first non-nil one,
+        // fatalError if none) — exactly the sync witness's fan-out, on the +3 widened slot — so a C# impl
+        // conforming to only the non-owner peer lands on ITS populated slot instead of the owner's nil
+        // global vtable (which the solo force-unwrap would SIGSEGV on).
+        var owner = CreateProtocolWithRealAsyncMethod("AsyncFanOwner", "compute");
+        var peer = CreateProtocolWithRealAsyncMethod("AsyncFanPeer", "compute");
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { owner, peer });
+
+        // Owner selection is lex-min and order-independent, and the group carries both siblings.
+        var plan = Assert.Single(new HashSet<EveryProtocolEmitter.MethodEmissionPlan>(plans.Values));
+        Assert.Equal("AsyncFanOwner", plan.Owner.Name);
+        Assert.Equal(2, plan.Siblings.Count);
+
+        var ownerOutput = EmitFullConformanceWithMethodPlans(owner, plans);
+
+        // Still a real continuation handoff...
+        Assert.Contains("withCheckedContinuation", ownerOutput);
+        // ...but now a nil-checked branch per sibling widened slot + a fatalError tail.
+        Assert.Contains("else if", ownerOutput);
+        Assert.Contains("let fn = ", ownerOutput);
+        Assert.Contains("__boxPtr, __successFP, __errorFP", ownerOutput); // +3 widened dispatch per branch
+        Assert.Contains("no sibling vtable populated for method compute", ownerOutput);
+
+        // The non-owner peer conforms via an empty extension; Swift cross-extension resolution routes its
+        // requirement into the owner's fanned-out body.
+        var peerOutput = EmitFullConformanceWithMethodPlans(peer, plans);
+        Assert.Contains("extension EveryProtocol: TestModule.AsyncFanPeer", peerOutput);
+        Assert.DoesNotContain("public func compute(", peerOutput);
+    }
+
+    #endregion
 
     [Fact]
     public void EmitProtocolConformance_SkipsProtocolWithConstructorRequirements()
@@ -2246,6 +2406,90 @@ public class EveryProtocolEmitterTests
 
         return protocol;
     }
+
+    private ProtocolDecl CreateProtocolWithRealAsyncMethod(string name, string methodName, bool throws = false)
+    {
+        var protocol = CreateSimpleProtocol(name);
+        protocol.Methods.Add(RealAsyncEligible(methodName, arity: 1, throws: throws));
+        return protocol;
+    }
+
+    // Same async shape as CreateProtocolWithRealAsyncMethod but the single param is `inout Int32` rather
+    // than a value `Int32`. EmitsRealAsyncWitness rejects it (inout), yet it is still enumerated for
+    // sibling grouping — the exact case the grouping key's inout discriminator must split from the
+    // value-param variant (the renderer GetSwiftTypeName drops `inout`, so without it they collapse).
+    private ProtocolDecl CreateProtocolWithInoutAsyncMethod(string name, string methodName)
+    {
+        var protocol = CreateSimpleProtocol(name);
+        var method = RealAsyncEligible(methodName, arity: 1);
+        method.CSSignature[1].IsInOut = true;
+        method.CSSignature[1].SwiftTypeSpec.IsInOut = true;
+        protocol.Methods.Add(method);
+        return protocol;
+    }
+
+    // A real-async-eligible witness: `func name(_ a0: Int32, ...) async [throws] -> Int32`. CSSignature[0]
+    // is the Int32 return slot; [1..arity] are Int32 value params — the exact shape EmitsRealAsyncWitness
+    // accepts. Mutate the returned decl to walk off the boundary (see RealAsyncWitnessCases).
+    private static MethodDecl RealAsyncEligible(string name = "compute", int arity = 1, bool throws = false)
+    {
+        var sig = new List<ArgumentDecl> { Int32Slot() }; // return slot
+        for (int i = 0; i < arity; i++)
+            sig.Add(Int32Slot($"a{i}"));
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = sig,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = throws,
+            IsAsync = true,
+            IsSynthesizedAccessor = false
+        };
+    }
+
+    // A real-async-shaped method (Int32 return) but with a closure value param — the dedicated closure
+    // emit path, which EmitsRealAsyncWitness must reject even though the return/effect qualify.
+    private static MethodDecl RealAsyncWithClosureParam()
+    {
+        var m = RealAsyncEligible(arity: 0);
+        m.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "factory",
+            PrivateName = "factory",
+            SwiftTypeSpec = CreateEscapingClosure(),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        return m;
+    }
+
+    private static ArgumentDecl Int32Slot(string label = "") => new()
+    {
+        Name = label,
+        PrivateName = label,
+        SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+        IsInOut = false,
+        IsGeneric = false,
+        ParentDecl = null,
+        ModuleDecl = null
+    };
+
+    // Applies an in-place mutation to a freshly-built decl and returns it (for one-line boundary rows).
+    private static MethodDecl Mutate(MethodDecl method, Action<MethodDecl> mutate)
+    {
+        mutate(method);
+        return method;
+    }
+
+    private static object[] Row(MethodDecl method, bool expected, string because) =>
+        new object[] { method, expected, because };
 
     private static MethodDecl CreateMethodDecl(string name, MethodType methodType = MethodType.Instance, bool isConstructor = false, bool throws = false)
     {

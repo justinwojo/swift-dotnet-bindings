@@ -311,6 +311,12 @@ internal sealed class VtableLayoutBuilder
                 continue;
             width += EveryProtocolEmitter.CountVtableSlots(p.SwiftTypeSpec, _closureHandler);
         }
+        // A real-async reverse-dispatch witness (S13 Pillar C) keeps the same slot INDEX but a wider
+        // Start-thunk signature: +3 trailing pointer slots (continuation box, success FP, error FP).
+        // This MUST match the +3 in EveryProtocolEmitter.EmitMethodVtableField (Swift struct field) and
+        // the C# local delegate field, all keyed on the SAME EmitsRealAsyncWitness verdict.
+        if (EveryProtocolEmitter.EmitsRealAsyncWitness(method))
+            width += 3;
         return width;
     }
 }

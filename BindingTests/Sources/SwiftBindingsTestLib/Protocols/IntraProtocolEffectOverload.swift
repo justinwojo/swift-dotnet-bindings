@@ -27,10 +27,14 @@ import Foundation
 // SiblingMethodDispatch.swift (AsyncRefineModifierBase / SyncRefineModifier) — one
 // keying mechanism over (per-protocol slot allocation, not owner/peer witness grouping).
 //
-// `: AnyObject` so the C# proxy is class-backed. The C# impl implements BOTH members;
-// only the SYNC path is exercised at runtime (async over CallConvSwift hits Mono Issue-1
-// on the simulator — the async slot is compile-gated, and the sync round-trip proves the
-// sync slot routes correctly with the async slot present).
+// `: AnyObject` so the C# proxy is class-backed. The C# impl implements BOTH members, and
+// BOTH paths are exercised at runtime: the sync requirement routes through the sync vtable
+// slot, and the non-throwing `async` requirement routes through a real reverse-async witness
+// (S13 Pillar C) — a genuine `func intraEffectTag(_:) async -> Int32` that suspends on
+// `withCheckedContinuation` and hands the continuation back to C# through the widened Start
+// thunk slot (the legacy blocking sync witness, which DID hit Mono Issue-1, is gone). Driving
+// BOTH slots on the SAME protocol instance proves the two distinct effect-overload slots
+// dispatch to their respective C# members with the dual layout intact.
 public protocol IntraEffectTagged: AnyObject {
     func intraEffectTag(_ n: Int32) -> Int32
     func intraEffectTag(_ n: Int32) async -> Int32
@@ -42,4 +46,12 @@ public protocol IntraEffectTagged: AnyObject {
 // impl's `IntraEffectTag(int)`. Runtime-callable on Mono (no async execution).
 public func callIntraEffectTagSync(_ x: any IntraEffectTagged, _ n: Int32) -> Int32 {
     return x.intraEffectTag(n)
+}
+
+// ASYNC driver — routes the non-throwing `async` requirement through the proxy's SECOND
+// (real-async) vtable slot, reaching the C# impl's `IntraEffectTagAsync(int)`. The await
+// genuinely suspends the Swift task until C# resumes the boxed continuation. Pairing this
+// with the sync driver above exercises BOTH effect-overload slots of one protocol.
+public func callIntraEffectTagAsync(_ x: any IntraEffectTagged, _ n: Int32) async -> Int32 {
+    return await x.intraEffectTag(n)
 }

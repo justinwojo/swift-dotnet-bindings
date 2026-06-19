@@ -174,13 +174,14 @@ public class SiblingMethodDispatchTests : TestBase
     // receiver sibling-fallback grouping omitted `async`, the two collapsed into one
     // group and the sync receiver fanned out into IAsyncRefineModifierBase emitting
     // `impl.RefineModify(...)` against an interface that only declares
-    // `RefineModifyAsync` -> CS1061 at the compile gate. The fix carries `async` in the
-    // C# fallback grouping ONLY — the Swift
-    // owner/peer grouping must still OMIT it, or the async + sync witnesses both emit
-    // `func refineModify(_:) -> Int32` on EveryProtocol -> Swift "invalid redeclaration".
-    // With the two grouping keys decoupled the sync receiver dispatches `RefineModify`
-    // under ISyncRefineModifier's own name; this round-trip exercises that sync path
-    // (no async execution, so safe on Mono).
+    // `RefineModifyAsync` -> CS1061 at the compile gate. The fix carries `async` in BOTH
+    // grouping keys: the async base satisfies the real reverse-async witness predicate
+    // (S13 Pillar C), so its EveryProtocol witness KEEPS `async` and emits a genuine
+    // `func refineModify(_:) async -> Int32`, while the sync refinement emits
+    // `func refineModify(_:) -> Int32` — two DISTINCT effect overloads, no redeclaration.
+    // Both paths now round-trip at runtime: the sync receiver dispatches `RefineModify`
+    // under ISyncRefineModifier's own name, and the async base dispatches `RefineModifyAsync`
+    // through the real reverse-async witness.
 
     /// <summary>
     /// Dispatch the SYNC requirement of a sync-protocol-refining-an-async-protocol
@@ -196,35 +197,99 @@ public class SiblingMethodDispatchTests : TestBase
             "Sync-refine receiver dispatches RefineModify under its own name (async/sync effect-overloads stay in distinct sibling groups)");
     }
 
+    /// <summary>
+    /// Dispatch the async BASE requirement through the real reverse-async witness. The instance
+    /// is a SyncRefineModifier impl, which conforms to the async base via refinement, so the
+    /// async-base witness dispatches to its <c>RefineModifyAsync</c> — independently of the sync
+    /// slot exercised above. The await genuinely suspends until C# resumes the boxed continuation.
+    /// </summary>
+    public async Task TestAsyncSyncRefine_AsyncBaseDispatch()
+    {
+        var impl = new SyncRefineModifierImpl(100);
+        var result = await WithTimeout(
+            Functions.CallRefineModifyViaAsyncBaseAsync(impl, 7),
+            DefaultAsyncTimeout);
+        AssertEqual(1107, result,
+            "Async-base requirement dispatches to RefineModifyAsync via the real reverse-async witness (distinct effect overload from the sync slot)");
+        TestLogger.Info($"AsyncSyncRefine.AsyncBase = {result}");
+    }
+
+    /// <summary>
+    /// Drive BOTH effect overloads on the SAME instance: the sync slot via the sync existential
+    /// and the async base via the real reverse-async witness. Proves the refinement's two
+    /// distinct effect-overload witnesses dispatch to their respective C# members.
+    /// </summary>
+    public async Task TestAsyncSyncRefine_BothEffectsOnOneInstance()
+    {
+        var impl = new SyncRefineModifierImpl(100);
+        var sync = Functions.CallRefineModifySync(impl, 7);
+        var async = await WithTimeout(
+            Functions.CallRefineModifyViaAsyncBaseAsync(impl, 7),
+            DefaultAsyncTimeout);
+        AssertEqual(107, sync, "Sync slot dispatches to RefineModify on the dual-effect instance");
+        AssertEqual(1107, async, "Async base dispatches to RefineModifyAsync on the dual-effect instance");
+        TestLogger.Info($"AsyncSyncRefine.BothEffects sync={sync} async={async}");
+    }
+
     // MARK: - Unrelated (non-refining) async/sync same-signature group
     //
     // MixedFanAsyncOwner (async) and MixedFanSyncPeer (sync) declare the same
-    // mixedFanModify(_:) -> Int32 with NO refinement between them, so they form one
-    // EveryProtocol owner/peer group with the async protocol as owner (owner/peer grouping
-    // omits `async`). Complements the refinement shape above (SyncRefineModifier:
-    // AsyncRefineModifierBase) with the INDEPENDENT-protocols case. The C# sibling-fallback
-    // grouping carries `async`, so the async and sync requirements stay DISTINCT C# members
-    // (MixedFanModifyAsync vs MixedFanModify) and the sync receiver never fans into the async
-    // interface (no CS1061). The fan-out body sorts siblings sync-first; the async owner emits
-    // the shared sync witness and dispatches through whichever per-protocol vtable a proxy
-    // populated. (The owner's `self` box type is behaviorally immaterial — the C# receiver
-    // reads only word 0 of the existential — so this exercises grouping/ordering + round-trip,
-    // not the box choice.)
+    // mixedFanModify(_:) -> Int32 with NO refinement between them. The async requirement
+    // satisfies the real reverse-async witness predicate (S13 Pillar C), so its EveryProtocol
+    // witness KEEPS `async` and emits a genuine `func mixedFanModify(_:) async -> Int32`, while
+    // the sync peer emits `func mixedFanModify(_:) -> Int32`. Because the owner/peer grouping
+    // key carries `async` for the real-async witness and omits it for the sync peer, the two
+    // protocols land in DISTINCT owner groups — each emitting its OWN effect-overload witness
+    // body (no longer one shared group). The C# sibling-fallback grouping likewise carries
+    // `async`, keeping the requirements DISTINCT C# members (MixedFanModifyAsync vs
+    // MixedFanModify) with no CS1061 cross-fallback. Complements the refinement shape above
+    // (SyncRefineModifier: AsyncRefineModifierBase) with the INDEPENDENT-protocols case: both
+    // effect-overload witnesses coexist on EveryProtocol and each round-trips at runtime.
 
     /// <summary>
     /// Dispatch the SYNC peer requirement of an UNRELATED async/sync same-signature group
-    /// through the sync existential. The requirement is witnessed by the async OWNER's shared
-    /// fan-out body, so it round-trips through the owner/peer group: the async owner and the
-    /// unrelated sync peer share one Swift witness, yet the sync peer's proxy vtable is the
-    /// one the fan-out dispatches into, reaching this C# impl under MixedFanSyncPeer's own
-    /// MixedFanModify member.
+    /// through the sync existential. The sync peer emits its own `func mixedFanModify(_:) ->
+    /// Int32` witness, reaching this C# impl under MixedFanSyncPeer's own MixedFanModify member,
+    /// independently of the async owner's distinct witness.
     /// </summary>
     public void TestMixedFanUnrelated_SyncDispatch()
     {
         var impl = new MixedFanSyncPeerImpl(50);
         var result = Functions.CallMixedFanViaSyncPeer(impl, 7);
         AssertEqual(57, result,
-            "Unrelated async/sync group: sync-peer dispatch round-trips through the async owner's shared fan-out body");
+            "Unrelated async/sync group: sync-peer dispatch round-trips through the sync peer's own witness");
+    }
+
+    /// <summary>
+    /// Dispatch the ASYNC owner requirement of the same UNRELATED group through the real
+    /// reverse-async witness. The async owner emits its own `func mixedFanModify(_:) async ->
+    /// Int32` distinct effect-overload witness, suspending until C# resumes the boxed
+    /// continuation — proving it dispatches independently of the unrelated sync peer.
+    /// </summary>
+    public async Task TestMixedFanUnrelated_AsyncOwnerDispatch()
+    {
+        var impl = new MixedFanAsyncOwnerImpl(50);
+        var result = await WithTimeout(
+            Functions.CallMixedFanViaAsyncOwnerAsync(impl, 7),
+            DefaultAsyncTimeout);
+        AssertEqual(57, result,
+            "Unrelated async/sync group: async-owner dispatch round-trips through the real reverse-async witness (distinct from the sync peer)");
+        TestLogger.Info($"MixedFanUnrelated.AsyncOwner = {result}");
+    }
+
+    /// <summary>
+    /// Deferred completion of the async owner: a genuine yield before producing the value still
+    /// resumes the boxed continuation cleanly.
+    /// </summary>
+    public async Task TestMixedFanUnrelated_AsyncOwnerDeferred()
+    {
+        var impl = new MixedFanAsyncOwnerImpl(50, defer: true);
+        var result = await WithTimeout(
+            Functions.CallMixedFanViaAsyncOwnerAsync(impl, 7),
+            DefaultAsyncTimeout);
+        AssertEqual(57, result,
+            "Unrelated async/sync group: async-owner resumes after an awaited yield in the C# impl");
+        TestLogger.Info($"MixedFanUnrelated.AsyncOwnerDeferred = {result}");
     }
 }
 
@@ -284,10 +349,32 @@ internal class SyncRefineModifierImpl : ISyncRefineModifier
 
 // Sync peer of the UNRELATED async/sync group. Implements ONLY the sync interface (no
 // refinement, so it does not inherit the async owner's interface). Its proxy populates the
-// sync peer's per-protocol vtable, which the async owner's fan-out body dispatches into.
+// sync peer's per-protocol vtable, dispatched by the sync peer's own witness.
 internal class MixedFanSyncPeerImpl : IMixedFanSyncPeer
 {
     private readonly int _bias;
     public MixedFanSyncPeerImpl(int bias) { _bias = bias; }
     public int MixedFanModify(int n) => n + _bias;
+}
+
+// Async owner of the UNRELATED async/sync group. Implements ONLY the async interface. Its real
+// reverse-async witness suspends and hands the boxed continuation back to C#, distinct from the
+// unrelated sync peer's witness. When defer is set the impl yields before returning, exercising
+// a genuine suspend/resume rather than an immediately-completed Task.
+internal class MixedFanAsyncOwnerImpl : IMixedFanAsyncOwner
+{
+    private readonly int _bias;
+    private readonly bool _defer;
+    public MixedFanAsyncOwnerImpl(int bias, bool defer = false) { _bias = bias; _defer = defer; }
+
+    public System.Threading.Tasks.Task<int> MixedFanModifyAsync(int n, System.Threading.CancellationToken cancellationToken = default)
+        => _defer
+            ? DeferredAsync(n)
+            : System.Threading.Tasks.Task.FromResult(n + _bias);
+
+    private async System.Threading.Tasks.Task<int> DeferredAsync(int n)
+    {
+        await System.Threading.Tasks.Task.Yield();
+        return n + _bias;
+    }
 }

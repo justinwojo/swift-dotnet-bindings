@@ -1887,13 +1887,19 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_AsyncMethodReceiver_UnwrapsTaskBeforeMarshalling()
     {
-        // Forward witness dispatch is disabled for async (test above), but the REVERSE-dispatch
-        // receiver still satisfies the async requirement through the sync-ABI witness slot: the
-        // C# impl returns Task<T> while the Swift witness reads the unwrapped T. The receiver must
-        // block the Task and marshal T — emitting MarshalToSwiftBuffer(Task<T>) directly hands
-        // Swift a managed Task object header where it expects the value, silently corrupting the
-        // return ABI. Asserts the unwrap is present and that the marshalled value is `result`
-        // (the unwrapped value), never the Task.
+        // The LEGACY blocking reverse-dispatch receiver — the fallback for async requirements the
+        // real reverse-async witness predicate (EveryProtocolEmitter.EmitsRealAsyncWitness) rejects.
+        // A primitive-returning, low-arity async method now takes the real-async witness instead (it
+        // hands the continuation back to Swift, no blocking); to exercise THIS legacy path the fixture
+        // must be a shape the predicate rejects. Arity > RealAsyncWitnessMaxArity (5 value params > 4)
+        // is the cleanest such shape that KEEPS a blittable-primitive (Int32) return, so the legacy
+        // value-marshalling arm (`return MarshalToSwiftBuffer(result);`) still fires.
+        //
+        // On the legacy path the async requirement is satisfied through the sync-ABI witness slot: the
+        // C# impl returns Task<T> while the Swift witness reads the unwrapped T. The receiver must block
+        // the Task and marshal T — emitting MarshalToSwiftBuffer(Task<T>) directly hands Swift a managed
+        // Task object header where it expects the value, silently corrupting the return ABI. Asserts the
+        // unwrap is present and that the marshalled value is `result` (the unwrapped value), never the Task.
         RegisterSwiftInt32();
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         protocolDecl.Methods.Add(new MethodDecl
@@ -1904,18 +1910,11 @@ public class ProtocolProxyEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = true,
+            // [0] = Int32 return; [1..5] = five Int32 value params → arity 5 > RealAsyncWitnessMaxArity (4),
+            // so EmitsRealAsyncWitness rejects it and the legacy blocking receiver is emitted.
             CSSignature = new List<ArgumentDecl>
             {
-                new()
-                {
-                    Name = string.Empty,
-                    PrivateName = string.Empty,
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
-                    IsInOut = false,
-                    IsGeneric = false,
-                    ParentDecl = null,
-                    ModuleDecl = null
-                }
+                Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg()
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
@@ -1928,22 +1927,26 @@ public class ProtocolProxyEmitterTests
         // The Task is blocked synchronously so `result` is the unwrapped value the sync witness reads.
         Assert.Contains(".GetAwaiter().GetResult()", receiverBody);
         Assert.Contains("MarshalToSwiftBuffer(result)", receiverBody);
-        // The impl call itself must carry the unwrap (not a bare Task assignment). With the fix the
-        // call reads `impl.FetchValueAsync().GetAwaiter().GetResult()`, so the bare-Task form
-        // `FetchValueAsync();` (call immediately terminated) must never appear.
-        Assert.Contains("impl.FetchValueAsync()", receiverBody);
+        // The impl call itself must carry the unwrap appended to the call expression (not a bare Task
+        // assignment): `impl.FetchValueAsync(<args>).GetAwaiter().GetResult()`. The bare-Task form
+        // `FetchValueAsync();` (call immediately terminated by a semicolon) must never appear.
+        Assert.Contains("impl.FetchValueAsync(", receiverBody);
         Assert.DoesNotContain("FetchValueAsync();", receiverBody);
     }
 
     [Fact]
     public void EmitProxyClass_AsyncReceiver_FailFastsWithMemberName_SyncReceiverKeepsPlainFailFast()
     {
-        // Finding 36: the async receiver blocks the Task on the synchronously-blocked reverse-dispatch
-        // slot (upstream Issue 1) and has no Swift error channel, so any escape — cancellation or
-        // otherwise — is process-terminating. The async close must therefore be member-named (loud,
-        // attributable) and split the cancellation case out, while a SIBLING sync receiver in the same
-        // proxy keeps the anonymous plain FailFast. This pins the `method.IsAsync` close selection so a
-        // refactor can't silently regress either receiver onto the other's policy.
+        // Finding 36: on the LEGACY blocking reverse-dispatch path the async receiver blocks the Task on
+        // the synchronously-blocked slot (upstream Issue 1) and has no Swift error channel, so any escape
+        // — cancellation or otherwise — is process-terminating. The async close must therefore be
+        // member-named (loud, attributable) and split the cancellation case out, while a SIBLING sync
+        // receiver in the same proxy keeps the anonymous plain FailFast. This pins the `method.IsAsync`
+        // close selection so a refactor can't silently regress either receiver onto the other's policy.
+        // The async fixture uses arity 5 (> RealAsyncWitnessMaxArity) so EmitsRealAsyncWitness rejects it
+        // and it lands on the legacy blocking receiver (a primitive low-arity async method would instead
+        // take the real reverse-async witness, which carries faults back through the Swift box, not a
+        // FailFast).
         RegisterSwiftInt32();
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         protocolDecl.Methods.Add(new MethodDecl
@@ -1954,18 +1957,11 @@ public class ProtocolProxyEmitterTests
             IsConstructor = false,
             Throws = false,
             IsAsync = true,
+            // [0] = Int32 return; [1..5] = five Int32 value params → arity 5 > 4 keeps it off the
+            // real-async witness and on the legacy blocking receiver under test here.
             CSSignature = new List<ArgumentDecl>
             {
-                new()
-                {
-                    Name = string.Empty,
-                    PrivateName = string.Empty,
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
-                    IsInOut = false,
-                    IsGeneric = false,
-                    ParentDecl = null,
-                    ModuleDecl = null
-                }
+                Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg()
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
@@ -2014,6 +2010,147 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("FailFastUnhandledClosureException", syncBody);
         Assert.DoesNotContain("FailFastAsyncWitness", syncBody);
         Assert.DoesNotContain("OperationCanceledException", syncBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_RealAsyncWitnessReceiver_NonThrowing_HandsOffContinuationWithoutBlocking()
+    {
+        // S13 Pillar C: a primitive-returning, low-arity NON-throwing async requirement satisfies the
+        // real reverse-async witness predicate (EveryProtocolEmitter.EmitsRealAsyncWitness), so the
+        // receiver is the widened continuation-handoff slot, NOT the legacy blocking one. It must:
+        //   • be the widened `void` slot taking the trailing (continuationBoxPtr, successFuncPtr,
+        //     errorFuncPtr) — +3 over the sync slot — so the C# delegate ABI matches Swift's vtable field;
+        //   • hand the impl's Task<T> to RunAsyncNonThrowing (no error channel) rather than block it;
+        //   • NEVER `.GetAwaiter().GetResult()` (the whole point is to suspend, not block);
+        //   • build a successAction guarded by AsyncResumeGuard but NO errorAction (non-throwing box).
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetchValue",
+            MangledName = "$sfetchValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = true,
+            // [0] = Int32 return; [1] = one Int32 value param → arity 1 ≤ 4, blittable primitive
+            // throughout, so EmitsRealAsyncWitness accepts it and the real-async receiver is emitted.
+            CSSignature = new List<ArgumentDecl> { Int32Arg(), Int32Arg() },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsSynthesizedAccessor = false
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // The real-async receiver returns `void` (the result flows back asynchronously through the box),
+        // unlike the legacy blocking receiver which returns IntPtr.
+        var body = ExtractMethodBody(output, "private static unsafe void Receive_fetchValue_0(");
+        Assert.DoesNotContain("private static IntPtr Receive_fetchValue_0(", output);
+        // Widened slot: the trailing continuation-box + success/error function pointers (+3).
+        Assert.Contains("IntPtr continuationBoxPtr", body);
+        Assert.Contains("IntPtr successFuncPtr", body);
+        Assert.Contains("IntPtr errorFuncPtr", body);
+        // Continuation handoff, not a synchronous block.
+        Assert.Contains("RunAsyncNonThrowing(", body);
+        Assert.Contains("AsyncClosureState<int>", body);
+        Assert.DoesNotContain(".GetAwaiter().GetResult()", body);
+        // Resume-once guard + success completion; non-throwing box has no error channel.
+        Assert.Contains("AsyncResumeGuard", body);
+        Assert.Contains("successAction", body);
+        Assert.DoesNotContain("errorAction", body);
+        Assert.DoesNotContain("AsyncThrowingClosureState", body);
+        // Non-throwing fault policy: a synchronous escape FailFasts (no Swift error channel to resume).
+        Assert.Contains("FailFastNonThrowing", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_RealAsyncWitnessReceiver_Throwing_ResumesBoxWithError()
+    {
+        // S13 Pillar C: a primitive-returning, low-arity THROWING async requirement also takes the real
+        // reverse-async witness (throwing is NOT part of the predicate), but the throwing variant carries
+        // a real Swift error channel: the box is a CheckedContinuation<T, Error>, so the receiver builds
+        // an errorAction and resumes-with-error on a C# fault via RunAsync (not RunAsyncNonThrowing) and
+        // the ReportError fault policy. Still never blocks the Task.
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetchValue",
+            MangledName = "$sfetchValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = true,
+            CSSignature = new List<ArgumentDecl> { Int32Arg(), Int32Arg() },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsSynthesizedAccessor = false
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        var body = ExtractMethodBody(output, "private static unsafe void Receive_fetchValue_0(");
+        Assert.Contains("IntPtr continuationBoxPtr", body);
+        // Throwing handoff: RunAsync + the throwing closure state + an error channel.
+        Assert.Contains("RunAsync(", body);
+        Assert.Contains("AsyncThrowingClosureState<int>", body);
+        Assert.DoesNotContain("RunAsyncNonThrowing(", body);
+        Assert.DoesNotContain(".GetAwaiter().GetResult()", body);
+        Assert.Contains("errorAction", body);
+        // Throwing fault policy resumes the box WITH the error rather than FailFasting.
+        Assert.Contains("ReportError", body);
+        Assert.DoesNotContain("FailFastNonThrowing", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_RealAsyncWitnessReceiver_SiblingGroup_ResolvesImplAcrossSiblingInterfaces()
+    {
+        // M-new-1 (Grok r2): the Swift owner witness fan-out across sibling vtables is unit-pinned
+        // (EveryProtocolEmitterTests) and runtime-covered (AsyncSiblingMethodDispatchTests), but the C#
+        // *receiver* sibling-resolution had no emitter-unit pin — a regression that broke the C# side
+        // while leaving the Swift fan-out intact would pass unit tests and only surface at BindingTests
+        // regen/runtime. When a real-async requirement participates in a same-signature sibling group,
+        // the owner receiver must bind `__asyncFunc` by resolving THIS handle's live impl across the
+        // primary interface THEN each recorded sibling interface (ProxyLifetimeTracker.ResolveImpl<T>) —
+        // never single-resolve-then-block — so a smaller-sibling proxy reached through the owner's primed
+        // process-wide vtable is still located instead of FailFasting a live impl.
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("OwnerAsyncProto");
+        var method = new MethodDecl
+        {
+            Name = "fetchValue",
+            MangledName = "$sfetchValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = true,
+            // Real-async eligible: [0] Int32 return, [1] one Int32 value param (arity 1 ≤ 4, blittable).
+            CSSignature = new List<ArgumentDecl> { Int32Arg(), Int32Arg() },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsSynthesizedAccessor = false
+        };
+        protocolDecl.Methods.Add(method);
+        var output = EmitProxyClassWithMethodSibling(protocolDecl, method);
+
+        var body = ExtractMethodBody(output, "private static unsafe void Receive_fetchValue_0(");
+        // Still the widened continuation-handoff slot (+3), never the legacy blocking receiver.
+        Assert.Contains("IntPtr continuationBoxPtr", body);
+        Assert.DoesNotContain(".GetAwaiter().GetResult()", body);
+        // Sibling path: an `__asyncFunc` local bound by resolving the live impl across the primary THEN
+        // the recorded sibling interface — NOT the solo single-resolve `() => impl.<Name>(...)` form.
+        Assert.Contains("Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<", body);
+        Assert.Contains("__impl_primary", body);
+        Assert.Contains("__impl_s0", body);
+        Assert.Contains("SiblingFallbackProto", body); // the recorded sibling interface is resolved by name
+        Assert.Contains("__asyncFunc = () => __impl_primary.", body);
+        Assert.Contains("__asyncFunc = () => __impl_s0.", body);
+        // All-miss terminal is the loud sibling FailFast (also supplies __asyncFunc definite assignment),
+        // and the continuation is still handed off non-blocking (non-throwing → RunAsyncNonThrowing).
+        Assert.Contains("across the primary proxy and all sibling proxies", body);
+        Assert.Contains("RunAsyncNonThrowing(", body);
     }
 
     [Fact]
@@ -5528,6 +5665,20 @@ public class ProtocolProxyEmitterTests
             })
         });
     }
+
+    // Builds a blittable-primitive Swift.Int32 value entry for a MethodDecl.CSSignature
+    // (CSSignature[0] is the return type; [1..] are value params). Used to shape async
+    // fixtures on/off the real-async-witness predicate (EveryProtocolEmitter.EmitsRealAsyncWitness).
+    private static ArgumentDecl Int32Arg() => new()
+    {
+        Name = string.Empty,
+        PrivateName = string.Empty,
+        SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+        IsInOut = false,
+        IsGeneric = false,
+        ParentDecl = null,
+        ModuleDecl = null
+    };
 
     /// <summary>
     /// Registers Swift.Int → nint in the test TypeDatabase.

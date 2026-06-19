@@ -878,6 +878,18 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
+        // Real-async reverse-dispatch witness (S13 Pillar C): a primitive-shaped `async throws`
+        // requirement is satisfied by a genuine continuation handoff, NOT the legacy thread-blocking
+        // sync slot. The Swift witness suspends on withCheckedThrowingContinuation and calls this
+        // widened Start-thunk; this receiver spawns the impl's Task and resumes the Swift continuation
+        // box via the trailing success/error function pointers. Excludes every closure/generic/Self
+        // shape above (EmitsRealAsyncWitness rejects them), so it only sees the plain value shape.
+        if (EveryProtocolEmitter.EmitsRealAsyncWitness(method))
+        {
+            EmitRealAsyncWitnessReceiver(writer, method, protocolDecl, interfaceName, index);
+            return;
+        }
+
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!) : "void";
@@ -1071,11 +1083,13 @@ public partial class ProtocolProxyEmitter
         // existential→getter fallback covers ObjC-bridgeable, Date, NativeRemapped, etc.; without
         // it a return of e.g. Foundation.NSUrl would write a managed reference via
         // MarshalToSwiftBuffer instead of extracting the .Handle ObjC pointer Swift expects.
-        // Async receivers satisfy the async requirement through the sync-ABI witness slot: the impl
-        // call below blocks the Task (asyncResultUnwrap) so `result` is the unwrapped T, and these
-        // T-shaped conversions then apply exactly as for a sync return. (Earlier this path skipped
-        // the conversions for async because `result` was a Task<T>; the unwrap makes that
-        // special-casing wrong — Swift reads T, so a String/ObjC async return MUST be converted.)
+        // Async receivers on this legacy fallback path satisfy the async requirement through the
+        // sync-ABI witness slot: the impl call below blocks the Task (asyncResultUnwrap) so `result`
+        // is the unwrapped T, and these T-shaped conversions then apply exactly as for a sync return.
+        // (Earlier this path skipped the conversions for async because `result` was a Task<T>; the
+        // unwrap makes that special-casing wrong — Swift reads T, so a String/ObjC async return MUST
+        // be converted.) Primitive-shaped async returns never reach here — they took the real
+        // reverse-async witness above.
         bool isStringMethodReturn = hasReturn && IsStringTypeSpec(returnType!);
         string? returnConv = null;
         if (hasReturn && !isStringMethodReturn)
@@ -1084,13 +1098,18 @@ public partial class ProtocolProxyEmitter
                 ?? GetReceiverGetterConversion("result", returnType!);
         }
 
-        // Async protocol requirements are satisfied via the SYNC-ABI witness slot (the async witness
-        // ABI hits the Mono reverse-async assertion, upstream Issue 1), so the C# impl returns Task<T>
-        // (or Task) while the Swift witness reads the unwrapped T (or void). Block on the Task so the
-        // sync witness body marshals T, not the Task object — without this the receiver would
-        // MarshalToSwiftBuffer(Task<T>) and silently corrupt the return ABI. Mirrors the
-        // forward-closure async-bridge idiom (Func<Task<T>> → .GetAwaiter().GetResult()). Async is
-        // gated out of the sibling-fallback path above, so the unwrap is only needed below.
+        // This is the LEGACY blocking async receiver — the fallback for async requirements the real
+        // reverse-async witness predicate rejects (EveryProtocolEmitter.EmitsRealAsyncWitness:
+        // non-primitive return, arity > 4, generic/Self shapes). Primitive-shaped async requirements
+        // returned early at the EmitsRealAsyncWitness branch above into EmitRealAsyncWitnessReceiver,
+        // which hands the continuation back to Swift instead of blocking. On THIS path the async
+        // requirement is satisfied via the SYNC-ABI witness slot (the sync witness ABI for the
+        // remaining shapes), so the C# impl returns Task<T> (or Task) while the Swift witness reads the
+        // unwrapped T (or void). Block on the Task so the sync witness body marshals T, not the Task
+        // object — without this the receiver would MarshalToSwiftBuffer(Task<T>) and silently corrupt
+        // the return ABI. Mirrors the forward-closure async-bridge idiom (Func<Task<T>> →
+        // .GetAwaiter().GetResult()). Async is gated out of the sibling-fallback path above, so the
+        // unwrap is only needed below.
         //
         // Blocking this slot is NOT deadlock-free in general — the earlier "no SynchronizationContext,
         // so blocking cannot self-deadlock" claim was too narrow. There is no SynchronizationContext
@@ -1098,10 +1117,12 @@ public partial class ProtocolProxyEmitter
         // thread to make progress: a continuation pinned to the blocked thread (e.g. another
         // @MainActor hop reaching back to the main thread this witness is blocking), or cooperative
         // thread-pool starvation when many witnesses block pool threads at once. Those are inherent to
-        // the sync-blocked Issue-1 workaround and only the real async witness (Session 13) removes
-        // them. What this seam DOES guarantee: an exception escaping the awaited work cannot silently
-        // corrupt the boundary — the async UCO close below converts any escape (cancellation or other)
-        // into a member-named FailFast, because the sync slot has no Swift error channel to carry it.
+        // the sync-blocked Issue-1 workaround; the real async witness (Session 13, S13 Pillar C)
+        // removes them for every shape it accepts, and this fallback retains them only for the shapes
+        // it cannot yet carry. What this seam DOES guarantee: an exception escaping the awaited work
+        // cannot silently corrupt the boundary — the async UCO close below converts any escape
+        // (cancellation or other) into a member-named FailFast, because the sync slot has no Swift
+        // error channel to carry it.
         string asyncResultUnwrap = method.IsAsync ? ".GetAwaiter().GetResult()" : string.Empty;
 
         if (useMethodSiblingFallback)
@@ -1148,14 +1169,229 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"impl.{pascalMethodName}({argsString}){asyncResultUnwrap};");
         }
 
-        // Async receivers block the Task on the sync-ABI slot (Issue 1) and have no Swift error
-        // channel, so any escape — cancellation or otherwise — is process-terminating. Use the
-        // member-named async close (Finding 36) so the FailFast is attributable rather than anonymous;
-        // sync receivers keep the plain FailFast close.
+        // Async receivers on this legacy fallback path block the Task on the sync-ABI slot (Issue 1)
+        // and have no Swift error channel, so any escape — cancellation or otherwise — is
+        // process-terminating. Use the member-named async close (Finding 36) so the FailFast is
+        // attributable rather than anonymous; sync receivers keep the plain FailFast close.
+        // (Primitive-shaped async requirements never reach here — the real reverse-async witness above
+        // carries the error back through the Swift continuation box instead of FailFasting.)
         if (method.IsAsync)
             EmitUcoGuardCloseAsyncWitnessFailFast(writer, $"{protocolDecl.Name}.{method.Name}");
         else
             EmitUcoGuardCloseFailFast(writer);
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the C# receiver for an S13 Pillar C real-async reverse-dispatch witness — the inverse of
+    /// the forward async-closure Start thunk. Swift's <c>func m(...) async throws -&gt; T</c> witness
+    /// suspends on <c>withCheckedThrowingContinuation</c> and calls this widened
+    /// <c>[UnmanagedCallersOnly]</c> slot with <c>(vtHandle, selfContainer, &lt;value args&gt;,
+    /// continuationBoxPtr, successFuncPtr, errorFuncPtr)</c>. Rather than block the slot and
+    /// <c>.GetAwaiter().GetResult()</c> the impl's <c>Task</c> (the legacy Issue-1 workaround), this
+    /// resolves the C# impl, marshals the (blittable-primitive) args synchronously while Swift's pointers
+    /// are still live, then hands the impl's <c>Task&lt;T&gt;</c> to
+    /// <see cref="Swift.Runtime.AsyncClosureHelper"/> via <c>RunAsync</c>. The helper runs the Task on
+    /// the pool and, on completion, resumes the Swift continuation box exactly once — success marshals
+    /// <c>T</c> into a result buffer and calls <c>successFuncPtr</c>; a fault (including
+    /// <see cref="System.OperationCanceledException"/>) resumes with the error message via
+    /// <c>errorFuncPtr</c>. A shared <c>AsyncResumeGuard</c> makes resume strictly once. On the THROWING
+    /// path the UCO envelope's <see cref="UcoGuardEmitter.UcoFaultPolicy.ResumeBoxError"/> close routes a
+    /// post-resolution synchronous escape (a marshal fault, or an impl that throws before returning its
+    /// <c>Task</c>) into a box error-resume, so the Swift task is not abandoned; the NON-throwing path
+    /// has no Swift error channel and FailFasts such an escape instead. A dead-proxy resolve (no live C#
+    /// impl for the handle) is a Design B2 lifetime violation on BOTH paths and FailFasts the process
+    /// before the box is touched — it is deliberately NOT converted into a box error-resume.
+    /// <see cref="EveryProtocolEmitter.EmitsRealAsyncWitness"/> gates this to the plain value shape
+    /// (non-inout blittable-primitive params + return), so the arg loop is the simple
+    /// materialize-and-pass form with no closure/inout/string/ObjC arms.
+    /// </summary>
+    private void EmitRealAsyncWitnessReceiver(CSharpWriter writer, MethodDecl method,
+        ProtocolDecl protocolDecl, string interfaceName, int index)
+    {
+        var receiverName = $"Receive_{method.Name}_{index}";
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        // EmitsRealAsyncWitness guarantees a single blittable-primitive scalar return; the interface
+        // method is `Task<{csReturnType}>`, so the closure state and helper generic are <csReturnType>.
+        var csReturnType = GetCSharpTypeName(returnType!);
+
+        // A throwing requirement resumes the Swift continuation box WITH the error on a C# fault (real
+        // Swift error channel). A non-throwing requirement has no error channel: a fault FailFasts the
+        // process — mirroring the forward non-throwing async-closure Start thunk. The slot's trailing
+        // error-FP stays in the ABI either way (width is throwing-agnostic, +3); the non-throwing path
+        // simply never invokes it.
+        var isThrowing = method.Throws;
+
+        var nonEmptyParams = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
+
+        // ABI param slots: (vtHandle, selfContainer, one raw value pointer per arg, then the trailing
+        // continuation box + success/error function pointers). Matches the widened Swift vtable field
+        // (EveryProtocolEmitter.EmitMethodVtableField, +3) and the C# local delegate (GetWidth +3).
+        var receiverParamFragments = nonEmptyParams.Select((_, i) => $"IntPtr rawArg{i}");
+        var paramTypes = "IntPtr vtHandle, IntPtr selfContainer"
+            + string.Concat(receiverParamFragments.Select(f => ", " + f))
+            + ", IntPtr continuationBoxPtr, IntPtr successFuncPtr, IntPtr errorFuncPtr";
+
+        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
+        var pascalMethodName = ComputeReceiverPascalMethodName(method, protocolDecl, hasReturn: true, isSelfReturning);
+
+        // Sibling-method fallback (the real-async twin of the sync receiver's path at ~L930): when this
+        // real-async method participates in a same-signature group across protocols, the Swift owner
+        // witness fans out across sibling vtables and may dispatch into whichever sibling proxy the C#
+        // impl populated — OR, once any owner-conforming proxy has primed the owner's process-wide
+        // vtable, the owner branch fires for a non-owner-only instance. Either way the owner receiver
+        // must resolve THIS instance's proxy across the recorded sibling interfaces, not just its own,
+        // or it FailFasts a perfectly live smaller-sibling impl. ComputeSiblingMethodFallbacks already
+        // groups async methods (includeAsyncEffect:true), so the entry exists for real-async pairs; it
+        // is empty for a solo group, leaving the single-resolve path byte-identical.
+        var protoQNameForMethod = EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl);
+        var methodSiblingMapKey = EveryProtocolEmitter.GetMethodSiblingMapKey(method);
+        var siblingFallbacks = _emissionContext.GetSiblingMethodFallbacks(protoQNameForMethod, methodSiblingMapKey);
+        bool useSiblingFallback = siblingFallbacks != null && siblingFallbacks.Count > 0;
+
+        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine($"private static unsafe void {receiverName}({paramTypes})");
+        writer.WriteLine("{");
+        writer.Indent++;
+
+        // Shared resume-once guard + the success/error completion delegates. Each claims the guard
+        // before invoking its Swift @_cdecl resume symbol, so a success and an error (or a racing
+        // duplicate) can never both consume the same box. Built BEFORE the guarded body because the
+        // ResumeBoxError catch resumes through errorAction. Mirrors the forward Start thunk
+        // (ClosureEmitter.Async.cs) exactly.
+        writer.WriteLine("var __resumeGuard = new global::Swift.Runtime.AsyncResumeGuard();");
+        writer.WriteLine("var successAction = new global::System.Action<IntPtr, IntPtr>((box, resultPtr) =>");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine("if (!__resumeGuard.TryClaim()) return;");
+        writer.WriteLine("var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)successFuncPtr;");
+        writer.WriteLine("fp(box, resultPtr);");
+        writer.Indent--;
+        writer.WriteLine("});");
+        if (isThrowing)
+        {
+            // Only the throwing path resumes-with-error: the Swift box carries a CheckedContinuation<T,
+            // Error> and the `_error` @_cdecl symbol. The non-throwing slot fills error-FP with a sentinel
+            // (never invoked), so no errorAction is built — RunAsyncNonThrowing FailFasts on a fault.
+            writer.WriteLine("var errorAction = new global::System.Action<IntPtr, IntPtr>((box, errPtr) =>");
+            writer.WriteLine("{");
+            writer.Indent++;
+            writer.WriteLine("if (!__resumeGuard.TryClaim()) return;");
+            writer.WriteLine("var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;");
+            writer.WriteLine("fp(box, errPtr);");
+            writer.Indent--;
+            writer.WriteLine("});");
+        }
+
+        EmitUcoGuardOpen(writer);
+        writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
+        // Solo group: resolve the single impl from this interface (a null resolve is a Design B2
+        // lifetime violation → FailFast). Sibling group: defer resolution until after the args are
+        // marshalled, then try the primary interface then each sibling interface (params must be read
+        // once before the per-interface lookups, since the matched impl is captured by the AsyncFunc).
+        if (!useSiblingFallback)
+            EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{method.Name}()");
+
+        // Marshal args synchronously — Swift's argument pointers are valid only for the duration of
+        // this synchronous call, so read them out to managed values BEFORE RunAsync spawns the Task.
+        // Each is a blittable primitive, so the simple materialize form applies (no closure/inout/
+        // string/ObjC arms). The values are then captured by the AsyncFunc closure.
+        var argNames = new List<string>();
+        int argIndex = 0;
+        foreach (var param in nonEmptyParams)
+        {
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
+            var argName = $"arg{argIndex}";
+            writer.WriteLine($"var {argName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
+            argNames.Add(argName);
+            argIndex++;
+        }
+        var argsString = string.Join(", ", argNames);
+
+        // The AsyncFunc thunk handed to the helper. Solo: the inline lambda on the already-resolved
+        // `impl` (byte-identical to the pre-fan-out output). Sibling: a `__asyncFunc` local bound to
+        // whichever interface — primary first, then each recorded sibling — actually resolves a live
+        // impl for THIS handle, so a smaller-sibling proxy reached through the owner's primed vtable is
+        // still located. Each sibling interface may project this method under a different name (a
+        // same-named property forces a rename on one side), so the bound call uses that interface's own
+        // projected name.
+        string asyncFuncExpr;
+        if (useSiblingFallback)
+        {
+            writer.WriteLine($"global::System.Func<global::System.Threading.Tasks.Task<{csReturnType}>> __asyncFunc;");
+            writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} __impl_primary)");
+            writer.WriteLine("{");
+            writer.Indent++;
+            writer.WriteLine($"__asyncFunc = () => __impl_primary.{pascalMethodName}({argsString});");
+            writer.Indent--;
+            writer.WriteLine("}");
+            int siblingIdx = 0;
+            foreach (var sibling in siblingFallbacks!)
+            {
+                var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                var siblingPascalMethodName = ComputeReceiverPascalMethodName(method, sibling.Proto, hasReturn: true, isSelfReturning);
+                writer.WriteLine($"else if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{siblingIface}>(handle) is {{}} __impl_s{siblingIdx})");
+                writer.WriteLine("{");
+                writer.Indent++;
+                writer.WriteLine($"__asyncFunc = () => __impl_s{siblingIdx}.{siblingPascalMethodName}({argsString});");
+                writer.Indent--;
+                writer.WriteLine("}");
+                siblingIdx++;
+            }
+            writer.WriteLine("else");
+            writer.WriteLine("{");
+            writer.Indent++;
+            // No primary or sibling proxy resolves for this handle — Design B2 violation. The throw
+            // also supplies definite-assignment for __asyncFunc (every other branch assigns it).
+            EmitSiblingFanOutFailFast(writer, protocolDecl, $"{method.Name}()");
+            writer.Indent--;
+            writer.WriteLine("}");
+            asyncFuncExpr = "__asyncFunc";
+        }
+        else
+        {
+            asyncFuncExpr = $"() => impl.{pascalMethodName}({argsString})";
+        }
+
+        // Hand the impl's Task<T> to the shared async helper: it runs the Task on the pool and, on
+        // completion, resumes the box exactly once. The GCHandle is `default` (the box owns lifetime;
+        // nothing to free here — see AsyncClosureHelper remarks). Arity-0 state: the args are bound
+        // inside AsyncFunc, so the no-extra-arg overload is selected. Throwing → RunAsync (success
+        // marshals T → successFuncPtr; fault → errorFuncPtr). Non-throwing → RunAsyncNonThrowing
+        // (success → successFuncPtr; fault FailFasts, no Swift error channel).
+        if (isThrowing)
+        {
+            writer.WriteLine($"global::Swift.Runtime.AsyncClosureHelper.RunAsync(");
+            writer.Indent++;
+            writer.WriteLine("default(global::System.Runtime.InteropServices.GCHandle),");
+            writer.WriteLine($"new global::Swift.Runtime.AsyncThrowingClosureState<{csReturnType}> {{ AsyncFunc = {asyncFuncExpr} }},");
+            writer.WriteLine("continuationBoxPtr, successAction, errorAction);");
+            writer.Indent--;
+        }
+        else
+        {
+            writer.WriteLine($"global::Swift.Runtime.AsyncClosureHelper.RunAsyncNonThrowing(");
+            writer.Indent++;
+            writer.WriteLine("default(global::System.Runtime.InteropServices.GCHandle),");
+            writer.WriteLine($"new global::Swift.Runtime.AsyncClosureState<{csReturnType}> {{ AsyncFunc = {asyncFuncExpr} }},");
+            writer.WriteLine("continuationBoxPtr, successAction);");
+            writer.Indent--;
+        }
+
+        // One UCO envelope (ResumeBoxError), body varies by effect — exactly the forward Start thunk
+        // shape. A synchronous escape (dead proxy already FailFasts; a faulting impl that throws before
+        // returning its Task) routes through the box on the throwing path and FailFasts on the
+        // non-throwing path, so the Swift task is never abandoned and the box is consumed exactly once.
+        var resumeErrorBody = isThrowing
+            ? "global::Swift.Runtime.AsyncClosureHelper.ReportError(__uco_ex, continuationBoxPtr, errorAction);"
+            : "global::Swift.Runtime.AsyncClosureHelper.FailFastNonThrowing(__uco_ex);";
+        UcoGuardEmitter.EmitClose(writer, UcoGuardEmitter.UcoFaultPolicy.ResumeBoxError,
+            resumeErrorBody: new[] { resumeErrorBody });
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -1943,13 +2179,17 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Closes the <c>try</c> opened by <see cref="EmitUcoGuardOpen"/> for an <b>async</b>
-    /// protocol-requirement receiver with a member-named FailFast (Finding 36). Same fail-closed
-    /// policy as <see cref="EmitUcoGuardCloseFailFast"/> — the async witness blocks on the
-    /// synchronously-blocked reverse-dispatch slot (upstream Issue 1) and has no Swift error channel,
-    /// so any escape is process-terminating — but it names <paramref name="member"/> and splits out
-    /// <see cref="System.OperationCanceledException"/> so a cancellation token wired into the
-    /// conformance produces an attributable diagnostic instead of an anonymous Swift-library crash.
+    /// Closes the <c>try</c> opened by <see cref="EmitUcoGuardOpen"/> for a <b>legacy blocking
+    /// async</b> protocol-requirement receiver with a member-named FailFast (Finding 36). This is the
+    /// close for the fallback path only — async requirements the real reverse-async witness predicate
+    /// rejects (<see cref="EveryProtocolEmitter.EmitsRealAsyncWitness"/>: non-primitive return,
+    /// arity &gt; 4, generic/Self). Same fail-closed policy as <see cref="EmitUcoGuardCloseFailFast"/>
+    /// — that fallback blocks on the synchronously-blocked reverse-dispatch slot (upstream Issue 1)
+    /// and has no Swift error channel, so any escape is process-terminating — but it names
+    /// <paramref name="member"/> and splits out <see cref="System.OperationCanceledException"/> so a
+    /// cancellation token wired into the conformance produces an attributable diagnostic instead of an
+    /// anonymous Swift-library crash. Primitive-shaped async requirements use the real reverse-async
+    /// witness instead, which resumes the Swift continuation box with the error rather than FailFasting.
     /// </summary>
     private static void EmitUcoGuardCloseAsyncWitnessFailFast(CSharpWriter writer, string member)
     {

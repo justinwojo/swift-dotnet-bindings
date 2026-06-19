@@ -230,9 +230,16 @@ public partial class ProtocolProxyEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
 
+        // A real-async reverse-dispatch witness (S13 Pillar C) is a Start-thunk: slotCount already
+        // carries the +3 trailing pointers (continuation box, success FP, error FP) via
+        // VtableLayoutBuilder.GetWidth, and the delegate returns void (result/error flow back through
+        // the box asynchronously, not as the call's return). Both keyed on the SAME EmitsRealAsyncWitness
+        // verdict as the Swift struct field, so the @convention(c) ABI cannot drift.
+        bool realAsync = EveryProtocolEmitter.EmitsRealAsyncWitness(method);
+
         // Parameters: IntPtr (vtable), IntPtr (self), IntPtr[] (method params)
         var paramTypes = "IntPtr, IntPtr" + string.Concat(Enumerable.Repeat(", IntPtr", slotCount));
-        var returnTypeStr = hasReturn ? "IntPtr" : "void";
+        var returnTypeStr = (hasReturn && !realAsync) ? "IntPtr" : "void";
 
         writer.WriteLine($"public delegate* unmanaged[Cdecl]<{paramTypes}, {returnTypeStr}> {fieldName};");
     }
