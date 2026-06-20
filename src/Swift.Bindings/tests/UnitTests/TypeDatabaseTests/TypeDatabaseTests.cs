@@ -458,6 +458,39 @@ public class TypeDatabaseTests
         }
 
         [Fact]
+        public void TryGetTypeRecord_DoesNotResolveRefSuffixAlias_ForNonCoreFoundationModule()
+        {
+            // F10 Stage 19: the Foo↔FooRef typedef toggle is a CoreFoundation/CoreGraphics
+            // C-interop convention. A non-family module's "…Ref"-suffixed name is a distinct
+            // real identity, so neither direction may alias to a sibling that was never
+            // registered. (CGImageRef↔CGImage stays covered by the sibling test above.)
+            var typeDatabase = new TypeDatabase();
+            var module = new ModuleTypeDatabase("MyLib", "/fake/path");
+            var refTypeName = SwiftTypeName.FromModuleQualifiedName("MyLib.WidgetRef");
+            module.RegisterType(refTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "IntPtr"),
+                SwiftTypeName = refTypeName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+            typeDatabase.AddModuleDatabase(module);
+
+            // The registered Ref name still resolves directly (arm 2), but its non-Ref
+            // sibling must NOT be synthesized for a non-family module.
+            Assert.True(typeDatabase.TryGetTypeRecord(refTypeName, out _));
+            Assert.False(typeDatabase.TryGetTypeRecord(
+                SwiftTypeName.FromModuleQualifiedName("MyLib.Widget"), out var aliased));
+            Assert.Null(aliased);
+
+            // And the registration predicate the parser uses agrees — no bogus sibling.
+            Assert.True(typeDatabase.IsTypeRegistered(refTypeName));
+            Assert.False(typeDatabase.IsTypeRegistered(
+                SwiftTypeName.FromModuleQualifiedName("MyLib.Widget")));
+        }
+
+        [Fact]
         public void IsModuleLoaded_ReturnsTrueForLoadedModule()
         {
             var typeDatabase = new TypeDatabase();

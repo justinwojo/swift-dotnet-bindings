@@ -56,6 +56,14 @@ namespace BindingsGeneration
             { "CoreFoundation", "CoreGraphics" },
         };
 
+        // F10 Stage 19: the modules whose types use the C-interop Foo↔FooRef typedef spelling
+        // (CoreFoundation / CoreGraphics). The Ref-suffix alias toggle (GetRefAliasVariant) is
+        // scoped to these — both the alias keys and values participate, since a CGImageRef is
+        // registered under the CoreGraphics value, not the CoreFoundation key. Declared after
+        // _moduleAliases so the set is populated when this initializer runs.
+        private static readonly HashSet<string> _refAliasModules =
+            new(_moduleAliases.Keys.Concat(_moduleAliases.Values), StringComparer.Ordinal);
+
         // Cross-module type aliases for Swift typealiases that resolve to types in a different module.
         // Key: the alias's module-qualified name (as it appears in ABI JSON).
         // Value: the canonical module-qualified name of the target type, with generic type arguments
@@ -961,8 +969,17 @@ namespace BindingsGeneration
         // internal so DatabaseLookupStrategy can run arm 3 against the same definition the
         // raw-name cascade and IsTypeRegistered use. Still a pure name transform — no lookup,
         // no recursion.
+        //
+        // F10 Stage 19: scoped to the CoreFoundation/CoreGraphics family. The Foo/FooRef
+        // spelling toggle is a C-interop typedef convention that only those modules use; an
+        // arbitrary module's "…Ref"-suffixed type is a distinct real identity, not an alias of
+        // a sibling. Returning null for non-family modules stops both arm 3 and IsTypeRegistered
+        // from synthesizing a bogus sibling lookup — both call sites already guard the null.
         internal static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName)
         {
+            if (!_refAliasModules.Contains(swiftTypeName.Module))
+                return null;
+
             var fullName = swiftTypeName.ModuleQualifiedName;
             if (fullName.EndsWith("Ref", StringComparison.Ordinal))
             {
