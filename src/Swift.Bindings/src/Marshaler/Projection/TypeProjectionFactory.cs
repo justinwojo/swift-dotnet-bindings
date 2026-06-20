@@ -204,27 +204,13 @@ public class TypeProjectionFactory
                 // uppercase prefix like UI/MK/CL/CB/WK/etc.). This dual guard prevents
                 // misprojecting Swift value types/enums (e.g., StoreKit.Transaction,
                 // Vision.VNConfidence) that live in these same modules but are NOT ObjC classes.
-                // Uses ObjCBridgedProjection for nullable pointer ABI (nil = IntPtr.Zero).
+                // Uses ObjCBridgedProjection for nullable pointer ABI (nil = IntPtr.Zero). The
+                // guard + remap + report-recording is shared with the collection-element fallback
+                // (TryProjectObjCElement) via TryProjectObjCPrefixBridged.
                 if (inner is NamedTypeSpec innerUnresolved &&
-                    innerUnresolved.HasModule() &&
-                    !innerUnresolved.ContainsGenericParameters &&
-                    !IsStdlibContainer(innerUnresolved.Name) &&
-                    !AppleFrameworkRegistry.IsPointerType(innerUnresolved.Name) &&
-                    !AppleFrameworkRegistry.IsNestedType(innerUnresolved.Name) &&
-                    !TypeDatabaseExtensions.IsKnownAppleValueType(innerUnresolved) &&
-                    AppleFrameworkRegistry.IsOptionalFallbackModule(innerUnresolved.Module) &&
-                    AppleFrameworkRegistry.HasObjCClassPrefix(innerUnresolved.Name))
+                    TryProjectObjCPrefixBridged(innerUnresolved) is { } objcBridged)
                 {
-                    // Apply Swift→.NET typeRemap (e.g. Foundation.NSMutableURLRequest →
-                    // Foundation.NSMutableUrlRequest). Microsoft.iOS uses camelCased "Url" forms
-                    // even though the Swift overlay re-exports the all-caps ObjC name; without
-                    // this step the projected nullable type references an Foundation namespace
-                    // member that doesn't exist in the .NET binding (CS0234).
-                    var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(innerUnresolved.Name, out var remappedName)
-                        ? remappedName
-                        : innerUnresolved.Name;
-                    return new OptionalProjection(
-                        new ObjCBridgedProjection(bridgedName), isExistentialInner);
+                    return new OptionalProjection(objcBridged, isExistentialInner);
                 }
 
                 // Concrete-class fallback for modules that ship Swift-native classes whose
@@ -601,6 +587,41 @@ public class TypeProjectionFactory
         KeyPathFamilyArities.TryGetValue(moduleQualifiedName, out var arity) ? arity : -1;
 
     /// <summary>
+    /// The shared ObjC-prefix bridge fold for an unresolved Apple-framework reference type, used by
+    /// BOTH the Optional&lt;T&gt; inner fallback (Path 2 in <c>Project</c>) and the collection-element
+    /// fallback (<see cref="TryProjectObjCElement"/>). The four-clause naming-heuristic core is
+    /// <see cref="MarshallingHelpers.IsObjCPrefixBridgeCandidate"/> — the same predicate
+    /// <see cref="MarshallingHelpers.IsOptionalObjCBridged"/> reads, so the projection sites and the
+    /// marshalling-decision reader can no longer drift. The extra container/pointer/generic guards
+    /// stay here because the projection sites carry them and the predicate-only reader does not. On a
+    /// match the heuristic guess is recorded into the binding report
+    /// (<see cref="ReportCollector.RecordObjCPrefixBridge"/>) so the naming-convention bridge is
+    /// observable in <c>binding-report.json</c> rather than silent. Returns null when the element is
+    /// not an ObjC-prefix bridge candidate.
+    /// </summary>
+    private static ObjCBridgedProjection? TryProjectObjCPrefixBridged(NamedTypeSpec named)
+    {
+        if (!named.HasModule() ||
+            named.ContainsGenericParameters ||
+            IsStdlibContainer(named.Name) ||
+            AppleFrameworkRegistry.IsPointerType(named.Name) ||
+            !MarshallingHelpers.IsObjCPrefixBridgeCandidate(named))
+        {
+            return null;
+        }
+
+        // Apply Swift→.NET typeRemap (e.g. Foundation.NSMutableURLRequest →
+        // Foundation.NSMutableUrlRequest). Microsoft.iOS uses camelCased "Url" forms even though
+        // the Swift overlay re-exports the all-caps ObjC name; without this the projected type
+        // references a namespace member that doesn't exist in the .NET binding (CS0234).
+        var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(named.Name, out var remappedName)
+            ? remappedName
+            : named.Name;
+        ReportCollector.RecordObjCPrefixBridge(named.Name);
+        return new ObjCBridgedProjection(bridgedName);
+    }
+
+    /// <summary>
     /// Fallback projection for collection element types that are unresolved Apple framework
     /// reference classes — both ObjC-bridged classes and non-ObjC concrete-class-fallback Swift
     /// classes. Mirrors the two-branch Optional fallback above so a collection element projects
@@ -621,22 +642,9 @@ public class TypeProjectionFactory
     private static ITypeProjection? TryProjectObjCElement(TypeSpec elementTypeSpec)
     {
         if (elementTypeSpec is NamedTypeSpec elemNamed &&
-            elemNamed.HasModule() &&
-            !elemNamed.ContainsGenericParameters &&
-            !IsStdlibContainer(elemNamed.Name) &&
-            !AppleFrameworkRegistry.IsPointerType(elemNamed.Name) &&
-            !AppleFrameworkRegistry.IsNestedType(elemNamed.Name) &&
-            !TypeDatabaseExtensions.IsKnownAppleValueType(elemNamed) &&
-            AppleFrameworkRegistry.IsOptionalFallbackModule(elemNamed.Module) &&
-            AppleFrameworkRegistry.HasObjCClassPrefix(elemNamed.Name))
+            TryProjectObjCPrefixBridged(elemNamed) is { } objcBridged)
         {
-            // Same Swift→.NET typeRemap step as the Optional fallback above: prefer the
-            // .NET name (e.g. Foundation.NSUrl) over the raw Swift overlay name when the
-            // registry has an explicit remap.
-            var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(elemNamed.Name, out var remappedName)
-                ? remappedName
-                : elemNamed.Name;
-            return new ObjCBridgedProjection(bridgedName);
+            return objcBridged;
         }
 
         // Concrete-class fallback element parity: mirror the Optional concrete-class branch

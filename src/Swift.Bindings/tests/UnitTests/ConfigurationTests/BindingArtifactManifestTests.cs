@@ -303,6 +303,38 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void GenerationSection_And_Projection_RoundTripObjCPrefixBridges()
+    {
+        // F10 Stage 20: the ObjC-prefix bridge observability channel rides the SAME manifest
+        // rederivation path as the Finding-53 degradation lists — binding-report.json is projected
+        // from the manifest, not written from the live report — so the guesses must survive both
+        // GenerationSection.From (report -> manifest) AND Project (manifest -> projected report),
+        // or the "recorded in binding-report.json" observability is silently lost.
+        var report = NewReport();
+        report.ObjCPrefixBridges.Add("UIKit.UIImage");
+        report.ObjCPrefixBridges.Add("Foundation.NSURL");
+
+        var section = GenerationSection.From(report);
+        Assert.Equal(report.ObjCPrefixBridges, section.ObjCPrefixBridges);
+
+        var manifest = new BindingArtifactManifest { Module = "Demo", Generation = section };
+        var settings = new JsonSerializerSettings
+        {
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        var projected = BindingReportProjection.Project(parsed);
+        Assert.Equal(new[] { "UIKit.UIImage", "Foundation.NSURL" }, projected.ObjCPrefixBridges);
+
+        // Legacy: a report with no bridges projects to an empty (not null) list.
+        var emptyProjected = BindingReportProjection.Project(
+            new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(NewReport()) });
+        Assert.Empty(emptyProjected.ObjCPrefixBridges);
+    }
+
+    [Fact]
     public void JsonRoundTrip_PreservesParseReconciliation()
     {
         // Finding 14a: the reconciliation counts survive serialization so the manifest is the

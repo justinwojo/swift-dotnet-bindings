@@ -47,6 +47,9 @@ public static class BindingReportProjection
             // unsupportedCommentDrops/objectDegradations in binding-report.json" promise is broken.
             report.UnsupportedCommentDrops.AddRange(g.UnsupportedCommentDrops);
             report.ObjectDegradations.AddRange(g.ObjectDegradations);
+            // F10 Stage 20: round-trip the ObjC-prefix bridge guesses so binding-report.json carries
+            // the heuristic observability channel (same projection contract as the two lists above).
+            report.ObjCPrefixBridges.AddRange(g.ObjCPrefixBridges);
         }
 
         // Proxy-suppression and wrapper-symbol-contract co-gating are no longer post-pass

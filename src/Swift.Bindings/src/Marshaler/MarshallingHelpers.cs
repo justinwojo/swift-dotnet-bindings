@@ -167,14 +167,31 @@ namespace BindingsGeneration
             if (typeDatabase.TryGetTypeRecord(innerTypeName, out var typeRecord))
                 return IsObjCBridged(typeRecord) || IsObjCBridgeable(typeRecord);
             // Fallback: Apple framework ObjC classes (e.g., QuartzCore.CALayer) not in the module
-            // database. Must match TypeProjectionFactory's Optional<T> fallback exactly:
-            // IsOptionalFallbackModule + HasObjCClassPrefix → ObjCBridgedProjection.
-            if (AppleFrameworkRegistry.IsOptionalFallbackModule(innerNamed.Module) &&
-                !AppleFrameworkRegistry.IsNestedType(innerNamed.Name) &&
-                !TypeDatabaseExtensions.IsKnownAppleValueType(innerNamed) &&
-                AppleFrameworkRegistry.HasObjCClassPrefix(innerNamed.Name))
-                return true;
-            return false;
+            // database. Shares the exact four-clause heuristic core with TypeProjectionFactory's
+            // Optional<T> / collection-element ObjC fallbacks via IsObjCPrefixBridgeCandidate, so
+            // the two readers can no longer drift (the parity constraints.md demands).
+            return IsObjCPrefixBridgeCandidate(innerNamed);
+        }
+
+        /// <summary>
+        /// The ObjC-prefix bridging heuristic core: an Apple-framework reference type that has NO
+        /// database record but is recognized as an ObjC class purely by its owning module and a
+        /// 2–3 letter uppercase class-name prefix (UI/NS/CA/SK/…). This is the single source of
+        /// truth for the four-clause heuristic shared by <see cref="IsOptionalObjCBridged"/> and
+        /// <c>TypeProjectionFactory</c>'s Optional&lt;T&gt; inner and collection-element ObjC
+        /// fallbacks; extracting it makes their long-standing "must stay in sync" parity structural
+        /// rather than copy-paste. The value-type guard is load-bearing: an ObjC prefix alone does
+        /// not prove a class (e.g. <c>PassKit.PKPaymentNetwork</c> is a value type with a PK
+        /// prefix), and bridging a value type here would emit the wrong ARC shape. Clause order is
+        /// immaterial — every clause is a side-effect-free registry/set lookup.
+        /// </summary>
+        public static bool IsObjCPrefixBridgeCandidate(NamedTypeSpec named)
+        {
+            ArgumentNullException.ThrowIfNull(named);
+            return AppleFrameworkRegistry.IsOptionalFallbackModule(named.Module) &&
+                !AppleFrameworkRegistry.IsNestedType(named.Name) &&
+                !TypeDatabaseExtensions.IsKnownAppleValueType(named) &&
+                AppleFrameworkRegistry.HasObjCClassPrefix(named.Name);
         }
 
         public static bool MethodRequiresIndirectResult(MethodEnvironment env)

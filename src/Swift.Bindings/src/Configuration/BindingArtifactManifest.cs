@@ -113,6 +113,14 @@ public sealed class GenerationSection
     /// </summary>
     public List<string> ObjectDegradations { get; init; } = new();
 
+    /// <summary>
+    /// F10 Stage 20: distinct Apple-framework reference types bridged to their ObjC class by the
+    /// naming-convention heuristic (no database record). Carried on the manifest so it round-trips
+    /// into the rederived <c>binding-report.json</c> (<see cref="BindingReportProjection"/>) — a
+    /// successful-but-heuristic bridge made observable, not a degradation.
+    /// </summary>
+    public List<string> ObjCPrefixBridges { get; init; } = new();
+
     public static GenerationSection From(BindingReport report, ParseReconciliation? parseReconciliation = null)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -138,6 +146,7 @@ public sealed class GenerationSection
         section.ThemeBridgedProperties.AddRange(report.ThemeBridgedProperties);
         section.UnsupportedCommentDrops.AddRange(report.UnsupportedCommentDrops);
         section.ObjectDegradations.AddRange(report.ObjectDegradations);
+        section.ObjCPrefixBridges.AddRange(report.ObjCPrefixBridges);
         return section;
     }
 }

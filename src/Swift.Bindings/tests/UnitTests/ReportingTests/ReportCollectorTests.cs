@@ -43,6 +43,42 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void RecordObjCPrefixBridge_FlowsOntoReport_SortedAndDeduped()
+    {
+        // F10 Stage 20: an ObjC-prefix bridge guess (a SUCCESSFUL heuristic bridge, not a
+        // degradation) is recorded for observability. Distinct entries flow onto the report sorted;
+        // duplicates collapse. No loud diagnostic is emitted for these — unlike SWIFTBIND025/026.
+        var moduleDecl = CreateModuleDecl();
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordObjCPrefixBridge("UIKit.UIImage");
+        ReportCollector.RecordObjCPrefixBridge("Foundation.NSURL");
+        ReportCollector.RecordObjCPrefixBridge("UIKit.UIImage"); // duplicate collapses
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(new[] { "Foundation.NSURL", "UIKit.UIImage" }, report!.ObjCPrefixBridges);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordObjCPrefixBridge_OutsideSession_IsNoOp()
+    {
+        // No active report session: the record is silently dropped, mirroring RecordObjectDegradation.
+        ReportCollector.Reset();
+        ReportCollector.RecordObjCPrefixBridge("UIKit.UIImage");
+
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Empty(report!.ObjCPrefixBridges);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
     public void RecordTypeSkipped_BeforeRecordTypeEmitted_TakesPrecedence()
     {
         // Mirror of the test above: when ShouldSkip runs FIRST (the new handler ordering),

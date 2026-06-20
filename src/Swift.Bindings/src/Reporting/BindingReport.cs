@@ -52,6 +52,16 @@ public sealed class BindingReport
     public List<string> ObjectDegradations { get; } = new();
 
     /// <summary>
+    /// Distinct Apple-framework reference types bridged to their ObjC class purely by the
+    /// naming-convention heuristic (F10 Stage 20) — recognized as an ObjC class by owning module +
+    /// class-name prefix alone, with no database record. Unlike the two lists above this is a
+    /// SUCCESSFUL bridge, not a degradation, so it carries no loud diagnostic; it is recorded here
+    /// (and round-tripped into <c>binding-report.json</c>) so the heuristic guess is observable.
+    /// Populated by <see cref="ReportCollector"/> from <c>TypeProjectionFactory</c>'s ObjC fallbacks.
+    /// </summary>
+    public List<string> ObjCPrefixBridges { get; } = new();
+
+    /// <summary>
     /// Summary of SwiftUI bridge coverage for this module.
     /// Null when the module has no SwiftUI views.
     /// </summary>

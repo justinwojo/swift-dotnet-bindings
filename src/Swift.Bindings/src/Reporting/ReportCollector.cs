@@ -36,6 +36,12 @@ public static class ReportCollector
     private static readonly HashSet<string> UnsupportedCommentDropEntries = new(StringComparer.Ordinal);
     private static readonly HashSet<string> ObjectDegradationEntries = new(StringComparer.Ordinal);
 
+    // F10 Stage 20: Apple-framework reference types bridged to their ObjC class purely by the
+    // naming-convention heuristic (no database record) — see MarshallingHelpers.IsObjCPrefixBridgeCandidate.
+    // Unlike the two degradation sets above, this is a SUCCESSFUL bridge, so it is recorded for
+    // observability only (binding-report.json) and never surfaced as a loud warning.
+    private static readonly HashSet<string> ObjCPrefixBridgeEntries = new(StringComparer.Ordinal);
+
     public static bool IsActive => SessionActive.Value && _report != null;
 
     /// <summary>
@@ -101,6 +107,10 @@ public static class ReportCollector
                 UnsupportedCommentDropEntries.OrderBy(x => x, StringComparer.Ordinal));
             _report.ObjectDegradations.AddRange(
                 ObjectDegradationEntries.OrderBy(x => x, StringComparer.Ordinal));
+            // F10 Stage 20: flow the ObjC-prefix bridge guesses onto the report (sorted) so they
+            // survive Reset() and round-trip into binding-report.json via the manifest.
+            _report.ObjCPrefixBridges.AddRange(
+                ObjCPrefixBridgeEntries.OrderBy(x => x, StringComparer.Ordinal));
 
             // Per-kind breakdown: read directly from each identity's Kind field.
             ComputePerKindCounts(_report);
@@ -557,6 +567,29 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>
+    /// Records an Apple-framework reference type that was bridged to its ObjC class purely by the
+    /// naming-convention heuristic (<see cref="MarshallingHelpers.IsObjCPrefixBridgeCandidate"/>) —
+    /// i.e. it had NO database record and was recognized as an ObjC class by module + prefix alone
+    /// (F10 Stage 20). Unlike SWIFTBIND025/026 this is a SUCCESSFUL bridge, not a degradation, so it
+    /// is recorded for observability — it surfaces under <c>objcPrefixBridges</c> in
+    /// binding-report.json — but is NOT emitted as a loud per-type warning, since the heuristic is
+    /// correct and ubiquitous (every <c>UIImage?</c>/<c>NSURL?</c>) and a warning would cry wolf.
+    /// No-op outside an active report session.
+    /// </summary>
+    public static void RecordObjCPrefixBridge(string swiftType)
+    {
+        if (!SessionActive.Value || _report == null || string.IsNullOrEmpty(swiftType))
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+            ObjCPrefixBridgeEntries.Add(swiftType);
+        }
+    }
+
     private static void ResetUnsafe()
     {
         _report = null;
@@ -567,6 +600,7 @@ public static class ReportCollector
         SynthesizedMemberIdentities.Clear();
         UnsupportedCommentDropEntries.Clear();
         ObjectDegradationEntries.Clear();
+        ObjCPrefixBridgeEntries.Clear();
     }
 
     private static (int totalTypes, int totalMembers) CalculateTotals(ModuleDecl moduleDecl)

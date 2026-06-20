@@ -607,6 +607,31 @@ public class RealityFrameworkRemapFixTests
             "Plain Swift class re-exported through umbrella must not be classified as ObjC-bridged");
     }
 
+    [Fact]
+    public void IsObjCPrefixBridgeCandidate_IsTheSharedHeuristicCore()
+    {
+        // F10 Stage 20: the four-clause ObjC-prefix bridge heuristic now has ONE source of truth —
+        // MarshallingHelpers.IsObjCPrefixBridgeCandidate — that BOTH IsOptionalObjCBridged (the
+        // marshalling-decision reader) and TypeProjectionFactory's Optional/collection-element ObjC
+        // fallbacks (the projection sites) call, so they can no longer drift (constraints.md
+        // "IsOptionalObjCBridged parity with TypeProjectionFactory").
+
+        // Auto-bridged Apple ObjC class with no DB record: an optional-fallback module whose type
+        // name carries an ObjC class prefix (Foundation + "NS").
+        Assert.True(MarshallingHelpers.IsObjCPrefixBridgeCandidate(
+            new NamedTypeSpec("Foundation.NSURL")));
+
+        // Load-bearing value-type guard: a KNOWN Apple value type that happens to carry an ObjC-style
+        // prefix in an optional-fallback module is rejected — an ObjC prefix alone does not prove a
+        // class, and bridging a value type would emit the wrong ARC shape.
+        Assert.False(MarshallingHelpers.IsObjCPrefixBridgeCandidate(
+            new NamedTypeSpec("AVFoundation.AVAudioChannelCount")));
+
+        // Not an optional-fallback module → never a candidate, regardless of name shape.
+        Assert.False(MarshallingHelpers.IsObjCPrefixBridgeCandidate(
+            new NamedTypeSpec("Swift.String")));
+    }
+
     // --- Helpers --------------------------------------------------------------
 
     /// <summary>
