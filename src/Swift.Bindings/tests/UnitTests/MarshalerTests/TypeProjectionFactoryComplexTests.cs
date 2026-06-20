@@ -311,6 +311,49 @@ public class TypeProjectionFactoryComplexTests
         Assert.Equal("Swift.Foundation.AnyError", projection.PublicType);
     }
 
+    [Fact]
+    public void Project_PATProtocolWithConformers_FactoryPath_ReturnsObject_NotExistentialUnion()
+    {
+        // S12 inert-engine pin. TypeProjectionFactory.ProjectExistential calls
+        // GetPublicExistentialType WITHOUT allowUnionProjection:true,
+        // so a PAT/Self-constrained protocol that DOES have known conformers must still project to
+        // "object" on the factory path — never to Swift.Runtime.ExistentialUnion. The union surface
+        // is reachable only via the env-path oracle (a pure-read return position). If anyone threads
+        // allowUnionProjection:true into the factory, this test goes red.
+        var db = new MockTypeDatabase();
+        db.AddType("SwiftBindingsTestLib.AttributeKind", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("SwiftBindingsTestLib", "IAttributeKind"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.HasAssociatedTypes, // PAT — degrades to object/union
+            Kind = TypeRecordKind.Protocol
+        });
+        // Engine carries AttributeKind conformers from the specialization-hints ledger.
+        var engine = new ConcreteSpecializationEngine(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("SwiftBindingsTestLib.AttributeKind") });
+
+        // Guard: with the union flag set, the SAME protocol + engine genuinely yields ExistentialUnion,
+        // proving the conformers ARE present — so the factory's "object" below is the position gate at
+        // work, not a conformer-absence artifact.
+        var probe = new ExistentialHandler(db) { SpecializationEngine = engine };
+        Assert.Equal("Swift.Runtime.ExistentialUnion",
+            probe.GetPublicExistentialType(protocolList, allowUnionProjection: true));
+
+        var ctx = new ProjectionContext
+        {
+            TypeDatabase = db,
+            IsParameter = false,
+            CurrentModuleName = "SwiftBindingsTestLib",
+            SpecializationEngine = engine,
+        };
+
+        var projection = _factory.Project(protocolList, ctx);
+
+        var existential = Assert.IsType<ExistentialProjection>(projection);
+        Assert.Equal("object", existential.PublicType);
+    }
+
     #endregion
 
     #region Tuple Routing

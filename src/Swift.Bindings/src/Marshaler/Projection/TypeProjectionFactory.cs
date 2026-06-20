@@ -36,8 +36,11 @@ public record ProjectionContext
     /// <summary>Optional module name of the emitting context. When set, existential types from other modules are namespace-qualified.</summary>
     public string? CurrentModuleName { get; init; }
 
-    /// <summary>Optional specialization engine for resolving protocol conformers.
-    /// When set, PAT existentials with known conformers use ExistentialUnion instead of object fallback.</summary>
+    /// <summary>Optional specialization engine for resolving protocol conformers, passed through to the
+    /// projected <see cref="ExistentialHandler"/>. NOTE: setting it does NOT make this factory path emit
+    /// Swift.Runtime.ExistentialUnion — <c>ProjectExistential</c> calls <c>GetPublicExistentialType</c>
+    /// WITHOUT <c>allowUnionProjection</c> on purpose, so PAT existentials still degrade to "object" here.
+    /// Union projection is an env-path-only return-position surface (see the S12 ruling in ProjectExistential).</summary>
     public ConcreteSpecializationEngine? SpecializationEngine { get; init; }
 
     /// <summary>Optional per-module emission context. When set, <see cref="ExistentialProjection"/> consults
@@ -522,6 +525,16 @@ public class TypeProjectionFactory
             SpecializationEngine = context.SpecializationEngine,
         };
         var containerType = handler.GetCSharpExistentialType(protocolList);
+        // S12 ruling — do NOT thread allowUnionProjection:true into this factory-path oracle.
+        // GetPublicExistentialType is called WITHOUT union projection on purpose. The union surface
+        // (Swift.Runtime.ExistentialUnion, emitted for a PAT/Self-constrained protocol with known
+        // conformers) is a pure-read RETURN-position projection reachable ONLY through the env-path
+        // oracle, which passes allowUnionProjection from IEnvironment.AllowsExistentialReturnUnionProjection
+        // — a position gate that EXCLUDES async / subscript / settable-accessor returns. The factory
+        // context does not encode that position gate, so allowing union here would over-project those
+        // excluded positions and change the protocol-return surface. The factory path is fully shadowed
+        // for existential returns; it must keep degrading PATs to "object". Pinned by
+        // TypeProjectionFactoryComplexTests.Project_PATProtocolWithConformers_FactoryPath_ReturnsObject_NotExistentialUnion.
         var publicType = handler.GetPublicExistentialType(protocolList);
         bool isBareAny = handler.IsBareAny(protocolList);
         bool isClassBoundArity1 = handler.IsClassBoundArity1Existential(protocolList);
