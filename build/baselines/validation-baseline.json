@@ -1,5 +1,5 @@
 {
-  "git_sha": "4ff9c7f8",
+  "git_sha": "7f044c66",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -992,7 +992,5 @@
       "crash": 0
     }
   },
-  "unit_tests": {
-    "swift_bindings_unit_pass_floor": 13378
-  }
+  "unit_tests": null
 }

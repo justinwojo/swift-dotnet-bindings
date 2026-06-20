@@ -179,8 +179,14 @@ public class TypeResolverTests
         // module DB entry of the same name), and BareGenericGuard must precede
         // BoundGenericSimdAlias (the bare guard fires only when no generic args
         // are present, so the ordering matters only in tandem with SIMD's
-        // bound-generic claim contract). Pin the full sequence so a regression
-        // surfaces here and not as a parity test failure two screens away.
+        // bound-generic claim contract). The three raw-name cascade arms
+        // (OutOfModuleLookup arm 4, CrossModuleAlias arm 5, SwiftError arm 6)
+        // sit immediately after DatabaseLookup in the SAME order they run inside
+        // TryGetTypeRecordWithoutSupplement — F10 Stage 17 registers them
+        // shadowed (DatabaseLookup still black-boxes arms 2–6) and Stage 18
+        // splits DatabaseLookup down to arms 2+3 to make them live. Pin the full
+        // sequence so a regression surfaces here and not as a parity test failure
+        // two screens away.
         var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();
 
         Assert.Equal(new[]
@@ -197,6 +203,9 @@ public class TypeResolverTests
             "BoundGenericSimdAlias",
             "AppleSupplement",
             "DatabaseLookup",
+            "OutOfModuleLookup",
+            "CrossModuleAlias",
+            "SwiftError",
             "ObjCBridging",
         }, names);
     }

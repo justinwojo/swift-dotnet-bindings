@@ -863,7 +863,13 @@ namespace BindingsGeneration
             return (IReadOnlyCollection<(string, string)>?)pairs ?? Array.Empty<(string, string)>();
         }
 
-        private bool TryGetTypeRecordInternal(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        // F10 Stage 17: arm-2 primitive (direct module DB + CoreFoundation→CoreGraphics module
+        // alias + compileImportModule umbrella). Promoted from private to internal so the
+        // resolver-cascade strategies (DatabaseLookupStrategy arm 2, CrossModuleAliasStrategy
+        // arm 5's canonical-base lookup) can reuse this single source of truth without
+        // re-entering TryGetTypeRecordWithoutSupplement. It is non-recursive — it never calls
+        // back into the cascade — which is what keeps the Stage 18 collapse recursion-free.
+        internal bool TryGetTypeRecordInternal(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
         {
             if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
             {
@@ -909,6 +915,13 @@ namespace BindingsGeneration
             record = null;
             return false;
         }
+
+        // F10 Stage 17: arm-4 primitive (out-of-module type cache) exposed to
+        // OutOfModuleLookupStrategy so the cascade arm has a single source of truth shared
+        // with the inline TryGetTypeRecordWithoutSupplement path. Pure dictionary probe — no
+        // recursion, no fall-through.
+        internal bool TryGetOutOfModuleType(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+            => _outOfModuleTypes.TryGetValue(swiftTypeName, out record);
 
         private bool IsTypeProcessedInternal(SwiftTypeName swiftTypeName)
         {

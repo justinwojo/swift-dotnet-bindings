@@ -303,4 +303,116 @@ public class ResolverParityTests
         Assert.NotNull(fallback);
         Assert.Equal("Type is missing from the type database", fallback!.Value.Reason);
     }
+
+    // -------------------------------------------------------------------------
+    // F10 Stage 17 — direct-strategy parity for the remaining raw-name cascade
+    // arms (4 out-of-module, 5 cross-module alias, 6 Swift.Error). Each new
+    // strategy is invoked DIRECTLY — not through Default, where it is shadowed by
+    // DatabaseLookupStrategy until the Stage 18 split — and asserted to reproduce
+    // its inline arm in TryGetTypeRecordWithoutSupplement, record for record.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void OutOfModuleLookupStrategy_MirrorsArm4()
+    {
+        var db = MakeDbWithSwiftDouble();
+        // Register an out-of-module type: no loaded module DB for "Ghost", so
+        // UpdateTypeRecord falls through to the _outOfModuleTypes cache (arm 4).
+        var name = SwiftTypeName.FromModuleQualifiedName("Ghost.Spectre");
+        db.UpdateTypeRecord(name, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Ghost", "Spectre"),
+            SwiftTypeName = name,
+            MetadataAccessor = "$sGhost",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        });
+
+        var spec = new NamedTypeSpec("Ghost.Spectre");
+        var strategy = new OutOfModuleLookupStrategy();
+
+        var claimed = strategy.TryResolve(spec, new ResolutionContext(db), out var result);
+        var armHit = db.TryGetTypeRecordWithoutSupplement(name, out var armRecord);
+
+        Assert.True(armHit);
+        Assert.True(claimed);
+        Assert.NotNull(result);
+        Assert.Equal(armRecord, result!.Record);
+        Assert.Equal("strategy:OutOfModuleLookup", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void CrossModuleAliasStrategy_MirrorsArm5()
+    {
+        var db = MakeDbWithSwiftDouble();
+        // Register the canonical base ManagedSettings.Token so the built-in
+        // FamilyControls.ApplicationToken alias (→ ManagedSettings.Token<…>)
+        // resolves once the strategy strips the generic argument.
+        var module = new ModuleTypeDatabase("ManagedSettings", "/tmp/ManagedSettings.dylib");
+        var tokenName = SwiftTypeName.FromModuleQualifiedName("ManagedSettings.Token");
+        module.RegisterType(tokenName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ManagedSettings", "Token"),
+            SwiftTypeName = tokenName,
+            MetadataAccessor = "$sTok",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        });
+        db.AddModuleDatabase(module);
+
+        var aliasName = SwiftTypeName.FromModuleQualifiedName("FamilyControls.ApplicationToken");
+        var spec = new NamedTypeSpec("FamilyControls.ApplicationToken");
+        var strategy = new CrossModuleAliasStrategy();
+
+        var claimed = strategy.TryResolve(spec, new ResolutionContext(db), out var result);
+        var armHit = db.TryGetTypeRecordWithoutSupplement(aliasName, out var armRecord);
+
+        Assert.True(armHit);
+        Assert.True(claimed);
+        Assert.NotNull(result);
+        Assert.Equal(armRecord, result!.Record);
+        Assert.Equal("ManagedSettings.Token", result.Record!.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("strategy:CrossModuleAlias", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void SwiftErrorStrategy_MirrorsArm6()
+    {
+        var db = MakeDbWithSwiftDouble();
+        var name = SwiftTypeName.FromModuleQualifiedName("Swift.Error");
+        var spec = new NamedTypeSpec("Swift.Error");
+        var strategy = new SwiftErrorStrategy();
+
+        var claimed = strategy.TryResolve(spec, new ResolutionContext(db), out var result);
+        var armHit = db.TryGetTypeRecordWithoutSupplement(name, out var armRecord);
+
+        Assert.True(armHit);
+        Assert.True(claimed);
+        Assert.NotNull(result);
+        Assert.Equal(armRecord, result!.Record);
+        Assert.Equal(TypeDatabaseExtensions.SwiftErrorType, result.Record);
+        Assert.Equal("strategy:SwiftError", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void Stage17Strategies_AreShadowedInDefault_IdentityUnchanged()
+    {
+        // The three new strategies are registered AFTER DatabaseLookupStrategy,
+        // which still black-boxes arms 2–6 at Stage 17. So in Default every name
+        // they could claim is claimed upstream by DatabaseLookup — proven by the
+        // winning provenance. This is the Stage 17 identity-parity guarantee at
+        // the unit layer: adding the strategies changes neither what Default
+        // resolves nor which strategy wins. Swift.Error is the sharpest probe —
+        // arm 6's record only exists via the cascade, yet DatabaseLookup (not the
+        // new SwiftErrorStrategy) must still be the claimant.
+        var db = MakeDbWithSwiftDouble();
+        var spec = new NamedTypeSpec("Swift.Error");
+
+        var resolved = TypeResolver.Default.TryResolve(spec, new ResolutionContext(db), out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result);
+        Assert.Equal(TypeDatabaseExtensions.SwiftErrorType, result!.Record);
+        Assert.Equal("strategy:DatabaseLookup", result.Provenance!.Source);
+    }
 }

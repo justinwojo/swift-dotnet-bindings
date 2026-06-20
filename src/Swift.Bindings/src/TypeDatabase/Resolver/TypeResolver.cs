@@ -78,6 +78,16 @@ public sealed class TypeResolver
         new BoundGenericSimdAliasStrategy(),
         new AppleSupplementStrategy(),
         new DatabaseLookupStrategy(),
+        // F10 Stage 17: the three remaining raw-name cascade arms (4 out-of-module,
+        // 5 cross-module alias, 6 Swift.Error) added as resolver strategies, registered
+        // in the SAME order they run inside TryGetTypeRecordWithoutSupplement. At this
+        // stage DatabaseLookupStrategy still black-boxes arms 2–6, so these three are
+        // shadowed/dead here (any name they could claim is already claimed upstream) and
+        // the identity map is unchanged. Stage 18 splits DatabaseLookupStrategy down to
+        // arms 2+3 and makes these the live source of their arms.
+        new OutOfModuleLookupStrategy(),
+        new CrossModuleAliasStrategy(),
+        new SwiftErrorStrategy(),
         new ObjCBridgingStrategy(),
     });
 
