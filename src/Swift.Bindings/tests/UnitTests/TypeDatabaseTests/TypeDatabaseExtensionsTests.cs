@@ -2364,4 +2364,43 @@ public class TypeDatabaseExtensionsTests
     }
 
     #endregion
+
+    #region IsPointerType — pointer-predicate consolidation (S12)
+
+    [Theory]
+    [InlineData("Swift.OpaquePointer")]
+    [InlineData("Swift.UnsafePointer")]
+    [InlineData("Swift.UnsafeMutablePointer")]
+    [InlineData("Swift.UnsafeRawPointer")]
+    [InlineData("Swift.UnsafeMutableRawPointer")]
+    [InlineData("Builtin.RawPointer")]
+    public void IsPointerType_PointerName_ReturnsTrue(string pointerName)
+    {
+        // The six Swift pointer names live once in AppleFrameworkRegistry.IsPointerType (the documented
+        // single source of truth); TypeDatabaseExtensions.IsPointerType is the NamedTypeSpec-typed
+        // convenience that delegates to it after the S12 consolidation deleted the BoundGenericsHandler /
+        // ClosureHandler / ClosureEmitter private copies. If a name drops out of the set, this goes red.
+        Assert.True(TypeDatabaseExtensions.IsPointerType(new NamedTypeSpec(pointerName)));
+    }
+
+    [Theory]
+    [InlineData("Swift.Int")]
+    [InlineData("Swift.String")]
+    [InlineData("Foundation.Data")]
+    [InlineData("Swift.UnsafeBufferPointer")] // a buffer pointer is NOT in the raw-pointer set
+    public void IsPointerType_NonPointerName_ReturnsFalse(string name)
+    {
+        Assert.False(TypeDatabaseExtensions.IsPointerType(new NamedTypeSpec(name)));
+    }
+
+    [Fact]
+    public void IsPointerType_Null_ReturnsFalse()
+    {
+        // The convenience wrapper was widened to NamedTypeSpec? during the S12 consolidation so it
+        // subsumes ClosureHandler's old nullable predicate — the `innerTypeSpec as NamedTypeSpec` call
+        // site can pass null. Null must degrade to false, never throw.
+        Assert.False(TypeDatabaseExtensions.IsPointerType(null));
+    }
+
+    #endregion
 }

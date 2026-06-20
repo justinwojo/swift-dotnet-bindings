@@ -319,7 +319,7 @@ public class ClosureHandler
         if (closureTypeSpec.ReturnType is NamedTypeSpec namedType)
         {
             // Pointer returns use direct pointer ABI.
-            if (IsPointerType(namedType))
+            if (TypeDatabaseExtensions.IsPointerType(namedType))
                 return false;
 
             // Bound generic return types require indirect marshalling
@@ -399,7 +399,7 @@ public class ClosureHandler
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Pointer types are supported (map to IntPtr)
-            if (IsPointerType(namedType))
+            if (TypeDatabaseExtensions.IsPointerType(namedType))
                 return true;
 
             // Bound generic return types are now supported via indirect return marshalling
@@ -552,7 +552,7 @@ public class ClosureHandler
                 return false;
 
             // Pointer types are always supported
-            if (IsPointerType(namedType))
+            if (TypeDatabaseExtensions.IsPointerType(namedType))
                 return true;
 
             // Generic types require special handling
@@ -767,7 +767,7 @@ public class ClosureHandler
     private bool IsSupportedGenericType(NamedTypeSpec namedType)
     {
         // Pointer types always supported - they map to IntPtr
-        if (IsPointerType(namedType))
+        if (TypeDatabaseExtensions.IsPointerType(namedType))
             return true;
 
         // Check if base type is in type database
@@ -1347,7 +1347,7 @@ public class ClosureHandler
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Handle pointer types
-            if (IsPointerType(namedType))
+            if (TypeDatabaseExtensions.IsPointerType(namedType))
                 return "IntPtr";
 
             // Handle Optional<T> -> use C# nullable syntax T? for simple types
@@ -1392,7 +1392,7 @@ public class ClosureHandler
                 if (isWellKnownProtocol ||
                     IsPrimitiveType(innerTypeSpec) ||
                     innerTypeSpec.IsEmptyTuple ||
-                    IsPointerType(innerTypeSpec as NamedTypeSpec) ||
+                    TypeDatabaseExtensions.IsPointerType(innerTypeSpec as NamedTypeSpec) ||
                     innerTypeSpec is NamedTypeSpec)
                 {
                     return $"{innerType}?";
@@ -1545,7 +1545,7 @@ public class ClosureHandler
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Handle pointer types - all map to void* or IntPtr
-            if (IsPointerType(namedType))
+            if (TypeDatabaseExtensions.IsPointerType(namedType))
                 return "void*";
 
             // Check for known blittable primitive types first
@@ -1824,7 +1824,7 @@ public class ClosureHandler
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Pointer types are supported
-            if (IsPointerType(namedType))
+            if (TypeDatabaseExtensions.IsPointerType(namedType))
                 return true;
 
             // Primitive types are supported (direct pass)
@@ -2153,7 +2153,7 @@ public class ClosureHandler
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             if (arg is NamedTypeSpec namedType &&
-                !IsPointerType(namedType) &&
+                !TypeDatabaseExtensions.IsPointerType(namedType) &&
                 GetBlittablePrimitiveType(namedType.Name) == null &&
                 IsFrozenStruct(namedType))
             {
@@ -2205,20 +2205,6 @@ public class ClosureHandler
             "Swift.Bool" => "byte",
             _ => null // Not a primitive - should use void*
         };
-    }
-
-    /// <summary>
-    /// Checks if a named type is a Swift pointer type.
-    /// </summary>
-    private static bool IsPointerType(NamedTypeSpec? namedType)
-    {
-        if (namedType == null) return false;
-        return namedType.Name == "Swift.UnsafePointer" ||
-               namedType.Name == "Swift.UnsafeMutablePointer" ||
-               namedType.Name == "Swift.UnsafeRawPointer" ||
-               namedType.Name == "Swift.UnsafeMutableRawPointer" ||
-               namedType.Name == "Swift.OpaquePointer" ||
-               namedType.Name == "Builtin.RawPointer";
     }
 
     /// <summary>

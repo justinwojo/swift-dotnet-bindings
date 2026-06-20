@@ -561,7 +561,7 @@ public static partial class ClosureEmitter
             return $"return ({ct}){resultExpr};";
         }
 
-        if (callbackReturnType == "void*" && returnType is NamedTypeSpec retNamedType && IsPointerType(retNamedType))
+        if (callbackReturnType == "void*" && returnType is NamedTypeSpec retNamedType && TypeDatabaseExtensions.IsPointerType(retNamedType))
             return $"return (void*){resultExpr};";
 
         if (callbackReturnType == "void*" && closureHandler.IsClassType(returnType))
@@ -757,19 +757,6 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Checks if a type is a Swift pointer type.
-    /// </summary>
-    private static bool IsPointerType(NamedTypeSpec namedType)
-    {
-        return namedType.Name == "Swift.UnsafePointer" ||
-               namedType.Name == "Swift.UnsafeMutablePointer" ||
-               namedType.Name == "Swift.UnsafeRawPointer" ||
-               namedType.Name == "Swift.UnsafeMutableRawPointer" ||
-               namedType.Name == "Swift.OpaquePointer" ||
-               namedType.Name == "Builtin.RawPointer";
-    }
-
-    /// <summary>
     /// Generates the expression to pass an argument when invoking the delegate.
     /// Handles type conversions:
     /// - byte -> bool for Swift.Bool
@@ -863,7 +850,7 @@ public static partial class ClosureEmitter
         var callbackType = GetCallbackParameterType(typeSpec, closureHandler);
         if (callbackType == "void*" && typeSpec is NamedTypeSpec namedType)
         {
-            if (IsPointerType(namedType))
+            if (TypeDatabaseExtensions.IsPointerType(namedType))
             {
                 // Pointer types (OpaquePointer, UnsafeRawPointer, etc.) are void* in the callback
                 // but IntPtr in the delegate — just cast.

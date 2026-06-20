@@ -69,7 +69,7 @@ public class BoundGenericsHandler
         typeSpec is NamedTypeSpec namedTypeSpec &&
         namedTypeSpec.ContainsGenericParameters &&
         !_closureHandler.IsOptionalClosure(typeSpec) &&
-        !IsPointerType(namedTypeSpec) &&
+        !TypeDatabaseExtensions.IsPointerType(namedTypeSpec) &&
         !_existentialHandler.IsExistential(typeSpec);
 
     /// <summary>
@@ -85,15 +85,6 @@ public class BoundGenericsHandler
     public bool IsBoundGeneric(ArgumentDecl argumentDecl) =>
         !argumentDecl.IsGeneric &&
         IsBoundGenericTypeSpec(argumentDecl.SwiftTypeSpec);
-
-    /// <summary>
-    /// Checks whether a NamedTypeSpec is a Swift pointer type (UnsafePointer, UnsafeMutablePointer, etc.).
-    /// Pointer types map to IntPtr and must NOT be treated as bound generics.
-    /// </summary>
-    private static bool IsPointerType(NamedTypeSpec typeSpec) =>
-        typeSpec.Name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
-            or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
-            or "Swift.UnsafeMutableRawPointer" or "Builtin.RawPointer";
 
     /// <summary>
     /// Determines whether the bound generic type requires special marshalling.

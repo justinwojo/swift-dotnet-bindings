@@ -629,11 +629,14 @@ public static class TypeDatabaseExtensions
 
     internal static bool IsKnownGenericType(string name) => KnownGenericTypes.Contains(name);
 
-    internal static bool IsPointerType(NamedTypeSpec typeSpec)
+    // NamedTypeSpec-typed convenience over the pointer name-set. The set itself lives once in
+    // AppleFrameworkRegistry.IsPointerType — the documented single source of truth for pointer/
+    // nested-type detection (constraints.md). This delegates so the BoundGenericsHandler /
+    // ClosureHandler / ClosureEmitter copies that used to re-list the six names stop drifting.
+    // Nullable so it subsumes ClosureHandler's old `NamedTypeSpec?` predicate (null => false).
+    internal static bool IsPointerType(NamedTypeSpec? typeSpec)
     {
-        return typeSpec.Name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
-            or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
-            or "Swift.UnsafeMutableRawPointer" or "Builtin.RawPointer";
+        return typeSpec is not null && AppleFrameworkRegistry.IsPointerType(typeSpec.Name);
     }
 
     /// <summary>
