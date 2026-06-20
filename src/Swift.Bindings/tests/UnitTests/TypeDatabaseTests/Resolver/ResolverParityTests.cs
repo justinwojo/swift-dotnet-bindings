@@ -395,16 +395,16 @@ public class ResolverParityTests
     }
 
     [Fact]
-    public void Stage17Strategies_AreShadowedInDefault_IdentityUnchanged()
+    public void DatabaseCascadeStrategies_AreLiveInDefault_RecordIdentityUnchanged()
     {
-        // The three new strategies are registered AFTER DatabaseLookupStrategy,
-        // which still black-boxes arms 2–6 at Stage 17. So in Default every name
-        // they could claim is claimed upstream by DatabaseLookup — proven by the
-        // winning provenance. This is the Stage 17 identity-parity guarantee at
-        // the unit layer: adding the strategies changes neither what Default
-        // resolves nor which strategy wins. Swift.Error is the sharpest probe —
-        // arm 6's record only exists via the cascade, yet DatabaseLookup (not the
-        // new SwiftErrorStrategy) must still be the claimant.
+        // F10 Stage 18 collapsed DatabaseLookupStrategy down to arms 2+3, making
+        // the OutOfModule/CrossModuleAlias/SwiftError strategies the live source
+        // of arms 4/5/6 in Default. The resolved RECORD is unchanged from the
+        // pre-collapse black box — Swift.Error still maps to SwiftErrorType — but
+        // the winning strategy is now SwiftErrorStrategy itself, not the black-box
+        // DatabaseLookup. Provenance is diagnostic-only (read by no production
+        // code), so this strategy-attribution shift is the intended Stage 18 delta
+        // while record identity, the output-affecting fact, holds.
         var db = MakeDbWithSwiftDouble();
         var spec = new NamedTypeSpec("Swift.Error");
 
@@ -413,6 +413,27 @@ public class ResolverParityTests
         Assert.True(resolved);
         Assert.NotNull(result);
         Assert.Equal(TypeDatabaseExtensions.SwiftErrorType, result!.Record);
-        Assert.Equal("strategy:DatabaseLookup", result.Provenance!.Source);
+        Assert.Equal("strategy:SwiftError", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void DatabaseCascade_IsSplicedIntoDefault_AsContiguousArmsTwoThroughSix()
+    {
+        // The raw-name adapter (TryGetTypeRecordWithoutSupplement) and the Default
+        // chain must run the SAME cascade instances in the SAME order, so the two
+        // resolution surfaces cannot drift. Pin that the four cascade strategies
+        // appear contiguously in Default, in arm order, right after AppleSupplement
+        // and right before the ObjCBridging fallback.
+        var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();
+        var cascadeNames = TypeResolver.DatabaseCascade.Select(s => s.Name).ToArray();
+
+        Assert.Equal(
+            new[] { "DatabaseLookup", "OutOfModuleLookup", "CrossModuleAlias", "SwiftError" },
+            cascadeNames);
+
+        var start = Array.IndexOf(names, "DatabaseLookup");
+        Assert.True(start > Array.IndexOf(names, "AppleSupplement"));
+        Assert.Equal(cascadeNames, names.Skip(start).Take(cascadeNames.Length).ToArray());
+        Assert.Equal("ObjCBridging", names[start + cascadeNames.Length]);
     }
 }

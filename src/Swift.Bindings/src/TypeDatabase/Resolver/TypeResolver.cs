@@ -52,6 +52,32 @@ public sealed class TypeResolver
     }
 
     /// <summary>
+    /// The raw-name database cascade as an ordered strategy list — arms 2+3
+    /// (<see cref="DatabaseLookupStrategy"/>), arm 4
+    /// (<see cref="OutOfModuleLookupStrategy"/>), arm 5
+    /// (<see cref="CrossModuleAliasStrategy"/>), arm 6
+    /// (<see cref="SwiftErrorStrategy"/>) — in the exact order the retired inline
+    /// cascade ran them.
+    /// </summary>
+    /// <remarks>
+    /// F10 Stage 18: this is the single source of truth for the database arms.
+    /// It is spliced into <see cref="Default"/> (so <see cref="NamedTypeSpec"/>
+    /// entry points get arms 2–6 after strategies 1–11) AND run standalone by
+    /// <see cref="TypeDatabase.TryGetTypeRecordWithoutSupplement(SwiftTypeName, out TypeRecord?)"/>
+    /// (so the ~85 raw-<see cref="SwiftTypeName"/> callers get arms 2–6 and
+    /// NOTHING else — never strategies 1–11). One list, two surfaces, identical
+    /// resolution. The strategies are stateless, so sharing the instances across
+    /// both surfaces is safe. Declared before <see cref="Default"/> so it is
+    /// initialized when Default's static initializer splices it in.
+    /// </remarks>
+    public static ImmutableArray<IResolutionStrategy> DatabaseCascade { get; } =
+        ImmutableArray.Create<IResolutionStrategy>(
+            new DatabaseLookupStrategy(),
+            new OutOfModuleLookupStrategy(),
+            new CrossModuleAliasStrategy(),
+            new SwiftErrorStrategy());
+
+    /// <summary>
     /// Default resolver wiring used by the <see cref="TypeDatabaseExtensions"/>
     /// entry points. Strategies dispatch in the listed order; the first match
     /// wins, mirroring the short-circuit of the retired legacy stage chain.
@@ -77,19 +103,12 @@ public sealed class TypeResolver
         new BareGenericGuardStrategy(),
         new BoundGenericSimdAliasStrategy(),
         new AppleSupplementStrategy(),
-        new DatabaseLookupStrategy(),
-        // F10 Stage 17: the three remaining raw-name cascade arms (4 out-of-module,
-        // 5 cross-module alias, 6 Swift.Error) added as resolver strategies, registered
-        // in the SAME order they run inside TryGetTypeRecordWithoutSupplement. At this
-        // stage DatabaseLookupStrategy still black-boxes arms 2–6, so these three are
-        // shadowed/dead here (any name they could claim is already claimed upstream) and
-        // the identity map is unchanged. Stage 18 splits DatabaseLookupStrategy down to
-        // arms 2+3 and makes these the live source of their arms.
-        new OutOfModuleLookupStrategy(),
-        new CrossModuleAliasStrategy(),
-        new SwiftErrorStrategy(),
-        new ObjCBridgingStrategy(),
-    });
+    }
+        // F10 Stage 18: the database cascade (arms 2–6) splices in here, between
+        // the Apple supplement and the ObjC bridge fallback — the same slot the
+        // single black-box DatabaseLookupStrategy occupied before the split.
+        .Concat(DatabaseCascade)
+        .Append(new ObjCBridgingStrategy()));
 
     /// <summary>
     /// Strategies registered with this resolver, in dispatch order. Exposed

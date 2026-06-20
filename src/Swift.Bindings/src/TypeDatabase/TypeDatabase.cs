@@ -663,44 +663,31 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public bool TryGetTypeRecordWithoutSupplement(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
         {
-            // Arm 2 — direct module / module-alias / umbrella lookup.
-            if (TryGetTypeRecordInternal(swiftTypeName, out record))
-                return true;
-
-            // Arm 3 — C-interop aliases often use either Foo or FooRef across sources.
-            // Try a suffix variant to avoid missing CoreGraphics/CoreFoundation typedef-backed types.
-            var refVariant = GetRefAliasVariant(swiftTypeName);
-            if (refVariant != null && TryGetTypeRecordInternal(refVariant, out record))
-                return true;
-
-            // Arm 4 — out-of-module types.
-            if (_outOfModuleTypes.TryGetValue(swiftTypeName, out record))
-                return true;
-
-            // Arm 5 — cross-module type aliases: resolve the alias to its canonical type and retry.
-            // E.g., FamilyControls.ApplicationToken → ManagedSettings.Token<ManagedSettings.Application>
-            // Strip generic args for the TypeRecord lookup (the TypeRecord is for the base type).
-            if (_typeAliases.TryGetValue(swiftTypeName.ModuleQualifiedName, out var canonicalName))
+            // F10 Stage 18: arms 2–6 (direct/alias/umbrella lookup, Ref-suffix variant,
+            // out-of-module cache, cross-module typealias, Swift.Error) now live in
+            // TypeResolver.DatabaseCascade — the single source of truth this raw-name path
+            // shares with the NamedTypeSpec resolver chain. Run that cascade, and ONLY that
+            // cascade, so raw-SwiftTypeName callers get exactly arms 2–6 and never strategies
+            // 1–11. The cascade strategies call this database's arm primitives directly
+            // (TryGetTypeRecordInternal / GetRefAliasVariant / TryGetOutOfModuleType /
+            // TryResolveTypeAlias), never back into this adapter, so there is no recursion.
+            //
+            // The ModuleQualifiedName round-trips losslessly through NamedTypeSpec →
+            // SwiftTypeName.FromTypeSpec for every reachable (≥2-segment) name, reproducing a
+            // record-equal SwiftTypeName, so each arm keys on the same module/name/dict key as
+            // the retired inline cascade.
+            var spec = new NamedTypeSpec(swiftTypeName.ModuleQualifiedName);
+            var context = new ResolutionContext(this);
+            foreach (var strategy in TypeResolver.DatabaseCascade)
             {
-                var baseName = canonicalName.IndexOf('<') is var idx and >= 0
-                    ? canonicalName[..idx]
-                    : canonicalName;
-                var canonicalTypeName = SwiftTypeName.FromModuleQualifiedName(baseName);
-                if (TryGetTypeRecordInternal(canonicalTypeName, out record))
+                if (strategy.TryResolve(spec, context, out var result) && result.Record is not null)
+                {
+                    record = result.Record;
                     return true;
+                }
             }
 
-            // Arm 6 — well-known stdlib protocols (Swift.Error → AnyError). AnyError is hand-rolled
-            // in SwiftBindings.Apple; record the reference so the consumer csproj adds the
-            // supplement PackageReference alongside. Retained on the without-supplement path because
-            // no resolver strategy covers it — only this cascade arm resolves Swift.Error.
-            if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
-            {
-                AppleSupplementReferences.Record("Foundation.AnyError", "TypeDatabase.TryGetTypeRecord:SwiftError");
-                record = TypeDatabaseExtensions.SwiftErrorType;
-                return true;
-            }
-
+            record = null;
             return false;
         }
 
@@ -970,7 +957,11 @@ namespace BindingsGeneration
             return false;
         }
 
-        private static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName)
+        // F10 Stage 18: arm-3 primitive (C-interop Foo↔FooRef suffix toggle). Promoted to
+        // internal so DatabaseLookupStrategy can run arm 3 against the same definition the
+        // raw-name cascade and IsTypeRegistered use. Still a pure name transform — no lookup,
+        // no recursion.
+        internal static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName)
         {
             var fullName = swiftTypeName.ModuleQualifiedName;
             if (fullName.EndsWith("Ref", StringComparison.Ordinal))

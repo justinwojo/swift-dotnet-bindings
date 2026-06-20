@@ -6,23 +6,32 @@ using System.Diagnostics.CodeAnalysis;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Direct <see cref="ITypeDatabase.TryGetTypeRecordWithoutSupplement(SwiftTypeName, out TypeRecord?)"/>
-/// lookup keyed on the module-qualified name derived from the
-/// <see cref="NamedTypeSpec"/>. The inner database method handles its own
-/// chain of fallbacks (module aliases, <c>compileImportModule</c> umbrellas,
-/// <c>Ref</c> suffix variants, out-of-module cache, cross-module type aliases,
-/// <c>Swift.Error</c>) — those remain centralized there so non-resolver
-/// callers that key on raw <see cref="SwiftTypeName"/> still benefit. This
-/// strategy only ferries the lookup result into a
-/// <see cref="TypeResolutionResult"/>.
+/// Arms 2 + 3 of the raw-name resolution cascade as a resolver strategy: the
+/// direct module / module-alias / <c>compileImportModule</c>-umbrella lookup
+/// (<c>TryGetTypeRecordInternal</c>) followed by the <c>Foo</c>↔<c>FooRef</c>
+/// C-interop suffix variant. The remaining cascade arms (4 out-of-module,
+/// 5 cross-module alias, 6 Swift.Error) are owned by their own strategies,
+/// registered immediately after this one.
 /// </summary>
 /// <remarks>
-/// Finding 10: this calls the WITHOUT-supplement variant deliberately. The Apple supplement is
-/// already consulted by <see cref="AppleSupplementStrategy"/>, which the default resolver wiring
-/// orders ahead of this strategy; routing through the full <c>TryGetTypeRecord</c> here would
-/// consult the supplement a second time at a lower precedence (the retired double-consult). Any
-/// supplement-owned identity is claimed by the earlier strategy and never reaches this one, so
-/// omitting the supplement arm is behavior-preserving.
+/// <para>F10 Stage 18: this strategy was split down from black-boxing the whole
+/// arms-2–6 cascade (via <c>TryGetTypeRecordWithoutSupplement</c>) to arms 2+3
+/// only, so the cascade has a single per-arm source of truth shared between the
+/// <see cref="TypeResolver"/> chain and the raw-name
+/// <see cref="TypeDatabase.TryGetTypeRecordWithoutSupplement(SwiftTypeName, out TypeRecord?)"/>
+/// adapter. Calling the <c>TryGetTypeRecordInternal</c> primitive (never the
+/// adapter) is what keeps that adapter recursion-free.</para>
+/// <para>Finding 10: this resolves WITHOUT the Apple supplement. The supplement
+/// is consulted by <see cref="AppleSupplementStrategy"/>, which the default
+/// wiring orders ahead of this strategy, so any supplement-owned identity is
+/// already claimed and never reaches here.</para>
+/// <para>On a non-<see cref="TypeDatabase"/> <see cref="ITypeDatabase"/> (test
+/// mocks) the concrete arm primitives are unavailable, so the strategy falls
+/// back to the historical <c>TryGetTypeRecordWithoutSupplement</c> black box —
+/// the exact call this strategy made for every database before the split. Mock
+/// behavior is therefore unchanged, and the four cascade strategies that follow
+/// all defer on a mock (their casts fail), so the mock sees one black-box lookup
+/// just as it did pre-split.</para>
 /// </remarks>
 internal sealed class DatabaseLookupStrategy : IResolutionStrategy
 {
@@ -36,11 +45,30 @@ internal sealed class DatabaseLookupStrategy : IResolutionStrategy
         if (typeSpec is NamedTypeSpec named)
         {
             var typeName = SwiftTypeName.FromTypeSpec(named);
-            if (context.Database.TryGetTypeRecordWithoutSupplement(typeName, out var record))
+
+            if (context.Database is TypeDatabase db)
             {
-                result = new TypeResolutionResult(
-                    Record: record,
-                    Provenance: new ResolutionProvenance($"strategy:{Name}"));
+                // Arm 2 — direct module / module-alias / umbrella lookup.
+                if (db.TryGetTypeRecordInternal(typeName, out var record))
+                {
+                    result = Resolved(record);
+                    return true;
+                }
+
+                // Arm 3 — C-interop aliases often use either Foo or FooRef across
+                // sources. Try a suffix variant to avoid missing typedef-backed types.
+                var refVariant = TypeDatabase.GetRefAliasVariant(typeName);
+                if (refVariant != null && db.TryGetTypeRecordInternal(refVariant, out record))
+                {
+                    result = Resolved(record);
+                    return true;
+                }
+            }
+            else if (context.Database.TryGetTypeRecordWithoutSupplement(typeName, out var record))
+            {
+                // Mock / non-TypeDatabase ITypeDatabase: preserve the historical
+                // black-box seam (default impl delegates to TryGetTypeRecord).
+                result = Resolved(record);
                 return true;
             }
         }
@@ -48,4 +76,7 @@ internal sealed class DatabaseLookupStrategy : IResolutionStrategy
         result = null;
         return false;
     }
+
+    private TypeResolutionResult Resolved(TypeRecord record)
+        => new(Record: record, Provenance: new ResolutionProvenance($"strategy:{Name}"));
 }
