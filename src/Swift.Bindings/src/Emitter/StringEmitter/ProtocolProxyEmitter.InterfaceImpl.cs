@@ -619,10 +619,12 @@ public partial class ProtocolProxyEmitter
         // Build the explicit-interface signature from the *inherited* method. The slot we
         // satisfy (`IBase.Foo(...)`) is whatever the inherited interface emitted, and that
         // signature is dictated by the inherited method's projection — not the refined one.
-        // GetProjectedCSharpMethodKey collapses sync vs async into the same key, so a sync
-        // inherited method can pair with an async refined one (e.g. sync `fooAsync()` vs
-        // async `foo()` both project to `FooAsync(...)`); using refined parameters would emit
-        // an explicit impl with a CancellationToken the inherited slot doesn't declare.
+        // Since AF05 the projected key includes CancellationToken for async members, so the
+        // matched-key lookup above (InterfaceImpl.cs:456) only pairs methods of the SAME
+        // async-ness; a sync-inherited / async-refined cross-collision (e.g. sync `fooAsync()`
+        // vs async `foo()`) no longer collapses and instead emits a normal inherited stub.
+        // This forwarder therefore handles same-async covariant returns; building the signature
+        // from the inherited method keeps its CT presence/absence matching the inherited slot.
         var parameters = new List<string>();
         var argNames = new List<string>();
         foreach (var param in inheritedMethod.CSSignature.Skip(1))

@@ -1313,6 +1313,18 @@ public partial class ProtocolProxyEmitter
         }
         var argsString = string.Join(", ", argNames);
 
+        // The C# interface reshapes an async requirement to `Task<T> NameAsync(..., CancellationToken
+        // cancellationToken = default)`. When the SAME protocol also declares a sync namesake projecting
+        // to the same C# name (Swift `func foo() async` + `func fooAsync()`, AF05 ruling b), BOTH
+        // `NameAsync` overloads exist and a bare `impl.NameAsync(args)` binds the SYNC (exact-arity)
+        // overload — the wrong return type (CS0029: int vs Task<int>). Pass the trailing CancellationToken
+        // explicitly to bind the async overload; a Swift async reverse-dispatch carries no token, so
+        // `default` is the correct value. Harmless when no sync namesake exists — it just makes the
+        // always-present default-token argument explicit (same bound overload, same runtime behavior).
+        var asyncImplArgs = argsString.Length > 0
+            ? $"{argsString}, default(global::System.Threading.CancellationToken)"
+            : "default(global::System.Threading.CancellationToken)";
+
         // The AsyncFunc thunk handed to the helper. Solo: the inline lambda on the already-resolved
         // `impl` (byte-identical to the pre-fan-out output). Sibling: a `__asyncFunc` local bound to
         // whichever interface — primary first, then each recorded sibling — actually resolves a live
@@ -1327,7 +1339,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} __impl_primary)");
             writer.WriteLine("{");
             writer.Indent++;
-            writer.WriteLine($"__asyncFunc = () => __impl_primary.{pascalMethodName}({argsString});");
+            writer.WriteLine($"__asyncFunc = () => __impl_primary.{pascalMethodName}({asyncImplArgs});");
             writer.Indent--;
             writer.WriteLine("}");
             int siblingIdx = 0;
@@ -1338,7 +1350,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"else if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{siblingIface}>(handle) is {{}} __impl_s{siblingIdx})");
                 writer.WriteLine("{");
                 writer.Indent++;
-                writer.WriteLine($"__asyncFunc = () => __impl_s{siblingIdx}.{siblingPascalMethodName}({argsString});");
+                writer.WriteLine($"__asyncFunc = () => __impl_s{siblingIdx}.{siblingPascalMethodName}({asyncImplArgs});");
                 writer.Indent--;
                 writer.WriteLine("}");
                 siblingIdx++;
@@ -1355,7 +1367,7 @@ public partial class ProtocolProxyEmitter
         }
         else
         {
-            asyncFuncExpr = $"() => impl.{pascalMethodName}({argsString})";
+            asyncFuncExpr = $"() => impl.{pascalMethodName}({asyncImplArgs})";
         }
 
         // Hand the impl's Task<T> to the shared async helper: it runs the Task on the pool and, on

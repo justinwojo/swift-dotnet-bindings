@@ -719,77 +719,20 @@ public static class DefaultParameterOverloadEmitter
     /// with the auto-trim primary's key — without that seed, the most-trimmed trim variant would collide
     /// with the CSM-sync primary (which already auto-fills all trailing defaults via
     /// Swift) and produce a CS0111 duplicate-method error.
+    /// Thin shim over <see cref="ProtocolSignatureHelper.BuildProjectedMethodKey"/> on the class path.
+    /// The :228 caller passes env.SiblingPropertyNames; the CSM-seed callers pass null, consistent with
+    /// their trimEnv (which carries no sibling set).
     /// </summary>
     internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null)
-    {
-        // Build the name from the same context as IHandler.GetProjectedCSharpMethodKey (via
-        // PublicMethodNameContext.ForMethod) — these two keys must match exactly. The name component
-        // must apply the same property-collision rename the authoritative emitted name applies, or the
-        // default-overload pool and the main-pass pool disagree about which projected key a method
-        // owns. The :228 caller passes env.SiblingPropertyNames; the CSM-seed callers pass null,
-        // consistent with their trimEnv (which carries no sibling set).
-        var methodName = overloadDecl.IsConstructor
-            ? "ctor"
-            : NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(overloadDecl, siblingPropertyNames));
-
-        // Mirror IHandler.GetProjectedCSharpMethodKey: collect parent + method generic
-        // names so Optional<GenericParam> collapses onto the bare GenericParam form.
-        var parentGenericNames = BaseHandler.CollectVisibleGenericParamNames(overloadDecl);
-        var paramTypes = new List<string>();
-        for (int i = 1; i < overloadDecl.CSSignature.Count; i++)
+        => ProtocolSignatureHelper.BuildProjectedMethodKey(overloadDecl, typeDatabase, new ProtocolSignatureHelper.ProjectedKeyOptions
         {
-            var arg = overloadDecl.CSSignature[i];
-            // Debug params (#file, #line, etc.) are stripped from the public signature
-            if (IsDebugParameter(arg))
-                continue;
-            // Empty tuple () params are stripped from the C# signature (zero-sized Void)
-            if (arg.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-            // Mirror IHandler.GetProjectedCSharpMethodKey: recursively strip Optional<ClassLike>
-            // at every depth so Array<Optional<Class>> and Array<Class> collapse onto the same
-            // key (both project to IEnumerable<Class[?]>, identical for C# overload resolution).
-            // The helper subsumes the older top-level Optional<Closure> and
-            // Optional<GenericParam> unwraps.
-            var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
-                arg.SwiftTypeSpec, typeDatabase, parentGenericNames);
-            var factory = new TypeProjectionFactory();
-            var projection = factory.Project(typeSpecForKey, new ProjectionContext
-            {
-                TypeDatabase = typeDatabase,
-                IsParameter = true
-            });
-            string paramType;
-            if (projection != null)
-            {
-                paramType = projection.PublicType;
-            }
-            else
-            {
-                try
-                {
-                    // Normalize container types whose element projection failed
-                    // (e.g., Array<τ_0_0> where τ_0_0 can't be resolved without GenericContext).
-                    // Must match IHandler.GetProjectedCSharpMethodKey normalization.
-                    // This handles both generic containers AND other unresolved types.
-                    paramType = BaseHandler.NormalizeContainerForOverloadKey(typeSpecForKey, typeDatabase);
-                }
-                catch
-                {
-                    paramType = typeSpecForKey?.ToString() ?? "unknown";
-                }
-            }
-            // Normalize nullable reference types: mirrors IHandler.GetProjectedCSharpMethodKey.
-            paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
-            paramTypes.Add(paramType);
-        }
-        // Mirror IHandler.GetProjectedCSharpMethodKey: async methods get CancellationToken at emission time.
-        if (overloadDecl.IsAsync)
-        {
-            paramTypes.Add("System.Threading.CancellationToken");
-        }
-
-        return $"{methodName}({string.Join(",", paramTypes)})";
-    }
+            PropertyNames = siblingPropertyNames,
+            IncludeParentTypeName = true,
+            // The default-overload path never applies the closure-tombstone collapse and never logs
+            // (no logger in scope) — matches this builder's prior behavior exactly.
+            TreatAsClosureTombstone = false,
+            Logger = null,
+        });
 
     /// <summary>
     /// Checks if a trimmed overload would collide with an existing method on the same type.

@@ -133,6 +133,93 @@ public class BaseHandlerDedupTests
         Assert.Contains("System.Threading.CancellationToken", result);
     }
 
+    [Fact]
+    public void GetProjectedCSharpMethodKey_ProtocolPath_AsyncMethod_IncludesCancellationToken()
+    {
+        // AF05 ruling (b): the PROTOCOL-path builder (ProtocolSignatureHelper.GetProjectedCSharpMethodKey)
+        // previously OMITTED the trailing CancellationToken that protocol emission adds for every async
+        // requirement. That silently collapsed a `func foo() async` requirement onto a sibling
+        // `func fooAsync()` whose key matched, dropping a real interface member. The merged core now
+        // appends CancellationToken for async on ALL paths — so the async key carries it on the protocol
+        // path too, keeping the async requirement distinct from its sync namesake.
+        var typeDatabase = new BasicTypeDatabase();
+        var protocolDecl = CreateProtocolDecl("Fetcher");
+        var method = new MethodDecl
+        {
+            Name = "fetchData",
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type (void)
+                CreateArgDecl(new NamedTypeSpec("Swift.Int")),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = protocolDecl,
+            ModuleDecl = CreateModuleDecl(),
+            Throws = false,
+            IsAsync = true,
+            IsSynthesizedAccessor = false
+        };
+
+        var protocolKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase, protocolDecl);
+
+        // A sync sibling with the SAME name and params: identical save for IsAsync. Its key must NOT carry
+        // the trailing CancellationToken, and the two keys must DIVERGE — otherwise the async requirement
+        // would still collapse onto its sync namesake (the exact bug ruling (b) fixes). Asserting only
+        // "async key contains CancellationToken" is under-sensitive: it would pass even if the sync key
+        // ALSO contained one. The divergence assertion is what actually proves the dedup no longer collapses.
+        var syncSibling = method with { IsAsync = false };
+        var syncKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(syncSibling, typeDatabase, protocolDecl);
+
+        Assert.Contains("System.Threading.CancellationToken", protocolKey);
+        Assert.DoesNotContain("System.Threading.CancellationToken", syncKey);
+        Assert.NotEqual(protocolKey, syncKey);
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_ProtocolPath_OmitsParentTypeName_DivergesFromClassPath()
+    {
+        // AF05 ruling (a): the protocol-path builder omits ParentTypeName by design (benign). A method whose
+        // PascalCase name equals its enclosing protocol's name (`keyRegion` in protocol `KeyRegion`) trips the
+        // CS0542 "Get" rename ONLY when ParentTypeName is supplied. The protocol's emitted enclosing C# type is
+        // I{Name} (IKeyRegion), so the raw-parent-name collision can never legally fire there — applying the
+        // rename would spuriously rename a valid interface member. This pins the intentional divergence: the
+        // protocol path yields `KeyRegion(...)` while the class path (ParentTypeName included) yields
+        // `GetKeyRegion(...)`. The KeyBuilderParentNameProtocol BindingTests fixture locks the end-to-end side.
+        var typeDatabase = new BasicTypeDatabase();
+        var protocolDecl = CreateProtocolDecl("KeyRegion");
+        var method = new MethodDecl
+        {
+            Name = "keyRegion",
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type (void)
+                CreateArgDecl(new NamedTypeSpec("Swift.Int")),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = protocolDecl,
+            ModuleDecl = CreateModuleDecl(),
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        // Protocol path (IncludeParentTypeName = false): no CS0542 rename → bare member name.
+        var protocolKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase, protocolDecl);
+        // Class path (IncludeParentTypeName = true): the parent-name collision triggers the Get-rename.
+        var classKey = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
+
+        Assert.StartsWith("KeyRegion(", protocolKey);
+        Assert.DoesNotContain("GetKeyRegion", protocolKey);
+        Assert.StartsWith("GetKeyRegion(", classKey);
+        Assert.NotEqual(protocolKey, classKey);
+    }
+
     #endregion
 
     #region GetMethodSignatureKey Tests
@@ -539,6 +626,28 @@ public class BaseHandlerDedupTests
             Types = new List<TypeDecl>(),
             Dependencies = new List<string>(),
             Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    // A protocol parent so a method's ParentTypeName resolves to the protocol name — used to exercise
+    // the protocol-path projected key's ParentTypeName omission (AF05 ruling a). ProtocolDecl : TypeDecl,
+    // so (decl.ParentDecl as TypeDecl)?.Name picks up the protocol's name on the class path.
+    private static ProtocolDecl CreateProtocolDecl(string name, string moduleName = "TestModule")
+    {
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{name}"),
+            MangledName = $"$s{moduleName.Length}{moduleName}{name.Length}{name}P",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
             ParentDecl = null,
             ModuleDecl = null
         };

@@ -1388,6 +1388,18 @@ namespace BindingsGeneration
                 paramTypes.Add(paramType);
             }
 
+            // Async methods emit a trailing CancellationToken parameter, so their emitted C# signature
+            // carries one more arg than a sync namesake. Mirror the projected-key builder (AF05 ruling b):
+            // without this, `func foo() async` and a sibling `func fooAsync()` BOTH render "FooAsync(int)"
+            // here and this emitted-signature dedup (emittedResolvedSignatures) silently drops the second
+            // — re-collapsing the very async/sync pair the projected-key CancellationToken axis split apart,
+            // so only one FooAsync member would reach the interface + proxy. The KeyBuilderAsyncOverloadProtocol
+            // fixture proves both members emit; this append is what makes the two emitted signatures diverge.
+            if (methodDecl.IsAsync)
+            {
+                paramTypes.Add("System.Threading.CancellationToken");
+            }
+
             return $"{methodName}({string.Join(",", paramTypes)})";
         }
 

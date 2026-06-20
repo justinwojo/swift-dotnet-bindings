@@ -558,119 +558,26 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Creates a projected C# method signature key for dedup.
-        /// Uses the public method name and projected C# parameter types,
-        /// so different Swift overloads that produce identical C# signatures are deduplicated.
+        /// Creates a projected C# method signature key for class/module/extension dedup.
+        /// Uses the public method name and projected C# parameter types, so different Swift overloads
+        /// that produce identical C# signatures are deduplicated. Thin shim over
+        /// <see cref="ProtocolSignatureHelper.BuildProjectedMethodKey"/> on the class path.
+        ///
+        /// The closure-tombstone view folds the decl's own <c>IsClosureParamTombstone</c> in with
+        /// <paramref name="treatAsClosureTombstone"/>: the main loop sets that flag only AT the dedup
+        /// site, so a pre-pass caller (PreReserveAdoptedOverrideNames) requests the view it KNOWS the
+        /// loop will take, keeping the pre-pass and main-loop keys in agreement. Computing the effective
+        /// tombstone HERE (not in the core) keeps the default-overload path — which never consults the
+        /// flag — byte-identical.
         /// </summary>
         internal static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null, IReadOnlySet<string>? siblingPropertyNames = null, bool treatAsClosureTombstone = false)
-        {
-            // Build the name from the same context the authoritative emitted name
-            // (MethodEnvironment.CSharpMethodName) uses, so the key's name component applies the same
-            // Foo→FooMethod / Foo→WithFoo property-collision rename (PublicMethodNameContext.ForMethod
-            // threads siblingPropertyNames). Without it, two Swift members that emit the same renamed C#
-            // name register different dedup keys and the real CS0111 collision slips past B15. Mirrors
-            // ProtocolSignatureHelper.GetProjectedCSharpMethodKey. Constructors hardcode "ctor"
-            // (the rename never applies), so callers without a sibling set in scope pass null.
-            var methodName = methodDecl.IsConstructor
-                ? "ctor"
-                : NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(methodDecl, siblingPropertyNames));
-
-            // Build the set of generic parameter names visible in this method's scope —
-            // both the parent type's params (e.g. `Value` from `class FromToByAction<Value>`)
-            // and the method's own params. swift-api-digester emits the source-level name
-            // ("Value") in kGenericTypeParam.printedName for compiled .swiftmodules, NOT the
-            // ABI-canonical `τ_0_0` form, so IsGenericTypeParameter alone misses these. The
-            // set is used to collapse `Optional<Value>` onto bare `Value` for overload-key
-            // dedup (RealityFoundation FromToByAction CS0111 trigger).
-            var parentGenericNames = CollectVisibleGenericParamNames(methodDecl);
-
-            // Closure-tombstone (Fix K): when this method routes through
-            // ClosureParamTombstoneEmitter, every unsupported closure parameter is
-            // emitted as `object?` regardless of its Swift shape. The dedup key
-            // must mirror that or two Swift overloads with different unsupported
-            // closure shapes get distinct projected keys but emit the same C#
-            // signature (CS0111). Build the same `object?`-collapsing view here.
-            // `treatAsClosureTombstone` lets a caller that runs BEFORE the main loop
-            // sets IsClosureParamTombstone (PreReserveAdoptedOverrideNames) request the
-            // tombstone view it KNOWS the main loop will take, so the pre-pass key and
-            // the main-loop key agree (otherwise a tombstone override's pre-reserved
-            // slot would key off the un-collapsed param shape and miss the collision).
-            ClosureHandler? closureHandlerForTombstone = (methodDecl.IsClosureParamTombstone || treatAsClosureTombstone)
-                ? new ClosureHandler(typeDatabase)
-                : null;
-
-            var paramTypes = new List<string>();
-            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            => ProtocolSignatureHelper.BuildProjectedMethodKey(methodDecl, typeDatabase, new ProtocolSignatureHelper.ProjectedKeyOptions
             {
-                var arg = methodDecl.CSSignature[i];
-                // Debug params (#file, #line, etc.) are stripped from the public signature
-                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
-                    continue;
-                // Empty tuple () params are stripped from the C# signature (zero-sized Void)
-                if (arg.SwiftTypeSpec.IsEmptyTuple)
-                    continue;
-                if (closureHandlerForTombstone != null && closureHandlerForTombstone.IsClosure(arg))
-                {
-                    var spec = closureHandlerForTombstone.GetClosureTypeSpec(arg);
-                    if (spec == null || !closureHandlerForTombstone.IsSupportedClosure(spec))
-                    {
-                        paramTypes.Add("object?");
-                        continue;
-                    }
-                }
-                // C11: Optional<ClassLike> and bare ClassLike are the same overload in C#
-                // (nullability annotations on reference types are erased at runtime). The
-                // recursive helper unwraps Optional<ClassLike> at every depth — top-level,
-                // nested inside containers like Array<Optional<Class>>, and inside tuples —
-                // so two Swift overloads taking `Array<T>` and `Array<Optional<T>>` collapse
-                // onto the same projected key when T projects to a reference type. Without
-                // this, projection of the container produces `IEnumerable<T?>` vs
-                // `IEnumerable<T>` and the CS0111 collision slips through dedup.
-                // The helper also covers the top-level Optional<Closure> and
-                // Optional<GenericParam> cases that earlier dedicated branches handled.
-                var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
-                    arg.SwiftTypeSpec, typeDatabase, parentGenericNames);
-                string paramType;
-                try
-                {
-                    var factory = new TypeProjectionFactory();
-                    var projection = factory.Project(typeSpecForKey, new ProjectionContext
-                    {
-                        TypeDatabase = typeDatabase,
-                        IsParameter = true
-                    });
-                    if (projection != null)
-                    {
-                        paramType = projection.PublicType;
-                    }
-                    else
-                    {
-                        // Normalize container types whose element projection failed
-                        // (e.g., Array<τ_0_0> where τ_0_0 can't be resolved without GenericContext).
-                        // Array and Set both project to IEnumerable<T> as parameters, so their
-                        // keys must match to prevent CS0111 collisions.
-                        paramType = NormalizeContainerForOverloadKey(typeSpecForKey, typeDatabase);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger?.LogWarning($"GetProjectedCSharpMethodKey: Failed to resolve type '{typeSpecForKey}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
-                    paramType = typeSpecForKey?.ToString() ?? "unknown";
-                }
-                // Normalize nullable reference types: Optional<Class> and Class produce
-                // the same C# overload (nullable annotations are erased at runtime).
-                paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
-                paramTypes.Add(paramType);
-            }
-            // All async methods get CancellationToken at emission time — include it in the
-            // projected key so native async methods collide with completion handler overloads.
-            if (methodDecl.IsAsync)
-            {
-                paramTypes.Add("System.Threading.CancellationToken");
-            }
-
-            return $"{methodName}({string.Join(",", paramTypes)})";
-        }
+                PropertyNames = siblingPropertyNames,
+                TreatAsClosureTombstone = methodDecl.IsClosureParamTombstone || treatAsClosureTombstone,
+                IncludeParentTypeName = true,
+                Logger = logger,
+            });
 
         /// <summary>
         /// Classifies whether <paramref name="method"/> will reach the dedup block in the main emission

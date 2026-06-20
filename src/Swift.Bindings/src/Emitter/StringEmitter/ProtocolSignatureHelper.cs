@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
+
 namespace BindingsGeneration;
 
 /// <summary>
@@ -112,9 +114,180 @@ internal static class ProtocolSignatureHelper
     }
 
     /// <summary>
-    /// Creates a projected C# method signature key for dedup purposes.
+    /// Options selecting per-path behavior for <see cref="BuildProjectedMethodKey"/>.
+    /// </summary>
+    internal readonly struct ProjectedKeyOptions
+    {
+        /// <summary>Sibling property-name set threaded into the name's collision rename (Foo→FooMethod / Foo→WithFoo).</summary>
+        public IReadOnlySet<string>? PropertyNames { get; init; }
+
+        /// <summary>
+        /// True selects the protocol-interface projection path (<see cref="ProjectTypeToCSharp"/>);
+        /// false uses the class/default-overload projection (<see cref="TypeProjectionFactory"/>).
+        /// This is an EXPLICIT selector, not inferred from <see cref="ProtocolContext"/> being non-null:
+        /// the protocol shim must take the protocol projection even when its caller passes a null
+        /// context (some unit-test callers do), so the merge stays byte-identical for them.
+        /// </summary>
+        public bool UseProtocolProjection { get; init; }
+
+        /// <summary>Protocol context passed to <see cref="ProjectTypeToCSharp"/> (associated-type / Self aware); may be null.</summary>
+        public ProtocolDecl? ProtocolContext { get; init; }
+
+        /// <summary>When true, unsupported closure params collapse to <c>object?</c> (closure-tombstone view).</summary>
+        public bool TreatAsClosureTombstone { get; init; }
+
+        /// <summary>When true, the name's ParentTypeName drives the CS0542 Get-rename; false on the protocol path.</summary>
+        public bool IncludeParentTypeName { get; init; }
+
+        /// <summary>Optional logger for projection-failure warnings (class/default-overload path only).</summary>
+        public ILogger? Logger { get; init; }
+    }
+
+    /// <summary>
+    /// Single parameterized core for the three projected-C#-method-key builders
+    /// (<see cref="BaseHandler.GetProjectedCSharpMethodKey"/>,
+    /// <see cref="DefaultParameterOverloadEmitter.GetProjectedOverloadKey"/>, and the protocol-path
+    /// <see cref="GetProjectedCSharpMethodKey"/> shim below). Each is now a thin shim over this, so the
+    /// projected-key / overload-dedup logic has one home (AF05 Target D; retires the former
+    /// constraints.md "three builders must stay structurally identical" rule by construction).
+    ///
+    /// Key shape: <c>"{publicMethodName}({projectedParamType,...})"</c> — no return type (C# overload identity).
+    /// Path selection: <c>opts.UseProtocolProjection</c> (an explicit selector, NOT inferred from
+    /// <see cref="ProjectedKeyOptions.ProtocolContext"/> being non-null) takes the protocol-interface
+    /// projection (<see cref="ProjectTypeToCSharp"/>); otherwise the class/default-overload projection
+    /// (<see cref="TypeProjectionFactory"/> + <see cref="BaseHandler.NormalizeContainerForOverloadKey"/>).
+    /// </summary>
+    internal static string BuildProjectedMethodKey(MethodDecl decl, ITypeDatabase typeDatabase, in ProjectedKeyOptions opts)
+    {
+        bool isProtocolPath = opts.UseProtocolProjection;
+
+        // Name: same context the authoritative emitted name (MethodEnvironment.CSharpMethodName) uses,
+        // so the key's name component applies the same Foo→FooMethod / Foo→WithFoo property-collision
+        // rename (PublicMethodNameContext.ForMethod threads PropertyNames). Constructors hardcode "ctor"
+        // (the rename never applies); the protocol path never routes a constructor here (every protocol
+        // caller guards out IsConstructor), so this branch is inert on that path.
+        //
+        // ParentTypeName is suppressed on the protocol path (IncludeParentTypeName=false) — AF05 ruling
+        // (a): the protocol's emitted enclosing C# type is I{Name}, so the CS0542 raw-parent-name rename
+        // can never legally fire (DatabaseRegion ≠ IDatabaseRegion); applying it would spuriously rename
+        // a valid interface member. Emission agrees — ProtocolHandler.EmitInterfaceMethod likewise omits
+        // parentTypeName. Do NOT "fix" this to apply the rename (the KeyBuilderParentNameProtocol fixture
+        // locks it green).
+        string methodName;
+        if (decl.IsConstructor)
+        {
+            methodName = "ctor";
+        }
+        else
+        {
+            var nameContext = PublicMethodNameContext.ForMethod(decl, opts.PropertyNames);
+            if (!opts.IncludeParentTypeName)
+                nameContext = nameContext with { ParentTypeName = null };
+            methodName = NameProvider.GetPublicMethodName(nameContext);
+        }
+
+        // Generic param names visible in this method's scope (parent type's + method's own) — used to
+        // collapse Optional<GenericParam> onto the bare GenericParam form for overload-key identity.
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(decl);
+
+        // Closure-tombstone (Fix K): when this method routes through ClosureParamTombstoneEmitter, every
+        // unsupported closure parameter emits as object? regardless of its Swift shape, and the key must
+        // mirror that or two overloads with different unsupported closure shapes key apart yet emit the
+        // same C# signature (CS0111). Only the class path opts in: its shim folds
+        // (methodDecl.IsClosureParamTombstone || treatAsClosureTombstone) into TreatAsClosureTombstone, so
+        // the core reads one flag and the default-overload / protocol paths (which never apply the
+        // collapse) pass false.
+        ClosureHandler? closureHandlerForTombstone = opts.TreatAsClosureTombstone
+            ? new ClosureHandler(typeDatabase)
+            : null;
+
+        var paramTypes = new List<string>();
+        for (int i = 1; i < decl.CSSignature.Count; i++)
+        {
+            var arg = decl.CSSignature[i];
+            // Debug params (#file, #line, etc.) are stripped from the public signature
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            // Empty tuple () params are stripped from the C# signature (zero-sized Void)
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            if (closureHandlerForTombstone != null && closureHandlerForTombstone.IsClosure(arg))
+            {
+                var spec = closureHandlerForTombstone.GetClosureTypeSpec(arg);
+                if (spec == null || !closureHandlerForTombstone.IsSupportedClosure(spec))
+                {
+                    paramTypes.Add("object?");
+                    continue;
+                }
+            }
+            // C11: Optional<ClassLike> and bare ClassLike are the same C# overload (nullable annotations
+            // on reference types are erased at runtime). The recursive helper unwraps Optional<ClassLike>
+            // at every depth so Array<Optional<Class>> and Array<Class> collapse onto the same key.
+            var typeSpecForKey = StripOptionalClassLikeForOverloadIdentity(
+                arg.SwiftTypeSpec, typeDatabase, visibleGenericNames);
+
+            string paramType;
+            if (isProtocolPath)
+            {
+                // Protocol-interface projection (associated-type / Self-requirement aware). Bare call,
+                // no try/catch — preserves the protocol path's prior behavior byte-for-byte.
+                paramType = ProjectTypeToCSharp(typeSpecForKey, typeDatabase, opts.ProtocolContext, isParameter: true);
+            }
+            else
+            {
+                // Class / default-overload projection. The whole block is wrapped so a projection failure
+                // degrades to a string fallback (the prior BaseHandler class-path behavior). The pre-merge
+                // default-overload builder caught only the Normalize fallback, so the unified wrap newly
+                // covers factory.Project there too. factory.Project CAN throw (TypeProjectionFactory →
+                // SwiftTypeName.FromModuleQualifiedName rejects a generic-rendered '<...>' name), but on any
+                // such input the pre-merge default-overload path would have propagated an UNHANDLED exception
+                // — a crash produces no output, so it cannot be a *different successful key*. The unified
+                // catch only converts that crash into the same string fallback the class path always used.
+                // No input yields a different successful key, so the class/default output is byte-identical
+                // (the compile-only byte oracle is the gate); the sole delta is crash → graceful-fallback on
+                // a pathological generic-rendered default-overload param — strictly safer, never a regression.
+                try
+                {
+                    var factory = new TypeProjectionFactory();
+                    var projection = factory.Project(typeSpecForKey, new ProjectionContext
+                    {
+                        TypeDatabase = typeDatabase,
+                        IsParameter = true
+                    });
+                    paramType = projection != null
+                        ? projection.PublicType
+                        : BaseHandler.NormalizeContainerForOverloadKey(typeSpecForKey, typeDatabase);
+                }
+                catch (Exception ex)
+                {
+                    opts.Logger?.LogWarning($"GetProjectedCSharpMethodKey: Failed to resolve type '{typeSpecForKey}' for method '{decl.Name}', using string fallback: {ex.Message}");
+                    paramType = typeSpecForKey?.ToString() ?? "unknown";
+                }
+            }
+
+            // Normalize nullable reference types: Optional<Class> and Class produce the same C# overload.
+            paramType = NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
+            paramTypes.Add(paramType);
+        }
+
+        // All async methods get a trailing CancellationToken at emission time — include it in the key so
+        // native async methods collide with completion-handler overloads. AF05 ruling (b): the protocol
+        // path previously OMITTED this, silently dropping a `func foo() async` requirement whose key
+        // collided with a sibling `func fooAsync()` (the KeyBuilderAsyncOverloadProtocol fixture proves
+        // both members now emit). The class/default paths already did this — unchanged for them.
+        if (decl.IsAsync)
+        {
+            paramTypes.Add("System.Threading.CancellationToken");
+        }
+
+        return $"{methodName}({string.Join(",", paramTypes)})";
+    }
+
+    /// <summary>
+    /// Creates a projected C# method signature key for protocol-interface dedup purposes.
     /// Two methods that would produce the same C# interface signature get the same key.
     /// Key format: "MethodName(paramType1,paramType2,...)" — no return type (C# overload identity).
+    /// Thin shim over <see cref="BuildProjectedMethodKey"/> on the protocol path.
     ///
     /// Pass <paramref name="propertyNames"/> with the same set the interface emitter used
     /// for this protocol when collision-aware comparison matters (e.g. BFS shadow detection
@@ -123,34 +296,20 @@ internal static class ProtocolSignatureHelper
     /// produce identical keys.
     /// </summary>
     public static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null)
-    {
-        // Compute the public method name the same way EmitInterfaceMethod does. ParentTypeName is
-        // suppressed here: the protocol-interface key historically omits it (a protocol has no
-        // concrete enclosing type name at the interface-key level). Whether the shared core should
-        // apply parentTypeName to the protocol path is the unresolved roadmap:27 question, deferred
-        // to the key-builder merge (Target D); keeping it null preserves current behavior.
-        var methodName = NameProvider.GetPublicMethodName(
-            PublicMethodNameContext.ForMethod(methodDecl, propertyNames) with { ParentTypeName = null });
-
-        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
-        var paramTypes = new List<string>();
-        for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+        => BuildProjectedMethodKey(methodDecl, typeDatabase, new ProjectedKeyOptions
         {
-            var arg = methodDecl.CSSignature[i];
-            // Debug params (#file, #line, etc.) are stripped from the public signature
-            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
-                continue;
-            // Empty tuple () params are stripped from the C# signature (zero-sized Void)
-            if (arg.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-            var typeSpecForKey = StripOptionalClassLikeForOverloadIdentity(
-                arg.SwiftTypeSpec, typeDatabase, visibleGenericNames);
-            var projected = ProjectTypeToCSharp(typeSpecForKey, typeDatabase, protocolContext, isParameter: true);
-            projected = NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, typeDatabase);
-            paramTypes.Add(projected);
-        }
-        return $"{methodName}({string.Join(",", paramTypes)})";
-    }
+            PropertyNames = propertyNames,
+            // Always take the protocol projection — including when protocolContext is null (some unit-test
+            // callers pass null and rely on ProjectTypeToCSharp's fallbacks); inferring from
+            // ProtocolContext != null would silently route those through class-style projection.
+            UseProtocolProjection = true,
+            ProtocolContext = protocolContext,
+            // Ruling (a): the protocol path omits parentTypeName by design (benign; see the core's comment).
+            IncludeParentTypeName = false,
+            // Protocol path never applies the closure-tombstone collapse and never logs (matches prior behavior).
+            TreatAsClosureTombstone = false,
+            Logger = null,
+        });
 
     /// <summary>
     /// Projects a Swift TypeSpec to the C# type name for protocol contexts.
