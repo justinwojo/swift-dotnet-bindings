@@ -60,6 +60,48 @@ public static partial class ClosureEmitter
         parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
         var parametersString = string.Join(", ", parameters);
 
+        // Existential-argument proxy suppression: see EmitEscapingClosureCallback. An existential
+        // ARGUMENT whose protocol proxy was suppressed (its EveryProtocol conformance was not emitted)
+        // cannot be marshalled into the user delegate — there is no type to construct. This is the
+        // indirect-return trampoline, which fills a Swift-allocated buffer the adapter unconditionally
+        // .move()s; a silent empty body would leave that buffer uninitialized for Swift to move
+        // (undefined behavior), and a throw across the [UnmanagedCallersOnly] boundary aborts the
+        // process. Report through this callback's own established failure channel — FailFast (see the
+        // catch below) — before Swift touches the buffer. Local check-and-branch only: the member-body
+        // checkpoint rollback used by the closure-RETURN sites would desync the Swift writer / symbol
+        // claims for a helper-emitted callback (Hazard D).
+        if (argTypes.Any(closureHandler.IsProxyReferenceSuppressed))
+        {
+            var suppressedCallConv = useCdecl
+                ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)"
+                : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
+                private static unsafe void {{callbackName}}({{parametersString}})
+                {
+                    // Protocol proxy unavailable — a required existential argument's proxy class was
+                    // suppressed (its EveryProtocol conformance was not emitted), so the Swift-vended
+                    // existential cannot be marshalled into the user delegate and no result can be
+                    // produced. The Swift adapter unconditionally .move()s the buffer this callback
+                    // fills, so a silent empty body would leave it uninitialized; fail loudly through
+                    // this callback's FailFast channel BEFORE Swift touches the buffer. The throw is
+                    // caught by the shared UCO guard (CatchFreeUcoValidatorTests requires EVERY UCO body
+                    // to be guarded), which converts the escape into a controlled FailFast.
+                    try
+                    {
+                        throw new global::System.NotSupportedException(
+                            "Protocol proxy unavailable: an existential argument's EveryProtocol conformance was not emitted.");
+                    }
+                    catch (global::System.Exception __ex)
+                    {
+                        SwiftClosureMarshaller.FailFastUnhandledClosureException(__ex);
+                        throw;
+                    }
+                }
+                """);
+            return;
+        }
+
         // Build argument list for invoking the delegate
         var invokeArgs = new List<string>();
         for (int i = 0; i < argIndex; i++)

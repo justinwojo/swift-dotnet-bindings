@@ -11,7 +11,10 @@ namespace BindingsGeneration;
 /// </summary>
 public sealed class BindingArtifactManifest
 {
-    public const int CurrentSchemaVersion = 1;
+    // v2: retired the ProxyCoGating/ContractCoGating sections (the generate-then-strip
+    // co-gater is gone — proxy/contract decisions are made at emission). The surviving
+    // proxy-suppression count moved to EmissionSection.SuppressedProxyClassCount.
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public required string Module { get; init; }
@@ -40,8 +43,6 @@ public sealed class BindingArtifactManifest
     /// </summary>
     public InputResolutionSection? InputResolution { get; set; }
 
-    public ProxyCoGatingSection? ProxyCoGating { get; set; }
-    public ContractCoGatingSection? ContractCoGating { get; set; }
     public WrapperSection? Wrapper { get; set; }
     public BridgeSection? Bridge { get; set; }
 }
@@ -63,8 +64,8 @@ public enum PhaseStatus
 }
 
 /// <summary>
-/// Generation-phase snapshot. Populated by the main pass after C# emission and after
-/// the proxy co-gater runs in-process.
+/// Generation-phase snapshot. Populated by the main pass after C# emission. Proxy-reference
+/// and wrapper-symbol-contract suppression are decided during emission, not in a post-pass.
 /// </summary>
 public sealed class GenerationSection
 {
@@ -156,6 +157,15 @@ public sealed class EmissionSection
     public List<string> SilentTombstones { get; init; } = new();
 
     /// <summary>
+    /// Number of EveryProtocol proxy classes withheld at emission because their conformance was
+    /// not emitted. Mirrors <see cref="EmissionReport.SuppressedProxyClassCount"/>; carried on the
+    /// manifest so this emission-time decision is self-contained alongside the conformance summary.
+    /// Replaces the retired <c>ProxyCoGatingSection.SuppressedProxyClassCount</c> — proxy
+    /// suppression is now an emission decision, not a generate-then-strip co-gating result.
+    /// </summary>
+    public int SuppressedProxyClassCount { get; init; }
+
+    /// <summary>
     /// Finding 14c: the Apple supplement references this module accrued during emission, each with
     /// the resolution mechanism(s) that recorded it. These are the references that drive the
     /// consumer csproj's <c>SwiftBindings.Apple</c> <c>PackageReference</c>; surfacing them with
@@ -177,6 +187,7 @@ public sealed class EmissionSection
                 SkippedAtEmission = report.ConformanceDecisions.SkippedAtEmission,
                 Note = report.ConformanceDecisions.Note,
             },
+            SuppressedProxyClassCount = report.SuppressedProxyClassCount,
         };
         foreach (var kv in report.WrapperStrategyCounts)
             section.WrapperStrategyCounts[kv.Key] = kv.Value;
@@ -246,37 +257,6 @@ public sealed record InputResolutionDecisionEntry(
     InputResolutionCategory Category,
     InputResolutionSeverity Severity,
     string Detail);
-
-/// <summary>
-/// Records the proxy-suppression co-gating pass that runs at the end of the main
-/// generation phase. Each cogated method is a method body removed because the proxy
-/// class it constructed was not emitted.
-/// </summary>
-public sealed class ProxyCoGatingSection
-{
-    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public PhaseStatus Status { get; init; } = PhaseStatus.Success;
-
-    public int SuppressedProxyClassCount { get; init; }
-    public List<CoGatedMember> CoGatedMethods { get; init; } = new();
-}
-
-/// <summary>
-/// Records the wrapper-symbol-contract co-gating pass that runs at the end of the main
-/// generation phase. Each cogated member is a public-API body removed because the
-/// in-band contract rejected its target wrapper symbol. The directly violated member
-/// is also recorded in <see cref="GenerationSection.SkippedItems"/> via
-/// <see cref="WrapperSymbolContractGate"/>; projection de-duplicates so the report
-/// surfaces transitive Step C/D/E removals without double-counting the direct member.
-/// </summary>
-public sealed class ContractCoGatingSection
-{
-    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public PhaseStatus Status { get; init; } = PhaseStatus.Success;
-
-    public int ContractViolatedPInvokeCount { get; init; }
-    public List<CoGatedMember> CoGatedMembers { get; init; } = new();
-}
 
 /// <summary>
 /// Wrapper-compilation-phase snapshot. Populated by both <c>RunCompileWrapperOnly</c>

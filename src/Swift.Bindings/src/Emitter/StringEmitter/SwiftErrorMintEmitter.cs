@@ -74,9 +74,10 @@ public static class SwiftErrorMintEmitter
     /// <see cref="ClosureEmitter.GetSwiftClosureAdapterCode"/>. Paths that forward the closure
     /// to Swift natively — the optional-pointer/_optbuf wrapper, the default-parameter shims,
     /// the non-optional closure property setter — skipped that funnel, so the C# P/Invoke
-    /// referenced an unregistered wrapper symbol, the in-band contract gate rejected it, and
-    /// <see cref="CSharpWrapperCoGater"/> stripped the callback method, stranding its
-    /// <c>s_&lt;cb&gt; = &amp;&lt;cb&gt;</c> field and call-site → CS0103. Emitting here covers
+    /// referenced an unregistered wrapper symbol and the in-band contract gate dropped that
+    /// member, stranding its <c>s_&lt;cb&gt; = &amp;&lt;cb&gt;</c> field and call-site → CS0103
+    /// (historically the gate left an orphan call that a generate-then-strip post-pass cleaned
+    /// up; the gate now predicts the missing symbol and skips the member at emission). Emitting here covers
     /// every wrapper path (current and future) for a given decl kind in one place. Idempotent
     /// per module, so paths that already register through the adapter funnel are unaffected.
     /// </para>

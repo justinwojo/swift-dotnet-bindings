@@ -154,23 +154,42 @@ public static class WrapperValidation
         bool isActorIsolated = false,
         bool isMainActorIsolated = false,
         bool isNonisolated = false)
+        => GetMemberRejectionReason(env, kind, isModuleInternal, isSpiProtected, isAsync,
+            isActorIsolated, isMainActorIsolated, isNonisolated) is null;
+
+    /// <summary>
+    /// Reason-returning twin of <see cref="CanEmitMember"/>: returns the name of the first
+    /// shared guard that rejects the member, or <c>null</c> when every shared guard passes.
+    /// <see cref="CanEmitMember"/> is its boolean shim, so the predicate and the diagnostic
+    /// can never drift apart (Finding 12). The reason is diagnostic only — it feeds logs and
+    /// the emission-report skip-reason histogram, never the generated C#.
+    /// </summary>
+    public static string? GetMemberRejectionReason(
+        MethodEnvironment env,
+        MemberKind kind,
+        bool isModuleInternal = false,
+        bool isSpiProtected = false,
+        bool isAsync = false,
+        bool isActorIsolated = false,
+        bool isMainActorIsolated = false,
+        bool isNonisolated = false)
     {
         // 1. xcframework mode required (all handlers)
         if (!IsXCFrameworkMode(env.TypeDatabase))
-            return false;
+            return "xcframework_mode";
 
         // 2. Module internal (Method, Constructor, Property)
         if (kind is MemberKind.Method or MemberKind.Constructor or MemberKind.Property)
         {
             if (isModuleInternal)
-                return false;
+                return "module_internal";
         }
 
         // 3. SPI protected (Method, Property)
         if (kind is MemberKind.Method or MemberKind.Property)
         {
             if (isSpiProtected)
-                return false;
+                return "spi_protected";
         }
 
         // 4. Non-copyable struct parent — ALLOWED. Noncopyable types get @_cdecl wrappers
@@ -181,7 +200,7 @@ public static class WrapperValidation
         if (kind is MemberKind.Method or MemberKind.Constructor)
         {
             if (isAsync)
-                return false;
+                return "async";
         }
 
         // 6. Actor isolation (Method, Property, Subscript, Constructor)
@@ -210,7 +229,7 @@ public static class WrapperValidation
 
             if (!actorInitSync &&
                 IsActorIsolatedMember(env.ParentDecl, isActorIsolated, isMainActorIsolated, effectiveNonisolated))
-                return false;
+                return "actor_isolated";
         }
 
         // 6b. SWIFTBIND022: Synchronous @_cdecl wrappers for constructors on
@@ -235,7 +254,7 @@ public static class WrapperValidation
             env.ParentDecl is TypeDecl { IsCustomActorIsolated: true } &&
             !isNonisolated)
         {
-            return false;
+            return "custom_actor_constructor";
         }
 
         // 7. Inherited generic context on parent (Method, Property, Constructor)
@@ -245,10 +264,10 @@ public static class WrapperValidation
         if (kind is MemberKind.Method or MemberKind.Property or MemberKind.Constructor)
         {
             if (env.ParentDecl is TypeDecl td && td.IsGeneric && IsInheritedGenericContext(td))
-                return false;
+                return "inherited_generic_context";
         }
 
-        return true;
+        return null;
     }
 
     /// <summary>
@@ -1222,161 +1241,13 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Diagnostic method: runs through the MethodWrapperEmitter.ShouldEmitWrapper guards in order
-    /// and returns the name of the first guard that rejects the method. Returns null if no guard
-    /// rejects (the method would be wrapped). For logging/debugging only.
+    /// Diagnostic shim: returns the name of the first guard that rejects the method for @_cdecl
+    /// wrapping, or null if the method would be wrapped. For logging/the emission report only —
+    /// never feeds generated C#. Delegates to the single eligibility traversal so the reason can
+    /// never disagree with <see cref="MethodWrapperEmitter.ShouldEmitWrapper"/> (Finding 12).
     /// </summary>
     public static string? GetRejectionReason(MethodEnvironment env)
-    {
-        // 1. Must NOT be a constructor
-        if (env.MethodDecl.IsConstructor)
-            return "constructor";
-
-        // 2. Must NOT be an accessor
-        if (env.MethodDecl.IsAccessor)
-            return "accessor";
-
-        // 3. Must NOT already have a cdecl property wrapper
-        if (env.MethodDecl.UsesCdeclPropertyWrapper)
-            return "cdecl_property_wrapper";
-
-        // 3b. Skip @_spi protected methods
-        if (env.MethodDecl.IsSpiProtected)
-            return "spi_protected";
-
-        // 3c. Skip internal methods — wrapper can't call them from external code
-        if (env.MethodDecl.IsModuleInternal)
-            return "module_internal";
-
-        // 4. xcframework mode required
-        if (!IsXCFrameworkMode(env.TypeDatabase))
-            return "xcframework_mode";
-
-        // 5. Must be on a type or module (free function)
-        var parentTypeDecl = env.ParentDecl as TypeDecl;
-        if (parentTypeDecl == null && env.ParentDecl is not ModuleDecl)
-            return "no_parent";
-
-        // 5b. Generic parent type
-        if (parentTypeDecl?.IsGeneric == true)
-        {
-            if (IsInheritedGenericContext(parentTypeDecl))
-                return "inherited_generic_context";
-            // The wrapper-helper-path gates only apply when the method actually routes through
-            // EmitGenericStaticDispatchMethod (which calls EmitMetadataAccessorHelperIfNeeded).
-            // Concrete instance methods on generic class parents use protocol-cast dispatch
-            // and never touch _sbw_meta_*, so we MUST NOT report them as gate-rejected.
-            // Mirrors GenericDispatchEmitter.CanEmitGenericDispatch's per-path gate placement.
-            if (GenericDispatchEmitter.NeedsStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
-            {
-                if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(parentTypeDecl, env.TypeDatabase))
-                    return "generic_parent_unresolved_pwt_constraint";
-                if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(parentTypeDecl, env.TypeDatabase))
-                    return "generic_parent_metadata_buffer_mode";
-            }
-            if (!GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
-                return "generic_parent";
-        }
-
-        // 6. No method-level generics (only those with method-own generic params)
-        if (HasMethodOwnGenericParameters(env.MethodDecl))
-            return "method_level_generics";
-
-        // 6a. Raw generic type params in signature (e.g., from parent generics leaking)
-        if (HasRawGenericTypeParams(env.MethodDecl))
-            return "raw_generic_type_params";
-
-        // 6b. Custom actor types (requires async dispatch) — nonisolated members opt out,
-        // but only if their signature is safe to spell at the library's deployment target.
-        // Parameterized-protocol usage (e.g., EventStream<any UIEvent>) requires iOS 16+ runtime
-        // support, so those wrappers fall back to async dispatch.
-        if (parentTypeDecl is ClassDecl { IsActor: true } &&
-            (!env.MethodDecl.IsNonisolated ||
-             SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase)))
-            return "actor_type";
-
-        // 6c. Per-member custom actor isolation (not @MainActor)
-        if (env.MethodDecl.IsActorIsolated && !env.MethodDecl.IsMainActorIsolated &&
-            (!env.MethodDecl.IsNonisolated ||
-             SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase)))
-            return "custom_actor_isolated";
-
-        // 7. Not async
-        if (env.MethodDecl.IsAsync)
-            return "async_method";
-
-        // 8. Closure parameters
-        if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
-        {
-            if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
-                return "closure_params";
-            // Sync outer methods cannot bridge async closures (no Task harness to host
-            // the adapter). Keep rejecting regardless of baseline-shape eligibility —
-            // async-closure bridging is currently gated to async outer methods only.
-            if (env.MethodDecl.CSSignature.Skip(1)
-                    .Where(env.ClosureHandler.IsClosure)
-                    .Any(arg =>
-                    {
-                        var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
-                        return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
-                    }))
-                return "closure_params";
-        }
-
-        // 11. (removed — noncopyable struct parents now use borrowing pointer semantics)
-
-        // 11b. (removed — inout parameters now use UnsafeMutableRawPointer with write-back semantics)
-
-        // 11c. Variadic parameters: supported via unsafeBitCast bridge when the shape is
-        // simple (static on non-generic parent, no throws, no closures). Otherwise reject.
-        if (env.MethodDecl.HasVariadicParameter && !MethodWrapperEmitter.IsSupportedVariadicShape(env))
-            return "variadic_params";
-
-        // 12. No nested frozen struct parameters
-        if (env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNestedFrozenStructParam(arg, env.TypeDatabase)))
-            return "nested_frozen_struct_param";
-
-        // 12b. Non-primitive frozen struct parameters are now handled via UnsafeRawPointer
-        // in @_cdecl wrappers — no longer a rejection reason.
-
-        // 13. Not already using wrapper library
-        if (env.MethodDecl.UsesWrapperLibrary)
-            return "uses_wrapper_library";
-
-        // 14. No unsupported generic container params/returns
-        {
-            var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-            if (IsUnsupportedGenericContainer(returnSpec, env.TypeDatabase))
-                return "unsupported_generic_container";
-            foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
-            {
-                if (IsUnsupportedGenericContainer(arg.SwiftTypeSpec, env.TypeDatabase))
-                    return "unsupported_generic_container";
-            }
-        }
-
-        // 14b. No metatype parameters (including Optional<Metatype>)
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
-            return "metatype_param";
-
-        // 14c-15: Return type checks
-        {
-            var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-
-            if (IsMetatypeTypeIncludingOptional(returnSpec))
-                return "metatype_return";
-
-            // Opaque returns (some Protocol): now supported — @_cdecl wrapper boxes into existential.
-
-            // 15d. DynamicSelf returns: only allowed for class parents
-            if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
-                return "dynamic_self_non_class";
-
-            // 17. Nested type returns — ALLOWED (see HasCdeclCompatibleFunctionShape guard 17)
-        }
-
-        return null;
-    }
+        => MethodWrapperEmitter.EvaluateWrapperEligibility(env).Reason;
 
     /// <summary>
     /// Returns true if any parameter or return type in the method signature contains

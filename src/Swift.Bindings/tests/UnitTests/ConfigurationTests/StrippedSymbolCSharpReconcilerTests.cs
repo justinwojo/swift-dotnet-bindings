@@ -9,14 +9,14 @@ namespace BindingsGeneration.Tests
 {
     #region A. P/Invoke Detection
 
-    public class CoGaterPInvokeDetectionTests
+    public class ReconcilerPInvokeDetectionTests
     {
         [Fact]
         public void Process_StrippedPInvoke_RemovesPInvokeDeclaration()
         {
             // The P/Invoke is a private trampoline with no public caller, so it
             // disappears from the file but contributes nothing to the public-API
-            // skip count — the cogater only records public surface that vanished.
+            // skip count — the reconciler only records public surface that vanished.
             var input =
                 "namespace Test {\n" +
                 "public partial class Foo {\n" +
@@ -26,7 +26,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_broken_method" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_broken_ABC123", result.Content);
             Assert.DoesNotContain("SBW_broken_method", result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
@@ -44,7 +44,7 @@ namespace BindingsGeneration.Tests
                 "    internal static partial int PInvoke_eq_DEADBEEF(IntPtr a, IntPtr b);\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_eq_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_eq_DEADBEEF", result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
         }
@@ -58,7 +58,7 @@ namespace BindingsGeneration.Tests
                 "    private static partial int PInvoke_native_123(IntPtr ptr);\n" +
                 "}\n";
             var stripped = new HashSet<string> { "$s20SwiftBindingsTestLib_mangled" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.Contains("PInvoke_native_123", result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
         }
@@ -72,7 +72,7 @@ namespace BindingsGeneration.Tests
                 "    private static partial void SBW_Free(IntPtr ptr);\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Free_TestLib" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.Contains("SBW_Free", result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
         }
@@ -87,7 +87,7 @@ namespace BindingsGeneration.Tests
                 "    internal static partial TypeMetadata PInvoke_getMetadata(TypeMetadataRequest req);\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_GetMetadata_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_getMetadata", result.Content);
         }
     }
@@ -96,7 +96,7 @@ namespace BindingsGeneration.Tests
 
     #region B. Constructor Stripping (Level 1)
 
-    public class CoGaterConstructorStrippingTests
+    public class ReconcilerConstructorStrippingTests
     {
         [Fact]
         public void Process_ConstructorCallingStrippedPInvoke_Removed()
@@ -120,7 +120,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_init_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_init_ABC123", result.Content);
             Assert.DoesNotContain("public MyClass(int value)", result.Content);
             Assert.Equal(1, result.StrippedMemberCount);
@@ -155,7 +155,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Get_value_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_value_Get_AAA", result.Content);
             Assert.DoesNotContain("Value_Get", result.Content);
             Assert.DoesNotContain("public int Value", result.Content);
@@ -190,7 +190,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_init_broken", "SBW_doStuff_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.Equal(2, result.StrippedMemberCount);
             Assert.Contains(result.StrippedMembers, m => m.Name == "MyClass" && m.Kind == BindingItemKind.Method);
             Assert.Contains(result.StrippedMembers, m => m.Name == "DoStuff" && m.Kind == BindingItemKind.Method);
@@ -201,7 +201,7 @@ namespace BindingsGeneration.Tests
 
     #region C. Method Stripping (Level 1)
 
-    public class CoGaterMethodStrippingTests
+    public class ReconcilerMethodStrippingTests
     {
         [Fact]
         public void Process_StaticMethodCallingStrippedPInvoke_Removed()
@@ -223,7 +223,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_doStuff_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_doStuff_DEF456", result.Content);
             Assert.DoesNotContain("DoStuff", result.Content);
         }
@@ -245,7 +245,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_doStuff_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_doStuff_DEF456", result.Content);
             Assert.DoesNotContain("DoStuff", result.Content);
             Assert.Equal(1, result.StrippedMemberCount);
@@ -269,7 +269,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_didReceive_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // Both preserved — DidReceive implements IConnectionDelegate
             Assert.Contains("PInvoke_didReceive_AAA", result.Content);
             Assert.Contains("DidReceive", result.Content);
@@ -300,7 +300,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Get_modeName_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // All preserved — ModeName is an interface property on this type
             Assert.Contains("PInvoke_modeName_Get_BBB", result.Content);
             Assert.Contains("ModeName_Get", result.Content);
@@ -336,7 +336,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_doWorkA", "SBW_doWorkB" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // TypeA: DoWork preserved (implements IFoo)
             Assert.Contains("PInvoke_doWork_AAA", result.Content);
             // TypeB: DoWork stripped (does NOT implement IFoo — scope must not leak from TypeA)
@@ -383,7 +383,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Get_nameA_broken", "SBW_Get_nameB_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // TypeA: preserved (Name implements INameable)
             Assert.Contains("PInvoke_name_Get_AAA", result.Content);
             Assert.Contains("TypeA", result.Content);
@@ -410,7 +410,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_create_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_create_111", result.Content);
             Assert.DoesNotContain("public MyClass(int a, int b)", result.Content);
             Assert.DoesNotContain("public MyClass(int a)", result.Content);
@@ -421,7 +421,7 @@ namespace BindingsGeneration.Tests
 
     #region D. Property Stripping (Level 1 + Level 2 Transitivity)
 
-    public class CoGaterPropertyStrippingTests
+    public class ReconcilerPropertyStrippingTests
     {
         [Fact]
         public void Process_PropertyGetterStripped_HelperAndForwarderRemoved()
@@ -446,7 +446,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Get_count_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // P/Invoke removed
             Assert.DoesNotContain("PInvoke_count_Get_AAA", result.Content);
             // Level 1 helper removed
@@ -477,7 +477,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Set_name_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_name_Set_BBB", result.Content);
             Assert.DoesNotContain("Name_Set", result.Content);
             // The property references Name_Set, so it's removed entirely
@@ -522,7 +522,7 @@ namespace BindingsGeneration.Tests
                 "}\n";
             // Only TypeA's wrapper symbol is stripped
             var stripped = new HashSet<string> { "SBW_Get_TypeA_id" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // TypeA: all three (P/Invoke, helper, property) should be removed
             Assert.DoesNotContain("SBW_Get_TypeA_id", result.Content);
@@ -576,7 +576,7 @@ namespace BindingsGeneration.Tests
                 "}\n";
             // Only OuterA.Inner's wrapper is stripped
             var stripped = new HashSet<string> { "SBW_Get_OuterA_Inner_name" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // OuterA.Inner: stripped
             Assert.DoesNotContain("SBW_Get_OuterA_Inner_name", result.Content);
@@ -594,7 +594,7 @@ namespace BindingsGeneration.Tests
 
     #region E. GetMetadata Fallback Exemption
 
-    public class CoGaterGetMetadataExemptionTests
+    public class ReconcilerGetMetadataExemptionTests
     {
         [Fact]
         public void Process_GetMetadataWithFallback_BothPInvokeAndCallerPreserved()
@@ -623,7 +623,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_GetMetadata_TestLib_MyClass_FFF" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // P/Invoke declaration IS preserved (exempted because caller has DllNotFoundException)
             Assert.Contains("PInvoke_getMetadata()", result.Content);
             // Caller IS preserved (has DllNotFoundException fallback)
@@ -657,7 +657,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_GetMetadata_broken", "SBW_method_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // GetMetadata P/Invoke and caller preserved
             Assert.Contains("PInvoke_getMetadata()", result.Content);
             Assert.Contains("GetTypeMetadata", result.Content);
@@ -672,14 +672,14 @@ namespace BindingsGeneration.Tests
 
     #region F. Edge Cases
 
-    public class CoGaterEdgeCaseTests
+    public class ReconcilerEdgeCaseTests
     {
         [Fact]
         public void Process_EmptyStrippedSet_NoChanges()
         {
             var input = "public class Foo { }\n";
             var stripped = new HashSet<string>();
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.Equal(input, result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
         }
@@ -688,7 +688,7 @@ namespace BindingsGeneration.Tests
         public void Process_EmptyContent_NoChanges()
         {
             var stripped = new HashSet<string> { "SBW_broken" };
-            var result = CSharpWrapperCoGater.Process("", stripped);
+            var result = StrippedSymbolCSharpReconciler.Process("", stripped);
             Assert.Equal("", result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
         }
@@ -702,7 +702,7 @@ namespace BindingsGeneration.Tests
                 "    private static partial void PInvoke_good_123(IntPtr ptr);\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_unrelated_symbol" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.Contains("PInvoke_good_123", result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
         }
@@ -721,7 +721,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_broken_init" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // Stripped P/Invoke is removed
             Assert.DoesNotContain("PInvoke_init_F22", result.Content);
             // Good P/Invoke is preserved
@@ -749,7 +749,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_method_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("BrokenMethod", result.Content);
             Assert.DoesNotContain("Does the broken thing", result.Content);
             Assert.DoesNotContain("UnsupportedSwiftType", result.Content);
@@ -777,7 +777,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_broken_111", result.Content);
             Assert.DoesNotContain("BrokenMethod", result.Content);
             Assert.Contains("PInvoke_good_222", result.Content);
@@ -799,7 +799,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_broken_func" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_broken_AAA", result.Content);
             Assert.DoesNotContain("BrokenMethod", result.Content);
             Assert.Equal(1, result.StrippedMemberCount);
@@ -825,7 +825,7 @@ namespace BindingsGeneration.Tests
                 "}\n";
             // Only TypeA's eq symbol is stripped, but PInvoke_eq is ambiguous
             var stripped = new HashSet<string> { "SBW_TypeA_eq_AAA" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // Both types should be fully preserved (ambiguous name → skip entirely)
             Assert.Contains("TypeA", result.Content);
             Assert.Contains("TypeB", result.Content);
@@ -856,7 +856,7 @@ namespace BindingsGeneration.Tests
                 "}\n";
             // Only strip the short symbol — long should be unaffected
             var stripped = new HashSet<string> { "SBW_short" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // Short P/Invoke and its caller stripped
             Assert.DoesNotContain("PInvoke_foo_ABC(", result.Content);
             Assert.DoesNotContain("ShortMethod", result.Content);
@@ -870,7 +870,7 @@ namespace BindingsGeneration.Tests
 
     #region G. Helper Method Tests
 
-    public class CoGaterHelperTests
+    public class ReconcilerHelperTests
     {
         [Theory]
         [InlineData("[LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_test\")]", true)]
@@ -882,7 +882,7 @@ namespace BindingsGeneration.Tests
         [InlineData("[LibraryImport(\"SwiftBindings\")]", false)] // no EntryPoint
         public void IsWrapperLibraryImportLine_DetectsCorrectly(string line, bool expected)
         {
-            Assert.Equal(expected, CSharpWrapperCoGater.IsWrapperLibraryImportLine(line));
+            Assert.Equal(expected, StrippedSymbolCSharpReconciler.IsWrapperLibraryImportLine(line));
         }
 
         [Theory]
@@ -891,7 +891,7 @@ namespace BindingsGeneration.Tests
         [InlineData("    private static partial void SBW_Free(IntPtr ptr);", "SBW_Free")]
         public void ExtractMethodNameFromPartialDecl_ExtractsCorrectly(string line, string expected)
         {
-            Assert.Equal(expected, CSharpWrapperCoGater.ExtractMethodNameFromPartialDecl(line));
+            Assert.Equal(expected, StrippedSymbolCSharpReconciler.ExtractMethodNameFromPartialDecl(line));
         }
 
         [Theory]
@@ -903,620 +903,7 @@ namespace BindingsGeneration.Tests
         [InlineData("public virtual void Execute()", "Execute")]
         public void ExtractMemberName_ExtractsCorrectly(string trimmed, string expected)
         {
-            Assert.Equal(expected, CSharpWrapperCoGater.ExtractMemberName(trimmed));
-        }
-    }
-
-    #endregion
-
-    #region J. Suppressed Proxy Reference Co-Gating
-
-    public class CoGaterSuppressedProxyReferenceTests
-    {
-        [Fact]
-        public void ProcessProxyReferences_MethodConstructingProxy_BodyReplaced()
-        {
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IMyProtocol GetValue()\n" +
-                "    {\n" +
-                "        var result = PInvoke_getValue();\n" +
-                "        return new MyProtocolProxy(result);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "MyProtocolProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Public method is preserved with body replaced
-            Assert.Contains("GetValue", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            // Original body with proxy is gone
-            Assert.DoesNotContain("MyProtocolProxy", result.Content);
-            Assert.DoesNotContain("PInvoke_getValue", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_QualifiedProxy_BodyReplaced()
-        {
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IFooProtocol MakeFoo()\n" +
-                "    {\n" +
-                "        var result = PInvoke_makeFoo();\n" +
-                "        return new SwiftInterop.FooProtocolProxy(result);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProtocolProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Public method is preserved with body replaced
-            Assert.Contains("MakeFoo", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            // Original body with qualified proxy is gone
-            Assert.DoesNotContain("FooProtocolProxy", result.Content);
-            Assert.DoesNotContain("PInvoke_makeFoo", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_NonSuppressedProxy_Preserved()
-        {
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IMyProtocol GetValue()\n" +
-                "    {\n" +
-                "        var result = PInvoke_getValue();\n" +
-                "        return new MyProtocolProxy(result);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "OtherProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.Contains("MyProtocolProxy", result.Content);
-            Assert.Contains("GetValue", result.Content);
-            Assert.Equal(0, result.StrippedMemberCount);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_EmptySet_ReturnsUnchanged()
-        {
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IFoo Get() { return new FooProxy(x); }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string>();
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.Equal(input, result.Content);
-            Assert.Equal(0, result.StrippedMemberCount);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_PropertyHelper_BodyReplaced()
-        {
-            // When a property helper (Value_Get) constructs a suppressed proxy,
-            // its body is replaced with throw (not stripped), which prevents
-            // Level 2 cascade from stripping the public property declaration.
-            var input =
-                "public partial class MyClass {\n" +
-                "    private IMyProto Value_Get()\n" +
-                "    {\n" +
-                "        var result = PInvoke_getValue();\n" +
-                "        return new MyProtoProxy(result);\n" +
-                "    }\n" +
-                "\n" +
-                "    public IMyProto Value\n" +
-                "    {\n" +
-                "        get { return Value_Get(); }\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Property helper body replaced (not stripped)
-            Assert.Contains("Value_Get", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            Assert.DoesNotContain("MyProtoProxy", result.Content);
-            // Public property survives (no Level 2 cascade)
-            Assert.Contains("public IMyProto Value", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_OptionalExistentialGetter_BodyReplaced()
-        {
-            // Optional<existential> getter: checks for default container, then constructs proxy.
-            // Property helper (_Get) gets body replaced, which prevents Level 2 cascade.
-            var input =
-                "public partial class MyClass {\n" +
-                "    private IMyProto? OptValue_Get()\n" +
-                "    {\n" +
-                "        var result = PInvoke_optValue();\n" +
-                "        if (result.Equals(default(ExistentialContainer1))) return null;\n" +
-                "        return new MyProtoProxy(result);\n" +
-                "    }\n" +
-                "\n" +
-                "    public IMyProto? OptValue\n" +
-                "    {\n" +
-                "        get { return OptValue_Get(); }\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Property helper body replaced (not stripped)
-            Assert.Contains("OptValue_Get", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            Assert.DoesNotContain("MyProtoProxy", result.Content);
-            // Public property survives (no Level 2 cascade)
-            Assert.Contains("public IMyProto? OptValue", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_MethodNotConstructingProxy_Preserved()
-        {
-            // Methods that don't construct the proxy should be preserved even if
-            // they mention the proxy name in a comment or string
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static int GetCount()\n" +
-                "    {\n" +
-                "        return PInvoke_getCount();\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.Contains("GetCount", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_MultipleProxies_AllStripped()
-        {
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IFoo GetFoo()\n" +
-                "    {\n" +
-                "        return new FooProxy(result);\n" +
-                "    }\n" +
-                "\n" +
-                "    public static IBar GetBar()\n" +
-                "    {\n" +
-                "        return new BarProxy(result);\n" +
-                "    }\n" +
-                "\n" +
-                "    public static int GetCount()\n" +
-                "    {\n" +
-                "        return 42;\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy", "BarProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.DoesNotContain("FooProxy", result.Content);
-            Assert.DoesNotContain("BarProxy", result.Content);
-            Assert.Contains("GetCount", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_InterfaceMember_ReplacedWithThrow()
-        {
-            // Interface member implementations must NOT be stripped (CS0535).
-            // Instead, their body is replaced with throw NotSupportedException.
-            var input =
-                "public interface IObjectScopeProtocol {\n" +
-                "    IStorageProtocol MakeStorage();\n" +
-                "}\n" +
-                "public partial class ObjectScope : IObjectScopeProtocol {\n" +
-                "    public IStorageProtocol MakeStorage()\n" +
-                "    {\n" +
-                "        var result = PInvoke_makeStorage();\n" +
-                "        return new StorageProtocolProxy(result);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "StorageProtocolProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Method declaration is preserved (interface compliance)
-            Assert.Contains("MakeStorage", result.Content);
-            // Body is replaced with throw
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            // Original body is gone
-            Assert.DoesNotContain("PInvoke_makeStorage", result.Content);
-            Assert.DoesNotContain("StorageProtocolProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_NonInterfacePublicMember_BodyReplaced()
-        {
-            // Public methods NOT implementing an interface now get body replaced (not stripped)
-            var input =
-                "public interface IObjectScopeProtocol {\n" +
-                "    IStorageProtocol MakeStorage();\n" +
-                "}\n" +
-                "public partial class ObjectScope : IObjectScopeProtocol {\n" +
-                "    public IStorageProtocol MakeStorage()\n" +
-                "    {\n" +
-                "        return new StorageProtocolProxy(result);\n" +
-                "    }\n" +
-                "    public static IFoo GetSomething()\n" +
-                "    {\n" +
-                "        return new FooProxy(result);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "StorageProtocolProxy", "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Interface member preserved with throw
-            Assert.Contains("MakeStorage", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            // Public non-interface member also preserved with body replaced
-            Assert.Contains("GetSomething", result.Content);
-            // Original proxy references gone from both
-            Assert.DoesNotContain("StorageProtocolProxy", result.Content);
-            Assert.DoesNotContain("FooProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_InterfaceProperty_EmitsGetSetThrow()
-        {
-            // Interface property whose body references a suppressed proxy must emit
-            // get { throw } / set { throw } — NOT bare throw (which is invalid C#).
-            var input =
-                "public interface IDataProvider {\n" +
-                "    IReadOnlyList<IItem> Items { get; set; }\n" +
-                "}\n" +
-                "public partial class DataStore : ISwiftObject, IDataProvider {\n" +
-                "    public virtual IReadOnlyList<IItem> Items\n" +
-                "    {\n" +
-                "        get => Items_Get().AsProjected(e => (IItem)new ItemProxy(e));\n" +
-                "        set { Items_Set(value); }\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "ItemProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Property declaration is preserved
-            Assert.Contains("public virtual IReadOnlyList<IItem> Items", result.Content);
-            // Property emits valid get/set with throw (not bare throw)
-            Assert.Contains("get { throw new NotSupportedException", result.Content);
-            Assert.Contains("set { throw new NotSupportedException", result.Content);
-            // Original proxy reference is gone
-            Assert.DoesNotContain("ItemProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_CdeclExistentialReturn_BodyReplaced()
-        {
-            // @_cdecl existential return: reads from resultPtr then wraps in proxy.
-            // Public method gets body replaced (not stripped).
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IMyProto CreateProto()\n" +
-                "    {\n" +
-                "        var resultPtr = PInvoke_create();\n" +
-                "        var existentialResult = SwiftMarshal.MarshalFromSwift<ExistentialContainer1>(resultPtr);\n" +
-                "        return new SwiftInterop.MyProtoProxy(existentialResult);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Public method preserved with body replaced
-            Assert.Contains("CreateProto", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            // Original body with proxy is gone
-            Assert.DoesNotContain("MyProtoProxy", result.Content);
-            Assert.DoesNotContain("PInvoke_create", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_UnmanagedCallersOnlyReceiver_BodyReplaced()
-        {
-            // [UnmanagedCallersOnly] receiver callbacks inside proxy classes must NOT be stripped.
-            // They're referenced by function pointers in vtable assignments.
-            // Their body is replaced with a no-op comment.
-            var input =
-                "public partial class AssemblyProxy {\n" +
-                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
-                "    private static void Receive_loaded_1(IntPtr vtHandle, IntPtr selfContainer, IntPtr arg0)\n" +
-                "    {\n" +
-                "        var resolver = new ResolverProxy(arg0Container);\n" +
-                "        impl.Loaded(resolver);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "ResolverProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Receiver declaration is preserved (not stripped)
-            Assert.Contains("Receive_loaded_1", result.Content);
-            // Body is replaced with no-op
-            Assert.Contains("no-op callback", result.Content);
-            // Original body with suppressed proxy type is gone
-            Assert.DoesNotContain("ResolverProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_PublicPropertyWithProxyGetter_BodyReplacedNotStripped()
-        {
-            // Regression test for N2 (ImageRequest.Processors): public property declarations
-            // with getter/setter bodies referencing suppressed proxies must have their body
-            // replaced with throw, not be stripped. Stripping removes the property from the API
-            // surface entirely.
-            var input =
-                "public partial class ImageRequest {\n" +
-                "    private SwiftArray<ExistentialContainer1> Processors_Get()\n" +
-                "    {\n" +
-                "        PInvoke_processors_Get(resultPtr, self);\n" +
-                "        return SwiftMarshal.MarshalFromSwift<SwiftArray<ExistentialContainer1>>(resultPtr);\n" +
-                "    }\n" +
-                "    private void Processors_Set(SwiftArray<ExistentialContainer1> value)\n" +
-                "    {\n" +
-                "        PInvoke_processors_Set(value.Payload, self);\n" +
-                "    }\n" +
-                "    public IReadOnlyList<IImageProcessing> Processors\n" +
-                "    {\n" +
-                "        get => Processors_Get().AsProjected(e => (IImageProcessing)new ImageProcessingProxy(e));\n" +
-                "        set { using var __val = SwiftArray<ExistentialContainer1>.FromEnumerable(value.Select(e => ExistentialContainerFactory.GetOrCreate<IImageProcessing>(e))); Processors_Set(__val); }\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "ImageProcessingProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-
-            // Property declaration is preserved (not stripped)
-            Assert.Contains("public IReadOnlyList<IImageProcessing> Processors", result.Content);
-            // Property has get/set with throw bodies
-            Assert.Contains("get { throw new NotSupportedException", result.Content);
-            Assert.Contains("set { throw new NotSupportedException", result.Content);
-            // Original proxy reference is gone
-            Assert.DoesNotContain("ImageProcessingProxy", result.Content);
-            // Property helpers are preserved with throw bodies (private _Get/_Set)
-            Assert.Contains("Processors_Get", result.Content);
-            Assert.Contains("Processors_Set", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_PropertyShapedInterfaceMemberWithoutAccessors_EmitsGetterThrow()
-        {
-            // Regression test: when a generated proxy interface property body references a suppressed proxy
-            // but has no observable get/set accessor tokens, the co-gater must still emit property syntax
-            // instead of a bare throw.
-            var input =
-                "public interface IPartsRepresentable {\n" +
-                "    IReadOnlyList<IPart> PartsValue { get; }\n" +
-                "}\n" +
-                "public partial class PartsRepresentableProxy : IPartsRepresentable {\n" +
-                "    public IReadOnlyList<IPart> PartsValue\n" +
-                "    {\n" +
-                "        var result = PartsValue_Get();\n" +
-                "        return result.AsProjected(e => (IPart)new PartProxy(e));\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "PartProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-
-            Assert.Contains("public IReadOnlyList<IPart> PartsValue", result.Content);
-            Assert.Contains("get { throw new NotSupportedException", result.Content);
-            Assert.DoesNotContain("PartProxy", result.Content);
-            Assert.DoesNotContain("return result.AsProjected", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_PrivateNonHelperMethod_StillStripped()
-        {
-            // Private methods that are NOT property helpers should still be fully stripped
-            var input =
-                "public partial class MyClass {\n" +
-                "    private IFoo CreateInternalFoo()\n" +
-                "    {\n" +
-                "        return new FooProxy(result);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Private non-helper method fully stripped
-            Assert.DoesNotContain("CreateInternalFoo", result.Content);
-            Assert.DoesNotContain("FooProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_PublicMethodWithProxyBody_GetsMethodReplacementNotProperty()
-        {
-            // Negative fence on IsPropertyShapedDeclaration: a public method referencing a
-            // suppressed proxy must be replaced with method-body throw, not property accessor
-            // syntax. Guards against drift in the IsPropertyShapedDeclaration '(' exclusion.
-            var input =
-                "public partial class MyClass {\n" +
-                "    public IFoo GetThing(int x)\n" +
-                "    {\n" +
-                "        return new FooProxy(x);\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-
-            Assert.Contains("public IFoo GetThing(int x)", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            // Must NOT be rewritten as property accessor syntax.
-            Assert.DoesNotContain("get { throw", result.Content);
-            Assert.DoesNotContain("set { throw", result.Content);
-            Assert.DoesNotContain("FooProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_PublicEventWithProxyBody_IsFullyStripped()
-        {
-            // Events need add/remove accessors; neither get/set property syntax nor a bare
-            // throw inside braces is valid C#. The co-gater must fully strip an event that
-            // references a suppressed proxy. The generator does not currently emit events
-            // from Swift surface, so stripping is the safe default — this test pins that
-            // contract so any future change produces observable behavior to adjudicate.
-            var input =
-                "public partial class MyClass {\n" +
-                "    public event System.EventHandler MyEvent\n" +
-                "    {\n" +
-                "        add { var x = new FooProxy(value); }\n" +
-                "        remove { }\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-
-            // The event declaration and its body are fully stripped.
-            Assert.DoesNotContain("MyEvent", result.Content);
-            Assert.DoesNotContain("FooProxy", result.Content);
-            Assert.DoesNotContain("add {", result.Content);
-            Assert.DoesNotContain("remove {", result.Content);
-            // And no invalid replacement shapes are produced.
-            Assert.DoesNotContain("get { throw", result.Content);
-            Assert.DoesNotContain("set { throw", result.Content);
-        }
-
-        [Fact]
-        public void ProcessSuppressedProxy_PrivatePropertyHelper_ProjectsAsProperty()
-        {
-            // When a private property helper (Value_Get) constructs a suppressed proxy,
-            // its body is replaced with throw — but the consumer-visible breakage is the
-            // public property forwarder. The report must record `Value` as a Property,
-            // not `Value_Get` as a Method, otherwise the post-cogating report still
-            // describes the implementation, not the surface.
-            var input =
-                "public partial class MyClass {\n" +
-                "    private IFoo Value_Get()\n" +
-                "    {\n" +
-                "        return new FooProxy(handle);\n" +
-                "    }\n" +
-                "\n" +
-                "    public IFoo Value => Value_Get();\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            var member = Assert.Single(result.StrippedMembers);
-            Assert.Equal("Value", member.Name);
-            Assert.Equal(BindingItemKind.Property, member.Kind);
-            Assert.DoesNotContain(result.StrippedMembers, m => m.Name.EndsWith("_Get", System.StringComparison.Ordinal));
-        }
-
-        [Fact]
-        public void ProcessSuppressedProxy_CrossModuleQualified_StripsOnlyFullyQualifiedForm()
-        {
-            // Cross-module suppression is keyed by the full `{DepNamespace}.SwiftInterop.{Proxy}`
-            // qualifier. The local module emits two methods: one calls a dependency proxy via
-            // the qualified form (must be stripped) and one constructs its OWN local proxy of
-            // the same simple class name (must be preserved). False-positive matching against
-            // simple class name would silently break the local API surface.
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IDepFoo CallDep()\n" +
-                "    {\n" +
-                "        return new DependencyMod.SwiftInterop.SharedProxy(p);\n" +
-                "    }\n" +
-                "\n" +
-                "    public static ILocalFoo CallLocal()\n" +
-                "    {\n" +
-                "        return new SharedProxy(p);\n" +
-                "    }\n" +
-                "}\n";
-            var localSuppressed = new HashSet<string>(StringComparer.Ordinal);
-            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal)
-            {
-                "DependencyMod.SwiftInterop.SharedProxy",
-            };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
-                input, localSuppressed, crossModuleQualified);
-
-            // The qualified call site is stripped (body replaced with throw).
-            Assert.Contains("CallDep", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            Assert.DoesNotContain("DependencyMod.SwiftInterop.SharedProxy", result.Content);
-
-            // The local `new SharedProxy(...)` body is preserved verbatim — the cross-module
-            // entry must NEVER false-positive on the bare class-name form.
-            Assert.Contains("CallLocal", result.Content);
-            Assert.Contains("return new SharedProxy(p);", result.Content);
-        }
-
-        [Fact]
-        public void ProcessSuppressedProxy_CrossModuleQualified_DoesNotStripDifferentDependencyModule()
-        {
-            // Provenance matters. If `DepA` suppressed `XProxy` but `DepB` did not, a call
-            // referencing `new DepB.SwiftInterop.XProxy(...)` must survive — the cross-module
-            // set is keyed by the full `{Namespace}.SwiftInterop.{Proxy}` string, not the bare
-            // class name.
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IFoo Get() { return new DepB.SwiftInterop.XProxy(p); }\n" +
-                "}\n";
-            var localSuppressed = new HashSet<string>(StringComparer.Ordinal);
-            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal)
-            {
-                "DepA.SwiftInterop.XProxy",
-            };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
-                input, localSuppressed, crossModuleQualified);
-
-            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
-            Assert.DoesNotContain("throw new NotSupportedException", result.Content);
-            Assert.Equal(0, result.StrippedMemberCount);
-        }
-
-        [Fact]
-        public void ProcessSuppressedProxy_LocalSet_DoesNotStripCrossModuleQualifiedReference()
-        {
-            // Symmetric case: this module's local emission suppressed `XProxy` (its own proxy
-            // class is gone), but it ALSO references a different dependency's valid
-            // `DepB.SwiftInterop.XProxy` for an unrelated protocol. The local-set match must
-            // see the bare/SwiftInterop. forms only — never the cross-module-qualified form —
-            // otherwise the valid dep reference is wrongly stripped.
-            var input =
-                "public partial class MyClass {\n" +
-                "    public static IDepX FromDep() { return new DepB.SwiftInterop.XProxy(p); }\n" +
-                "}\n";
-            var localSuppressed = new HashSet<string>(StringComparer.Ordinal) { "XProxy" };
-            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal);
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
-                input, localSuppressed, crossModuleQualified);
-
-            // Cross-module qualified reference must survive — the local set is for THIS
-            // module's namespace only.
-            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
-            Assert.DoesNotContain("throw new NotSupportedException", result.Content);
-            Assert.Equal(0, result.StrippedMemberCount);
-        }
-
-        [Fact]
-        public void ProcessSuppressedProxy_LocalWrapFallback_DoesNotStripCrossModuleQualifiedFallback()
-        {
-            // Same symmetric guard for the GetOrCreate wrap-fallback rewrite. The local set
-            // contains `XProxy`; the call site uses `new DepB.SwiftInterop.XProxy(__v)` which
-            // is a reference into a DIFFERENT dependency. The local set must not match the
-            // module-qualified form.
-            var input =
-                "public partial class MyClass {\n" +
-                "    public void A(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new DepB.SwiftInterop.XProxy(__v)); }\n" +
-                "}\n";
-            var localSuppressed = new HashSet<string>(StringComparer.Ordinal) { "XProxy" };
-            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal);
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
-                input, localSuppressed, crossModuleQualified);
-
-            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessSuppressedProxy_CrossModuleWrapFallback_DowngradesOnlyMatchingDependency()
-        {
-            // The GetOrCreate wrap-fallback rewrite must respect cross-module provenance too.
-            // Two GetOrCreate calls reference the same simple proxy name with different
-            // module qualifiers; only the suppressing dependency's call should have its
-            // fallback lambda stripped. The other survives — and so does any unqualified
-            // local construction.
-            var input =
-                "public partial class MyClass {\n" +
-                "    public void A(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new DepA.SwiftInterop.XProxy(__v)); }\n" +
-                "    public void B(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new DepB.SwiftInterop.XProxy(__v)); }\n" +
-                "    public void C(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new XProxy(__v)); }\n" +
-                "}\n";
-            var localSuppressed = new HashSet<string>(StringComparer.Ordinal);
-            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal)
-            {
-                "DepA.SwiftInterop.XProxy",
-            };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
-                input, localSuppressed, crossModuleQualified);
-
-            // The DepA fallback's lambda is removed (the surrounding GetOrCreate call stays).
-            Assert.DoesNotContain("DepA.SwiftInterop.XProxy", result.Content);
-            // DepB and the local unqualified XProxy are preserved.
-            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
-            Assert.Contains("static __v => new XProxy(__v)", result.Content);
+            Assert.Equal(expected, StrippedSymbolCSharpReconciler.ExtractMemberName(trimmed));
         }
     }
 
@@ -1568,192 +955,9 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region F. ContainsCallTo Word Boundary
-
-    public class CoGaterContainsCallToWordBoundaryTests
-    {
-        [Fact]
-        public void ProxyCoGater_ValueGet_DoesNotFalseMatchDatabaseValueGet()
-        {
-            // Regression test: Value_Get was stripping DatabaseValue_Get due to substring match.
-            // The fix ensures ContainsCallTo uses word-boundary checking.
-            // Now Value_Get (property helper) gets body replaced instead of stripped,
-            // which also prevents Level 2 cascade to the Value property.
-            var input =
-                "public interface IDatabaseValueConvertible {\n" +
-                "    RecordStore.DatabaseValue DatabaseValue { get; }\n" +
-                "}\n" +
-                "public partial class SomeType {\n" +
-                "    private RecordStore.DatabaseValue Value_Get()\n" +
-                "    {\n" +
-                "        var x = new DatabaseValueConvertibleProxy(result);\n" +
-                "        return x;\n" +
-                "    }\n" +
-                "\n" +
-                "    public RecordStore.DatabaseValue Value\n" +
-                "    {\n" +
-                "        get => Value_Get();\n" +
-                "    }\n" +
-                "}\n" +
-                "public partial class FTS3Pattern : IDatabaseValueConvertible {\n" +
-                "    private RecordStore.DatabaseValue DatabaseValue_Get()\n" +
-                "    {\n" +
-                "        PInvoke_databaseValue_Get(resultPtr, selfPtr);\n" +
-                "        return SwiftMarshal.MarshalFromSwift<RecordStore.DatabaseValue>(resultPtr);\n" +
-                "    }\n" +
-                "\n" +
-                "    public RecordStore.DatabaseValue DatabaseValue\n" +
-                "    {\n" +
-                "        get => DatabaseValue_Get();\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "DatabaseValueConvertibleProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-
-            // SomeType.Value_Get is a property helper — body replaced (not stripped)
-            Assert.Contains("Value_Get", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            Assert.DoesNotContain("DatabaseValueConvertibleProxy", result.Content);
-            // Value property survives (no Level 2 cascade)
-            Assert.Contains("get => Value_Get()", result.Content);
-
-            // FTS3Pattern.DatabaseValue_Get does NOT reference any proxy — must be PRESERVED
-            Assert.Contains("DatabaseValue_Get()", result.Content);
-            Assert.Contains("get => DatabaseValue_Get()", result.Content);
-        }
-
-        [Fact]
-        public void ProxyCoGater_SubscriptGet_DoesNotFalseMatchOtherGetSuffixed()
-        {
-            // "Subscript_Get" should not match "SomeSubscript_Get" (prefix collision).
-            // Subscript_Get is a property helper — body replaced (not stripped),
-            // which prevents Level 2 cascade to the Subscript property.
-            var input =
-                "public partial class TypeA {\n" +
-                "    private int Subscript_Get()\n" +
-                "    {\n" +
-                "        var x = new FooProxy(result);\n" +
-                "        return x;\n" +
-                "    }\n" +
-                "    public int Subscript\n" +
-                "    {\n" +
-                "        get => Subscript_Get();\n" +
-                "    }\n" +
-                "}\n" +
-                "public partial class TypeB {\n" +
-                "    private int SomeSubscript_Get()\n" +
-                "    {\n" +
-                "        return 42;\n" +
-                "    }\n" +
-                "    public int SomeSubscript\n" +
-                "    {\n" +
-                "        get => SomeSubscript_Get();\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-
-            // TypeA: Subscript_Get is a property helper — body replaced (not stripped)
-            Assert.Contains("Subscript_Get", result.Content);
-            Assert.Contains("throw new NotSupportedException", result.Content);
-            Assert.DoesNotContain("FooProxy", result.Content);
-            // Subscript property survives (no Level 2 cascade)
-            Assert.Contains("get => Subscript_Get()", result.Content);
-
-            // TypeB: SomeSubscript_Get does NOT reference proxy and name doesn't match — preserved
-            Assert.Contains("SomeSubscript_Get()", result.Content);
-            Assert.Contains("get => SomeSubscript_Get()", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_NonVoidCallback_HasReturnDefault()
-        {
-            // [UnmanagedCallersOnly] callbacks returning IntPtr (not void) need "return default;"
-            // to avoid CS0161 when their body is replaced with a no-op stub.
-            var input =
-                "public interface IFooProtocol {\n" +
-                "    string GetName();\n" +
-                "}\n" +
-                "public partial class Foo : IFooProtocol {\n" +
-                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
-                "    private static IntPtr GetNameReceiver(IntPtr vtHandle, IntPtr self)\n" +
-                "    {\n" +
-                "        var proxy = new FooProxy(self);\n" +
-                "        return IntPtr.Zero;\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Non-void callback must have a return statement
-            Assert.Contains("return default;", result.Content);
-            // Original body replaced
-            Assert.DoesNotContain("FooProxy", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_VoidCallback_NoReturnDefault()
-        {
-            // [UnmanagedCallersOnly] void callbacks should NOT have "return default;"
-            var input =
-                "public interface IFooProtocol {\n" +
-                "    void DoWork();\n" +
-                "}\n" +
-                "public partial class Foo : IFooProtocol {\n" +
-                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
-                "    private static void DoWorkReceiver(IntPtr vtHandle, IntPtr self)\n" +
-                "    {\n" +
-                "        var proxy = new FooProxy(self);\n" +
-                "        proxy.DoWork();\n" +
-                "    }\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // Void callback should NOT have return default
-            Assert.DoesNotContain("return default;", result.Content);
-            // Should have the no-op comment
-            Assert.Contains("no-op callback", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_NarrowingOverload_CrossTypeNotStripped()
-        {
-            // A narrowing overload in TypeA should NOT be stripped just because
-            // TypeB (a different type nearby) has a matching nint subscript that was removed.
-            // The scan must be scoped to the containing type.
-            var input =
-                "public partial class TypeA {\n" +
-                "    public int this[nint index]\n" +
-                "    {\n" +
-                "        get => Get(index);\n" +
-                "    }\n" +
-                "    public int this[int index] => this[(nint)index];\n" +
-                "}\n" +
-                "public partial class TypeB {\n" +
-                "    public string this[nint index]\n" +
-                "    {\n" +
-                "        get\n" +
-                "        {\n" +
-                "            return new BarProxy(Get(index)).Value;\n" +
-                "        }\n" +
-                "    }\n" +
-                "    public string this[int index] => this[(nint)index];\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "BarProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            // TypeA's nint subscript is preserved (not proxy-related)
-            Assert.Contains("class TypeA", result.Content);
-            // TypeA's narrowing overload should still exist (its nint target exists in TypeA)
-            // Count occurrences of the narrowing pattern in TypeA context
-            var typeASection = result.Content.Split("class TypeB")[0];
-            Assert.Contains("this[int index] => this[(nint)index]", typeASection);
-        }
-    }
-
-    #endregion
-
     #region F. Dangling ToString Stripping
 
-    public class CoGaterDanglingToStringTests
+    public class ReconcilerDanglingToStringTests
     {
         [Fact]
         public void Process_StrippedDescriptionProperty_AlsoStripsToString()
@@ -1784,7 +988,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Get_BoolBox_description" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // P/Invoke, helper, property, AND ToString should all be stripped
             Assert.DoesNotContain("PInvoke_Get_BoolBox_description", result.Content);
@@ -1823,7 +1027,7 @@ namespace BindingsGeneration.Tests
                 "}\n";
             // Different symbol stripped — not related to Description
             var stripped = new HashSet<string> { "SBW_unrelated_method" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("Description", result.Content);
             Assert.Contains("ToString", result.Content);
@@ -1844,7 +1048,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // ToString with string literal is preserved (not a property reference)
             Assert.Contains("ToString", result.Content);
@@ -1855,7 +1059,7 @@ namespace BindingsGeneration.Tests
 
     #region F. Orphaned Lazy Accessor Stripping
 
-    public class CoGaterOrphanedLazyAccessorTests
+    public class ReconcilerOrphanedLazyAccessorTests
     {
         [Fact]
         public void Process_StrippedLazyField_AlsoStripsExpressionBodiedProperty()
@@ -1894,7 +1098,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_CaseByIndex" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // Both lazy fields and their accessor properties should be stripped
             Assert.DoesNotContain("_lazy_debugMode", result.Content);
@@ -1922,7 +1126,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // The lazy field and property are NOT calling the stripped P/Invoke, so preserved
             Assert.Contains("_lazy_good", result.Content);
@@ -1961,7 +1165,7 @@ namespace BindingsGeneration.Tests
                 "}\n";
             // Only Enum1's wrapper is stripped
             var stripped = new HashSet<string> { "SBW_Enum1_CaseByIndex" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // Enum1's lazy field and property should be stripped
             Assert.DoesNotContain("Enum1 None", result.Content);
@@ -1976,7 +1180,7 @@ namespace BindingsGeneration.Tests
 
     #region F. CreateSwiftInstance Constructor Stripping
 
-    public class CoGaterCreateSwiftInstanceTests
+    public class ReconcilerCreateSwiftInstanceTests
     {
         [Fact]
         public void Process_StrippedConstructorHelper_AlsoStripsConstructor()
@@ -2001,7 +1205,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Widget_init_ABC" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("PInvoke_init_ABC", result.Content);
             Assert.DoesNotContain("CreateSwiftInstance_", result.Content);
@@ -2030,7 +1234,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_unrelated_symbol" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("PInvoke_init_ABC", result.Content);
             Assert.Contains("CreateSwiftInstance_", result.Content);
@@ -2042,7 +1246,7 @@ namespace BindingsGeneration.Tests
 
     #region G. Narrowing Overload Stripping
 
-    public class CoGaterNarrowingOverloadTests
+    public class ReconcilerNarrowingOverloadTests
     {
         [Fact]
         public void Process_SingleLineIndexerNarrowing_StrippedWhenTargetMissing()
@@ -2059,7 +1263,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_SubGet_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("this[int index0]", result.Content);
         }
@@ -2080,9 +1284,9 @@ namespace BindingsGeneration.Tests
                 "    public nuint this[int index0] => this[(nint)index0];\n" +
                 "}\n" +
                 "}\n";
-            // Strip an unrelated symbol so co-gater runs but doesn't touch the indexer
+            // Strip an unrelated symbol so the reconciler runs but doesn't touch the indexer
             var stripped = new HashSet<string> { "SBW_unrelated" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("this[int index0]", result.Content);
         }
@@ -2106,7 +1310,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_SubGet_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("this[int bitAt]", result.Content);
         }
@@ -2126,7 +1330,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_encode_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("Encode(int value)", result.Content);
         }
@@ -2148,7 +1352,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_parse_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("Parse(byte[] with, uint errorContextLength)", result.Content);
         }
@@ -2173,7 +1377,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_unrelated" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("Encode(int value)", result.Content);
             Assert.Contains("Encode(nint value)", result.Content);
@@ -2194,7 +1398,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_encode_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("Encode(uint value)", result.Content);
         }
@@ -2226,7 +1430,7 @@ namespace BindingsGeneration.Tests
                 "}\n";
             // Only the single-param Process(nint) is stripped; Process(string, nint) survives
             var stripped = new HashSet<string> { "SBW_process_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // The narrowing Process(int) must be stripped even though Process(string, nint) exists
             Assert.DoesNotContain("Process(int value)", result.Content);
@@ -2260,7 +1464,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_sub_get_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("this[int index0]", result.Content);
             Assert.Contains("this[string label, nint index]", result.Content);
@@ -2269,62 +1473,9 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region H. Generic Where Clause Handling
-
-    public class CoGaterGenericWhereClauseTests
-    {
-        [Fact]
-        public void ProcessProxyReferences_GenericMethodWithWhereClause_ReplaceBody()
-        {
-            // Reproduces a real-world regression: Box<T>(T value) where T : ISwiftObject
-            // has opening brace past the where clause. Co-gater must handle the where
-            // clause between declaration and opening brace.
-            var input =
-                "namespace Test {\n" +
-                "public partial class Encoder {\n" +
-                "    public virtual ISimpleBox Box<T>( T value)\n" +
-                "        where T : ISwiftObject\n" +
-                "    {\n" +
-                "        unsafe\n" +
-                "        {\n" +
-                "            var result = PInvoke_box(value);\n" +
-                "            return new SimpleBoxProxy(result);\n" +
-                "        }\n" +
-                "    }\n" +
-                "}\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "SimpleBoxProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.DoesNotContain("new SimpleBoxProxy(", result.Content);
-            Assert.Contains("throw new NotSupportedException(", result.Content);
-        }
-
-        [Fact]
-        public void ProcessProxyReferences_MultipleWhereConstraints_ReplaceBody()
-        {
-            var input =
-                "namespace Test {\n" +
-                "public partial class Encoder {\n" +
-                "    public virtual IFoo Bar<T, U>( T value, U other)\n" +
-                "        where T : ISwiftObject\n" +
-                "        where U : ISwiftObject\n" +
-                "    {\n" +
-                "        return new FooProxy(PInvoke(value, other));\n" +
-                "    }\n" +
-                "}\n" +
-                "}\n";
-            var suppressedProxies = new HashSet<string> { "FooProxy" };
-            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.DoesNotContain("new FooProxy(", result.Content);
-            Assert.Contains("throw new NotSupportedException(", result.Content);
-        }
-    }
-
-    #endregion
-
     #region I. Throwing-Closure Facade Stripping
 
-    public class CoGaterThrowingClosureFacadeTests
+    public class ReconcilerThrowingClosureFacadeTests
     {
         [Fact]
         public void Process_FacadeWithStrippedBase_IsRemoved()
@@ -2354,7 +1505,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("Func<int> callback", result.Content);
             Assert.DoesNotContain("_wrapped_callback", result.Content);
@@ -2387,7 +1538,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_unrelated" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("Func<int> callback", result.Content);
             Assert.Contains("_wrapped_callback", result.Content);
@@ -2440,7 +1591,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_A_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // TypeA: both base and facade gone.
             Assert.DoesNotContain("PInvoke_A_run", result.Content);
@@ -2487,7 +1638,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("Func<int> callback", result.Content);
             Assert.DoesNotContain("_wrapped_callback", result.Content);
@@ -2533,7 +1684,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // The arity-1 facade must be removed even though an arity-2 SwiftResult base
             // survives — different arity cannot bind the facade's self-call.
@@ -2583,7 +1734,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // The facade's wrapper type Func<SwiftResult<int, SwiftError>> doesn't bind to the
             // surviving Func<SwiftResult<long, SwiftError>> base — facade must be stripped.
@@ -2630,7 +1781,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("Func<int> callback", result.Content);
             Assert.Contains("_wrapped_callback", result.Content);
@@ -2681,7 +1832,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // The facade must be stripped: position 2 of the surviving base is `string`,
             // which cannot bind _wrapped_second (Func<SwiftResult<int, SwiftError>>).
@@ -2730,7 +1881,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("Func<int> first", result.Content);
             Assert.Contains("_wrapped_first", result.Content);
@@ -2781,7 +1932,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // The facade must be stripped: the surviving base's first param is `string`,
             // which cannot bind the facade's `int count` pass-through.
@@ -2828,7 +1979,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.Contains("Func<int> callback", result.Content);
             Assert.Contains("_wrapped_callback", result.Content);
@@ -2875,7 +2026,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("Func<int> callback", result.Content);
             Assert.DoesNotContain("_wrapped_callback", result.Content);
@@ -2922,7 +2073,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_run_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("Func<int> callback", result.Content);
             Assert.DoesNotContain("_wrapped_callback", result.Content);
@@ -2935,7 +2086,7 @@ namespace BindingsGeneration.Tests
 
     #region M. ProcessDirectory write gate
 
-    public class CoGaterProcessDirectoryTests
+    public class ReconcilerProcessDirectoryTests
     {
         [Fact]
         public void ProcessDirectory_TrampolineOnlyChange_StillWritesFile()
@@ -2945,7 +2096,7 @@ namespace BindingsGeneration.Tests
             // caller, so zero public-API identities) still has different content and
             // must be persisted — otherwise the on-disk file references a wrapper
             // symbol that no longer exists, and the next compile fails with DllNotFound.
-            using var temp = new TempCogaterDir();
+            using var temp = new TempReconcilerDir();
             var filePath = Path.Combine(temp.Path, "Foo.cs");
             File.WriteAllText(filePath,
                 "public partial class Foo {\n" +
@@ -2954,7 +2105,7 @@ namespace BindingsGeneration.Tests
                 "}\n");
             var stripped = new HashSet<string> { "SBW_orphan_trampoline" };
 
-            var aggregate = CSharpWrapperCoGater.ProcessDirectory(temp.Path, stripped);
+            var aggregate = StrippedSymbolCSharpReconciler.ProcessDirectory(temp.Path, stripped);
 
             Assert.Empty(aggregate);
             var written = File.ReadAllText(filePath);
@@ -2962,10 +2113,10 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("SBW_orphan_trampoline", written);
         }
 
-        private sealed class TempCogaterDir : IDisposable
+        private sealed class TempReconcilerDir : IDisposable
         {
             public string Path { get; }
-            public TempCogaterDir()
+            public TempReconcilerDir()
             {
                 Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(Path);
@@ -2982,7 +2133,7 @@ namespace BindingsGeneration.Tests
 
     #region N. Orphaned Closure-Callback Field Stripping (Step B2)
 
-    public class CoGaterOrphanedCallbackFieldTests
+    public class ReconcilerOrphanedCallbackFieldTests
     {
         // Models the post-Step-A/B state for an optional throwing-Void closure: an error-mint
         // P/Invoke targeting a stripped wrapper symbol, the [UnmanagedCallersOnly] callback whose
@@ -3030,7 +2181,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_CreateError_Module" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // The stripped P/Invoke, the callback, the orphaned field, the reader, and the
             // public forwarder must all be gone.
@@ -3070,7 +2221,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_CreateError_Module" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("upload_modifier_Callback", result.Content); // field + callback
             Assert.DoesNotContain("public static bool Upload(", result.Content);
@@ -3106,7 +2257,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_other" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             Assert.DoesNotContain("PInvoke_other", result.Content);
             Assert.Contains("s_modifier_Set_Callback = &modifier_Set_Callback", result.Content);
@@ -3148,7 +2299,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_dead" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // Orphaned field + its callback gone.
             Assert.DoesNotContain("s_a_Callback ", result.Content);
@@ -3200,7 +2351,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_dead_helper" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // Dead chain fully stripped.
             Assert.DoesNotContain("PInvoke_dead", result.Content);
@@ -3214,45 +2365,13 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_ContractPreStripPath_OrphanedFieldStripped()
-        {
-            // The actual regression path: the error-mint P/Invoke was rejected by the in-band
-            // wrapper-symbol contract, so its declaration is NEVER written to the file — only its
-            // NAME arrives via the pre-stripped set. Step B strips the callback (which calls the
-            // missing P/Invoke), and Step B2 must still strip the orphaned field + reader keyed off
-            // the removed callback, even though no P/Invoke declaration was ever present to scan.
-            var input =
-                "namespace Test {\n" +
-                "public partial class Holder {\n" +
-                "    private static unsafe readonly delegate* unmanaged[Cdecl]<void*, SwiftError*, IntPtr, void> s_modifier_Set_Callback = &modifier_Set_Callback;\n" +
-                "\n" +
-                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
-                "    private static void modifier_Set_Callback(void* _arg0, SwiftError* _error, IntPtr _context)\n" +
-                "    {\n" +
-                "        try { } catch { *_error = PInvoke_SBW_CreateError(IntPtr.Zero); }\n" +
-                "    }\n" +
-                "\n" +
-                "    private static void Modifier_Set(IntPtr handle, IntPtr value)\n" +
-                "    {\n" +
-                "        var _data = new SwiftClosureData((IntPtr)s_modifier_Set_Callback, value);\n" +
-                "    }\n" +
-                "}\n" +
-                "}\n";
-            var preStripped = new HashSet<string> { "PInvoke_SBW_CreateError" };
-            var result = CSharpWrapperCoGater.Process(input, new HashSet<string>(), preStripped);
-
-            Assert.DoesNotContain("modifier_Set_Callback", result.Content); // field + callback
-            Assert.DoesNotContain("Modifier_Set", result.Content);
-        }
-
-        [Fact]
         public void Process_CrossTypeSameFieldName_DoesNotStripSiblingTypesLiveField()
         {
             // Two sibling types each contain an identically-named callback + field
             // (a synthesized-name hash collision). Only TypeA's callback is orphaned (its body
             // calls the stripped PInvoke_dead); TypeB's callback calls a live helper. The field
             // gate and the reader strip must both be type-scoped so TypeB's live field, callback,
-            // and reader survive — scope leakage here is the class of bug every other co-gater
+            // and reader survive — scope leakage here is the class of bug every other reconciler
             // step explicitly avoids.
             var input =
                 "namespace Test {\n" +
@@ -3292,7 +2411,7 @@ namespace BindingsGeneration.Tests
                 "}\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_dead" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
 
             // TypeA chain is gone; TypeB's identically-named chain survives intact.
             Assert.DoesNotContain("PInvoke_dead", result.Content);
@@ -3310,14 +2429,14 @@ namespace BindingsGeneration.Tests
 
     #region N. DllImport + static-extern shape
 
-    // The co-gater historically only recognized the [LibraryImport]+partial P/Invoke
+    // The reconciler historically only recognized the [LibraryImport]+partial P/Invoke
     // shape. Four emitters (AppEntityKeyPathSingletonEmitter, KeyPathBagValueSpecializationEmitter,
     // KeyPathSingletonEmitter, ModuleHandler) emit the older [DllImport]+`static extern`
     // shape against the same wrapper library (AsyncLibraryName / "libSwiftBindings").
     // A stripped wrapper symbol behind that shape must be co-gated identically, or the
     // generated binding keeps a dangling P/Invoke and throws DllNotFoundException-class
     // dispatch failures at runtime.
-    public class CoGaterDllImportShapeTests
+    public class ReconcilerDllImportShapeTests
     {
         [Fact]
         public void Process_DllImportStaticExtern_StrippedSymbol_RemovesDeclaration()
@@ -3330,7 +2449,7 @@ namespace BindingsGeneration.Tests
                 "    private static extern IntPtr PInvoke_singleton_ABC();\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_singleton_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_singleton_ABC", result.Content);
             Assert.DoesNotContain("SBW_singleton_broken", result.Content);
         }
@@ -3346,7 +2465,7 @@ namespace BindingsGeneration.Tests
                 "    private static extern IntPtr __GetEnumMetadata_Bar();\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_GetEnumMetadata_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("__GetEnumMetadata_Bar", result.Content);
             Assert.DoesNotContain("SBW_GetEnumMetadata_broken", result.Content);
         }
@@ -3368,7 +2487,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_doStuff_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_doStuff_DEF", result.Content);
             Assert.DoesNotContain("DoStuff", result.Content);
             Assert.Equal(1, result.StrippedMemberCount);
@@ -3385,7 +2504,7 @@ namespace BindingsGeneration.Tests
                 "    private static extern int PInvoke_native_123(IntPtr ptr);\n" +
                 "}\n";
             var stripped = new HashSet<string> { "$s20SwiftBindingsTestLib_mangled" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.Contains("PInvoke_native_123", result.Content);
         }
 
@@ -3409,7 +2528,7 @@ namespace BindingsGeneration.Tests
                 "    public bool Equals(TypeB? other) { return PInvoke_eq(lhs, rhs); }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_TypeA_eq_AAA" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.Contains("TypeA", result.Content);
             Assert.Contains("TypeB", result.Content);
             Assert.Equal(0, result.StrippedMemberCount);
@@ -3429,7 +2548,7 @@ namespace BindingsGeneration.Tests
                 "    private static partial IntPtr PInvoke_lib_Y();\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_dll_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_dll_X", result.Content);
             Assert.Contains("PInvoke_lib_Y", result.Content);
         }
@@ -3456,7 +2575,7 @@ namespace BindingsGeneration.Tests
                 "    }\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_singleton_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             // Strip proceeds: the dead P/Invoke and its transitive caller are both removed.
             Assert.DoesNotContain("PInvoke_singleton_X", result.Content);
             Assert.DoesNotContain("SBW_singleton_broken", result.Content);
@@ -3477,7 +2596,7 @@ namespace BindingsGeneration.Tests
                 "    internal static unsafe partial void PInvoke_asyncThunk_X(void* ctx);\n" +
                 "}\n";
             var stripped = new HashSet<string> { "SBW_async_thunk_broken" };
-            var result = CSharpWrapperCoGater.Process(input, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_asyncThunk_X", result.Content);
             Assert.DoesNotContain("SBW_async_thunk_broken", result.Content);
         }

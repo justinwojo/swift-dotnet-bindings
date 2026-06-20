@@ -578,8 +578,8 @@ namespace BindingsGeneration
 
             // Suppressed proxy class names — populated when a previously generated module
             // suppressed a proxy (UnsatisfiedProtocolConstraint, StaticMethodRequirements,
-            // HasSelfRequirement, etc.). The downstream module needs this so its post-pass
-            // co-gater can strip method bodies that reference the cross-module qualified
+            // HasSelfRequirement, etc.). The downstream module needs this so its emitter
+            // can drop method bodies at emission that reference the cross-module qualified
             // proxy form (`{Namespace}.SwiftInterop.{ProxyName}`) emitted by the umbrella-aware
             // existential marshaler. Element is optional — older databases predate it.
             XmlNode? suppressedProxiesNode = xmlDoc.SelectSingleNode("//swifttypedatabase/suppressedProxies");

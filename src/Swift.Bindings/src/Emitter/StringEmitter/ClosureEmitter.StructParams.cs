@@ -165,6 +165,8 @@ public static partial class ClosureEmitter
         }
         else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var frozenProxy))
         {
+            // PRODUCE: a suppressed proxy throws → member-body checkpoint restubs the whole member.
+            closureHandler.ThrowIfProxyReferenceSuppressed(closureTypeSpec.ReturnType);
             // Owned return: the Swift function pointer hands the existential back at +1; the proxy
             // (a real EC1-EC8 proxy here, never bare-`any`) adopts and releases it on Dispose/finalize.
             csWriter.WriteLine($"return new {frozenProxy}({invokeExpr}, ownsContainer: true);");
@@ -373,6 +375,8 @@ public static partial class ClosureEmitter
         }
         else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var nonFrozenProxy))
         {
+            // PRODUCE: a suppressed proxy throws → member-body checkpoint restubs the whole member.
+            closureHandler.ThrowIfProxyReferenceSuppressed(closureTypeSpec.ReturnType);
             // Owned return: the Swift function pointer hands the existential back at +1; the proxy
             // (a real EC1-EC8 proxy here, never bare-`any`) adopts and releases it on Dispose/finalize.
             csWriter.WriteLine($"return new {nonFrozenProxy}({invokeExpr}, ownsContainer: true);");

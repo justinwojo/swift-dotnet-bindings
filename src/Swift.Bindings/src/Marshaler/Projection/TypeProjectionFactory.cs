@@ -39,6 +39,12 @@ public record ProjectionContext
     /// <summary>Optional specialization engine for resolving protocol conformers.
     /// When set, PAT existentials with known conformers use ExistentialUnion instead of object fallback.</summary>
     public ConcreteSpecializationEngine? SpecializationEngine { get; init; }
+
+    /// <summary>Optional per-module emission context. When set, <see cref="ExistentialProjection"/> consults
+    /// it to decide whether a proxy reference is suppressed (EveryProtocol conformance not emitted) — CONSUME
+    /// arms drop the wrap fallback, PRODUCE arms throw <see cref="SuppressedProxyReferenceException"/>. Null on
+    /// the overload-key/validation projection contexts, which never emit a proxy reference.</summary>
+    public ModuleEmissionContext? EmissionContext { get; init; }
 }
 
 /// <summary>
@@ -534,7 +540,13 @@ public class TypeProjectionFactory
             proxyClassName = handler.GetQualifiedProxyClassName(protocolList);
         }
 
-        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1);
+        // Emit-time suppression gate (the projection path's half of change 8): true when the proxy was
+        // not emitted because its EveryProtocol conformance was skipped. ExistentialProjection's CONSUME
+        // arms then drop the wrap fallback and the PRODUCE arms throw to stub the member.
+        bool proxyIsSuppressed = proxyClassName != null &&
+            handler.IsProxyReferenceSuppressed(protocolList, context.EmissionContext);
+
+        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1, proxyIsSuppressed);
     }
 
     /// <summary>

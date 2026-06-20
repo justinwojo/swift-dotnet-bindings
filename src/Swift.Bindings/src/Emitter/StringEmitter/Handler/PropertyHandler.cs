@@ -1020,10 +1020,37 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         var projection = s_projectionFactory.Project(propertyDecl.SwiftTypeSpec,
-            new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = false, GenericContext = genericContext });
+            new ProjectionContext
+            {
+                TypeDatabase = propertyEnv.TypeDatabase,
+                IsParameter = false,
+                GenericContext = genericContext,
+                // Thread EmissionContext so a collection/optional getter whose existential element's proxy
+                // was suppressed (its EveryProtocol conformance was not emitted) throws
+                // SuppressedProxyReferenceException during the AsProjected element projection below,
+                // instead of silently emitting a dangling `new {Proxy}(` (the change-8 suppressed-proxy
+                // emit-time gate). The scalar/optional-existential getter took the early-return wrapper
+                // path above; this projection path is the collection-of-existential case.
+                EmissionContext = propertyEnv.EmissionContext,
+            });
         if (projection != null)
         {
-            var (conv, requiresDisposal) = GetAccessorGetterConversion(projection, $"{methodName}()");
+            string? conv;
+            bool requiresDisposal;
+            try
+            {
+                (conv, requiresDisposal) = GetAccessorGetterConversion(projection, $"{methodName}()");
+            }
+            catch (SuppressedProxyReferenceException)
+            {
+                // A collection/optional getter element's existential proxy was suppressed. Keep the public
+                // property present with a throwing getter — matching the scalar existential getter (which
+                // delegates to a wrapper accessor that WrapperEmitter restubs) and the retired CoGater's
+                // public-member rewrite. The throw fires during pure string projection (no getter body
+                // written yet), so this is a clean check-via-catch with nothing to roll back (Hazard D).
+                csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                return;
+            }
             if (conv != null)
             {
                 // F1: Wrap projection getter conversion with narrowing cast.
@@ -1135,7 +1162,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     propertyEnv.ExistentialHandler.AllProtocolsHaveTypeRecords(innerProtocolList) &&
                     propertyEnv.ExistentialHandler.TryGetFilteredProxyClassName(innerProtocolList, out var filteredProxy))
                 {
-                    proxyClassName = propertyEnv.ExistentialHandler.QualifyProxyClassName(filteredProxy, innerProtocolList);
+                    var qualifiedProxy = propertyEnv.ExistentialHandler.QualifyProxyClassName(filteredProxy, innerProtocolList);
+                    // CONSUME gate: when the proxy class was not emitted (EveryProtocol conformance
+                    // suppressed), drop the wrap fallback — the setter keeps working for Swift-vended
+                    // conformers. Replaces the retired generate-then-strip wrap-fallback downgrade post-pass.
+                    if (!propertyEnv.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, propertyEnv.EmissionContext))
+                        proxyClassName = qualifiedProxy;
                 }
                 // When the factory boxes a value conformer at +1, the @in_guaranteed setter
                 // wrapper only borrows the buffer (reads via .pointee, copies into the property), so
@@ -1265,7 +1297,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         var projection = s_projectionFactory.Project(propertyDecl.SwiftTypeSpec,
-            new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = true, GenericContext = genericContext });
+            // Thread EmissionContext so a COLLECTION-valued setter whose existential element's proxy
+            // was suppressed drops the per-element `static __v => new {Proxy}(__v)` wrap lambda
+            // (CONSUME arm) instead of emitting a dangling reference. The scalar-existential setter
+            // special-case above already consults IsProxyNameSuppressed with propertyEnv.EmissionContext;
+            // the general projection path (containers) reached here was the symmetric gap.
+            new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = true, GenericContext = genericContext, EmissionContext = propertyEnv.EmissionContext });
         if (projection != null)
         {
             var (conv, requiresDisposal) = GetAccessorSetterConversion(projection, "value");

@@ -583,13 +583,22 @@ namespace BindingsGeneration
             context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
 
             // Thread the per-module emission context onto the env so the in-band
-            // wrapper-symbol contract check (PInvokeEmitter / PInvokeEmitHelper)
-            // can consult the authoritative wrapper-symbol registry. Throws
-            // WrapperSymbolContractException when binding-emit is about to
-            // reference an SBW_… symbol that wrapper-emit never registered;
-            // we catch below, record the skip, and let the cogater strip the
-            // orphan public C# member.
+            // wrapper-symbol contract check can consult the authoritative
+            // wrapper-symbol registry.
             methodEnv.EmissionContext = context.GetEmissionContext();
+
+            // Predict-then-skip (constructor site): the Swift constructor wrapper
+            // registers its SBW_… symbol before any C# body is written (see
+            // ConstructorWrapperEmitter), so we can decide up front. On an
+            // unregistered symbol, skip the whole member — body, Swift error
+            // extractor, and deduped optional-accessor helpers — without writing an
+            // orphan that references a missing P/Invoke. (Async constructors route
+            // through EmitMethod, not this path, and are handled by rollback there.)
+            if (WrapperSymbolContractGate.FindUnregisteredWrapperSymbol(methodEnv) is { } missingCtorSymbol)
+            {
+                WrapperSymbolContractGate.HandleSkip(methodEnv, missingCtorSymbol, csWriter, _logger);
+                return;
+            }
 
             // Surface any PAT-existential degradation in the constructor's parameters. Constructors
             // previously emitted NO [UnsupportedSwiftType] flag at all (the flag path lived only in
@@ -618,6 +627,7 @@ namespace BindingsGeneration
             // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
             wrapperEmitter.EmitTypedErrorExtractor(swiftWriter);
 
+            var ctorCheckpoint = csWriter.Checkpoint();
             try
             {
                 if (methodEnv.MethodDecl.IsFailable)
@@ -648,7 +658,12 @@ namespace BindingsGeneration
             }
             catch (WrapperSymbolContractException ex)
             {
-                WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
+                // Backstop: the predict-then-skip above shares FindUnregisteredWrapperSymbol
+                // with this throw and the constructor symbol's registration does not change
+                // across the body, so this is unreachable in practice. If a path ever slips
+                // through, roll the orphan body back out of the buffer before recording the skip.
+                csWriter.RollbackTo(ctorCheckpoint);
+                WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
                 return;
             }
             methodEnv.MethodDecl.MarkEmitted();
@@ -939,9 +954,9 @@ namespace BindingsGeneration
             // Bridge emitters that write SBW_… P/Invoke declarations participate in the
             // in-band wrapper-symbol contract — `EnforceWrapperContract` is set on their
             // PInvokeEmissionInfo, so an unregistered SBW_ entry point throws here.
-            // Catch the throw and route it through HandleViolation: it records the
-            // skip and writes the `// Unsupported` marker for the orphan caller, the
-            // same way PInvokeEmitter does for the canonical path.
+            // Catch the throw, roll the bridge's partial output back out of the buffer, and
+            // route it through HandleSkip: it records the skip and writes the `// Unsupported`
+            // marker for the orphan caller, the same way PInvokeEmitter does for the canonical path.
             if (!isAccessor)
             {
                 methodEnv.EmissionContext = context.GetEmissionContext();
@@ -952,13 +967,18 @@ namespace BindingsGeneration
                 foreach (var bridge in _bridgeEmitters)
                 {
                     BridgeEmitResult? result;
+                    // Transactional rollback (bridge site): each bridge derives its own
+                    // SBW_/SBSW_ symbol inside TryEmit, so checkpoint before the attempt and
+                    // roll that bridge's partial output back out on the eager contract throw.
+                    var bridgeCheckpoint = csWriter.Checkpoint();
                     try
                     {
                         result = bridge.TryEmit(bridgeContext);
                     }
                     catch (WrapperSymbolContractException ex)
                     {
-                        WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
+                        csWriter.RollbackTo(bridgeCheckpoint);
+                        WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
                         return;
                     }
                     if (result != null)
@@ -1528,6 +1548,12 @@ namespace BindingsGeneration
             methodEnv.EmissionContext = context.GetEmissionContext();
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo, context.GetEmissionContext());
+            // Transactional rollback (method site): async @_cdecl wrappers register their
+            // symbol inside EmitMethod, after the public signature is already written, so a
+            // predict-before-emit query cannot tell a valid async method from a silent bail.
+            // Checkpoint the writer, emit, and on the eager contract throw roll the orphan
+            // public member back out of the buffer before recording the skip.
+            var methodCheckpoint = csWriter.Checkpoint();
             try
             {
                 wrapperEmitter.EmitMethod(csWriter, swiftWriter);
@@ -1535,7 +1561,8 @@ namespace BindingsGeneration
             }
             catch (WrapperSymbolContractException ex)
             {
-                WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
+                csWriter.RollbackTo(methodCheckpoint);
+                WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
                 return;
             }
             methodEnv.MethodDecl.MarkEmitted();

@@ -597,7 +597,13 @@ namespace BindingsGeneration
                                 _env.ExistentialHandler.AllProtocolsHaveTypeRecords(protocolList) &&
                                 _env.ExistentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                             {
-                                proxyClassName = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                                var qualifiedProxy = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                                // CONSUME gate: a suppressed proxy (EveryProtocol conformance not emitted)
+                                // leaves proxyClassName null so MethodSignature drops the wrap fallback,
+                                // byte-identical to the retired CoGater wrap-fallback downgrade. Mirrors
+                                // WrapperEmitter.Marshalling's gate for the wrapper-library param path.
+                                if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _env.EmissionContext))
+                                    proxyClassName = qualifiedProxy;
                             }
                             AddParameter(
                                 new MarshalledType.Existential(containerType, publicType) { ProxyClassName = proxyClassName },
@@ -1176,23 +1182,21 @@ namespace BindingsGeneration
 
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
-            // In-band wrapper-symbol contract: defense-in-depth assertion. When the
-            // pre-emit gate (WrapperSymbolContractGate) misses a path, the throw
-            // here surfaces the failure as a hard error rather than letting an
-            // unresolved P/Invoke leak into the generated bindings. Covers both
-            // shapes: Cdecl + SBW_… and Swift CC + SBSW_…. The pairing is selected
-            // through PInvokeEmitHelper.SelectCallingConvention so the prefix and
-            // call-conv stay consistent even if a caller misspecs one half.
+            // In-band wrapper-symbol contract: this is the single eager check, shared with
+            // the constructor's predict-then-skip gate via FindUnregisteredWrapperSymbol so
+            // the throw predicate and the predict predicate can never drift. It surfaces a
+            // wrapper-targeting P/Invoke that references a symbol wrapper-emit never
+            // registered (Cdecl + SBW_… or Swift CC + SBSW_…) as a throw rather than letting
+            // an unresolved P/Invoke leak into the generated bindings. The method/bridge
+            // sites catch it and roll their C# buffer back to a pre-member checkpoint;
+            // because async @_cdecl symbols register inside EmitMethod (after the public
+            // body is written) only this post-body throw — not a pre-emit query — can tell a
+            // valid async method from a silent bail. The declaredCallConv local below feeds
+            // the generic-helper declaration's CallingConvention.
             var declaredCallConv = WrapperValidation.GetCallingConvention(methodDecl);
-            var resolvedCallConv = PInvokeEmitHelper.SelectCallingConvention(entryPoint, declaredCallConv);
-            bool wrapperPair = methodEnv.EmissionContext != null &&
-                ((resolvedCallConv == PInvokeCallingConvention.Cdecl &&
-                  PInvokeEmitHelper.IsWrapperEntryPoint(entryPoint)) ||
-                 (resolvedCallConv == PInvokeCallingConvention.Swift &&
-                  PInvokeEmitHelper.IsSwiftCCWrapperEntryPoint(entryPoint)));
-            if (wrapperPair && !methodEnv.EmissionContext!.IsWrapperSymbolRegistered(entryPoint))
+            if (WrapperSymbolContractGate.FindUnregisteredWrapperSymbol(methodEnv) is { } missingWrapperSymbol)
             {
-                throw new WrapperSymbolContractException(entryPoint, pInvokeName);
+                throw new WrapperSymbolContractException(missingWrapperSymbol, pInvokeName);
             }
 
             // If we're inside a generic type, collect the P/Invoke to the helper context

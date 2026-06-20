@@ -254,7 +254,11 @@ namespace BindingsGeneration
 
                         var proj = factory.Project(element, new ProjectionContext
                         {
-                            TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext
+                            TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext,
+                            // CONSUME gate: thread EmissionContext so a suppressed existential-element proxy
+                            // drops its `static __v => new {Proxy}(__v)` wrap fallback (else the bound-generic
+                            // tuple projection emits a reference to the unemitted proxy).
+                            EmissionContext = emissionCtx
                         });
                         if (proj is StringProjection)
                         {
@@ -262,7 +266,7 @@ namespace BindingsGeneration
                             // Convert string → SwiftString, then extract IntPtr handle.
                             var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"using var {elemVarName} = new SwiftString({elementAccess});");
-                            elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase));
+                            elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase, emissionCtx));
                         }
                         else if (proj is DataProjection)
                         {
@@ -319,7 +323,7 @@ namespace BindingsGeneration
                         else
                         {
                             // No projection or unsupported — use direct P/Invoke argument lowering
-                            elementExprs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase));
+                            elementExprs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx));
                         }
                     }
                     tuplePInvokeExprs[i] = $"({string.Join(", ", elementExprs)})";
@@ -332,7 +336,10 @@ namespace BindingsGeneration
                         : GenericContext.Empty;
                     var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
                     {
-                        TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext
+                        TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext,
+                        // CONSUME gate: thread EmissionContext so a suppressed existential proxy in the
+                        // bound-generic payload (e.g. [any Foo] / Optional<any Foo>) drops its wrap fallback.
+                        EmissionContext = emissionCtx
                     });
                     if (projection != null)
                     {
@@ -471,7 +478,13 @@ namespace BindingsGeneration
                                     if (publicType != "object" &&
                                         existentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                                     {
-                                        proxyClassName = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                                        var qualifiedProxy = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                                        // CONSUME gate: drop the wrap fallback when the proxy class was not
+                                        // emitted (EveryProtocol conformance suppressed). The case factory
+                                        // keeps working for Swift-vended conformers. Replaces the retired
+                                        // generate-then-strip wrap-fallback downgrade post-pass.
+                                        if (!existentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, emissionCtx))
+                                            proxyClassName = qualifiedProxy;
                                     }
                                     // Thread the runtime owns-bit so the finally can run
                                     // the existential value-witness destroy only when a value
@@ -593,7 +606,7 @@ namespace BindingsGeneration
                         (typeSpec is NamedTypeSpec ds && ds.Name == "Foundation.Data") ||
                         (typeSpec is NamedTypeSpec dts && dts.Name == "Foundation.Date");
                     var argName = isConvertedToLocal ? $"__{bareName}" : name;
-                    argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase));
+                    argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase, emissionCtx));
                 }
             }
 
@@ -951,7 +964,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Gets the P/Invoke argument expression for a parameter.
         /// </summary>
-        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx = null)
         {
             if (typeSpec is NamedTypeSpec genericParamType &&
                 TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
@@ -977,7 +990,12 @@ namespace BindingsGeneration
                         if (publicType != "object" &&
                             existentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                         {
-                            proxyClassName = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                            var qualifiedProxy = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                            // CONSUME gate: drop the wrap fallback when the proxy class was not emitted
+                            // (EveryProtocol conformance suppressed). Replaces the retired
+                            // generate-then-strip wrap-fallback downgrade post-pass.
+                            if (!existentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, emissionCtx))
+                                proxyClassName = qualifiedProxy;
                         }
                         return proxyClassName != null
                             ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({paramName}, static __v => new {proxyClassName}(__v))"
@@ -1002,7 +1020,7 @@ namespace BindingsGeneration
                         : $"{paramName}.Item{i + 1}";
 
                     // Recursively get the P/Invoke argument for this element
-                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase));
+                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx));
                 }
                 return $"({string.Join(", ", elementArgs)})";
             }

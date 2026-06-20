@@ -205,7 +205,7 @@ public partial class ProtocolProxyEmitter
         // member, static method/property requirement, etc. — do not reach this emitter:
         // ProtocolHandler suppresses the proxy at its EmissionContext.WasConformanceEmitted
         // check before EmitProxyClass is called. Existential factory references to those proxy
-        // names are co-gated by CSharpWrapperCoGater.ProcessSuppressedProxyReferences.)
+        // names are co-gated by the emit-time proxy-reference gate.)
         //
         // The unit-test path (no ModuleEmissionContext supplied) keeps the legacy behaviour
         // — _setVtableEmitted is treated as true so existing tests stay green.

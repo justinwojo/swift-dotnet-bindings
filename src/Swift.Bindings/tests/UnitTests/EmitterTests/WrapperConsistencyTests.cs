@@ -913,7 +913,10 @@ public class WrapperConsistencyTests
         method.IsAsync = true;
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.Equal("async_method", WrapperValidation.GetRejectionReason(env));
+        // Finding 12: method/constructor async rejection is now reported by the shared
+        // member-eligibility gate under the consolidated reason "async" (was the kind-specific
+        // "async_method"). The decision is unchanged — only the diagnostic histogram bucket.
+        Assert.Equal("async", WrapperValidation.GetRejectionReason(env));
     }
 
     [Fact]
@@ -963,7 +966,10 @@ public class WrapperConsistencyTests
         var method = CreateMethod("increment", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.Equal("actor_type", WrapperValidation.GetRejectionReason(env));
+        // Finding 12: actor-isolation rejection is now reported by the shared member-eligibility
+        // gate under the consolidated reason "actor_isolated" (was the kind-specific "actor_type").
+        // The decision is unchanged — only the diagnostic histogram bucket.
+        Assert.Equal("actor_isolated", WrapperValidation.GetRejectionReason(env));
     }
 
     [Fact]
@@ -1009,8 +1015,17 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void GetRejectionReason_RawGenericParam_ReturnsReason()
+    public void GetRejectionReason_RawGenericParamOnNonGenericParent_NotSeparatelyRejected()
     {
+        // Finding 12: the method-side eligibility has NO standalone raw-generic-param gate.
+        // The legacy GetRejectionReason mirror claimed "raw_generic_type_params" here, but the
+        // boolean ShouldEmitWrapper never gated on it — and on the real corpus a τ_0_0-typed
+        // method on a generic parent (e.g. BlittableElementBuffer.first returning T) is WRAPPED
+        // via generic static dispatch, so a standalone gate would wrongly reject it (verified:
+        // adding one diverges the byte-identical golden). The raw-generic concern is owned by the
+        // generic-parent / method-generics gates. A degenerate bare-τ_0_0 param on a NON-generic
+        // parent is only constructible synthetically; the unified gate treats it as wrappable, so
+        // predict (GetRejectionReason) now agrees with emit (ShouldEmitWrapper).
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
@@ -1018,7 +1033,12 @@ public class WrapperConsistencyTests
         method.ParentDecl = parentDecl;
         method.ModuleDecl = moduleDecl;
         var env = new MethodEnvironment(method, typeDb);
-        Assert.Equal("raw_generic_type_params", WrapperValidation.GetRejectionReason(env));
+
+        // The helper still detects the raw param (it backs the constructor/property/subscript gates)...
+        Assert.True(WrapperValidation.HasRawGenericTypeParams(method));
+        // ...but the method eligibility does not separately reject on it — predict matches emit.
+        Assert.Null(WrapperValidation.GetRejectionReason(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

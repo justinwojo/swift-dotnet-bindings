@@ -1011,24 +1011,45 @@ public partial class ProtocolProxyEmitter
             else if (isCollectionReturnGetter)
             {
                 // Collection return getter: heap-allocated pointer + typed free
-                var marshalExpr = GetCollectionMarshalExpression(property.SwiftTypeSpec, "resultPtr");
-                writer.WriteLines($$"""
-                    get
-                    {
-                        if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
-                            return _csharpImpl.{{propertyName}};
-                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                try
+                {
+                    // GetCollectionMarshalExpression projects each existential element through the
+                    // PRODUCE container conversion; if an element's proxy was suppressed (its
+                    // EveryProtocol conformance was not emitted) it throws here, during pure string
+                    // projection — before any getter body is written.
+                    var marshalExpr = GetCollectionMarshalExpression(property.SwiftTypeSpec, "resultPtr");
+                    writer.WriteLines($$"""
+                        get
                         {
-                            IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
-                            try
+                            if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                            if (_csharpImpl != null)
+                                return _csharpImpl.{{propertyName}};
+                            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                             {
-                                return {{marshalExpr}};
+                                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
+                                try
+                                {
+                                    return {{marshalExpr}};
+                                }
+                                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
                             }
-                            finally { NativeMethods.{{freeSymbol}}(resultPtr); }
                         }
-                    }
-                    """);
+                        """);
+                }
+                catch (SuppressedProxyReferenceException)
+                {
+                    // A collection element's existential proxy was suppressed. Keep the interface member
+                    // present with a throwing getter — matching the scalar existential-return gate
+                    // (EmitExistentialReturnPropertyGetterBody) and the retired CoGater's public-member
+                    // rewrite. The throw fired during string projection with no body written, so this is
+                    // a clean check-via-catch with nothing to roll back (Hazard D).
+                    writer.WriteLines($$"""
+                        get
+                        {
+                            throw new NotSupportedException("{{WrapperEmitter.ProxySuppressedMessage}}");
+                        }
+                        """);
+                }
             }
             else if (isOptionalClassReturnGetter)
             {
@@ -1811,6 +1832,21 @@ public partial class ProtocolProxyEmitter
         bool isClassBound = existentialHandler.IsClassBoundArity1Existential(protocolList!);
         existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
         proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
+
+        // Reverse-dispatch proxy property getter returning `any P` whose proxy class was suppressed
+        // (its EveryProtocol conformance was not emitted) — mirrors EmitExistentialReturnMethodBody.
+        // Emit a self-contained throwing getter to keep the interface member present (retired-CoGater
+        // public-member parity); local check-and-branch (no checkpoint here — Hazard D).
+        if (existentialHandler.IsProxyReferenceSuppressed(protocolList!, _emissionContext))
+        {
+            writer.WriteLines($$"""
+                get
+                {
+                    throw new NotSupportedException("{{WrapperEmitter.ProxySuppressedMessage}}");
+                }
+                """);
+            return;
+        }
         var publicType = existentialHandler.GetPublicExistentialType(protocolList!);
 
         writer.WriteLine("get");
@@ -1873,6 +1909,18 @@ public partial class ProtocolProxyEmitter
         bool isClassBound = existentialHandler.IsClassBoundArity1Existential(protocolList!);
         existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
         proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
+
+        // Reverse-dispatch proxy member returning `any P` whose proxy class was suppressed (its
+        // EveryProtocol conformance was not emitted): this proxy cannot construct the existential
+        // return value. The C# interface still declares the member, so emit a throwing body to keep
+        // the member present — matching the retired CoGater's public-member rewrite. The caller has
+        // already written the signature + opening brace + disposed check and closes the brace; this
+        // is a local check-and-branch (no member-body checkpoint exists here — Hazard D).
+        if (existentialHandler.IsProxyReferenceSuppressed(protocolList!, _emissionContext))
+        {
+            writer.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+            return;
+        }
 
         // The returned heap cell holds a class-bound (2-word) or opaque (5-word) existential.
         // Reading a class-bound cell as the 40-byte opaque container over-reads 24 bytes past
@@ -2458,7 +2506,13 @@ public partial class ProtocolProxyEmitter
         {
             TypeDatabase = _typeDatabase,
             IsParameter = false,
-            GenericContext = GenericContext.Empty
+            GenericContext = GenericContext.Empty,
+            // A proxy method returning a collection of existentials (e.g. [any Boxable]) projects each
+            // element through ExistentialProjection's PRODUCE container conversion. Thread CurrentModuleName
+            // (cross-module proxy qualification) and EmissionContext (the change-8 suppression gate) so a
+            // suppressed element proxy throws/stubs here instead of leaking `new {Proxy}(` into the body.
+            CurrentModuleName = _moduleName,
+            EmissionContext = _emissionContext
         });
         if (projection == null)
             return $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<object>({ptrVar})";
@@ -2484,7 +2538,25 @@ public partial class ProtocolProxyEmitter
         var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
         var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
 
-        var resultExpression = GetCollectionMarshalExpression(returnType, "resultPtr");
+        string resultExpression;
+        try
+        {
+            // GetCollectionMarshalExpression projects each existential element through the PRODUCE
+            // container conversion; if an element's proxy was suppressed (its EveryProtocol conformance
+            // was not emitted) it throws here, during pure string projection — before EmitHeapPointerMethodBody
+            // writes any body.
+            resultExpression = GetCollectionMarshalExpression(returnType, "resultPtr");
+        }
+        catch (SuppressedProxyReferenceException)
+        {
+            // A collection element's existential proxy was suppressed. The dispatcher already wrote the
+            // signature + opening brace + disposed check and closes the brace; emit a throwing body to
+            // keep the member present — matching the scalar existential-return gate
+            // (EmitExistentialReturnMethodBody) and the retired CoGater's public-member rewrite. The throw
+            // fired during string projection with no body written, so nothing needs rolling back (Hazard D).
+            writer.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+            return;
+        }
         EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
             methodName, argsString, argNames, paramSwiftTypeSpecs,
             accessorSymbol, freeSymbol, resultExpression);

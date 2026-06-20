@@ -617,6 +617,32 @@ namespace BindingsGeneration
             }
             EmitReturnTypeOriginalSwiftType(csWriter);
             EmitSignatureMethod(csWriter);
+            // PRODUCE-path proxy gate (method body). A return/marshalling construction may attempt
+            // `new {Proxy}(…)` for a proxy whose EveryProtocol conformance was suppressed. The
+            // signature and any [return: OriginalSwiftType] attribute are already written; checkpoint
+            // here so the recovery keeps them (and the caller-emitted P/Invoke) and replaces ONLY the
+            // body with a throw stub — byte-equivalent to the retired CoGater's body rewrite. CONSUME
+            // references never reach this catch: they drop their wrap fallback locally and the member
+            // emits normally.
+            var proxyBodyCheckpoint = csWriter.Checkpoint();
+            try
+            {
+                EmitMethodBody(csWriter, swiftWriter);
+            }
+            catch (SuppressedProxyReferenceException)
+            {
+                csWriter.RollbackTo(proxyBodyCheckpoint);
+                EmitProxySuppressedThrowBody(csWriter);
+            }
+        }
+
+        /// <summary>
+        /// Emits the method body (everything after the public signature). Extracted so the PRODUCE-path
+        /// proxy gate in <see cref="EmitMethod"/> can wrap it in a single checkpoint/try and replace it
+        /// wholesale via <see cref="EmitProxySuppressedThrowBody"/> on a suppressed-proxy throw.
+        /// </summary>
+        private void EmitMethodBody(CSharpWriter csWriter, SwiftWriter swiftWriter)
+        {
             EmitBodyStart(csWriter);
             EmitUnsafeBlockStart(csWriter);
             EmitConsumedNonCopyableSelfGuard(csWriter);
@@ -670,6 +696,27 @@ namespace BindingsGeneration
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
             AssertRawBufferFixedDepthZero();
+        }
+
+        /// <summary>
+        /// The throw message a PRODUCE-path suppressed-proxy member carries. Kept verbatim from the
+        /// retired generate-then-strip body rewrite so emit-time output matches byte-for-byte.
+        /// </summary>
+        internal const string ProxySuppressedMessage =
+            "Protocol proxy not available: EveryProtocol conformance was not emitted.";
+
+        /// <summary>
+        /// Body replacement for a member whose PRODUCE-path proxy construction was suppressed. The
+        /// signature (and any <c>[return: OriginalSwiftType]</c> attribute) is already written and the
+        /// caller still emits the P/Invoke, so only the body is replaced — a public throw stub matching
+        /// the retired CoGater's rewrite. Uses <see cref="EmitBodyStart"/>/<see cref="EmitBodyEnd"/> so
+        /// the brace framing and trailing blank line match a normally-emitted body.
+        /// </summary>
+        private void EmitProxySuppressedThrowBody(CSharpWriter csWriter)
+        {
+            EmitBodyStart(csWriter);
+            csWriter.WriteLine($"throw new NotSupportedException(\"{ProxySuppressedMessage}\");");
+            EmitBodyEnd(csWriter);
         }
 
         /// <summary>

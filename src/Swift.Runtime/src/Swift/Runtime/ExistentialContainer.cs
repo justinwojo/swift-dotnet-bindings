@@ -1398,11 +1398,11 @@ public static class ExistentialContainerFactory
     /// <summary>
     /// No-fallback overload, emitted at call sites whose proxy class was suppressed (a
     /// closed-constrained PAT existential projects to a typed generic interface with no usable
-    /// <c>{Protocol}Proxy</c> constructor, so <c>CSharpWrapperCoGater</c> strips the wrap-fallback
+    /// <c>{Protocol}Proxy</c> constructor, so the emitter drops the wrap-fallback at emission
     /// argument). With no fallback the value MUST already be a Swift-vended
     /// <see cref="ISwiftExistentialConvertible{T}"/> or an <see cref="IExistentialBoxable"/> conformer
     /// — <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/> throws otherwise, preserving the
-    /// throw-on-incompatible-input contract the co-gater documents. The ownership mint/donate is
+    /// throw-on-incompatible-input contract this overload documents. The ownership mint/donate is
     /// identical to the two-arg overload, so a suppressed-proxy class-bound collection element is
     /// balanced exactly as a proxy-backed one. Mirrors <see cref="GetOrCreate{TProtocol}(TProtocol)"/>.
     /// </summary>
@@ -1487,10 +1487,10 @@ public static class ExistentialContainerFactory
     /// No-fallback overload, emitted at call sites whose proxy class was suppressed (a
     /// closed-constrained PAT existential — e.g. <c>any LabelledContainer&lt;String&gt;</c> — projects
     /// to a typed generic interface with no usable <c>{Protocol}Proxy</c> constructor, so
-    /// <c>CSharpWrapperCoGater</c> strips the wrap-fallback argument). With no fallback the value MUST
+    /// the emitter drops the wrap-fallback at emission argument). With no fallback the value MUST
     /// already be a Swift-vended <see cref="ISwiftExistentialConvertible{T}"/> or an
     /// <see cref="IExistentialBoxable"/> conformer — <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/>
-    /// throws otherwise, preserving the throw-on-incompatible-input contract the co-gater documents.
+    /// throws otherwise, preserving the throw-on-incompatible-input contract this overload documents.
     /// The ownership mint/donate is identical to the two-arg overload, so a suppressed-proxy opaque
     /// collection element is balanced exactly as a proxy-backed one (the over-release fix still
     /// applies). Mirrors <see cref="GetOrCreate{TProtocol}(TProtocol)"/>.

@@ -265,7 +265,7 @@ namespace BindingsGeneration
         /// Emits code to marshal a payload value from Swift memory at a specific offset.
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
+        private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -314,6 +314,13 @@ namespace BindingsGeneration
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        // Predict-before-emit suppression gate (Mechanism A, PRODUCE arm): if the
+                        // EveryProtocol conformance backing this proxy was not emitted, abandon the whole
+                        // TryGet member body. The throw unwinds to the checkpoint/catch the TryGet emitter
+                        // wraps around the body, which replaces it with the proxy-suppressed throw stub —
+                        // the in-emission rollback that replaces the old generate-then-regex-strip post-pass.
+                        if (existentialHandler.IsProxyReferenceSuppressed(protocolList, emissionCtx))
+                            throw new SuppressedProxyReferenceException(proxyClassName);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
                         // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
@@ -361,7 +368,11 @@ namespace BindingsGeneration
                         : GenericContext.Empty;
                     var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
                     {
-                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext
+                        // Thread EmissionContext so a bound-generic payload wrapping a suppressed
+                        // existential (e.g. [any Foo]/Optional<any Foo>) projects with proxyIsSuppressed
+                        // set — ExistentialProjection's PRODUCE arm then throws, caught by the TryGet
+                        // checkpoint and restubbed (CoGater used to strip the whole member instead).
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx
                     });
                     if (projection != null)
                     {
@@ -449,7 +460,7 @@ namespace BindingsGeneration
         /// Emits code to marshal a payload value from Swift memory to a C# variable (with assignment).
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
+        private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -490,6 +501,10 @@ namespace BindingsGeneration
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        // Predict-before-emit suppression gate (Mechanism A, PRODUCE arm): see
+                        // EmitPayloadMarshalWithOffset. Unwinds to the TryGet body checkpoint/catch.
+                        if (existentialHandler.IsProxyReferenceSuppressed(protocolList, emissionCtx))
+                            throw new SuppressedProxyReferenceException(proxyClassName);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
                         // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
@@ -521,7 +536,11 @@ namespace BindingsGeneration
                         : GenericContext.Empty;
                     var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
                     {
-                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext
+                        // Thread EmissionContext so a bound-generic payload wrapping a suppressed
+                        // existential (e.g. [any Foo]/Optional<any Foo>) projects with proxyIsSuppressed
+                        // set — ExistentialProjection's PRODUCE arm then throws, caught by the TryGet
+                        // checkpoint and restubbed (CoGater used to strip the whole member instead).
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx
                     });
                     if (projection != null)
                     {
@@ -646,7 +665,7 @@ namespace BindingsGeneration
         /// Emits code to marshal a payload value from Swift memory with a variable declaration.
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
+        private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -677,7 +696,11 @@ namespace BindingsGeneration
                         : GenericContext.Empty;
                     var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
                     {
-                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext
+                        // Thread EmissionContext so a bound-generic payload wrapping a suppressed
+                        // existential (e.g. [any Foo]/Optional<any Foo>) projects with proxyIsSuppressed
+                        // set — ExistentialProjection's PRODUCE arm then throws, caught by the TryGet
+                        // checkpoint and restubbed (CoGater used to strip the whole member instead).
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx
                     });
                     if (projection != null)
                     {
@@ -721,6 +744,10 @@ namespace BindingsGeneration
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        // Predict-before-emit suppression gate (Mechanism A, PRODUCE arm): see
+                        // EmitPayloadMarshalWithOffset. Unwinds to the TryGet body checkpoint/catch.
+                        if (existentialHandler.IsProxyReferenceSuppressed(protocolList, emissionCtx))
+                            throw new SuppressedProxyReferenceException(proxyClassName);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
                         // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque

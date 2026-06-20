@@ -434,13 +434,13 @@ namespace BindingsGeneration
             var getter = subscriptDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
             if (getter != null)
             {
-                EmitIndexerGetter(csWriter, getter, subscriptDecl, typeDatabase, paramInfos, helperPrefix);
+                EmitIndexerGetter(csWriter, getter, subscriptDecl, typeDatabase, paramInfos, helperPrefix, emissionContext);
             }
 
             var setter = subscriptDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
             if (setter != null)
             {
-                EmitIndexerSetter(csWriter, setter, subscriptDecl, typeDatabase, paramInfos);
+                EmitIndexerSetter(csWriter, setter, subscriptDecl, typeDatabase, paramInfos, emissionContext);
             }
 
             csWriter.Indent--;
@@ -454,7 +454,8 @@ namespace BindingsGeneration
             SubscriptDecl subscriptDecl,
             ITypeDatabase typeDatabase,
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
-            string helperPrefix = "")
+            string helperPrefix = "",
+            ModuleEmissionContext? emissionContext = null)
         {
             var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
             bool isCdecl = getter.Method.UsesCdeclPropertyWrapper;
@@ -471,7 +472,36 @@ namespace BindingsGeneration
             }
 
             var retProjection = s_projectionFactory.Project(subscriptDecl.ReturnTypeSpec,
-                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = false });
+                new ProjectionContext
+                {
+                    TypeDatabase = typeDatabase,
+                    IsParameter = false,
+                    // Thread EmissionContext so a collection/optional getter whose existential element's
+                    // proxy was suppressed throws SuppressedProxyReferenceException during the AsProjected
+                    // element projection (the change-8 suppressed-proxy emit-time gate) instead of emitting
+                    // a dangling `new {Proxy}(`.
+                    EmissionContext = emissionContext,
+                });
+
+            // Probe the return projection for a suppressed-proxy element BEFORE any getter body is written.
+            // GetAccessorGetterConversion is pure string projection; if a collection/optional element's
+            // existential proxy was suppressed it throws here, and we restub the indexer getter while
+            // keeping the public member. Probing first keeps this Hazard-D-safe — the downstream branches
+            // (EmitCdeclGetterWithFixedBlock / the plain projection path) write incrementally and can't be
+            // rolled back, so the throw must be caught before they emit anything. Matches the scalar
+            // existential getter (wrapper-accessor restub) and the retired CoGater's public-member rewrite.
+            if (retProjection != null)
+            {
+                try
+                {
+                    _ = GetAccessorGetterConversion(retProjection, $"{methodName}({args})");
+                }
+                catch (SuppressedProxyReferenceException)
+                {
+                    csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                    return;
+                }
+            }
 
             // @_cdecl subscript wrapper with string index params: wrap call in unsafe fixed block
             // Pass retProjection so element type conversion (e.g. SwiftString→string) is applied.
@@ -526,7 +556,8 @@ namespace BindingsGeneration
             SetAccessorDecl setter,
             SubscriptDecl subscriptDecl,
             ITypeDatabase typeDatabase,
-            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            ModuleEmissionContext? emissionContext = null)
         {
             var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
             bool isCdecl = setter.Method.UsesCdeclPropertyWrapper;
@@ -543,7 +574,12 @@ namespace BindingsGeneration
             }
 
             var retProjection = s_projectionFactory.Project(subscriptDecl.ReturnTypeSpec,
-                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true });
+                // Thread EmissionContext so a COLLECTION-valued subscript setter whose existential
+                // element's proxy was suppressed drops the per-element `static __v => new {Proxy}(__v)`
+                // wrap lambda (CONSUME arm) instead of emitting a dangling reference — the subscript
+                // twin of the PropertyHandler container-setter gate. (Scalar existential subscript
+                // values go through ExistentialContainerFactory.GetOrCreate, which constructs no proxy.)
+                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, EmissionContext = emissionContext });
 
             // @_cdecl subscript wrapper with string index params: wrap call in unsafe fixed block
             // Pass retProjection so value type conversion (e.g. string→SwiftString) is applied.

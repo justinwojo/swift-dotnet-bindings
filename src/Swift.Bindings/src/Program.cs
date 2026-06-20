@@ -441,6 +441,18 @@ namespace BindingsGeneration
                 // SetCompositionCollector late-injection point the per-env path already uses.
                 emissionContext.Marshaling = new MarshalingContext(decl, typeDatabase, specializationEngine);
 
+                // Arm the shared marshalling context's suppressed-proxy oracle. The projection path
+                // (MarshalingContext.NewProjectionContext) and the shared closure handler (via the
+                // EmissionContext setter, which also pushes onto Closure) both read EmissionContext
+                // to decide CONSUME (drop the `static __v => new {Proxy}(__v)` wrap) vs PRODUCE (throw
+                // SuppressedProxyReferenceException so the member is stubbed). IEnvironment.NewProjectionContext
+                // *delegates* to this shared instance whenever it is attached, so setting EmissionContext
+                // only on the per-method environment is silently bypassed — the shared MarshalingContext
+                // must carry the same ModuleEmissionContext the suppression gates consult at emit time.
+                // This is the single arming point that lets the emitter gate every suppressed-proxy
+                // reference itself (Change 8), retiring the generate-then-strip post-pass.
+                emissionContext.Marshaling.EmissionContext = emissionContext;
+
                 // Protocol names, protocol-extension methods, and foreign-type extension members
                 // all come from the aggregated SwiftInterfaceFacts, extracted by the SwiftSyntax
                 // host producer; downstream phases consume facts.* directly.
@@ -515,72 +527,12 @@ namespace BindingsGeneration
                         reductionSnapshot.Misses, reductionSnapshot.Attempts, reductionSnapshot.DescribeUnexpected());
                 }
 
-                // Co-gate method bodies that reference suppressed proxy classes.
-                // When EveryProtocol conformance is skipped, the proxy class is not emitted.
-                // Method bodies in other types that construct the proxy (existential return
-                // unwrappers, optional property getters) must also be removed.
-                //
-                // Cross-module case: the umbrella-aware existential marshaler can emit
-                // `{Namespace}.SwiftInterop.{ProxyName}(` references targeting a proxy that
-                // lives in a previously generated dependency module. If that dependency
-                // suppressed the proxy, its <suppressedProxies> XML element flows here via
-                // TypeDatabase as `(namespace, proxyName)` pairs (namespace = the dep's C#
-                // namespace, persisted by ModuleDatabaseEmitter). We pass them to the
-                // post-pass as a separate qualified-only set so it strips ONLY the
-                // cross-module qualified form, never the unqualified `new {ProxyName}(` or
-                // `new SwiftInterop.{ProxyName}(` forms — those would false-positive on
-                // this module's own legitimately-emitted proxy with the same simple class
-                // name.
-                var crossModulePairs = typeDatabase.GetCrossModuleSuppressedProxyClassNames();
-                IReadOnlySet<string> crossModuleQualified;
-                if (crossModulePairs.Count > 0)
-                {
-                    var qualified = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (var (ns, proxyName) in crossModulePairs)
-                        qualified.Add($"{ns}.SwiftInterop.{proxyName}");
-                    crossModuleQualified = qualified;
-                }
-                else
-                {
-                    crossModuleQualified = new HashSet<string>(StringComparer.Ordinal);
-                }
-
-                IReadOnlyList<CoGatedMember> proxyCoGated = Array.Empty<CoGatedMember>();
-                if (emissionContext.SuppressedProxyClassNames.Count > 0 || crossModuleQualified.Count > 0)
-                {
-                    proxyCoGated = CSharpWrapperCoGater.ProcessSuppressedProxyReferencesInDirectory(
-                        outputDirectory,
-                        emissionContext.SuppressedProxyClassNames,
-                        crossModuleQualified,
-                        logger);
-                    if (proxyCoGated.Count > 0)
-                        logger.LogInformation(
-                            "Suppressed {Count} method(s) referencing {LocalCount} local + {CrossCount} cross-module suppressed proxy class(es).",
-                            proxyCoGated.Count,
-                            emissionContext.SuppressedProxyClassNames.Count,
-                            crossModuleQualified.Count);
-                }
-
-                // Strip orphan callers left behind by in-band wrapper-symbol contract
-                // rejections. The contract trips inside PInvokeEmitter AFTER WrapperEmitter
-                // has already written the wrapper body to disk — the P/Invoke decl is
-                // suppressed but the call site referencing it remains. RecordContractViolation
-                // collected those C# P/Invoke method names during emission; the cogater
-                // strips every caller through the same transitive-closure logic that
-                // handles wrapper-compilation strips.
-                IReadOnlyList<CoGatedMember> contractCoGated = Array.Empty<CoGatedMember>();
-                if (emissionContext.ContractViolatedPInvokeScopes.Count > 0)
-                {
-                    contractCoGated = CSharpWrapperCoGater.ProcessDirectoryForContractViolations(
-                        outputDirectory,
-                        emissionContext.ContractViolatedPInvokeScopes,
-                        logger);
-                    if (contractCoGated.Count > 0)
-                        logger.LogInformation(
-                            "Stripped {Count} caller(s) of {ViolationCount} contract-rejected P/Invoke(s).",
-                            contractCoGated.Count,
-                            emissionContext.ContractViolatedPInvokeScopes.Count);
-                }
+                // Proxy-suppression and wrapper-symbol-contract reconciliation that once ran
+                // here as generate-then-strip post-passes are gone: both are now decided at
+                // emission. A reference to a suppressed proxy is dropped or stubbed where it
+                // would have been written (ExistentialHandler's emit-time gate, covering the
+                // local and cross-module-qualified forms), and a contract-rejected wrapper
+                // symbol's caller is never emitted in the first place (predict-then-skip).
 
                 // Emit the ILLink trimmer descriptor that roots every open-generic ISwiftObject
                 // type definition emitted in this module. ILC's reachability analysis can prove
@@ -643,18 +595,6 @@ namespace BindingsGeneration
                         // dependency parsing on this same call chain, captured before the
                         // ambient collector is reset for the next generation.
                         InputResolution = InputResolutionSection.From(InputResolutionReport.Decisions),
-                        ProxyCoGating = new ProxyCoGatingSection
-                        {
-                            Status = PhaseStatus.Success,
-                            SuppressedProxyClassCount = emissionContext.SuppressedProxyClassNames.Count,
-                            CoGatedMethods = proxyCoGated.ToList(),
-                        },
-                        ContractCoGating = new ContractCoGatingSection
-                        {
-                            Status = PhaseStatus.Success,
-                            ContractViolatedPInvokeCount = emissionContext.ContractViolatedPInvokeScopes.Count,
-                            CoGatedMembers = contractCoGated.ToList(),
-                        },
                     };
                     BindingArtifactManifestStore.Write(manifest, outputDirectory, logger);
 
@@ -1288,7 +1228,7 @@ namespace BindingsGeneration
             IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
             if (outcome.StrippedSymbols.Count > 0)
             {
-                coGated = CSharpWrapperCoGater.ProcessDirectory(
+                coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
                     outputDirectory, outcome.StrippedSymbols, logger);
                 if (coGated.Count > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);

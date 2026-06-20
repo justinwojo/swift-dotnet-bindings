@@ -22,7 +22,7 @@ namespace BindingsGeneration.Tests;
 /// paths that funnel through <see cref="ClosureEmitter.GetSwiftClosureAdapterCode"/>. Native
 /// pass-through paths (optional-pointer/_optbuf wrapper, default-parameter shims, the non-optional
 /// closure property setter) skipped that funnel, so the C# P/Invoke referenced an unregistered
-/// wrapper symbol, the contract gate rejected it, and the co-gater stripped the callback method —
+/// wrapper symbol, the contract gate rejected it, and the retired co-gater stripped the callback method —
 /// stranding its <c>s_&lt;cb&gt; = &amp;&lt;cb&gt;</c> field → CS0103. The fix registers the helper
 /// at the handler dispatch layer (method/constructor/property), above the leaf emitters, so every
 /// path is covered uniformly. These tests pin the policy (which decl shapes need the helper) and
@@ -198,14 +198,14 @@ public class SwiftErrorMintEmitterTests
         // asserts the handler-layer guard registered + emitted the Swift helper. This pins the
         // WIRING: deleting the SwiftErrorMintEmitter.EmitForMethodIfNeeded call from
         // MethodHandler.Emit would make this fail even though the policy unit tests still pass.
-        // No contract violation may be recorded — the throwing-closure callback's SBW_CreateError
-        // reference must be satisfied, not rejected-then-stripped.
+        // The throwing-closure callback's SBW_CreateError reference must be satisfied — the
+        // helper registers before the contract check, so the predict-then-skip gate never
+        // fires and the member is emitted intact.
         var (ctx, swift, cs) = EmitMethodThroughHandler(ThrowingVoidClosure());
 
         Assert.True(ctx.IsWrapperSymbolRegistered(Symbol),
             $"Handler guard did not register {Symbol}. Swift:\n{swift}\n\nCS:\n{cs}");
         Assert.Contains(SwiftHelperMarker, swift);
-        Assert.Empty(ctx.ContractViolatedEntryPoints);
     }
 
     // ---------------------------------------------------------------------

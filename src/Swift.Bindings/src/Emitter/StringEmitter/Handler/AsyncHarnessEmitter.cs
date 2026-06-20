@@ -251,11 +251,12 @@ namespace BindingsGeneration
             // the conversion expression (`ArrayFromHandleFunc<NSUrl>(_collection, ...)`) would mismatch
             // (CS1503: SwiftArray<NSUrl> vs IntPtr).
             if (!voidReturn && TryGetCollectionAsyncInfo(returnType.SwiftTypeSpec,
-                out var runtimeType, out var conversionExpr, out var collectionUsesObjCBridge))
+                out var runtimeType, out var conversionExpr, out var collectionUsesObjCBridge,
+                out var collectionProxySuppressed))
             {
                 EmitAsyncWrapperForCollection(callbackWriter, callbackFieldName, callbackMethodName,
                     errorCallbackFieldName, errorCallbackMethodName, runtimeType, conversionExpr,
-                    collectionUsesObjCBridge);
+                    collectionUsesObjCBridge, collectionProxySuppressed);
                 FlushAsyncHelperWriter();
                 return;
             }
@@ -748,12 +749,26 @@ namespace BindingsGeneration
                     ? ", ownsContainer: true"
                     : string.Empty;
                 string asyncWrapExpr;
+                bool asyncProxySuppressed = false;
                 if (asyncProtocolList.Protocols.Count == 0 || asyncPublicType == "object")
                     asyncWrapExpr = "__existentialResult";
                 else if (asyncPublicType == "Swift.Runtime.ExistentialUnion")
                     asyncWrapExpr = "new Swift.Runtime.ExistentialUnion(__existentialResult)";
                 else if (_env.ExistentialHandler.TryGetWellKnownProtocolType(asyncProtocolList, out var asyncWkIR))
                     asyncWrapExpr = $"new {asyncWkIR}(__existentialResult)";
+                else if (_env.ExistentialHandler.IsProxyReferenceSuppressed(asyncProtocolList, _emissionContext))
+                {
+                    // The protocol proxy that would marshal this async existential result was
+                    // suppressed (its EveryProtocol conformance could not be emitted — e.g. an
+                    // `init()` requirement). There is no concrete type to construct, so fault the
+                    // awaiting Task instead of referencing the absent proxy class. The fault is
+                    // emitted as the `result` initializer below, so it throws inside the completion
+                    // callback's try — routing to TrySetException (observable to the awaiter) and
+                    // freeing the carrier + GCHandle in finally. This preserves the async lifecycle,
+                    // unlike a silent no-op callback that would leave the awaiting Task hanging.
+                    asyncProxySuppressed = true;
+                    asyncWrapExpr = "default";
+                }
                 else
                     asyncWrapExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(asyncProtocolList)}(__existentialResult{asyncOwnedArg})";
                 // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
@@ -764,9 +779,14 @@ namespace BindingsGeneration
                 var asyncExistentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList)
                     ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
                     : $"SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr)";
-                marshalResultCode =
-                    $"var __existentialResult = {asyncExistentialRead};\n" +
-                    $"                                var result = {asyncWrapExpr};";
+                // Suppressed proxy: fault the awaiting Task. A bare `T result = throw …;` is not a
+                // legal throw-expression context (CS8115), and the downstream TrySetResult(result)
+                // requires `result` to be definitely assigned, so route the throw through a `?:`
+                // whose value-typed arm keeps `result`'s type while the throw always fires.
+                marshalResultCode = asyncProxySuppressed
+                    ? $"{asyncPublicType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for '{asyncPublicType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential result.\") : default;"
+                    : $"var __existentialResult = {asyncExistentialRead};\n" +
+                      $"                                var result = {asyncWrapExpr};";
             }
             else if (isObjCBridged)
             {
@@ -804,9 +824,37 @@ namespace BindingsGeneration
             }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
-            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion, out var valueContainerInnerConversion))
+            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion, out var valueContainerInnerConversion, out var optionalProxySuppressed))
             {
-                if (containerBridgeConversion != null)
+                if (optionalProxySuppressed)
+                {
+                    // Optional<container<existential>> whose element proxy was suppressed (EveryProtocol
+                    // conformance unavailable). Fault the awaiting Task — same contract as the
+                    // non-optional existential suppressed branch above: the throw fires inside the
+                    // completion callback's try → TrySetException (observable to the awaiter), and the
+                    // finally releases the GCHandle. A bare `T result = throw …;` is not a legal
+                    // throw-expression context (CS8115) and TrySetResult(result) requires definite
+                    // assignment, so route the throw through a `?:` whose value-typed arm keeps result's
+                    // type while the throw always fires.
+                    //
+                    // The carrier still holds the Swift-vended +1 even on the fault path: the Swift
+                    // @_cdecl wrapper ran to completion and `initializeMemory(as: Optional<SwiftArray<…>>.self)`'d
+                    // the .some payload (it cannot know the C# proxy was suppressed), so the carrier holds
+                    // +1 on the embedded container storage exactly as the non-suppressed
+                    // valueContainerInnerConversion branch below — which VWT-Destroys the carrier before
+                    // SBW_Free. Mirror that release here BEFORE throwing, or the .some([…]) storage's +1
+                    // leaks every call. optionalMarshalType (op.ContainerTypeName) is set before the
+                    // suppression catch, so it names the raw SwiftOptional<SwiftArray<…>> carrier type and
+                    // never references the absent proxy. Destroy runs first; the throw then fires (result
+                    // is never read — the catch faults the Task), and the shared finally's SBW_Free reclaims
+                    // the now-released raw allocation.
+                    var optPublicType = _wrapperSignature.ReturnType;
+                    marshalResultCode =
+                        $"var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
+                        $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                        $"                                {optPublicType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for '{optPublicType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async optional existential result.\") : default;";
+                }
+                else if (containerBridgeConversion != null)
                 {
                     // Optional<Array/Set/Dictionary<ObjCBridgeable>>: paired with the Swift-side
                     // `isOptionalObjCContainer` branch in EmitAsync. The Swift wrapper unwraps the
@@ -959,17 +1007,27 @@ namespace BindingsGeneration
         private bool TryGetCollectionAsyncInfo(TypeSpec returnTypeSpec,
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimeType,
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? conversionExpr,
-            out bool usesObjCContainerBridge)
+            out bool usesObjCContainerBridge,
+            out bool proxySuppressed)
         {
             runtimeType = null;
             conversionExpr = null;
             usesObjCContainerBridge = false;
+            proxySuppressed = false;
 
+            // Thread EmissionContext so the element projection's proxy-suppression gate is armed:
+            // an existential element (e.g. `[any Boxable]`) whose EveryProtocol conformance could
+            // not be emitted makes GetReturnContainerConversion throw SuppressedProxyReferenceException
+            // (the PRODUCE arm) instead of silently emitting `new {Proxy}(…)`. The throw is caught
+            // here — during pure string projection, before EmitAsyncWrapperForCollection writes any
+            // callback body (Hazard-D-safe) — and surfaced as proxySuppressed so the completion
+            // callback faults the awaiting Task rather than referencing the absent proxy class.
             var ctx = new ProjectionContext
             {
                 TypeDatabase = _env.TypeDatabase,
                 IsParameter = false,
-                IsAsync = false
+                IsAsync = false,
+                EmissionContext = _emissionContext
             };
 
             var projection = s_projectionFactory.Project(returnTypeSpec, ctx);
@@ -977,29 +1035,53 @@ namespace BindingsGeneration
             {
                 usesObjCContainerBridge = ap.UsesObjCContainerBridge;
                 runtimeType = ap.ContainerTypeName;
-                conversionExpr = usesObjCContainerBridge
-                    ? ap.GetReturnContainerConversion("_ptr")!
-                    : ap.GetReturnContainerConversion("_collection")!;
+                try
+                {
+                    conversionExpr = usesObjCContainerBridge
+                        ? ap.GetReturnContainerConversion("_ptr")!
+                        : ap.GetReturnContainerConversion("_collection")!;
+                }
+                catch (SuppressedProxyReferenceException)
+                {
+                    proxySuppressed = true;
+                    conversionExpr = string.Empty;
+                }
                 return true;
             }
             if (projection is DictionaryProjection dp)
             {
                 usesObjCContainerBridge = dp.UsesObjCContainerBridge;
                 runtimeType = dp.ContainerTypeName;
-                conversionExpr = usesObjCContainerBridge
-                    ? dp.GetReturnContainerConversion("_ptr")!
-                    : dp.GetReturnContainerConversion("_collection")!;
+                try
+                {
+                    conversionExpr = usesObjCContainerBridge
+                        ? dp.GetReturnContainerConversion("_ptr")!
+                        : dp.GetReturnContainerConversion("_collection")!;
+                }
+                catch (SuppressedProxyReferenceException)
+                {
+                    proxySuppressed = true;
+                    conversionExpr = string.Empty;
+                }
                 return true;
             }
             if (projection is SetProjection sp)
             {
                 usesObjCContainerBridge = sp.UsesObjCContainerBridge;
                 runtimeType = sp.ContainerTypeName;
-                // SetProjection returns null when no element conversion is needed
-                // (SwiftSet<T> already implements IReadOnlySet<T>). Use identity.
-                conversionExpr = usesObjCContainerBridge
-                    ? sp.GetReturnContainerConversion("_ptr")!
-                    : (sp.GetReturnContainerConversion("_collection") ?? "_collection");
+                try
+                {
+                    // SetProjection returns null when no element conversion is needed
+                    // (SwiftSet<T> already implements IReadOnlySet<T>). Use identity.
+                    conversionExpr = usesObjCContainerBridge
+                        ? sp.GetReturnContainerConversion("_ptr")!
+                        : (sp.GetReturnContainerConversion("_collection") ?? "_collection");
+                }
+                catch (SuppressedProxyReferenceException)
+                {
+                    proxySuppressed = true;
+                    conversionExpr = string.Empty;
+                }
                 return true;
             }
 
@@ -1054,12 +1136,14 @@ namespace BindingsGeneration
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? marshalType,
             out string? objcBridgeConversion,
             out string? containerBridgeConversion,
-            out string? valueContainerInnerConversion)
+            out string? valueContainerInnerConversion,
+            out bool proxySuppressed)
         {
             marshalType = null;
             objcBridgeConversion = null;
             containerBridgeConversion = null;
             valueContainerInnerConversion = null;
+            proxySuppressed = false;
             var returnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
             if (returnSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optionalSpec)
                 return false;
@@ -1089,29 +1173,44 @@ namespace BindingsGeneration
             {
                 marshalType = op.ContainerTypeName;
 
-                // Optional<Container<ObjCBridgeable>>: the inner container projection bridges to
-                // NSArray / NSDictionary / NSSet. The Swift @_cdecl wrapper coerces the unwrapped
-                // value via `as AnyObject` (which dispatches through _ObjectiveCBridgeable to
-                // produce a real NSArray/NSDictionary/NSSet, NOT the raw Swift storage class —
-                // Foundation._SwiftURL is not an NSObject subclass and would crash the ObjC
-                // registrar) and stores the resulting +1 retained pointer in the carrier buffer.
-                // The C# side reads the IntPtr and hands it to the container projection's
-                // GetReturnContainerConversion which expects an IntPtr-typed variable name.
-                if (op.InnerProjection.UsesObjCContainerBridge)
+                try
                 {
-                    containerBridgeConversion = op.InnerProjection.GetReturnContainerConversion("_ptr");
-                    // Drop the no-longer-used objcBridgeConversion guard — we're switching strategies.
-                    objcBridgeConversion = null;
+                    // Optional<Container<ObjCBridgeable>>: the inner container projection bridges to
+                    // NSArray / NSDictionary / NSSet. The Swift @_cdecl wrapper coerces the unwrapped
+                    // value via `as AnyObject` (which dispatches through _ObjectiveCBridgeable to
+                    // produce a real NSArray/NSDictionary/NSSet, NOT the raw Swift storage class —
+                    // Foundation._SwiftURL is not an NSObject subclass and would crash the ObjC
+                    // registrar) and stores the resulting +1 retained pointer in the carrier buffer.
+                    // The C# side reads the IntPtr and hands it to the container projection's
+                    // GetReturnContainerConversion which expects an IntPtr-typed variable name.
+                    if (op.InnerProjection.UsesObjCContainerBridge)
+                    {
+                        containerBridgeConversion = op.InnerProjection.GetReturnContainerConversion("_ptr");
+                        // Drop the no-longer-used objcBridgeConversion guard — we're switching strategies.
+                        objcBridgeConversion = null;
+                    }
+                    else if (objcBridgeConversion == null
+                        && op.InnerProjection is ArrayProjection or SetProjection or DictionaryProjection)
+                    {
+                        // Optional<Array/Set/Dictionary<value-type>>: the carrier holds a real
+                        // SwiftOptional<SwiftArray<…>> value (no ObjC bridge). ToNullable() yields
+                        // SwiftArray<rawElem>?, but the public TCS expects IReadOnlyList<publicElem>?.
+                        // Capture the inner container's element-conversion expression (e.g.,
+                        // `_rawCol.AsProjected(e => e.ToString())`) to apply at the call site.
+                        valueContainerInnerConversion = op.InnerProjection.GetReturnContainerConversion("_rawCol");
+                    }
                 }
-                else if (objcBridgeConversion == null
-                    && op.InnerProjection is ArrayProjection or SetProjection or DictionaryProjection)
+                catch (SuppressedProxyReferenceException)
                 {
-                    // Optional<Array/Set/Dictionary<value-type>>: the carrier holds a real
-                    // SwiftOptional<SwiftArray<…>> value (no ObjC bridge). ToNullable() yields
-                    // SwiftArray<rawElem>?, but the public TCS expects IReadOnlyList<publicElem>?.
-                    // Capture the inner container's element-conversion expression (e.g.,
-                    // `_rawCol.AsProjected(e => e.ToString())`) to apply at the call site.
-                    valueContainerInnerConversion = op.InnerProjection.GetReturnContainerConversion("_rawCol");
+                    // PRODUCE arm: the optional's inner container element is an existential whose
+                    // EveryProtocol proxy was suppressed. Mirror the non-optional collection-return
+                    // path — surface a flag so the completion callback faults the awaiting Task
+                    // instead of constructing the absent `new {Proxy}(`. The throw fired during pure
+                    // string projection, before any callback body was written (Hazard-D-safe).
+                    proxySuppressed = true;
+                    objcBridgeConversion = null;
+                    containerBridgeConversion = null;
+                    valueContainerInnerConversion = null;
                 }
 
                 return true;
@@ -1146,7 +1245,15 @@ namespace BindingsGeneration
             {
                 TypeDatabase = _env.TypeDatabase,
                 IsParameter = false,
-                IsAsync = false
+                IsAsync = false,
+                // Thread EmissionContext so an Optional<container<existential>> return whose element's
+                // proxy was suppressed makes the inner container's GetReturnContainerConversion throw
+                // SuppressedProxyReferenceException (PRODUCE arm) — caught in TryGetOptionalMarshalType
+                // and surfaced as proxySuppressed — instead of emitting a dangling `new {Proxy}(`. The
+                // Project() call itself never throws (only conversion-string building does), so the
+                // probe-only callers (IsTopLevelObjCBridgeContainerReturn / IsOptionalObjCBridgeContainerReturn)
+                // are unaffected.
+                EmissionContext = _emissionContext
             };
             return s_projectionFactory.Project(returnSpec, ctx);
         }
@@ -1169,7 +1276,7 @@ namespace BindingsGeneration
             string callbackFieldName, string callbackMethodName,
             string errorCallbackFieldName, string errorCallbackMethodName,
             string runtimeType, string conversionExpr,
-            bool usesObjCContainerBridge)
+            bool usesObjCContainerBridge, bool proxySuppressed)
         {
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
@@ -1177,7 +1284,18 @@ namespace BindingsGeneration
             // bridge through the projection's IntPtr-shaped conversion. Plain Swift collection:
             // revive via MarshalFromSwift on the runtime container type and let the projection
             // convert from the managed container.
-            string marshalLines = usesObjCContainerBridge
+            //
+            // Suppressed proxy element: the existential element's proxy class was not emitted, so
+            // there is no per-element `new {Proxy}(…)` to construct. Fault the awaiting Task instead
+            // of marshalling — mirroring the scalar async existential safe-stub (see EmitAsync's
+            // asyncProxySuppressed branch). A bare `T result = throw …;` is not a legal throw-expression
+            // context (CS8115) and the downstream TrySetResult(result) requires definite assignment,
+            // so route the throw through a `?:` whose value-typed arm keeps `result`'s type while the
+            // throw always fires. The throw lands inside the callback's try → TrySetException (observable
+            // to the awaiter), and finally still frees the carrier + GCHandle.
+            string marshalLines = proxySuppressed
+                ? $"{_wrapperSignature.ReturnType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for the element of '{_wrapperSignature.ReturnType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential collection result.\") : default;"
+                : usesObjCContainerBridge
                 ? $"// ObjC-bridge collection: read +1 retained NS-collection pointer from carrier\n" +
                   $"                                IntPtr _ptr = *(IntPtr*)resultPtr;\n" +
                   $"                                var result = {conversionExpr};"

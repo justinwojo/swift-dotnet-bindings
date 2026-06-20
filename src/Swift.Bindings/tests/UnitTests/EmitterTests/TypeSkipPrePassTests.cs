@@ -45,7 +45,7 @@ public class TypeSkipPrePassTests
     {
         // SwiftUICore is the internal split-out of SwiftUI in newer SDKs. It must be
         // suppressed identically — same skip reason, same propagation behavior — so
-        // that downstream gates and the cogater inventory don't see drift between
+        // that downstream gates and the suppressed-symbol inventory don't see drift between
         // SwiftUI.View and SwiftUICore.View.
         var moduleDecl = BuildModuleWithSwiftUIConstrainedGenericAndNested("SwiftUICore.View");
 

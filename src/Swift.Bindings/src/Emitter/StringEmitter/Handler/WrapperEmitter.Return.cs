@@ -267,7 +267,7 @@ namespace BindingsGeneration
                                 // decomposed (payload, hasValue) buffer at +1 and the buffer is freed in the
                                 // finally, so the proxy is the sole surviving retain and must release it on
                                 // Dispose/finalize (ownsContainer: true) or the payload's +1 leaks.
-                                proxyCtorExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList)}(_container{OwnedExistentialCtorArg(containerType)})";
+                                proxyCtorExpr = $"new {_env.ExistentialHandler.GetRequiredProxyClassName(innerProtocolList, _emissionContext)}(_container{OwnedExistentialCtorArg(containerType)})";
                             else
                                 proxyCtorExpr = "_container"; // fallback — no proxy available
 
@@ -456,7 +456,7 @@ namespace BindingsGeneration
                     { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
                     if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkIR))
                     { csWriter.WriteLine($"return new {wkIR}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wkIR)});"); return; }
-                    var proxyIR = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
+                    var proxyIR = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
                     // Owned return: Swift wrote the existential into the indirect-result buffer
                     // at +1, so the proxy adopts the container and releases it on Dispose.
                     // Both single-protocol (EC1) and composition (EC2+) proxies expose the
@@ -535,7 +535,7 @@ namespace BindingsGeneration
                         }
                         else
                         {
-                            var proxyName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
+                            var proxyName = _env.ExistentialHandler.GetRequiredProxyClassName(innerProtocolList, _emissionContext);
                             csWriter.WriteLines($$"""
                                 var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{resultExpr}});
                                 if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
@@ -612,7 +612,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        var proxyName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
+                        var proxyName = _env.ExistentialHandler.GetRequiredProxyClassName(innerProtocolList, _emissionContext);
                         // Owned return: Swift returned the inner existential at +1 in the marshalled
                         // SwiftOptional; the proxy adopts and releases it on Dispose
                         // (ownsContainer: true) or the payload's +1 leaks.
@@ -782,7 +782,7 @@ namespace BindingsGeneration
                 { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
                 if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
                 { csWriter.WriteLine($"return new {wk}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return; }
-                var proxy = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
+                var proxy = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
                 // Owned return: +1 existential read out of the @_cdecl result buffer (EC1 or EC2+ composition).
                 csWriter.WriteLine($"return new {proxy}(existentialResult{OwnedExistentialCtorArg(containerType)});");
                 return;
@@ -825,7 +825,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                var proxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
+                var proxyClassName = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
                 // Owned return: Swift returned the existential at +1 (EC1 or EC2+ composition).
                 var nonCdeclContainerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
                 csWriter.WriteLine($"return new {proxyClassName}({ReturnLocalName}{OwnedExistentialCtorArg(nonCdeclContainerType)});");
@@ -850,7 +850,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        var optProxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
+                        var optProxyClassName = _env.ExistentialHandler.GetRequiredProxyClassName(innerProtocolList, _emissionContext);
                         // Owned return: Swift returned the inner existential at +1 (EC1 or EC2+ composition); the proxy
                         // adopts and releases it on Dispose or the payload's +1 leaks.
                         csWriter.WriteLine($"return new {optProxyClassName}({ReturnLocalName}{OwnedExistentialCtorArg(containerType)});");

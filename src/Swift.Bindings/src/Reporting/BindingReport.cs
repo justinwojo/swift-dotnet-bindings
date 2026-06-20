@@ -121,6 +121,13 @@ public enum SkipReason
     AncestorSkipped,
     ActorIsolatedConstructor,
     MissingWrapperSymbol,
+    /// <summary>
+    /// <b>Retired.</b> Once produced by the generate-then-strip proxy co-gater to mark a method
+    /// body removed because it constructed a suppressed <c>{Name}Proxy</c>. Proxy suppression is
+    /// now decided at emission (the reference gate drops the wrap lambda or stubs the member in
+    /// place), so the generator no longer emits this reason. The member is retained so the
+    /// <see cref="WorkaroundRecommendations"/> switch keeps total coverage without churn.
+    /// </summary>
     SuppressedProxyMethodBody,
     CovariantReturnNotRepresentable,
     /// <summary>

@@ -99,7 +99,7 @@ namespace BindingsGeneration
         /// Emits a TryGet method for an enum case with associated values.
         /// The method extracts the associated value(s) if the enum is in the specified case.
         /// </summary>
-        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null)
+        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
@@ -111,14 +111,14 @@ namespace BindingsGeneration
             // multi-value payload requires.
             if (caseDecl.AssociatedValues.Count == 1 && caseDecl.AssociatedValues[0] is TupleTypeSpec tupleSpec && tupleSpec.Elements.Count > 1)
             {
-                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics, caseNameMap);
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics, caseNameMap, emissionCtx);
                 return;
             }
 
             if (caseDecl.AssociatedValues.Count > 1)
             {
                 var synthesizedTuple = new TupleTypeSpec(caseDecl.AssociatedValues);
-                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, synthesizedTuple, typeDatabase, typeNameWithGenerics, caseNameMap);
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, synthesizedTuple, typeDatabase, typeNameWithGenerics, caseNameMap, emissionCtx);
                 return;
             }
 
@@ -198,88 +198,106 @@ namespace BindingsGeneration
             csWriter.WriteLine($"/// <param name=\"value\">When this method returns true, contains the associated value(s).</param>");
             csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
             csWriter.WriteLine($"public bool TryGet{capitalizedName}([MaybeNullWhen(false)] out {outType} value)");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("unsafe");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-
-            // Check if we're in the right case
-            csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("value = default;");
-            csWriter.WriteLine("return false;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
-
-            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
-            csWriter.WriteLine();
-
-            // Create a copy to avoid destroying the original
-            csWriter.WriteLine("// Create a non-destructive copy of the enum");
-            csWriter.WriteLine("byte* enumCopy = stackalloc byte[(int)metadata.Size];");
-            csWriter.WriteLine("bool success = false;");
-            csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("finally");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("if (success)");
-            csWriter.Indent++;
-            csWriter.WriteLine("_payload.DangerousRelease();");
-            csWriter.Indent--;
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
-
-            // Strip the tag to get the payload
-            csWriter.WriteLine("// Strip the tag to get the raw payload");
-            csWriter.WriteLine("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);");
-            csWriter.WriteLine();
-
-            // Marshal the payload to C# type(s)
-            csWriter.WriteLine("// Marshal the payload to C# type(s)");
-            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-            var marshalGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-            if (parameters.Count == 1)
+            // Predict-before-emit: a payload existential whose EveryProtocol conformance was not
+            // emitted throws SuppressedProxyReferenceException from EmitPayloadMarshal* mid-body.
+            // The checkpoint/catch rolls the half-written body back to just after the signature and
+            // re-emits the proxy-suppressed throw stub — the in-emission transactional replacement
+            // for the old generate-then-regex-strip CoGater member-strip pass.
+            var __tryGetCp = csWriter.Checkpoint();
+            try
             {
-                var (type, publicType, name, typeSpec) = parameters[0];
-                if (typeConversionHandler.IsSwiftString(typeSpec))
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("unsafe");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Check if we're in the right case
+                csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("value = default;");
+                csWriter.WriteLine("return false;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
+                csWriter.WriteLine();
+
+                // Create a copy to avoid destroying the original
+                csWriter.WriteLine("// Create a non-destructive copy of the enum");
+                csWriter.WriteLine("byte* enumCopy = stackalloc byte[(int)metadata.Size];");
+                csWriter.WriteLine("bool success = false;");
+                csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("if (success)");
+                csWriter.Indent++;
+                csWriter.WriteLine("_payload.DangerousRelease();");
+                csWriter.Indent--;
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Strip the tag to get the payload
+                csWriter.WriteLine("// Strip the tag to get the raw payload");
+                csWriter.WriteLine("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);");
+                csWriter.WriteLine();
+
+                // Marshal the payload to C# type(s)
+                csWriter.WriteLine("// Marshal the payload to C# type(s)");
+                var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+                var marshalGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
+                if (parameters.Count == 1)
                 {
-                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl);
-                    csWriter.WriteLine("value = __value_raw.ToString();");
-                }
-                else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
-                {
-                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl);
-                    csWriter.WriteLine("value = __value_raw.ToByteArray();");
+                    var (type, publicType, name, typeSpec) = parameters[0];
+                    if (typeConversionHandler.IsSwiftString(typeSpec))
+                    {
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl, emissionCtx);
+                        csWriter.WriteLine("value = __value_raw.ToString();");
+                    }
+                    else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
+                    {
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl, emissionCtx);
+                        csWriter.WriteLine("value = __value_raw.ToByteArray();");
+                    }
+                    else
+                    {
+                        EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl, emissionCtx);
+                    }
                 }
                 else
                 {
-                    EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl);
+                    // Unreachable: multi-element tuples are handled by EmitTryGetMethodForTuple,
+                    // and multi-value associated types (>1 AssociatedValues) return early above.
+                    throw new InvalidOperationException(
+                        $"Unexpected multi-parameter enum case '{enumDecl.Name}.{caseName}' with {parameters.Count} parameters. " +
+                        "Multi-element tuples should be handled by EmitTryGetMethodForTuple.");
                 }
-            }
-            else
-            {
-                // Unreachable: multi-element tuples are handled by EmitTryGetMethodForTuple,
-                // and multi-value associated types (>1 AssociatedValues) return early above.
-                throw new InvalidOperationException(
-                    $"Unexpected multi-parameter enum case '{enumDecl.Name}.{caseName}' with {parameters.Count} parameters. " +
-                    "Multi-element tuples should be handled by EmitTryGetMethodForTuple.");
-            }
 
-            csWriter.WriteLine("return true;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}"); // unsafe
-            csWriter.Indent--;
-            csWriter.WriteLine("}"); // TryGet
+                csWriter.WriteLine("return true;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}"); // unsafe
+                csWriter.Indent--;
+                csWriter.WriteLine("}"); // TryGet
+            }
+            catch (SuppressedProxyReferenceException)
+            {
+                csWriter.RollbackTo(__tryGetCp);
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
             csWriter.WriteLine();
         }
 
@@ -288,7 +306,7 @@ namespace BindingsGeneration
         /// Generates multiple out parameters, one for each tuple element.
         /// Uses TupleTypeMetadata to get element offsets at runtime.
         /// </summary>
-        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null)
+        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
@@ -366,76 +384,96 @@ namespace BindingsGeneration
             }
             csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
             csWriter.WriteLine($"public bool TryGet{capitalizedName}({outParamString})");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("unsafe");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-
-            // Check if we're in the right case
-            csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            foreach (var (_, _, name, _) in parameters)
+            // Predict-before-emit: a tuple-element existential whose EveryProtocol conformance was
+            // not emitted throws SuppressedProxyReferenceException from EmitPayloadMarshalWithOffset
+            // mid-body. The checkpoint/catch rolls the half-written body back to just after the
+            // signature and re-emits the proxy-suppressed throw stub — the in-emission transactional
+            // replacement for the old generate-then-regex-strip CoGater member-strip pass. The tuple
+            // metadata accessor helper below is left intact, matching the CoGater (which only stubbed
+            // the member referencing the suppressed proxy).
+            var __tryGetTupleCp = csWriter.Checkpoint();
+            try
             {
-                csWriter.WriteLine($"{name} = default;");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("unsafe");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Check if we're in the right case
+                csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                foreach (var (_, _, name, _) in parameters)
+                {
+                    csWriter.WriteLine($"{name} = default;");
+                }
+                csWriter.WriteLine("return false;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
+                csWriter.WriteLine();
+
+                // Create a copy to avoid destroying the original
+                csWriter.WriteLine("// Create a non-destructive copy of the enum");
+                csWriter.WriteLine("byte* enumCopy = stackalloc byte[(int)metadata.Size];");
+                csWriter.WriteLine("bool success = false;");
+                csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("if (success)");
+                csWriter.Indent++;
+                csWriter.WriteLine("_payload.DangerousRelease();");
+                csWriter.Indent--;
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Strip the tag to get the payload
+                csWriter.WriteLine("// Strip the tag to get the raw payload (which is the tuple)");
+                csWriter.WriteLine("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);");
+                csWriter.WriteLine();
+
+                // Get tuple type metadata to access element offsets
+                csWriter.WriteLine("// Get tuple metadata to determine element offsets");
+                csWriter.WriteLine($"var tupleMetadata = GetTupleMetadata_{capitalizedName}();");
+                csWriter.WriteLine();
+
+                // Marshal each tuple element using its computed offset
+                csWriter.WriteLine("// Marshal each tuple element from its computed offset");
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    var (_, _, name, typeSpec) = parameters[i];
+                    csWriter.WriteLine($"var offset{i} = tupleMetadata->GetElementOffset({i});");
+                    var tupleGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
+                    EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase, tupleGenericParams, enumDecl.ModuleDecl, emissionCtx);
+                }
+                csWriter.WriteLine();
+
+                csWriter.WriteLine("return true;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}"); // unsafe
+                csWriter.Indent--;
+                csWriter.WriteLine("}"); // TryGet
             }
-            csWriter.WriteLine("return false;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
-
-            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
-            csWriter.WriteLine();
-
-            // Create a copy to avoid destroying the original
-            csWriter.WriteLine("// Create a non-destructive copy of the enum");
-            csWriter.WriteLine("byte* enumCopy = stackalloc byte[(int)metadata.Size];");
-            csWriter.WriteLine("bool success = false;");
-            csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("finally");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("if (success)");
-            csWriter.Indent++;
-            csWriter.WriteLine("_payload.DangerousRelease();");
-            csWriter.Indent--;
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
-
-            // Strip the tag to get the payload
-            csWriter.WriteLine("// Strip the tag to get the raw payload (which is the tuple)");
-            csWriter.WriteLine("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);");
-            csWriter.WriteLine();
-
-            // Get tuple type metadata to access element offsets
-            csWriter.WriteLine("// Get tuple metadata to determine element offsets");
-            csWriter.WriteLine($"var tupleMetadata = GetTupleMetadata_{capitalizedName}();");
-            csWriter.WriteLine();
-
-            // Marshal each tuple element using its computed offset
-            csWriter.WriteLine("// Marshal each tuple element from its computed offset");
-            for (int i = 0; i < parameters.Count; i++)
+            catch (SuppressedProxyReferenceException)
             {
-                var (_, _, name, typeSpec) = parameters[i];
-                csWriter.WriteLine($"var offset{i} = tupleMetadata->GetElementOffset({i});");
-                var tupleGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-                EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase, tupleGenericParams, enumDecl.ModuleDecl);
+                csWriter.RollbackTo(__tryGetTupleCp);
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
             }
-            csWriter.WriteLine();
-
-            csWriter.WriteLine("return true;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}"); // unsafe
-            csWriter.Indent--;
-            csWriter.WriteLine("}"); // TryGet
             csWriter.WriteLine();
 
             // Emit the tuple metadata accessor helper

@@ -23,18 +23,28 @@ public static class ConstructorWrapperEmitter
     /// no closure parameters (deferred to follow-up).
     /// </summary>
     public static bool ShouldEmitWrapper(MethodEnvironment env)
+        => EvaluateWrapperEligibility(env).IsWrappable;
+
+    /// <summary>
+    /// Single eligibility traversal for constructor @_cdecl wrappers: returns whether the
+    /// constructor will be wrapped and, if not, the first guard that rejected it.
+    /// <see cref="ShouldEmitWrapper"/> is its boolean shim, so the predicate and the rejection
+    /// diagnostic can never drift (Finding 12).
+    /// </summary>
+    public static WrapperEligibility EvaluateWrapperEligibility(MethodEnvironment env)
     {
         if (!env.MethodDecl.IsConstructor)
-            return false;
+            return WrapperEligibility.Reject("not_constructor");
 
         // Shared guards: xcframework, internal, non-copyable, async, actor isolation, inherited generic context
-        if (!WrapperValidation.CanEmitMember(env, MemberKind.Constructor,
+        var memberReason = WrapperValidation.GetMemberRejectionReason(env, MemberKind.Constructor,
             isModuleInternal: env.MethodDecl.IsModuleInternal,
             isAsync: env.MethodDecl.IsAsync,
             isActorIsolated: env.MethodDecl.IsActorIsolated,
             isMainActorIsolated: env.MethodDecl.IsMainActorIsolated,
-            isNonisolated: env.MethodDecl.IsNonisolated))
-            return false;
+            isNonisolated: env.MethodDecl.IsNonisolated);
+        if (memberReason != null)
+            return WrapperEligibility.Reject(memberReason);
 
         // Skip failable inits on non-frozen struct types.
         // Non-frozen struct failable inits already work through CallConvSwift on Mono
@@ -43,14 +53,14 @@ public static class ConstructorWrapperEmitter
         // Swift wrapper interacts poorly with the VWT-based tag/copy operations in TryCreate.
         if (env.MethodDecl.IsFailable && env.ParentDecl is StructDecl failableStruct &&
             !failableStruct.IsFrozen)
-            return false;
+            return WrapperEligibility.Reject("failable_non_frozen_struct");
 
         // Generic parent type — allow constructors using protocol-based type erasure.
         // (inherited generic context is already checked by CanEmitMember)
         if (env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
         {
             if (!CanEmitGenericConstructorWrapper(env, typeDecl))
-                return false;
+                return WrapperEligibility.Reject("generic_parent");
         }
 
         // Closure parameters: allowed only when NeedsClosureCdeclWrapper validates them
@@ -58,9 +68,9 @@ public static class ConstructorWrapperEmitter
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
-                return false;
+                return WrapperEligibility.Reject("closure_params");
             if (HasAnyAsyncClosure(env))
-                return false;
+                return WrapperEligibility.Reject("async_closure");
         }
 
         // Skip constructors with metatype parameters (including Optional<Metatype>).
@@ -69,41 +79,41 @@ public static class ConstructorWrapperEmitter
         // as the method-level gate (MethodWrapperEmitter.HasUnsupportedTypeSignature 14b).
         if (env.MethodDecl.CSSignature.Skip(1)
                 .Any(a => WrapperValidation.IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
-            return false;
+            return WrapperEligibility.Reject("metatype_param");
 
         // Skip constructors with non-copyable (~Copyable) struct parameters.
         // The @_cdecl wrapper passes frozen structs by value through the C ABI, which
         // requires copying. Non-copyable types can't be copied, so the wrapper won't compile.
         // C# passes frozen structs by value too, so there's no pointer fallback available.
         if (HasNonCopyableStructParameter(env))
-            return false;
+            return WrapperEligibility.Reject("non_copyable_struct_parameter");
 
         // Skip constructors with nested frozen struct parameters.
         // @_cdecl can't represent nested Swift types (e.g. NestedOuter.Inner) in C ABI.
         // The Swift compiler rejects these with: "type of the parameter cannot be represented in Objective-C".
         if (HasNestedFrozenStructParameter(env))
-            return false;
+            return WrapperEligibility.Reject("nested_frozen_struct_parameter");
 
         // Skip constructors with unsupported buffer pointer parameters
         // (UnsafeBufferPointer<T>, UnsafeMutableBufferPointer<T>).
         // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer are supported via
         // CdeclParamMapper (split into ptr+len at the C ABI boundary).
         if (HasUnsupportedBufferPointerParameter(env))
-            return false;
+            return WrapperEligibility.Reject("unsupported_buffer_pointer_parameter");
 
         // Skip constructors with raw ABI generic type params (τ_0_0) in signature,
         // UNLESS the parent is a generic type (where T params are handled by static factory dispatch).
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl))
         {
             if (!(env.ParentDecl is TypeDecl rawGenTd && rawGenTd.IsGeneric))
-                return false;
+                return WrapperEligibility.Reject("raw_generic_type_params");
         }
 
         // Skip constructors with variadic parameters detected from the demangler.
         // Swift variadic params (T...) appear as Array<T> in ABI JSON. The @_cdecl wrapper
         // would pass [T] where T... is expected, causing a compilation error.
         if (env.MethodDecl.HasVariadicParameter)
-            return false;
+            return WrapperEligibility.Reject("variadic_parameter");
 
         // Skip constructors with `_const` (compile-time-constant) parameters — e.g.
         // AppIntents.IntentCollectionSize.init(min: _const Int, max: _const Int).
@@ -112,16 +122,16 @@ public static class ConstructorWrapperEmitter
         // the flag is sourced from the swiftinterface via SwiftABIParser. Shared with
         // CSM via ConstructorAdmissibility so all erasure paths drop `_const` inits alike.
         if (ConstructorAdmissibility.HasConstLiteralParameter(env.MethodDecl))
-            return false;
+            return WrapperEligibility.Reject("const_literal_parameter");
 
         // Skip constructors with variadic expansion pattern: N individual protocol params
         // followed by Array<SameProtocol>. The wrapper passes the array as a positional arg,
         // but Swift resolves to the variadic overload causing type mismatch.
         // E.g., CompositeDisposable(_:_:_:_:_:) with 4x Disposable + 1x [Disposable].
         if (HasVariadicExpansionPattern(env))
-            return false;
+            return WrapperEligibility.Reject("variadic_expansion_pattern");
 
-        return true;
+        return WrapperEligibility.Wrappable;
     }
 
     /// <summary>
@@ -737,12 +747,6 @@ public static class ConstructorWrapperEmitter
         => GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Constructor);
 
     /// <summary>
-    /// Backward-compatible alias. Delegates to <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
-    /// </summary>
-    internal static bool CanEmitGenericClassConstructorWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
-        => GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Constructor);
-
-    /// <summary>
     /// Returns true when a constructor needs the generic static factory approach.
     /// Delegates to <see cref="GenericDispatchEmitter.NeedsStaticDispatch"/>.
     /// </summary>
@@ -773,7 +777,7 @@ public static class ConstructorWrapperEmitter
     /// Emits the body of a generic parent class constructor wrapper using protocol metatype dispatch.
     /// The metatype reconstruction (let anyType / let initType) is already emitted before this call.
     /// The result is a protocol existential, so it needs 'as AnyObject' for Unmanaged.passRetained().
-    /// Only class types reach here (structs are excluded by CanEmitGenericClassConstructorWrapper).
+    /// Only class types reach here (structs are excluded by CanEmitGenericConstructorWrapper).
     /// </summary>
     private static void EmitGenericClassBody(SwiftWriter sw, string callExpr, bool isFailable, bool throws)
     {

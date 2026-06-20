@@ -229,6 +229,10 @@ namespace BindingsGeneration
                 ParentTypeDecl = parentTypeDecl,
                 CurrentModuleName = ExistentialHandler.CurrentModuleName,
                 CompositionCollector = compositionCollector,
+                // Thread the change-8 suppression gate exactly as the in-pipeline arm
+                // (MarshalingContext.NewProjectionContext) does, so a suppressed existential proxy
+                // is gated identically whether or not a MarshalingContext happens to be attached.
+                EmissionContext = _emissionContext,
             };
         }
 

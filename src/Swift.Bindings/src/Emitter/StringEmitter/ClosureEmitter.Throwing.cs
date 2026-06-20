@@ -70,6 +70,46 @@ public static partial class ClosureEmitter
 
         var parametersString = string.Join(", ", parameters);
 
+        // Existential-argument proxy suppression (throwing variant): see EmitEscapingClosureCallback.
+        // A Swift-vended existential ARGUMENT cannot be marshalled into the user delegate when its
+        // protocol proxy was suppressed (EveryProtocol conformance not emitted). A throwing closure
+        // has an error channel, so report the failure through *errorOut — the Swift adapter rethrows
+        // it on the Swift side — rather than handing Swift a default/garbage result. Local
+        // check-and-branch only: never throw across the [UnmanagedCallersOnly] boundary (SIGABRT),
+        // and the member-body checkpoint rollback is unsafe for a helper-emitted callback (Hazard D).
+        if (argTypes.Any(closureHandler.IsProxyReferenceSuppressed))
+        {
+            var suppressedCallConv = useCdecl
+                ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)"
+                : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
+            // Route the cooperative error report through the shared UCO try/catch envelope: the corpus
+            // invariant (CatchFreeUcoValidatorTests) requires EVERY [UnmanagedCallersOnly] body to be
+            // guarded. The try body reports the suppression through *errorOut (the throwing channel —
+            // the Swift adapter rethrows it); the catch is the defensive mirror of the non-suppressed
+            // path's catch (any escape while assigning *errorOut is reported through the same channel
+            // rather than unwinding into native Swift). Return is at the try/catch-body depth.
+            var noopReturn = returnType == "void" ? "" : "\n        return default;";
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
+                private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
+                {
+                    try
+                    {
+                        // Protocol proxy unavailable — report through the throwing channel: a required
+                        // existential argument's proxy class was suppressed (its EveryProtocol conformance
+                        // was not emitted), so the Swift-vended existential cannot be marshalled into the
+                        // user delegate. The borrowed argument cell leaks nothing.
+                        *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}("Protocol proxy unavailable: an existential argument's EveryProtocol conformance was not emitted."));{{noopReturn}}
+                    }
+                    catch (global::System.Exception ex)
+                    {
+                        *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}(ex.Message));{{noopReturn}}
+                    }
+                }
+                """);
+            return;
+        }
+
         // Build argument list for invoking the delegate
         var invokeArgs = new List<string>();
         for (int i = 0; i < argIndex; i++)
@@ -384,6 +424,8 @@ public static partial class ClosureEmitter
             }
             else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var throwingProxy))
             {
+                // PRODUCE: a suppressed proxy throws → member-body checkpoint restubs the whole member.
+                closureHandler.ThrowIfProxyReferenceSuppressed(closureTypeSpec.ReturnType);
                 // Owned return: the throwing closure's success payload is handed back at +1; the proxy
                 // (a real EC1-EC8 proxy here, never bare-`any`) adopts and releases it on Dispose/finalize.
                 csWriter.WriteLine($"                return {resultType}.FromSuccess(new {throwingProxy}(_rawResult, ownsContainer: true));");

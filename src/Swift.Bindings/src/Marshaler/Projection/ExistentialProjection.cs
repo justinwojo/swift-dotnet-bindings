@@ -20,6 +20,7 @@ public class ExistentialProjection : ITypeProjection
     private readonly string? _proxyClassName;
     private readonly bool _isBareAny;
     private readonly bool _isClassBoundArity1;
+    private readonly bool _proxyIsSuppressed;
 
     /// <summary>
     /// Creates an existential projection.
@@ -34,13 +35,23 @@ public class ExistentialProjection : ITypeProjection
     /// Swift array; see <see cref="ArrayElementCarrierType"/>. The single-value and parameter paths keep
     /// <paramref name="containerType"/> (the opaque <c>ExistentialContainer1</c> the proxy implements).
     /// </param>
-    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false)
+    /// <param name="proxyIsSuppressed">
+    /// True when <paramref name="proxyClassName"/> names a proxy whose EveryProtocol conformance was NOT
+    /// emitted. The CONSUME arms (parameter/element wrap fallbacks) then drop the
+    /// <c>static __v =&gt; new {Proxy}(__v)</c> lambda and emit the no-fallback overload (the member stays,
+    /// only Swift-vended conformers round-trip); the PRODUCE arms (return constructions) throw
+    /// <see cref="SuppressedProxyReferenceException"/> so the member-emit boundary stubs the whole member.
+    /// This is the emit-time replacement for the retired CoGater proxy-reference post-pass on the
+    /// projection path. Always false unless <paramref name="proxyClassName"/> is non-null.
+    /// </param>
+    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false, bool proxyIsSuppressed = false)
     {
         _containerType = containerType;
         _publicType = publicType;
         _proxyClassName = proxyClassName;
         _isBareAny = isBareAny;
         _isClassBoundArity1 = isClassBoundArity1;
+        _proxyIsSuppressed = proxyIsSuppressed;
     }
 
     public string PublicType => _publicType;
@@ -95,7 +106,10 @@ public class ExistentialProjection : ITypeProjection
             // the interface are automatically wrapped in the proxy (users don't have to construct
             // the hidden {Protocol}Proxy manually).
             expr = _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
-                ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({paramName}, static __v => new {_proxyClassName}(__v))"
+                ? _proxyIsSuppressed
+                    // CONSUME: suppressed proxy → no wrap fallback; only Swift-vended conformers round-trip.
+                    ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({paramName})"
+                    : $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({paramName}, static __v => new {_proxyClassName}(__v))"
                 : $"((ISwiftExistentialConvertible<{_containerType}>){paramName}).GetExistentialContainer()";
         }
 
@@ -114,6 +128,10 @@ public class ExistentialProjection : ITypeProjection
         }
         else
         {
+            // PRODUCE: a suppressed proxy cannot back a `new {Proxy}(…)` return construction — throw so
+            // the member-emit boundary rolls back and stubs the whole member (matching the retired CoGater body rewrite).
+            if (_proxyClassName != null && _proxyIsSuppressed)
+                throw new SuppressedProxyReferenceException(_proxyClassName);
             expression = _proxyClassName != null
                 // Owned return: Swift transfers the existential at +1, so the proxy adopts
                 // the container and releases it on Dispose/finalize (ownsContainer: true).
@@ -143,7 +161,10 @@ public class ExistentialProjection : ITypeProjection
         _isBareAny
             ? $"ExistentialContainer0.Box({elementVar})"
             : _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
-                ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
+                ? _proxyIsSuppressed
+                    // CONSUME: suppressed proxy → no wrap fallback (see GetParameterPlan).
+                    ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar})"
+                    : $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
                 : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
     /// <summary>
@@ -169,7 +190,10 @@ public class ExistentialProjection : ITypeProjection
     /// </summary>
     public string? GetKeepAliveParameterElementConversion(string elementVar, string keepAliveVar) =>
         !_isBareAny && _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
-            ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v), out _, out var {keepAliveVar})"
+            ? _proxyIsSuppressed
+                // CONSUME: suppressed proxy → no wrap fallback (see GetParameterPlan).
+                ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, out _, out var {keepAliveVar})"
+                : $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v), out _, out var {keepAliveVar})"
             : null;
 
     /// <summary>
@@ -199,7 +223,10 @@ public class ExistentialProjection : ITypeProjection
         _isBareAny
             ? $"ExistentialContainer0.Box({elementVar})"
             : _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
-                ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
+                ? _proxyIsSuppressed
+                    // CONSUME: suppressed proxy → no wrap fallback (see GetParameterPlan).
+                    ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar})"
+                    : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
                 : _proxyClassName != null && ExistentialHandler.IsOwnedExistentialContainerType(_containerType)
                     ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{_publicType}, {_containerType}>({elementVar})"
                     : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
@@ -228,7 +255,10 @@ public class ExistentialProjection : ITypeProjection
             // __owned append and the VWT destroy balance for BOTH layouts. The bare
             // FromExistentialContainer1 narrowing used previously over-released the proxy (it
             // aliased the proxy's only +1) and leaked the boxable conformer's +1.
-            return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";
+            // CONSUME: suppressed proxy → no wrap fallback (see GetParameterPlan).
+            return _proxyIsSuppressed
+                ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<{_publicType}>({elementVar})"
+                : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";
         }
 
         // Opaque single-protocol existential with a proxy: the 40-byte EC1 carrier write is ALSO
@@ -240,7 +270,10 @@ public class ExistentialProjection : ITypeProjection
         // (opaque sibling: owned-element over-release). Mirrors the EC1 condition in GetParameterElementConversion.
         if (_proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1")
         {
-            return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";
+            // CONSUME: suppressed proxy → no wrap fallback (see GetParameterPlan).
+            return _proxyIsSuppressed
+                ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar})"
+                : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";
         }
 
         return GetParameterElementConversion(elementVar);
@@ -261,16 +294,21 @@ public class ExistentialProjection : ITypeProjection
     // GetOwnedReturnElementConversion below. Non-EC1 collection leaves (opaque / composition /
     // bare-any) fall back to this non-owning form there (OwnsContainerArg empty) — the per-collection
     // copy-then-destroy case still pending verification (see GetArrayElementCarrierConversion).
-    public string? GetReturnElementConversion(string elementVar) =>
-        _isBareAny
-            ? $"ExistentialContainer0.Unbox({elementVar})"
-            : _proxyClassName != null
-                // Cast to interface type for invariant container compatibility (IReadOnlyDictionary<K,V>
-                // is invariant in V, so Func<EC, Proxy> won't match Func<EC, IProtocol>).
-                ? $"({_publicType})new {_proxyClassName}({elementVar})"
-                : _publicType == "object"
-                    ? $"(object){elementVar}"
-                    : $"new {_publicType}({elementVar})";
+    public string? GetReturnElementConversion(string elementVar)
+    {
+        if (_isBareAny)
+            return $"ExistentialContainer0.Unbox({elementVar})";
+        // PRODUCE: a suppressed proxy cannot back a `new {Proxy}(…)` element construction (see GetReturnPlan).
+        if (_proxyClassName != null && _proxyIsSuppressed)
+            throw new SuppressedProxyReferenceException(_proxyClassName);
+        return _proxyClassName != null
+            // Cast to interface type for invariant container compatibility (IReadOnlyDictionary<K,V>
+            // is invariant in V, so Func<EC, Proxy> won't match Func<EC, IProtocol>).
+            ? $"({_publicType})new {_proxyClassName}({elementVar})"
+            : _publicType == "object"
+                ? $"(object){elementVar}"
+                : $"new {_publicType}({elementVar})";
+    }
 
     /// <summary>
     /// Owned-return variant of <see cref="GetReturnElementConversion"/>: the proxy ADOPTS a
@@ -284,10 +322,15 @@ public class ExistentialProjection : ITypeProjection
     /// <see cref="ExistentialHandler.IsOwnedExistentialContainerType"/>), not on protocol count —
     /// so composition (EC2+) proxies adopt the +1 here exactly like single-protocol (EC1) ones.
     /// </summary>
-    public string? GetOwnedReturnElementConversion(string elementVar) =>
-        !_isBareAny && _proxyClassName != null
+    public string? GetOwnedReturnElementConversion(string elementVar)
+    {
+        // PRODUCE: a suppressed proxy cannot back a `new {Proxy}(…)` element construction (see GetReturnPlan).
+        if (!_isBareAny && _proxyClassName != null && _proxyIsSuppressed)
+            throw new SuppressedProxyReferenceException(_proxyClassName);
+        return !_isBareAny && _proxyClassName != null
             ? $"({_publicType})new {_proxyClassName}({elementVar}{OwnsContainerArg})"
             : GetReturnElementConversion(elementVar);
+    }
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

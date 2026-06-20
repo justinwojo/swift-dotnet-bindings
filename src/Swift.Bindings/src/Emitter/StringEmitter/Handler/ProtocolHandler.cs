@@ -504,52 +504,50 @@ namespace BindingsGeneration
                     new TypeEmissionResult { EmittedMemberCount = emittedInterfaceMemberCount });
             }
 
-            // Skip proxy class if protocol has members with unsupported module types (SwiftUI, Combine).
-            // The Swift EveryProtocol conformance is also skipped (in ModuleHandler), so emitting the
-            // C# proxy would produce calls to non-existent Swift symbols (SetVtable, WitnessTableGetter).
-            if (ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl, env.TypeDatabase))
+            // The proxy-emission decision (emit / suppress-by-conformance / skip-unsupported-module)
+            // lives in ProtocolProxyEmissionPolicy.Decide so the order-independent
+            // SuppressedProxyPrecomputer pre-pass and this emit-time path reach an identical verdict
+            // from one predicate. The pre-pass front-loads the suppressed-name set so emit-time
+            // reference gates (which replaced the retired whole-file generate-then-strip post-pass) see a
+            // complete set even for free functions / earlier-declared types. RecordSuppressedProxy
+            // here is now an idempotent re-record of what the pre-pass already set.
+            switch (ProtocolProxyEmissionPolicy.Decide(protocolDecl, env.TypeDatabase, context.EmissionContext))
             {
-                // Use RecordMemberSkipped (not RecordTypeSkipped) because RecordTypeEmitted was
-                // already called for the interface at line 70. RecordTypeSkipped silently drops
-                // entries for already-emitted types. The proxy is a sub-artifact of the type.
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Type, $"{protocolDecl.Name}Proxy",
-                    protocolDecl, SkipReason.SwiftUIConstraint,
-                    "Protocol proxy skipped: required members reference unsupported module types.");
-            }
-            // Gate proxy emission when EveryProtocol conformance was not emitted (class-bound,
-            // genericSig constraint, method type conflict, static methods, etc.). Without the
-            // conformance, the proxy's NativeMethods would reference non-existent Swift symbols
-            // (SetVtable, GetWitnessTable), causing TypeInitializationException at runtime.
-            // Method bodies in other types that reference the proxy (e.g., existential return
-            // unwrappers) are co-gated by CSharpWrapperCoGater.ProcessSuppressedProxyReferences.
-            //
-            // Read-only (Swift-vended-only) proxies are exempt: a superclass-constrained protocol
-            // has no EveryProtocol conformance, but the proxy IS emitted so Swift-vended `any P`
-            // returns / `[any P]` array elements can be wrapped and dispatched through the
-            // existential's own witness table. The EveryProtocol NativeMethods declarations remain
-            // (they are runtime-resolved [LibraryImport]s, never called on the read path), and the
-            // proxy is NOT recorded as suppressed — its return/property projection lambdas stay
-            // intact rather than being rewritten to throw.
-            // Conformance marker is keyed on the module-qualified name (matching the recorder);
-            // IsReadOnlyProxy stays simple-name-keyed (its own family, out of this change).
-            else if (context.EmissionContext != null &&
-                     context.EmissionContext.ConformanceDecisions.Count > 0 &&
-                     !context.EmissionContext.WasConformanceEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name) &&
-                     !context.EmissionContext.IsReadOnlyProxy(protocolDecl.Name))
-            {
-                var proxyClassName = $"{protocolDecl.Name}Proxy";
-                context.EmissionContext.RecordSuppressedProxy(proxyClassName);
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Type, proxyClassName,
-                    protocolDecl, SkipReason.EveryProtocolConformanceSkipped,
-                    $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({context.EmissionContext.GetConformanceSkipReason(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name) ?? "no decision recorded"}).");
-            }
-            else
-            {
-                // Intentionally nullable — null triggers direct-emit fallback in EmitProtocolProxy
-                // (used by unit tests without ModuleEmissionContext). GetEmissionContext() would
-                // always return non-null and route all proxies through the deferred path.
-                EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames, staticAbstractPropertyNames, staticAbstractMethodKeys, context.EmissionContext);
+                // Skip proxy class if a required member references an unsupported module (SwiftUI,
+                // Combine). The Swift EveryProtocol conformance is also skipped (in ModuleHandler),
+                // so emitting the proxy would call non-existent Swift symbols (SetVtable,
+                // WitnessTableGetter). RecordMemberSkipped (not RecordTypeSkipped) because
+                // RecordTypeEmitted was already called for the interface — the proxy is a
+                // sub-artifact of the type.
+                case ProxyEmissionDecision.SkippedUnsupportedModule:
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Type, ProtocolProxyEmissionPolicy.ProxyClassName(protocolDecl),
+                        protocolDecl, SkipReason.SwiftUIConstraint,
+                        "Protocol proxy skipped: required members reference unsupported module types.");
+                    break;
+
+                // EveryProtocol conformance was not emitted (class-bound, genericSig constraint,
+                // method type conflict, static methods, constructor requirement, etc.). Without the
+                // conformance the proxy's NativeMethods would reference non-existent Swift symbols
+                // (SetVtable, GetWitnessTable) → TypeInitializationException at runtime. Member
+                // bodies in other types that reference the proxy are gated at emit time (CONSUME
+                // sites drop the wrap fallback; PRODUCE sites stub the whole member). Read-only
+                // (Swift-vended-only) proxies are exempt inside Decide() — their proxy IS emitted.
+                case ProxyEmissionDecision.SuppressedByConformance:
+                    var suppressedProxyClassName = ProtocolProxyEmissionPolicy.ProxyClassName(protocolDecl);
+                    context.EmissionContext!.RecordSuppressedProxy(suppressedProxyClassName);
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Type, suppressedProxyClassName,
+                        protocolDecl, SkipReason.EveryProtocolConformanceSkipped,
+                        $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({context.EmissionContext.GetConformanceSkipReason(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name) ?? "no decision recorded"}).");
+                    break;
+
+                default:
+                    // context.EmissionContext is intentionally nullable — null triggers the
+                    // direct-emit fallback in EmitProtocolProxy (unit-test path without
+                    // ModuleEmissionContext). GetEmissionContext() would always be non-null and
+                    // route all proxies through the deferred path.
+                    EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
+                        closureSkippedMethodKeys, closureSkippedPropertyNames, staticAbstractPropertyNames, staticAbstractMethodKeys, context.EmissionContext);
+                    break;
             }
         }
 

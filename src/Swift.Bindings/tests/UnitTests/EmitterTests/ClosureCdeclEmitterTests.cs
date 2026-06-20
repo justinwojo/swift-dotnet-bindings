@@ -1504,7 +1504,7 @@ public class ClosureCdeclEmitterTests
         // Method-wrapper-level regression guard: a method whose escaping closure takes an
         // `inout` arg must NOT take the @_cdecl path. If the Layer 2 IsInOut gate regresses,
         // this emits a broken Swift adapter whose compile failure cascades through the
-        // Swift post-processor + C# co-gater into a compile break.
+        // Swift post-processor + C# stripped-symbol reconciler into a compile break.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);

@@ -1460,7 +1460,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
         if (projection is not DictionaryProjection dict) return null;
 
         // Owned (+1) element conversions: materializing this receiver param via .ToDictionary()
@@ -1501,7 +1501,7 @@ public partial class ProtocolProxyEmitter
         if (existentialConv != null) return existentialConv;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverGetterConversionVisitor(varName, this));
@@ -1652,7 +1652,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return false;
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
         return projection?.Accept(new ReceiverParamNeedsObjectMarshalVisitor()) ?? false;
     }
 
@@ -1661,7 +1661,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverClassCopyOutVisitor(slotExpr));
@@ -1681,7 +1681,7 @@ public partial class ProtocolProxyEmitter
         if (existentialConv != null) return existentialConv;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverSetterConversionVisitor(varName, this));
@@ -1767,7 +1767,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
         if (projection == null) return null;
 
         // Standalone existential. This is the getter RETURN direction (C#→Swift, +1 owned), so mint
@@ -1846,7 +1846,7 @@ public partial class ProtocolProxyEmitter
         if (typeSpec == null) return null;
 
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName });
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
         if (projection == null) return null;
 
         // Standalone existential

@@ -29,6 +29,16 @@ public class ClosureHandler
     public ITypeDatabase TypeDatabase => _typeDatabase;
 
     /// <summary>
+    /// The per-module emission context, late-injected via the shared <see cref="MarshalingContext"/>.
+    /// When set, <see cref="GetQualifiedProxyClassName"/> returns <c>null</c> for a proxy whose
+    /// EveryProtocol conformance was suppressed, so the closure CONSUME sites emit the no-fallback
+    /// <c>GetOrCreate&lt;T&gt;(value)</c>/<c>CreateOwnedExistential1&lt;T&gt;(value)</c> overload instead of
+    /// referencing the unemitted proxy — the emit-time replacement for the retired CoGater wrap-fallback
+    /// downgrade. Null for the bare (non-emission) closure handlers, which never gate suppression.
+    /// </summary>
+    public ModuleEmissionContext? EmissionContext { get; set; }
+
+    /// <summary>
     /// Determines whether the specified argument declaration represents a closure type.
     /// Also returns true for Optional closures (e.g., Optional&lt;() -&gt; Void&gt;).
     /// </summary>
@@ -2381,6 +2391,74 @@ public class ClosureHandler
         if (!NeedsProxyWrapping(typeSpec, out var filteredProxy)) return null;
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
         if (protocolList == null) return null;
-        return _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+        var qualified = _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+        // CONSUME gate: a suppressed proxy (EveryProtocol conformance not emitted) returns null so the
+        // closure CONSUME sites drop the `static __v => new {Proxy}(__v)` wrap fallback and emit the
+        // no-fallback overload — byte-identical to the retired CoGater wrap-fallback downgrade.
+        if (_existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext))
+            return null;
+        return qualified;
+    }
+
+    /// <summary>
+    /// PRODUCE-path guard for the closure sites that construct a proxy from the BARE (un-qualified)
+    /// name returned by <see cref="NeedsProxyWrapping"/> — the <c>_invoker</c> delegate bodies that
+    /// adopt the +1 existential a Swift closure hands back (<c>new {Proxy}(…, ownsContainer: true)</c>).
+    /// Those sites cannot drop a fallback (the construction IS the value), so when the proxy's
+    /// EveryProtocol conformance was suppressed this raises <see cref="SuppressedProxyReferenceException"/>,
+    /// which the enclosing member-body checkpoint catches and restubs — the same outcome the retired
+    /// CoGater produced by stubbing any member whose body held <c>new {SuppressedProxy}(</c>. A no-op when
+    /// the type needs no proxy or the proxy is live (the bare name then emits unchanged, preserving parity).
+    /// Mirrors <see cref="ExistentialHandler.GetRequiredProxyClassName"/> but keeps the un-qualified name
+    /// the closure-return sites have always emitted.
+    /// </summary>
+    public void ThrowIfProxyReferenceSuppressed(TypeSpec typeSpec)
+    {
+        if (!NeedsProxyWrapping(typeSpec, out var filteredProxy)) return;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null) return;
+        var qualified = _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+        if (_existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext))
+            throw new SuppressedProxyReferenceException(qualified);
+    }
+
+    /// <summary>
+    /// Non-throwing companion to <see cref="ThrowIfProxyReferenceSuppressed"/>: <c>true</c> when this
+    /// type — or, for a tuple, any element — needs a protocol proxy whose EveryProtocol conformance
+    /// was suppressed (no concrete proxy class is emitted). The helper-emitted
+    /// <c>[UnmanagedCallersOnly]</c> closure trampolines marshal a Swift-vended existential ARGUMENT
+    /// into the user delegate via <see cref="NeedsProxyWrapping"/>; that conversion happens in a
+    /// callback body that CANNOT use the member-body checkpoint throw/rollback (rolling back the C#
+    /// writer alone would desync the Swift writer / symbol claims — Hazard D) and must never throw
+    /// across the native boundary (SIGABRT). So the callback assembler branches on this predicate up
+    /// front and emits a safe no-op body instead of referencing the absent proxy class. A pure CONSUME
+    /// site (one that can drop a wrap-fallback) uses <see cref="GetQualifiedProxyClassName"/>'s null
+    /// return instead; this predicate is only for the trampoline whose entire purpose is the
+    /// (now-impossible) proxy construction.
+    /// </summary>
+    public bool IsProxyReferenceSuppressed(TypeSpec typeSpec)
+    {
+        if (typeSpec is TupleTypeSpec tuple)
+            return tuple.Elements.Any(IsProxyReferenceSuppressed);
+        // A container ARG (Array/Set/Dictionary/Optional/ArraySlice) whose element/value is a
+        // suppressed-proxy existential slips past the bare NeedsProxyWrapping check below — that
+        // predicate inspects the container TYPE, not its element. The UCO trampoline deserializes
+        // each element through the (now-absent) proxy, so recurse into the element/value generic
+        // argument exactly like the tuple recursion above. Container kinds + arities mirror the
+        // canonical idiom in IHandler.GetContainerElementSpec (Array/ArraySlice/Set: [0];
+        // Dictionary: value [1]; Optional: [0]).
+        if (typeSpec is NamedTypeSpec named)
+        {
+            if ((named.Name is "Swift.Array" or "Swift.ArraySlice" or "Swift.Set" or "Swift.Optional")
+                && named.GenericParameters.Count == 1)
+                return IsProxyReferenceSuppressed(named.GenericParameters[0]);
+            if (named.Name == "Swift.Dictionary" && named.GenericParameters.Count == 2)
+                return IsProxyReferenceSuppressed(named.GenericParameters[1]);
+        }
+        if (!NeedsProxyWrapping(typeSpec, out var filteredProxy)) return false;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null) return false;
+        var qualified = _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+        return _existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext);
     }
 }

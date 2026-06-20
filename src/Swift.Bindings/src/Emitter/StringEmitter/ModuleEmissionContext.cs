@@ -1028,78 +1028,10 @@ public sealed class ModuleEmissionContext
         return true;
     }
 
-    // ==================== Contract Violations (Asymmetric-Skip Cleanup) ====================
-    //
-    // When the in-band wrapper-symbol contract trips inside PInvokeEmitter, the wrapper
-    // body has already been written to the C# output buffer. The contract handler drops
-    // the P/Invoke declaration but the orphan call to that P/Invoke is left behind.
-    // Recording the C# P/Invoke method name here lets CSharpWrapperCoGater strip the
-    // orphan caller in a post-emit pass — the same cleanup path used for symbols
-    // stripped during wrapper compilation, just sourced from this set instead of from
-    // wrapper-compilation output.
-
-    private readonly Dictionary<string, HashSet<string>> _contractViolatedPInvokeScopes
-        = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _contractViolatedEntryPoints = new(StringComparer.Ordinal);
-
-    /// <summary>
-    /// C# P/Invoke method names (e.g., <c>PInvoke_map_039F1772</c>) whose declarations
-    /// were rejected by the in-band wrapper-symbol contract because the corresponding
-    /// Swift <c>@_cdecl</c> wrapper symbol was never registered. The post-emit cogater
-    /// uses this set to strip the orphan call sites the wrapper-emit pass already wrote.
-    /// </summary>
-    public IReadOnlySet<string> ContractViolatedPInvokeNames
-        => new HashSet<string>(_contractViolatedPInvokeScopes.Keys, StringComparer.Ordinal);
-
-    /// <summary>
-    /// Maps each contract-violated C# P/Invoke name to the set of qualified C# type
-    /// paths (dot-joined nested type names, e.g., <c>"Transaction.AsyncIterator"</c>)
-    /// in which the rejected reference was emitted. The cogater uses this to restrict
-    /// orphan-caller stripping to the violated scope: a same-named P/Invoke can
-    /// legitimately exist as an emitted decl in another scope, and a file-wide strip
-    /// would break callers in the kept scope.
-    /// </summary>
-    public IReadOnlyDictionary<string, IReadOnlySet<string>> ContractViolatedPInvokeScopes
-        => _contractViolatedPInvokeScopes.ToDictionary(
-            kv => kv.Key,
-            kv => (IReadOnlySet<string>)kv.Value,
-            StringComparer.Ordinal);
-
-    /// <summary>
-    /// Swift wrapper entry points (e.g., <c>SBW_Module_Type_method_HASH</c>) for which
-    /// the contract was violated. Mirrors <see cref="ContractViolatedPInvokeNames"/>
-    /// on the Swift side; useful for diagnostics and asserting test invariants without
-    /// reaching into the C# name shape.
-    /// </summary>
-    public IReadOnlySet<string> ContractViolatedEntryPoints => _contractViolatedEntryPoints;
-
-    /// <summary>
-    /// Records that the contract gate rejected a P/Invoke whose entry point was not
-    /// registered by wrapper-emit. All three identity shapes are stored so the
-    /// downstream cleanup can strip every reference shape and restrict the strip to
-    /// the violated scope.
-    /// </summary>
-    /// <param name="entryPoint">Swift wrapper entry point (e.g., <c>SBW_…</c>).</param>
-    /// <param name="pInvokeName">C# P/Invoke method name (e.g., <c>PInvoke_…</c>).</param>
-    /// <param name="containingType">Qualified C# type path hosting the orphan caller
-    /// (e.g., <c>"Mapper"</c> or <c>"Transaction.AsyncIterator"</c>). May be null
-    /// when scope cannot be derived; in that case the cogater falls back to a
-    /// file-wide strip guarded by collision detection.</param>
-    public void RecordContractViolation(string entryPoint, string pInvokeName, string? containingType)
-    {
-        if (!string.IsNullOrEmpty(pInvokeName))
-        {
-            if (!_contractViolatedPInvokeScopes.TryGetValue(pInvokeName, out var scopes))
-            {
-                scopes = new HashSet<string>(StringComparer.Ordinal);
-                _contractViolatedPInvokeScopes[pInvokeName] = scopes;
-            }
-            if (!string.IsNullOrEmpty(containingType))
-                scopes.Add(containingType);
-        }
-        if (!string.IsNullOrEmpty(entryPoint))
-            _contractViolatedEntryPoints.Add(entryPoint);
-    }
+    // The in-band wrapper-symbol contract is now predict-then-skip: a P/Invoke whose
+    // @_cdecl wrapper symbol won't be registered is never emitted (nor is its caller), so
+    // there is no orphan call site to reconcile after the fact. The former contract-violation
+    // side table (consumed by the deleted generate-then-strip post-pass) is gone with it.
 
     // ==================== Constructor Wrapper ====================
 
@@ -1557,7 +1489,7 @@ public sealed class ModuleEmissionContext
     /// that were never emitted (Self requirement, noncopyable param/return, static method/
     /// property requirements, etc.) are suppressed at <c>ProtocolHandler</c>'s
     /// <c>WasConformanceEmitted</c> check before the proxy emitter even runs, and references
-    /// to those proxy names are co-gated by <c>CSharpWrapperCoGater.ProcessSuppressedProxyReferences</c>.
+    /// to those proxy names are co-gated by the emit-time proxy-reference gate.
     /// This signal partitions the <i>remaining</i> protocols (conformance emitted, proxy
     /// reachable) into "implementable conformance, real InitializeVtable body" (true) versus
     /// "marker / composition shape, no-op InitializeVtable" (false). The C#-impl→Swift

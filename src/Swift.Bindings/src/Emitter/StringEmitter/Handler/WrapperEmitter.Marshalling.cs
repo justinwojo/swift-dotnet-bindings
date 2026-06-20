@@ -540,7 +540,13 @@ namespace BindingsGeneration
                         _env.ExistentialHandler.AllProtocolsHaveTypeRecords(protocolList) &&
                         _env.ExistentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                     {
-                        proxyClassName = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                        var qualifiedProxy = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                        // CONSUME gate: when the proxy class was not emitted (EveryProtocol conformance
+                        // suppressed), drop the wrap fallback so GetOrCreate uses the no-fallback overload.
+                        // The member stays — a Swift-vended conformer still round-trips through its own
+                        // witness table. Replaces the retired generate-then-strip wrap-fallback downgrade post-pass.
+                        if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _emissionContext))
+                            proxyClassName = qualifiedProxy;
                     }
                     // Thread the runtime owns-bit out of GetOrCreate (declared before the try
                     // by EmitExistentialHeapDeclarations) so the finally / async holder destroys ONLY

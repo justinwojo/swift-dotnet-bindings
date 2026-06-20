@@ -49,52 +49,10 @@ public static class BindingReportProjection
             report.ObjectDegradations.AddRange(g.ObjectDegradations);
         }
 
-        if (manifest.ProxyCoGating is { } pc)
-        {
-            foreach (var member in pc.CoGatedMethods)
-            {
-                ApplyCoGated(
-                    report,
-                    member,
-                    SkipReason.SuppressedProxyMethodBody,
-                    "Method body removed because the suppressed proxy class it constructed was unreachable.");
-            }
-        }
-
-        if (manifest.ContractCoGating is { } cc)
-        {
-            // WrapperSymbolContractGate already recorded the directly violated member in
-            // Generation.SkippedItems. CoGated entries that match by (Kind, Name,
-            // ContainingType) are the direct member; everything else is a transitive
-            // Step C/D/E removal.
-            //
-            // Dedupe is multiset/counting: a directly-violated member can share the
-            // identity tuple with a transitive same-name overload in the same type, and
-            // a single direct-skip record must not suppress every CoGated entry that
-            // happens to collide. Decrement on match so the second/third CoGated entry
-            // with the same identity is still projected.
-            var directRecordedCounts = new Dictionary<(BindingItemKind kind, string name, string? containingType), int>();
-            foreach (var item in report.SkippedItems)
-            {
-                if (item.Reason != SkipReason.MissingWrapperSymbol) continue;
-                var key = (item.Kind, item.Name, item.ContainingType);
-                directRecordedCounts[key] = directRecordedCounts.GetValueOrDefault(key) + 1;
-            }
-            foreach (var member in cc.CoGatedMembers)
-            {
-                var key = (member.Kind, member.Name, member.ContainingType);
-                if (directRecordedCounts.TryGetValue(key, out var remaining) && remaining > 0)
-                {
-                    directRecordedCounts[key] = remaining - 1;
-                    continue;
-                }
-                var details = member.MangledSymbol != null
-                    ? $"Transitive removal: caller of contract-rejected wrapper symbol '{member.MangledSymbol}'."
-                    : "Transitive removal: caller of contract-rejected wrapper symbol.";
-                ApplyCoGated(report, member, SkipReason.MissingWrapperSymbol, details);
-            }
-        }
-
+        // Proxy-suppression and wrapper-symbol-contract co-gating are no longer post-pass
+        // reconciliation steps: both are decided at emission, so the manifest carries no
+        // ProxyCoGating/ContractCoGating section to project. The wrapper-compile strip leg
+        // (below) is the only surviving co-gating reconciliation.
         if (manifest.Wrapper is { } w)
         {
             foreach (var member in w.CSharpCoGatedMembers)

@@ -94,6 +94,13 @@ namespace BindingsGeneration
             // Emit EveryProtocol class and protocol conformances for Swift side
             EmitEveryProtocolConformances(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
 
+            // Pre-pass: front-load the suppressed-proxy-name set now that conformance decisions and
+            // read-only-proxy marks are populated (EmitEveryProtocolConformances above), and BEFORE
+            // any C# member is emitted. Emit-time proxy-reference gates (which replaced the
+            // retired whole-file generate-then-strip post-pass) consult this set; free functions and
+            // earlier-declared types would otherwise see an incomplete set. See SuppressedProxyPrecomputer.
+            SuppressedProxyPrecomputer.Precompute(moduleDecl, env.TypeDatabase, context.GetEmissionContext());
+
             var generatedNamespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
             context.GetEmissionContext().ResolvedNamespace = generatedNamespace;
             context.GetEmissionContext().NamespaceResolver = _namespacePatternResolver;

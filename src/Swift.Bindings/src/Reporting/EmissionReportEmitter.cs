@@ -25,6 +25,17 @@ public class EmissionReport
     public ConformanceDecisionsSummary ConformanceDecisions { get; set; } = new();
 
     /// <summary>
+    /// Number of distinct EveryProtocol proxy classes suppressed at emission because their
+    /// conformance was not emitted. Narrower than
+    /// <see cref="ConformanceDecisionsSummary.SkippedAtEmission"/>: it excludes unsupported-module
+    /// proxy skips and read-only proxies (see <c>ProtocolProxyEmissionPolicy.Decide</c>), counting
+    /// only the protocols whose <c>{Name}Proxy</c> class was actually withheld — the set the
+    /// emit-time reference gate consumes to drop or stub <c>new {Name}Proxy(…)</c> references.
+    /// </summary>
+    [JsonProperty("suppressedProxyClassCount")]
+    public int SuppressedProxyClassCount { get; set; }
+
+    /// <summary>
     /// Module-qualified names of types that were emitted with [OpaqueSwiftType] but have
     /// zero usable surface (all members skipped). The type IS present as a C# class
     /// declaration — metadata-cookie references to it resolve correctly — but the surface
@@ -143,6 +154,12 @@ public static class EmissionReportEmitter
         {
             logger.LogInformation("Emission: {Emitted} conformances emitted in source, {Skipped} skipped at emission",
                 decisions.EmittedInSource, decisions.SkippedAtEmission);
+        }
+
+        if (report.SuppressedProxyClassCount > 0)
+        {
+            logger.LogInformation("Emission: {Count} proxy class(es) suppressed at emission (conformance not emitted)",
+                report.SuppressedProxyClassCount);
         }
 
         if (report.SilentTombstones.Count > 0)
@@ -264,6 +281,9 @@ public static class EmissionReportEmitter
             else
                 report.ConformanceDecisions.SkippedAtEmission++;
         }
+
+        // Proxy classes withheld at emission (the emit-time reference gate's input set).
+        report.SuppressedProxyClassCount = emissionContext.SuppressedProxyClassNames.Count;
 
         // Silent tombstones (sorted for deterministic output)
         report.SilentTombstones = emissionContext.SilentTombstones

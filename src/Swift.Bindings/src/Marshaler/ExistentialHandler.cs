@@ -871,6 +871,81 @@ public class ExistentialHandler
         return $"{protocolModule}.SwiftInterop.{proxyClassName}";
     }
 
+    // ==================== Proxy-suppression oracle ====================
+    // The single emit-time decision that replaces the retired regex post-pass over
+    // emitted C#: would a reference to this existential's proxy class name a proxy that was NOT
+    // emitted because its EveryProtocol conformance was suppressed? Two call-site behaviors share
+    // one predicate — CONSUME references drop their wrap fallback (member stays), PRODUCE
+    // constructions throw so the member-emit boundary can stub/skip the whole member.
+
+    /// <summary>
+    /// Core suppression predicate. Preserves the local-vs-cross-module matching split: an
+    /// <em>unqualified</em> reference (current module) matches only the simple suppressed-name set
+    /// on <paramref name="ctx"/>, while a <c>{Namespace}.SwiftInterop.{Proxy}</c> reference (a
+    /// dependency) matches only the cross-module <c>(namespace, name)</c> pairs persisted by that
+    /// dependency's earlier generator run. The two sets are never cross-checked, so a current-module
+    /// proxy and a same-named dependency proxy never false-positive on each other. Read-only
+    /// (Swift-vended-only) proxies are absent from both sets — <see cref="ProtocolHandler"/> excludes
+    /// <c>IsReadOnlyProxy</c> when recording — so the exemption holds for free.
+    /// </summary>
+    public bool IsProxyNameSuppressed(string bareName, string qualifiedName, ModuleEmissionContext? ctx)
+    {
+        // QualifyProxyClassName returns the bare name unchanged for a current-module reference
+        // (also when the protocol module is "Swift" or CurrentModuleName is unset). Match those
+        // against the current-module simple set only.
+        if (string.Equals(qualifiedName, bareName, StringComparison.Ordinal))
+            return ctx != null && ctx.SuppressedProxyClassNames.Contains(bareName);
+
+        // A qualified reference can only point at a dependency: match the cross-module pairs,
+        // never the current-module set (else a same-named local proxy false-positives).
+        foreach (var (ns, proxyName) in _typeDatabase.GetCrossModuleSuppressedProxyClassNames())
+        {
+            if (string.Equals(qualifiedName, $"{ns}.SwiftInterop.{proxyName}", StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True when a reference to the proxy class for <paramref name="protocolList"/> would name a
+    /// proxy that was not emitted. The single oracle behind <see cref="TryGetConsumableProxyClassName"/>
+    /// and <see cref="GetRequiredProxyClassName"/>.
+    /// </summary>
+    public bool IsProxyReferenceSuppressed(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
+    {
+        var bareName = GetProxyClassName(protocolList);
+        return IsProxyNameSuppressed(bareName, QualifyProxyClassName(bareName, protocolList), ctx);
+    }
+
+    /// <summary>
+    /// CONSUME path. Returns the cross-module-qualified proxy class name to use in a
+    /// <c>GetOrCreate&lt;T&gt;(value, static __v =&gt; new {Proxy}(__v))</c> wrap fallback, or
+    /// <c>null</c> when the proxy is suppressed — in which case the call site emits the no-fallback
+    /// overload and the member stays. Mirrors the nullable contract of
+    /// <see cref="ClosureHandler.GetQualifiedProxyClassName"/>.
+    /// </summary>
+    public string? TryGetConsumableProxyClassName(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
+    {
+        var bareName = GetProxyClassName(protocolList);
+        var qualifiedName = QualifyProxyClassName(bareName, protocolList);
+        return IsProxyNameSuppressed(bareName, qualifiedName, ctx) ? null : qualifiedName;
+    }
+
+    /// <summary>
+    /// PRODUCE path. Returns the cross-module-qualified proxy class name for a standalone
+    /// <c>new {Proxy}(…)</c> construction, or throws <see cref="SuppressedProxyReferenceException"/>
+    /// when the proxy is suppressed so the member-emit boundary can roll back and stub/skip the whole
+    /// member (it cannot produce the value without the proxy).
+    /// </summary>
+    public string GetRequiredProxyClassName(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
+    {
+        var bareName = GetProxyClassName(protocolList);
+        var qualifiedName = QualifyProxyClassName(bareName, protocolList);
+        if (IsProxyNameSuppressed(bareName, qualifiedName, ctx))
+            throw new SuppressedProxyReferenceException(qualifiedName);
+        return qualifiedName;
+    }
+
     /// <summary>
     /// Returns true if the TypeSpec represents a constrained existential — a protocol type with
     /// concrete generic arguments (e.g., any CameraFrameAnalyzer&lt;CameraFrame, UIEvent&gt;).

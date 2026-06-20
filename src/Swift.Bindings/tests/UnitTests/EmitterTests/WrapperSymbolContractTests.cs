@@ -204,15 +204,15 @@ public class WrapperSymbolContractTests
     // Layer B — integration shape: when wrapper-emit silently fails to
     // register an SBW_… symbol, the in-band check throws
     // WrapperSymbolContractException; the catch path in MethodHandler /
-    // ConstructorHandler routes through WrapperSymbolContractGate.HandleViolation,
+    // ConstructorHandler routes through WrapperSymbolContractGate.HandleSkip,
     // which is responsible for both the on-disk evidence (// Unsupported …
     // marker) and the structured BindingReport entry. These tests pin that
     // observable contract so a regression in any of the three sites surfaces
-    // here rather than in a downstream cogating audit.
+    // here rather than in a downstream audit.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void HandleViolation_Records_MissingWrapperSymbol_Skip_And_Emits_Marker()
+    public void HandleSkip_Records_MissingWrapperSymbol_Skip_And_Emits_Marker()
     {
         var moduleDecl = TestModelFactory.CreateModuleDecl("PaymentSdkReproModule");
         var classDecl = (ClassDecl)moduleDecl.Types[0];
@@ -230,10 +230,8 @@ public class WrapperSymbolContractTests
         ReportCollector.Start(moduleDecl);
         try
         {
-            var ex = new WrapperSymbolContractException(
-                "SBW_PaymentSdkReproModule_FlowController_create_xyz",
-                "PInvoke_create");
-            WrapperSymbolContractGate.HandleViolation(env, ex, csWriter, NullLogger.Instance);
+            WrapperSymbolContractGate.HandleSkip(
+                env, "SBW_PaymentSdkReproModule_FlowController_create_xyz", csWriter, NullLogger.Instance);
 
             var report = ReportCollector.Complete();
             Assert.NotNull(report);
@@ -256,7 +254,7 @@ public class WrapperSymbolContractTests
     }
 
     [Fact]
-    public void HandleViolation_OverloadDistinct_RecordsBothSkips()
+    public void HandleSkip_OverloadDistinct_RecordsBothSkips()
     {
         // Three `create` overloads all skipped for MissingWrapperSymbol must each
         // appear in SkippedItems — overload collapse here would silently mask
@@ -281,13 +279,13 @@ public class WrapperSymbolContractTests
         ReportCollector.Start(moduleDecl);
         try
         {
-            WrapperSymbolContractGate.HandleViolation(
+            WrapperSymbolContractGate.HandleSkip(
                 new MethodEnvironment(createIntent, typeDb),
-                new WrapperSymbolContractException("SBW_create_intent", "PInvoke_create"),
+                "SBW_create_intent",
                 csWriter, NullLogger.Instance);
-            WrapperSymbolContractGate.HandleViolation(
+            WrapperSymbolContractGate.HandleSkip(
                 new MethodEnvironment(createSetup, typeDb),
-                new WrapperSymbolContractException("SBW_create_setup", "PInvoke_create"),
+                "SBW_create_setup",
                 csWriter, NullLogger.Instance);
 
             var report = ReportCollector.Complete();
@@ -295,6 +293,118 @@ public class WrapperSymbolContractTests
             Assert.Equal(2, report!.SkippedItems.Count);
             Assert.All(report.SkippedItems, item =>
                 Assert.Equal(SkipReason.MissingWrapperSymbol, item.Reason));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Transactional rollback (in-emission orphan removal).
+    //
+    // The method/bridge sites cannot predict a contract violation before writing
+    // the public body (async @_cdecl wrappers register their symbol *inside*
+    // EmitMethod), so they checkpoint the C# writer, emit, and roll the orphan
+    // back out on the eager throw. These tests pin the CSharpWriter rollback
+    // primitive and the rollback+HandleSkip composition that replaces the old
+    // generate-then-regex-strip recovery.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Checkpoint_RollbackTo_Truncates_Buffer_And_Restores_Indent()
+    {
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        csWriter.Indent = 1;
+        csWriter.WriteLine("kept();");
+        var checkpoint = csWriter.Checkpoint();
+
+        csWriter.Indent = 3;
+        csWriter.WriteLine("discarded_a();");
+        csWriter.WriteLine("discarded_b();");
+
+        csWriter.RollbackTo(checkpoint);
+
+        var afterRollback = sw.ToString();
+        Assert.Contains("kept();", afterRollback);
+        Assert.DoesNotContain("discarded_a();", afterRollback);
+        Assert.DoesNotContain("discarded_b();", afterRollback);
+        Assert.Equal(1, csWriter.Indent);
+
+        // The writer stays usable after rollback: subsequent content appends at the
+        // checkpoint, not after the discarded text.
+        csWriter.WriteLine("after();");
+        var afterAppend = sw.ToString();
+        Assert.Contains("after();", afterAppend);
+        Assert.DoesNotContain("discarded", afterAppend);
+    }
+
+    [Fact]
+    public void RollbackTo_Checkpoint_At_Current_Position_Is_NoOp()
+    {
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        csWriter.WriteLine("content();");
+        var checkpoint = csWriter.Checkpoint();
+
+        csWriter.RollbackTo(checkpoint);
+
+        Assert.Contains("content();", sw.ToString());
+    }
+
+    [Fact]
+    public void ContractSkip_RollbackThenHandleSkip_Removes_Orphan_Body_Leaves_Marker()
+    {
+        // Mirrors the MethodHandler method-site sequence: checkpoint before EmitMethod,
+        // write the public member body, then on the contract throw roll the orphan back
+        // out and emit the skip marker. The orphan caller (which references an unresolved
+        // P/Invoke) must NOT survive; only the // Unsupported marker remains. Before the
+        // in-emission rollback this body was left in the buffer for a downstream text
+        // strip — this test pins that the recovery is now transactional.
+        var moduleDecl = TestModelFactory.CreateModuleDecl("ReproModule");
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = TestModelFactory.CreateMethod(
+            "doWork",
+            parent: classDecl,
+            args: new[] { ("value", "Swift.String") },
+            mangledName: "SBW_ReproModule_Loader_doWork_xyz");
+        var typeDb = new SimpleTypeDatabase();
+        var env = new MethodEnvironment(method, typeDb);
+
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            var checkpoint = csWriter.Checkpoint();
+            // Simulate the orphan public member EmitMethod would have written before the
+            // eager contract throw fired inside EmitPInvoke.
+            csWriter.WriteLine("public void DoWork(string value)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("NativeMethods.PInvoke_doWork(value);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+
+            // Contract throw → catch: roll the orphan out, then record the skip.
+            csWriter.RollbackTo(checkpoint);
+            WrapperSymbolContractGate.HandleSkip(
+                env, "SBW_ReproModule_Loader_doWork_xyz", csWriter, NullLogger.Instance);
+
+            var output = sw.ToString();
+            Assert.DoesNotContain("PInvoke_doWork", output);
+            Assert.DoesNotContain("public void DoWork", output);
+            Assert.Contains("// Unsupported", output);
+            Assert.Contains("SBW_ReproModule_Loader_doWork_xyz", output);
+
+            var report = ReportCollector.Complete();
+            Assert.NotNull(report);
+            var skipped = Assert.Single(report!.SkippedItems);
+            Assert.Equal(SkipReason.MissingWrapperSymbol, skipped.Reason);
+            Assert.Equal("doWork", skipped.Name);
         }
         finally
         {
@@ -310,298 +420,12 @@ public class WrapperSymbolContractTests
         // the exception and inspecting csWriter shows nothing was written —
         // the throw fires before any emit, so MethodHandler's catch sees a
         // clean writer (apart from any wrapper-emit output that ran earlier,
-        // which the cogater strips).
+        // which the member-body rollback discards).
         var ctx = new ModuleEmissionContext();
         var info = MakeInfo("SBW_unregistered_wrapper", ctx, enforce: true);
 
         Assert.Throws<WrapperSymbolContractException>(
             () => PInvokeEmitHelper.FormatDeclarationLines(info));
-    }
-
-    [Fact]
-    public void Contract_Violation_CoGater_Strips_Orphan_Caller_Body()
-    {
-        // Asymmetric-skip regression: WrapperEmitter writes the public caller body
-        // to the C# buffer BEFORE PInvokeEmitter runs the contract check. When the
-        // check throws, the P/Invoke decl is never emitted but the caller body has
-        // already landed in the file. Without the contract-violation CoGater pass,
-        // the file references a P/Invoke that does not exist and fails to compile.
-        //
-        // This test pins the recovery path: HandleViolation records the rejected
-        // P/Invoke method name on ModuleEmissionContext, Program.cs feeds it to
-        // CSharpWrapperCoGater via preStrippedPInvokeNames, and the orphan caller
-        // is stripped from the final source.
-        var ctx = new ModuleEmissionContext();
-        ctx.RecordContractViolation(
-            entryPoint: "SBW_Mapper_orphan_xyz",
-            pInvokeName: "PInvoke_orphan_xyz",
-            containingType: "Mapper");
-
-        Assert.Contains("PInvoke_orphan_xyz", ctx.ContractViolatedPInvokeNames);
-        Assert.Contains("SBW_Mapper_orphan_xyz", ctx.ContractViolatedEntryPoints);
-        Assert.True(ctx.ContractViolatedPInvokeScopes["PInvoke_orphan_xyz"].Contains("Mapper"));
-
-        // Fixture mirrors the post-emit shape that triggered the regression: orphan
-        // caller body present, no [LibraryImport] decl in source for the rejected
-        // P/Invoke, a sibling kept method + decl as control. The kept method must
-        // survive untouched so we know the cogater isn't over-stripping.
-        const string source = """
-            namespace TestModule
-            {
-                public class Mapper
-                {
-                    public static void Orphan(System.IntPtr handle)
-                    {
-                        Mapper_PInvoke.PInvoke_orphan_xyz(handle);
-                    }
-                    public static void Kept(System.IntPtr handle)
-                    {
-                        Mapper_PInvoke.PInvoke_kept_abc(handle);
-                    }
-                }
-                internal static partial class Mapper_PInvoke
-                {
-                    [LibraryImport("libTest.dylib", EntryPoint = "SBW_Mapper_kept_abc")]
-                    internal static partial void PInvoke_kept_abc(System.IntPtr handle);
-                }
-            }
-            """;
-
-        var result = CSharpWrapperCoGater.Process(
-            source,
-            strippedSymbols: new HashSet<string>(),
-            preStrippedPInvokeNamesWithScopes: ctx.ContractViolatedPInvokeScopes);
-
-        Assert.True(result.ContentChanged, $"Expected cogater to strip orphan caller. Output:\n{result.Content}");
-        Assert.DoesNotContain("PInvoke_orphan_xyz", result.Content);
-        Assert.DoesNotContain("public static void Orphan", result.Content);
-        // Control members must survive — the cogater must scope its strip to the
-        // rejected name only.
-        Assert.Contains("public static void Kept", result.Content);
-        Assert.Contains("PInvoke_kept_abc", result.Content);
-    }
-
-    [Fact]
-    public void Contract_Violation_CoGater_Scoped_Strips_Violated_And_Preserves_Kept_SameName()
-    {
-        // Scope-aware orphan strip: the violated scope ("Mapper") and the kept scope
-        // ("Other") both reference a P/Invoke named "PInvoke_eq" in the same file. The
-        // violated reference is the asymmetric-skip orphan (no decl, only the caller);
-        // the kept scope has both the emitted partial decl and a valid caller. A
-        // file-wide strip would remove BOTH callers and break "Other"'s compilation.
-        // RecordContractViolation captures the violated containing type so the cogater
-        // restricts the strip to that scope only.
-        const string source = """
-            namespace TestModule
-            {
-                public class Mapper
-                {
-                    public static bool Orphan(System.IntPtr a, System.IntPtr b)
-                    {
-                        return Mapper_PInvoke.PInvoke_eq(a, b);
-                    }
-                }
-                public class Other
-                {
-                    public static bool Kept(System.IntPtr a, System.IntPtr b)
-                    {
-                        return Other_PInvoke.PInvoke_eq(a, b);
-                    }
-                }
-                internal static partial class Other_PInvoke
-                {
-                    [LibraryImport("libTest.dylib", EntryPoint = "SBW_Other_eq")]
-                    internal static partial bool PInvoke_eq(System.IntPtr a, System.IntPtr b);
-                }
-            }
-            """;
-
-        var ctx = new ModuleEmissionContext();
-        ctx.RecordContractViolation(
-            entryPoint: "SBW_Mapper_eq",
-            pInvokeName: "PInvoke_eq",
-            containingType: "Mapper");
-
-        var result = CSharpWrapperCoGater.Process(
-            source,
-            strippedSymbols: new HashSet<string>(),
-            preStrippedPInvokeNamesWithScopes: ctx.ContractViolatedPInvokeScopes);
-
-        Assert.True(result.ContentChanged,
-            $"Expected cogater to strip orphan caller in violated scope. Output:\n{result.Content}");
-        // Violated scope: orphan caller stripped.
-        Assert.DoesNotContain("public static bool Orphan", result.Content);
-        // Kept scope: decl + caller untouched (its callsite still references PInvoke_eq).
-        Assert.Contains("public static bool Kept", result.Content);
-        Assert.Contains("EntryPoint = \"SBW_Other_eq\"", result.Content);
-        Assert.Contains("internal static partial bool PInvoke_eq", result.Content);
-    }
-
-    [Fact]
-    public void Contract_Violation_CoGater_Scopeless_Falls_Back_To_Collision_Guard()
-    {
-        // Defensive fallback path: if a caller of the contract-violation API supplies
-        // no scope info (empty containing-type set), the cogater treats the strip as
-        // file-wide and defers to the collision guard — same behaviour as a callsite
-        // built via the legacy HashSet-only entry point. With the kept-scope decl
-        // present in the same file, the strip must be suppressed entirely (preserving
-        // pre-scope-aware behavior).
-        const string source = """
-            namespace TestModule
-            {
-                public class Mapper
-                {
-                    public static bool Compare(System.IntPtr a, System.IntPtr b)
-                    {
-                        return Other_PInvoke.PInvoke_eq(a, b);
-                    }
-                }
-                internal static partial class Other_PInvoke
-                {
-                    [LibraryImport("libTest.dylib", EntryPoint = "SBW_Other_eq")]
-                    internal static partial bool PInvoke_eq(System.IntPtr a, System.IntPtr b);
-                }
-            }
-            """;
-
-        var preStripped = new HashSet<string> { "PInvoke_eq" };
-        var result = CSharpWrapperCoGater.Process(
-            source,
-            strippedSymbols: new HashSet<string>(),
-            preStrippedPInvokeNames: preStripped);
-
-        Assert.False(result.ContentChanged,
-            $"Expected scope-collision guard to suppress strip. Output:\n{result.Content}");
-        Assert.Contains("PInvoke_eq", result.Content);
-        Assert.Contains("public static bool Compare", result.Content);
-    }
-
-    [Fact]
-    public void CoGater_With_No_Contract_Violations_Is_NoOp()
-    {
-        // Empty preStrippedPInvokeNames must not trigger a rewrite. Guards against a
-        // future change that would unconditionally invoke the contract-violation pass
-        // and accidentally strip well-formed callers.
-        const string source = """
-            namespace TestModule
-            {
-                public class Mapper
-                {
-                    public static void Kept(System.IntPtr handle)
-                    {
-                        Mapper_PInvoke.PInvoke_kept_abc(handle);
-                    }
-                }
-                internal static partial class Mapper_PInvoke
-                {
-                    [LibraryImport("libTest.dylib", EntryPoint = "SBW_Mapper_kept_abc")]
-                    internal static partial void PInvoke_kept_abc(System.IntPtr handle);
-                }
-            }
-            """;
-
-        var result = CSharpWrapperCoGater.Process(
-            source,
-            strippedSymbols: new HashSet<string>(),
-            preStrippedPInvokeNames: new HashSet<string>());
-
-        Assert.False(result.ContentChanged);
-        Assert.Empty(result.StrippedMembers);
-    }
-
-    [Fact]
-    public void BuildContainingTypePath_Uses_Emitted_CSharpName_Not_Swift_Name()
-    {
-        // Scope-string parity: CSharpWrapperCoGater.BuildLineToTypeMap reads emitted
-        // C# class names from the generated source. WrapperSymbolContractGate must
-        // produce scope paths that match — using TypeDecl.Name directly would diverge
-        // whenever NameProvider PascalCases (e.g., "myMapper" → "MyMapper") or a
-        // TypeRecord rename overrides (e.g., "Connection" → "ConnectionType") shifts
-        // the emitted class name. A mismatch silently drops the orphan caller from
-        // the scope-restricted strip, reintroducing the asymmetric-skip compile error.
-        var typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
-
-        // Case 1: TypeRecord rename overrides the Swift name entirely.
-        var renamedSwift = SwiftTypeName.FromModuleQualifiedName("TestModule.Connection");
-        module.RegisterType(renamedSwift, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ConnectionType"),
-            SwiftTypeName = renamedSwift,
-            MetadataAccessor = "$s10TestModule10ConnectionVMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct,
-        });
-
-        // Case 2: nested type where the record stores a composite path —
-        // BuildContainingTypePath must take the last dotted segment.
-        var nestedSwift = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Inner");
-        var outerSwift = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer");
-        module.RegisterType(outerSwift, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer"),
-            SwiftTypeName = outerSwift,
-            MetadataAccessor = "$s10TestModule5OuterVMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct,
-        });
-        module.RegisterType(nestedSwift, new TypeRecord
-        {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer.RenamedInner"),
-            SwiftTypeName = nestedSwift,
-            MetadataAccessor = "$s10TestModule5OuterV5InnerVMa",
-            Flags = TypeRecordFlags.Frozen,
-            Kind = TypeRecordKind.Struct,
-        });
-
-        typeDatabase.AddModuleDatabase(module);
-
-        var moduleDecl = new ModuleDecl
-        {
-            Name = "TestModule",
-            Dependencies = new List<string>(),
-            Types = new List<TypeDecl>(),
-            Methods = new List<MethodDecl>(),
-            Properties = new List<PropertyDecl>(),
-            Protocols = new List<ProtocolDecl>(),
-            ParentDecl = null,
-            ModuleDecl = null,
-        };
-
-        StructDecl MakeStruct(string swiftName, SwiftTypeName swiftTypeName, BaseDecl? parent) => new()
-        {
-            Name = swiftName,
-            SwiftTypeName = swiftTypeName,
-            IsFrozen = true,
-            MetadataAccessor = "$sFakeMa",
-            MangledName = "$sFake",
-            Properties = new List<PropertyDecl>(),
-            Methods = new List<MethodDecl>(),
-            Conformances = new List<TypeConformance>(),
-            Types = new List<TypeDecl>(),
-            Operators = new List<OperatorDecl>(),
-            ParentDecl = parent,
-            ModuleDecl = moduleDecl,
-        };
-
-        // Case 1: lookup hits the renamed record → "ConnectionType", not "Connection".
-        var renamedDecl = MakeStruct("Connection", renamedSwift, moduleDecl);
-        var renamedPath = WrapperSymbolContractGate.BuildContainingTypePath(renamedDecl, typeDatabase);
-        Assert.Equal("ConnectionType", renamedPath);
-
-        // Case 2: nested type — emitted path uses composite leaf segments.
-        var outerDecl = MakeStruct("Outer", outerSwift, moduleDecl);
-        var nestedDecl = MakeStruct("Inner", nestedSwift, outerDecl);
-        var nestedPath = WrapperSymbolContractGate.BuildContainingTypePath(nestedDecl, typeDatabase);
-        Assert.Equal("Outer.RenamedInner", nestedPath);
-
-        // Case 3: no registered record → PascalCase fallback on the Swift name,
-        // mirroring ModuleEmitter's default. A bare camelCase Swift type name must
-        // not appear verbatim in the scope path.
-        var unregisteredSwift = SwiftTypeName.FromModuleQualifiedName("TestModule.myMapper");
-        var unregisteredDecl = MakeStruct("myMapper", unregisteredSwift, moduleDecl);
-        var pascalPath = WrapperSymbolContractGate.BuildContainingTypePath(unregisteredDecl, typeDatabase);
-        Assert.Equal("MyMapper", pascalPath);
     }
 
     [Fact]

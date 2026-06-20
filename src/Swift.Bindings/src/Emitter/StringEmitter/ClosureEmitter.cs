@@ -98,6 +98,48 @@ public static partial class ClosureEmitter
 
         var parametersString = string.Join(", ", parameters);
 
+        // Existential-argument proxy suppression: if any argument needs a protocol proxy whose
+        // EveryProtocol conformance was suppressed (no concrete proxy class is emitted), the
+        // Swift-vended existential cannot be marshalled into the user delegate — there is no type
+        // to construct. This is a helper-emitted [UnmanagedCallersOnly] trampoline, so the decision
+        // must be a local check-and-branch: a throw across the native boundary aborts the process
+        // (SIGABRT), and the member-body checkpoint throw/rollback used by the closure-RETURN sites
+        // would desync the Swift writer / symbol claims here (Hazard D). Emit a no-op body instead
+        // of referencing the absent proxy. The argument cell is borrowed (see GetInvokeArgExpression),
+        // so skipping the conversion leaks nothing; the delegate's GCHandle is freed by the caller.
+        if (argTypes.Any(closureHandler.IsProxyReferenceSuppressed))
+        {
+            var suppressedCallConv = useCdecl
+                ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)"
+                : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
+            // Even a no-op UCO body must route through the try/catch envelope: the corpus invariant
+            // (CatchFreeUcoValidatorTests) requires EVERY [UnmanagedCallersOnly] callback to be guarded
+            // so a managed exception can never unwind across the Swift boundary. The try body is the
+            // documented no-op (the user delegate silently does not fire); the catch is the standard
+            // FailFast (matching the non-suppressed path below); the trailing return — placed AFTER the
+            // catch so the normal no-op fallthrough reaches it — satisfies CS0161 for a value-returning
+            // callback.
+            var noopReturn = returnType == "void" ? "" : "\n    return default;";
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
+                private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
+                {
+                    try
+                    {
+                        // Protocol proxy unavailable — no-op callback: a required existential argument's
+                        // proxy class was suppressed (its EveryProtocol conformance was not emitted), so the
+                        // Swift-vended existential cannot be marshalled into the user delegate.
+                    }
+                    catch (global::System.Exception __ex)
+                    {
+                        SwiftClosureMarshaller.FailFastUnhandledClosureException(__ex);
+                        throw;
+                    }{{noopReturn}}
+                }
+                """);
+            return;
+        }
+
         // Build argument list for invoking the delegate
         // Handle type conversions: byte->bool, void*->struct marshalling
         var invokeArgs = new List<string>();
@@ -366,6 +408,9 @@ public static partial class ClosureEmitter
         }
         else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var returnProxy))
         {
+            // PRODUCE: the invoke thunk is the only way to materialize the returned `any Foo`, so a
+            // suppressed proxy throws here and the member-body checkpoint restubs the whole member.
+            closureHandler.ThrowIfProxyReferenceSuppressed(closureTypeSpec.ReturnType);
             // Owned return: invoking the Swift function pointer hands the existential back at +1, so
             // the proxy adopts the container and releases it on Dispose/finalize. This branch is only
             // reached for a real EC1-EC8 proxy (bare-`any` falls to the IsExistentialParam branch
@@ -391,8 +436,12 @@ public static partial class ClosureEmitter
                     // Owned tuple element: the +1 existential returned by the Swift closure is adopted here.
                     elems.Add($"new {wrt}({acc}{ExistentialHandler.WellKnownOwnedTransferArg(wrt)})");
                 else if (closureHandler.NeedsProxyWrapping(elem, out var prn))
+                {
+                    // PRODUCE: a suppressed tuple-element proxy throws → member-body checkpoint restubs.
+                    closureHandler.ThrowIfProxyReferenceSuppressed(elem);
                     // Owned tuple element: the +1 existential returned by the Swift closure is adopted here.
                     elems.Add($"new {prn}({acc}, ownsContainer: true)");
+                }
                 else if (closureHandler.IsExistentialParam(elem))
                     elems.Add($"(object){acc}");
                 else if (closureHandler.IsSimpleEnum(elem))

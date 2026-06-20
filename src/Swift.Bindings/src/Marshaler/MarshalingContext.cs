@@ -57,6 +57,27 @@ public sealed class MarshalingContext
     /// <summary>AsyncStream handler.</summary>
     public AsyncStreamHandler AsyncStream { get; }
 
+    private ModuleEmissionContext? _emissionContext;
+
+    /// <summary>
+    /// The per-module emission context, late-injected at module-emit start (the same pattern as the
+    /// composition collector). It carries the suppressed-proxy set the closure and existential
+    /// projection paths consult to decide CONSUME (drop the <c>static __v =&gt; new {Proxy}(__v)</c>
+    /// wrap fallback, member stays) vs PRODUCE (throw <see cref="SuppressedProxyReferenceException"/>
+    /// so the member-emit boundary stubs the whole member). Assigning it pushes the same instance onto
+    /// the shared <see cref="Closure"/> handler so the closure emission path shares one oracle with the
+    /// string-emitter and projection paths.
+    /// </summary>
+    public ModuleEmissionContext? EmissionContext
+    {
+        get => _emissionContext;
+        set
+        {
+            _emissionContext = value;
+            Closure.EmissionContext = value;
+        }
+    }
+
     /// <summary>
     /// Builds the per-module marshalling context. <paramref name="moduleDecl"/> supplies the module
     /// name (for existential qualification) and the <c>ConformanceGraph</c> the bound-generic handler
@@ -111,6 +132,7 @@ public sealed class MarshalingContext
             CurrentModuleName = CurrentModuleName,
             SpecializationEngine = SpecializationEngine,
             CompositionCollector = compositionCollector,
+            EmissionContext = _emissionContext,
         };
     }
 }

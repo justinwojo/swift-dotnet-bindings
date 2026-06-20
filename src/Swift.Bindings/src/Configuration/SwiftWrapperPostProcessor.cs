@@ -54,7 +54,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Set of @_cdecl / @_silgen_name symbol names that were stripped from the wrapper.
-        /// Used by C# co-gater to suppress P/Invokes targeting these symbols.
+        /// Used by the C# stripped-symbol reconciler to suppress P/Invokes targeting these symbols.
         /// </summary>
         public IReadOnlySet<string> StrippedSymbols { get; init; } = new HashSet<string>();
     }

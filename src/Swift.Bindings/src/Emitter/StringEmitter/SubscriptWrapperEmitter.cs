@@ -19,75 +19,86 @@ public static class SubscriptWrapperEmitter
 {
     /// <summary>
     /// Pure query: determines whether a subscript accessor should use a @_cdecl wrapper.
-    /// Checked per-accessor (getter/setter signatures differ due to newValue).
+    /// Checked per-accessor (getter/setter signatures differ due to newValue). Boolean shim
+    /// over <see cref="EvaluateWrapperEligibility"/> — single source of truth (Finding 12).
     /// </summary>
     public static bool ShouldEmitSubscriptWrapper(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env)
+        => EvaluateWrapperEligibility(subscriptDecl, accessor, env).IsWrappable;
+
+    /// <summary>
+    /// Single eligibility traversal for subscript @_cdecl wrappers: returns whether the accessor
+    /// will be wrapped and, if not, the first guard that rejected it. <see cref="ShouldEmitSubscriptWrapper"/>
+    /// is its boolean shim and <see cref="GetRejectionReason"/> its diagnostic shim, so the predicate
+    /// and the rejection reason can never drift (Finding 12).
+    /// </summary>
+    public static WrapperEligibility EvaluateWrapperEligibility(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env)
     {
         // Shared guards: xcframework, non-copyable, actor
         // Note: Subscript passes actor info from the accessor, not the subscript itself
-        if (!WrapperValidation.CanEmitMember(env, MemberKind.Subscript,
+        var memberReason = WrapperValidation.GetMemberRejectionReason(env, MemberKind.Subscript,
             isActorIsolated: accessor.Method.IsActorIsolated,
             isMainActorIsolated: accessor.Method.IsMainActorIsolated,
-            isNonisolated: accessor.Method.IsNonisolated))
-            return false;
+            isNonisolated: accessor.Method.IsNonisolated);
+        if (memberReason != null)
+            return WrapperEligibility.Reject(memberReason);
 
         // 2. Generic parent type — allow non-final class instance subscripts with concrete signatures
         if (env.ParentDecl is TypeDecl td && td.IsGeneric)
         {
             if (!CanEmitGenericClassSubscriptWrapper(subscriptDecl, td))
-                return false;
+                return WrapperEligibility.Reject("generic_parent_type");
         }
 
         // 3. Not static (static subscripts aren't C# indexers)
         if (subscriptDecl.IsStatic)
-            return false;
+            return WrapperEligibility.Reject("static_subscript");
 
         // 4. No closure index params
         foreach (var param in subscriptDecl.IndexParameters)
         {
             if (env.ClosureHandler.IsClosure(param))
-                return false;
+                return WrapperEligibility.Reject("closure_index_param");
         }
 
         // 5. No async accessors
         if (accessor.Method.IsAsync)
-            return false;
+            return WrapperEligibility.Reject("async_accessor");
 
         // 6b. No metatype return type or index parameters (including Optional<Metatype>).
         // Setter newValue uses ReturnTypeSpec too, so the same gate covers both accessors.
         // Same boundary as the method/property/constructor wrapper gates.
         if (WrapperValidation.IsMetatypeTypeIncludingOptional(subscriptDecl.ReturnTypeSpec))
-            return false;
+            return WrapperEligibility.Reject("metatype_return");
         foreach (var param in subscriptDecl.IndexParameters)
         {
             if (WrapperValidation.IsMetatypeTypeIncludingOptional(param.SwiftTypeSpec))
-                return false;
+                return WrapperEligibility.Reject("metatype_index_param");
         }
 
         // 7. No opaque return type (some Protocol)
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
-            return false;
+            return WrapperEligibility.Reject("opaque_return_type");
 
         // 8. No unsupported generic container params/returns (Result<T,E>, Optional<existential>).
         //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
         if (WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
-            return false;
+            return WrapperEligibility.Reject("unsupported_generic_container");
 
         foreach (var param in subscriptDecl.IndexParameters)
         {
             if (WrapperValidation.IsUnsupportedGenericContainer(param.SwiftTypeSpec, env.TypeDatabase))
-                return false;
+                return WrapperEligibility.Reject("unsupported_generic_container_param");
         }
 
         // 9. No closure return types
         if (subscriptDecl.ReturnTypeSpec is ClosureTypeSpec)
-            return false;
+            return WrapperEligibility.Reject("closure_return_type");
 
         // 10. Tuple return types: allowed — routed through IndirectResult (resultPtr buffer).
 
         // 11. No nested type returns
         if (WrapperValidation.IsNestedType(subscriptDecl.ReturnTypeSpec))
-            return false;
+            return WrapperEligibility.Reject("nested_type_return");
 
         // 12. No nested frozen struct index parameters
         foreach (var param in subscriptDecl.IndexParameters)
@@ -101,7 +112,7 @@ public static class SubscriptWrapperEmitter
             var name = namedSpec.Name;
             var dotIndex = name.IndexOf('.');
             if (dotIndex >= 0 && name.Substring(dotIndex + 1).Contains('.'))
-                return false;
+                return WrapperEligibility.Reject("nested_frozen_struct_index_param");
         }
 
         // 13. No non-primitive frozen struct index parameters
@@ -114,95 +125,28 @@ public static class SubscriptWrapperEmitter
             if (env.TypeDatabase.TryGetTypeRecord(param.SwiftTypeSpec, out var typeRecord) &&
                 typeRecord.Kind == TypeRecordKind.Struct &&
                 MarshallingHelpers.IsTypeFrozen(typeRecord))
-                return false;
+                return WrapperEligibility.Reject("non_primitive_frozen_struct_index_param");
         }
 
         // 14. Skip subscripts with raw ABI generic type params (τ_0_0) in return type or index params.
         // These leak from parent type generics and cause Swift compilation failures.
         if (subscriptDecl.ReturnTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(subscriptDecl.ReturnTypeSpec))
-            return false;
+            return WrapperEligibility.Reject("raw_generic_type_params");
         foreach (var param in subscriptDecl.IndexParameters)
         {
             if (param.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(param.SwiftTypeSpec))
-                return false;
+                return WrapperEligibility.Reject("raw_generic_type_params");
         }
 
-        return true;
+        return WrapperEligibility.Wrappable;
     }
 
     /// <summary>
-    /// Returns a human-readable skip reason if the subscript wrapper would be rejected, or null if it passes all gates.
-    /// Mirrors the guard order in <see cref="ShouldEmitSubscriptWrapper"/> for emission report diagnostics.
+    /// Returns a human-readable skip reason if the subscript wrapper would be rejected, or null if it
+    /// passes all gates. Diagnostic shim over <see cref="EvaluateWrapperEligibility"/> (Finding 12).
     /// </summary>
     public static string? GetRejectionReason(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env)
-    {
-        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
-            return null; // not in xcframework mode — not a skip, just N/A
-
-        if (env.ParentDecl is TypeDecl td && td.IsGeneric &&
-            !CanEmitGenericClassSubscriptWrapper(subscriptDecl, td))
-            return "generic_parent_type";
-        if (subscriptDecl.IsStatic)
-            return "static_subscript";
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (env.ClosureHandler.IsClosure(param))
-                return "closure_index_param";
-        }
-        if (accessor.Method.IsAsync)
-            return "async_accessor";
-        // Noncopyable struct parents are now allowed (borrowing pointer semantics)
-        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated, accessor.Method.IsNonisolated))
-            return "actor_type_subscript";
-        if (WrapperValidation.IsMetatypeTypeIncludingOptional(subscriptDecl.ReturnTypeSpec))
-            return "metatype_return";
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (WrapperValidation.IsMetatypeTypeIncludingOptional(param.SwiftTypeSpec))
-                return "metatype_index_param";
-        }
-        if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
-            return "opaque_return_type";
-        if (WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
-            return "unsupported_generic_container";
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (WrapperValidation.IsUnsupportedGenericContainer(param.SwiftTypeSpec, env.TypeDatabase))
-                return "unsupported_generic_container_param";
-        }
-        if (subscriptDecl.ReturnTypeSpec is ClosureTypeSpec)
-            return "closure_return_type";
-        if (WrapperValidation.IsNestedType(subscriptDecl.ReturnTypeSpec))
-            return "nested_type_return";
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (param.SwiftTypeSpec is not NamedTypeSpec namedSpec) continue;
-            if (!env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord)) continue;
-            if (typeRecord.Kind != TypeRecordKind.Struct || !MarshallingHelpers.IsTypeFrozen(typeRecord)) continue;
-            var name = namedSpec.Name;
-            var dotIndex = name.IndexOf('.');
-            if (dotIndex >= 0 && name.Substring(dotIndex + 1).Contains('.'))
-                return "nested_frozen_struct_index_param";
-        }
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (CdeclParamMapper.IsCdeclPrimitive(param.SwiftTypeSpec)) continue;
-            if (param.SwiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String") continue;
-            if (env.TypeDatabase.TryGetTypeRecord(param.SwiftTypeSpec, out var typeRecord) &&
-                typeRecord.Kind == TypeRecordKind.Struct &&
-                MarshallingHelpers.IsTypeFrozen(typeRecord))
-                return "non_primitive_frozen_struct_index_param";
-        }
-        if (subscriptDecl.ReturnTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(subscriptDecl.ReturnTypeSpec))
-            return "raw_generic_type_params";
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (param.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(param.SwiftTypeSpec))
-                return "raw_generic_type_params";
-        }
-
-        return null;
-    }
+        => EvaluateWrapperEligibility(subscriptDecl, accessor, env).Reason;
 
     /// <summary>
     /// Gets the @_cdecl symbol name for a subscript accessor wrapper.

@@ -8,17 +8,26 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
-    /// Post-processes generated C# binding files to suppress members whose
-    /// corresponding Swift @_cdecl wrapper symbols were stripped by the post-processor.
-    /// Prevents DllNotFoundException at runtime by co-gating C# with the Swift wrapper.
+    /// Reconciles generated C# against the Swift wrapper-compile strip leg: when wrapper
+    /// compilation strips a Swift <c>@_cdecl</c> symbol, this removes the orphaned C# P/Invoke
+    /// and its transitive callers (3-level closure: P/Invoke → caller → property forwarder),
+    /// preventing a <see cref="System.DllNotFoundException"/> at runtime.
+    /// <para>
+    /// <b>7b liability — delete with the Swift wrapper strip leg.</b> This is the sole surviving
+    /// slice of the retired generate-then-strip co-gater post-pass: trigger #2 (the in-band
+    /// wrapper-symbol contract) and trigger #3 (suppressed proxy references) are now decided at
+    /// emission, not clawed back over the emitted text. This component lives only to reconcile C#
+    /// against the Swift strip leg (task 7b); it is dead the day that leg is retired and must not
+    /// masquerade as live architecture.
+    /// </para>
     /// </summary>
-    public static class CSharpWrapperCoGater
+    public static class StrippedSymbolCSharpReconciler
     {
         /// <summary>
-        /// Result of co-gating a single C# source file. <see cref="StrippedMembers"/> carries
+        /// Result of reconciling a single C# source file. <see cref="StrippedMembers"/> carries
         /// stable identities (one per member decision, never collapsed for overloads) so the
-        /// rederived <see cref="BindingReport"/> reflects post-cogating reality. Mangled symbols
-        /// are populated when the cogater path has them (P/Invoke EntryPoint); otherwise identity
+        /// rederived <see cref="BindingReport"/> reflects post-reconciliation reality. Mangled symbols
+        /// are populated when the reconciliation path has them (P/Invoke EntryPoint); otherwise identity
         /// is heuristic and item 4 will tighten it.
         /// <para>
         /// <see cref="ContentChanged"/> is the write gate — independent of identity count because
@@ -69,42 +78,8 @@ namespace BindingsGeneration
         /// Uses 3-level transitive closure: P/Invoke → caller → property forwarder.
         /// </summary>
         public static CoGatingResult Process(string content, IReadOnlySet<string> strippedSymbols)
-            => Process(content, strippedSymbols, preStrippedPInvokeNames: null);
-
-        /// <summary>
-        /// Convenience overload that maps each pre-stripped name to an empty scope set
-        /// (no scope info — file-wide stripping guarded by collision detection). Tests and
-        /// callers that don't track scope use this form; production wires the dictionary
-        /// overload from <c>ModuleEmissionContext.ContractViolatedPInvokeScopes</c>.
-        /// </summary>
-        public static CoGatingResult Process(
-            string content,
-            IReadOnlySet<string> strippedSymbols,
-            IReadOnlySet<string>? preStrippedPInvokeNames)
-            => Process(content, strippedSymbols, BuildScopelessMap(preStrippedPInvokeNames));
-
-        /// <summary>
-        /// Variant that accepts pre-stripped C# P/Invoke names with the qualified C# type
-        /// paths in which the orphan caller is known to live. Used by the wrapper-symbol
-        /// contract path: when the in-band contract rejects a P/Invoke, the declaration is
-        /// never written to the file (so the entry-point scan in Step A finds nothing), but
-        /// the wrapper body has already been emitted with a call to the missing P/Invoke.
-        /// Scope-aware stripping restricts the orphan-caller removal to the violated scope so
-        /// a same-named P/Invoke legitimately emitted in another scope (and its callers)
-        /// survives intact.
-        /// </summary>
-        /// <param name="preStrippedPInvokeNamesWithScopes">Name → set of containing types
-        /// (e.g., <c>"Transaction.AsyncIterator"</c>) in which the orphan caller sits.
-        /// An empty scope set means scope info is unknown; the cogater falls back to
-        /// file-wide stripping guarded by collision detection.</param>
-        public static CoGatingResult Process(
-            string content,
-            IReadOnlySet<string> strippedSymbols,
-            IReadOnlyDictionary<string, IReadOnlySet<string>>? preStrippedPInvokeNamesWithScopes)
         {
-            var hasEntryPointSymbols = strippedSymbols.Count > 0;
-            var hasPreStrippedNames = preStrippedPInvokeNamesWithScopes is { Count: > 0 };
-            if ((!hasEntryPointSymbols && !hasPreStrippedNames) || string.IsNullOrEmpty(content))
+            if (strippedSymbols.Count == 0 || string.IsNullOrEmpty(content))
                 return CoGatingResult.Empty(content);
 
             var lines = SplitLines(content);
@@ -114,10 +89,9 @@ namespace BindingsGeneration
             // Collect candidates with their line ranges — don't apply removals yet,
             // because some P/Invokes may be exempted by GetMetadata fallback callers.
             var candidatePInvokes = new Dictionary<string, (int preambleStart, int declEnd)>();
-            if (hasEntryPointSymbols)
-                FindStrippedPInvokeCandidates(lines, strippedSymbols, candidatePInvokes);
+            FindStrippedPInvokeCandidates(lines, strippedSymbols, candidatePInvokes);
 
-            if (candidatePInvokes.Count == 0 && !hasPreStrippedNames)
+            if (candidatePInvokes.Count == 0)
                 return CoGatingResult.Empty(content);
 
             // Build line → qualified type path map. Must be computed before
@@ -156,55 +130,14 @@ namespace BindingsGeneration
                     removals.Add(j);
             }
 
-            // Partition contract-violation pre-stripped names by scope availability.
-            // Names with known violated scope go through scope-restricted Step B (only
-            // strip callers inside the violated type). Names without scope info fall
-            // back to file-wide Step B, guarded by collision detection to avoid breaking
-            // a kept same-name decl elsewhere in the file.
-            var scopedPreStripped = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-            var unscopedPreStripped = new HashSet<string>(StringComparer.Ordinal);
-            if (hasPreStrippedNames)
-            {
-                foreach (var (name, scopes) in preStrippedPInvokeNamesWithScopes!)
-                {
-                    if (scopes.Count > 0)
-                        scopedPreStripped[name] = new HashSet<string>(scopes, StringComparer.Ordinal);
-                    else
-                        unscopedPreStripped.Add(name);
-                }
-
-                if (unscopedPreStripped.Count > 0)
-                {
-                    var collidingPreStripped = FindCollidingPreStrippedNames(lines, unscopedPreStripped);
-                    foreach (var name in unscopedPreStripped)
-                    {
-                        if (!collidingPreStripped.Contains(name))
-                            strippedPInvokeNames.Add(name);
-                    }
-                }
-            }
-
-            if (strippedPInvokeNames.Count == 0 && scopedPreStripped.Count == 0)
+            if (strippedPInvokeNames.Count == 0)
                 return CoGatingResult.Empty(content);
 
             // Step B: Find Level 1 callers (methods/constructors calling stripped P/Invokes).
-            // File-wide pass covers entry-point-sourced strips + unscoped contract names.
             var strippedCallerNames = new HashSet<string>();
             var callerNameToTypes = new Dictionary<string, HashSet<string>>();
-            if (strippedPInvokeNames.Count > 0)
-            {
-                FindAndMarkCallers(lines, strippedPInvokeNames, strippedCallerNames, removals,
-                    lineToType, callerNameToTypes, publicDeclLines);
-            }
-
-            // Step B-scope: For each scoped contract violation, strip callers only inside
-            // the violated scope(s). A same-name P/Invoke + caller in another scope is
-            // preserved. Caller-name tracking feeds Step C's transitive cascade.
-            foreach (var (name, allowedTypes) in scopedPreStripped)
-            {
-                FindAndMarkCallersInScopes(lines, name, allowedTypes, lineToType, removals,
-                    publicDeclLines, strippedCallerNames, callerNameToTypes);
-            }
+            FindAndMarkCallers(lines, strippedPInvokeNames, strippedCallerNames, removals,
+                lineToType, callerNameToTypes, publicDeclLines);
 
             // Step B2: Strip orphaned closure-callback function-pointer fields and their readers.
             // When Step B strips an [UnmanagedCallersOnly] callback method (its body calls a
@@ -212,10 +145,10 @@ namespace BindingsGeneration
             // the sibling one-line field "static ... s_<cb> = &<cb>;" is NOT a block member, so
             // FindAndMarkCallers leaves it dangling on the now-missing method. The field name then
             // dangles in surviving readers ("new SwiftClosureData((IntPtr)s_<cb>, …)"). This closes
-            // the co-gater stripping asymmetry — defense-in-depth;
+            // the stripping asymmetry — defense-in-depth;
             // the root cause is fixed by registering the error-mint helper, but symmetric stripping
             // keeps any future orphaned-field scenario producing compiling output instead of CS0103.
-            // Runs after Step B/B-scope (callbacks already removed) and before Step C so any
+            // Runs after Step B (callbacks already removed) and before Step C so any
             // property-helper reader it surfaces feeds the transitive forwarder strip below.
             StripOrphanedClosureCallbackFields(lines, removals, lineToType, publicDeclLines,
                 strippedCallerNames, callerNameToTypes);
@@ -280,43 +213,8 @@ namespace BindingsGeneration
         /// (overload-correct: duplicates preserved across files, ordinals scoped per file).
         /// </summary>
         public static IReadOnlyList<CoGatedMember> ProcessDirectory(string directory, IReadOnlySet<string> strippedSymbols, ILogger? logger = null)
-            => ProcessDirectoryCore(directory, strippedSymbols, preStrippedPInvokeNamesWithScopes: null, logger);
-
-        /// <summary>
-        /// Processes a directory using pre-stripped C# P/Invoke method names sourced from
-        /// the in-band wrapper-symbol contract, mapped to the qualified C# type paths
-        /// hosting the orphan caller. Scope-restricted stripping preserves a same-name
-        /// P/Invoke + caller that exists in another scope in the same file.
-        /// </summary>
-        public static IReadOnlyList<CoGatedMember> ProcessDirectoryForContractViolations(
-            string directory,
-            IReadOnlyDictionary<string, IReadOnlySet<string>> preStrippedPInvokeNamesWithScopes,
-            ILogger? logger = null)
-            => ProcessDirectoryCore(directory, strippedSymbols: EmptyStringSet, preStrippedPInvokeNamesWithScopes, logger);
-
-        /// <summary>
-        /// Backward-compatible overload: treats every name as scope-unknown, routing
-        /// through file-wide stripping guarded by collision detection.
-        /// </summary>
-        public static IReadOnlyList<CoGatedMember> ProcessDirectoryForContractViolations(
-            string directory,
-            IReadOnlySet<string> preStrippedPInvokeNames,
-            ILogger? logger = null)
-            => ProcessDirectoryCore(
-                directory,
-                strippedSymbols: EmptyStringSet,
-                BuildScopelessMap(preStrippedPInvokeNames),
-                logger);
-
-        private static IReadOnlyList<CoGatedMember> ProcessDirectoryCore(
-            string directory,
-            IReadOnlySet<string> strippedSymbols,
-            IReadOnlyDictionary<string, IReadOnlySet<string>>? preStrippedPInvokeNamesWithScopes,
-            ILogger? logger)
         {
-            var hasEntryPointSymbols = strippedSymbols.Count > 0;
-            var hasPreStrippedNames = preStrippedPInvokeNamesWithScopes is { Count: > 0 };
-            if (!hasEntryPointSymbols && !hasPreStrippedNames)
+            if (strippedSymbols.Count == 0)
                 return Array.Empty<CoGatedMember>();
 
             var csFiles = Directory.GetFiles(directory, "*.cs");
@@ -325,7 +223,7 @@ namespace BindingsGeneration
             foreach (var file in csFiles)
             {
                 var content = File.ReadAllText(file);
-                var result = Process(content, strippedSymbols, preStrippedPInvokeNamesWithScopes);
+                var result = Process(content, strippedSymbols);
                 if (!result.ContentChanged)
                     continue;
 
@@ -747,36 +645,6 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// For contract-violated P/Invoke names: detects any name that collides with an
-        /// emitted partial decl elsewhere in the file. The contract rejection prevents the
-        /// decl from being emitted in the violator's scope, but a same-named P/Invoke can
-        /// legitimately exist in another scope (e.g., a per-type "PInvoke_eq" helper).
-        /// Without this guard, file-wide caller stripping would remove callers in the
-        /// kept-decl scope and break their compilation.
-        /// </summary>
-        private static HashSet<string> FindCollidingPreStrippedNames(
-            List<string> lines, IReadOnlySet<string> preStrippedNames)
-        {
-            var colliding = new HashSet<string>();
-            if (preStrippedNames.Count == 0)
-                return colliding;
-
-            for (int i = 0; i < lines.Count; i++)
-            {
-                var line = lines[i];
-                if (!IsPInvokeSignatureLine(line))
-                    continue;
-
-                foreach (var name in preStrippedNames)
-                {
-                    if (ContainsCallTo(line, name))
-                        colliding.Add(name);
-                }
-            }
-            return colliding;
-        }
-
-        /// <summary>
         /// Checks if a line is a LibraryImport or DllImport attribute targeting a wrapper library.
         /// Wrapper libraries are named "{ModuleName}SwiftBindings", "libSwiftBindings", or just
         /// "SwiftBindings". Correctly excludes native library names like "SwiftBindingsTestLib".
@@ -790,17 +658,17 @@ namespace BindingsGeneration
         /// True when <paramref name="line"/> is a P/Invoke method signature line — either the
         /// source-generated <c>... static partial ...(...);</c> shape or the older
         /// <c>... static extern ...(...);</c> (DllImport) shape. Both terminate in a semicolon with
-        /// no body. Centralizing the check keeps the three decl scanners
-        /// (<see cref="FindPartialDeclaration"/>, <see cref="FindAmbiguousMethodNames"/>,
-        /// <see cref="FindCollidingPreStrippedNames"/>) recognizing the same shapes in lockstep.
+        /// no body. Centralizing the check keeps the decl scanners
+        /// (<see cref="FindPartialDeclaration"/>, <see cref="FindAmbiguousMethodNames"/>)
+        /// recognizing the same shapes in lockstep.
         /// <para>
         /// The check also requires <c> static </c> and a parameter list <c>(</c>: every emitted
         /// P/Invoke is a static method with a signature, and <c>partial</c> is a *contextual*
         /// keyword that can legally be an identifier (e.g. <c>var partial = Foo();</c>). Matching on
         /// the bare <c> partial </c>/<c> extern </c> token plus a trailing <c>;</c> alone would let
         /// such a body line — or a comment that happens to contain the token — be counted as a
-        /// duplicate declaration by <see cref="FindAmbiguousMethodNames"/>/<see cref="FindCollidingPreStrippedNames"/>,
-        /// which inflate a name's decl count and then SUPPRESS the strip file-wide, leaving a dead
+        /// duplicate declaration by <see cref="FindAmbiguousMethodNames"/>,
+        /// which inflates a name's decl count and then SUPPRESS the strip file-wide, leaving a dead
         /// wrapper symbol's P/Invoke (and its callers) behind. Requiring the static-method shape
         /// matches every real declaration while excluding those false positives.
         /// </para>
@@ -2092,41 +1960,6 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Finds method names that appear as declarations (not just calls) in multiple locations
-        /// in the file. Unlike FindAmbiguousMethodNames (which checks P/Invoke signature lines —
-        /// static partial/extern — only), this checks all method declarations. Used by the proxy
-        /// co-gater to avoid false-matching property helpers like "Subscript_Get" that exist in
-        /// multiple types.
-        /// </summary>
-        private static HashSet<string> FindAmbiguousMethodDeclarations(
-            List<string> lines, IEnumerable<string> candidateNames)
-        {
-            var nameCounts = new Dictionary<string, int>();
-            foreach (var name in candidateNames)
-                nameCounts[name] = 0;
-
-            for (int i = 0; i < lines.Count; i++)
-            {
-                var trimmed = lines[i].TrimStart();
-                if (!IsPotentialMemberDeclaration(trimmed))
-                    continue;
-
-                // Extract member name and check against candidates
-                var memberName = ExtractMemberName(trimmed);
-                if (memberName != null && nameCounts.ContainsKey(memberName))
-                    nameCounts[memberName]++;
-            }
-
-            var ambiguous = new HashSet<string>();
-            foreach (var (name, count) in nameCounts)
-            {
-                if (count > 1)
-                    ambiguous.Add(name);
-            }
-            return ambiguous;
-        }
-
-        /// <summary>
         /// Scope-aware variant of FindAndMarkCallers. Only strips callers of the given method
         /// name if they are within one of the specified containing types.
         /// Prevents false-matching "Subscript_Get" in TypeB when only TypeA's version was stripped.
@@ -2136,7 +1969,7 @@ namespace BindingsGeneration
         /// are supplied, the method also records property-helper-shaped callers (e.g.,
         /// <c>Value_Get</c>) and their containing types, mirroring <see cref="FindAndMarkCallers"/>.
         /// This feeds Step C's transitive cascade so a scope-restricted Step B (used by the
-        /// contract-violation path) still reaches Level-2 forwarders.
+        /// Swift-strip reconciliation path) still reaches Level-2 forwarders.
         /// </remarks>
         private static void FindAndMarkCallersInScopes(
             List<string> lines, string methodName, HashSet<string> allowedTypes,
@@ -2384,475 +2217,6 @@ namespace BindingsGeneration
 
         #endregion
 
-        #region Proxy Reference Co-Gating
-
-        /// <summary>
-        /// Processes a single C# source file, removing method bodies that construct
-        /// suppressed proxy classes (whose EveryProtocol conformance was not emitted).
-        /// Uses the same transitive closure approach as the main co-gater.
-        /// Interface member implementations are protected: their bodies are replaced with
-        /// throw NotSupportedException instead of being stripped (prevents CS0535).
-        /// </summary>
-        public static CoGatingResult ProcessSuppressedProxyReferences(string content, IReadOnlySet<string> suppressedProxyClassNames)
-            => ProcessSuppressedProxyReferences(content, suppressedProxyClassNames, EmptyStringSet);
-
-        private static readonly IReadOnlySet<string> EmptyStringSet = new HashSet<string>();
-
-        /// <summary>
-        /// Wraps a flat set of pre-stripped P/Invoke names into the scope-keyed shape the
-        /// scope-aware path expects, with every name mapped to an empty scope set
-        /// (= "scope unknown — file-wide fallback with collision guard"). Returns null
-        /// when the input is null or empty so the cogater short-circuits cleanly.
-        /// </summary>
-        private static IReadOnlyDictionary<string, IReadOnlySet<string>>? BuildScopelessMap(
-            IReadOnlySet<string>? preStrippedPInvokeNames)
-        {
-            if (preStrippedPInvokeNames is null || preStrippedPInvokeNames.Count == 0)
-                return null;
-            var map = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
-            foreach (var name in preStrippedPInvokeNames)
-                map[name] = EmptyStringSet;
-            return map;
-        }
-
-        /// <summary>
-        /// Variant that also accepts cross-module suppressed proxy class names in their fully
-        /// qualified form (<c>{DepNamespace}.SwiftInterop.{ProxyName}</c>). The local set
-        /// matches ONLY the unqualified <c>new {ProxyName}(</c> and the local-namespace
-        /// <c>new SwiftInterop.{ProxyName}(</c> forms — never any
-        /// <c>{Namespace}.SwiftInterop.{ProxyName}(</c> shape. <c>QualifyProxyClassName</c>
-        /// returns unqualified when the protocol's emission namespace matches the current
-        /// module, so the current module never emits self-qualified references; matching the
-        /// qualified form against the local set could only false-positive on a valid
-        /// reference into a non-suppressing dependency. The cross-module set matches ONLY
-        /// the fully qualified form keyed on the dep's C# namespace, so a dependency's
-        /// suppressed proxy never strips this module's own legitimately-emitted proxy that
-        /// happens to share a simple class name.
-        /// </summary>
-        public static CoGatingResult ProcessSuppressedProxyReferences(
-            string content,
-            IReadOnlySet<string> suppressedProxyClassNames,
-            IReadOnlySet<string> crossModuleSuppressedQualifiedNames)
-        {
-            if ((suppressedProxyClassNames.Count == 0 && crossModuleSuppressedQualifiedNames.Count == 0)
-                || string.IsNullOrEmpty(content))
-                return CoGatingResult.Empty(content);
-
-            // Capture the input verbatim so the wrap-fallback pre-pass can be detected as
-            // a content-only change downstream — files where ONLY a fallback lambda was
-            // rewritten still need to be written back even when no member is replaced.
-            var originalContent = content;
-
-            // Pre-pass: downgrade GetOrCreate auto-wrap fallbacks that reference suppressed proxies
-            // back to the no-fallback form. The generator emits
-            //     ExistentialContainerFactory.GetOrCreate<IFoo>(value, static __v => new FooProxy(__v))
-            // for every existential parameter where a proxy class might exist. If the proxy class
-            // ends up suppressed (EveryProtocol conformance not emitted), the lambda would otherwise
-            // cause the entire enclosing method/helper to be stripped, which cascades into broken
-            // call sites elsewhere. Rewriting just the lambda preserves the surrounding code path
-            // (with the original throw-if-not-convertible runtime semantics for the fallback).
-            content = DowngradeSuppressedWrapFallbacks(content, suppressedProxyClassNames, crossModuleSuppressedQualifiedNames);
-
-            var lines = SplitLines(content);
-            var removals = new HashSet<int>();
-            var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback, bool isVoidReturn, bool isProperty, bool propertySetter)>();
-            var identities = new List<CoGatedMember>();
-            int proxyOrdinal = 0;
-
-            // Build interface member protection (same as main co-gater)
-            var lineToType = BuildLineToTypeMap(lines);
-            var interfaceMembers = ParseInterfaceMembers(lines);
-            var typeProtectedMembers = BuildTypeProtectedMembers(lines, interfaceMembers, lineToType);
-
-            // Find method bodies that construct suppressed proxy classes.
-            // Pattern: "new {ProxyClassName}(" in a method/property body.
-            int i = 0;
-            while (i < lines.Count)
-            {
-                if (removals.Contains(i)) { i++; continue; }
-
-                var trimmed = lines[i].TrimStart();
-                if (IsTypeOrNamespaceDeclaration(trimmed)) { i++; continue; }
-                if (!IsPotentialMemberDeclaration(trimmed)) { i++; continue; }
-
-                int braceOpenLine = FindOpeningBrace(lines, i);
-                if (braceOpenLine < 0 || braceOpenLine > i + 5) { i++; continue; }
-
-                int blockEnd = FindBlockEnd(lines, braceOpenLine);
-                if (blockEnd < braceOpenLine) { i++; continue; }
-
-                // Check if the block body contains a proxy construction.
-                // Local suppressed names match ONLY the unqualified form `new XProxy(` and the
-                // local-namespace form `new SwiftInterop.XProxy(` — never `{Namespace}.SwiftInterop.XProxy(`.
-                // QualifyProxyClassName returns unqualified when the protocol's emission namespace
-                // matches the current module, so the current module never emits self-qualified
-                // references; matching the qualified form against the LOCAL set would only
-                // false-positive on a valid reference into a different (non-suppressing)
-                // dependency that happens to share a simple proxy class name.
-                // Cross-module suppressed names match ONLY the fully qualified construction
-                // (`new {DepNamespace}.SwiftInterop.{Proxy}(`) keyed on the dep's C# namespace —
-                // never bare or `SwiftInterop.`-only forms, which would false-positive on the
-                // current module's own proxy of the same simple name.
-                bool referencesProxy = false;
-                for (int j = i; j <= blockEnd && !referencesProxy; j++)
-                {
-                    foreach (var proxyName in suppressedProxyClassNames)
-                    {
-                        if (lines[j].Contains($"new {proxyName}(", StringComparison.Ordinal) ||
-                            lines[j].Contains($"new SwiftInterop.{proxyName}(", StringComparison.Ordinal))
-                        {
-                            referencesProxy = true;
-                            break;
-                        }
-                    }
-                    if (referencesProxy)
-                        break;
-                    foreach (var qualified in crossModuleSuppressedQualifiedNames)
-                    {
-                        if (lines[j].Contains($"new {qualified}(", StringComparison.Ordinal))
-                        {
-                            referencesProxy = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!referencesProxy)
-                {
-                    i = blockEnd + 1;
-                    continue;
-                }
-
-                // [UnmanagedCallersOnly] methods are proxy receiver callbacks referenced by
-                // function pointers in vtable assignments. They can't be stripped (breaks vtable),
-                // but their body may reference a suppressed proxy type. Replace the body with a
-                // no-op stub (these are always static void callbacks from Swift).
-                bool hasUnmanagedCallersOnly = false;
-                for (int j = ScanBackwardForPreamble(lines, i); j < i; j++)
-                {
-                    if (lines[j].Contains("UnmanagedCallersOnly", StringComparison.Ordinal))
-                    {
-                        hasUnmanagedCallersOnly = true;
-                        break;
-                    }
-                }
-                if (hasUnmanagedCallersOnly)
-                {
-                    var declLine = lines[i];
-                    var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-                    // Detect return type: non-void callbacks (e.g. returning IntPtr) need
-                    // a return statement to avoid CS0161 (not all code paths return a value).
-                    bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
-                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true, isVoidReturn, isProperty: false, propertySetter: false);
-                    identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
-                    i = blockEnd + 1;
-                    continue;
-                }
-
-                // Check if this is an interface member implementation
-                bool isInterfaceMember = false;
-                if (typeProtectedMembers.Count > 0)
-                {
-                    var containingType = i < lineToType.Length ? lineToType[i] : null;
-                    if (containingType != null &&
-                        typeProtectedMembers.TryGetValue(containingType, out var protectedNames))
-                    {
-                        var memberName = ExtractMemberName(trimmed);
-                        if (memberName != null)
-                        {
-                            var publicApiName = IsPropertyHelperName(memberName)
-                                ? memberName.Substring(0, memberName.LastIndexOf('_'))
-                                : memberName;
-                            isInterfaceMember = protectedNames.Contains(publicApiName);
-                        }
-                    }
-                }
-
-                if (isInterfaceMember)
-                {
-                    // Replace body with throw instead of stripping — preserves interface compliance.
-                    // Compute the indentation from the declaration line.
-                    var declLine = lines[i];
-                    var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-
-                    // Detect property declarations: interface properties need get/set accessors
-                    // to emit valid C# (bare throw inside a property body is a compile error).
-                    bool isIfacePropertyDecl = IsPropertyDeclaration(trimmed, lines, braceOpenLine, blockEnd, out var ifaceHasSetter);
-
-                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
-                        isVoidReturn: false, isProperty: isIfacePropertyDecl, propertySetter: ifaceHasSetter);
-                    identities.Add(BuildProxyIdentity(lines, i, lineToType,
-                        isIfacePropertyDecl ? BindingItemKind.Property : BindingItemKind.Method, ref proxyOrdinal));
-                }
-                else
-                {
-                    var memberName = ExtractMemberName(trimmed);
-
-                    // Public members referencing suppressed proxies: replace body with throw
-                    // instead of stripping. Stripping removes the member from the API surface,
-                    // which breaks downstream consumers and cascades to strip dependent members
-                    // (e.g., property helpers → property declarations).
-                    // Property helpers (_Get/_Set) must also be preserved to prevent Level 2
-                    // cascade-stripping of the public property declaration.
-                    // Private/internal methods that aren't property helpers can be stripped safely.
-                    bool isPublicMember = trimmed.StartsWith("public ", StringComparison.Ordinal);
-                    bool isPropertyHelper = memberName != null && IsPropertyHelperName(memberName);
-                    bool isEventDecl = ContainsKeywordToken(trimmed, "event");
-
-                    // Detect property declarations: body contains get/set accessors, or the
-                    // declaration itself is property-shaped. The latter covers co-gating of
-                    // generated proxy interface properties whose invalid proxy body is replaced
-                    // before any accessor token can be observed.
-                    bool hasSetter = false;
-                    bool isPropertyDecl = isPublicMember && !isEventDecl &&
-                        IsPropertyDeclaration(trimmed, lines, braceOpenLine, blockEnd, out hasSetter);
-
-                    if (isPropertyDecl)
-                    {
-                        // Property declarations need get/set accessors in replacement body.
-                        var declLine = lines[i];
-                        var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-                        replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
-                            isVoidReturn: false, isProperty: true, propertySetter: hasSetter);
-                        identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Property, ref proxyOrdinal));
-                    }
-                    else if (isEventDecl)
-                    {
-                        // Events need add/remove accessors inside braces; a bare throw body is
-                        // invalid C#. The generator does not currently emit events from Swift
-                        // surface, so the safe default is to fully strip an event that references
-                        // a suppressed proxy rather than emit uncompilable accessor replacements.
-                        int preambleStart = ScanBackwardForPreamble(lines, i);
-                        for (int j = preambleStart; j <= blockEnd; j++)
-                            removals.Add(j);
-                        identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
-                    }
-                    else if (isPublicMember || isPropertyHelper)
-                    {
-                        var declLine = lines[i];
-                        var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-                        bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
-                        replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false, isVoidReturn, isProperty: false, propertySetter: false);
-
-                        if (isPropertyHelper && !isPublicMember)
-                        {
-                            // Private property helper (Value_Get / Value_Set) backing a public
-                            // property forwarder. The helper's body is replaced with throw, so
-                            // the user-visible breakage is the public property — report THAT,
-                            // not the implementation-detail helper name.
-                            identities.Add(BuildProxyPropertyIdentityFromHelper(memberName!, i, lineToType, ref proxyOrdinal));
-                        }
-                        else
-                        {
-                            identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
-                        }
-                    }
-                    else
-                    {
-                        int preambleStart = ScanBackwardForPreamble(lines, i);
-                        for (int j = preambleStart; j <= blockEnd; j++)
-                            removals.Add(j);
-                        identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
-                    }
-                }
-
-                i = blockEnd + 1;
-            }
-
-            // Level 2 (cascade stripping) is no longer needed: property helpers now get body
-            // replacement instead of stripping, so property forwarders are never orphaned.
-
-            // Level 3: Remove orphaned subscript/property narrowing overloads.
-            // These are single-line forwarders like "this[int x] => this[(nint)x];" that
-            // delegate to a broader overload. If the target was removed, the narrowing
-            // becomes a compile error (CS1503). Strip them.
-            StripOrphanedNarrowingOverloads(lines, removals, lineToType);
-
-            if (removals.Count == 0 && replacements.Count == 0)
-            {
-                // No member-level work, but DowngradeSuppressedWrapFallbacks may still
-                // have rewritten lambdas — write the file iff that happened.
-                return new CoGatingResult
-                {
-                    Content = content,
-                    StrippedMembers = Array.Empty<CoGatedMember>(),
-                    ContentChanged = !string.Equals(content, originalContent, StringComparison.Ordinal),
-                };
-            }
-
-            var sb = new StringBuilder();
-            for (int j = 0; j < lines.Count; j++)
-            {
-                if (removals.Contains(j))
-                    continue;
-
-                // Check if this line starts a replacement block
-                if (replacements.TryGetValue(j, out var replacement))
-                {
-                    // Keep the declaration line(s) up to the opening brace
-                    for (int k = j; k <= replacement.blockStart; k++)
-                        sb.Append(lines[k]);
-                    if (replacement.isCallback)
-                    {
-                        // UnmanagedCallersOnly callback: no-op stub (called from Swift vtable).
-                        sb.Append($"{replacement.indent}    // Protocol proxy unavailable — no-op callback\n");
-                        // Non-void callbacks (e.g. returning IntPtr) need a return to avoid CS0161.
-                        if (!replacement.isVoidReturn)
-                            sb.Append($"{replacement.indent}    return default;\n");
-                    }
-                    else if (replacement.isProperty)
-                    {
-                        // Property declaration: replace get/set accessors with throws.
-                        // Must preserve valid C# property syntax (get/set blocks).
-                        var throwExpr = "throw new NotSupportedException(\"Protocol proxy not available: EveryProtocol conformance was not emitted.\")";
-                        sb.Append($"{replacement.indent}    get {{ {throwExpr}; }}\n");
-                        if (replacement.propertySetter)
-                            sb.Append($"{replacement.indent}    set {{ {throwExpr}; }}\n");
-                    }
-                    else
-                    {
-                        // Method/helper: throw to preserve API surface
-                        sb.Append($"{replacement.indent}    throw new NotSupportedException(\"Protocol proxy not available: EveryProtocol conformance was not emitted.\");\n");
-                    }
-                    // Keep the closing brace
-                    sb.Append(lines[replacement.blockEnd]);
-                    j = replacement.blockEnd;
-                    continue;
-                }
-
-                sb.Append(lines[j]);
-            }
-
-            return new CoGatingResult
-            {
-                Content = sb.ToString(),
-                StrippedMembers = identities,
-                ContentChanged = true,
-            };
-        }
-
-        // Pattern: ", static __<ident> => new <Qualifier>?<ProxyName>(__<ident>)" where the matched proxy is suppressed.
-        // The leading comma is the wrap-fallback delimiter inside GetOrCreate<T>(value, fallback).
-        // Group 1: lambda parameter ident. Group 2: optional qualifier (`SwiftInterop.` or
-        // `{Namespace}.SwiftInterop.`, possibly empty). Group 3: bare proxy class name.
-        private static readonly System.Text.RegularExpressions.Regex s_wrapFallbackPattern = new(
-            @",\s*static\s+__(\w+)\s*=>\s*new\s+([\w\.]+\.)?(\w+Proxy)\(\s*__\1\s*\)",
-            System.Text.RegularExpressions.RegexOptions.Compiled);
-
-        /// <summary>
-        /// Removes <c>, static __v =&gt; new SuppressedProxy(__v)</c> wrap-fallback arguments from
-        /// every <c>ExistentialContainerFactory.GetOrCreate&lt;T&gt;(value, ...)</c> call whose
-        /// proxy class ended up suppressed. Leaves the surrounding call (and its enclosing method)
-        /// intact, so the helper still compiles and the original throw-on-incompatible-input
-        /// runtime semantics apply.
-        /// </summary>
-        private static string DowngradeSuppressedWrapFallbacks(
-            string content,
-            IReadOnlySet<string> suppressedProxyClassNames,
-            IReadOnlySet<string> crossModuleSuppressedQualifiedNames)
-        {
-            return s_wrapFallbackPattern.Replace(content, match =>
-            {
-                // Group 2 captures the optional dotted qualifier (empty, "SwiftInterop.", or
-                // "{Namespace}.SwiftInterop."). Group 3 is the bare proxy class name. Scoping by
-                // capture groups keeps the matching robust against extra whitespace inside the
-                // regex's `\s+` runs (a substring scan for "new " would mis-handle that).
-                var qualifier = match.Groups[2].Value;
-                var proxyName = match.Groups[3].Value;
-
-                const string swiftInteropPrefix = "SwiftInterop.";
-                bool isCrossModuleQualified =
-                    qualifier.Length > swiftInteropPrefix.Length
-                    && qualifier.EndsWith(swiftInteropPrefix, StringComparison.Ordinal);
-                bool isLocalForm =
-                    qualifier.Length == 0
-                    || string.Equals(qualifier, swiftInteropPrefix, StringComparison.Ordinal);
-
-                // Local set only matches when the call site has no module qualifier — i.e.
-                // bare `new XProxy(__v)` or `new SwiftInterop.XProxy(__v)`. Matching against
-                // a cross-module qualifier would false-positive on a reference into a different
-                // (non-suppressing) dependency that happens to share a simple proxy class name.
-                if (isLocalForm && suppressedProxyClassNames.Contains(proxyName))
-                    return string.Empty;
-
-                // Cross-module set is keyed by the full `{DepNamespace}.SwiftInterop.{Proxy}`
-                // string. Only match the cross-module-qualified form, never bare or
-                // `SwiftInterop.`-only forms.
-                if (isCrossModuleQualified && crossModuleSuppressedQualifiedNames.Count > 0)
-                {
-                    var fullyQualified = qualifier + proxyName;
-                    if (crossModuleSuppressedQualifiedNames.Contains(fullyQualified))
-                        return string.Empty;
-                }
-
-                return match.Value;
-            });
-        }
-
-        /// <summary>
-        /// Processes all .cs files in a directory, removing methods that reference suppressed proxy classes.
-        /// Files are modified in-place. Returns the aggregate list of cogated member identities.
-        /// </summary>
-        public static IReadOnlyList<CoGatedMember> ProcessSuppressedProxyReferencesInDirectory(string directory, IReadOnlySet<string> suppressedProxyClassNames, ILogger? logger = null)
-            => ProcessSuppressedProxyReferencesInDirectory(directory, suppressedProxyClassNames, EmptyStringSet, logger);
-
-        /// <summary>
-        /// Variant accepting a separate cross-module qualified-name set
-        /// (<c>{DepNamespace}.SwiftInterop.{ProxyName}</c>). See
-        /// <see cref="ProcessSuppressedProxyReferences(string, IReadOnlySet{string}, IReadOnlySet{string})"/>
-        /// for matching semantics.
-        /// </summary>
-        public static IReadOnlyList<CoGatedMember> ProcessSuppressedProxyReferencesInDirectory(
-            string directory,
-            IReadOnlySet<string> suppressedProxyClassNames,
-            IReadOnlySet<string> crossModuleSuppressedQualifiedNames,
-            ILogger? logger = null)
-        {
-            if (suppressedProxyClassNames.Count == 0 && crossModuleSuppressedQualifiedNames.Count == 0)
-                return Array.Empty<CoGatedMember>();
-
-            var csFiles = Directory.GetFiles(directory, "*.cs");
-            var aggregate = new List<CoGatedMember>();
-
-            foreach (var file in csFiles)
-            {
-                var content = File.ReadAllText(file);
-                var result = ProcessSuppressedProxyReferences(content, suppressedProxyClassNames, crossModuleSuppressedQualifiedNames);
-                if (!result.ContentChanged)
-                    continue;
-
-                File.WriteAllText(file, result.Content);
-
-                if (result.StrippedMemberCount == 0)
-                    continue;
-
-                var fileName = Path.GetFileName(file);
-                foreach (var member in result.StrippedMembers)
-                {
-                    aggregate.Add(new CoGatedMember
-                    {
-                        Name = member.Name,
-                        ContainingType = member.ContainingType,
-                        Kind = member.Kind,
-                        MangledSymbol = member.MangledSymbol,
-                        Ordinal = member.Ordinal,
-                        Confidence = member.Confidence,
-                        SourceFile = fileName,
-                    });
-                }
-                logger?.LogInformation("  Co-gated {Count} proxy reference(s) from {File}",
-                    result.StrippedMemberCount, fileName);
-            }
-
-            if (aggregate.Count > 0)
-                logger?.LogInformation("Co-gated {Count} total method(s) referencing suppressed proxy classes.",
-                    aggregate.Count);
-
-            return aggregate;
-        }
-
-        #endregion
-
         #region Identity Extraction
 
         /// <summary>
@@ -2943,54 +2307,6 @@ namespace BindingsGeneration
             }
 
             return identities;
-        }
-
-        /// <summary>
-        /// Builds a Property identity for a proxy-suppressed *private helper*
-        /// (<c>Value_Get</c>, <c>Value_Set</c>). The helper itself is generator-internal
-        /// scaffolding; the consumer-visible surface is the public property it backs, so
-        /// the report records that public name with <see cref="BindingItemKind.Property"/>.
-        /// </summary>
-        private static CoGatedMember BuildProxyPropertyIdentityFromHelper(
-            string helperName, int declLine, string?[] lineToType, ref int ordinal)
-        {
-            int underscoreIdx = helperName.LastIndexOf('_');
-            var propertyName = underscoreIdx > 0 ? helperName.Substring(0, underscoreIdx) : helperName;
-            return new CoGatedMember
-            {
-                Name = propertyName,
-                ContainingType = ContainingTypeAt(lineToType, declLine),
-                Kind = BindingItemKind.Property,
-                MangledSymbol = null,
-                Ordinal = ordinal++,
-                Confidence = IdentityConfidence.Heuristic,
-            };
-        }
-
-        /// <summary>
-        /// Builds a heuristic-confidence identity for a proxy-suppression decision at the
-        /// given declaration line. Member name comes from <see cref="ExtractMemberName"/>;
-        /// containing type from <paramref name="lineToType"/>; mangled symbol is unavailable
-        /// at this layer (the cogater operates on generated C#, not Swift wrappers).
-        /// </summary>
-        private static CoGatedMember BuildProxyIdentity(
-            List<string> lines,
-            int declLine,
-            string?[] lineToType,
-            BindingItemKind kind,
-            ref int ordinal)
-        {
-            var trimmed = lines[declLine].TrimStart();
-            var name = ExtractMemberName(trimmed) ?? $"<unknown@{declLine}>";
-            return new CoGatedMember
-            {
-                Name = name,
-                ContainingType = ContainingTypeAt(lineToType, declLine),
-                Kind = kind,
-                MangledSymbol = null,
-                Ordinal = ordinal++,
-                Confidence = IdentityConfidence.Heuristic,
-            };
         }
 
         #endregion

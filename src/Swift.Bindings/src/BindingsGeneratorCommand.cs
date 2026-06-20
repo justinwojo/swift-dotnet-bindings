@@ -1007,7 +1007,7 @@ public static class BindingsGeneratorCommand
             IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
             if (outcome.StrippedSymbols.Count > 0)
             {
-                coGated = CSharpWrapperCoGater.ProcessDirectory(
+                coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
                     outputDirectory, outcome.StrippedSymbols, logger);
                 if (coGated.Count > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
@@ -1161,7 +1161,7 @@ public static class BindingsGeneratorCommand
             IReadOnlyList<CoGatedMember> directCoGated = Array.Empty<CoGatedMember>();
             if (directOutcome.StrippedSymbols.Count > 0)
             {
-                directCoGated = CSharpWrapperCoGater.ProcessDirectory(
+                directCoGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
                     outputDirectory, directOutcome.StrippedSymbols, logger);
                 if (directCoGated.Count > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", directCoGated.Count);

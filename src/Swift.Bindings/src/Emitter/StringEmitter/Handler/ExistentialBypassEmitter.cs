@@ -765,6 +765,7 @@ public static class ExistentialBypassEmitter
         string? publicReturnType = null;
         string? returnWrapExpr = null;
         string? existentialReadExpr = null;
+        bool returnProxySuppressed = false;
         if (isExistentialReturn)
         {
             var protocolList = env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
@@ -787,9 +788,25 @@ public static class ExistentialBypassEmitter
             var ownsArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType)
                 ? ", ownsContainer: true"
                 : string.Empty;
-            returnWrapExpr = env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnown)
-                ? $"new {wellKnown}(__existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wellKnown)})"
-                : $"new {env.ExistentialHandler.GetQualifiedProxyClassName(protocolList)}(__existentialResult{ownsArg})";
+            // Well-known protocol types (Swift.Error → AnyError) are never proxy-suppressed, so
+            // resolve them first. Otherwise, if the existential's proxy class was suppressed (its
+            // EveryProtocol conformance was not emitted) there is no type to construct: the bypass
+            // adapter SKIPS the method when this TryEmit returns false, so declining here would drop
+            // the public member. Instead keep the member and emit a throwing body below (retired-CoGater
+            // public-member parity), leaving returnWrapExpr null.
+            if (env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnown))
+            {
+                returnWrapExpr = $"new {wellKnown}(__existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wellKnown)})";
+            }
+            else if (env.EmissionContext != null &&
+                     env.ExistentialHandler.IsProxyReferenceSuppressed(protocolList, env.EmissionContext))
+            {
+                returnProxySuppressed = true;
+            }
+            else
+            {
+                returnWrapExpr = $"new {env.ExistentialHandler.GetQualifiedProxyClassName(protocolList)}(__existentialResult{ownsArg})";
+            }
         }
 
         // Build the public method parameter list from the reduced wrapper signature
@@ -862,7 +879,8 @@ public static class ExistentialBypassEmitter
         var (marshalledArgs, setupLines, needsUnsafe) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);
 
         // Existential-return path allocates a native buffer and passes its pointer — forces unsafe.
-        if (isExistentialReturn)
+        // A suppressed return-proxy emits only a throw (no buffer alloc), so it needs no unsafe.
+        if (isExistentialReturn && !returnProxySuppressed)
             needsUnsafe = true;
 
         // Build call arguments: [resultPtr,] self handle, passthrough args.
@@ -887,6 +905,17 @@ public static class ExistentialBypassEmitter
         csWriter.WriteLine($"{accessModifier} {unsafeModifier}{returnTypeKeyword} {methodName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+
+        // Suppressed return-proxy: emit a throwing body and skip the buffer alloc / P/Invoke call.
+        // The P/Invoke decl and Swift wrapper stay declared but unused (the suppressed-return gate is
+        // C#-only and never touches either), keeping the public member + P/Invoke entry-point set unchanged.
+        if (isExistentialReturn && returnProxySuppressed)
+        {
+            csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            return;
+        }
 
         // Emit marshalling setup lines (string conversions)
         foreach (var line in setupLines)

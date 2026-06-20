@@ -658,106 +658,41 @@ public class MemberValidationPipeline
 
     /// <summary>
     /// Validates whether a method should have a @_cdecl wrapper generated.
-    /// Consolidates MethodWrapperEmitter.ShouldEmitWrapper and ConstructorWrapperEmitter.ShouldEmitWrapper.
+    /// Routes through the single eligibility traversal on the method/constructor wrapper emitter
+    /// (Finding 12), so the predict decision and its rejection reason share one source of truth.
     /// </summary>
     public WrapperValidationResult ValidateMethodWrapperEligibility(MethodEnvironment env)
     {
-        if (env.MethodDecl.IsConstructor)
-        {
-            bool shouldWrap = ConstructorWrapperEmitter.ShouldEmitWrapper(env);
-            if (!shouldWrap)
-            {
-                var reason = GetConstructorWrapperRejectionReason(env);
-                return WrapperValidationResult.Reject(reason ?? "unknown");
-            }
-            return WrapperValidationResult.Wrap;
-        }
-        else
-        {
-            bool shouldWrap = MethodWrapperEmitter.ShouldEmitWrapper(env);
-            if (!shouldWrap)
-            {
-                var reason = WrapperValidation.GetRejectionReason(env);
-                return WrapperValidationResult.Reject(reason ?? "unknown");
-            }
-            return WrapperValidationResult.Wrap;
-        }
+        var eligibility = env.MethodDecl.IsConstructor
+            ? ConstructorWrapperEmitter.EvaluateWrapperEligibility(env)
+            : MethodWrapperEmitter.EvaluateWrapperEligibility(env);
+        return eligibility.IsWrappable
+            ? WrapperValidationResult.Wrap
+            : WrapperValidationResult.Reject(eligibility.Reason!);
     }
 
     /// <summary>
     /// Validates whether a property accessor should have a @_cdecl wrapper generated.
-    /// Consolidates PropertyWrapperEmitter.ShouldEmitWrapper.
+    /// Routes through <see cref="PropertyWrapperEmitter.EvaluateWrapperEligibility"/> (Finding 12).
     /// </summary>
     public WrapperValidationResult ValidatePropertyWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
     {
-        bool shouldWrap = PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, accessorEnv);
-        if (!shouldWrap)
-        {
-            var reason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, accessorEnv);
-            return WrapperValidationResult.Reject(reason ?? "unknown");
-        }
-        return WrapperValidationResult.Wrap;
+        var eligibility = PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, accessorEnv);
+        return eligibility.IsWrappable
+            ? WrapperValidationResult.Wrap
+            : WrapperValidationResult.Reject(eligibility.Reason!);
     }
 
     /// <summary>
     /// Validates whether a subscript accessor should have a @_cdecl wrapper generated.
-    /// Consolidates SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper.
+    /// Routes through <see cref="SubscriptWrapperEmitter.EvaluateWrapperEligibility"/> (Finding 12).
     /// </summary>
     public WrapperValidationResult ValidateSubscriptWrapperEligibility(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env)
     {
-        bool shouldWrap = SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env);
-        if (!shouldWrap)
-        {
-            var reason = SubscriptWrapperEmitter.GetRejectionReason(subscriptDecl, accessor, env);
-            return WrapperValidationResult.Reject(reason ?? "unknown");
-        }
-        return WrapperValidationResult.Wrap;
-    }
-
-    #endregion
-
-    #region Private Helpers
-
-    /// <summary>
-    /// Returns rejection reason mirroring ConstructorWrapperEmitter.ShouldEmitWrapper guard order.
-    /// Must stay in sync with all gates in ShouldEmitWrapper.
-    /// </summary>
-    private static string? GetConstructorWrapperRejectionReason(MethodEnvironment env)
-    {
-        if (!env.MethodDecl.IsConstructor) return "not_constructor";
-        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase)) return null; // N/A
-        if (env.MethodDecl.IsModuleInternal) return "internal_constructor";
-        if (env.ParentDecl is TypeDecl td && td.IsGeneric &&
-            !ConstructorWrapperEmitter.CanEmitGenericClassConstructorWrapper(env, td))
-            return "generic_parent_type";
-        if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
-        {
-            if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
-                return "unsupported_closure_params";
-            // Constructors still reject all async closures — the async-closure bridge
-            // is wired only through the async method wrapper path.
-            if (env.MethodDecl.CSSignature.Skip(1)
-                    .Where(env.ClosureHandler.IsClosure)
-                    .Any(arg =>
-                    {
-                        var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
-                        return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
-                    }))
-                return "async_closure_params";
-        }
-        if (env.MethodDecl.IsAsync) return "async_constructor";
-        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl)) return "non_copyable_struct_parent";
-        if (env.MethodDecl.CSSignature.Skip(1)
-                .Any(a => WrapperValidation.IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
-            return "metatype_param";
-        if (ConstructorWrapperEmitter.HasNonCopyableStructParameter(env)) return "non_copyable_struct_parameter";
-        if (ConstructorWrapperEmitter.HasNestedFrozenStructParameter(env)) return "nested_frozen_struct_parameter";
-        if (ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env)) return "unsupported_buffer_pointer_parameter";
-        if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl)) return "raw_generic_type_params";
-        if (env.MethodDecl.HasVariadicParameter) return "variadic_parameter";
-        if (ConstructorAdmissibility.HasConstLiteralParameter(env.MethodDecl)) return "const_literal_parameter";
-        if (ConstructorWrapperEmitter.HasVariadicExpansionPattern(env)) return "variadic_expansion_pattern";
-        return "unknown";
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, accessor, env);
+        return eligibility.IsWrappable
+            ? WrapperValidationResult.Wrap
+            : WrapperValidationResult.Reject(eligibility.Reason!);
     }
 
     #endregion

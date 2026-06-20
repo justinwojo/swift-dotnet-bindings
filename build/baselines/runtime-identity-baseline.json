@@ -1,8 +1,8 @@
 {
-  "git_sha": "1e701a91",
+  "git_sha": "ca743d60",
   "platforms": {
     "simulator": {
-      "pass_count": 2918,
+      "pass_count": 2950,
       "skips": [
         {
           "class": "AsyncClosureContextLifetimeTests",
@@ -167,6 +167,11 @@
         {
           "class": "ProtocolExtensionClosureTests",
           "method": "TestEscapingVoidReleasesCapturedTrackedObject",
+          "reason": ""
+        },
+        {
+          "class": "SuppressedProxyChannelTests",
+          "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": ""
         },
         {

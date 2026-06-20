@@ -25,40 +25,49 @@ public static class MethodWrapperEmitter
     /// no closures, no protocol existentials, no async, etc.
     /// </summary>
     public static bool ShouldEmitWrapper(MethodEnvironment env)
+        => EvaluateWrapperEligibility(env).IsWrappable;
+
+    /// <summary>
+    /// Single eligibility traversal for method @_cdecl wrappers: returns whether the method
+    /// will be wrapped and, if not, the first guard that rejected it. <see cref="ShouldEmitWrapper"/>
+    /// is its boolean shim, so the predicate and the rejection diagnostic can never drift (Finding 12).
+    /// </summary>
+    public static WrapperEligibility EvaluateWrapperEligibility(MethodEnvironment env)
     {
         // 1. Must NOT be a constructor (constructors handled by ConstructorWrapperEmitter)
         if (env.MethodDecl.IsConstructor)
-            return false;
+            return WrapperEligibility.Reject("constructor");
 
         // 2. Must NOT be an accessor (property accessors handled by PropertyWrapperEmitter; subscripts deferred)
         if (env.MethodDecl.IsAccessor)
-            return false;
+            return WrapperEligibility.Reject("accessor");
 
         // 3. Must NOT already have a cdecl property wrapper
         if (env.MethodDecl.UsesCdeclPropertyWrapper)
-            return false;
+            return WrapperEligibility.Reject("cdecl_property_wrapper");
 
         // Shared guards: xcframework, internal, SPI, non-copyable, async, actor, inherited generic context
-        if (!WrapperValidation.CanEmitMember(env, MemberKind.Method,
+        var memberReason = WrapperValidation.GetMemberRejectionReason(env, MemberKind.Method,
             isModuleInternal: env.MethodDecl.IsModuleInternal,
             isSpiProtected: env.MethodDecl.IsSpiProtected,
             isAsync: env.MethodDecl.IsAsync,
             isActorIsolated: env.MethodDecl.IsActorIsolated,
             isMainActorIsolated: env.MethodDecl.IsMainActorIsolated,
-            isNonisolated: env.MethodDecl.IsNonisolated))
-            return false;
+            isNonisolated: env.MethodDecl.IsNonisolated);
+        if (memberReason != null)
+            return WrapperEligibility.Reject(memberReason);
 
         // 5. Must be on a type or module (free function)
         var parentTypeDecl = env.ParentDecl as TypeDecl;
         if (parentTypeDecl == null && env.ParentDecl is not ModuleDecl)
-            return false;
+            return WrapperEligibility.Reject("no_parent");
 
         // 5b. Generic parent type — allow methods using protocol-based type erasure.
         // (inherited generic context is already checked by CanEmitMember)
         if (parentTypeDecl?.IsGeneric == true)
         {
             if (!CanEmitGenericWrapper(env, parentTypeDecl))
-                return false;
+                return WrapperEligibility.Reject("generic_parent");
             // Inout on generic parent: the protocol static-dispatch path handles concrete
             // (non-T-referencing) inout params by threading UnsafeMutableRawPointer through
             // the protocol boundary and doing the load/call/write-back inside the extension
@@ -71,7 +80,7 @@ public static class MethodWrapperEmitter
                 .ToHashSet();
             if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut &&
                 WrapperValidation.TypeSpecReferencesGenericParam(a.SwiftTypeSpec, parentGenericParamNames)))
-                return false;
+                return WrapperEligibility.Reject("generic_parent_inout");
         }
 
         // 6. No method-level generics (e.g., func pair<T,U>(...)).
@@ -79,7 +88,7 @@ public static class MethodWrapperEmitter
         // includes the parent's generic signature in each method's GenericSig. Only block methods
         // that have their OWN generic parameters (not inherited from the parent type).
         if (WrapperValidation.HasMethodOwnGenericParameters(env.MethodDecl))
-            return false;
+            return WrapperEligibility.Reject("method_level_generics");
 
         // 8. Closure parameters: allowed only when NeedsClosureCdeclWrapper validates them
         // AND no unsupported async closures. Baseline-shape async-throwing closures
@@ -89,14 +98,14 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
-                return false;
+                return WrapperEligibility.Reject("closure_params");
             if (HasUnsupportedAsyncClosure(env))
-                return false;
+                return WrapperEligibility.Reject("closure_params");
         }
 
         // 11b. Inout params with types that have C# ABI mismatch (String → 2 words, class → Unmanaged, etc.)
         if (WrapperValidation.HasInoutWithAbiMismatch(env))
-            return false;
+            return WrapperEligibility.Reject("inout_abi_mismatch");
 
         // 11c. Variadic parameters are supported via the unsafeBitCast bridge when the shape is
         // simple (static on non-generic parent, no throws, no closures, no inout, no method-own
@@ -107,35 +116,36 @@ public static class MethodWrapperEmitter
         // AppShortcutsBuilder.buildBlock sites. Unsupported variadic shapes still fall back
         // to CallConvSwift P/Invoke.
         if (env.MethodDecl.HasVariadicParameter && !IsSupportedVariadicShape(env))
-            return false;
+            return WrapperEligibility.Reject("variadic_params");
 
         // 11d. Parameters with Swift's `_const` modifier require a compile-time-constant
         // literal at the call site. The @_cdecl wrapper would forward a runtime value;
         // Swift rejects the call with "expect a compile-time constant literal". ABI JSON
         // strips this annotation — the flag is sourced from the swiftinterface.
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsConstLiteral))
-            return false;
+            return WrapperEligibility.Reject("const_literal");
 
         // 12. No nested frozen struct parameters
         if (HasNestedFrozenStructParameter(env))
-            return false;
+            return WrapperEligibility.Reject("nested_frozen_struct_param");
 
         // 12b. Non-primitive frozen struct parameters are now handled via UnsafeRawPointer
         // in @_cdecl wrappers — no longer a skip reason.
 
         // 13. Not already using wrapper library (DebugParam, ArraySlice, etc. own the wrapper)
         if (env.MethodDecl.UsesWrapperLibrary)
-            return false;
+            return WrapperEligibility.Reject("uses_wrapper_library");
 
         // 14-15d. Type-signature checks (metatype, opaque, DynamicSelf, unsupported generics).
-        if (HasUnsupportedTypeSignature(env))
-            return false;
+        var typeSigReason = GetUnsupportedTypeSignatureReason(env);
+        if (typeSigReason != null)
+            return WrapperEligibility.Reject(typeSigReason);
 
         // 17. Nested type returns — ALLOWED. @_cdecl wrapper return types use C-compatible types
         //     (Int32 for simple enums, void+resultPtr for indirect results, UnsafeMutableRawPointer
         //     for class pointers). The nested type only appears in the function BODY.
 
-        return true;
+        return WrapperEligibility.Wrappable;
     }
 
     /// <summary>
@@ -144,23 +154,31 @@ public static class MethodWrapperEmitter
     /// params/return, and DynamicSelf on non-class parents.
     /// </summary>
     internal static bool HasUnsupportedTypeSignature(MethodEnvironment env)
+        => GetUnsupportedTypeSignatureReason(env) != null;
+
+    /// <summary>
+    /// Reason-returning twin of <see cref="HasUnsupportedTypeSignature"/>: names the first
+    /// unsupported type-signature condition, or null when the signature is supported.
+    /// <see cref="HasUnsupportedTypeSignature"/> is its boolean shim (Finding 12).
+    /// </summary>
+    internal static string? GetUnsupportedTypeSignatureReason(MethodEnvironment env)
     {
         // 14. No unsupported generic container params/returns (Array, Dictionary, Set, Optional<existential>).
         //     Optional<value-type> allowed (IndirectResult). Optional<existential> blocked (needs proxy).
         if (HasUnsupportedGenericContainerParamsOrReturn(env))
-            return true;
+            return "unsupported_generic_container";
 
         // 14b. No metatype parameters (Any.Type, T.Type) — not C-representable, renders as bare "Type".
         //      Includes Optional<Metatype> (e.g. AnyClass.Type?) which would otherwise be
         //      misclassified by IsProtocolExistentialType and emitted as "any AnyClass.Type".
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => WrapperValidation.IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
-            return true;
+            return "metatype_param";
 
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
 
         // 14c. No metatype return types (including Optional<Metatype>)
         if (WrapperValidation.IsMetatypeTypeIncludingOptional(returnSpec))
-            return true;
+            return "metatype_return";
 
         // 15. Opaque return types (some Protocol): ALLOWED — routed through IndirectResult.
         // The @_cdecl wrapper boxes `some Protocol` into `any Protocol` via
@@ -177,7 +195,7 @@ public static class MethodWrapperEmitter
         // @_cdecl wrapper returns Unmanaged.passRetained(result).toOpaque() (class pointer).
         // Structs/enums with DynamicSelf blocked — Unmanaged requires class type.
         if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
-            return true;
+            return "dynamic_self_non_class";
 
         // 15e. Optional<Self> returns: allowed for class parents (same reason as 15d).
         // The IsOptionalSupportedForCdecl gate lets Optional<Self> through the unsupported-generic
@@ -187,9 +205,9 @@ public static class MethodWrapperEmitter
             && optSelfReturn.GenericParameters.Count == 1
             && optSelfReturn.GenericParameters[0].IsDynamicSelf
             && env.ParentDecl is not ClassDecl)
-            return true;
+            return "optional_self_non_class";
 
-        return false;
+        return null;
     }
 
     /// <summary>

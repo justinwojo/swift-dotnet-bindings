@@ -24,22 +24,32 @@ public static class PropertyWrapperEmitter
     /// no unsupported generic containers.
     /// </summary>
     public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
+        => EvaluateWrapperEligibility(propertyDecl, accessorEnv).IsWrappable;
+
+    /// <summary>
+    /// Single eligibility traversal for property @_cdecl wrappers: returns whether the property's
+    /// accessors will be wrapped and, if not, the first guard that rejected them.
+    /// <see cref="ShouldEmitWrapper"/> is its boolean shim, so the predicate and the rejection
+    /// diagnostic can never drift (Finding 12).
+    /// </summary>
+    public static WrapperEligibility EvaluateWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
     {
         // Shared guards: xcframework, internal, SPI, non-copyable, actor, inherited generic context
-        if (!WrapperValidation.CanEmitMember(accessorEnv, MemberKind.Property,
+        var memberReason = WrapperValidation.GetMemberRejectionReason(accessorEnv, MemberKind.Property,
             isModuleInternal: propertyDecl.IsModuleInternal,
             isSpiProtected: propertyDecl.IsSpiProtected,
             isActorIsolated: propertyDecl.IsActorIsolated,
             isMainActorIsolated: propertyDecl.IsMainActorIsolated,
-            isNonisolated: propertyDecl.IsNonisolated))
-            return false;
+            isNonisolated: propertyDecl.IsNonisolated);
+        if (memberReason != null)
+            return WrapperEligibility.Reject(memberReason);
 
         // 2. Generic parent type — allow non-final class instance properties with concrete types
         // (inherited generic context is already checked by CanEmitMember)
         if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
         {
             if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
-                return false;
+                return WrapperEligibility.Reject("generic_parent_type");
 
             // Fail-closed wrapper-helper gates apply ONLY when this property would actually
             // route through EmitGenericStaticGetterWrapper / EmitGenericStaticSetterWrapper —
@@ -56,9 +66,9 @@ public static class PropertyWrapperEmitter
                 && !ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl))
             {
                 if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(td, accessorEnv.TypeDatabase))
-                    return false;
+                    return WrapperEligibility.Reject("generic_parent_unresolved_pwt_constraint");
                 if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(td, accessorEnv.TypeDatabase))
-                    return false;
+                    return WrapperEligibility.Reject("generic_parent_metadata_buffer_mode");
             }
         }
 
@@ -67,14 +77,14 @@ public static class PropertyWrapperEmitter
         //     protocol-existential candidate at gate 9a and emit a Swift wrapper rendering
         //     "(any AnyObject.Type).self" — invalid Swift that fails wrapper compile.
         if (WrapperValidation.IsMetatypeTypeIncludingOptional(propertyDecl.SwiftTypeSpec))
-            return false;
+            return WrapperEligibility.Reject("metatype_property");
 
         // 2e. Skip the Swift built-in `self` property — `obj.self` returns the receiver type,
         //     not the declared return type, so the wrapper would emit an invalid cast (e.g.
         //     a nested struct's `self` getter declared as the outer type cannot be reconstructed
         //     from `obj.self` of the nested type). The C# side already exposes the receiver.
         if (propertyDecl.Name == "self")
-            return false;
+            return WrapperEligibility.Reject("self_property");
 
         // 3. Direct closure properties: getters allowed — routed through IndirectResult (resultPtr buffer)
         // with invoke thunk for closure invocation (same pattern as MethodWrapperEmitter).
@@ -85,7 +95,7 @@ public static class PropertyWrapperEmitter
         //     for closures (they need funcPtr + context marshalling). Read-only closure properties are fine.
         if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec &&
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
-            return false;
+            return WrapperEligibility.Reject("direct_closure_setter");
 
         // 3b. Optional<closure> setter: the closure's params/return must be cdecl-compatible
         //     (Layer 2 gate — same as method closures). Without this, the Swift adapter
@@ -95,16 +105,16 @@ public static class PropertyWrapperEmitter
             optClosure.GenericParameters[0] is ClosureTypeSpec closureInner &&
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any() &&
             !ClosureEmitter.IsClosureCdeclCompatible(closureInner, accessorEnv.ClosureHandler))
-            return false;
+            return WrapperEligibility.Reject("optional_closure_not_cdecl_compatible");
 
         // 4. Async properties use the async method wrapper path (@_silgen_name), not @_cdecl
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
-            return false;
+            return WrapperEligibility.Reject("async_property");
 
         // 4b. Throwing property getters — the @_cdecl wrapper doesn't emit try/catch for property access.
         // Gate these out until full try/catch + error callback support is added for property wrappers.
         if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
-            return false;
+            return WrapperEligibility.Reject("throwing_property_getter");
 
         // 8. Nested types — ALLOWED. @_cdecl wrapper signatures use C-compatible types
         //    (Int32 raw value for simple enums, UnsafeRawPointer for complex types, void+resultPtr
@@ -116,12 +126,12 @@ public static class PropertyWrapperEmitter
         //     via CallConvSwift. Uses decomposed (resultPtr + hasValuePtr) getter pattern.
         if (CdeclParamMapper.IsProtocolExistentialType(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
             WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec))
-            return true;
+            return WrapperEligibility.Wrappable;
 
         // 9. Skip unsupported generic container properties (Result<T,E>).
         //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
         if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
-            return false;
+            return WrapperEligibility.Reject("unsupported_generic_container");
 
         // 9b. ObjC-bridged Optional setter — resolved: IsOptionalWithReferenceInner now returns
         //     true for ObjC-bridged structs (not NSString typedefs), enabling nullable pointer ABI
@@ -135,74 +145,19 @@ public static class PropertyWrapperEmitter
             // Allow if parent is generic and we passed the CanEmitGenericClassPropertyWrapper check above
             // (which already validated that the T-typed property can use static dispatch)
             if (!(accessorEnv.ParentDecl is TypeDecl genericTd && genericTd.IsGeneric))
-                return false;
+                return WrapperEligibility.Reject("raw_generic_type_params");
         }
 
-        return true;
+        return WrapperEligibility.Wrappable;
     }
 
     /// <summary>
-    /// Returns a human-readable skip reason if the property wrapper would be rejected, or null if it passes all gates.
-    /// Mirrors the guard order in <see cref="ShouldEmitWrapper"/> for emission report diagnostics.
+    /// Returns a human-readable skip reason if the property wrapper would be rejected, or null if it
+    /// passes all gates. Diagnostic shim over <see cref="EvaluateWrapperEligibility"/> — single source
+    /// of truth for the predict/emit decision (Finding 12).
     /// </summary>
     public static string? GetRejectionReason(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
-    {
-        if (!WrapperValidation.IsXCFrameworkMode(accessorEnv.TypeDatabase))
-            return null; // not in xcframework mode — not a skip, just N/A
-
-        if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
-        {
-            if (WrapperValidation.IsInheritedGenericContext(td))
-                return "inherited_generic_context";
-            if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
-                return "generic_parent_type";
-            // Wrapper-helper gates only apply to properties that route through the static
-            // dispatch path (NeedsStaticDispatchForProperty). Concrete properties on generic
-            // class parents use protocol-cast dispatch and never touch _sbw_meta_*.
-            // Mirrors the order in ShouldEmitWrapper.
-            if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl))
-            {
-                if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(td, accessorEnv.TypeDatabase))
-                    return "generic_parent_unresolved_pwt_constraint";
-                if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(td, accessorEnv.TypeDatabase))
-                    return "generic_parent_metadata_buffer_mode";
-            }
-        }
-        if (propertyDecl.IsModuleInternal)
-            return "internal_property";
-        if (propertyDecl.IsSpiProtected)
-            return "spi_protected";
-        if (WrapperValidation.IsMetatypeTypeIncludingOptional(propertyDecl.SwiftTypeSpec))
-            return "metatype_property";
-        if (propertyDecl.Name == "self")
-            return "self_property";
-        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec &&
-            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
-            return "direct_closure_setter";
-        if (propertyDecl.SwiftTypeSpec is NamedTypeSpec rejOptClosure &&
-            rejOptClosure.Name == "Swift.Optional" && rejOptClosure.GenericParameters.Count == 1 &&
-            rejOptClosure.GenericParameters[0] is ClosureTypeSpec rejClosureInner &&
-            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any() &&
-            !ClosureEmitter.IsClosureCdeclCompatible(rejClosureInner, accessorEnv.ClosureHandler))
-            return "optional_closure_not_cdecl_compatible";
-        if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
-            return "async_property";
-        if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
-            return "throwing_property_getter";
-        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated))
-            return "actor_type_property";
-        // Noncopyable struct parents are now allowed (borrowing pointer semantics)
-        // Nested types are now allowed — see guard 8 comment in ShouldEmitWrapper()
-        if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
-            return "unsupported_generic_container";
-        if (propertyDecl.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(propertyDecl.SwiftTypeSpec))
-        {
-            if (!(accessorEnv.ParentDecl is TypeDecl rejGenTd && rejGenTd.IsGeneric))
-                return "raw_generic_type_params";
-        }
-
-        return null;
-    }
+        => EvaluateWrapperEligibility(propertyDecl, accessorEnv).Reason;
 
     /// <summary>
     /// Gets the @_cdecl symbol name for a property accessor wrapper.
