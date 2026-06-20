@@ -719,14 +719,14 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_GenericEnum_FailsClosedOnPayloadCaseFactory_StillEmitsTypeAndHelper()
     {
-        // Defect A (architecture-review-2026-06): a generic enum's payload-case constructor is never
+        // A generic enum's payload-case constructor is never
         // exported as a callable function symbol — `nm -gU` of the built framework shows only the
         // `…mlFWC` case-descriptor DATA, not an `…mlF` function. The previous emission imported that
         // dangling symbol via `{Enum}_PInvoke.PInvoke_{Case}`, so the static factory threw
         // EntryPointNotFoundException on first call. The generator now FAILS CLOSED: it skips the C#
         // factory and emits a loud "Unsupported" member comment instead. The generic TYPE, its
         // `_PInvoke` metadata helper, and the TryGet payload extractor (for natively-constructed
-        // values) are unaffected and still emit. Correct metadata-aware factory routing is Session 8.
+        // values) are unaffected and still emit. Correct metadata-aware factory routing remains future work.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("ValueProviderStorage", moduleDecl, isFrozen: true);

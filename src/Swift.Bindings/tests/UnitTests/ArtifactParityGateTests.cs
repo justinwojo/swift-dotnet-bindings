@@ -10,11 +10,12 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// Tests for <see cref="ArtifactParityGate"/> — the pure cross-artifact parity logic
 /// behind the <c>nuke binding-tests --compile-only</c> gate. Each gate is exercised with
-/// synthetic inputs shaped like the documented defects it closes
-/// (<c>src/docs/architecture-review-2026-06.md</c>):
-///   • Gate 1 symbol existence → Defect A (dangling import), Defect cluster D (member-path).
-///   • Gate 2 struct-mirror arity → Defect B (<c>static let</c> leak into a Buffer).
-///   • Gate 3 vtable parity → Finding 8 (field-count), Defect C (optional-before-required skew).
+/// synthetic inputs shaped like the real ABI defects it closes:
+///   • Gate 1 symbol existence → a dangling P/Invoke import, and member-path symbols that
+///     were generated-then-stripped or never emitted.
+///   • Gate 2 struct-mirror arity → a <c>static let</c> leaking into a frozen-struct Buffer.
+///   • Gate 3 vtable parity → a vtable field-count mismatch, and an <c>@objc optional</c>
+///     member skewing required-member slot indices.
 /// The baseline ratchet (seed → diff → green; new divergence → fail) is covered too.
 /// </summary>
 public class ArtifactParityGateTests

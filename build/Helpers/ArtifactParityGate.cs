@@ -18,8 +18,7 @@
 // silent wrong-slot dispatch. This class diffs the three artifacts so the drift
 // fails the compile-only gate instead.
 //
-// Three checks, each grounded in a documented defect class
-// (`src/docs/architecture-review-2026-06.md`):
+// Three checks, each grounded in a real ABI defect class observed in the field:
 //   • Symbol existence  — every *called* P/Invoke `EntryPoint` must exist in the
 //     `nm -gU` symbol set of the dylib its `LibraryImport` names; and every
 //     generator-authored wrapper export must be referenced by some P/Invoke.

@@ -5,8 +5,8 @@ import Foundation
 
 // MARK: - Reverse-dispatch lifetime & identity invariants (Design B2 / Defect G)
 //
-// These fixtures pin the three behavioural invariants the Design B2 reverse-dispatch
-// lifetime model introduces (see src/docs/Design/reverse-dispatch-lifetime.md):
+// These fixtures pin the three behavioural invariants the reverse-dispatch
+// lifetime model introduces:
 //
 //   R1 — cross-talk: a single C# object implementing two *unrelated* reverse-dispatch
 //        protocols gets one EveryProtocol handle per existential wrap, and each handle

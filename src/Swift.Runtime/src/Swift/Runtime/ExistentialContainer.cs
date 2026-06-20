@@ -1110,8 +1110,7 @@ public static class ExistentialContainerFactory
         => GetOrCreate(value, out ownsContainer, out _);
 
     /// <summary>
-    /// <c>keepAlive</c>-returning overload of <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/>
-    /// (design change 4 — see <c>src/docs/Design/reverse-dispatch-lifetime.md</c>).
+    /// <c>keepAlive</c>-returning overload of <see cref="GetOrCreate{TProtocol}(TProtocol, out bool)"/>.
     /// <paramref name="keepAlive"/> is the object whose liveness must span the native call: the proxy
     /// that owns the EveryProtocol construction +1 (R0). Under Design B2 the proxy is registered only
     /// weakly, so a borrowed proxy container (raw pointers, no managed ref) would let a GC during the

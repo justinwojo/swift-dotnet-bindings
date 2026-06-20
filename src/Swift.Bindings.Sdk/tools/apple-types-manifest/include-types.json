@@ -1,5 +1,5 @@
 {
-  "comment": "Swift identities that the SwiftBindings.Apple supplement owns. See src/docs/Design/apple-swift-types-architecture.md for exclusion rules — legacy Runtime-owned canonicals (Foundation.Date, Foundation.Data, Foundation.URL, Foundation.Decimal, Foundation.Measurement, Foundation.AnyError, ManagedSettings.Token, SwiftUI.Text) must NOT appear here.",
+  "comment": "Swift identities that the SwiftBindings.Apple supplement owns. Exclusion rule: legacy Runtime-owned canonicals (Foundation.Date, Foundation.Data, Foundation.URL, Foundation.Decimal, Foundation.Measurement, Foundation.AnyError, ManagedSettings.Token, SwiftUI.Text) must NOT appear here.",
   "types": [
     "Foundation.Locale.Language",
     "Foundation.Locale.Region",

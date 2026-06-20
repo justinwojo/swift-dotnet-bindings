@@ -11,7 +11,8 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Regen-output parity gate for PAT-existential return projection (architecture-review Defect E).
+/// Regen-output parity gate for PAT-existential return projection (the PAT-existential
+/// return-degradation defect).
 ///
 /// A protocol-with-associated-type (PAT) existential with known conformers projects to the read-only
 /// <c>Swift.Runtime.ExistentialUnion</c> wrapper ONLY in pure-read return positions; everywhere else it
@@ -21,7 +22,7 @@ namespace BindingsGeneration.Tests;
 /// (ExistentialUnion is implicitly convertible to <c>object</c>), so the C# compile gate cannot catch it;
 /// only an assertion on the GENERATED text can. That is what this test is for.
 ///
-/// Specifically guards the three holes the architecture review surfaced:
+/// Specifically guards the three holes that desynced in practice:
 ///   1. Read-write PAT property — public type stays <c>object</c>, so the backing getter must ALSO stay
 ///      <c>object</c> in BOTH signature and body (a desync here = a getter returning ExistentialUnion
 ///      under an <c>object</c> property, feeding ExistentialUnion back into the setter on round-trip).
@@ -76,7 +77,7 @@ public class ExistentialUnionReturnProjectionParityTests
         Assert.Contains($"public static {Union} MakeSizeAttribute(", generated);
 
         // --- A union-projected return is NOT a degradation, so it must NOT carry the
-        // `[return: OriginalSwiftType(...)]` marker (architecture-review Defect E / the degradation
+        // `[return: OriginalSwiftType(...)]` marker (the degradation
         // oracle is direction-blind). The marker and the signature type are driven by the SAME predicate
         // (MethodEnvironment.ReturnProjectsToExistentialUnion), so a winner that projects to union in its
         // signature must also drop the marker — otherwise the wrapper claims a degradation that did not

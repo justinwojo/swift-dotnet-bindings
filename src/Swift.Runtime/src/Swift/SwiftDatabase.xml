@@ -108,7 +108,7 @@
             <- KeyPath<Root,Value> <- WritableKeyPath<Root,Value> <- ReferenceWritableKeyPath<Root,Value>.
             Equality dispatches to AnyKeyPath.== via @_cdecl shim in SwiftBindingsRuntime - never
             compare raw pointers (cross-module compilation can produce different objects for the
-            same logical key path). See src/docs/keypath-subsystem/.
+            same logical key path).
         -->
         <entity managedNameSpace="Swift" managedTypeName="AnyKeyPath">
             <typedeclaration kind="class" name="AnyKeyPath" module="Swift" mangledName="$ss10AnyKeyPathC" frozen="false" requiresMemoryManagement="true" />

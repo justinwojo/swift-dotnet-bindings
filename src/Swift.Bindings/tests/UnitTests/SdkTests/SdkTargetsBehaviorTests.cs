@@ -83,7 +83,7 @@ namespace BindingsGeneration.Tests
         /// Locates the REAL built generator (a runnable Swift.Bindings.dll with its
         /// runtimeconfig.json) under the repo's bin output. Targets that were migrated off
         /// inline shell onto a generator verb — e.g. _ResolveSwiftAutoDetectedDependencies's
-        /// --resolve-auto-deps (architecture-review-2026-06 Finding 1) — must run against the
+        /// --resolve-auto-deps — must run against the
         /// real generator, not the args-echoing stub. Probes Debug then Release.
         /// </summary>
         private static readonly Lazy<string?> RealGeneratorDir = new(() =>

@@ -1890,8 +1890,7 @@ done; true"
       see the execution-time value. Same pattern as _GenerateSwiftBindings fingerprint gate.
 
       Resolution logic lives in the generator's resolve-auto-deps verb
-      (Configuration/AutoDepResolver.cs), not in an inline shell script
-      (architecture-review-2026-06 Finding 1). The verb:
+      (Configuration/AutoDepResolver.cs), not in an inline shell script. The verb:
         - parses the semicolon-delimited _SwiftBindingDependencies property
           (each entry ModuleName|PackageId|Version|XCFrameworkPath),
         - dedups against the explicit SwiftFrameworkDependency module names,
@@ -1931,7 +1930,7 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Target 4b': Wiring tripwire (architecture-review-2026-06 Finding 62)     -->
+  <!-- Target 4b': Wiring tripwire                                              -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!--
     MSBuild reports NO error when an AfterTargets/BeforeTargets attribute names a
@@ -3110,9 +3109,8 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
   &lt;PropertyGroup Condition=&quot;'\%24(SwiftBindingsInteropMode)' == 'Direct'&quot;&gt;
     &lt;NoWarn&gt;\%24(NoWarn);SB0001&lt;/NoWarn&gt;
   &lt;/PropertyGroup&gt;
-  &lt;!-- maccatalyst-x64 Mono JIT instability workaround (upstream-issue-04).
+  &lt;!-- maccatalyst-x64 Mono JIT instability workaround.
        Defaults to Mono interpreter — JIT has four confirmed crash classes on this RID.
-       Tracked at: src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md
        Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
        Opt out: &lt;SwiftBindingsMacCatalystX64UseJit&gt;true&lt;/SwiftBindingsMacCatalystX64UseJit&gt; --&gt;
   &lt;PropertyGroup Condition=&quot;'\%24(RuntimeIdentifier)' == 'maccatalyst-x64' AND '\%24(SwiftBindingsMacCatalystX64UseJit)' != 'true'&quot;&gt;

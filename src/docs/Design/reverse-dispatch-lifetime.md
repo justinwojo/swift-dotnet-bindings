@@ -1,7 +1,6 @@
 # Reverse-dispatch lifetime & vtable correctness (design & as-built record)
 
-Status: **IMPLEMENTED + reviewed (Phase 1, Session 1 of `architecture-review-2026-06.md`;
-shipped 2026-06-13/14).** All four items below shipped — Design B2 lifetime model, EveryProtocol
+Status: **IMPLEMENTED + reviewed (shipped 2026-06-13/14).** All four items below shipped — Design B2 lifetime model, EveryProtocol
 per-module metadata, the `@objc optional`-before-required slot fix, and the flag-matrix
 invariant — plus the existential-lifetime fold-in (owned-mint + borrowed-keepAlive) and
 tuple-of-convertible-element parameter marshalling; each cleared its Grok/Codex design review and

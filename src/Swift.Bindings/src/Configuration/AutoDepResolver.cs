@@ -9,9 +9,8 @@ namespace BindingsGeneration
     ///
     /// This is the typed, unit-testable replacement for the inline POSIX-sh
     /// <c>&lt;Exec&gt;</c> that previously lived in the SDK's
-    /// <c>_ResolveSwiftAutoDetectedDependencies</c> target (architecture-review-2026-06
-    /// Finding 1). The SDK target now invokes the generator's <c>--resolve-auto-deps</c>
-    /// verb, which delegates here.
+    /// <c>_ResolveSwiftAutoDetectedDependencies</c> target. The SDK target now invokes
+    /// the generator's <c>--resolve-auto-deps</c> verb, which delegates here.
     ///
     /// The output line grammar is a behavioral contract consumed by the SDK target and
     /// is FROZEN — do not change it without updating the consuming MSBuild ItemGroup /

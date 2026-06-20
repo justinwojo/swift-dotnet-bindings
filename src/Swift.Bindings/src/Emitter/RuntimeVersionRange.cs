@@ -39,8 +39,8 @@ namespace BindingsGeneration
     /// Enforcement seam: <c>EnablePackageValidation</c> on the Runtime/Apple csprojs runs NuGet's
     /// offline compatible-framework / compatible-RID validators at pack time. The cross-version
     /// ApiCompat check (<c>PackageValidationBaselineVersion</c>) and the minor-window end-state are
-    /// a single coupled, deferred owner decision — tracked in <c>src/docs/roadmap.md</c>, not set
-    /// here (a baseline would force an offline-breaking <c>PackageDownload</c>). This range is no
+    /// a single coupled, deferred owner decision (a baseline would force an offline-breaking
+    /// <c>PackageDownload</c>). This range is no
     /// longer the only thing standing behind the rule.
     /// </para>
     /// </remarks>

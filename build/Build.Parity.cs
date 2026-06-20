@@ -32,9 +32,8 @@ partial class Build
 
     const string ParityBaselineDescription =
         "Artifact-parity gate baseline. Records pre-existing cross-artifact divergences " +
-        "(Defect cluster D member-path symbols; Finding 8 / Defect C vtable over-emissions) " +
-        "so the gate is green now and fails on any NEW divergence. See " +
-        "src/docs/architecture-review-2026-06.md (Findings 4/8/30, Defect cluster D). " +
+        "(member-path symbols from generate-then-strip/never-emitted members; vtable " +
+        "over-emissions) so the gate is green now and fails on any NEW divergence. " +
         "Reseed with `nuke SeedParityBaseline` after an intentional, reviewed change.";
 
     /// <summary>

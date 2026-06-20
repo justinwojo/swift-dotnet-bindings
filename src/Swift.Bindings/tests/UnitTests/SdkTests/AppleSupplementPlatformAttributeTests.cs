@@ -19,8 +19,7 @@ namespace BindingsGeneration.Tests
     /// they historically fell in the gap: they gate availability at *runtime*
     /// (throwing <c>PlatformNotSupportedException</c> / branching on
     /// <c>OperatingSystem.Is*</c>) but exposed no *compile-time* metadata, leaving
-    /// consumers with no build-time warning before the runtime throw. See
-    /// <c>src/docs/Future/supplement-facade-supportedosplatform.md</c>.
+    /// consumers with no build-time warning before the runtime throw.
     ///
     /// These tests assert the convention that closes the gap: any facade file that
     /// gates availability at runtime must also carry a compile-time platform

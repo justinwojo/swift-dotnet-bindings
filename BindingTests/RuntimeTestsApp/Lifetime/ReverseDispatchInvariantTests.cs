@@ -9,9 +9,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
-/// End-to-end invariants for the Design B2 reverse-dispatch lifetime model
-/// (Defect G) and the per-module EveryProtocol metadata fix (Finding 33). See
-/// <c>src/docs/Design/reverse-dispatch-lifetime.md</c>.
+/// End-to-end invariants for the reverse-dispatch lifetime model and the
+/// per-module EveryProtocol metadata fix.
 ///
 /// <list type="bullet">
 /// <item><b>R1 cross-talk</b>: one C# object implementing two unrelated opaque
@@ -21,7 +20,7 @@ namespace RuntimeTestsApp.Lifetime;
 /// C#-impl proxy is collected while Swift still holds the existential — the
 /// VALUE must round-trip (the impl is rooted by Swift liveness) even though the
 /// Swift-side carrier identity is no longer stable.</item>
-/// <item><b>Finding 33</b>: a single C# object implementing one opaque protocol
+/// <item><b>Cross-module metadata</b>: a single C# object implementing one opaque protocol
 /// in the MAIN module and one in the DEPENDENCY module — each module's
 /// auto-wrapped proxy must stamp its existential with its OWN module's
 /// EveryProtocol metadata, not a process-global latch.</item>

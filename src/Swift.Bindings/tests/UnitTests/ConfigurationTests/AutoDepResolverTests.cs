@@ -11,8 +11,8 @@ namespace BindingsGeneration.Tests
 {
     /// <summary>
     /// Unit tests for <see cref="AutoDepResolver"/> — the typed replacement for the SDK's
-    /// former inline POSIX-sh cross-module dependency resolver (architecture-review-2026-06
-    /// Finding 1). These pin the behavior the migrated <c>_ResolveSwiftAutoDetectedDependencies</c>
+    /// former inline POSIX-sh cross-module dependency resolver. These pin the behavior the
+    /// migrated <c>_ResolveSwiftAutoDetectedDependencies</c>
     /// target depends on: the FROZEN PROJREF|/WARN| line grammar, percent-decode order, the
     /// candidate-csproj probe order, and dedup against explicitly-declared dependencies.
     ///

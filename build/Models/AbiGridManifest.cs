@@ -10,7 +10,7 @@ using System.Text.Json.Serialization;
 
 /// <summary>
 /// The ABI Coverage Grid manifest — the single source of truth for thin-corner runtime
-/// coverage cells (see src/docs/Design/abi-coverage-grid.md). Each cell declares a stable
+/// coverage cells. Each cell declares a stable
 /// dotted id, a disposition, the runtimes it runs on, and a name-based mapping to the
 /// existing test(s) that cover it. The manifest is hand-maintained; the report layer joins
 /// these names against the existing test-results JSONL + TestClasses.g.txt inventory, so no

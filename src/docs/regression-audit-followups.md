@@ -20,8 +20,11 @@ known-active defect unless flagged otherwise.
 
 ## Already tracked elsewhere (do not duplicate)
 
-Three residual gaps from *confirmed* findings are architectural and already owned by the
-Phase-2 session plans in `src/docs/sessions/`:
+Three residual gaps from *confirmed* findings are architectural and tracked against the
+Phase-2 session plans. Of the sessions named below, S07a/S07b/S15 have since shipped (the
+generate-then-strip C# leg, the harness Swift stripper, and the regex swiftinterface parser
+were all removed); **S08** (layout & lowering truth) remains the one open plan and still lives
+in `src/docs/sessions/`. The completed plans were archived out of the repo once shipped.
 
 - **R6-1 residual** — the `SwiftWrapperPostProcessor` re-derives stripping decisions textually
   that the module-aware `InternalTypeReferenceWalker` already makes semantically. A top-level

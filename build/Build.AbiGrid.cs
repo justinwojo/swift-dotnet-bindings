@@ -22,8 +22,6 @@ using Serilog;
 // (StashAbiGridResults), and one merged grid (RunMergedAbiGridReport) is rendered + gated after
 // the platform loop, grading each cell against its runtime's own results so a cell is green only
 // when it passes on every declared+exercised runtime.
-//
-// See src/docs/Design/abi-coverage-grid.md.
 // ============================================================
 
 partial class Build

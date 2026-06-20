@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://swift-bindings.justinwojo.dev/apple-types-manifest/v1.json",
   "title": "SwiftBindings.Apple type metadata manifest",
-  "description": "Authoritative metadata for Apple Swift-only types bound into the SwiftBindings.Apple supplement package. Consumed by the generator's TypeDatabase and by the supplement source-generation pipeline. See src/docs/Design/apple-swift-types-architecture.md §Q7 for the design contract. Format is intentionally self-contained so a later extraction into a standalone SwiftBindings.Apple.Metadata data package is a relocation, not a reformat.",
+  "description": "Authoritative metadata for Apple Swift-only types bound into the SwiftBindings.Apple supplement package. Consumed by the generator's TypeDatabase and by the supplement source-generation pipeline. Format is intentionally self-contained so a later extraction into a standalone SwiftBindings.Apple.Metadata data package is a relocation, not a reformat.",
   "type": "object",
   "required": ["manifest_version", "sdk_train", "modules"],
   "additionalProperties": false,
