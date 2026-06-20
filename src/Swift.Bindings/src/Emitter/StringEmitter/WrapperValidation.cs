@@ -185,6 +185,47 @@ public static class WrapperValidation
                 return "module_internal";
         }
 
+        // 2b. Parent type is module-internal (Method, Constructor, Property, Subscript).
+        // A *public* member on a `@usableFromInline internal` parent slips the
+        // member-keyed `module_internal` arm above (the member's own flag is false),
+        // but its @_cdecl wrapper body reconstructs `self` via the parent's
+        // module-qualified name (`Unmanaged<Module.Internal>.fromOpaque(...)` /
+        // `assumingMemoryBound(to: Module.Internal.self)`). The separate
+        // wrapper-compilation module cannot name that internal type, so swiftc
+        // rejects the wrapper and the post-processor strips it
+        // (StripSubCause.InternalType). Reject the wrapper here, at emission, so it
+        // is never produced: the non-wrapper path keeps the C# member as a direct
+        // CallConvSwift P/Invoke to the dylib silgen symbol (precedent:
+        // ClassHandler internal-class metadata accessor at ClassHandler.cs; the same
+        // CS0535-avoidance policy that keeps non-blittable CallConvSwift members
+        // emitting). This drives the BindingTests internal-receiver strip to 0.
+        //
+        // SCOPE — sync members only (Method, Constructor, Property, Subscript). A
+        // subscript is an accessor pair like a property, so it shares the property's
+        // clean CallConvSwift fallback (its getter/setter resolve to bare silgen /
+        // Tj symbols the dylib already exports) and is gated identically — without
+        // it, a public subscript on an internal parent still emit-then-strips and
+        // leaves the C# indexer bound to a stripped @_cdecl symbol (a runtime
+        // EntryPointNotFoundException a compile-only gate cannot catch).
+        //
+        // The async, closure-@_cdecl, and operator promotion sites are deliberately
+        // NOT gated on parent-internal, because those kinds have no clean
+        // CallConvSwift fallback: an async member ALWAYS needs a Swift wrapper (which
+        // still names the parent under @_silgen_name), a closure member degrades to
+        // the legacy CallConvSwift path that crashes (InvalidProgramException), and a
+        // frozen-struct operator's direct CallConvSwift P/Invoke segfaults ILC on
+        // NativeAOT (OperatorHandler.cs documents the wrapper exists for exactly that
+        // reason). Gating those would trade an emit-then-strip for a real regression.
+        // They stay post-processor-scoped until a parent-name-free wrapper-body
+        // rewrite and a NativeAOT-safe operator path land. See S07b-followon design
+        // doc.
+        if (kind is MemberKind.Method or MemberKind.Constructor or MemberKind.Property
+            or MemberKind.Subscript)
+        {
+            if (IsParentTypeModuleInternal(env))
+                return "parent_module_internal";
+        }
+
         // 3. SPI protected (Method, Property)
         if (kind is MemberKind.Method or MemberKind.Property)
         {
@@ -269,6 +310,19 @@ public static class WrapperValidation
 
         return null;
     }
+
+    /// <summary>
+    /// True when the member's PARENT type is module-internal (`@usableFromInline internal`,
+    /// or truly internal but ABI-visible — <see cref="TypeDecl.IsModuleInternal"/>). A
+    /// @_cdecl wrapper for such a member must name the parent type by its module-qualified
+    /// name to reconstruct `self`, which the separate wrapper-compilation module cannot do
+    /// → swiftc "no type named X in module Y". This is the single source of truth for the
+    /// parent-internal eligibility decision so the rejection site cannot drift. Returns
+    /// false for free functions (their <see cref="MethodEnvironment.ParentDecl"/> is a
+    /// <c>ModuleDecl</c>, not a <see cref="TypeDecl"/>).
+    /// </summary>
+    public static bool IsParentTypeModuleInternal(MethodEnvironment env)
+        => (env.ParentDecl as TypeDecl)?.IsModuleInternal == true;
 
     /// <summary>
     /// Returns true when the generator is running in xcframework mode, where the wrapper

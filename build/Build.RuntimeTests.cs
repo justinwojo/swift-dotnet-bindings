@@ -3189,11 +3189,12 @@ partial class Build
         var manifest = RunWrapperPostProcess(swiftFiles, cleanedDir, depInternalTypeNames, DepModuleName, "device-dep");
         manifest.Save(BtOutputDir / "wrapper-strip-manifest-device-dep.json");
 
-        // Fail closed on ANY dep strip. The committed `wrapper_stripped_count` baseline counts the
-        // MAIN leg's InternalHolder strip; the dependency module has no internal-receiver member, so
-        // its expected strip count is 0. Enforcing the shared main baseline (1) here would hand the
-        // dep leg a unit of undeserved slack — a dep-only single-strip regression would slip past. A
-        // legitimate future dep strip is an emission defect to fix (Step 8), or bump this explicit 0.
+        // Fail closed on ANY dep strip. The committed `wrapper_stripped_count` baseline is now 0
+        // (Step 8a closed the main leg's sync InternalHolder strip at emission via arm 2b), and the
+        // dependency module has no internal-receiver member, so its expected strip count is also 0.
+        // Pinning an explicit 0 here keeps the dep leg independent: if the shared main baseline is
+        // ever bumped for a sanctioned async/closure/operator strip, that bump must not silently hand
+        // the dep leg slack. A legitimate future dep strip is an emission defect to fix, or bump this 0.
         EnforceWrapperStripTripwire(manifest, 0, "device-dep");
 
         var cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();

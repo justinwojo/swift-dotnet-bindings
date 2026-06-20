@@ -20,10 +20,14 @@
 // What it strips is gated, not silent: the committed baseline
 // (`BindingTests/baselines.json` → `wrapper_stripped_count`) records the allowed
 // `StrippedBlockTotal`, and the gate fails on any INCREASE — a NEW uncompilable emission the
-// generator should never have produced (fix it at emission, not by stripping more). The count
-// cannot reach 0 while the generator still emits-then-scrubs the documented internal-receiver
-// case (`InternalHolder.describe`); closing that at emission is the rejected receiver-aware gate
-// / Step 8. Fail-closed mirrors the artifact-parity gate: `Strict || !Permissive`.
+// generator should never have produced (fix it at emission, not by stripping more). The count is
+// now 0: Step 8a closed the sync internal-receiver case (`InternalHolder.describe`) AT EMISSION
+// via `WrapperValidation.GetMemberRejectionReason` arm 2b (`parent_module_internal`) — the
+// rejected `@_cdecl` wrapper falls back to a direct CallConvSwift P/Invoke instead of being
+// emitted-then-scrubbed, so `Process` has nothing left to strip. The async / closure / operator
+// internal-receiver shapes have no clean fallback and remain post-processor-scoped, so any of
+// those re-appearing trips the fail-on-increase. Fail-closed mirrors the artifact-parity gate:
+// `Strict || !Permissive`.
 
 using System;
 using System.Collections.Generic;

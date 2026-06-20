@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
@@ -9,7 +10,7 @@ namespace RuntimeTestsApp.Internal;
 
 /// <summary>
 /// End-to-end coverage for the Pattern 2 internal-type-reach emission gate
-/// AND the formally retained internal-receiver post-processing scope. Pairs
+/// AND the sync internal-receiver case now closed at emission by arm 2b. Pairs
 /// with the Swift fixture at
 /// <c>BindingTests/Sources/SwiftBindingsTestLib/Internal/InternalTypeReach.swift</c>.
 ///
@@ -23,22 +24,27 @@ namespace RuntimeTestsApp.Internal;
 /// <c>InternalHolder</c>: the walker walks <c>CSSignature</c>, which carries
 /// an init's implicit Self-return, so an init returning an internal type is
 /// caught at emission time exactly like a method whose declared return reaches
-/// an internal type. The body-reference shape (<c>InternalHolder.describe</c>)
-/// is formally retained as post-processing scope: in real validation libraries
-/// the <c>SwiftWrapperPostProcessor</c> Pattern 2 (B) body-reference scrub
-/// strips the broken wrapper, and <c>CSharpWrapperCoGater</c> removes the
-/// matching C# member (preserving interface-implementation members so types
-/// conforming to public protocols still compile — see a crypto library's
-/// <c>BlockEncryptor : Cryptor</c> pattern). End-to-end coverage of that path lives in
-/// <c>nuke validate</c> against the four real libraries, not in BindingTests:
-/// the wrapper-compile + post-processor pipeline does not run cleanly here,
-/// so the fixture verifies what is reachable — the construction barrier (no
-/// public init) renders any C# member that survives in source unreachable.
-/// The free functions and the internal-typed property are caught by older
-/// gates that fire first. The shell type itself is intentionally emitted (no
-/// type-level filter exists for <c>@usableFromInline internal</c> — the type
-/// can still be referenced through metadata accessors). See the fixture file's
-/// header comment for the per-member gate map.
+/// an internal type. The body-reference shape (<c>InternalHolder.describe</c> —
+/// a sync method whose declared signature is purely public but whose wrapper
+/// body would name the internal parent) is now caught at emission by
+/// <c>WrapperValidation.GetMemberRejectionReason</c> arm 2b
+/// (<c>parent_module_internal</c>): the broken <c>@_cdecl</c> wrapper is
+/// rejected and the member falls back to a direct CallConvSwift P/Invoke
+/// against the exported <c>Tj</c> dispatch thunk, so it is KEPT in source
+/// rather than emitted-then-stripped — which is what drove
+/// <c>wrapper_stripped_count</c> 1 → 0. The construction barrier (no public
+/// init, and <c>InternalHolder</c> conforms to no public protocol that would
+/// vend it behind an existential) still makes that kept member unreachable
+/// here, which is what these absence assertions verify. (The async, closure,
+/// and operator internal-receiver shapes have no clean CallConvSwift fallback
+/// and remain post-processor-scoped — see the arm-2b comment in
+/// <c>WrapperValidation.cs</c>; their end-to-end scrub coverage still lives in
+/// <c>nuke validate</c>.) The free functions and the internal-typed property
+/// are caught by older gates that fire first. The shell type itself is
+/// intentionally emitted (no type-level filter exists for
+/// <c>@usableFromInline internal</c> — the type can still be referenced
+/// through metadata accessors). See the fixture file's header comment for the
+/// per-member gate map.
 ///
 /// Negative direction (gates do not over-strip): <c>DoesNotReachInternal</c>'s
 /// public-only signature and <c>PublicWithInternalStored</c>'s public surface
@@ -152,24 +158,32 @@ public class InternalTypeReachTests : TestBase
         //   * init: walker-suppressed via the same implicit Self-return path
         //     as InternalCarrier.init (see TestInternalCarrierTypeIsUncreatable).
         //
-        //   * describe(): declared signature is purely public (() -> String),
-        //     so the walker cannot catch it at emission time. The runtime
-        //     suppression in real libraries is the post-processor + co-gater
-        //     pair — Pattern 2 (B) body-reference scrub strips the broken
-        //     @_cdecl wrapper, and CSharpWrapperCoGater removes the matching
-        //     C# member when no public protocol requires it. (Where a protocol
-        //     does require it — a crypto library's BlockEncryptor : Cryptor pattern — the
-        //     co-gater's BuildTypeProtectedMembers exemption keeps the C#
-        //     member to satisfy CS0535, which is why an emission-time receiver
-        //     gate isn't safe.) That end-to-end path is validated by
-        //     `nuke validate`, not here: BindingTests' wrapper-compile +
-        //     post-processor pipeline does not run cleanly, so the C# member
-        //     stays in source — but is unreachable because there is no
-        //     instance to call it on (the construction barrier below).
+        //   * describe() / subscript(offset:): each declared signature is purely
+        //     public (() -> String; (Int32) -> Int32), so the signature-reach
+        //     walker cannot catch them. Their @_cdecl wrapper bodies would name
+        //     the internal parent, which the separate wrapper module cannot
+        //     compile. Both are sync members now caught at emission by
+        //     WrapperValidation.GetMemberRejectionReason arm 2b
+        //     (parent_module_internal — covers Method/Constructor/Property/
+        //     Subscript): the wrapper is rejected and each member falls back to a
+        //     direct CallConvSwift P/Invoke against the exported Tj dispatch thunk
+        //     (a non-final class's instance method and subscript getter are both
+        //     vtable-dispatched), so the C# members (GetDescribe + the indexer)
+        //     are KEPT in source rather than emitted-then-stripped. The earlier
+        //     worry that an emission-time receiver gate was unsafe assumed the
+        //     gate would DROP the member (CS0535 where a public protocol
+        //     requires it); the shipped gate rejects only the broken wrapper
+        //     and keeps the member via the fallback, so the public surface is
+        //     never reduced. (Where a protocol requires the member — a crypto
+        //     library's BlockEncryptor : Cryptor pattern — that fallback is
+        //     exactly what satisfies CS0535.) Here the kept members are still
+        //     unreachable because there is no instance to call them on
+        //     (InternalHolder has no public init and conforms to no public
+        //     protocol that would vend it — the construction barrier below).
         //
         // Regression signal: if a public constructor ever appears on
-        // InternalHolder, the construction barrier has fallen and any
-        // surviving describe-equivalent in the C# source becomes callable.
+        // InternalHolder, the construction barrier has fallen and the kept
+        // members in the C# source become callable.
         var holderType = FindGeneratedType("InternalHolder");
         AssertNotNull(holderType, "InternalHolder shell type expected (used as metadata anchor)");
 
@@ -177,7 +191,22 @@ public class InternalTypeReachTests : TestBase
             .GetConstructors(BindingFlags.Public | BindingFlags.Instance);
         AssertEqual(0, publicCtors.Length,
             "InternalHolder must not expose any public constructor — walker gate must suppress init");
-        TestLogger.Info("InternalHolder emitted as shell with no public constructor (walker gate suppressed init).");
+
+        // Arm 2b KEEPS the member via the CallConvSwift fallback (it rejects only
+        // the broken @_cdecl wrapper). Assert both kept member shapes are present
+        // on the shell — a regression that DROPPED them instead of falling back
+        // would remove these. The method projects as GetDescribe; the public
+        // subscript projects as a C# indexer (a property with index parameters).
+        var keptMethod = holderType!.GetMethod("GetDescribe",
+            BindingFlags.Public | BindingFlags.Instance);
+        AssertNotNull(keptMethod,
+            "InternalHolder.describe() must be KEPT as a public member (arm 2b falls back, does not drop)");
+        var keptIndexer = holderType!
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(p => p.GetIndexParameters().Length > 0);
+        AssertNotNull(keptIndexer,
+            "InternalHolder.subscript(offset:) must be KEPT as a public indexer (arm 2b Subscript fallback, not stripped)");
+        TestLogger.Info("InternalHolder: no public ctor (construction barrier); describe()+subscript KEPT via arm 2b CallConvSwift fallback.");
     }
 
     public void TestPublicHostInternalMembersAbsent()

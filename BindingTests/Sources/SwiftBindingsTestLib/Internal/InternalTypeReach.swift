@@ -44,16 +44,22 @@ import Foundation
 //     other check. (The unrelated `MemberEmissionValidator.CanEmitSubscript`
 //     path is for conformance validation, not concrete emission.)
 //
-//   * `@usableFromInline internal` *types* with `public` member methods
-//     (`InternalHolder.describe()`). Swift allows the methods (their declared
-//     signatures are public-only), but the generated wrapper bodies must
-//     reference the internal parent type. This shape is **formally retained
-//     as post-processing scope**: the receiver-aware emission-time gate is
-//     not viable because at emission time we don't know whether the
-//     containing type satisfies a public protocol that the C# co-gater would
-//     need to protect (a concrete regression that rejected option (a)). The
+//   * `@usableFromInline internal` *types* with `public` members
+//     (`InternalHolder.describe()` method + `subscript(offset:)`). Swift allows
+//     the members (their declared signatures are public-only), but the generated
+//     wrapper bodies must reference the internal parent type. For a **sync**
+//     method/ctor/property/subscript this is now caught at emission by
+//     `WrapperValidation.GetMemberRejectionReason` arm 2b
+//     (`parent_module_internal`): the broken `@_cdecl` wrapper is rejected and
+//     the member falls back to a direct CallConvSwift P/Invoke against the
+//     member's exported ABI symbol — the `Tj` dispatch thunk for a non-final
+//     class's instance method or subscript getter, the bare silgen symbol for a
+//     constructor or a struct/final-class member — so the member is KEPT, not
+//     stripped, and a public protocol requirement is still satisfied (no
+//     CS0535). The async / closure-bearing / operator internal-receiver shapes
+//     have no clean CallConvSwift fallback and remain post-processing scope: the
 //     `SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub strips
-//     the broken wrapper, and `CSharpWrapperCoGater` (with its
+//     the broken wrapper and `CSharpWrapperCoGater` (with its
 //     `BuildTypeProtectedMembers` interface-member protection) removes the
 //     C# member when there's no protocol to satisfy.
 //
@@ -107,16 +113,29 @@ internal func readCarrier(_ carrier: InternalCarrier) -> Int32 {
     return carrier.value
 }
 
-/// `@usableFromInline internal` class with `public` member methods. The
-/// methods' declared signatures are public-only (Swift refuses anything
-/// else), so the signature-reach walker does not catch them. The generated
-/// wrapper bodies must reference `InternalHolder` as `self`, and the Swift
-/// compiler rejects internal-type references inside `@_cdecl` bodies. This
-/// shape is formally retained as post-processing scope: the
-/// `SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub strips
-/// these wrappers post-emission, and `CSharpWrapperCoGater` removes the
-/// matching C# members (preserving interface-implementation members so
-/// types that conform to public protocols still compile).
+/// `@usableFromInline internal` class with `public` members (a method and a
+/// subscript). Their declared signatures are public-only (Swift refuses
+/// anything else), so the signature-reach walker does not catch them. The
+/// generated wrapper bodies must reference `InternalHolder` as `self`, and the
+/// Swift compiler rejects internal-type references inside `@_cdecl` bodies.
+/// Because `describe()` (method) and `subscript(offset:)` (a sync accessor pair
+/// like a property) are **sync** members with a clean CallConvSwift fallback,
+/// both are now caught at emission by
+/// `WrapperValidation.GetMemberRejectionReason` arm 2b
+/// (`parent_module_internal`): the broken `@_cdecl` wrapper is rejected and each
+/// member falls back to a direct CallConvSwift P/Invoke against the exported
+/// `Tj` dispatch thunk (a non-final class's instance method and subscript-getter
+/// accessor are both vtable-dispatched, so the `Tj` thunk is exported), so the
+/// member is kept (not stripped). The async / closure / operator
+/// internal-receiver shapes lack that fallback and stay post-processing scope
+/// (`SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub +
+/// `CSharpWrapperCoGater`, preserving interface-implementation members so types
+/// conforming to public protocols still compile).
+///
+/// Both members are unreachable at runtime by the construction barrier (the
+/// `init` is `@usableFromInline internal`, so the emitted shell has no public
+/// constructor), so they are strip-count-hygiene cases asserted via the
+/// `wrapper_stripped_count` tripwire staying 0, not via a runtime call.
 @usableFromInline
 internal class InternalHolder {
     @usableFromInline
@@ -129,6 +148,14 @@ internal class InternalHolder {
 
     public func describe() -> String {
         return label.uppercased()
+    }
+
+    /// Public subscript on the internal class — the same arm 2b case as
+    /// `describe()`, but the `Subscript` member kind, so it exercises the
+    /// `SubscriptWrapperEmitter` → `GetMemberRejectionReason` wiring. Read-only +
+    /// blittable `Int32` to mirror the proven property fallback shape.
+    public subscript(offset index: Int32) -> Int32 {
+        return Int32(label.count) &+ index
     }
 }
 

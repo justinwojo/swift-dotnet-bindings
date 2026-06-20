@@ -1,5 +1,5 @@
 {
-  "git_sha": "18f4c632",
+  "git_sha": "4ff9c7f8",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -250,7 +250,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 58193,
+        "lines": 58195,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,7 +285,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 106081,
+        "lines": 106078,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -299,7 +299,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 61562,
+        "lines": 61560,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12203,
+        "lines": 12028,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -544,14 +544,14 @@
       "NVActivityIndicatorView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7524,
+        "lines": 7602,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6791,
+        "lines": 6779,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -628,7 +628,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17343,
+        "lines": 17325,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -915,9 +915,9 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 25000,
-    "total_skipped_members": 7673,
-    "skip_rate_pct": 23.5,
+    "total_emitted_members": 25211,
+    "total_skipped_members": 7462,
+    "skip_rate_pct": 22.8,
     "skip_reasons": {
       "UnsupportedSignature": 1422,
       "SynthesizedCodable": 971,
@@ -930,28 +930,27 @@
       "UnsupportedType": 372,
       "EveryProtocolConformanceSkipped": 362,
       "UnsatisfiedGenericConstraint": 268,
-      "MissingWrapperSymbol": 261,
       "Pattern2InternalTypeReach": 216,
       "UnsupportedExistential": 132,
       "GenericTypeCallback": 128,
       "StaticProtocolMember": 67,
+      "MissingWrapperSymbol": 66,
       "SwiftUIView": 53,
       "NonBlittableCallConvSwift": 19,
-      "SuppressedProxyMethodBody": 16,
       "OwnedByAppleSupplement": 12,
       "IndeterminatePwtShape": 9,
       "UnderscorePrefixInternal": 4,
       "UnsupportedAsyncStream": 4
     },
     "post_processor_sub_causes": {
-      "InternalType": 306,
+      "InternalType": 85,
       "NSInvocation": 1,
       "Other": 0
     }
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2950,
+      "pass": 2955,
       "fail": 0,
       "skip": 37,
       "crash": 0
@@ -994,6 +993,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 13354
+    "swift_bindings_unit_pass_floor": 13364
   }
 }

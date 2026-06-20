@@ -21,9 +21,11 @@ using Nuke.Common.IO;
 /// safety-net shape), and the stripped <c>@_cdecl</c>/<c>@_silgen_name</c> symbols. The committed
 /// baseline (<c>BindingTests/baselines.json</c> <c>wrapper_stripped_count</c>) records the allowed
 /// count so the gate fails on any INCREASE — a NEW uncompilable emission the generator should
-/// never have produced. The count cannot reach 0 while the generator still emits-then-scrubs the
-/// documented internal-receiver case (<c>InternalHolder.describe</c>); closing that at emission is
-/// the rejected receiver-aware gate / Step 8, not a harness strip.</para>
+/// never have produced. The count is now 0: Step 8a closed the sync internal-receiver case
+/// (<c>InternalHolder.describe</c>) at emission via <c>WrapperValidation.GetMemberRejectionReason</c>
+/// arm 2b (<c>parent_module_internal</c>), whose rejected wrapper falls back to a direct
+/// CallConvSwift P/Invoke rather than being emitted-then-scrubbed. The async / closure / operator
+/// internal-receiver shapes have no clean fallback and remain post-processor-scoped.</para>
 /// </summary>
 public record WrapperStripManifest
 {
