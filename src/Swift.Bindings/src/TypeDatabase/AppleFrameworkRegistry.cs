@@ -73,6 +73,16 @@ internal static class AppleFrameworkRegistry
     private static readonly HashSet<string> _objcValueTypes;
     private static readonly HashSet<string> _objcSystemStructs;
 
+    // CGFloat is declared in CoreGraphics and re-exported through CoreFoundation, so the ABI
+    // JSON surfaces both module-qualified spellings for the same scalar. This is a fixed Swift
+    // overlay fact (not framework-list data), so it lives inline rather than in
+    // apple-frameworks.json. Centralizing it lets the float-field / scalar-classification
+    // special-cases read one predicate instead of re-listing both literals.
+    private static readonly HashSet<string> _cgFloatAliases = new(StringComparer.Ordinal)
+    {
+        "CoreFoundation.CGFloat", "CoreGraphics.CGFloat",
+    };
+
     /// <summary>
     /// Schema version this build of the registry understands for objc-type-mappings.json.
     /// Bump in lockstep with the data file's <c>schemaVersion</c> whenever the shape changes,
@@ -428,6 +438,12 @@ internal static class AppleFrameworkRegistry
     /// <summary>True when a module declares no ObjC classes — every type it exports is a
     /// Swift value type. See <see cref="_valueTypesOnlyModules"/>.</summary>
     public static bool IsValueTypesOnlyModule(string moduleName) => _valueTypesOnlyModules.Contains(moduleName);
+
+    /// <summary>True for either module-qualified spelling of CoreGraphics' <c>CGFloat</c>
+    /// (the type is re-exported through CoreFoundation, so the ABI JSON emits both
+    /// <c>CoreGraphics.CGFloat</c> and <c>CoreFoundation.CGFloat</c>). The single source for the
+    /// CGFloat scalar special-case so callers don't re-list both literals.</summary>
+    public static bool IsCGFloat(string moduleQualifiedName) => _cgFloatAliases.Contains(moduleQualifiedName);
 
     // --- ObjC type-mapping queries (folded from ObjCTypeMapper / StructsAndEnumsEmitter) ---
 

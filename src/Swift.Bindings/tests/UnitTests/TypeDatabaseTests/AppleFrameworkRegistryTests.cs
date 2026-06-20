@@ -1534,4 +1534,29 @@ public class AppleFrameworkRegistryTests
         if (https >= 0 && http >= 0)
             Assert.True(https < http, "HTTPS must precede HTTP for correct substring replacement");
     }
+
+    // --- IsCGFloat ---
+
+    [Theory]
+    [InlineData("CoreGraphics.CGFloat")]
+    [InlineData("CoreFoundation.CGFloat")]
+    public void IsCGFloat_BothModuleQualifiedSpellings_Recognized(string moduleQualifiedName)
+    {
+        // CGFloat is declared in CoreGraphics and re-exported through CoreFoundation, so the ABI
+        // JSON surfaces both spellings for the same scalar. IsCGFloat is the SSOT the
+        // ModuleProcessor float-field detection and scalar-classification special-cases route
+        // through instead of re-listing both literals.
+        Assert.True(AppleFrameworkRegistry.IsCGFloat(moduleQualifiedName));
+    }
+
+    [Theory]
+    [InlineData("CGFloat")]               // bare (no module) — not a module-qualified spelling
+    [InlineData("Swift.Double")]          // a different 8-byte float scalar
+    [InlineData("CoreGraphics.CGPoint")]  // a CG struct, not the scalar
+    [InlineData("Foundation.NSNumber")]
+    [InlineData("")]
+    public void IsCGFloat_NonCGFloatNames_Rejected(string name)
+    {
+        Assert.False(AppleFrameworkRegistry.IsCGFloat(name));
+    }
 }

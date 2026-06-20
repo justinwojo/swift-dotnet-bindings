@@ -82,13 +82,19 @@ namespace BindingsGeneration
 
             var swiftTypeName = SwiftTypeName.FromTypeSpec(swiftTypeSpec);
 
-            // First, check if this module is the one being processed.
+            // First, check if this module is the one being processed. This arm is necessarily
+            // local: the in-flight module's records live in _moduleDatabase and are not yet
+            // registered into the global TypeDatabase, so they are unreachable through the
+            // unified resolver until processing completes.
             if (swiftTypeName.Module == _module)
             {
                 return _moduleDatabase.TryGetTypeRecord(swiftTypeName, out record);
             }
 
-            // Otherwise, fall back to checking the global type database.
+            // Otherwise, fall back to the global type database. TypeDatabase.TryGetTypeRecord is
+            // itself the unified resolver entry point (the F10 strategy cascade — out-of-module,
+            // cross-module alias, Apple supplement, Swift.Error), so cross-module lookups already
+            // route through one resolver. Do NOT reintroduce a parallel cascade here.
             return _typeDatabase.TryGetTypeRecord(swiftTypeName, out record);
         }
 
@@ -305,12 +311,15 @@ namespace BindingsGeneration
                     flags |= TypeRecordFlags.RequiresMemoryManagement;
 
                 // Detect float/double fields for CallConvSwift ABI safety classification.
-                // Direct float/double primitives (Swift.Float, Swift.Double, CoreFoundation.CGFloat)
-                // and nested non-system structs that themselves contain float fields.
-                // System structs (CGRect, etc.) are NOT flagged — they have special runtime handling.
+                // Direct float/double primitives (Swift.Float, Swift.Double, CGFloat) and nested
+                // non-system structs that themselves contain float fields. CGFloat's two
+                // module-qualified spellings come from AppleFrameworkRegistry (the SSOT) rather
+                // than being re-listed here. System structs (CGRect, etc.) are NOT flagged — they
+                // have special runtime handling.
                 if (!flags.HasFlag(TypeRecordFlags.HasFloatFields))
                 {
-                    if (namedPropertyType.Name is "Swift.Float" or "Swift.Double" or "CoreFoundation.CGFloat" or "CoreGraphics.CGFloat")
+                    if (namedPropertyType.Name is "Swift.Float" or "Swift.Double" ||
+                        AppleFrameworkRegistry.IsCGFloat(namedPropertyType.Name))
                         flags |= TypeRecordFlags.HasFloatFields;
                     else if (propertyRecord.Kind == TypeRecordKind.Struct &&
                              propertyRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
@@ -534,6 +543,12 @@ namespace BindingsGeneration
         /// </summary>
         private string? ClassifyFieldType(NamedTypeSpec namedType)
         {
+            // CGFloat (either module-qualified spelling — see AppleFrameworkRegistry SSOT) is an
+            // 8-byte float scalar, same as Swift.Double. Handled before the switch because a
+            // predicate call can't be a constant `case` label.
+            if (AppleFrameworkRegistry.IsCGFloat(namedType.Name))
+                return "f8";
+
             // Primitive scalar types — the digit is the field's byte width.
             switch (namedType.Name)
             {
@@ -559,8 +574,6 @@ namespace BindingsGeneration
                     return "f4";
 
                 case "Swift.Double":
-                case "CoreFoundation.CGFloat":
-                case "CoreGraphics.CGFloat":
                     return "f8";
 
                 case "Swift.Bool":
