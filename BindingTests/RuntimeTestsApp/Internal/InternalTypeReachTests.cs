@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
@@ -150,6 +151,7 @@ public class InternalTypeReachTests : TestBase
         TestLogger.Info("PublicHostWithInternalMembers public surface intact.");
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors, typeof(InternalHolder))]
     public void TestInternalHolderPublicConstructorAbsent()
     {
         // InternalHolder is @usableFromInline internal but declares a
@@ -184,6 +186,12 @@ public class InternalTypeReachTests : TestBase
         // Regression signal: if a public constructor ever appears on
         // InternalHolder, the construction barrier has fallen and the kept
         // members in the C# source become callable.
+        //
+        // The kept members are never instantiated by name here (construction barrier), so
+        // NativeAOT trims their reflection metadata even though the member bodies are emitted.
+        // The DynamicDependency on the method roots InternalHolder's public surface so GetMethod/
+        // GetProperties observe emission, not trim-survival — and since it can only root members
+        // that exist, a regression that actually dropped describe()/the subscript still fails here.
         var holderType = FindGeneratedType("InternalHolder");
         AssertNotNull(holderType, "InternalHolder shell type expected (used as metadata anchor)");
 

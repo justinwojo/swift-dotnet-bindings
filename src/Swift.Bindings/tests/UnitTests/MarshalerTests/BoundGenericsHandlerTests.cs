@@ -42,6 +42,22 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
+    public void TranslateBoundGenericTypeToCSharp_SimdAlias_CollapsesViaSharedService()
+    {
+        // Swift.SIMD3<Swift.Float> routes through the shared
+        // BoundGenericTranslation.TryResolveSimdAliasCSharp short-circuit and collapses to the
+        // non-generic alias record rather than the invalid `simd_float3<float>`.
+        var simd3 = new NamedTypeSpec("Swift.SIMD3");
+        simd3.GenericParameters.Add(new NamedTypeSpec("Swift.Float"));
+
+        var argDecl = CreateArgumentDecl(simd3);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        Assert.Equal("System.Numerics.Vector3", result);
+        Assert.DoesNotContain("<", result);
+    }
+
+    [Fact]
     public void TranslateBoundGenericTypeToCSharp_ArrayWithAny_ResolvesToExistentialContainer0()
     {
         // Swift: Array<Any>
@@ -2520,6 +2536,16 @@ public class BoundGenericsHandlerTests
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
                     NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                // SIMD alias target — Swift.SIMD3<Swift.Float> collapses to this non-generic record
+                // via the shared BoundGenericTranslation.TryResolveSimdAliasCSharp short-circuit.
+                ["simd.simd_float3"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System.Numerics", "Vector3"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("simd.simd_float3"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Struct

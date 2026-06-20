@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
@@ -53,6 +54,14 @@ public class InternalConformerToPublicProtocolTests : TestBase
 
     #region CS0535-safety — the internal conformer keeps every requirement member
 
+    // NativeAOT trims the reflection metadata of public members on a concrete type that is
+    // never instantiated by name (the construction barrier means there is no public ctor, so
+    // ILC sees no rooting use of the class itself). The member bodies survive and bind through
+    // the interface — TestInternalConformerRoundTripsViaExistential proves that on device — but
+    // GetMethod/GetProperty would return null without an explicit trim root. Root the conformer's
+    // public surface so the presence assertions observe emission rather than trim-survival; it can
+    // only root members that exist, so a real drop still surfaces as a null lookup here.
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicProperties, typeof(InternalContractConformer))]
     public void TestInternalConformerImplementsPublicInterface()
     {
         // Projected as a public class implementing the public interface. If arm 2b

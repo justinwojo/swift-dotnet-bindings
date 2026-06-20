@@ -568,53 +568,16 @@ public class TupleHandler
     /// </summary>
     private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
     {
-        // Bound-generic SIMD aliases collapse to a non-generic managed type
-        // (e.g. Swift.SIMD3<Swift.Float> → System.Numerics.Vector3). The resolved alias record
-        // IS the final C# type — appending the bound-generic's type arguments to a typealias
-        // produces invalid syntax like `simd.simd_float3<float>` (a Swift typealias is not a
-        // C# generic). Short-circuit here so the <...> wrap below is never reached.
-        if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(_typeDatabase, namedType, out var aliasRecord))
-        {
-            return aliasRecord.CSharpTypeName.FullyQualifiedName;
-        }
-
-        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
-        {
-            // Fallback if base type not in database
-            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-        }
-
-        // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
-        if (typeRecord == TypeDatabaseExtensions.IntPtrType)
-        {
-            return typeRecord.CSharpTypeName.FullyQualifiedName;
-        }
-
-        // Recursively translate all generic parameters
-        var translatedParams = new List<string>();
-        foreach (var genericParam in namedType.GenericParameters)
-        {
-            // Handle existential generic parameters (e.g., Optional<any Protocol>)
-            if (_existentialHandler.IsExistential(genericParam))
-            {
-                var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
-                if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
-                {
-                    if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
-                        translatedParams.Add(wk);
-                    else
-                        translatedParams.Add(_existentialHandler.GetPublicExistentialType(protocolList));
-                    continue;
-                }
-            }
-            translatedParams.Add(TranslateElementTypeToCSharp(genericParam));
-        }
-
-        // Build full type name with generics
-        return translatedParams.Count > 0
-            ? $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>"
-            : typeRecord.CSharpTypeName.FullyQualifiedName;
+        // The bound-generic body is shared with ClosureHandler via BoundGenericTranslation. The tuple
+        // path does NOT special-case an empty-tuple argument and omits the bare-generic safety net;
+        // nested arguments recurse through this handler's own element translator.
+        return BoundGenericTranslation.TranslateBoundGenericToCSharp(
+            _typeDatabase,
+            _existentialHandler,
+            namedType,
+            translateGenericArgument: genericParam => TranslateElementTypeToCSharp(genericParam),
+            mapEmptyTupleArgumentToSwiftVoid: false,
+            bareGenericSafetyNet: false);
     }
 
     /// <summary>

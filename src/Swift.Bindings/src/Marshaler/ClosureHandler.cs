@@ -1451,67 +1451,16 @@ public class ClosureHandler
     /// </summary>
     private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
     {
-        // Bound-generic SIMD aliases (Swift.SIMD3<Swift.Float> → System.Numerics.Vector3) resolve
-        // to a non-generic managed type. Short-circuit before the generic-wrap path so we don't
-        // emit invalid syntax like `System.Numerics.Vector3<float>` on a non-generic typealias.
-        if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(_typeDatabase, namedType, out var aliasRecord))
-        {
-            return aliasRecord.CSharpTypeName.FullyQualifiedName;
-        }
-
-        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
-        {
-            // Fallback if base type not in database
-            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-        }
-
-        // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
-        if (typeRecord == TypeDatabaseExtensions.IntPtrType)
-        {
-            return typeRecord.CSharpTypeName.FullyQualifiedName;
-        }
-
-        // Recursively translate all generic parameters
-        var translatedParams = new List<string>();
-        foreach (var genericParam in namedType.GenericParameters)
-        {
-            // Map Swift.Void (empty tuple) to SwiftVoid for generic type arguments (B8)
-            // Mirrors the B3 fix in BoundGenericsHandler.TranslateBoundGenericTypeToCSharp
-            if (genericParam.IsEmptyTuple)
-            {
-                translatedParams.Add("Swift.SwiftVoid");
-                continue;
-            }
-
-            // Handle existential generic parameters (e.g., Array<any Protocol>)
-            if (_existentialHandler.IsExistential(genericParam))
-            {
-                var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
-                if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
-                {
-                    if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
-                        translatedParams.Add(wk);
-                    else
-                        translatedParams.Add(_existentialHandler.GetPublicExistentialType(protocolList));
-                    continue;
-                }
-            }
-            translatedParams.Add(TranslateTypeSpecToCSharp(genericParam));
-        }
-
-        // Safety net: if no generic params were translated but the base type requires them,
-        // return AnyType to prevent bare generic type names like "SwiftDictionary" (CS0305)
-        if (translatedParams.Count == 0 &&
-            TypeDatabaseExtensions.IsBareGenericTypeName(typeRecord.CSharpTypeName.FullyQualifiedName))
-        {
-            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
-        }
-
-        // Build full type name with generics
-        return translatedParams.Count > 0
-            ? $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>"
-            : typeRecord.CSharpTypeName.FullyQualifiedName;
+        // The bound-generic body is shared with TupleHandler via BoundGenericTranslation. The closure
+        // path maps an empty-tuple argument to Swift.SwiftVoid and keeps the bare-generic CS0305 safety
+        // net; nested arguments recurse through this handler's own delegate translator.
+        return BoundGenericTranslation.TranslateBoundGenericToCSharp(
+            _typeDatabase,
+            _existentialHandler,
+            namedType,
+            translateGenericArgument: genericParam => TranslateTypeSpecToCSharp(genericParam),
+            mapEmptyTupleArgumentToSwiftVoid: true,
+            bareGenericSafetyNet: true);
     }
 
     /// <summary>

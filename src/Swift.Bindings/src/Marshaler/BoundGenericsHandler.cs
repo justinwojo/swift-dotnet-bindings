@@ -790,10 +790,11 @@ public class BoundGenericsHandler
         // Bound-generic SIMD aliases collapse to a non-generic managed type
         // (e.g. Swift.SIMD3<Swift.Float> → System.Numerics.Vector3). The resolved record IS the
         // final C# type — don't append the bound-generic's type arguments, which would produce
-        // invalid syntax like `System.Numerics.Vector3<float>` on a non-generic typealias.
-        if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(_typeDatabase, namedTypeSpec, out var aliasRecord))
+        // invalid syntax like `System.Numerics.Vector3<float>` on a non-generic typealias. Shared
+        // with the closure/tuple translators via BoundGenericTranslation.
+        if (BoundGenericTranslation.TryResolveSimdAliasCSharp(_typeDatabase, namedTypeSpec, out var aliasCSharp))
         {
-            return aliasRecord.CSharpTypeName.FullyQualifiedName;
+            return aliasCSharp;
         }
 
         var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);

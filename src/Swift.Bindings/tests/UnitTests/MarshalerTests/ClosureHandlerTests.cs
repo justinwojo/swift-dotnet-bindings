@@ -896,6 +896,22 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void TranslateTypeSpecToCSharp_WithSimdAliasBoundGeneric_CollapsesViaSharedService()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Swift.SIMD3<Swift.Float> routes through the shared
+        // BoundGenericTranslation.TryResolveSimdAliasCSharp short-circuit and collapses to the
+        // non-generic alias record rather than the invalid `simd_float3<float>`.
+        var simd3 = new NamedTypeSpec("Swift.SIMD3", new NamedTypeSpec("Swift.Float"));
+        var result = handler.TranslateTypeSpecToCSharp(simd3);
+
+        Assert.Equal("System.Numerics.Vector3", result);
+        Assert.DoesNotContain("<", result);
+    }
+
+    [Fact]
     public void TranslateTypeSpecToCSharp_OptionalFrozenStruct_ReturnsNullable()
     {
         var typeDatabase = new MockTypeDatabase();
@@ -3017,6 +3033,16 @@ public class ClosureHandlerTests
                 // Pointer type — must return the exact TypeDatabaseExtensions.IntPtrType instance
                 // so TranslateBoundGenericToCSharp recognizes it as a pointer (reference equality check)
                 ["Swift.UnsafeMutablePointer"] = TypeDatabaseExtensions.IntPtrType,
+                // SIMD alias target — Swift.SIMD3<Swift.Float> collapses to this non-generic record
+                // via the shared BoundGenericTranslation.TryResolveSimdAliasCSharp short-circuit.
+                ["simd.simd_float3"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System.Numerics", "Vector3"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("simd.simd_float3"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
                 // Simple enum for testing closure parameter relaxation (Q3)
                 ["TestModule.ColorMode"] = new TypeRecord
                 {

@@ -283,6 +283,41 @@ public class TupleHandlerTests
         Assert.Equal("(nint, bool, double)", result);
     }
 
+    [Fact]
+    public void GetCSharpTupleType_WithSimdAliasElement_CollapsesElementViaSharedService()
+    {
+        // A SIMD bound-generic tuple element routes through the shared
+        // BoundGenericTranslation.TryResolveSimdAliasCSharp short-circuit and collapses to the
+        // non-generic alias record — never the invalid `simd_float3<float>`.
+        var simd3 = new NamedTypeSpec("Swift.SIMD3");
+        simd3.GenericParameters.Add(new NamedTypeSpec("Swift.Float"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec> { simd3, new NamedTypeSpec("Swift.Int") });
+
+        var result = _tupleHandler.GetCSharpTupleType(tuple);
+
+        Assert.Equal("(System.Numerics.Vector3, nint)", result);
+        Assert.DoesNotContain("Vector3<", result);
+    }
+
+    [Fact]
+    public void GetCSharpTupleType_EmptyTupleBoundGenericElement_FlowsThroughDelegateNotSwiftVoid()
+    {
+        // The tuple path hands the shared BoundGenericTranslation service
+        // mapEmptyTupleArgumentToSwiftVoid: false, so an empty-tuple generic argument flows through
+        // this handler's own element translator (which yields AnyType for a non-named element) rather
+        // than collapsing to Swift.SwiftVoid the way the closure path does. This guards the handler's
+        // empty-tuple policy at the delegation site: a flag flip there would re-couple the tuple
+        // caller to the closure caller's divergent behavior and produce Swift.SwiftVoid here instead.
+        var optionalOfVoid = new NamedTypeSpec("Swift.Optional");
+        optionalOfVoid.GenericParameters.Add(TupleTypeSpec.Empty);
+        var tuple = new TupleTypeSpec(new List<TypeSpec> { optionalOfVoid, new NamedTypeSpec("Swift.Int") });
+
+        var result = _tupleHandler.GetCSharpTupleType(tuple);
+
+        Assert.DoesNotContain("Swift.SwiftVoid", result);
+        Assert.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, result);
+    }
+
     #endregion
 
     #region GetPInvokeTupleType Tests
@@ -984,7 +1019,17 @@ public class TupleHandlerTests
                 },
                 // Pointer type — must return the exact TypeDatabaseExtensions.IntPtrType instance
                 // so TranslateBoundGenericToCSharp recognizes it as a pointer (reference equality check)
-                ["Swift.UnsafeMutablePointer"] = TypeDatabaseExtensions.IntPtrType
+                ["Swift.UnsafeMutablePointer"] = TypeDatabaseExtensions.IntPtrType,
+                // SIMD alias target — Swift.SIMD3<Swift.Float> collapses to this non-generic record
+                // via the shared BoundGenericTranslation.TryResolveSimdAliasCSharp short-circuit.
+                ["simd.simd_float3"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System.Numerics", "Vector3"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("simd.simd_float3"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                }
             };
         }
 
