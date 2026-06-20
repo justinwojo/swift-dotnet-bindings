@@ -23,8 +23,8 @@ partial class Build
 
     // --compile-only is the CI gate. By default, every catastrophic generator/wrapper
     // failure mode in that path is fatal — generator exit, dependency-gen exit, and
-    // wrapper compilation give-up after the retry loop exhausts (note: the per-source
-    // SwiftSourceStripper count is the existing happy path, not a regression signal).
+    // wrapper compilation give-up (single-shot now; the wrapper-strip gate fails closed
+    // when the generator's post-processor strips MORE than the committed baseline).
     // --permissive opts out for local exploration where the intent is "what survives"
     // rather than "did anything regress?". Has no effect outside the --compile-only
     // branch (other paths already throw on their own failures). Implies --strict in
@@ -464,6 +464,11 @@ partial class Build
                     File.Copy(sf, depSwiftDir / Path.GetFileName(sf));
                 foreach (var af in depAsmFiles)
                     File.Copy(af, depSwiftDir / Path.GetFileName(af));
+                // Preserve the dep's wrapper-context.json so the device-dep wrapper build can scrub
+                // with the dependency module's own internalTypeNames (depOutputDir is deleted below).
+                var depContext = depOutputDir / "wrapper-context.json";
+                if (File.Exists(depContext))
+                    File.Copy(depContext, depSwiftDir / "wrapper-context.json");
                 Log.Information("Preserved {Count} dependency wrapper Swift source file(s) and {AsmCount} thunk-assembly file(s) for device build.",
                     depSwiftFiles.Length, depAsmFiles.Length);
             }
@@ -527,8 +532,9 @@ partial class Build
         .After(CompileCheckBindings)
         .Executes(() => RunBuildAsyncWrapper());
 
-    // Returns true on success or no-op (no Swift wrapper files). Returns false when
-    // the swiftc retry loop exhausts attempts or finds no further strippable content.
+    // Returns true on success or no-op (no Swift wrapper files). Returns false when the
+    // single-shot compile of the post-processed wrapper fails — the generator's own
+    // SwiftWrapperPostProcessor already scrubbed it, so there is no strip-and-retry fallback.
     // The --compile-only fail-closed gate reads this; existing callers ignore it
     // because their downstream Tier 3 tests will surface the failure anyway.
     bool RunBuildAsyncWrapper(ApplePlatform? platformOverride = null, AbsolutePath? outputDirOverride = null)
@@ -553,23 +559,23 @@ partial class Build
         Log.Information("=== Building {Module} async wrapper ===", WrapperModule);
         Log.Information("Platform: {Platform}, Swift wrapper files: {Count}", platform.Name, swiftFiles.Count);
 
-        // Post-process: strip known-broken sections
-        Log.Information("Post-processing Swift wrappers...");
+        // Post-process with the generator's OWN scrub oracle (not a bespoke harness stripper):
+        // SwiftWrapperPostProcessor.Process, reading the persisted internalTypeNames, exactly as
+        // the generator-own wrapper compile does — so this wrapper matches it by construction.
+        Log.Information("Post-processing Swift wrappers (shared generator oracle)...");
         var cleanedDir = outputDir / ".wrapper-build";
         if (Directory.Exists(cleanedDir))
             ((AbsolutePath)cleanedDir).DeleteDirectory();
         cleanedDir.CreateDirectory();
 
-        int totalStripped = 0;
-        foreach (var swiftFile in swiftFiles)
-        {
-            var basename = Path.GetFileName(swiftFile);
-            var result = SwiftSourceStripper.StripFile(swiftFile, cleanedDir / basename);
-            totalStripped += result.StrippedCount;
-            if (result.StrippedCount > 0)
-                Log.Debug("Stripped {Count} broken wrapper(s) from {File}", result.StrippedCount, basename);
-        }
-        File.WriteAllText(outputDir / "wrapper-stripped-count", totalStripped.ToString());
+        var internalTypeNames = LoadInternalTypeNames(outputDir / "wrapper-context.json");
+        var manifest = RunWrapperPostProcess(swiftFiles, cleanedDir, internalTypeNames, ModuleName, platform.Name);
+        File.WriteAllText(outputDir / "wrapper-stripped-count", manifest.StrippedBlockTotal.ToString());
+        manifest.Save(outputDir / "wrapper-strip-manifest.json");
+
+        // Fail closed if the generator emitted MORE uncompilable wrappers than the committed
+        // baseline allows — a NEW emitter defect, never a reason for the harness to strip more.
+        EnforceWrapperStripTripwire(manifest, LoadWrapperStripBaseline(), platform.Name);
 
         var cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
         if (cleanedFiles.Count == 0)
@@ -599,70 +605,41 @@ partial class Build
 
         var sdkPath = XcRun.GetSdkPath(platform.SimulatorSdkName);
 
-        // Compile with error-based retry
-        const int maxRetries = 3;
-        int attempt = 0;
-        string? compileLog = null;
+        // Single-shot compile. The wrapper is the generator's output scrubbed by the SAME
+        // SwiftWrapperPostProcessor the generator-own compile uses, so there is no strip-and-retry
+        // fallback — a compile failure is a generator/emitter defect to fix at emission.
+        var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
 
-        while (attempt < maxRetries)
+        var settings = new SwiftCompilerSettings()
+            .SetEmitLibrary()
+            .SetTarget(platform.SimulatorTarget)
+            .SetSdk(sdkPath)
+            .AddFrameworkSearchPath(xcfwSliceDir + "/")
+            .SetModuleName(WrapperModule)
+            .SetStrictConcurrency("minimal")
+            .SetInstallName($"@rpath/{WrapperModule}.framework/{WrapperModule}")
+            .SetOutputPath(outputFwDir / WrapperModule)
+            .AddSourceFiles(allSourceFiles);
+
+        if (Directory.Exists(depXcfwSliceDir))
+            settings.AddFrameworkSearchPath(depXcfwSliceDir + "/");
+
+        var process = SwiftCompiler.Run(settings);
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
         {
-            attempt++;
-            var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
-
-            var settings = new SwiftCompilerSettings()
-                .SetEmitLibrary()
-                .SetTarget(platform.SimulatorTarget)
-                .SetSdk(sdkPath)
-                .AddFrameworkSearchPath(xcfwSliceDir + "/")
-                .SetModuleName(WrapperModule)
-                .SetStrictConcurrency("minimal")
-                .SetInstallName($"@rpath/{WrapperModule}.framework/{WrapperModule}")
-                .SetOutputPath(outputFwDir / WrapperModule)
-                .AddSourceFiles(allSourceFiles);
-
-            if (Directory.Exists(depXcfwSliceDir))
-                settings.AddFrameworkSearchPath(depXcfwSliceDir + "/");
-
-            var process = SwiftCompiler.Run(settings);
-            process.WaitForExit();
-
-            if (process.ExitCode == 0)
-            {
-                Log.Information("Compilation succeeded (after {Attempt} attempt(s), {Stripped} total stripped).",
-                    attempt, totalStripped);
-                break;
-            }
-
-            // Compilation failed — extract errors and strip enclosing functions
-            compileLog = string.Join("\n", process.Output.Select(o => o.Text));
-
-            if (attempt == maxRetries)
-            {
-                var errorLines = compileLog.Split('\n').Where(l => l.Contains("error:")).Take(20);
-                Log.Warning("Wrapper compilation failed after {Retries} attempts:", maxRetries);
-                foreach (var line in errorLines)
-                    Log.Warning("  {Error}", line);
-                Log.Information("Continuing without wrapper library (Tier 3 tests will fail).");
-                CleanupWrapperBuild(cleanedDir);
-                return false;
-            }
-
-            Log.Information("Compilation attempt {Attempt} failed — stripping broken functions...", attempt);
-            var errors = string.Join("\n", compileLog.Split('\n').Where(l => l.Contains("error:")).Take(80));
-            int strippedN = SwiftSourceStripper.StripErrorFunctions(cleanedDir, errors);
-
-            if (strippedN == 0)
-            {
-                Log.Warning("No strippable functions found. Build error may be structural.");
-                CleanupWrapperBuild(cleanedDir);
-                return false;
-            }
-
-            totalStripped += strippedN;
-            // Refresh cleaned files list (some may have been modified)
-            cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
-            Log.Information("Retrying compilation...");
+            var compileLog = string.Join("\n", process.Output.Select(o => o.Text));
+            var errorLines = compileLog.Split('\n').Where(l => l.Contains("error:")).Take(20);
+            Log.Warning("Wrapper compilation failed:");
+            foreach (var line in errorLines)
+                Log.Warning("  {Error}", line);
+            Log.Information("Continuing without wrapper library (Tier 3 tests will fail).");
+            CleanupWrapperBuild(cleanedDir);
+            return false;
         }
+
+        Log.Information("Compilation succeeded.");
 
         // Clean up temporary build directory
         CleanupWrapperBuild(cleanedDir);
@@ -675,6 +652,10 @@ partial class Build
 
         // Create xcframework Info.plist
         WriteXcframeworkPlist(wrapperXcfDir / "Info.plist", WrapperModule, sliceId, platform);
+
+        // Migration oracle: the harness wrapper we just built must export the identical
+        // EveryProtocol witness-getter set as the generator's own strip-free wrapper.
+        EnforceWrapperGetterParity(outputDir, WrapperModule, $"{ModuleName}{WrapperModule}", platform.Name);
 
         Log.Information("{Module} async wrapper framework built successfully", WrapperModule);
         return true;
@@ -841,7 +822,7 @@ partial class Build
                 bool wrapperOk = RunBuildAsyncWrapper();
                 if (!wrapperOk && failClosed)
                     throw new Exception(
-                        "Wrapper compilation failed (retry loop exhausted or nothing further to strip). Fail-closed in --compile-only; pass --permissive to downgrade.");
+                        "Wrapper compilation failed (single-shot compile of the post-processed wrapper; no strip-and-retry fallback). Fail-closed in --compile-only; pass --permissive to downgrade.");
 
                 RunBuildBridge();
                 ReportBindingTestResults();

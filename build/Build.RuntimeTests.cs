@@ -2871,6 +2871,11 @@ partial class Build
                 var dest = depSwiftDir / Path.GetFileName(asmFile);
                 File.Copy(asmFile, dest, overwrite: true);
             }
+            // Preserve the dep's wrapper-context.json so BuildDependencyWrapperDevice can scrub
+            // with the dependency module's own internalTypeNames.
+            var depContextFile = depOutputDir / "wrapper-context.json";
+            if (File.Exists(depContextFile))
+                File.Copy(depContextFile, depSwiftDir / "wrapper-context.json", overwrite: true);
 
             // Consolidate dependency wrapper xcframework
             foreach (var dir in Directory.GetDirectories(depOutputDir, "*.xcframework"))
@@ -3039,19 +3044,18 @@ partial class Build
             return;
         }
 
-        // Post-process: strip known-broken sections
+        // Post-process with the generator's OWN scrub oracle (shared with the generator-own compile).
         var cleanedDir = BtOutputDir / ".wrapper-build-device";
         if (Directory.Exists(cleanedDir))
             ((AbsolutePath)cleanedDir).DeleteDirectory();
         cleanedDir.CreateDirectory();
 
-        int totalStripped = 0;
-        foreach (var swiftFile in swiftFiles)
-        {
-            var basename = Path.GetFileName(swiftFile);
-            var result = SwiftSourceStripper.StripFile(swiftFile, cleanedDir / basename);
-            totalStripped += result.StrippedCount;
-        }
+        var internalTypeNames = LoadInternalTypeNames(BtOutputDir / "wrapper-context.json");
+        var manifest = RunWrapperPostProcess(swiftFiles, cleanedDir, internalTypeNames, ModuleName, "device-main");
+        manifest.Save(BtOutputDir / "wrapper-strip-manifest-device.json");
+
+        // Fail closed if the generator emitted MORE uncompilable wrappers than the committed baseline.
+        EnforceWrapperStripTripwire(manifest, LoadWrapperStripBaseline(), "device-main");
 
         var cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
         if (cleanedFiles.Count == 0)
@@ -3076,62 +3080,40 @@ partial class Build
 
         var sdkPath = XcRun.GetSdkPath(deviceSdkName);
 
-        // Compile with error-based retry (same pattern as RunBuildAsyncWrapper)
-        const int maxRetries = 3;
-        int attempt = 0;
+        // Single-shot compile of the post-processed wrapper (the tripwire above already
+        // confirmed its strip count is within the committed baseline) — no strip-and-retry fallback.
+        var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
 
-        while (attempt < maxRetries)
+        var settings = new SwiftCompilerSettings()
+            .SetEmitLibrary()
+            .SetTarget(deviceTarget)
+            .SetSdk(sdkPath)
+            .AddFrameworkSearchPath(xcfwSliceDir + "/")
+            .SetModuleName(WrapperModule)
+            .SetStrictConcurrency("minimal")
+            .SetInstallName($"@rpath/{WrapperModule}.framework/{WrapperModule}")
+            .SetOutputPath(outputFwDir / WrapperModule)
+            .AddSourceFiles(allSourceFiles);
+
+        if (Directory.Exists(depXcfwSliceDir))
+            settings.AddFrameworkSearchPath(depXcfwSliceDir + "/");
+
+        var process = SwiftCompiler.Run(settings);
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
         {
-            attempt++;
-            var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
-
-            var settings = new SwiftCompilerSettings()
-                .SetEmitLibrary()
-                .SetTarget(deviceTarget)
-                .SetSdk(sdkPath)
-                .AddFrameworkSearchPath(xcfwSliceDir + "/")
-                .SetModuleName(WrapperModule)
-                .SetStrictConcurrency("minimal")
-                .SetInstallName($"@rpath/{WrapperModule}.framework/{WrapperModule}")
-                .SetOutputPath(outputFwDir / WrapperModule)
-                .AddSourceFiles(allSourceFiles);
-
-            if (Directory.Exists(depXcfwSliceDir))
-                settings.AddFrameworkSearchPath(depXcfwSliceDir + "/");
-
-            var process = SwiftCompiler.Run(settings);
-            process.WaitForExit();
-
-            if (process.ExitCode == 0)
-            {
-                Log.Information("Device wrapper compilation succeeded (after {Attempt} attempt(s)).", attempt);
-                break;
-            }
-
             var compileLog = string.Join("\n", process.Output.Select(o => o.Text));
-
-            if (attempt == maxRetries)
-            {
-                Log.Warning("Device wrapper compilation failed after {Retries} attempts. Continuing without.", maxRetries);
-                CleanupWrapperBuild(cleanedDir);
-                return;
-            }
-
-            Log.Information("Device compilation attempt {Attempt} failed — stripping broken functions...", attempt);
-            var errors = string.Join("\n", compileLog.Split('\n').Where(l => l.Contains("error:")).Take(80));
-            int strippedN = SwiftSourceStripper.StripErrorFunctions(cleanedDir, errors);
-
-            if (strippedN == 0)
-            {
-                Log.Warning("No strippable functions found. Device build error may be structural.");
-                CleanupWrapperBuild(cleanedDir);
-                return;
-            }
-
-            totalStripped += strippedN;
-            cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
-            Log.Information("Retrying device compilation...");
+            var errorLines = compileLog.Split('\n').Where(l => l.Contains("error:")).Take(20);
+            Log.Warning("Device wrapper compilation failed:");
+            foreach (var line in errorLines)
+                Log.Warning("  {Error}", line);
+            Log.Information("Continuing without device wrapper.");
+            CleanupWrapperBuild(cleanedDir);
+            return;
         }
+
+        Log.Information("Device wrapper compilation succeeded.");
 
         CleanupWrapperBuild(cleanedDir);
 
@@ -3143,6 +3125,11 @@ partial class Build
 
         // Update xcframework Info.plist to include both simulator and device slices
         WriteDeviceXcframeworkPlist(wrapperXcfDir / "Info.plist", WrapperModule, platform);
+
+        // Migration oracle: the device harness wrapper must export the identical EveryProtocol
+        // witness-getter set as the generator's own strip-free wrapper (getter names are
+        // arch-independent, so the generator-own sim slice is a valid reference).
+        EnforceWrapperGetterParity(BtOutputDir, WrapperModule, $"{ModuleName}{WrapperModule}", "device-main");
 
         Log.Information("{Module} device wrapper framework built successfully.", WrapperModule);
 
@@ -3191,14 +3178,23 @@ partial class Build
         var outputFwDir = depWrapperXcf / deviceSliceId / $"{depWrapperName}.framework";
         outputFwDir.CreateDirectory();
 
-        // Strip known-broken sections (same pattern as main wrapper)
+        // Post-process with the generator's OWN scrub oracle (same pattern as main wrapper). The
+        // dependency module's internalTypeNames come from its own persisted wrapper-context.json.
         var cleanedDir = BtOutputDir / ".dep-wrapper-build-device";
         if (Directory.Exists(cleanedDir))
             ((AbsolutePath)cleanedDir).DeleteDirectory();
         cleanedDir.CreateDirectory();
 
-        foreach (var sf in swiftFiles)
-            SwiftSourceStripper.StripFile(sf, cleanedDir / Path.GetFileName(sf));
+        var depInternalTypeNames = LoadInternalTypeNames(depSwiftDir / "wrapper-context.json");
+        var manifest = RunWrapperPostProcess(swiftFiles, cleanedDir, depInternalTypeNames, DepModuleName, "device-dep");
+        manifest.Save(BtOutputDir / "wrapper-strip-manifest-device-dep.json");
+
+        // Fail closed on ANY dep strip. The committed `wrapper_stripped_count` baseline counts the
+        // MAIN leg's InternalHolder strip; the dependency module has no internal-receiver member, so
+        // its expected strip count is 0. Enforcing the shared main baseline (1) here would hand the
+        // dep leg a unit of undeserved slack — a dep-only single-strip regression would slip past. A
+        // legitimate future dep strip is an emission defect to fix (Step 8), or bump this explicit 0.
+        EnforceWrapperStripTripwire(manifest, 0, "device-dep");
 
         var cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
         if (cleanedFiles.Count == 0)
@@ -3225,22 +3221,12 @@ partial class Build
             }
         }
 
-        // Compile with error-based retry (same pattern as the main device wrapper and
-        // RunBuildAsyncWrapper). The static StripFile heuristic cannot know which protocols
-        // EveryProtocol actually conforms to, so witness-table getters for non-conformable
-        // protocols (e.g. CrossModule*Parent shapes) survive into the source and fail to
-        // compile. Letting the compiler report those errors and stripping exactly the
-        // offending functions keeps the good getters (DependencyProtocol etc.) — which must
-        // stay exported for cross-module tests — while dropping only the broken ones. This
-        // mirrors the generator's SwiftWrapperPostProcessor retry that builds the simulator
-        // slice, removing the sim/device asymmetry that left the device dep build single-shot.
-        const int maxRetries = 3;
-        int attempt = 0;
-        bool compiled = false;
-
-        while (attempt < maxRetries)
+        // Single-shot compile of the verbatim dependency wrapper. The tripwire above already
+        // proved the generator emitted no strippable getters — every witness-table getter
+        // (DependencyProtocol etc.) the cross-module tests reverse-dispatch is exported by
+        // construction, so there is no compile-error retry oracle.
+        bool compiled;
         {
-            attempt++;
             var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
 
             var settings = new SwiftCompilerSettings()
@@ -3261,35 +3247,19 @@ partial class Build
             var process = SwiftCompiler.Run(settings);
             process.WaitForExit();
 
-            if (process.ExitCode == 0)
+            compiled = process.ExitCode == 0;
+            if (compiled)
             {
-                Log.Information("Dependency wrapper device compilation succeeded (after {Attempt} attempt(s)).", attempt);
-                compiled = true;
-                break;
+                Log.Information("Dependency wrapper device compilation succeeded.");
             }
-
-            var compileLog = string.Join("\n", process.Output.Select(o => o.Text));
-
-            if (attempt == maxRetries)
+            else
             {
-                Log.Warning("Dependency wrapper device compilation failed after {Retries} attempts. Cross-module tests will be skipped on device.", maxRetries);
-                CleanupWrapperBuild(cleanedDir);
-                return;
+                var compileLog = string.Join("\n", process.Output.Select(o => o.Text));
+                var errorLines = compileLog.Split('\n').Where(l => l.Contains("error:")).Take(20);
+                Log.Warning("Dependency wrapper device compilation failed. Cross-module tests will be skipped on device:");
+                foreach (var line in errorLines)
+                    Log.Warning("  {Error}", line);
             }
-
-            Log.Information("Dependency device compilation attempt {Attempt} failed — stripping broken functions...", attempt);
-            var errors = string.Join("\n", compileLog.Split('\n').Where(l => l.Contains("error:")).Take(80));
-            int strippedN = SwiftSourceStripper.StripErrorFunctions(cleanedDir, errors);
-
-            if (strippedN == 0)
-            {
-                Log.Warning("No strippable dependency functions found. Device build error may be structural. Cross-module tests will be skipped on device.");
-                CleanupWrapperBuild(cleanedDir);
-                return;
-            }
-
-            cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
-            Log.Information("Retrying dependency device compilation...");
         }
 
         CleanupWrapperBuild(cleanedDir);
@@ -3303,6 +3273,14 @@ partial class Build
             platform.MinOsVersion, devicePlistPlatform);
 
         WriteDeviceXcframeworkPlist(depWrapperXcf / "Info.plist", depWrapperName, platform);
+
+        // No getter-parity oracle for the dependency leg. Unlike the main module — where the
+        // harness wrapper "SwiftBindings" and the generator-own wrapper "<Module>SwiftBindings"
+        // are two distinct artifacts the oracle can diff — the dependency module's consumer C#
+        // references the qualified wrapper name "<DepModule>SwiftBindings", which IS the
+        // generator-own name ({DepModuleName}{WrapperModule}). There is a SINGLE dep wrapper
+        // artifact, so a harness-vs-generator-own getter diff is structurally N/A (it would
+        // compare the artifact to itself). The wrapper-strip tripwire above is this leg's gate.
 
         Log.Information("{Module} device wrapper built successfully.", depWrapperName);
     }

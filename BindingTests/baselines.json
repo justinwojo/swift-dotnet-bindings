@@ -1,8 +1,8 @@
 {
-  "_comment": "Test pipeline baselines. Update deliberately when counts legitimately change. wrapper_stripped: 31→35 in Session 2 (new OpaqueParameterProtocols.swift adds RowAdapter/RowLayout protocols whose EveryProtocol conformances are skipped by MissingRequirements gate).",
+  "_comment": "Test pipeline baselines. Update deliberately when counts legitimately change. wrapper_stripped_count is now the block count the GENERATOR's own SwiftWrapperPostProcessor.Process strips from the wrapper (the harness reuses that oracle; it no longer over-strips valid conformances). 35->1 in Session 7b: the old 35 was the retired bespoke harness stripper's over-strip count; Process strips exactly 1 (the InternalHolder.describe internal-receiver wrapper). The gate fails on any INCREASE - a new uncompilable emission. Reseed with `nuke seed-wrapper-strip-baseline`. Cannot reach 0 while the generator emits-then-scrubs the documented internal-receiver case (closing that at emission is the rejected receiver-aware gate / Step 8).",
   "generator_exit_code": 0,
   "must_pass_degraded": 0,
   "must_pass_compiled_out": 25,
   "known_unsupported_total": 62,
-  "wrapper_stripped_count": 35
+  "wrapper_stripped_count": 1
 }

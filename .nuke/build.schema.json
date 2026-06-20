@@ -45,6 +45,7 @@
         "RuntimeUnitTests",
         "SeedParityBaseline",
         "SeedSkipSurfaceBaseline",
+        "SeedWrapperStripBaseline",
         "SmokeTest",
         "Test",
         "UnitTests",

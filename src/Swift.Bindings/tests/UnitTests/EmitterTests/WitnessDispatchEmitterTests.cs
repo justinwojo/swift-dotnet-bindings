@@ -90,10 +90,10 @@ public class WitnessDispatchEmitterTests
     [Fact]
     public void EmitPropertyGetter_ReadOnlyNonClassBound_BindsAsLetBoxed()
     {
-        // Non-class-bound protocol with a single read-only getter is the safe `let` case.
-        // The generated body must not contain `let existential` (the SwiftSourceStripper
-        // text pattern at build/Helpers/SwiftSourceStripper.cs:312/:695 strips wrappers
-        // matching that literal) and must not emit a `var` binding that would warn.
+        // Non-class-bound protocol with a single read-only getter is the safe `let` case:
+        // it must dispatch through the efficient `let boxed` path and must NOT fall into the
+        // `existential` binding (neither `let` nor `var`), which is reserved for the
+        // mutating-getter fallback (see EmitPropertyGetter_MutatingGetter_BindsAsVarExistential).
         var protocolDecl = CreateProtocolWithProperty("HasValue", "myProp", new NamedTypeSpec("Swift.Double"));
         var output = EmitDispatch(protocolDecl);
 

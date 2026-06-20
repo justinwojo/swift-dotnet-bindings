@@ -240,6 +240,14 @@ public static class ArtifactParityGate
     private static readonly Regex WitnessTableSymbol = new(@"^Get_Every[A-Za-z0-9_]*Protocol_[A-Za-z0-9_]+_WitnessTable$", RegexOptions.Compiled);
     private static readonly Regex SetVtableSymbol = new(@"^Set[A-Za-z0-9_]+_vtable$", RegexOptions.Compiled);
 
+    /// <summary>
+    /// True for an EveryProtocol witness-table getter export
+    /// (<c>Get_Every…Protocol_…_WitnessTable</c>). Shared with the wrapper-strip getter-parity
+    /// oracle (<c>Build.WrapperStrip.cs</c>) so both gates filter <c>nm</c> dumps with the
+    /// identical regex rather than maintaining a second, drift-prone copy.
+    /// </summary>
+    public static bool IsWitnessTableSymbol(string symbol) => WitnessTableSymbol.IsMatch(symbol);
+
     // ===================================================================
     //  C# struct layout mirror parsing  (Gate 2)
     // ===================================================================

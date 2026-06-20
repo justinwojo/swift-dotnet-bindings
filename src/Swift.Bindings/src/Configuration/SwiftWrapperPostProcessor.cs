@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace BindingsGeneration

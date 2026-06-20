@@ -134,12 +134,14 @@ partial class Build
         var mainDylib = FindFrameworkBinary(BtXcframeworkDir, ModuleName)
             ?? throw new FileNotFoundException($"main dylib not found under {BtXcframeworkDir}");
 
-        // Generator wrapper dylib: the generator's OWN compiled async wrapper. We gate
-        // against this (not the harness's stripped `SwiftBindings.xcframework`) so the
-        // symbol check is decoupled from the BindingTests source stripper / its
-        // PreservedProtocols allowlist — the genuine never-emitted member-path symbols
-        // (Defect cluster D) are absent here too, while the benign stripped witness-
-        // getters are present, so they don't false-positive.
+        // Generator wrapper dylib: the generator's OWN compiled async wrapper — the
+        // canonical artifact to gate against. The genuine never-emitted member-path
+        // symbols (Defect cluster D) are absent here, while the benign post-processed
+        // witness-getters are present, so they don't false-positive. Since Session 7b
+        // the harness's `SwiftBindings.xcframework` is scrubbed by the SAME
+        // `SwiftWrapperPostProcessor.Process` as this one, so the two export an identical
+        // getter set (asserted by the wrapper getter-parity gate); gating against the
+        // generator-own wrapper remains the canonical, source-of-truth choice.
         var wrapperXcf = BtOutputDir / $"{ModuleName}{WrapperModule}.xcframework";
         var wrapperDylib = FindFrameworkBinary(wrapperXcf, $"{ModuleName}{WrapperModule}")
             ?? throw new FileNotFoundException($"generator wrapper dylib not found under {wrapperXcf}");

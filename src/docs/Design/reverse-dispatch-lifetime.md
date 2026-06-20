@@ -21,11 +21,11 @@ Scope (four items from the Session 1 gameplan):
 - **Defect C** — method-index skew when an `@objc optional` method precedes required methods.
 - **Defect F** — vtable property-slot membership divergence + the Part IV flag-matrix invariant (Finding 31).
 
-TDD throughout: red fixture first, then fix, then green. Every new reverse-dispatch protocol
-goes into `build/Helpers/SwiftSourceStripper.cs` `PreservedProtocols` (else the harness strips
-the witness-table getter → `EntryPointNotFoundException`, NOT a compile error). `--skip-regen`
-reuses the prior wrapper and will NOT pick up a freshly-preserved protocol — validate new
-fixtures with a full regen run.
+TDD throughout: red fixture first, then fix, then green. (Session 7b note: there is no longer a
+`PreservedProtocols` allowlist step — the harness retired its bespoke stripper and now scrubs the
+wrapper with the generator's own `SwiftWrapperPostProcessor.Process`, which preserves every valid
+conformance and its witness-table getter by construction.) `--skip-regen` reuses the prior wrapper
+and will NOT pick up a freshly-added fixture — validate new fixtures with a full regen run.
 
 ---
 
@@ -361,8 +361,9 @@ walks the red fixture proves wrong, but treat the audited 9 as the candidate set
 **Fixture (maximum-case, red-first).** A new `@objc protocol …: NSObjectProtocol` with **an optional
 method first**, then required methods exercised **both** directions: one required method dispatched
 **forward** (C#→Swift on a Swift-vended existential, scheme #1) and one dispatched **reverse**
-(Swift→C# via the vtable on a C#-impl, scheme #2). Add the protocol to `PreservedProtocols`. The
-existing `OptionalCallbackDelegate` has its required method *first*, so it does not trigger C — this
+(Swift→C# via the vtable on a C#-impl, scheme #2). (No allowlist step — Session 7b retired the
+harness stripper; valid conformances are preserved automatically.) The existing
+`OptionalCallbackDelegate` has its required method *first*, so it does not trigger C — this
 must be a distinct fixture with optional-first ordering.
 
 ---
@@ -508,8 +509,9 @@ every element (the gate is `HasUnmarshalledTupleElements && !IsCdeclBufferMarsha
 **Coverage.** EC2 lifetime sites are gated by `CompositionArgLifetimeProbeTests` (sim Mono-JIT + device
 NativeAOT): closure-return mint, reverse-dispatch-getter mint (deterministic double-free probes around a
 surviving owner — assert live==1 through the call, ==0 after Dispose), and borrowed-arg keepAlive
-(no-crash / no-leak / round-trip under induced GC pressure). New reverse-dispatch protocol
-`NameableAgeableProvider` added to `SwiftSourceStripper.PreservedProtocols`.
+(no-crash / no-leak / round-trip under induced GC pressure). The new reverse-dispatch protocol
+`NameableAgeableProvider` is preserved automatically by the generator's `SwiftWrapperPostProcessor.Process`
+(Session 7b retired the harness `PreservedProtocols` allowlist).
 
 **Deferred / split-out units.**
 - **Full tuple-of-convertible-element parameter marshalling** — ✅ **DONE** (Option A; see the dedicated

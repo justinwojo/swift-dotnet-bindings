@@ -24,5 +24,12 @@
   <ItemGroup>
     <Compile Include="..\src\Swift.Bindings\src\Emitter\RuntimeVersionRange.cs"
              Link="Helpers\RuntimeVersionRange.cs" />
+    <!-- Link-compile the generator's canonical wrapper post-processor so the harness
+         wrapper build (Build.BindingTests / Build.RuntimeTests) scrubs the generated
+         Swift with the SAME oracle the generator-own wrapper compile uses, instead of a
+         bespoke harness stripper. The file is self-contained (only System.Text.Regular-
+         Expressions), so this keeps the build project generator-assembly-independent. -->
+    <Compile Include="..\src\Swift.Bindings\src\Configuration\SwiftWrapperPostProcessor.cs"
+             Link="Helpers\SwiftWrapperPostProcessor.cs" />
   </ItemGroup>
 </Project>

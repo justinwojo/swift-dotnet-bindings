@@ -47,8 +47,8 @@ to "exercised on sim+device, confirmed safe" — the confidence currency we lack
 real-library corpus (`swift-dotnet-packages` + `internal-binding-testing`). The *local*
 BindingTests this design layers on is **not** thin on the basics: it already has ~18 closure
 Swift fixtures (escaping, throwing, async, closure-returning, generic/nested/struct closure
-bridges) + 13 closure C# test files, dozens of reverse-dispatch `*Delegate` entries in
-`PreservedProtocols`, and 2/3/7-element + named + mixed tuple coverage. So the premise is
+bridges) + 13 closure C# test files, dozens of reverse-dispatch `*Delegate` fixtures,
+and 2/3/7-element + named + mixed tuple coverage. So the premise is
 **not** "we don't test closures/tuples" — we do. The genuine local gap is narrower and more
 specific: (a) the *complex combinations* real libraries never forced (resilient × async ×
 optional-tuple-return), and (b) the named roadmap **Latent** shapes with no current emission
@@ -213,17 +213,17 @@ and the gate only enforces on a full `--abi-grid` run (§10).
   NativeAOT-publish, minutes). The report merges both JSONL sets when present; with only one,
   it emits a partial grid and says so.
 
-## 8. Reverse-dispatch caveat (must not be missed)
+## 8. Reverse-dispatch caveat (Session 7b: no longer an action item)
 
-Any closure cell exercised via **reverse dispatch** (C# implements a Swift protocol, Swift
-calls back through `any P` / `EveryProtocol`) requires its protocol added to
-`PreservedProtocols` in `build/Helpers/SwiftSourceStripper.cs` — otherwise the stripper
-removes the `EveryProtocol` conformance + `Get_EveryProtocol_<P>_WitnessTable` getter and the
-test dies with `EntryPointNotFoundException` (confirmed: explore + memory
-`new_reverse_dispatch_test_preserved_protocols`). The design notes this so the first slice's
-closure-param cells (which are naturally reverse-dispatch-shaped) land the `PreservedProtocols`
-entry as part of fixture authoring, not after a red. Direct (non-reverse) closure-return cells
-don't need it.
+A closure cell exercised via **reverse dispatch** (C# implements a Swift protocol, Swift
+calls back through `any P` / `EveryProtocol`) used to require an allowlist entry. **That step is
+gone.** Session 7b deleted the harness's bespoke `SwiftSourceStripper` and its `PreservedProtocols`
+allowlist; the harness now scrubs the generated wrapper with the generator's own
+`SwiftWrapperPostProcessor.Process`, which preserves every valid `EveryProtocol` conformance and its
+`Get_EveryProtocol_<P>_WitnessTable` getter by construction. The wrapper getter-parity gate asserts
+the harness wrapper exports the identical witness-getter set as the generator-own wrapper, so an
+accidental over-strip surfaces at the compile gate, not as a runtime `EntryPointNotFoundException`.
+Authoring a reverse-dispatch fixture is now just: add the Swift source + the C# test. No allowlist.
 
 **Standing rule — directionality is tracked by the grid, not by humans.** Every new
 **reverse-dispatch** (C# implements a Swift protocol, Swift calls back) or **C#-construction**
@@ -267,8 +267,7 @@ must be green on its declared runtimes.
   missing. Exercising the report path before authoring is a hard prerequisite (per review).
 - **Phase 1 — fill the genuine gaps.** Author only the unreached, Latent-tied cells the audit
   exposed (inout writeback observability, inout ObjC-bridgeable, generic-parent inout,
-  mixed/generic tuple returns under async/throws, same-signature closure/async fan-out), incl.
-  any `PreservedProtocols` entries for reverse-dispatch cells. Full cross-product per corner.
+  mixed/generic tuple returns under async/throws, same-signature closure/async fan-out). Full cross-product per corner.
   Run `--sim --device`, triage reds (real pre-1.0 bugs → root-cause fix → cell goes green),
   disposition the rest (`supported-low-priority` vs `by-design-gray`). First real grid.
 - **Decision point.** If the gaps are dirty, widen to constrained/multi-param/pack generics.
@@ -281,7 +280,7 @@ must be green on its declared runtimes.
   — single / composition / multi-where constraints, one- and two-type-param arity, host-method vs
   free-function direction) onto the ~6 CSM-filter Latents. Folded in the async-closure-PARAM
   fan-out cell deferred in Phase 1 (now unblocked by the sync closure-param fan-out fix), with its
-  fixture + `PreservedProtocols` entry. Graded `--sim --device`, triaged every cell.
+  fixture. Graded `--sim --device`, triaged every cell.
 
 ### Phase 2 decision point — generics corner is **clean**
 
