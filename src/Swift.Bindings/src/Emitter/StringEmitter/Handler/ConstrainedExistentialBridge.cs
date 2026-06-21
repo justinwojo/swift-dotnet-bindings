@@ -140,7 +140,7 @@ public static class ConstrainedExistentialBridge
                 case MethodClosureBridge.ParamAbiCategory.Primitive:
                 {
                     var idx = paramIndex++;
-                    var primitiveType = GetCSharpPrimitiveType(((NamedTypeSpec)arg.SwiftTypeSpec).Name);
+                    var primitiveType = MarshallingHelpers.MapSwiftPrimitiveToCSharpType(((NamedTypeSpec)arg.SwiftTypeSpec).Name);
                     bridgeParams.Add(new BridgeParam(arg, BridgeParamKind.Primitive, primitiveType, GetSwiftPrimitiveType(arg), "", idx));
                     break;
                 }
@@ -499,25 +499,6 @@ public static class ConstrainedExistentialBridge
     }
 
     private const string ISwiftObjectInterfaceName = "ISwiftObject";
-
-    private static string GetCSharpPrimitiveType(string swiftName) => swiftName switch
-    {
-        "Swift.Bool" => "bool",
-        "Swift.Int" => "nint",
-        "Swift.UInt" => "nuint",
-        "Swift.Int8" => "sbyte",
-        "Swift.UInt8" => "byte",
-        "Swift.Int16" => "short",
-        "Swift.UInt16" => "ushort",
-        "Swift.Int32" => "int",
-        "Swift.UInt32" => "uint",
-        "Swift.Int64" => "long",
-        "Swift.UInt64" => "ulong",
-        "Swift.Float" => "float",
-        "Swift.Double" => "double",
-        "CoreFoundation.CGFloat" => "NFloat",
-        _ => "nint"
-    };
 
     private static TypeRecord? GetTypeRecord(NamedTypeSpec named, ITypeDatabase typeDatabase)
     {

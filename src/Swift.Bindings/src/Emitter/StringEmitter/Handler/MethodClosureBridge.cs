@@ -590,7 +590,7 @@ public static class MethodClosureBridge
                     {
                         directArgs.Add((i, $"Unmanaged.passUnretained({paramName}).toOpaque()"));
                     }
-                    else if (IsOptionalClassArg(argType, env))
+                    else if (env.ClosureHandler.IsOptionalReferenceArg(argType))
                     {
                         // Optional<Class/ObjC>: nil-propagate via `?.map`. nil stays nil (IntPtr.Zero
                         // on the C# side); non-nil becomes a borrowed opaque pointer.
@@ -1583,14 +1583,19 @@ public static class MethodClosureBridge
             // callback receives the underlying integer directly. Cast to the typed enum.
             csWriter.WriteLine($"var __a{index} = ({csharpType})__p{index};");
         }
-        else if (IsOptionalClassArg(argType, env) &&
+        else if (env.ClosureHandler.IsOptionalReferenceArg(argType) &&
                  argType is NamedTypeSpec optClassArg &&
                  optClassArg.GenericParameters[0] is NamedTypeSpec innerClassSpec &&
                  env.TypeDatabase.TryGetTypeRecord(innerClassSpec, out var innerClassRec))
         {
-            // Optional<Class/ObjC> — Swift passed nil as IntPtr.Zero; non-nil is a borrowed ref.
-            // A class inner takes an owning +1 so an explicit Dispose in the callback body balances
-            // it; ObjC/value inners keep the borrowed path. See BorrowedCallbackArgMarshal.
+            // Optional<class> — Swift passed nil as IntPtr.Zero; non-nil is a borrowed ref. The narrow
+            // IsOptionalReferenceArg gate admits ONLY true-reference inners here (pure-Swift class,
+            // ObjC-rooted class, ObjC-bridged class); an Optional<value type> never reaches this branch.
+            // BorrowedCallbackArgMarshal branches on IsClassType (pure-Swift class only): a pure-Swift
+            // class inner takes an owning +1 via MarshalBorrowedClassFromSwift, while every other inner
+            // routes to MarshalCallbackArg<T> — which UPGRADES a true class (Kind==Class, i.e. also
+            // ObjC-rooted / ObjC-bridged) to an isa-aware owning +1 at runtime. So every inner that
+            // reaches here is owning; an explicit Dispose in the callback body balances it.
             var innerCs = innerClassRec.CSharpTypeName.FullyQualifiedName;
             var optBorrow = env.ClosureHandler.BorrowedCallbackArgMarshal(innerClassSpec, innerCs, $"__p{index}");
             csWriter.WriteLine($"{csharpType} __a{index} = __p{index} == IntPtr.Zero ? null : {optBorrow};");
@@ -1923,7 +1928,7 @@ public static class MethodClosureBridge
         switch (category)
         {
             case ParamAbiCategory.Primitive:
-                return (GetCSharpPrimitiveType(((NamedTypeSpec)typeSpec).Name), category);
+                return (MarshallingHelpers.MapSwiftPrimitiveToCSharpType(((NamedTypeSpec)typeSpec).Name), category);
 
             case ParamAbiCategory.ObjCHandle:
             case ParamAbiCategory.PayloadHandle:
@@ -1957,11 +1962,11 @@ public static class MethodClosureBridge
             // Primitives
             if (namedArg.Name == "Swift.Bool") return "bool";
             if (MarshallingHelpers.IsSwiftPrimitive(namedArg.Name))
-                return GetCSharpPrimitiveType(namedArg.Name);
+                return MarshallingHelpers.MapSwiftPrimitiveToCSharpType(namedArg.Name);
 
             // Optional<Class/ObjC>: project as `ClassT?` — the user-facing delegate receives
             // a nullable reference. Matches the nil-pointer ABI handled by EmitArgMarshal.
-            if (IsOptionalClassArg(argType, env) &&
+            if (env.ClosureHandler.IsOptionalReferenceArg(argType) &&
                 namedArg.GenericParameters[0] is NamedTypeSpec innerClass &&
                 env.TypeDatabase.TryGetTypeRecord(innerClass, out var innerRecord))
             {
@@ -2016,7 +2021,7 @@ public static class MethodClosureBridge
             }
 
             if (MarshallingHelpers.IsSwiftPrimitive(namedRet.Name))
-                return GetCSharpPrimitiveType(namedRet.Name);
+                return MarshallingHelpers.MapSwiftPrimitiveToCSharpType(namedRet.Name);
 
             if (env.TypeDatabase.TryGetTypeRecord(returnSpec, out var record))
                 return record.CSharpTypeName.FullyQualifiedName;
@@ -2030,51 +2035,12 @@ public static class MethodClosureBridge
     /// Primitives use their native C# types; reference/value types use IntPtr.
     /// Must match the Swift @convention(c) types from GetSwiftCdeclParamType.
     /// </summary>
-    private static string GetCallbackParamType(TypeSpec argType, MethodEnvironment env)
-    {
-        if (argType is NamedTypeSpec named)
-        {
-            if (named.Name == "Swift.Bool") return "byte";
-            if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
-                return GetCSharpPrimitiveType(named.Name);
-
-            // Simple enum: pass raw value via the enum's C# underlying integer type.
-            var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
-            if (enumInfo != null)
-                return enumInfo.Value.csUnderlying;
-
-            // Optional<Class/ObjC>: nil-pointer ABI — IntPtr (Zero = nil).
-            if (IsOptionalClassArg(argType, env)) return "IntPtr";
-        }
-
-        // Bound generics, classes: IntPtr (pointer ABI)
-        return "IntPtr";
-    }
-
     /// <summary>
-    /// Checks whether <paramref name="argType"/> is <c>Swift.Optional&lt;T&gt;</c> where
-    /// <c>T</c> is a Swift class or ObjC-bridged class. These use the nil-pointer ABI
-    /// (IntPtr.Zero signals nil; non-zero is a borrowed reference).
+    /// Gets the C# callback-delegate parameter type for a closure argument.
+    /// Delegates to the canonical implementation in SwiftBuilder.
     /// </summary>
-    private static bool IsOptionalClassArg(TypeSpec argType, MethodEnvironment env)
-    {
-        if (argType is not NamedTypeSpec named) return false;
-        if (named.Name != "Swift.Optional") return false;
-        if (named.GenericParameters.Count != 1) return false;
-        if (named.GenericParameters[0] is not NamedTypeSpec inner) return false;
-        if (MarshallingHelpers.IsSwiftPrimitive(inner.Name)) return false;
-        try
-        {
-            if (env.TypeDatabase.TryGetTypeRecord(
-                SwiftTypeName.FromModuleQualifiedName(inner.Name), out var record))
-            {
-                return record.Kind == TypeRecordKind.Class ||
-                       MarshallingHelpers.IsObjCBridged(record);
-            }
-        }
-        catch (ArgumentException) { }
-        return false;
-    }
+    private static string GetCallbackParamType(TypeSpec argType, MethodEnvironment env)
+        => SwiftBuilder.GetCSharpCallbackParamType(argType, env.ClosureHandler);
 
     /// <summary>
     /// Gets the Swift cdecl-compatible type for a closure argument.
@@ -2082,31 +2048,6 @@ public static class MethodClosureBridge
     /// </summary>
     private static string GetSwiftCdeclParamType(TypeSpec argType, MethodEnvironment env)
         => SwiftBuilder.GetSwiftCdeclParamType(argType, env.ClosureHandler);
-
-    /// <summary>
-    /// Maps Swift primitive names to C# type names.
-    /// </summary>
-    private static string GetCSharpPrimitiveType(string swiftName)
-    {
-        return swiftName switch
-        {
-            "Swift.Bool" => "bool",
-            "Swift.Int" => "nint",
-            "Swift.UInt" => "nuint",
-            "Swift.Int8" => "sbyte",
-            "Swift.UInt8" => "byte",
-            "Swift.Int16" => "short",
-            "Swift.UInt16" => "ushort",
-            "Swift.Int32" => "int",
-            "Swift.UInt32" => "uint",
-            "Swift.Int64" => "long",
-            "Swift.UInt64" => "ulong",
-            "Swift.Float" => "float",
-            "Swift.Double" => "double",
-            "CoreFoundation.CGFloat" => "NFloat",
-            _ => "nint"
-        };
-    }
 
     /// <summary>
     /// Gets the P/Invoke type for a Swift primitive.

@@ -627,10 +627,15 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("MarshalFromSwift<SwiftOptional<TestModule.MyService>>", setterBody);
         Assert.DoesNotContain("(TestModule.MyService?)", setterBody);
 
-        // Witness-dispatch getter (proxy -> Swift): materialises the returned class from
-        // the raw Swift pointer via MarshalFromSwift on the inner public type. This is the
-        // correct shape for an existential/class-bound returning property accessor.
-        Assert.Contains("MarshalFromSwift<TestModule.MyService>", output);
+        // Witness-dispatch getter (proxy -> Swift): the witness accessor returns the nullable
+        // direct-pointer ABI (nil -> IntPtr.Zero, else a +1 retained instance pointer). A pure-Swift
+        // class inner adopts that pointer via MarshalFromSwiftObject<T> — the SAME read the concrete
+        // impl getter emits (AccessorConversionVisitors' ClassProjection arm), so the proxy and impl
+        // paths can't drift. It must NOT use MarshalFromSwift<T>, whose NSObject branch dereferences
+        // the pointer (Marshal.ReadIntPtr) — correct for a buffer slot, but a crash for the direct
+        // object pointer this ABI returns (the OptionalReferenceWitnessReturn SIGSEGV).
+        Assert.Contains("MarshalFromSwiftObject<TestModule.MyService>", output);
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.MyService>", output);
     }
 
     [Fact]

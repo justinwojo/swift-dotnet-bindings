@@ -1259,8 +1259,7 @@ public static class NestedClosureBridge
         if (argType is NamedTypeSpec named)
         {
             // Optional<ref> → nil check: IntPtr.Zero → null, else SwiftMarshal
-            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
-                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            if (IsOptionalReferenceType(named, env.ClosureHandler))
             {
                 var innerCsType = GetCSharpTypeForOuterArg(named.GenericParameters[0], env);
                 csWriter.WriteLine($"var {marshaledName} = {rawName} == IntPtr.Zero ? null : Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{innerCsType}>(new IntPtr((void*){rawName}));");
@@ -1318,8 +1317,7 @@ public static class NestedClosureBridge
         if (argType is NamedTypeSpec named)
         {
             // Optional<ref> → nil check: null → IntPtr.Zero, else handle
-            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
-                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            if (IsOptionalReferenceType(named, env.ClosureHandler))
             {
                 var inner = named.GenericParameters[0];
                 if (env.ClosureHandler.IsObjCBridgedClass(inner))
@@ -1353,21 +1351,14 @@ public static class NestedClosureBridge
     // ─── Type Helpers ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Checks if a type is Optional&lt;ref&gt; — allowed by IsCdeclCompatibleType but not handled
-    /// by our trampoline conversion paths (would emit invalid Unmanaged&lt;Optional&lt;T&gt;&gt;).
+    /// Checks if a type is <c>Optional&lt;class&gt;</c> with single-nullable-pointer ABI. Gated by the
+    /// shared <see cref="ClosureHandler.IsOptionalReferenceArg"/> (true only for a true reference inner),
+    /// the same predicate every other closure bridge uses for this position. An
+    /// <c>Optional&lt;value-type&gt;</c> closure arg is excluded: Swift passes its value representation
+    /// across the closure boundary, so it must not be read as an object pointer here.
     /// </summary>
     private static bool IsOptionalReferenceType(TypeSpec typeSpec, ClosureHandler closureHandler)
-    {
-        if (typeSpec is NamedTypeSpec named &&
-            named.Name == "Swift.Optional" &&
-            named.ContainsGenericParameters &&
-            named.GenericParameters.Count == 1)
-        {
-            var inner = named.GenericParameters[0];
-            return closureHandler.IsReferenceType(inner);
-        }
-        return false;
-    }
+        => closureHandler.IsOptionalReferenceArg(typeSpec);
 
     /// <summary>
     /// Checks if the method return type is supported.
@@ -1402,8 +1393,7 @@ public static class NestedClosureBridge
         if (argType is NamedTypeSpec named)
         {
             // Optional<ref> → nullable reference type
-            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
-                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            if (IsOptionalReferenceType(named, env.ClosureHandler))
             {
                 var innerCsType = GetCSharpTypeForOuterArg(named.GenericParameters[0], env);
                 return $"{innerCsType}?";
@@ -1411,7 +1401,7 @@ public static class NestedClosureBridge
 
             if (named.Name == "Swift.Bool") return "bool";
             if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
-                return GetCSharpPrimitiveType(named.Name);
+                return MarshallingHelpers.MapSwiftPrimitiveToCSharpType(named.Name);
 
             // Simple enum
             var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
@@ -1467,30 +1457,12 @@ public static class NestedClosureBridge
     /// Gets the callback parameter type for the cdecl callback.
     /// Must match the Swift @convention(c) types from GetSwiftCdeclParamType.
     /// </summary>
+    /// <summary>
+    /// Gets the C# callback-delegate parameter type for a closure argument.
+    /// Delegates to the canonical implementation in SwiftBuilder.
+    /// </summary>
     private static string GetCallbackParamType(TypeSpec argType, MethodEnvironment env)
-    {
-        if (argType is NamedTypeSpec named)
-        {
-            // Optional<ref> → IntPtr (IntPtr.Zero = null)
-            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
-                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
-                return "IntPtr";
-
-            if (named.Name == "Swift.Bool") return "byte";
-            if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
-                return GetCSharpPrimitiveType(named.Name);
-
-            // Simple enum: underlying integer type
-            var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
-            if (enumInfo != null)
-                return enumInfo.Value.csUnderlying;
-
-            // ObjC, classes: IntPtr
-            return "IntPtr";
-        }
-
-        return "IntPtr";
-    }
+        => SwiftBuilder.GetCSharpCallbackParamType(argType, env.ClosureHandler);
 
     /// <summary>
     /// Gets the Swift cdecl-compatible type for a closure argument.
@@ -1508,8 +1480,7 @@ public static class NestedClosureBridge
         if (argType is NamedTypeSpec named)
         {
             // Optional<ref> → nil check + Unmanaged.fromOpaque
-            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
-                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            if (IsOptionalReferenceType(named, env.ClosureHandler))
             {
                 var innerSpec = named.GenericParameters[0];
                 var innerTypeStr = ExistentialBypassEmitter.RenderSwiftTypeSpec(innerSpec);
@@ -1569,8 +1540,7 @@ public static class NestedClosureBridge
         if (argType is NamedTypeSpec named)
         {
             // Optional<ref> → nil check + passUnretained
-            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
-                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
+            if (IsOptionalReferenceType(named, env.ClosureHandler))
                 return $"{paramName} != nil ? Unmanaged.passUnretained({paramName}!).toOpaque() : nil";
 
             if (named.Name == "Swift.Bool")
@@ -1611,7 +1581,7 @@ public static class NestedClosureBridge
         switch (category)
         {
             case MethodClosureBridge.ParamAbiCategory.Primitive:
-                return (GetCSharpPrimitiveType(((NamedTypeSpec)typeSpec).Name), category);
+                return (MarshallingHelpers.MapSwiftPrimitiveToCSharpType(((NamedTypeSpec)typeSpec).Name), category);
 
             case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
             case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
@@ -1655,38 +1625,13 @@ public static class NestedClosureBridge
             }
 
             if (MarshallingHelpers.IsSwiftPrimitive(namedRet.Name))
-                return GetCSharpPrimitiveType(namedRet.Name);
+                return MarshallingHelpers.MapSwiftPrimitiveToCSharpType(namedRet.Name);
 
             if (env.TypeDatabase.TryGetTypeRecord(returnSpec, out var record))
                 return record.CSharpTypeName.FullyQualifiedName;
         }
 
         return "IntPtr";
-    }
-
-    /// <summary>
-    /// Maps Swift primitive names to C# type names.
-    /// </summary>
-    private static string GetCSharpPrimitiveType(string swiftName)
-    {
-        return swiftName switch
-        {
-            "Swift.Bool" => "bool",
-            "Swift.Int" => "nint",
-            "Swift.UInt" => "nuint",
-            "Swift.Int8" => "sbyte",
-            "Swift.UInt8" => "byte",
-            "Swift.Int16" => "short",
-            "Swift.UInt16" => "ushort",
-            "Swift.Int32" => "int",
-            "Swift.UInt32" => "uint",
-            "Swift.Int64" => "long",
-            "Swift.UInt64" => "ulong",
-            "Swift.Float" => "float",
-            "Swift.Double" => "double",
-            "CoreFoundation.CGFloat" => "NFloat",
-            _ => "nint"
-        };
     }
 
     /// <summary>

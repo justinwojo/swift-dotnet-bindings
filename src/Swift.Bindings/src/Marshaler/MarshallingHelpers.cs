@@ -649,6 +649,33 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Maps a Swift primitive type name to its C# type name (e.g. <c>Swift.Int32</c> → <c>int</c>,
+        /// <c>CoreFoundation.CGFloat</c> → <c>NFloat</c>). Single source of truth for the closure-bridge
+        /// callback-parameter mappers; non-primitive names fall back to <c>nint</c> (pointer ABI).
+        /// </summary>
+        public static string MapSwiftPrimitiveToCSharpType(string swiftName)
+        {
+            return swiftName switch
+            {
+                "Swift.Bool" => "bool",
+                "Swift.Int" => "nint",
+                "Swift.UInt" => "nuint",
+                "Swift.Int8" => "sbyte",
+                "Swift.UInt8" => "byte",
+                "Swift.Int16" => "short",
+                "Swift.UInt16" => "ushort",
+                "Swift.Int32" => "int",
+                "Swift.UInt32" => "uint",
+                "Swift.Int64" => "long",
+                "Swift.UInt64" => "ulong",
+                "Swift.Float" => "float",
+                "Swift.Double" => "double",
+                "CoreFoundation.CGFloat" => "NFloat",
+                _ => "nint"
+            };
+        }
+
+        /// <summary>
         /// Swift type aliases that resolve to primitives.
         /// </summary>
         public static readonly Dictionary<string, string> TypeAliasToCSPrimitive = new(StringComparer.Ordinal)

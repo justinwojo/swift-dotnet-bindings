@@ -886,13 +886,29 @@ public static partial class ClosureEmitter
                 var inner = namedType.GenericParameters[0];
                 var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
                 if (closureHandler.IsClassType(inner))
-                    // The wrapper is handed to the user's closure body and may be Disposed there.
-                    // MarshalBorrowedClassFromSwift takes a real +1 (owning), so Dispose + finalize
-                    // both balance it — unlike a blanket-suppress borrowed marshal, whose
-                    // SuppressFinalize-only strategy leaves an explicit Dispose double-releasing a +0 handle.
+                    // Pure-Swift class. The wrapper is handed to the user's closure body and may be
+                    // Disposed there. MarshalBorrowedClassFromSwift takes a real +1 (owning), so
+                    // Dispose + finalize both balance it — unlike a blanket-suppress borrowed marshal,
+                    // whose SuppressFinalize-only strategy leaves an explicit Dispose double-releasing
+                    // a +0 handle.
                     return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedClassFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
-                else // ObjC-bridged
-                    return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
+                if (closureHandler.IsObjCRootedClass(inner))
+                    // ObjC-rooted (@objc … : NSObject) generator-bound class with no native remap. It
+                    // carries Swift class metadata (Kind == Class), so the canonical isa-aware
+                    // MarshalCallbackArg<T> path applies — the same +1 (swift_unknownObjectRetain)
+                    // marshal used for every other ObjC-rooted closure argument: the non-optional
+                    // reference arm below (IsClassType-false → MarshalCallbackArg) and
+                    // ClosureHandler.BorrowedCallbackArgMarshal. Routing it here keeps the optional and
+                    // non-optional ObjC-rooted closure-arg paths on ONE marshal instead of diverging to
+                    // FormatObjCBridgeCall. (FormatObjCBridgeCall's GetNSObject<T> also round-trips and
+                    // balances ARC for such a dual-natured NSObject peer, but only incidentally, via its
+                    // ObjC-peer nature rather than its Swift metadata; the native-remapped Foundation
+                    // peers below have no Swift metadata and genuinely require it.)
+                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<{innerType}>(new IntPtr(arg{argIndex})) : null";
+                // Native-remapped Foundation peer (e.g. URLResponse? → NSUrlResponse?) or other
+                // ObjC-bridged inner with no Swift metadata: FormatObjCBridgeCall dispatches
+                // GetNSObject / GetINativeObject against the Microsoft.iOS peer.
+                return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
             }
 
             // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI (null = .none, non-null = pointer to inner value)
@@ -1004,15 +1020,16 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Checks if a type is Optional&lt;Class/ObjC&gt; with nil-pointer ABI (parameter direction).
+    /// Checks if a type is Optional&lt;class&gt; with single-nullable-pointer ABI (parameter direction).
+    /// Gated by <see cref="ClosureHandler.IsOptionalReferenceArg"/> — true only for a true reference
+    /// inner, which Swift passes to the closure as one object pointer the C# callback reads directly.
+    /// An <c>Optional&lt;value-type&gt;</c> closure arg (even ObjC-bridgeable, e.g. <c>URL?</c>) is NOT
+    /// included: on the direct CallConvSwift path Swift passes its value representation, not an object
+    /// pointer, so it falls through to the value/frozen-struct arms instead of being read via the ObjC
+    /// bridge.
     /// </summary>
     private static bool IsOptionalReferenceParam(NamedTypeSpec namedType, ClosureHandler closureHandler)
-    {
-        return namedType.ContainsGenericParameters &&
-               namedType.Name == "Swift.Optional" &&
-               namedType.GenericParameters.Count == 1 &&
-               closureHandler.IsReferenceType(namedType.GenericParameters[0]);
-    }
+        => closureHandler.IsOptionalReferenceArg(namedType);
 
     /// <summary>
     /// Checks if a type is Optional&lt;Bool/SimpleEnum&gt; with nil-for-none pointer ABI.
@@ -1067,16 +1084,14 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Checks if a return type is Optional&lt;Class/ObjC&gt; with nil-pointer ABI.
+    /// Checks if a return type is Optional&lt;class&gt; with single-nullable-pointer ABI. Gated by
+    /// <see cref="ClosureHandler.IsOptionalReferenceArg"/> — true only for a true reference inner, which
+    /// the C# callback can hand back to Swift as one object pointer. An <c>Optional&lt;value-type&gt;</c>
+    /// return crosses the closure boundary by its Swift value representation (no <c>as AnyObject</c>
+    /// bridge on the direct path), so it is excluded.
     /// </summary>
     private static bool IsOptionalReferenceReturn(TypeSpec typeSpec, ClosureHandler closureHandler)
-    {
-        return typeSpec is NamedTypeSpec named &&
-               named.ContainsGenericParameters &&
-               named.Name == "Swift.Optional" &&
-               named.GenericParameters.Count == 1 &&
-               closureHandler.IsReferenceType(named.GenericParameters[0]);
-    }
+        => closureHandler.IsOptionalReferenceArg(typeSpec);
 
 
     /// <summary>

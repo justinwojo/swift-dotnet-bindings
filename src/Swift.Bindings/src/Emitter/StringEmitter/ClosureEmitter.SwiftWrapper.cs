@@ -608,9 +608,7 @@ public static partial class ClosureEmitter
                 }
 
                 // Optional<Class/ObjC>: map to Optional raw pointer, nil maps to nil
-                if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
-                    named.GenericParameters.Count == 1 &&
-                    closureHandler.IsReferenceType(named.GenericParameters[0]))
+                if (closureHandler.IsOptionalReferenceArg(named))
                 {
                     var innerSpec = named.GenericParameters[0];
                     // ObjC-bridged structs need `as AnyObject` before Unmanaged
@@ -676,9 +674,7 @@ public static partial class ClosureEmitter
                 }
 
                 // Optional<Class/ObjC>: map raw pointer back to typed optional
-                if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
-                    named.GenericParameters.Count == 1 &&
-                    closureHandler.IsReferenceType(named.GenericParameters[0]))
+                if (closureHandler.IsOptionalReferenceArg(named))
                 {
                     var innerSpec = named.GenericParameters[0];
                     var innerType = ExistentialBypassEmitter.RenderSwiftTypeSpec(innerSpec);

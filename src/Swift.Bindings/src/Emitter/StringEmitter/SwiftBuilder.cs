@@ -99,10 +99,8 @@ public static class SwiftBuilder
                     return enumInfo.Value.swiftScalar;
             }
 
-            // Optional<Class/ObjC> uses nil-pointer ABI: UnsafeMutableRawPointer?
-            if (closureHandler != null && named.ContainsGenericParameters &&
-                named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
-                closureHandler.IsReferenceType(named.GenericParameters[0]))
+            // Optional<class> uses single-nullable-pointer ABI: UnsafeMutableRawPointer?
+            if (closureHandler != null && closureHandler.IsOptionalReferenceArg(named))
             {
                 return "UnsafeMutableRawPointer?";
             }
@@ -139,6 +137,35 @@ public static class SwiftBuilder
             return "Void";
 
         return "UnsafeMutableRawPointer";
+    }
+
+    /// <summary>
+    /// Returns the C# callback-delegate parameter type for a closure argument — the C#-side dual of
+    /// <see cref="GetSwiftCdeclParamType(TypeSpec, ClosureHandler)"/>. Canonical implementation shared
+    /// by <c>MethodClosureBridge</c> and <c>NestedClosureBridge</c>. Bool lowers to <c>byte</c>,
+    /// other primitives via <see cref="MarshallingHelpers.MapSwiftPrimitiveToCSharpType"/>, simple enums
+    /// to their C# underlying integer, optional-reference args to <c>IntPtr</c> (nullable-pointer ABI),
+    /// and bound generics / classes to <c>IntPtr</c>.
+    /// </summary>
+    public static string GetCSharpCallbackParamType(TypeSpec argType, ClosureHandler closureHandler)
+    {
+        if (argType is NamedTypeSpec named)
+        {
+            if (named.Name == "Swift.Bool") return "byte";
+            if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
+                return MarshallingHelpers.MapSwiftPrimitiveToCSharpType(named.Name);
+
+            // Simple enum: pass raw value via the enum's C# underlying integer type.
+            var enumInfo = closureHandler.GetSimpleEnumInfo(argType);
+            if (enumInfo != null)
+                return enumInfo.Value.csUnderlying;
+
+            // Optional<class>: single-nullable-pointer ABI — IntPtr (Zero = nil).
+            if (closureHandler.IsOptionalReferenceArg(argType)) return "IntPtr";
+        }
+
+        // Bound generics, classes: IntPtr (pointer ABI)
+        return "IntPtr";
     }
 
     // ═══════════════════════════════════════════════════════════════════════

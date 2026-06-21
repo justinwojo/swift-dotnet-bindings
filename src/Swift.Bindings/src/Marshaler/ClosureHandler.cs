@@ -2044,6 +2044,51 @@ public class ClosureHandler
         IsClassType(typeSpec) || IsObjCBridgedClass(typeSpec);
 
     /// <summary>
+    /// ABI gate for an <c>Optional&lt;reference&gt;</c> closure argument or return: does the inner lower
+    /// to a single nullable object pointer in the closure's native invocation? True only for a true
+    /// reference inner (a Swift or ObjC class — <see cref="IsReferenceType"/>), which Swift passes (and
+    /// returns) as one object pointer the C# callback can read or hand back directly. An
+    /// <c>Optional&lt;value-type&gt;</c> — even an ObjC-bridgeable one like <c>URL</c>, or a
+    /// native-remapped Foundation peer like <c>URLRequest</c> — is passed by its Swift value
+    /// representation across a closure boundary; on the direct CallConvSwift closure path there is no
+    /// Swift-side <c>as AnyObject</c> bridge, so the <c>void*</c> slot is NOT an object pointer and must
+    /// not be read as one. This is deliberately narrower than the
+    /// <see cref="WrapperValidation.IsOptionalWithReferenceInner"/> oracle: the oracle answers whether
+    /// wrapper code that explicitly bridges can present the inner as a nullable reference (the correct
+    /// question for the witness-getter / <c>@_cdecl</c> producer positions), which is a different
+    /// question from what Swift natively places in a closure's argument/return slot.
+    /// </summary>
+    public bool IsOptionalReferenceArg(TypeSpec optionalType) =>
+        optionalType is NamedTypeSpec named &&
+        named.ContainsGenericParameters &&
+        named.Name == "Swift.Optional" &&
+        named.GenericParameters.Count == 1 &&
+        IsReferenceType(named.GenericParameters[0]);
+
+    /// <summary>
+    /// Checks if a type is a generator-bound ObjC-rooted Swift class (an <c>@objc … : NSObject</c>
+    /// class with no Microsoft.iOS native remap). Such a wrapper is an <c>ISwiftObject</c> carrying
+    /// Swift class metadata (<c>Kind == Class</c>), so <c>MarshalCallbackArg&lt;T&gt;</c> upgrades it
+    /// to an owning isa-aware <c>+1</c> — unlike a native-remapped Foundation peer
+    /// (e.g. <c>URLResponse</c> → <c>NSUrlResponse</c>), which has no Swift metadata and must bridge
+    /// via <see cref="MarshallingHelpers.FormatObjCBridgeCall"/>.
+    /// </summary>
+    public bool IsObjCRootedClass(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (namedType.ContainsGenericParameters || !namedType.HasModule())
+            return false;
+
+        if (!_typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
+            return false;
+
+        return MarshallingHelpers.IsObjCRooted(typeRecord)
+            && typeRecord.NativeTypeName == null;
+    }
+
+    /// <summary>
     /// Checks if a type has an ObjC NativeTypeName remap (e.g., Foundation.URLResponse →
     /// Foundation.NSUrlResponse) that <see cref="TranslateTypeSpecToCSharp"/> projects to.
     /// Closure callbacks need <see cref="MarshallingHelpers.FormatObjCBridgeCall"/> to

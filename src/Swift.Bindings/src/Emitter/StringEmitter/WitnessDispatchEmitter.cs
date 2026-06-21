@@ -865,11 +865,11 @@ public class WitnessDispatchEmitter
     /// </summary>
     public bool IsOptionalClassReturn(TypeSpec? returnType)
     {
-        if (!MarshallingHelpers.IsSwiftOptional(returnType))
-            return false;
-        if (returnType is not NamedTypeSpec namedType || namedType.GenericParameters.Count != 1)
-            return false;
-        return IsSwiftClassType(namedType.GenericParameters[0]);
+        // Route the optional-reference ABI question through the canonical oracle (shared with the
+        // closure bridges and every CdeclParamMapper.IsOptionalWithReferenceInner caller) instead of
+        // the local IsSwiftClassType-only test, which excluded ObjC-bridged/rooted class returns.
+        return returnType is NamedTypeSpec namedType
+            && OptionalReferenceClassifier.UsesNullablePointerAbi(namedType, _typeDatabase);
     }
 
     /// <summary>

@@ -962,7 +962,15 @@ public partial class ProtocolProxyEmitter
             }
             else if (isClassReturnGetter)
             {
-                // ClassReturn getter: Unmanaged.passRetained on Swift side, direct MarshalFromSwift on C# side
+                // Non-optional class-return getter: Swift returns a +1 instance (Unmanaged.passRetained),
+                // C# adopts via MarshalFromSwift<T>. Safe here ONLY because the gate (IsClassReturn →
+                // IsSwiftClassType) excludes ObjC module types and native-remapped types (URL→NSUrl), so
+                // the inner is always a pure-Swift ISwiftObject class — for which MarshalFromSwift does
+                // NOT dereference the pointer (it routes through the ISwiftObject factory). An ObjC
+                // reference (NSObject subclass) would crash here exactly as the optional path did before
+                // it was converged onto the projection-driven read; if IsClassReturn is ever widened to
+                // admit ObjC inners (as IsOptionalClassReturn already was, via UsesNullablePointerAbi),
+                // this branch must move to the same GetINativeObject<T>(ptr, true) read.
                 writer.WriteLines($$"""
                     get
                     {
@@ -1055,11 +1063,41 @@ public partial class ProtocolProxyEmitter
             }
             else if (isOptionalClassReturnGetter)
             {
-                // Optional<class> getter: nil → null pointer → return null; otherwise the
-                // ClassReturn path (Swift returned a +1 instance; the SafeHandle adopts it).
+                // Optional<reference> getter. The witness accessor returns the nullable direct-pointer
+                // ABI: nil → IntPtr.Zero, non-nil → a +1 retained instance pointer. Read it through the
+                // SAME projection-driven conversion the concrete impl getter uses (the shared
+                // AccessorGetterConversionVisitor → OptionalAccessorGetterVisitor), so the read matches
+                // the inner's actual reference kind: an ObjC-bridged / -bridgeable / -rooted inner
+                // (an NSObject subclass) adopts the +1 via GetINativeObject<T>(ptr, ownsReference: true)
+                // and a pure-Swift-class / KeyPath inner adopts it via MarshalFromSwiftObject<T>.
+                // Routing an ObjC reference through MarshalFromSwift<T> instead dereferences the object
+                // pointer (MarshalFromSwiftCore does Marshal.ReadIntPtr, reading the isa word as if it
+                // were the instance) → GetNSObject on garbage → objc_msgSend SIGSEGV. The conversion
+                // bakes in the nil guard, so no separate IntPtr.Zero check is needed.
                 var innerClassType = csharpTypeName.EndsWith("?", StringComparison.Ordinal)
                     ? csharpTypeName[..^1]
                     : csharpTypeName;
+                var optionalProjection = s_projectionFactory.Project(property.SwiftTypeSpec,
+                    new ProjectionContext
+                    {
+                        TypeDatabase = _typeDatabase,
+                        IsParameter = false,
+                        CurrentModuleName = _moduleName,
+                        EmissionContext = _emissionContext,
+                    });
+                var (optionalReadExpr, _) = optionalProjection is not null
+                    ? optionalProjection.Accept(new AccessorGetterConversionVisitor("resultPtr"))
+                    : ((string?)null, false);
+                // Fallback only when the inner type can't be projected (e.g. an incomplete type
+                // database). This is unreachable for any getter that reaches this branch: the
+                // isOptionalClassReturnGetter gate ran UsesNullablePointerAbi on the same spec, and
+                // the projection factory always resolves Optional<T>. Emit a loud, attributable
+                // throw rather than a direct MarshalFromSwift read — that read is the exact
+                // dereference-an-ObjC-object-pointer shape that SIGSEGVs for the ObjC-bridged/
+                // bridgeable inners UsesNullablePointerAbi admits, so leaving it as the fallback
+                // would turn a generator invariant violation into an undebuggable native crash
+                // instead of a managed exception.
+                optionalReadExpr ??= $"resultPtr == IntPtr.Zero ? ({innerClassType})null : throw new global::System.NotSupportedException(\"Optional reference inner '{innerClassType}' could not be projected for proxy getter '{propertyName}'.\")";
                 writer.WriteLines($$"""
                     get
                     {
@@ -1069,13 +1107,7 @@ public partial class ProtocolProxyEmitter
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
                             IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
-                            if (resultPtr == IntPtr.Zero)
-                                return null;
-                            try
-                            {
-                                return ({{innerClassType}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{innerClassType}}>(resultPtr);
-                            }
-                            catch { Arc.Release(resultPtr); throw; }
+                            return {{optionalReadExpr}};
                         }
                     }
                     """);
