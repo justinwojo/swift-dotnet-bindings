@@ -1807,7 +1807,7 @@ public class ProtocolProxyEmitterTests
         // Throwing blittable methods now dispatch via P/Invoke with error-out
         Assert.Contains("SBW_TestProtocol_method_tryGetValue", output);
         Assert.Contains("resultPtr == IntPtr.Zero", output);
-        Assert.Contains("SwiftException", output);
+        Assert.Contains("ThrowSwiftError", output);
         Assert.DoesNotContain("Cannot call method 'TryGetValue'", output);
     }
 
@@ -2193,7 +2193,7 @@ public class ProtocolProxyEmitterTests
         // Throwing void methods dispatch with errorOut check
         Assert.Contains("SBW_TestProtocol_method_disconnect", output);
         Assert.Contains("if (errorOut != IntPtr.Zero)", output);
-        Assert.Contains("SwiftException", output);
+        Assert.Contains("ThrowSwiftError", output);
         Assert.DoesNotContain("Cannot call method 'Disconnect'", output);
     }
 
@@ -2234,7 +2234,7 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("SBW_TestProtocol_method_tryGetName", output);
         Assert.Contains("resultPtr == IntPtr.Zero", output);
         Assert.Contains("Encoding.UTF8.GetString", output);
-        Assert.Contains("SwiftException", output);
+        Assert.Contains("ThrowSwiftError", output);
         Assert.DoesNotContain("Cannot call method", output);
     }
 
@@ -4816,10 +4816,14 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_ExistentialReturnMethod_Throwing_FreesDescBeforeReleaseError()
+    public void EmitProxyClass_ExistentialReturnMethod_Throwing_RoutesThroughThrowSwiftError()
     {
-        // Throwing existential: must free description buffer BEFORE releasing error
-        // (the description buffer may reference memory owned by the error)
+        // Throwing existential: the throw routes through the single-source SwiftMarshal.ThrowSwiftError
+        // carriage like every other proxy throw path. ThrowSwiftError reads + frees the description
+        // (SBW_GetErrorDescription(errorOut) passed as its desc arg) and transfers ownership of the error
+        // box to the surfaced SwiftException (released on finalization), so the old "free description
+        // before releasing the error box" ordering is preserved by construction — the box is never
+        // eagerly released here at all.
         RegisterProtocol("TargetProtocol");
         var protocolDecl = CreateSimpleProtocol("SourceProtocol");
         var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
@@ -4848,16 +4852,12 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        // Error description extraction
-        Assert.Contains("SBW_GetErrorDescription(errorOut)", output);
-        // SBW_Free must come BEFORE SBW_ReleaseError (order matters for memory safety)
-        var freeIdx = output.IndexOf("SBW_Free(_descPtr)", StringComparison.Ordinal);
-        var releaseIdx = output.IndexOf("SBW_ReleaseError(errorOut)", StringComparison.Ordinal);
-        Assert.True(freeIdx >= 0, "Expected SBW_Free(_descPtr) in output");
-        Assert.True(releaseIdx >= 0, "Expected SBW_ReleaseError(errorOut) in output");
-        Assert.True(freeIdx < releaseIdx, "SBW_Free must come before SBW_ReleaseError");
-        // Should throw SwiftException
-        Assert.Contains("SwiftException(_errorMessage)", output);
+        // Single-source carriage: the description is read+freed inside ThrowSwiftError (its desc arg is
+        // SBW_GetErrorDescription(errorOut)) and the error box is carried, not eagerly released.
+        Assert.Contains("SwiftMarshal.ThrowSwiftError(errorOut, NativeMethods.SBW_GetErrorDescription(errorOut), NativeMethods.SBW_ReleaseError)", output);
+        // The old eager-release shape (manual description free + message-only SwiftException) is gone.
+        Assert.DoesNotContain("SBW_Free(_descPtr)", output);
+        Assert.DoesNotContain("SwiftException(_errorMessage)", output);
     }
 
     [Fact]
@@ -4895,8 +4895,10 @@ public class ProtocolProxyEmitterTests
         // Success path free must be in finally block
         var freeSymbol = "SBW_SourceProtocol_free_method_connect_0(resultPtr)";
         Assert.Contains(freeSymbol, output);
-        // Error cleanup must be in finally block (SBW_Free + SBW_ReleaseError)
+        // The success-path result free sits in a finally; the error path routes through the
+        // single-source ThrowSwiftError (which reads+frees the description and carries the error box).
         Assert.Contains("finally", output);
+        Assert.Contains("SwiftMarshal.ThrowSwiftError(errorOut", output);
         // Must call the free function for the result on success path
         var successFreeIdx = output.IndexOf(freeSymbol, StringComparison.Ordinal);
         // Find the nearest preceding "finally" before the success free
@@ -6048,7 +6050,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("resultPtr == IntPtr.Zero", output);
-        Assert.Contains("SwiftException", output);
+        Assert.Contains("ThrowSwiftError", output);
         Assert.Contains("Arc.Release(resultPtr)", output);
     }
 
@@ -6078,7 +6080,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("errorOut != IntPtr.Zero", output);
-        Assert.Contains("SwiftException", output);
+        Assert.Contains("ThrowSwiftError", output);
         Assert.Contains("SwiftIndirectResult", output);
     }
 
@@ -6453,7 +6455,7 @@ public class ProtocolProxyEmitterTests
         // Should contain error handling pattern
         Assert.Contains("resultPtr == IntPtr.Zero", output);
         Assert.Contains("SBW_GetErrorDescription", output);
-        Assert.Contains("SwiftException", output);
+        Assert.Contains("ThrowSwiftError", output);
     }
 
     [Fact]

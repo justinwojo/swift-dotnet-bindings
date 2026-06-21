@@ -1505,8 +1505,63 @@ namespace BindingsGeneration
 
         private void WriteDefaultEquatableImplementation()
         {
-            // Non-Equatable types: no Equals/GetHashCode/operator overrides.
-            // Classes inherit reference equality from object.
+            // Non-Equatable Swift classes: emit handle-identity Equals/GetHashCode so that two C#
+            // wrappers over the SAME Swift instance compare equal and hash alike. This is the
+            // object-identity contract — handle identity, not value identity: it holds because a
+            // heap-backed class wrapper stores the retained Swift object pointer directly, so two
+            // wrappers of one instance share that pointer.
+            //
+            // Only root, heap-backed class wrappers reach this branch (the dispatcher routes
+            // Equatable classes to WriteSwiftEquatableImplementationWithSwiftEquals and never calls
+            // the default path for derived classes, which inherit the root's Equals). Derived
+            // wrappers have no _handle of their own, so skip them and let them inherit.
+            if (ClassHandler.IsEffectivelyDerived(_classDecl))
+            {
+                // Derived class: inherits the root's handle-identity Equals/GetHashCode.
+                return;
+            }
+
+            // Disposed/zero-handle guard (consensus, load-bearing): GetSwiftHandle() reads the
+            // stored pointer without dereferencing the Swift object, so it is safe on a disposed
+            // wrapper and returns IntPtr.Zero there (ReleaseHandle zeroes the handle). We must never
+            // (1) report two distinct disposed wrappers as equal via their shared IntPtr.Zero, nor
+            // (2) hash a dead wrapper by its zero handle — fall back to reference identity when
+            // either operand has no live handle. GetSwiftHandle() dispatches to the wrapper-shape's
+            // own field (_handle.DangerousGetHandle() for pure-Swift roots, Handle for ObjC-rooted
+            // boundary classes), so this is shape-agnostic.
+            var identityMethods = $$"""
+            // First-computed identity hash, cached so GetHashCode never changes across this wrapper's
+            // lifetime (see GetHashCode for the hash-key immutability rationale).
+            private int? _swiftIdentityHashCode;
+
+            public override bool Equals(object? obj)
+            {
+                if (obj is not {{_typeNameWithGenerics}} other) return false;
+                var thisHandle = GetSwiftHandle();
+                var otherHandle = other.GetSwiftHandle();
+                if (thisHandle != IntPtr.Zero && otherHandle != IntPtr.Zero)
+                    return thisHandle == otherHandle;
+                return ReferenceEquals(this, other);
+            }
+
+            public override int GetHashCode()
+            {
+                // Hash-key immutability: an object's hash code must not change while it is a key in a
+                // hash collection — including across Dispose, which zeroes the handle. Cache the first
+                // computed hash: while live it is the shared Swift handle's hash, so two wrappers over
+                // the SAME instance hash alike (matching Equals); once cached it stays stable even after
+                // the handle is released, so a disposed wrapper remains findable in a HashSet/Dictionary.
+                if (_swiftIdentityHashCode is int cached)
+                    return cached;
+                var handle = GetSwiftHandle();
+                int hash = handle != IntPtr.Zero ? handle.GetHashCode() : base.GetHashCode();
+                _swiftIdentityHashCode = hash;
+                return hash;
+            }
+            """;
+
+            _writer.WriteLines(identityMethods);
+            _writer.WriteLine();
         }
     }
 }

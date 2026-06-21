@@ -210,6 +210,12 @@ namespace BindingsGeneration
                 sortedDecl, pipeline, validationCtx, typeDatabase, siblingPropertyNames,
                 context, emittedProjectedSignatures);
 
+            // F52: content-derived collision ranks. Maps each member of a same-projected-key overload group
+            // to a rank (0..n-1) by full Swift signature, so the suffix a Swift overload receives is stable
+            // under source reorder. Members outside any group are absent → read as rank 0 (legacy behavior).
+            var collisionRankMap = BuildClassBodyCollisionRankMap(
+                sortedDecl, pipeline, validationCtx, typeDatabase, siblingPropertyNames);
+
             foreach (var baseDecl in sortedDecl)
             {
                 if (baseDecl is TypeDecl typeDecl)
@@ -447,8 +453,14 @@ namespace BindingsGeneration
                     // (e.g., HandleNextAction, HandleNextAction2). Constructors can't be renamed in C#,
                     // so constructor collisions are still skipped.
                     var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames);
-                    int collisionIndex = 0;
-                    if (!emittedProjectedSignatures.Add(projectedKey))
+                    // F52: the disambiguation suffix is content-derived — the member's rank within its
+                    // same-projected-key overload group (BuildCollisionRankMap, by full Swift signature),
+                    // not its source position. Rank 0 (also the default for members in no collision group)
+                    // keeps the natural name; higher ranks take the suffixed slot regardless of which overload
+                    // was declared first, so a Swift source reorder cannot retarget which symbol `Process2` binds.
+                    int collisionIndex = collisionRankMap.GetValueOrDefault(methodDecl, 0);
+                    var reservedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                    if (!emittedProjectedSignatures.Add(reservedKey))
                     {
                         if (methodDecl.IsConstructor)
                         {
@@ -467,11 +479,12 @@ namespace BindingsGeneration
                             continue;
                         }
 
-                        // Disambiguate non-constructor methods with numeric suffix.
-                        // Loop until a free suffix is found — a natural method name like "Process2"
-                        // could already occupy the suffixed slot.
-                        if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var count))
-                            count = 0;
+                        // Occupancy escalation: the rank-derived slot is already taken by an UNRELATED natural
+                        // name (a method literally named to match the suffixed form). Walk to the next free
+                        // suffix. Seed from the rank so an in-group member never collapses onto a lower-ranked
+                        // sibling's already-reserved slot.
+                        var count = Math.Max(collisionIndex,
+                            projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0);
                         string disambiguatedKey;
                         do
                         {
@@ -481,6 +494,14 @@ namespace BindingsGeneration
                         projectedKeyCollisionCounts[projectedKey] = collisionIndex;
 
                         _logger.LogDebug($"Disambiguating method '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
+                    }
+                    else if (collisionIndex > 0)
+                    {
+                        // In-group member that claimed its rank-derived suffixed slot directly (no occupancy
+                        // clash). Record the high-water mark so a later unrelated natural-name collision on the
+                        // same projected key escalates ABOVE this slot rather than re-issuing it.
+                        if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) || seeded < collisionIndex)
+                            projectedKeyCollisionCounts[projectedKey] = collisionIndex;
                     }
 
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
@@ -529,7 +550,16 @@ namespace BindingsGeneration
                         // ClassHandler.PopulateEmittedClassMethods for the cross-module override
                         // verifier so a parent emitted as `Foo2` is recorded as `Foo2`, not `Foo`.
                         if (methodDecl.WasEmitted)
+                        {
                             methodDecl.EmittedCSharpName = env.CSharpMethodName;
+                            // F52: record the consumer-visible contract for this emitted member —
+                            // its post-collision C# signature → the entry symbol the P/Invoke binds.
+                            // Recorded here (not in a later model walk) because env.CSharpMethodName's
+                            // collision suffix is only known inside this disambiguation loop.
+                            emissionCtx.RecordApiManifestEntry(
+                                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, env.CSharpMethodName, projectedKey),
+                                env.EmissionSymbol);
+                        }
                         // AF13: stash the emission-time symbol this method settled on, keyed by
                         // decl identity, so a later env-less emitter (e.g. the concrete-protocol
                         // specialization emitter, which historically read a sibling constructor's
@@ -597,7 +627,7 @@ namespace BindingsGeneration
         /// it here (and again in the loop) is side-effect-free.
         /// </summary>
         internal static (bool WillEmit, bool IsClosureTombstone) ClassifyOverridePrePassEmission(
-            MethodDecl method, MemberValidationPipeline pipeline, ValidationContext validationCtx, ITypeDatabase typeDatabase)
+            MethodDecl method, MemberValidationPipeline pipeline, ValidationContext? validationCtx, ITypeDatabase typeDatabase)
         {
             var vr = pipeline.ValidateMethodEmission(method, validationCtx);
             bool isTombstone = !vr.ShouldEmit && vr.Reason == SkipReason.UnsupportedClosure
@@ -693,6 +723,41 @@ namespace BindingsGeneration
                 if (paren > 0)
                     emittedProjectedSignatures.Add(adopted + key.Substring(paren));
             }
+        }
+
+        /// <summary>
+        /// Builds the F52 content-derived collision-rank map for one type body. Walks <paramref name="sortedDecl"/>
+        /// in the SAME order and through the SAME filter chain the main emission loop uses — validation
+        /// (<see cref="ClassifyOverridePrePassEmission"/>), primary-signature dedup (first-wins on
+        /// <see cref="GetMethodSignatureKey"/>), and constructor exclusion (constructors skip on collision and
+        /// never take a suffix) — so each rank lines up with a method that actually reaches the dedup block.
+        /// Non-constructor survivors are tagged with their tombstone-view projected key (the flag is set by the
+        /// loop AFTER this runs, so the view is predicted here, matching <see cref="PreReserveAdoptedOverrideNames"/>)
+        /// and handed to <see cref="BuildCollisionRankMap"/>.
+        /// </summary>
+        private Dictionary<MethodDecl, int> BuildClassBodyCollisionRankMap(
+            IEnumerable<BaseDecl> sortedDecl, MemberValidationPipeline pipeline, ValidationContext validationCtx,
+            ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames)
+        {
+            var primarySeen = new HashSet<string>(StringComparer.Ordinal);
+            var emitting = new List<(MethodDecl, string, string)>();
+            foreach (var d in sortedDecl)
+            {
+                if (d is not MethodDecl m) continue;
+                var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(m, pipeline, validationCtx, typeDatabase);
+                if (!willEmit) continue;
+                // Primary-signature dedup (first-wins) mirrors HandleBaseDecl's emittedMethodSignatures gate —
+                // a primary-duplicate sibling never reaches the projected-collision block, so it must not pad a
+                // collision group with a method that does not emit.
+                var signatureKey = GetMethodSignatureKey(m, typeDatabase, _logger);
+                if (!primarySeen.Add(signatureKey)) continue;
+                // Constructors are skipped on a projected collision (they can't be renamed) — never ranked.
+                if (m.IsConstructor) continue;
+                var projectedKey = GetProjectedCSharpMethodKey(m, typeDatabase, _logger, siblingPropertyNames,
+                    treatAsClosureTombstone: isTombstone);
+                emitting.Add((m, projectedKey, signatureKey));
+            }
+            return BuildCollisionRankMap(emitting);
         }
 
         /// <summary>
@@ -845,6 +910,62 @@ namespace BindingsGeneration
             var parenIndex = projectedKey.IndexOf('(');
             if (parenIndex < 0) return $"{projectedKey}{collisionIndex + 1}";
             return $"{projectedKey[..parenIndex]}{collisionIndex + 1}{projectedKey[parenIndex..]}";
+        }
+
+        /// <summary>
+        /// F52: content-derives the disambiguation suffix for same-projected-C#-key collision groups so the
+        /// C# name a Swift overload receives is a pure function of the body's CONTENT — not its source
+        /// position. Each caller passes the methods that will actually emit (its own emitting partition:
+        /// validation-passed, primary-signature-deduped, constructors excluded), already tagged with the
+        /// projected C# key they dedup on and a stable per-method <paramref name="SignatureKey"/>. Methods
+        /// sharing a projected key form a collision group; within each group they are ordered by the
+        /// signature key (the full Swift selector — name + argument labels + async/throws + parameter types,
+        /// from <see cref="GetMethodSignatureKey"/>) and assigned ranks 0..n-1. The rank becomes the
+        /// member's <c>CollisionIndex</c>: rank 0 keeps the natural (unsuffixed) name, rank 1 → <c>…2</c>,
+        /// etc. Because the signature key is injective across primary-dedup survivors (two methods sharing it
+        /// were already collapsed by the primary <c>emittedMethodSignatures</c> gate), the ordering — and so
+        /// the whole name↔symbol mapping the api-manifest records — is independent of the order the
+        /// overloads were declared in Swift. Reordering the source can no longer silently retarget which
+        /// symbol a generated <c>Process2</c> binds to.
+        ///
+        /// Methods NOT in any multi-member group are absent from the returned map; the caller reads them as
+        /// rank 0 and they keep the legacy natural-name-first behavior. The returned map is keyed by
+        /// reference identity (<see cref="MethodDecl"/> is a record, so value equality would conflate
+        /// distinct same-signature siblings).
+        ///
+        /// Residual (pre-existing, NOT regressed): when a member's rank-derived suffixed name (e.g.
+        /// <c>Process2</c>) collides with an UNRELATED method literally named to match it (a free-standing
+        /// <c>process2(_:)</c> projecting to <c>Process2</c> in its own size-1 group), the caller's occupancy
+        /// do-while escalates one of the two past the other, and which one escalates still depends on source
+        /// order. That cross-group natural-name occupancy clash is rare and orthogonal to the within-group
+        /// reshuffle this map fixes; the legacy loop was order-dependent there too.
+        /// </summary>
+        internal static Dictionary<MethodDecl, int> BuildCollisionRankMap(
+            IReadOnlyList<(MethodDecl Method, string ProjectedKey, string SignatureKey)> emittingMethods)
+        {
+            var groups = new Dictionary<string, List<(MethodDecl Method, string SignatureKey)>>(StringComparer.Ordinal);
+            foreach (var (method, projectedKey, signatureKey) in emittingMethods)
+            {
+                if (!groups.TryGetValue(projectedKey, out var list))
+                    groups[projectedKey] = list = new List<(MethodDecl, string)>();
+                list.Add((method, signatureKey));
+            }
+
+            var rankMap = new Dictionary<MethodDecl, int>(ReferenceEqualityComparer.Instance);
+            foreach (var list in groups.Values)
+            {
+                if (list.Count < 2) continue; // no collision → natural name, absent from the map (rank 0)
+                var ordered = list
+                    .Select((entry, index) => (entry.Method, entry.SignatureKey, index))
+                    .OrderBy(t => t.SignatureKey, StringComparer.Ordinal)
+                    // Stable fallback only — signature keys are injective across primary-dedup survivors,
+                    // so equal keys never actually occur; the index keeps the sort total either way.
+                    .ThenBy(t => t.index)
+                    .ToList();
+                for (int rank = 0; rank < ordered.Count; rank++)
+                    rankMap[ordered[rank].Method] = rank;
+            }
+            return rankMap;
         }
 
         /// <summary>

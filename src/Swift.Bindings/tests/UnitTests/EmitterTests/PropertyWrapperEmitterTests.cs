@@ -44,6 +44,62 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void EvaluateWrapperEligibility_ThrowingGetter_RejectedWithSwiftbind107()
+    {
+        // F42: a throwing property getter is dropped — the @_cdecl property wrapper emits no
+        // try/catch for accessors. The drop must carry the stable SWIFTBIND107 diagnostic so it
+        // lands in the emission-report skip histogram as an OBSERVABLE degradation, not an
+        // anonymous bucket.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("RiskyProp");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("RiskyProp", moduleDecl);
+        var getterMethod = CreateAccessorMethod("getter:risky", isGetter: true, parentDecl, moduleDecl);
+        getterMethod.Throws = true;
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "risky",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
+        Assert.Contains("SWIFTBIND107", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_NonThrowingGetter_SameShape_IsWrappable()
+    {
+        // Positive control: the IDENTICAL property with a non-throwing getter IS wrappable, so the
+        // rejection above is attributable specifically to `Throws`, not to some unrelated gate.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("RiskyProp");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("RiskyProp", moduleDecl);
+        var getterMethod = CreateAccessorMethod("getter:safe", isGetter: true, parentDecl, moduleDecl);
+        getterMethod.Throws = false;
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "safe",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_GenericStructParent_ConcreteProperty_ReturnsFalse()
     {
         // Generic struct parent with concrete property type — blocked because the property

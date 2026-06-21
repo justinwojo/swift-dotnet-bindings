@@ -1996,9 +1996,10 @@ public static class SwiftMarshal
     }
 
     /// <summary>
-    /// Handles an untyped Swift error by extracting the description message, releasing the error,
-    /// and throwing a <see cref="SwiftException"/>. Used by generated bindings to replace inline
-    /// error handling blocks.
+    /// Handles an untyped Swift error by extracting the description message and throwing a
+    /// <see cref="SwiftException"/> that carries the LIVE (still-retained) error box, so a consumer
+    /// can recover error identity through <see cref="SwiftException.ErrorHandle"/> instead of only
+    /// the flattened message. Used by generated bindings to replace inline error handling blocks.
     /// </summary>
     /// <param name="errorPtr">The Swift error pointer (from SwiftError.Value or @_cdecl out parameter).</param>
     /// <param name="descPtr">The error description pointer (from SBW_GetErrorDescription).</param>
@@ -2006,16 +2007,14 @@ public static class SwiftMarshal
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static void ThrowSwiftError(IntPtr errorPtr, IntPtr descPtr, Action<IntPtr> releaseError)
     {
-        // Read + release BEFORE throw rather than wrapping throw in try/finally with a P/Invoke
-        // in the finally. ReadErrorDescription frees descPtr inside its own try/finally; once it
-        // returns, the only remaining native handle is errorPtr. Release it eagerly, then throw.
-        // This avoids the "throw inside try/finally with a P/Invoke in the cleanup block" shape,
-        // which interacts poorly with the maccatalyst-x64 Mono workload runtime's exception
-        // unwinder under Rosetta (Mono maccatalyst-x64 exception unwinding instability).
-        // SwiftException(string) cannot throw before reaching the throw statement, so we don't
-        // need a finally to defend against an intermediate exception leaking errorPtr.
+        // Ownership of errorPtr transfers to the thrown SwiftException, which releases it (via
+        // releaseError) when finalized, under the process-exit guard. The throw path itself runs NO
+        // P/Invoke: ReadErrorDescription frees descPtr inside its own try/finally, and the
+        // SwiftException constructor only stores fields. This is strictly safer than the prior
+        // eager releaseError-then-throw for the maccatalyst-x64 Mono workload runtime's exception
+        // unwinder under Rosetta — there is no release in a finally around the throw, and now no
+        // release on the throw path at all (Mono maccatalyst-x64 exception unwinding instability).
         var message = ReadErrorDescription(descPtr);
-        releaseError(errorPtr);
-        throw new SwiftException(message);
+        throw new SwiftException(message, errorPtr, releaseError);
     }
 }

@@ -55,7 +55,7 @@ public class GenericClosureBridgeLeakTests : TestBase
         {
             reader.ReadThenThrow<TrackedRef>(db => new TrackedRef(1), source);
         }
-        catch (SwiftRuntimeException)
+        catch (SwiftException)
         {
             threw = true;
         }
@@ -84,7 +84,7 @@ public class GenericClosureBridgeLeakTests : TestBase
                 reader.ReadThenThrow<TrackedRef>(db => new TrackedRef(i), source);
                 throw new AssertionException($"call {i} did not throw");
             }
-            catch (SwiftRuntimeException) { }
+            catch (SwiftException) { }
         }
 
         DrainFinalizers();

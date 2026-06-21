@@ -181,6 +181,14 @@ namespace BindingsGeneration
                     var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
                     var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
                     var pipeline = new MemberValidationPipeline(env.TypeDatabase);
+
+                    // F52: content-derived collision ranks for free functions (mirrors HandleBaseDecl).
+                    // Build over the same emitting partition the loop below uses — validation-passed then
+                    // primary-signature-deduped (free functions are never constructors) — so the suffix a
+                    // colliding overload receives is a pure function of its full Swift signature, stable under
+                    // source reorder. Members in no collision group are absent → read as rank 0 (legacy).
+                    var freeFunctionRanks = BuildFreeFunctionCollisionRankMap(moduleDecl.Methods, pipeline, env.TypeDatabase);
+
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
                         // Pipeline: unified emission validation (SPI, internal, synthesized, closures, modules)
@@ -230,14 +238,19 @@ namespace BindingsGeneration
                         // Secondary dedup: projected C# public signature.
                         // Non-constructor collisions are disambiguated with numeric suffix.
                         var projectedKey = GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger);
-                        int collisionIndex = 0;
-                        if (!emittedProjectedSignatures.Add(projectedKey))
+                        // F52: content-derived suffix — the member's rank within its same-projected-key
+                        // overload group (by full Swift signature), not its source position. Rank 0 (also the
+                        // default outside any collision group) keeps the natural name.
+                        int collisionIndex = freeFunctionRanks.GetValueOrDefault(methodDecl, 0);
+                        var reservedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                        if (!emittedProjectedSignatures.Add(reservedKey))
                         {
-                            // Free functions are never constructors — always disambiguate.
-                            // Loop until a free suffix is found — a natural name like "Foo2"
-                            // could already occupy the suffixed slot.
-                            if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var count))
-                                count = 0;
+                            // Occupancy escalation: the rank-derived slot is already taken by an unrelated
+                            // natural name (a free function literally named to match the suffixed form). Walk to
+                            // the next free suffix, seeded from the rank so an in-group member never collapses
+                            // onto a lower-ranked sibling's reserved slot.
+                            var count = Math.Max(collisionIndex,
+                                projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0);
                             string disambiguatedKey;
                             do
                             {
@@ -248,6 +261,13 @@ namespace BindingsGeneration
 
                             _logger.LogDebug($"Disambiguating free function '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
                         }
+                        else if (collisionIndex > 0
+                            && (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) || seeded < collisionIndex))
+                        {
+                            // In-group member that claimed its rank slot directly — raise the high-water mark so a
+                            // later unrelated natural-name collision escalates above it.
+                            projectedKeyCollisionCounts[projectedKey] = collisionIndex;
+                        }
 
                         if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                         {
@@ -255,6 +275,14 @@ namespace BindingsGeneration
                             methodEnv.CollisionIndex = collisionIndex;
                             methodEnv.EmittedProjectedSignatures = emittedProjectedSignatures;
                             methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context);
+                            // F52: record the consumer-visible contract for this emitted free function —
+                            // its post-collision C# signature → the entry symbol the P/Invoke binds. Mirrors
+                            // the type-body chokepoint in IHandler; the module is the implicit parent so the
+                            // key is the bare C# name (a free function can't collide with a type member's key).
+                            if (methodDecl.WasEmitted)
+                                context.GetEmissionContext()?.RecordApiManifestEntry(
+                                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodEnv.CSharpMethodName, projectedKey),
+                                    methodEnv.EmissionSymbol);
                         }
                         else
                         {
@@ -353,6 +381,33 @@ namespace BindingsGeneration
                 csWriter.InnerWriter.Write(proxySource);
             csWriter.WriteLine("}");
 
+        }
+
+        /// <summary>
+        /// Builds the F52 content-derived collision-rank map for top-level free functions. Walks
+        /// <paramref name="methods"/> in source order through the same filter chain the emission loop uses —
+        /// validation (<see cref="BaseHandler.ClassifyOverridePrePassEmission"/> with the loop's null
+        /// <c>ValidationContext</c>) then primary-signature dedup (first-wins on
+        /// <see cref="BaseHandler.GetMethodSignatureKey"/>) — and hands the survivors, tagged with their
+        /// tombstone-view projected key, to <see cref="BaseHandler.BuildCollisionRankMap"/>. Free functions are
+        /// never constructors, so none are excluded on that axis.
+        /// </summary>
+        private Dictionary<MethodDecl, int> BuildFreeFunctionCollisionRankMap(
+            IEnumerable<MethodDecl> methods, MemberValidationPipeline pipeline, ITypeDatabase typeDatabase)
+        {
+            var primarySeen = new HashSet<string>(StringComparer.Ordinal);
+            var emitting = new List<(MethodDecl, string, string)>();
+            foreach (var m in methods)
+            {
+                var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(m, pipeline, validationCtx: null, typeDatabase);
+                if (!willEmit) continue;
+                var signatureKey = GetMethodSignatureKey(m, typeDatabase, _logger);
+                if (!primarySeen.Add(signatureKey)) continue;
+                var projectedKey = GetProjectedCSharpMethodKey(m, typeDatabase, _logger,
+                    siblingPropertyNames: null, treatAsClosureTombstone: isTombstone);
+                emitting.Add((m, projectedKey, signatureKey));
+            }
+            return BuildCollisionRankMap(emitting);
         }
 
         /// <summary>

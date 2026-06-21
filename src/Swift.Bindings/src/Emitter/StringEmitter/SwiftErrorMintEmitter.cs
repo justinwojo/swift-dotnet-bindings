@@ -43,10 +43,17 @@ public static class SwiftErrorMintEmitter
         var symbol = SymbolFor(moduleName);
         swiftWriter.WriteLines($$"""
             // Create a Swift Error from a C string message (closure-callback error propagation).
+            // managedTypeName (optional) carries the originating .NET exception's CLR type name so a
+            // Swift caller that receives this error on the reverse path (a C# closure/proxy threw into
+            // native Swift) can recover the managed exception's identity beyond the flattened message.
             @_cdecl("{{symbol}}")
-            public func SBW_CreateError(_ message: UnsafePointer<CChar>) -> UnsafeMutableRawPointer {
+            public func SBW_CreateError(_ message: UnsafePointer<CChar>, _ managedTypeName: UnsafePointer<CChar>?) -> UnsafeMutableRawPointer {
                 let msg = String(cString: message)
-                let error = NSError(domain: "SwiftBindings", code: -1, userInfo: [NSLocalizedDescriptionKey: msg])
+                var userInfo: [String: Any] = [NSLocalizedDescriptionKey: msg]
+                if let managedTypeName = managedTypeName {
+                    userInfo["SwiftBindingsManagedExceptionType"] = String(cString: managedTypeName)
+                }
+                let error = NSError(domain: "SwiftBindings", code: -1, userInfo: userInfo)
                 return Unmanaged.passRetained(error as AnyObject).toOpaque()
             }
 
@@ -164,7 +171,7 @@ public static class SwiftErrorMintEmitter
             EntryPoint = SymbolFor(moduleName),
             MethodName = SymbolFor(moduleName),
             ReturnType = "IntPtr",
-            ParametersString = "[MarshalAs(UnmanagedType.LPUTF8Str)] string message",
+            ParametersString = "[MarshalAs(UnmanagedType.LPUTF8Str)] string message, [MarshalAs(UnmanagedType.LPUTF8Str)] string? managedTypeName",
             CallingConvention = PInvokeCallingConvention.Cdecl,
             Visibility = PInvokeVisibility.Internal,
             EmissionContext = ctx,

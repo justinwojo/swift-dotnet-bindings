@@ -99,11 +99,11 @@ public static partial class ClosureEmitter
                         // existential argument's proxy class was suppressed (its EveryProtocol conformance
                         // was not emitted), so the Swift-vended existential cannot be marshalled into the
                         // user delegate. The borrowed argument cell leaks nothing.
-                        *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}("Protocol proxy unavailable: an existential argument's EveryProtocol conformance was not emitted."));{{noopReturn}}
+                        *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}("Protocol proxy unavailable: an existential argument's EveryProtocol conformance was not emitted.", null));{{noopReturn}}
                     }
                     catch (global::System.Exception ex)
                     {
-                        *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}(ex.Message));{{noopReturn}}
+                        *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}(ex.Message, ex.GetType().FullName));{{noopReturn}}
                     }
                 }
                 """);
@@ -181,7 +181,7 @@ public static partial class ClosureEmitter
                 }
                 catch (global::System.Exception ex)
                 {
-                    *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}(ex.Message));
+                    *errorOut = new SwiftError((void*)SBW_CreateError_{{moduleName}}(ex.Message, ex.GetType().FullName));
                     {{defaultReturnStmt}}
                 }
             }

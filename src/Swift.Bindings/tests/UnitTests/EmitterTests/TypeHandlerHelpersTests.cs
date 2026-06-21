@@ -1495,8 +1495,13 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
-    public void ClassEquality_NotEquatable_EmitsNothing()
+    public void ClassEquality_NotEquatable_EmitsGuardedHandleIdentity()
     {
+        // F34 (deliverable A): a non-Equatable, heap-backed ROOT class wrapper projects object
+        // identity into C# as handle-identity Equals/GetHashCode (two wrappers over the same Swift
+        // instance compare equal and hash alike), guarded so a disposed/zero-handle wrapper falls
+        // back to reference identity. Still object-identity only — never an operator == (the value-
+        // equality surface). Shape is pinned more fully by ClassIdentityEmitterTests.
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
         var classDecl = CreateClassDeclWithConformances("Widget", CreateModuleDecl("TestModule"));
@@ -1505,8 +1510,14 @@ public class TypeHandlerHelpersTests
         writer.WriteSwiftEquatableImplementation();
 
         var result = output.ToString();
-        Assert.DoesNotContain("Equals", result);
+        Assert.Contains("public override bool Equals(object? obj)", result);
+        Assert.Contains("var thisHandle = GetSwiftHandle();", result);
+        Assert.Contains("thisHandle != IntPtr.Zero && otherHandle != IntPtr.Zero", result);
+        Assert.Contains("return ReferenceEquals(this, other);", result);
+        Assert.Contains("public override int GetHashCode()", result);
+        // Object-identity only — never the value-equality operator, never the Swift value witness.
         Assert.DoesNotContain("operator ==", result);
+        Assert.DoesNotContain("SwiftEquatable.Equals", result);
     }
 
     [Fact]

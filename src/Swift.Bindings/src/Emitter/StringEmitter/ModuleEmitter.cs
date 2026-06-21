@@ -137,6 +137,12 @@ namespace BindingsGeneration
                 {
                     outputFile.Write(csOutput);
                 }
+
+                // F52: emit the API manifest ({namespace}.api-manifest.json) alongside the .cs.
+                // It records every emitted public member's post-collision C# signature → native
+                // entry symbol so the ratchet gate can detect a same-signature symbol retarget.
+                ApiManifestEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
+
                 string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.Wrapper.swift");
                 // Module/type-name collision rewrite (formerly Pattern 5 in SwiftWrapperPostProcessor):
                 // when the module has a public type with the same name as the module, bare

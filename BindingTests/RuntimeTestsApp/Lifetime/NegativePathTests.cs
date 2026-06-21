@@ -113,15 +113,19 @@ public class NegativePathTests : TestBase
         var animal1 = TestLibFunctions.CreateAnimal("Rex", "Bark");
         var animal2 = TestLibFunctions.CreateAnimal("Rex", "Bark");
 
-        // Non-Equatable types inherit reference equality from object
+        // F34: a non-Equatable Swift class projects OBJECT IDENTITY (handle identity), not value
+        // equality. Two separate createAnimal calls are two distinct Swift instances with distinct
+        // handles, so they are not equal even with identical fields; a wrapper equals itself.
+        // (Two C# wrappers over the SAME Swift instance comparing equal is covered by
+        // ObjectIdentityTests, which needs an identity round-trip to obtain them.)
         AssertTrue(animal1.Equals(animal1), "Animal same-reference Equals returns true");
-        AssertFalse(animal1.Equals(animal2), "Animal different-reference Equals returns false");
+        AssertFalse(animal1.Equals(animal2), "Animal distinct-instance Equals returns false");
 
         // GetHashCode does not throw
         var hash = animal1.GetHashCode();
         AssertTrue(hash != 0 || hash == 0, "Animal.GetHashCode returns without throwing");
 
-        TestLogger.Info("Non-Equatable Animal uses reference equality");
+        TestLogger.Info("Non-Equatable Animal uses object (handle) identity");
     }
 
     public void TestUniqueResourceReferenceEquality()

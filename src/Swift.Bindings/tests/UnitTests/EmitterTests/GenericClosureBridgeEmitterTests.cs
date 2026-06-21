@@ -297,7 +297,8 @@ public class GenericClosureBridgeEmitterTests
         Assert.Equal(liveSetIdx, csResult.LastIndexOf("resultSlotLive = true;", StringComparison.Ordinal));
         var delegateMarshalIdx = csResult.IndexOf("SwiftMarshal.MarshalToSwift(result, ref resBufSpan);", StringComparison.Ordinal);
         var preOverwriteDestroyIdx = csResult.IndexOf("if (resultSlotLive) SwiftMarshal.DestroyWireBufferRetains(resBufPtr, metadata);", StringComparison.Ordinal);
-        var errThrowIdx = csResult.IndexOf("throw new SwiftRuntimeException", StringComparison.Ordinal);
+        // The throw now routes through the single-source SwiftMarshal.ThrowSwiftError carriage.
+        var errThrowIdx = csResult.IndexOf("SwiftMarshal.ThrowSwiftError(_errorPtr", StringComparison.Ordinal);
         Assert.True(preOverwriteDestroyIdx >= 0 && preOverwriteDestroyIdx < delegateMarshalIdx,
             "the prior-+1 release must precede the MarshalToSwift overwrite in the invoke delegate");
         Assert.True(delegateMarshalIdx < liveSetIdx,
@@ -422,11 +423,21 @@ public class GenericClosureBridgeEmitterTests
 
         var csResult = csOutput.ToString();
 
-        // Error handling should be present in throwing methods
+        // Error handling should be present in throwing methods, routed through the single-source
+        // SwiftMarshal.ThrowSwiftError carriage so the surfaced SwiftException carries the live error box.
         Assert.Contains("swiftError", csResult);
-        Assert.Contains("SwiftRuntimeException", csResult);
+        Assert.Contains("ThrowSwiftError", csResult);
         Assert.Contains("SBW_GetErrorDescription", csResult);
         Assert.Contains("SBW_ReleaseError", csResult);
+        // Pin the exact carriage routing: the description is read inline and the release delegate is
+        // handed off (released on finalization), not invoked eagerly here.
+        Assert.Contains("SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError)", csResult);
+        // Negative-assert the removed eager-release shape (parity with the ProtocolProxy throwing test):
+        // the old path threw an identity-lossy SwiftRuntimeException, manually freed a _descPtr buffer,
+        // and eagerly released the error box before throwing. None of that may survive the migration.
+        Assert.DoesNotContain("throw new SwiftRuntimeException", csResult);
+        Assert.DoesNotContain("SBW_Free(_descPtr)", csResult);
+        Assert.DoesNotContain("SBW_ReleaseError(_errorPtr);", csResult);
     }
 
     #endregion

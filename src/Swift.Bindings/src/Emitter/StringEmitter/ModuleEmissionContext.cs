@@ -1101,6 +1101,67 @@ public sealed class ModuleEmissionContext
     public string GetMethodEmissionSymbolOrMangled(MethodDecl methodDecl) =>
         _emissionSymbolByMethod.TryGetValue(methodDecl, out var symbol) ? symbol : methodDecl.MangledName;
 
+    // ==================== API Manifest (F52 retarget gate) ====================
+
+    // Accumulates the consumer-visible binding contract: each emitted, overload-
+    // disambiguated public member's C# signature key → the native entry symbol the
+    // P/Invoke binds. Recorded at the SAME two chokepoints the F52 content-sorted
+    // disambiguation runs (the type-body method/ctor loop in IHandler and the free-
+    // function loop in ModuleHandler), where the post-collision C# name
+    // (MethodEnvironment.CSharpMethodName) and the promoted entry symbol
+    // (MethodEnvironment.EmissionSymbol) are both in scope. A *post-hoc* model walk
+    // can't reconstruct the C# name — its collision suffix is set only inside that
+    // loop — so accumulation at the source is the only place the true key exists.
+    //
+    // Keyed by the member signature (parent-qualified C# name + projected C# param
+    // types) and Ordinal-sorted so the serialized manifest is deterministic across
+    // runs. Last-write-wins on a duplicate key: overload disambiguation already makes
+    // the key unique within a type body, and parent-qualification separates types, so
+    // a collision here would be a manifest-key bug rather than a retarget — the gate
+    // compares baseline↔current on matching keys, so any stable key affects both
+    // sides equally. Properties/subscripts are intentionally out of v1 scope: they
+    // carry no overload disambiguation, so they are not the "same C# name retargets to
+    // a different symbol" hazard F52 guards.
+    private readonly SortedDictionary<string, string> _apiManifest = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// F52: records one emitted public member's C# signature key → native entry symbol
+    /// into the API manifest. Called from the overload-disambiguation chokepoints once
+    /// the post-collision C# name is known.
+    /// </summary>
+    public void RecordApiManifestEntry(string memberSignature, string entrySymbol) =>
+        _apiManifest[memberSignature] = entrySymbol;
+
+    /// <summary>The accumulated C# signature → entry symbol map, Ordinal-sorted.</summary>
+    public IReadOnlyDictionary<string, string> ApiManifestEntries => _apiManifest;
+
+    /// <summary>
+    /// Builds the API-manifest signature key for an emitted member: the parent-type path
+    /// (dot-joined, module excluded — the manifest is per-module) plus the post-collision C#
+    /// name and the projected C# parameter portion of <paramref name="projectedKey"/>. The
+    /// method/free-function name always precedes its parameter list, so the first '(' reliably
+    /// splits name from params even when a projected param type contains parentheses.
+    /// </summary>
+    public static string BuildApiManifestKey(BaseDecl? parent, string csharpName, string projectedKey)
+    {
+        int paren = projectedKey.IndexOf('(');
+        string paramPortion = paren >= 0 ? projectedKey.Substring(paren) : "()";
+        string parentPath = BuildParentPath(parent);
+        return parentPath.Length > 0
+            ? $"{parentPath}.{csharpName}{paramPortion}"
+            : $"{csharpName}{paramPortion}";
+    }
+
+    private static string BuildParentPath(BaseDecl? parent)
+    {
+        if (parent is null or ModuleDecl) return "";
+        var names = new List<string>();
+        for (BaseDecl? d = parent; d is not null and not ModuleDecl; d = d.ParentDecl)
+            names.Add(d.Name);
+        names.Reverse();
+        return string.Join(".", names);
+    }
+
     // ==================== Cross-Emitter Structural Identity ====================
     //
     // Two emitters can produce wrappers for the same Swift method with *different*

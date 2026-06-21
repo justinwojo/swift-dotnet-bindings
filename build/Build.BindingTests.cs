@@ -435,6 +435,17 @@ partial class Build
                 Log.Information("Dependency bindings: {File}", BtOutputDir / $"{DepModuleName}.cs");
             }
 
+            // Move the dependency API manifest alongside the main one so the F52 api-manifest gate
+            // ratchets the dependency module's ABI too. Without this, the manifest is deleted with
+            // depOutputDir below and a symbol retarget in the dependency binding goes unnoticed
+            // (the gate scans only BtOutputDir's top-level *.api-manifest.json).
+            var depManifest = depOutputDir / $"{DepModuleName}.api-manifest.json";
+            if (File.Exists(depManifest))
+            {
+                File.Move(depManifest, BtOutputDir / $"{DepModuleName}.api-manifest.json", overwrite: true);
+                Log.Information("Dependency API manifest: {File}", BtOutputDir / $"{DepModuleName}.api-manifest.json");
+            }
+
             // Preserve the dependency wrapper xcframework for runtime linking
             var depWrapperXcf = depOutputDir / $"{DepModuleName}SwiftBindings.xcframework";
             if (Directory.Exists(depWrapperXcf))
@@ -833,6 +844,14 @@ partial class Build
                 // Runs by default in --compile-only (the host where fresh artifacts exist);
                 // fail-closed unless --permissive, consistent with the wrapper-build gate.
                 RunParityGate(failClosed);
+
+                // F52 API-manifest ABI-contract gate: diff each generated
+                // `{Module}.api-manifest.json` (C# signature → native entry symbol) against
+                // build/baselines/api-manifest-baseline.json and fail on any RETARGET (a stable
+                // C# signature now binding a different symbol). Runs by default on the
+                // compile-only host where fresh manifests exist; fail-closed unless --permissive,
+                // consistent with the parity and wrapper-build gates.
+                RunApiManifestGate(failClosed);
 
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on

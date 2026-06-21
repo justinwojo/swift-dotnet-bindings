@@ -500,7 +500,7 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("catch (Exception ex)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"*errorOut = (void*)SBW_CreateError_{moduleName}(ex.Message);");
+        csWriter.WriteLine($"*errorOut = (void*)SBW_CreateError_{moduleName}(ex.Message, ex.GetType().FullName);");
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
@@ -552,7 +552,7 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("catch (Exception ex)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"*errorOut = (void*)SBW_CreateError_{moduleName}(ex.Message);");
+        csWriter.WriteLine($"*errorOut = (void*)SBW_CreateError_{moduleName}(ex.Message, ex.GetType().FullName);");
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
@@ -761,30 +761,17 @@ public static class GenericClosureBridgeEmitter
 
         if (methodDecl.Throws)
         {
+            // Route the untyped Swift throw through the single source (SwiftMarshal.ThrowSwiftError) so
+            // the thrown SwiftException carries the live error box on .ErrorHandle, identical to the
+            // canonical method path — instead of eagerly releasing it and throwing a message-only,
+            // identity-lossy SwiftRuntimeException. ThrowSwiftError reads + frees the description and
+            // transfers ownership of the error box to the exception (released on finalization). The
+            // surrounding try/finally blocks still run on the throw, freeing resultBuf and the GCHandle.
             csWriter.WriteLine("if (swiftError.Value != null)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("string _errorMessage;");
             csWriter.WriteLine("var _errorPtr = (IntPtr)swiftError.Value;");
-            csWriter.WriteLine("var _descPtr = SBW_GetErrorDescription(_errorPtr);");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("_errorMessage = _descPtr != IntPtr.Zero");
-            csWriter.Indent++;
-            csWriter.WriteLine("? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? \"Unknown Swift error\"");
-            csWriter.WriteLine(": \"Unknown Swift error\";");
-            csWriter.Indent--;
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("finally");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);");
-            csWriter.WriteLine("SBW_ReleaseError(_errorPtr);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("throw new SwiftRuntimeException(_errorMessage);");
+            csWriter.WriteLine("global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }
@@ -890,30 +877,15 @@ public static class GenericClosureBridgeEmitter
 
         if (methodDecl.Throws)
         {
+            // Route the untyped Swift throw through the single source (SwiftMarshal.ThrowSwiftError) so
+            // the thrown SwiftException carries the live error box on .ErrorHandle, identical to the
+            // canonical method path — instead of eagerly releasing it and throwing a message-only,
+            // identity-lossy SwiftRuntimeException. The surrounding finally still frees the GCHandle.
             csWriter.WriteLine("if (swiftError.Value != null)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("string _errorMessage;");
             csWriter.WriteLine("var _errorPtr = (IntPtr)swiftError.Value;");
-            csWriter.WriteLine("var _descPtr = SBW_GetErrorDescription(_errorPtr);");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("_errorMessage = _descPtr != IntPtr.Zero");
-            csWriter.Indent++;
-            csWriter.WriteLine("? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? \"Unknown Swift error\"");
-            csWriter.WriteLine(": \"Unknown Swift error\";");
-            csWriter.Indent--;
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("finally");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);");
-            csWriter.WriteLine("SBW_ReleaseError(_errorPtr);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("throw new SwiftRuntimeException(_errorMessage);");
+            csWriter.WriteLine("global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }

@@ -43,6 +43,7 @@
         "RegenerateStoreKitSnapshot",
         "RegenStdlibConformances",
         "RuntimeUnitTests",
+        "SeedApiManifestBaseline",
         "SeedParityBaseline",
         "SeedSkipSurfaceBaseline",
         "SeedWrapperStripBaseline",

@@ -2603,21 +2603,13 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private static void EmitSwiftErrorHandling(CSharpWriter writer)
     {
+        // Route the untyped Swift throw through the single source (SwiftMarshal.ThrowSwiftError) so the
+        // thrown SwiftException carries the live error box on .ErrorHandle, identical to the canonical
+        // method path — instead of eagerly releasing it and throwing a message-only, identity-lossy
+        // exception. ThrowSwiftError reads + frees the description and transfers ownership of the error
+        // box to the exception (released on finalization).
         writer.WriteLines("""
-            string _errorMessage;
-            var _descPtr = NativeMethods.SBW_GetErrorDescription(errorOut);
-            try
-            {
-                _errorMessage = _descPtr != IntPtr.Zero
-                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                    : "Unknown Swift error";
-            }
-            finally
-            {
-                if (_descPtr != IntPtr.Zero) NativeMethods.SBW_Free(_descPtr);
-                NativeMethods.SBW_ReleaseError(errorOut);
-            }
-            throw new Swift.Runtime.SwiftException(_errorMessage);
+            global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(errorOut, NativeMethods.SBW_GetErrorDescription(errorOut), NativeMethods.SBW_ReleaseError);
             """);
     }
 

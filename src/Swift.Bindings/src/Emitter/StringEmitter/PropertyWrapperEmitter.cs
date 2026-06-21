@@ -113,8 +113,12 @@ public static class PropertyWrapperEmitter
 
         // 4b. Throwing property getters — the @_cdecl wrapper doesn't emit try/catch for property access.
         // Gate these out until full try/catch + error callback support is added for property wrappers.
+        // Carry a stable SWIFTBIND diagnostic code so the drop is an OBSERVABLE degradation in the
+        // emission-report skip-reason histogram, not an anonymous bucket (the "every degradation is
+        // observable" pattern). Reason is diagnostic-only and never reaches generated code.
         if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
-            return WrapperEligibility.Reject("throwing_property_getter");
+            return WrapperEligibility.Reject(
+                "SWIFTBIND107: throwing property getter dropped — the @_cdecl property wrapper does not emit try/catch for throwing accessors");
 
         // 8. Nested types — ALLOWED. @_cdecl wrapper signatures use C-compatible types
         //    (Int32 raw value for simple enums, UnsafeRawPointer for complex types, void+resultPtr
