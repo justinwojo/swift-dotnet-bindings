@@ -926,7 +926,9 @@ public static class ExistentialContainerFactory
     {
         ArgumentNullException.ThrowIfNull(value);
         var container = new ExistentialContainer0();
-        var metadata = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(value.GetType());
+        // Resolve cache-first through the typed metadata factory (Finding 32); only an unregistered
+        // runtime type falls through to the reflective last resort.
+        var metadata = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(value.GetType());
         if (!metadata.IsValid)
             throw new SwiftRuntimeException(
                 $"Cannot resolve Swift type metadata for '{value.GetType().Name}' when boxing into Any.");

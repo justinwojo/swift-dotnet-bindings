@@ -67,6 +67,107 @@ public class CacheFirstDispatchTests
             => throw new NotSupportedException();
     }
 
+    private sealed class MetadataCacheHitFake : ISwiftObject
+    {
+        public IntPtr Handle { get; }
+        public MetadataCacheHitFake(IntPtr handle) => Handle = handle;
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        // A registered metadata factory must serve this; the static-abstract member throwing proves
+        // the typed cache was consulted instead of the reflection scan.
+        public static TypeMetadata GetTypeMetadata()
+            => throw new InvalidOperationException("static-abstract GetTypeMetadata must not run when a factory is cached");
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private sealed class MetadataCacheMissFake : ISwiftObject
+    {
+        // A distinctive non-zero handle the reflection fallback must find and round-trip.
+        internal static readonly TypeMetadata Sentinel = TypeMetadata.FromHandle(new IntPtr(0x5AFED00D));
+        public IntPtr Handle { get; }
+        public MetadataCacheMissFake(IntPtr handle) => Handle = handle;
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        // No factory is registered for this type, so the reflective last resort must find and invoke
+        // this static member and return its metadata.
+        public static TypeMetadata GetTypeMetadata() => Sentinel;
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private sealed class SeamHitFake : ISwiftObject
+    {
+        public IntPtr Handle { get; }
+        public SeamHitFake(IntPtr handle) => Handle = handle;
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        // The shared resolution seam must serve a registered factory; the throwing static-abstract
+        // member proves the typed cache was consulted instead of the reflection scan.
+        public static TypeMetadata GetTypeMetadata()
+            => throw new InvalidOperationException("static-abstract GetTypeMetadata must not run when a factory is cached");
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private sealed class SeamMissFake : ISwiftObject
+    {
+        internal static readonly TypeMetadata Sentinel = TypeMetadata.FromHandle(new IntPtr(0x5EA31115));
+        public IntPtr Handle { get; }
+        public SeamMissFake(IntPtr handle) => Handle = handle;
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        // No factory registered → the shared seam falls through to the reflective last resort.
+        public static TypeMetadata GetTypeMetadata() => Sentinel;
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private sealed class UncachedEntryFake : ISwiftObject
+    {
+        public IntPtr Handle { get; }
+        public UncachedEntryFake(IntPtr handle) => Handle = handle;
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        // Drives the by-Type public entry (TypeMetadata.TryGetTypeMetadata<T>) into the uncached
+        // resolver; the throwing static-abstract member proves the cache-first seam was used.
+        public static TypeMetadata GetTypeMetadata()
+            => throw new InvalidOperationException("static-abstract GetTypeMetadata must not run when a factory is cached");
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private sealed class RegisterBothFake : ISwiftObject
+    {
+        internal static readonly TypeMetadata Sentinel = TypeMetadata.FromHandle(new IntPtr(0x80F11234));
+        public IntPtr Handle { get; }
+        public RegisterBothFake(IntPtr handle) => Handle = handle;
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        // RegisterSwiftObjectFactory<T> wires both dispatchers to these concrete members.
+        public static TypeMetadata GetTypeMetadata() => Sentinel;
+        public static global::Swift.Runtime.PayloadConstructionSemantics PayloadConstructionSemantics
+            => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+        public static ISwiftObject NewFromPayload(IntPtr payload) => new RegisterBothFake(payload);
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
     private sealed class ConformanceCacheFake : ISwiftObject
     {
         public IntPtr Handle { get; }
@@ -118,6 +219,79 @@ public class CacheFirstDispatchTests
 
         Assert.NotNull(result);
         Assert.Equal(handle, result.Handle);
+    }
+
+    [Fact]
+    public void SwiftObjectHelper_GetTypeMetadata_CacheHit_UsesFactoryNotReflection()
+    {
+        var sentinel = TypeMetadata.FromHandle(new IntPtr(0x7E570001));
+        TypeMetadataDispatcher.Register(typeof(MetadataCacheHitFake), () => sentinel);
+
+        // The typed factory must serve this without invoking the throwing static-abstract member.
+        var result = SwiftObjectHelper<MetadataCacheHitFake>.GetTypeMetadata();
+
+        Assert.Equal(sentinel.Handle, result.Handle);
+    }
+
+    [Fact]
+    public void SwiftObjectHelper_GetTypeMetadata_CacheMiss_FallsBackToReflection()
+    {
+        // No factory registered → the reflective last resort must find the static member and
+        // round-trip its metadata.
+        var result = SwiftObjectHelper<MetadataCacheMissFake>.GetTypeMetadata();
+
+        Assert.Equal(MetadataCacheMissFake.Sentinel.Handle, result.Handle);
+    }
+
+    [Fact]
+    public void ResolveTypeMetadataCacheFirst_CacheHit_UsesFactoryNotReflection()
+    {
+        var sentinel = TypeMetadata.FromHandle(new IntPtr(0x7E570002));
+        TypeMetadataDispatcher.Register(typeof(SeamHitFake), () => sentinel);
+
+        // The seam every non-AOT metadata lookup shares — SwiftObjectHelper, the by-Type uncached
+        // resolver, and CreateAnyRuntime — must serve the typed factory without reflecting.
+        var result = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(typeof(SeamHitFake));
+
+        Assert.Equal(sentinel.Handle, result.Handle);
+    }
+
+    [Fact]
+    public void ResolveTypeMetadataCacheFirst_CacheMiss_FallsBackToReflection()
+    {
+        // No factory registered → the shared seam falls through to the reflective last resort.
+        var result = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(typeof(SeamMissFake));
+
+        Assert.Equal(SeamMissFake.Sentinel.Handle, result.Handle);
+    }
+
+    [Fact]
+    public void TryGetTypeMetadata_Uncached_CacheHit_UsesFactory()
+    {
+        var sentinel = TypeMetadata.FromHandle(new IntPtr(0x7E570003));
+        TypeMetadataDispatcher.Register(typeof(UncachedEntryFake), () => sentinel);
+
+        // Public by-Type entry: a fresh type misses the outer TypeMetadata.Cache and reaches the
+        // uncached resolver, which must resolve cache-first instead of invoking the throwing member.
+        var found = TypeMetadata.TryGetTypeMetadata<UncachedEntryFake>(out var result);
+
+        Assert.True(found);
+        Assert.Equal(sentinel.Handle, result!.Value.Handle);
+    }
+
+    [Fact]
+    public void RegisterSwiftObjectFactory_RegistersMetadataAndPayloadDispatchers()
+    {
+        SwiftMarshal.RegisterSwiftObjectFactory<RegisterBothFake>();
+
+        // The public registration API the generator + SwiftFrameworkResolver call must populate
+        // BOTH the metadata and the NewFromPayload dispatchers from one call.
+        Assert.True(TypeMetadataDispatcher.TryGet(typeof(RegisterBothFake), out var metadata));
+        Assert.Equal(RegisterBothFake.Sentinel.Handle, metadata.Handle);
+
+        var created = NewFromPayloadDispatcher.TryCreate(typeof(RegisterBothFake), new IntPtr(0xC0DE));
+        var typed = Assert.IsType<RegisterBothFake>(created);
+        Assert.Equal(new IntPtr(0xC0DE), typed.Handle);
     }
 
     [Fact]

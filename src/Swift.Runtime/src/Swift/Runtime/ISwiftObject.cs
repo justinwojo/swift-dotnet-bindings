@@ -98,9 +98,17 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
             // The direct dispatch is in a separate method so Mono never compiles it.
             TypeMetadata metadata;
             if (SwiftRuntimeInfo.IsNativeAotRuntime)
+            {
                 metadata = DirectDispatchGetTypeMetadata();
+            }
             else
-                metadata = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type);
+            {
+                // Mono / CoreCLR: resolve cache-first through the typed metadata factory, falling
+                // back to the reflective last resort only for unregistered types (Finding 32). We do
+                // not register here — the registration lambda's static-abstract T.GetTypeMetadata
+                // would assert for a shared generic.
+                metadata = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(type);
+            }
 
             if (!metadata.IsValid)
             {
@@ -118,10 +126,14 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static TypeMetadata DirectDispatchGetTypeMetadata()
     {
-        // Register NewFromPayload factory so unconstrained callers
-        // (MarshalFromSwift<T>) can create instances without reflection.
+        // Register both concrete factories so unconstrained by-Type callers — MarshalFromSwift<T>
+        // and the metadata cache-first seam (Finding 32) — resolve without reflection. Registering
+        // here too keeps the metadata dispatcher self-healing in lockstep with NewFromPayload on
+        // NativeAOT, where T is concrete and these deferred static-abstract lambdas are safe.
         Swift.Runtime.InteropServices.NewFromPayloadDispatcher.Register(
             typeof(T), handle => (object)T.NewFromPayload(handle));
+        Swift.Runtime.InteropServices.TypeMetadataDispatcher.Register(
+            typeof(T), () => T.GetTypeMetadata());
         return T.GetTypeMetadata();
     }
 
@@ -172,8 +184,34 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
 internal static class SwiftObjectReflectionHelper
 {
     /// <summary>
-    /// Invokes GetTypeMetadata() on the concrete type via reflection.
-    /// Searches for the explicit interface implementation (ISwiftObject.GetTypeMetadata).
+    /// Resolves a type's Swift metadata cache-first (Finding 32): a type registered through
+    /// <see cref="InteropServices.TypeMetadataDispatcher"/> — every generator-emitted type and the
+    /// runtime's own concrete ISwiftObject types — resolves via its concrete-typed factory delegate;
+    /// only a genuinely-unregistered type (an open Runtime generic whose concrete instantiation cannot
+    /// be registered from its shared-generic call site) falls through to the reflective
+    /// <see cref="InvokeGetTypeMetadata"/> last resort. This is the single seam the cache-first
+    /// metadata lookups share — the Mono/CoreCLR <see cref="SwiftObjectHelper{T}.GetTypeMetadata"/>
+    /// branch and the by-Type resolvers (<c>TypeMetadata.TryGetTypeMetadataUncached</c>,
+    /// <c>ExistentialContainerFactory.CreateAnyRuntime</c>, which use it on all runtimes) — so the
+    /// cache-first contract is expressed and asserted in one place.
+    /// </summary>
+    internal static TypeMetadata ResolveTypeMetadataCacheFirst(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type)
+    {
+        if (InteropServices.TypeMetadataDispatcher.TryGet(type, out var metadata))
+            return metadata;
+        return InvokeGetTypeMetadata(type);
+    }
+
+    /// <summary>
+    /// Invokes GetTypeMetadata() on the concrete type via reflection, searching for the explicit
+    /// interface implementation (ISwiftObject.GetTypeMetadata). This is the reflective <b>last resort</b>
+    /// for the metadata lookups (Finding 32): every registered type — all generator-emitted types and
+    /// the runtime's own concrete ISwiftObject types — resolves through the typed
+    /// <see cref="InteropServices.TypeMetadataDispatcher"/> first, so this name-matched scan runs only
+    /// for genuinely-unregistered types (open Runtime generics whose concrete instantiation cannot be
+    /// registered from their shared-generic call site). Returns <see cref="TypeMetadata.Zero"/> when no
+    /// such member is found, leaving the caller to surface the failure loudly via its IsValid check.
     /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2070",
         Justification = "GetTypeMetadata is always present on ISwiftObject implementations; types preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]

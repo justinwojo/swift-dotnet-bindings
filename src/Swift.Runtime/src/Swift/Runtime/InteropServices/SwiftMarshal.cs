@@ -45,6 +45,46 @@ internal static class NewFromPayloadDispatcher
 }
 
 /// <summary>
+/// Type-keyed registry of concrete <c>GetTypeMetadata</c> factories (Finding 32). Mirrors
+/// <see cref="NewFromPayloadDispatcher"/>: generated module initializers register a concrete-typed
+/// delegate for every emitted type (via <see cref="SwiftMarshal.RegisterSwiftObjectFactory{T}"/>) on
+/// all runtimes, so the Mono / CoreCLR metadata lookups consult a typed delegate instead of a
+/// name-matched reflection scan. The factory closes over the concrete type, so invoking it never
+/// performs static-virtual dispatch in a shared-generic context (the Mono assertion the reflection
+/// fallback exists to avoid). Genuinely-unregistered types — open Runtime generics such as
+/// <c>SwiftArray&lt;Element&gt;</c> whose concrete instantiation cannot be registered from their
+/// shared-generic call site — return false here and fall through to the reflective last resort.
+/// </summary>
+internal static class TypeMetadataDispatcher
+{
+    private static readonly ConcurrentDictionary<Type, Func<TypeMetadata>> _factories = new();
+
+    /// <summary>
+    /// Registers a metadata factory for a type. Safe to call multiple times — later calls are no-ops.
+    /// </summary>
+    internal static void Register(Type type, Func<TypeMetadata> factory)
+    {
+        _factories.TryAdd(type, factory);
+    }
+
+    /// <summary>
+    /// Resolves a type's metadata through its registered factory. Returns false (and
+    /// <see cref="TypeMetadata.Zero"/>) when no factory is registered, signalling the caller to fall
+    /// back to the reflective last resort.
+    /// </summary>
+    internal static bool TryGet(Type type, out TypeMetadata metadata)
+    {
+        if (_factories.TryGetValue(type, out var factory))
+        {
+            metadata = factory();
+            return true;
+        }
+        metadata = TypeMetadata.Zero;
+        return false;
+    }
+}
+
+/// <summary>
 /// Registry of GetProtocolConformanceDescriptor factory delegates, populated from constrained
 /// code paths (ProtocolConformanceDescriptorHelper) and consumed from unconstrained code paths
 /// (ProtocolConformanceDescriptor.TryGet). Keyed by (Type, ProtocolType) pairs.
@@ -663,13 +703,20 @@ public static class SwiftMarshal
     }
 
     /// <summary>
-    /// Pre-registers a NewFromPayload factory for a type so NativeAOT can create instances
-    /// without reflection. Called by generated [ModuleInitializer] code at assembly load time.
+    /// Pre-registers a type's concrete factories so the runtime can create instances and resolve
+    /// type metadata without reflection. Called by generated [ModuleInitializer] code (and the
+    /// runtime's own resolver for its concrete ISwiftObject types) at assembly load time. T is always
+    /// a concrete type here, so both registered delegates close over a monomorphic static-abstract
+    /// call — safe to create and later invoke on Mono, unlike a shared-generic static-virtual dispatch.
+    /// Both registrations are deferred (the metadata accessor is not invoked at registration time), so
+    /// registering a generic type's metadata factory cannot trip the Swift-runtime SIGSEGV that calling
+    /// the accessor during module init can.
     /// </summary>
     /// <typeparam name="T">The ISwiftObject type to register.</typeparam>
     public static void RegisterSwiftObjectFactory<T>() where T : ISwiftObject
     {
         NewFromPayloadDispatcher.Register(typeof(T), handle => (object)T.NewFromPayload(handle));
+        TypeMetadataDispatcher.Register(typeof(T), () => T.GetTypeMetadata());
     }
 
     /// <summary>

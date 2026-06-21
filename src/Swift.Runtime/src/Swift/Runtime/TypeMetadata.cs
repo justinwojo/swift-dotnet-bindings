@@ -355,12 +355,13 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         var type = typeof(T);
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
-            // Invoke GetTypeMetadata directly on the concrete type via reflection,
-            // bypassing SwiftObjectHelper<T> generic instantiation. Static virtual
-            // dispatch in generic contexts crashes Mono JIT (jit-info.c:918).
-            // On NativeAOT, reflection works because methods are preserved via
+            // Resolve cache-first through the typed metadata factory, falling back to the reflective
+            // last resort only for unregistered types (Finding 32). The reflection path invokes
+            // GetTypeMetadata directly on the concrete type, bypassing SwiftObjectHelper<T> generic
+            // instantiation — static virtual dispatch in generic contexts crashes Mono JIT
+            // (jit-info.c:918). On NativeAOT, reflection works because methods are preserved via
             // DynamicallyAccessedMembers annotations on InvokeGetTypeMetadata.
-            var candidate = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type);
+            var candidate = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(type);
 
             // GetTypeMetadata can return an IntPtr.Zero
             if (candidate.IsValid)
@@ -373,7 +374,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             // on generic type instantiations (e.g., SwiftOptional<SwiftString>). Trigger
             // type initialization, which runs static field initializers that call
             // SwiftObjectHelper<T>.GetTypeMetadata() → DirectDispatchGetTypeMetadata(),
-            // populating both the metadata cache and NewFromPayload factory.
+            // populating the metadata cache, the NewFromPayload factory, and the typed metadata factory.
             if (SwiftRuntimeInfo.IsNativeAotRuntime)
             {
                 try
