@@ -1,7 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <PackageId>SwiftBindings.Sdk</PackageId>
-    <PackageVersion>0.0.0-dev</PackageVersion>
+    <!-- Single-sourced from Directory.Build.props (overridden via -p: at pack time). -->
+    <PackageVersion>$(SwiftBindingsSdkVersion)</PackageVersion>
+    <!-- Sdk.props ships verbatim and is consumed at end-user build time, so it cannot read our
+         repo properties; the pack pipeline bakes a version-stamped copy and points this property
+         at it. Defaults to the source file for a plain `dotnet pack`. -->
+    <SwiftBindingsSdkPropsToPack Condition="'$(SwiftBindingsSdkPropsToPack)' == ''">Sdk/Sdk.props</SwiftBindingsSdkPropsToPack>
     <Description>MSBuild SDK for generating C# bindings from Swift xcframeworks. Drop an xcframework into your project and run dotnet build.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -22,7 +27,7 @@
 
   <!-- Pack Sdk.props and Sdk.targets into Sdk/ (MSBuild SDK convention) -->
   <ItemGroup>
-    <None Include="Sdk/Sdk.props" Pack="true" PackagePath="Sdk/" />
+    <None Include="$(SwiftBindingsSdkPropsToPack)" Pack="true" PackagePath="Sdk/Sdk.props" />
     <None Include="Sdk/Sdk.targets" Pack="true" PackagePath="Sdk/" />
     <None Include="Sdk/scripts/*.sh" Pack="true" PackagePath="Sdk/scripts/" />
   </ItemGroup>

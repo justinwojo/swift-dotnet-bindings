@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <PackageId>SwiftBindings.Templates</PackageId>
-    <PackageVersion>0.0.0-dev</PackageVersion>
+    <!-- Single-sourced from Directory.Build.props (overridden via -p: at pack time). -->
+    <PackageVersion>$(SwiftBindingsSdkVersion)</PackageVersion>
     <Description>dotnet new templates for Swift binding projects. Creates a project configured with the SwiftBindings.Sdk MSBuild SDK.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -22,6 +23,21 @@
 
   <ItemGroup>
     <Content Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**" />
+    <!-- template.json ships verbatim, so it cannot read our repo properties. The pack pipeline
+         bakes a copy whose sdkVersion defaultValue is the real shipped version (its `replaces`
+         token stays 0.0.0-dev) and points this property at it; the source default 0.0.0-dev is
+         kept for a plain `dotnet pack`. The baked copy lives outside the project cone, where
+         NuGet's content mechanism ignores Link and would flatten it to content/template.json, so
+         the two destination paths are pinned explicitly. They mirror exactly where the glob above
+         packs the in-cone original (the doubled content/ is the glob file's own content/ prefix
+         under the pack-added content/ root; netstandard2.0 is this package's sole TargetFramework),
+         so the template engine finds the baked copy at the unchanged path. -->
+    <Content Remove="content/swift-binding/.template.config/template.json"
+             Condition="'$(SwiftBindingsTemplateJsonToPack)' != ''" />
+    <Content Include="$(SwiftBindingsTemplateJsonToPack)"
+             Condition="'$(SwiftBindingsTemplateJsonToPack)' != ''"
+             Pack="true"
+             PackagePath="content/content/swift-binding/.template.config/template.json;contentFiles/any/netstandard2.0/content/swift-binding/.template.config/template.json" />
     <None Include="../../README.md" Pack="true" PackagePath="" />
     <None Include="../../LICENSE" Pack="true" PackagePath="" />
     <None Include="../legal/NOTICE.md" Pack="true" PackagePath="" />

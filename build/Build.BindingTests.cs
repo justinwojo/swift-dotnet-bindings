@@ -506,14 +506,33 @@ partial class Build
 
     void EnsureGeneratorBuilt()
     {
-        if (!File.Exists(GeneratorDll))
+        // Freshness check, not existence check. A stale generator dll — source edited but
+        // the dll not rebuilt — would otherwise be trusted unconditionally, and every
+        // binding-tests gate would silently run the OLD generator (the recurring
+        // "stale generator binary masks your edit" footgun). Reuse the same SHA-fingerprint
+        // guard Validation already uses (ComputeSourceFingerprint + a .build-stamp) so that
+        // editing generator source and running ANY nuke binding-tests variant rebuilds the
+        // generator. Keep the generator-only build here — not Validation's heavier
+        // generator+runtime+supplement rebuild — so a BindingTests inner-loop run does not
+        // pay for a runtime/supplement rebuild it doesn't need. The stamp lives next to the
+        // dll so a clean that wipes the dll also wipes the stamp (fail-safe: rebuild).
+        var buildStamp = GeneratorDll.Parent / ".bindingtests-generator-stamp";
+        var fingerprint = ComputeSourceFingerprint();
+        if (File.Exists(GeneratorDll) &&
+            File.Exists(buildStamp) &&
+            File.ReadAllText(buildStamp).Trim() == fingerprint)
         {
-            Log.Information("Building generator...");
-            DotNetBuild(s => s
-                .SetProjectFile(GeneratorProject)
-                .SetConfiguration("Debug")
-                .SetVerbosity(DotNetVerbosity.quiet));
+            return;
         }
+
+        Log.Information("Building generator (source changed or dll missing)...");
+        DotNetBuild(s => s
+            .SetProjectFile(GeneratorProject)
+            .SetConfiguration("Debug")
+            .SetVerbosity(DotNetVerbosity.quiet));
+
+        Directory.CreateDirectory(buildStamp.Parent);
+        File.WriteAllText(buildStamp, fingerprint);
     }
 
     // ============================================================

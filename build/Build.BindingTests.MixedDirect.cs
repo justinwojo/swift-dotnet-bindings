@@ -96,7 +96,7 @@ partial class Build
 
         using var scope = new VersionScope(MixedDirectVersion, RootDirectory, MixedDirectAppleVersion);
 
-        BuildMixedDirectFeed(nupkgDir);
+        BuildMixedDirectFeed(nupkgDir, scope);
 
         Log.Information("=== mixed-direct: building 2-slice (device + simulator) iOS mixed xcframework ===");
         // Reuse the shared 2-slice STATIC iOS mixed xcframework builder (Build.BindingTests.MixedPack.cs):
@@ -160,17 +160,17 @@ partial class Build
     // Identical in shape to --mixed-pack's feed (publish generator into SDK tools → pack the three
     // core packages → clear the SwiftBindings.* NuGet cache so a stale same-version entry from a
     // prior run can't shadow these), minus the fixture (there is no fixture package in path b).
-    void BuildMixedDirectFeed(AbsolutePath nupkgDir)
+    void BuildMixedDirectFeed(AbsolutePath nupkgDir, VersionScope scope)
     {
         Log.Information("=== mixed-direct: building local feed at {Version} ===", MixedDirectVersion);
 
         Log.Information("  [1/3] Publishing generator into SDK tools");
-        DotNetPublish(s => s
+        DotNetPublish(s => scope.Apply(s
             .SetProject(SourceDir / "Swift.Bindings" / "src" / "Swift.Bindings.csproj")
             .SetConfiguration("Release")
             .SetOutput(SourceDir / "Swift.Bindings.Sdk" / "tools" / DotNetTfm / "any")
             .EnableNoLogo()
-            .SetVerbosity(DotNetVerbosity.quiet));
+            .SetVerbosity(DotNetVerbosity.quiet)));
 
         Log.Information("  [2/3] Packing Runtime + Sdk + Apple");
         foreach (var csproj in new[]
@@ -180,12 +180,12 @@ partial class Build
             SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj",
         })
         {
-            DotNetPack(s => s
+            DotNetPack(s => scope.Apply(s
                 .SetProject(csproj)
                 .SetConfiguration("Release")
                 .SetOutputDirectory(nupkgDir)
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
         }
 
         Log.Information("  [3/3] Clearing NuGet cache for throwaway-version packages");

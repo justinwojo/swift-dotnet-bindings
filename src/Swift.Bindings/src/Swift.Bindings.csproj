@@ -35,4 +35,33 @@
                       LogicalName="Swift.Bindings.apple-types-manifest.json" />
   </ItemGroup>
 
+  <!-- Single-source the generator's DefaultSwiftRuntimeVersion constant from
+       $(SwiftBindingsSdkVersion) (Directory.Build.props default 0.0.0-dev; overridden via -p: at
+       pack/publish time). Emitting it into obj/ (never committed) replaces the former regex-stamp
+       of a literal into BindingProjectEmitter.cs source: the published generator embeds the real
+       shipped version while the working tree stays clean. WriteOnlyWhenDifferent keeps an
+       unchanged version from forcing a recompile; the file lives under $(IntermediateOutputPath)
+       so the SDK's default Compile glob already excludes it (no duplicate-item error). -->
+  <Target Name="_GenerateSwiftBindingsVersionConstant" BeforeTargets="BeforeCompile;CoreCompile">
+    <PropertyGroup>
+      <_GeneratedVersionFile>$(IntermediateOutputPath)GeneratedVersion.cs</_GeneratedVersionFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_GeneratedVersionLine Include="// &lt;auto-generated&gt; Single-sourced version constant. Do not edit." />
+      <_GeneratedVersionLine Include="namespace BindingsGeneration" />
+      <_GeneratedVersionLine Include="{" />
+      <_GeneratedVersionLine Include="    public static partial class BindingProjectEmitter" />
+      <_GeneratedVersionLine Include="    {" />
+      <_GeneratedVersionLine Include="        internal const string DefaultSwiftRuntimeVersion = &quot;$(SwiftBindingsSdkVersion)&quot;%3B" />
+      <_GeneratedVersionLine Include="    }" />
+      <_GeneratedVersionLine Include="}" />
+    </ItemGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_GeneratedVersionFile)" Lines="@(_GeneratedVersionLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(_GeneratedVersionFile)" />
+      <FileWrites Include="$(_GeneratedVersionFile)" />
+    </ItemGroup>
+  </Target>
+
 </Project>

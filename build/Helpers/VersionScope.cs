@@ -2,179 +2,161 @@
 // Licensed under the MIT License.
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using Nuke.Common.IO;
+using Nuke.Common.Tools.DotNet;
 
 /// <summary>
-/// Temporarily stamps version numbers in project files for NuGet packaging.
-/// Restores originals on Dispose (even on exception).
-/// Replaces the backup-sed-restore-on-trap pattern in pack-all.sh.
+/// Carries the shipped version(s) into a NuGet pack/publish without mutating any
+/// source-controlled file.
 /// </summary>
 /// <remarks>
-/// Runtime, SDK, Templates, Sdk.props, template metadata, and the generator's
-/// <c>DefaultSwiftRuntimeVersion</c> constant all share the main version.
-/// The Apple supplement (<c>SwiftBindings.Apple</c>) is versioned per Apple
-/// SDK train and stamped independently, so consumers can adopt a new
-/// supplement release without waiting on a Runtime/SDK bump. When
-/// <paramref name="appleVersion"/> is null the main version is used for the
-/// supplement as well, preserving the pre-split behavior.
+/// The version a package ships under reaches every artifact through MSBuild
+/// properties rather than by rewriting checked-in files:
+/// <list type="bullet">
+///   <item><c>SwiftBindingsSdkVersion</c> / <c>SwiftBindingsAppleVersion</c> feed the
+///   four <c>&lt;PackageVersion&gt;</c> elements (and bake the generator's
+///   <c>DefaultSwiftRuntimeVersion</c> const via the obj/GeneratedVersion.cs target).</item>
+///   <item><c>SwiftRuntimePackageVersionRange</c> floors the Apple supplement's outbound
+///   Runtime dependency to <c>[X.Y.Z,)</c>.</item>
+///   <item><c>SwiftBindingsSdkPropsToPack</c> / <c>SwiftBindingsTemplateJsonToPack</c> point
+///   the SDK and Templates packs at version-baked copies of <c>Sdk.props</c> and
+///   <c>template.json</c> staged under the gitignored <c>artifacts/</c> tree — those two files
+///   ship verbatim and are consumed at end-user build time, so they cannot read repo
+///   properties and must instead carry the real version in their own content.</item>
+/// </list>
+/// The source files keep a <c>0.0.0-dev</c> sentinel so a plain <c>dotnet pack</c> still
+/// produces something coherent; the real version only ever lives in the staged copies and the
+/// passed properties, never in the working tree. Because nothing is mutated, there is no
+/// backup/restore — <see cref="Dispose"/> only removes the staged copies.
+///
+/// The Apple supplement (<c>SwiftBindings.Apple</c>) is versioned per Apple SDK train and
+/// stamped independently, so consumers can adopt a new supplement release without waiting on a
+/// Runtime/SDK bump. When <paramref name="appleVersion"/> is null the main version is used for
+/// the supplement as well, preserving the pre-split behavior.
 /// </remarks>
 public sealed class VersionScope : IDisposable
 {
-    private readonly Dictionary<string, byte[]> _originals = new();
+    private readonly string _version;
+    private readonly string _appleVersion;
+    private readonly string _supplementRuntimeRange;
+    private readonly AbsolutePath _stagingDir;
+    private readonly string _stagedSdkProps;
+    private readonly string _stagedTemplateJson;
 
     public VersionScope(string version, AbsolutePath repoRoot, string? appleVersion = null)
     {
-        var effectiveAppleVersion = appleVersion ?? version;
+        _version = version;
+        _appleVersion = appleVersion ?? version;
+        // Floor-only range for the supplement's outbound Runtime dependency. RuntimeVersionRange
+        // is the shared single source of truth — link-compiled by both the generator (standalone
+        // csproj emission) and this build project — so the floor and the SDK's bounded range
+        // cannot drift.
+        _supplementRuntimeRange = BindingsGeneration.RuntimeVersionRange.BuildMinimumOnly(version);
 
-        var files = new[]
-        {
-            repoRoot / "src" / "Swift.Runtime" / "src" / "Swift.Runtime.csproj",
-            repoRoot / "src" / "Swift.Bindings.Sdk" / "Swift.Bindings.Sdk.csproj",
-            repoRoot / "src" / "Swift.Bindings.Templates" / "Swift.Bindings.Templates.csproj",
-            repoRoot / "src" / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj",
-            repoRoot / "src" / "Swift.Bindings.Sdk" / "Sdk" / "Sdk.props",
-            repoRoot / "src" / "Swift.Bindings.Templates" / "content" / "swift-binding" / "ProjectName.csproj",
-            repoRoot / "src" / "Swift.Bindings.Templates" / "content" / "swift-binding" / ".template.config" / "template.json",
-            repoRoot / "src" / "Swift.Bindings" / "src" / "Emitter" / "BindingProjectEmitter.cs",
-        };
+        var sourceSdkProps = repoRoot / "src" / "Swift.Bindings.Sdk" / "Sdk" / "Sdk.props";
+        var sourceTemplateJson = repoRoot / "src" / "Swift.Bindings.Templates" / "content"
+            / "swift-binding" / ".template.config" / "template.json";
+        foreach (var f in new[] { sourceSdkProps, sourceTemplateJson })
+            if (!File.Exists(f))
+                throw new FileNotFoundException($"Version source file not found: {f}");
 
-        foreach (var file in files)
-        {
-            if (!File.Exists(file))
-                throw new FileNotFoundException($"Version file not found: {file}");
-            _originals[file] = File.ReadAllBytes(file);
-        }
+        // Stage version-baked copies under the gitignored artifacts/ tree. Clean + recreate so a
+        // re-run at the same version cannot pick up a stale baked copy from a prior run.
+        _stagingDir = repoRoot / "artifacts" / "version-staging" / version;
+        if (Directory.Exists(_stagingDir))
+            Directory.Delete(_stagingDir, recursive: true);
+        Directory.CreateDirectory(_stagingDir);
 
-        // Apply version stamps — XML files via XDocument, others via text/JSON.
-        // Apple supplement stamps from appleVersion; everything else from the main version.
-        StampPackageVersion(files[0], version);                 // Runtime .csproj
-        StampPackageVersion(files[1], version);                 // SDK .csproj
-        StampPackageVersion(files[2], version);                 // Templates .csproj
-        StampPackageVersion(files[3], effectiveAppleVersion);   // Apple .csproj
-        StampSupplementRuntimeRange(files[3], version);         // Apple .csproj Runtime dep range
-        StampSdkProps(files[4], version, effectiveAppleVersion); // _SwiftBindingSdkVersion + SwiftRuntimeVersion + SwiftAppleSupplementVersion
-        StampTemplateSdk(files[5], version);                    // Sdk="SwiftBindings.Sdk/..."
-        StampTemplateJson(files[6], version);                   // template.json sdkVersion symbol
-        StampGeneratorDefault(files[7], version);               // DefaultSwiftRuntimeVersion constant
+        _stagedSdkProps = _stagingDir / "Sdk.props";
+        _stagedTemplateJson = _stagingDir / "template.json";
+
+        BakeSdkProps(sourceSdkProps, _stagedSdkProps, version, _appleVersion);
+        BakeTemplateJson(sourceTemplateJson, _stagedTemplateJson, version);
     }
+
+    /// <summary>
+    /// Adds the version properties to a pack invocation. Properties a given project does not
+    /// read are simply ignored, so one uniform application is correct for every package.
+    /// </summary>
+    public DotNetPackSettings Apply(DotNetPackSettings settings) =>
+        settings
+            .SetProperty("SwiftBindingsSdkVersion", _version)
+            .SetProperty("SwiftBindingsAppleVersion", _appleVersion)
+            .SetProperty("SwiftRuntimePackageVersionRange", MsBuildPropertyValue.Escape(_supplementRuntimeRange))
+            .SetProperty("SwiftBindingsSdkPropsToPack", _stagedSdkProps)
+            .SetProperty("SwiftBindingsTemplateJsonToPack", _stagedTemplateJson);
+
+    /// <summary>
+    /// Adds the version properties to a publish invocation (used for the generator publish, which
+    /// bakes <c>DefaultSwiftRuntimeVersion</c> from <c>SwiftBindingsSdkVersion</c>).
+    /// </summary>
+    public DotNetPublishSettings Apply(DotNetPublishSettings settings) =>
+        settings
+            .SetProperty("SwiftBindingsSdkVersion", _version)
+            .SetProperty("SwiftBindingsAppleVersion", _appleVersion)
+            .SetProperty("SwiftRuntimePackageVersionRange", MsBuildPropertyValue.Escape(_supplementRuntimeRange))
+            .SetProperty("SwiftBindingsSdkPropsToPack", _stagedSdkProps)
+            .SetProperty("SwiftBindingsTemplateJsonToPack", _stagedTemplateJson);
 
     public void Dispose()
     {
-        Exception? firstError = null;
-        foreach (var (file, bytes) in _originals)
+        try
         {
-            try
-            {
-                File.WriteAllBytes(file, bytes);
-            }
-            catch (Exception ex)
-            {
-                firstError ??= ex;
-            }
+            if (Directory.Exists(_stagingDir))
+                Directory.Delete(_stagingDir, recursive: true);
         }
-        if (firstError != null)
-            throw new AggregateException("Failed to restore one or more version files", firstError);
+        catch
+        {
+            // Staging lives under the gitignored artifacts/ tree; a failed cleanup only leaves a
+            // stale baked copy that the next same-version run overwrites. Not worth throwing over.
+        }
     }
 
     /// <summary>
-    /// Sets the <PackageVersion> element value in a .csproj file.
+    /// Bakes a version-stamped copy of Sdk.props. Sets <c>_SwiftBindingSdkVersion</c>,
+    /// <c>SwiftRuntimeVersion</c>, <c>SwiftRuntimePackageVersionRange</c> (the SDK-emitted
+    /// PackageReference range — bounded, not bare, so NuGet cannot float consumers across a
+    /// compatibility boundary), and <c>SwiftAppleSupplementVersion</c>.
     /// </summary>
-    private static void StampPackageVersion(string file, string version)
+    private static void BakeSdkProps(string source, string dest, string version, string appleVersion)
     {
-        var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
-        var element = doc.Descendants("PackageVersion").FirstOrDefault()
-            ?? throw new InvalidOperationException($"<PackageVersion> not found in {file}");
-        element.Value = version;
-        SaveXml(doc, file);
+        var doc = XDocument.Load(source, LoadOptions.PreserveWhitespace);
+        SetElementValue(doc, source, "_SwiftBindingSdkVersion", version);
+        SetElementValue(doc, source, "SwiftRuntimeVersion", version);
+        SetElementValue(doc, source, "SwiftRuntimePackageVersionRange",
+            BindingsGeneration.RuntimeVersionRange.Build(version));
+        SetElementValue(doc, source, "SwiftAppleSupplementVersion", appleVersion);
+        SaveXml(doc, dest);
+    }
+
+    private static void SetElementValue(XDocument doc, string source, string name, string value)
+    {
+        var element = doc.Descendants(name).FirstOrDefault()
+            ?? throw new InvalidOperationException($"<{name}> not found in {source}");
+        element.Value = value;
     }
 
     /// <summary>
-    /// Sets the <SwiftRuntimePackageVersionRange> property in the supplement csproj
-    /// so its Runtime ProjectReference &lt;Version&gt; metadata evaluates to a minimum-only
-    /// floor range (<c>[X.Y.Z,)</c>) at pack time. The supplement is always brokered by
-    /// <c>SwiftBindings.Sdk</c>, whose own bounded Runtime <c>PackageReference</c>
-    /// supplies the actual compatibility contract. Declaring the supplement's outbound
-    /// Runtime dep as a floor lets a single shipped supplement nupkg ride forward across
-    /// Runtime/SDK minor bumps without a no-op repack.
-    /// </summary>
-    private static void StampSupplementRuntimeRange(string file, string version)
-    {
-        var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
-        var element = doc.Descendants("SwiftRuntimePackageVersionRange").FirstOrDefault()
-            ?? throw new InvalidOperationException($"<SwiftRuntimePackageVersionRange> not found in {file}");
-        element.Value = BindingsGeneration.RuntimeVersionRange.BuildMinimumOnly(version);
-        SaveXml(doc, file);
-    }
-
-    /// <summary>
-    /// Sets <_SwiftBindingSdkVersion>, <SwiftRuntimeVersion>,
-    /// <SwiftRuntimePackageVersionRange>, and <SwiftAppleSupplementVersion> in Sdk.props.
-    /// The range is the single source of truth for the SDK-emitted PackageReference —
-    /// bare "0.8.0" would let NuGet float consumers into 0.9.0 where compatibility is not
-    /// guaranteed. The supplement version is stamped separately so consumers can adopt a
-    /// new Apple SDK train without waiting on a Runtime/SDK bump.
-    /// </summary>
-    private static void StampSdkProps(string file, string version, string appleVersion)
-    {
-        var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
-
-        var sdkVersion = doc.Descendants("_SwiftBindingSdkVersion").FirstOrDefault()
-            ?? throw new InvalidOperationException($"<_SwiftBindingSdkVersion> not found in {file}");
-        sdkVersion.Value = version;
-
-        var runtimeVersion = doc.Descendants("SwiftRuntimeVersion").FirstOrDefault()
-            ?? throw new InvalidOperationException($"<SwiftRuntimeVersion> not found in {file}");
-        runtimeVersion.Value = version;
-
-        var runtimeRange = doc.Descendants("SwiftRuntimePackageVersionRange").FirstOrDefault()
-            ?? throw new InvalidOperationException($"<SwiftRuntimePackageVersionRange> not found in {file}");
-        // RuntimeVersionRange is the shared single source of truth — the same file
-        // is link-compiled by both the generator (for standalone csproj emission via
-        // BindingProjectEmitter.BuildBoundedRuntimeVersionRange) and this build project
-        // (for Sdk.props stamping). Two callers, one implementation, zero drift risk.
-        runtimeRange.Value = BindingsGeneration.RuntimeVersionRange.Build(version);
-
-        var appleSupplementVersion = doc.Descendants("SwiftAppleSupplementVersion").FirstOrDefault()
-            ?? throw new InvalidOperationException($"<SwiftAppleSupplementVersion> not found in {file}");
-        appleSupplementVersion.Value = appleVersion;
-
-        SaveXml(doc, file);
-    }
-
-    /// <summary>
-    /// Updates the Sdk="SwiftBindings.Sdk/..." attribute on the root Project element.
-    /// </summary>
-    private static void StampTemplateSdk(string file, string version)
-    {
-        var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
-        var root = doc.Root
-            ?? throw new InvalidOperationException($"No root element in {file}");
-        var sdkAttr = root.Attribute("Sdk")
-            ?? throw new InvalidOperationException($"No Sdk attribute on <Project> in {file}");
-        sdkAttr.Value = $"SwiftBindings.Sdk/{version}";
-        SaveXml(doc, file);
-    }
-
-    /// <summary>
-    /// Updates the sdkVersion symbol's defaultValue in template.json.
+    /// Bakes a version-stamped copy of template.json: only the <c>sdkVersion</c> symbol's
+    /// <c>defaultValue</c> becomes the real version. Its <c>replaces</c> token deliberately stays
+    /// the source <c>0.0.0-dev</c> sentinel — that is the literal string packed verbatim into
+    /// ProjectName.csproj's <c>Sdk</c> attribute, which the template engine swaps for
+    /// <c>defaultValue</c> when a user runs <c>dotnet new</c>. Rewriting <c>replaces</c> would
+    /// break that swap.
     /// </summary>
     /// <remarks>
-    /// JsonNode's property iteration order tracks insertion order, so blind assignment to
-    /// <c>sdk["defaultValue"] / sdk["replaces"]</c> either preserves existing order (if the
-    /// keys were present) or appends in call order (if they weren't). Mixed-case inputs would
-    /// re-serialize with keys in different orders across stamp calls, producing noisy diffs
-    /// on every pack. Rebuild the symbol object with a fixed key order so the on-disk form is
-    /// byte-stable regardless of the input template's key order.
+    /// JsonNode's property iteration order tracks insertion order, so the symbol object is rebuilt
+    /// with a fixed key order to keep the on-disk form byte-stable regardless of the source's key
+    /// order.
     /// </remarks>
-    private static void StampTemplateJson(string file, string version)
+    private static void BakeTemplateJson(string source, string dest, string version)
     {
-        var node = JsonNode.Parse(File.ReadAllText(file))!;
+        var node = JsonNode.Parse(File.ReadAllText(source))!;
         var symbols = node["symbols"]!.AsObject();
         var existing = symbols["sdkVersion"]!.AsObject();
         var rebuilt = new JsonObject();
@@ -183,7 +165,7 @@ public sealed class VersionScope : IDisposable
         rebuilt["datatype"] = existing["datatype"]?.DeepClone();
         rebuilt["description"] = existing["description"]?.DeepClone();
         rebuilt["defaultValue"] = version;
-        rebuilt["replaces"] = version;
+        rebuilt["replaces"] = existing["replaces"]?.DeepClone();
         foreach (var kvp in existing)
         {
             if (rebuilt.ContainsKey(kvp.Key)) continue;
@@ -193,19 +175,7 @@ public sealed class VersionScope : IDisposable
         foreach (var key in rebuilt.Where(kvp => kvp.Value is null).Select(kvp => kvp.Key).ToList())
             rebuilt.Remove(key);
         symbols["sdkVersion"] = rebuilt;
-        File.WriteAllText(file, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
-    }
-
-    /// <summary>
-    /// Updates the DefaultSwiftRuntimeVersion constant in BindingProjectEmitter.cs.
-    /// </summary>
-    private static void StampGeneratorDefault(string file, string version)
-    {
-        var content = File.ReadAllText(file);
-        content = System.Text.RegularExpressions.Regex.Replace(content,
-            @"DefaultSwiftRuntimeVersion\s*=\s*""[^""]*""",
-            $@"DefaultSwiftRuntimeVersion = ""{version}""");
-        File.WriteAllText(file, content);
+        File.WriteAllText(dest, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
     }
 
     /// <summary>

@@ -74,12 +74,12 @@ partial class Build
             // 1. Publish generator into the SDK's tools/ directory so the SDK's
             //    tools/**/* pack glob picks it up. Mirrors PackGate step 1.
             Log.Information("  [1/4] Publishing generator");
-            DotNetPublish(s => s
+            DotNetPublish(s => scope.Apply(s
                 .SetProject(SourceDir / "Swift.Bindings" / "src" / "Swift.Bindings.csproj")
                 .SetConfiguration("Release")
                 .SetOutput(SourceDir / "Swift.Bindings.Sdk" / "tools" / DotNetTfm / "any")
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
 
             // 2. Pack Runtime + SDK + Apple at the throwaway version.
             Log.Information("  [2/4] Packing Runtime + Sdk + Apple");
@@ -97,12 +97,12 @@ partial class Build
                 SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj",
             })
             {
-                DotNetPack(s => s
+                DotNetPack(s => scope.Apply(s
                     .SetProject(csproj)
                     .SetConfiguration("Release")
                     .SetOutputDirectory(nupkgDir)
                     .EnableNoLogo()
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                    .SetVerbosity(DotNetVerbosity.quiet)));
             }
 
             // 3. Clear NuGet cache for the throwaway-version nupkgs so a stale

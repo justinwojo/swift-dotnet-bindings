@@ -35,16 +35,19 @@
 
     <!-- NuGet package metadata -->
     <PackageId>SwiftBindings.Apple</PackageId>
-    <PackageVersion>0.0.0-dev</PackageVersion>
+    <!-- Single-sourced from Directory.Build.props; versioned per Apple SDK train, so it reads the
+         Apple property (the pack pipeline passes the real Apple version in), not the SDK version. -->
+    <PackageVersion>$(SwiftBindingsAppleVersion)</PackageVersion>
     <!-- Runtime dep declared as a floor-only range. The supplement is always brokered
          by SwiftBindings.Sdk, whose own bounded Runtime PackageReference (via Sdk.props
          SwiftRuntimePackageVersionRange) is the actual compatibility contract. Stamping
          only a floor here lets one shipped supplement nupkg ride forward across
-         Runtime/SDK minor bumps without a no-op repack — VersionScope rewrites this
-         value to [MAJOR.MINOR.PATCH,) at pack time. The in-tree dev sentinel below is
-         deliberately a bounded range so a stray local pack without VersionScope still
-         produces something NuGet won't blindly float into an incompatible 0.1.0. -->
-    <SwiftRuntimePackageVersionRange>[0.0.0-dev,0.1.0)</SwiftRuntimePackageVersionRange>
+         Runtime/SDK minor bumps without a no-op repack — the pack pipeline passes the
+         real floor [MAJOR.MINOR.PATCH,) in as this property, so the conditional default
+         only applies to a stray local `dotnet pack`. The in-tree dev sentinel below is
+         deliberately a bounded range so such a pack still produces something NuGet won't
+         blindly float into an incompatible 0.1.0. -->
+    <SwiftRuntimePackageVersionRange Condition="'$(SwiftRuntimePackageVersionRange)' == ''">[0.0.0-dev,0.1.0)</SwiftRuntimePackageVersionRange>
     <Description>Managed projections for Apple Swift-only value types (Foundation.Locale.Language, ManagedSettings.Application, CryptoKit.P256.Signing.ECDSASignature, etc.) that have no Objective-C bridge. Versioned per Apple SDK train; cross-major additive-only.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageTags>swift;interop;bindings;apple;ios;macos;tvos;maccatalyst</PackageTags>

@@ -100,7 +100,7 @@ partial class Build
 
         using var scope = new VersionScope(AppStoreHygieneVersion, RootDirectory);
 
-        BuildAppStoreHygieneFeed(nupkgDir);
+        BuildAppStoreHygieneFeed(nupkgDir, scope);
 
         // Cheap structural proof first (no device / signing): the nupkg ships the framework
         // xcframework with the right slices and no loose dylib / injector script.
@@ -147,16 +147,16 @@ partial class Build
     // same-version cache entry so the freshly-built package (framework xcframework + the
     // NativeReference targets) is the one restored. Only the Runtime is needed: the consumer takes a
     // single PackageReference on it and the buildTransitive target flows from there.
-    void BuildAppStoreHygieneFeed(AbsolutePath nupkgDir)
+    void BuildAppStoreHygieneFeed(AbsolutePath nupkgDir, VersionScope scope)
     {
         Log.Information("=== appstore-hygiene: building local feed at {Version} ===", AppStoreHygieneVersion);
 
-        DotNetPack(s => s
+        DotNetPack(s => scope.Apply(s
             .SetProject(SourceDir / "Swift.Runtime" / "src" / "Swift.Runtime.csproj")
             .SetConfiguration("Release")
             .SetOutputDirectory(nupkgDir)
             .EnableNoLogo()
-            .SetVerbosity(DotNetVerbosity.quiet));
+            .SetVerbosity(DotNetVerbosity.quiet)));
 
         ProcessTasks.StartProcess("dotnet", "nuget locals http-cache --clear", logOutput: false)
             .AssertWaitForExit();

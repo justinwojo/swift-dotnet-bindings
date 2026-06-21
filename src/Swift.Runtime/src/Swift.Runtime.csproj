@@ -29,7 +29,8 @@
     <EnablePackageValidation>true</EnablePackageValidation>
     <!-- NuGet package metadata -->
     <PackageId>SwiftBindings.Runtime</PackageId>
-    <PackageVersion>0.0.0-dev</PackageVersion>
+    <!-- Single-sourced from Directory.Build.props (overridden via -p: at pack time). -->
+    <PackageVersion>$(SwiftBindingsSdkVersion)</PackageVersion>
     <Description>Runtime library for Swift/.NET interop. Provides SwiftString, SwiftArray, SwiftOptional, ARC memory management, protocol witness tables, and type metadata for generated Swift bindings.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageTags>swift;interop;bindings;dotnet;ios;macos</PackageTags>

@@ -133,12 +133,12 @@ partial class Build
 
             // 1. Publish generator into the SDK tools dir so the SDK's pack glob picks it up.
             Log.Information("  [1/6] Publishing generator");
-            DotNetPublish(s => s
+            DotNetPublish(s => scope.Apply(s
                 .SetProject(SourceDir / "Swift.Bindings" / "src" / "Swift.Bindings.csproj")
                 .SetConfiguration("Release")
                 .SetOutput(SourceDir / "Swift.Bindings.Sdk" / "tools" / DotNetTfm / "any")
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
 
             // 2. Rebuild the Apple supplement xcframework fresh (universal slices),
             //    then pack Runtime + Sdk + Apple at the throwaway version. The
@@ -155,12 +155,12 @@ partial class Build
                 SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj",
             })
             {
-                DotNetPack(s => s
+                DotNetPack(s => scope.Apply(s
                     .SetProject(csproj)
                     .SetConfiguration("Release")
                     .SetOutputDirectory(nupkgDir)
                     .EnableNoLogo()
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                    .SetVerbosity(DotNetVerbosity.quiet)));
             }
 
             // 3. Clear cached throwaway-version packages so a prior run can't shadow them.

@@ -27,10 +27,14 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Csproj_DeclaresSwiftRuntimePackageVersionRangeProperty()
         {
-            // VersionScope rewrites this property at pack time so the supplement nupkg
-            // declares Runtime at the bounded [MAJOR.MINOR.PATCH,MAJOR.(MINOR+1).0).
-            Assert.Contains("<SwiftRuntimePackageVersionRange>", CsprojContent);
+            // The pack pipeline passes this property in as the floor [MAJOR.MINOR.PATCH,) so the
+            // supplement nupkg declares its Runtime dependency at the right floor. The in-tree
+            // value is a self-conditional default (only applied when the property is unset), so a
+            // passed value wins; that is what keeps a stray local `dotnet pack` coherent without
+            // overriding the pipeline's floor.
+            Assert.Contains("<SwiftRuntimePackageVersionRange", CsprojContent);
             Assert.Contains("</SwiftRuntimePackageVersionRange>", CsprojContent);
+            Assert.Contains("Condition=\"'$(SwiftRuntimePackageVersionRange)' == ''\"", CsprojContent);
         }
 
         [Fact]

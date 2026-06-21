@@ -6,6 +6,16 @@
     <DebugSymbols>true</DebugSymbols>
     <LangVersion>Latest</LangVersion>
     <IsPackable>true</IsPackable>
+
+    <!-- Single source of truth for the shipped NuGet package versions. The pack pipeline
+         overrides these via -p: (the release/gate version); the 0.0.0-dev default is the
+         in-tree sentinel that routes generated bindings to local ProjectReferences instead of
+         published packages. The 4 package csprojs read these for <PackageVersion>; Sdk.props,
+         template.json, and the generator's DefaultSwiftRuntimeVersion constant are baked from
+         the same value at pack time (they ship verbatim and cannot read the property). Nothing
+         mutates a source file to carry a version any more. -->
+    <SwiftBindingsSdkVersion Condition="'$(SwiftBindingsSdkVersion)' == ''">0.0.0-dev</SwiftBindingsSdkVersion>
+    <SwiftBindingsAppleVersion Condition="'$(SwiftBindingsAppleVersion)' == ''">0.0.0-dev</SwiftBindingsAppleVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsTestProject)' == 'true'">

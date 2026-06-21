@@ -21,7 +21,7 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**</DefaultItemExcludes>
 
     <!-- SDK internal paths -->
-    <_SwiftBindingSdkVersion>0.9.0</_SwiftBindingSdkVersion>
+    <_SwiftBindingSdkVersion>0.0.0-dev</_SwiftBindingSdkVersion>
     <_SwiftBindingGeneratorDir>$(MSBuildThisFileDirectory)../tools/net10.0/any/</_SwiftBindingGeneratorDir>
 
     <!-- NOTE: Platform detection (_SwiftBindingPlatform et al) lives in Sdk.targets,
@@ -50,14 +50,14 @@
          minimum-only float, which would let consumers slide into 0.9.0 and break the
          compatibility boundary; the bounded range pins the minor floor instead. Both values
          derive from the same VersionScope stamp so SDK and standalone paths cannot drift. -->
-    <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.9.0</SwiftRuntimeVersion>
-    <SwiftRuntimePackageVersionRange Condition="'$(SwiftRuntimePackageVersionRange)' == ''">[0.9.0,0.10.0)</SwiftRuntimePackageVersionRange>
+    <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.0.0-dev</SwiftRuntimeVersion>
+    <SwiftRuntimePackageVersionRange Condition="'$(SwiftRuntimePackageVersionRange)' == ''">[0.0.0-dev,0.1.0)</SwiftRuntimePackageVersionRange>
     <!-- SwiftBindings.Apple supplement version (follows the Apple SDK train, not SwiftRuntimeVersion).
          Stamped by VersionScope at pack time; users can override for prototype workflows. Threaded
          through to both generator invocations via the apple-version option so future Apple train bumps
          need only a single input, instead of being hardcoded across CliOptions, BindingProjectEmitter,
          and XCFrameworkMetadataExtractor. -->
-    <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">26.2.4</SwiftAppleSupplementVersion>
+    <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">0.0.0-dev</SwiftAppleSupplementVersion>
     <!-- Require wrapper compilation to succeed (set to false for libraries with known internal type issues) -->
     <SwiftWrapperRequired Condition="'$(SwiftWrapperRequired)' == ''">true</SwiftWrapperRequired>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->

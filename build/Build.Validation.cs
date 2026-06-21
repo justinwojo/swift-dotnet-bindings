@@ -2377,11 +2377,15 @@ $"""
 
     string GetRuntimeVersion()
     {
-        var emitterFile = RootDirectory / "src" / "Swift.Bindings" / "src" / "Emitter" / "BindingProjectEmitter.cs";
-        if (!File.Exists(emitterFile)) return "unknown";
+        // The in-tree version is the SwiftBindingsSdkVersion default in Directory.Build.props
+        // (0.0.0-dev), which single-sources every package version. The generator's
+        // DefaultSwiftRuntimeVersion is baked from this same property, so reading the props
+        // default reports what an un-overridden build would emit.
+        var props = RootDirectory / "Directory.Build.props";
+        if (!File.Exists(props)) return "unknown";
 
-        var match = Regex.Match(File.ReadAllText(emitterFile),
-            @"DefaultSwiftRuntimeVersion\s*=\s*""([^""]*)""");
+        var match = Regex.Match(File.ReadAllText(props),
+            @"<SwiftBindingsSdkVersion[^>]*>([^<]*)</SwiftBindingsSdkVersion>");
         return match.Success ? match.Groups[1].Value : "unknown";
     }
 

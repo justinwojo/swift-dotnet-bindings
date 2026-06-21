@@ -30,35 +30,24 @@ partial class Build
             var outputDir = (AbsolutePath)OutputDir;
             outputDir.CreateDirectory();
 
-            // Pack ships artifacts to NuGet, so --apple-version must be explicit when the
-            // supplement is going to be packed — defaulting silently to the main version would
-            // let a stale Apple SDK train ride out a future bump. When --skip-apple is set we
-            // still need *some* Apple version to stamp into Sdk.props (SwiftAppleSupplementVersion)
-            // so SDK consumers' implicit SwiftBindings.Apple PackageReference points at the right
-            // floor; fall back to the value already checked into Sdk.props in that case, and log
-            // it loudly so it's obvious which Apple train the shipped SDK will reference.
-            string appleVersion;
-            if (!string.IsNullOrWhiteSpace(AppleVersion))
+            // Pack ships artifacts to NuGet, so --apple-version must always be explicit — even
+            // under --skip-apple. The supplement version is baked into the SDK's staged Sdk.props
+            // (SwiftAppleSupplementVersion) so SDK consumers' implicit SwiftBindings.Apple
+            // PackageReference floors at [appleVersion,); there is no source default to fall back
+            // to (Sdk.props carries only a 0.0.0-dev sentinel), so omitting it would silently bake
+            // [0.0.0-dev,) into the shipped SDK. The release pipeline already resolves the latest
+            // published apple-v* tag and passes it even on the SDK-only lane.
+            if (string.IsNullOrWhiteSpace(AppleVersion))
             {
-                appleVersion = AppleVersion!;
+                throw new System.InvalidOperationException(SkipApple
+                    ? "--apple-version is required even with --skip-apple: the SDK's Sdk.props must " +
+                      "advertise the already-published SwiftBindings.Apple version so consumers' " +
+                      "implicit PackageReference floors at the right supplement. Pass the latest " +
+                      "published apple-v* version."
+                    : "--apple-version is required for 'nuke pack' so the shipped SwiftBindings.Apple " +
+                      "nupkg cannot silently ride an unrelated main version.");
             }
-            else if (SkipApple)
-            {
-                appleVersion = ReadSdkPropsAppleSupplementVersion();
-                Log.Warning(
-                    "--apple-version not provided; using existing Sdk.props SwiftAppleSupplementVersion '{AppleVersion}'. " +
-                    "SDK consumers will reference SwiftBindings.Apple [{AppleVersion},). " +
-                    "This is correct only if you intend to ship the SDK against the *already-published* Apple supplement at that version.",
-                    appleVersion, appleVersion);
-            }
-            else
-            {
-                throw new System.InvalidOperationException(
-                    "--apple-version is required for 'nuke pack' so the shipped SwiftBindings.Apple " +
-                    "nupkg cannot silently ride an unrelated main version. Pass --skip-apple to ship " +
-                    "Runtime/SDK/Templates only against an already-published Apple supplement (the " +
-                    "existing Sdk.props value will be used).");
-            }
+            var appleVersion = AppleVersion!;
             Log.Information("=== Packing SwiftBindings v{Version}{ApplePart} ===",
                 Version,
                 SkipApple
@@ -92,39 +81,39 @@ partial class Build
 
             // 1. Runtime
             Log.Information("=== [1/4] Packing SwiftBindings.Runtime ===");
-            DotNetPack(s => s
+            DotNetPack(s => scope.Apply(s
                 .SetProject(SourceDir / "Swift.Runtime" / "src" / "Swift.Runtime.csproj")
                 .SetConfiguration("Release")
                 .SetOutputDirectory(outputDir)
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
 
             // 2. SDK (publish generator first, then pack)
             Log.Information("=== [2/4] Packing SwiftBindings.Sdk ===");
             Log.Information("  Publishing generator...");
-            DotNetPublish(s => s
+            DotNetPublish(s => scope.Apply(s
                 .SetProject(SourceDir / "Swift.Bindings" / "src" / "Swift.Bindings.csproj")
                 .SetConfiguration("Release")
                 .SetOutput(SourceDir / "Swift.Bindings.Sdk" / "tools" / DotNetTfm / "any")
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
 
             Log.Information("  Packing SDK...");
-            DotNetPack(s => s
+            DotNetPack(s => scope.Apply(s
                 .SetProject(SourceDir / "Swift.Bindings.Sdk" / "Swift.Bindings.Sdk.csproj")
                 .SetConfiguration("Release")
                 .SetOutputDirectory(outputDir)
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
 
             // 3. Templates
             Log.Information("=== [3/4] Packing SwiftBindings.Templates ===");
-            DotNetPack(s => s
+            DotNetPack(s => scope.Apply(s
                 .SetProject(SourceDir / "Swift.Bindings.Templates" / "Swift.Bindings.Templates.csproj")
                 .SetConfiguration("Release")
                 .SetOutputDirectory(outputDir)
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
 
             // 4. Apple supplement — versioned independently so it can ship per Apple
             //    SDK train. Pack stamps the supplement's own PackageVersion from
@@ -143,12 +132,12 @@ partial class Build
             else
             {
                 Log.Information("=== [4/4] Packing SwiftBindings.Apple v{AppleVersion} ===", appleVersion);
-                DotNetPack(s => s
+                DotNetPack(s => scope.Apply(s
                     .SetProject(SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj")
                     .SetConfiguration("Release")
                     .SetOutputDirectory(outputDir)
                     .EnableNoLogo()
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                    .SetVerbosity(DotNetVerbosity.quiet)));
             }
 
             // Windows MAX_PATH ship gate (issue #40): authoritative per-entry check over every
@@ -167,25 +156,108 @@ partial class Build
             foreach (var pkg in packages)
                 Log.Information("  {Package}", Path.GetFileName(pkg));
             Log.Information("{Count} package(s) created.", packages.Length);
+
+            // Structural truth gate: open the produced SDK + Templates nupkgs and assert the
+            // version baked into their shipped files is the real version, not the 0.0.0-dev
+            // sentinel left in source. A single-source regression (a missing property, a renamed
+            // element) would otherwise ship a coherent-looking nupkg that silently pins consumers
+            // to a dev sentinel — exactly the kind of quiet packaging lie this pack pipeline must
+            // never produce.
+            AssertProducedNupkgsCarryRealVersion(outputDir, Version!, appleVersion, SkipApple);
         });
 
-    // Reads the current SwiftAppleSupplementVersion default out of Sdk.props. Used by
-    // --skip-apple when --apple-version is omitted: the SDK still has to advertise *some*
-    // Apple supplement version in its props (consumers get an implicit PackageReference at
-    // [$(SwiftAppleSupplementVersion),)), so we fall back to whatever is checked in.
-    string ReadSdkPropsAppleSupplementVersion()
+    // Opens the produced SDK and Templates nupkgs (and, unless skipped, the Apple supplement) and
+    // asserts that the version baked into the files that ship verbatim — Sdk/Sdk.props and the
+    // template's template.json — is the real shipped version, never the 0.0.0-dev source sentinel.
+    // Entries are matched by path suffix because NuGet packs the template content into more than
+    // one folder (content/ and contentFiles/) and we assert every shipped copy.
+    void AssertProducedNupkgsCarryRealVersion(AbsolutePath outputDir, string version, string appleVersion, bool skipApple)
     {
-        var sdkProps = SourceDir / "Swift.Bindings.Sdk" / "Sdk" / "Sdk.props";
-        var doc = XDocument.Load(sdkProps);
-        var element = doc.Descendants("SwiftAppleSupplementVersion").FirstOrDefault()
-            ?? throw new System.InvalidOperationException(
-                $"Sdk.props at '{sdkProps}' is missing <SwiftAppleSupplementVersion>. " +
-                "Cannot infer an Apple supplement version for --skip-apple; pass --apple-version explicitly.");
-        var value = element.Value?.Trim();
-        if (string.IsNullOrEmpty(value))
+        var sdkNupkg = outputDir / $"SwiftBindings.Sdk.{version}.nupkg";
+        var templatesNupkg = outputDir / $"SwiftBindings.Templates.{version}.nupkg";
+
+        // SDK: Sdk.props must carry the real version in its single-sourced version elements and a
+        // bounded Runtime range, with no dev sentinel left anywhere in the file.
+        foreach (var (entryPath, sdkProps) in ReadNupkgEntriesBySuffix(sdkNupkg, "Sdk/Sdk.props"))
+        {
+            var propsDoc = XDocument.Parse(sdkProps);
+            AssertElementValue(propsDoc, "_SwiftBindingSdkVersion", version, sdkNupkg, entryPath);
+            AssertElementValue(propsDoc, "SwiftRuntimeVersion", version, sdkNupkg, entryPath);
+            AssertElementValue(propsDoc, "SwiftRuntimePackageVersionRange",
+                BindingsGeneration.RuntimeVersionRange.Build(version), sdkNupkg, entryPath);
+            AssertElementValue(propsDoc, "SwiftAppleSupplementVersion", appleVersion, sdkNupkg, entryPath);
+            if (sdkProps.Contains("0.0.0-dev"))
+                throw new System.InvalidOperationException(
+                    $"Packed Sdk.props ('{entryPath}') in '{sdkNupkg}' still contains the 0.0.0-dev sentinel.");
+        }
+
+        // Templates: template.json's sdkVersion defaultValue must be the real version, while its
+        // `replaces` token stays the 0.0.0-dev sentinel (it matches the verbatim ProjectName.csproj
+        // token the template engine swaps at `dotnet new` time).
+        foreach (var (entryPath, templateJson) in
+                 ReadNupkgEntriesBySuffix(templatesNupkg, ".template.config/template.json"))
+        {
+            var sdkVersionSymbol = System.Text.Json.Nodes.JsonNode.Parse(templateJson)!
+                ["symbols"]!["sdkVersion"]!;
+            var defaultValue = (string?)sdkVersionSymbol["defaultValue"];
+            var replaces = (string?)sdkVersionSymbol["replaces"];
+            if (defaultValue != version)
+                throw new System.InvalidOperationException(
+                    $"Packed template.json ('{entryPath}') in '{templatesNupkg}' has sdkVersion " +
+                    $"defaultValue '{defaultValue}', expected '{version}'.");
+            if (replaces != "0.0.0-dev")
+                throw new System.InvalidOperationException(
+                    $"Packed template.json ('{entryPath}') in '{templatesNupkg}' has sdkVersion " +
+                    $"replaces '{replaces}', expected the 0.0.0-dev sentinel that matches the verbatim " +
+                    "ProjectName.csproj token.");
+        }
+
+        // Apple supplement: its nuspec dependency on SwiftBindings.Runtime must be the floor the
+        // VersionScope passes, never the dev sentinel.
+        if (!skipApple)
+        {
+            var appleNupkg = outputDir / $"SwiftBindings.Apple.{appleVersion}.nupkg";
+            foreach (var (entryPath, nuspec) in ReadNupkgEntriesBySuffix(appleNupkg, ".nuspec"))
+                if (nuspec.Contains("0.0.0-dev"))
+                    throw new System.InvalidOperationException(
+                        $"Packed Apple supplement nuspec ('{entryPath}') in '{appleNupkg}' still " +
+                        "contains the 0.0.0-dev sentinel.");
+        }
+
+        Log.Information("Version truth gate passed: produced nupkgs carry v{Version} (Apple v{AppleVersion}), no dev sentinel.",
+            version, appleVersion);
+    }
+
+    static void AssertElementValue(XDocument doc, string name, string expected, AbsolutePath nupkg, string entryPath)
+    {
+        var element = doc.Descendants(name).FirstOrDefault()
+            ?? throw new System.InvalidOperationException($"<{name}> not found in packed '{entryPath}' ('{nupkg}').");
+        var actual = element.Value.Trim();
+        if (actual != expected)
             throw new System.InvalidOperationException(
-                $"Sdk.props at '{sdkProps}' has an empty <SwiftAppleSupplementVersion>. " +
-                "Cannot infer an Apple supplement version for --skip-apple; pass --apple-version explicitly.");
-        return value;
+                $"Packed '{entryPath}' in '{nupkg}' has <{name}> = '{actual}', expected '{expected}'.");
+    }
+
+    // Returns every entry in the nupkg whose path ends with the given suffix, as (path, text)
+    // pairs. Throws when the nupkg is missing or no entry matches — a packaging regression, not a
+    // benign skip.
+    static System.Collections.Generic.List<(string Path, string Text)> ReadNupkgEntriesBySuffix(
+        AbsolutePath nupkg, string suffix)
+    {
+        if (!File.Exists(nupkg))
+            throw new System.InvalidOperationException($"Expected produced nupkg not found: '{nupkg}'.");
+        using var archive = System.IO.Compression.ZipFile.OpenRead(nupkg);
+        var matches = new System.Collections.Generic.List<(string, string)>();
+        foreach (var entry in archive.Entries)
+        {
+            if (!entry.FullName.EndsWith(suffix, System.StringComparison.Ordinal))
+                continue;
+            using var reader = new StreamReader(entry.Open());
+            matches.Add((entry.FullName, reader.ReadToEnd()));
+        }
+        if (matches.Count == 0)
+            throw new System.InvalidOperationException(
+                $"nupkg '{nupkg}' has no entry ending with '{suffix}'.");
+        return matches;
     }
 }

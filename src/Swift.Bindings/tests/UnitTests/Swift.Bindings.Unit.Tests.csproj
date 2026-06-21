@@ -46,6 +46,18 @@
          _build. BCL-only with source-generated JSON (ApiManifestBaselineJsonContext), so it
          compiles AOT-clean under this project's IsAotCompatible + warnings-as-errors. -->
     <Compile Include="../../../../build/Models/ApiManifestBaseline.cs" Link="Models/ApiManifestBaseline.cs" />
+    <!-- Link-compile the JSONL crash-recovery model so its pure console-fallback parsing
+         (ParseClassesFromConsole / AddConsoleFailure) is unit-tested here without a project
+         reference to _build. BCL-only (JsonDocument DOM read, no reflection serialization), so it
+         compiles AOT-clean under this project's IsAotCompatible + warnings-as-errors.
+         TestClassInventory rides along because JsonlTestResults names it as a parameter type. -->
+    <Compile Include="../../../../build/Models/JsonlTestResults.cs" Link="Models/JsonlTestResults.cs" />
+    <Compile Include="../../../../build/Models/TestClassInventory.cs" Link="Models/TestClassInventory.cs" />
+    <!-- Link-compile the MSBuild command-line property escaper so its pure Escape (the MSB1006
+         comma/semicolon/percent hazard for the [X.Y.Z,) version floor range) is unit-tested here
+         without a project reference to _build. BCL-only string work, so it compiles AOT-clean under
+         this project's IsAotCompatible + warnings-as-errors. -->
+    <Compile Include="../../../../build/Models/MsBuildPropertyValue.cs" Link="Models/MsBuildPropertyValue.cs" />
   </ItemGroup>
 
   <ItemGroup>

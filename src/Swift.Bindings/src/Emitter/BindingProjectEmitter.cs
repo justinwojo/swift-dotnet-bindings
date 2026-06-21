@@ -94,9 +94,13 @@ namespace BindingsGeneration
     /// <summary>
     /// Emits a .csproj file for a Swift binding project, ready for `dotnet build` and `dotnet pack`.
     /// </summary>
-    public static class BindingProjectEmitter
+    public static partial class BindingProjectEmitter
     {
-        internal const string DefaultSwiftRuntimeVersion = "0.0.0-dev";
+        // DefaultSwiftRuntimeVersion is single-sourced from $(SwiftBindingsSdkVersion) and emitted
+        // into obj/GeneratedVersion.cs by a build target (see Swift.Bindings.csproj). It defaults to
+        // the 0.0.0-dev sentinel in-tree and is baked to the real version when the generator is
+        // published at pack time, so the shipped generator emits the correct Runtime reference
+        // without any source file being rewritten.
 
         /// <summary>
         /// Emits a {PackageId}.csproj file into the output directory.

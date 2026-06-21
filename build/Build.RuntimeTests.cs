@@ -1509,12 +1509,21 @@ partial class Build
                 if (runResults == null || runResults.Tests.Count == 0)
                 {
                     // JSONL recovery failed — fall back to console output parsing
-                    var consoleClasses = JsonlTestResults.ParseClassesFromConsole(result.Output);
-                    if (consoleClasses.Count > 0)
+                    var consoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
+                    if (consoleScan.CompletedClasses.Count > 0)
                     {
-                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleClasses.Count);
-                        foreach (var cls in consoleClasses)
+                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleScan.CompletedClasses.Count);
+                        foreach (var cls in consoleScan.CompletedClasses)
                             excludeClasses.Add(cls);
+
+                        // Replay any [FAIL] lines into the aggregated results. Without this, a class
+                        // that failed on the crashed run is excluded from re-run but contributes no
+                        // failure to the verdict — and a later all-green run reports success while a
+                        // real failure went missing.
+                        foreach (var (cls, test) in consoleScan.Failures)
+                            aggregated.AddConsoleFailure(cls, test);
+                        if (consoleScan.Failures.Count > 0)
+                            Log.Warning("Recovered {Count} console [FAIL] result(s) — run will be marked failed.", consoleScan.Failures.Count);
 
                         var remainingAfterConsole = eligibleClasses.Except(excludeClasses).ToList();
                         if (remainingAfterConsole.Count == 0)
@@ -1565,6 +1574,21 @@ partial class Build
                     excludeClasses.Add(cls);
 
                 aggregated.Merge(runResults);
+
+                // A class can print [FAIL] to the console and then crash before that result is
+                // flushed to JSONL (the console line is written first), so a partial JSONL can omit a
+                // real failure. Replay console failures here too — AddConsoleFailure dedups against the
+                // just-merged results by class+test, so a failure already present (as fail or as a
+                // synthesized crash) is never double-counted — and exclude those classes from re-run so
+                // a flaky retry pass cannot overwrite the recovered failure (Merge keeps the last result).
+                var crashConsoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
+                foreach (var (cls, test) in crashConsoleScan.Failures)
+                {
+                    aggregated.AddConsoleFailure(cls, test);
+                    excludeClasses.Add(cls);
+                }
+                if (crashConsoleScan.Failures.Count > 0)
+                    Log.Warning("Recovered {Count} console [FAIL] result(s) the partial JSONL omitted — run will be marked failed.", crashConsoleScan.Failures.Count);
 
                 // Check if there are remaining classes to run (scoped to eligible set)
                 var remaining = eligibleClasses.Except(excludeClasses).ToList();
@@ -1761,12 +1785,20 @@ partial class Build
                     // JSONL recovery failed — fall back to console output parsing.
                     // Extract class names from [PASS]/[FAIL]/[SKIP] lines to identify
                     // completed classes and the class that was running when the app crashed.
-                    var consoleClasses = JsonlTestResults.ParseClassesFromConsole(result.Output);
-                    if (consoleClasses.Count > 0)
+                    var consoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
+                    if (consoleScan.CompletedClasses.Count > 0)
                     {
-                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleClasses.Count);
-                        foreach (var cls in consoleClasses)
+                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleScan.CompletedClasses.Count);
+                        foreach (var cls in consoleScan.CompletedClasses)
                             excludeClasses.Add(cls);
+
+                        // Replay any [FAIL] lines into the aggregated results so a failure on the
+                        // crashed run survives into the verdict instead of vanishing when the class
+                        // is excluded from re-run (a later all-green run would otherwise report success).
+                        foreach (var (cls, test) in consoleScan.Failures)
+                            aggregated.AddConsoleFailure(cls, test);
+                        if (consoleScan.Failures.Count > 0)
+                            Log.Warning("Recovered {Count} console [FAIL] result(s) — run will be marked failed.", consoleScan.Failures.Count);
 
                         var remainingAfterConsole = eligibleClasses.Except(excludeClasses).ToList();
                         if (remainingAfterConsole.Count == 0)
@@ -1816,6 +1848,21 @@ partial class Build
                     excludeClasses.Add(cls);
 
                 aggregated.Merge(runResults);
+
+                // A class can print [FAIL] to the console and then crash before that result is
+                // flushed to JSONL (the console line is written first), so a partial JSONL can omit a
+                // real failure. Replay console failures here too — AddConsoleFailure dedups against the
+                // just-merged results by class+test, so a failure already present (as fail or as a
+                // synthesized crash) is never double-counted — and exclude those classes from re-run so
+                // a flaky retry pass cannot overwrite the recovered failure (Merge keeps the last result).
+                var crashConsoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
+                foreach (var (cls, test) in crashConsoleScan.Failures)
+                {
+                    aggregated.AddConsoleFailure(cls, test);
+                    excludeClasses.Add(cls);
+                }
+                if (crashConsoleScan.Failures.Count > 0)
+                    Log.Warning("Recovered {Count} console [FAIL] result(s) the partial JSONL omitted — run will be marked failed.", crashConsoleScan.Failures.Count);
 
                 // Check if there are remaining classes to run (scoped to eligible set)
                 var remaining = eligibleClasses.Except(excludeClasses).ToList();
@@ -2204,6 +2251,19 @@ partial class Build
         {
             Log.Error("{Crash} crashed test(s) recorded — a crash is never a passing result (Finding 27).",
                 jsonlResults.CrashCount);
+            effectiveResult = TestResult.Failure;
+        }
+
+        // A test failure recovered from a console "[FAIL]" line (see AddConsoleFailure) lands in the
+        // aggregated results as a "fail" entry. That happens when a class failed on a crashed run
+        // whose JSONL was lost: the class is excluded from re-run, so a later all-green launch can
+        // report Success while the recovered failure sits in the aggregate. A real failure is
+        // positive evidence the run is broken — there is no --permissive escape, unlike the
+        // missing-artifact gate below.
+        if (effectiveResult == TestResult.Success && jsonlResults != null && jsonlResults.FailCount > 0)
+        {
+            Log.Error("{Fail} failed test(s) recorded — refusing to certify a green run with a recorded failure.",
+                jsonlResults.FailCount);
             effectiveResult = TestResult.Failure;
         }
 

@@ -96,12 +96,12 @@ partial class Build
             // 1. Publish generator to src/Swift.Bindings.Sdk/tools/net10.0/any/ so
             // the SDK's tools/**/* pack glob picks it up.
             Log.Information("  [1/5] Publishing generator");
-            DotNetPublish(s => s
+            DotNetPublish(s => scope.Apply(s
                 .SetProject(SourceDir / "Swift.Bindings" / "src" / "Swift.Bindings.csproj")
                 .SetConfiguration("Release")
                 .SetOutput(SourceDir / "Swift.Bindings.Sdk" / "tools" / DotNetTfm / "any")
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+                .SetVerbosity(DotNetVerbosity.quiet)));
 
             // 2. Pack the three core packages at the throwaway version.
             Log.Information("  [2/5] Packing Runtime + Sdk + Apple");
@@ -119,12 +119,12 @@ partial class Build
                 SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj",
             })
             {
-                DotNetPack(s => s
+                DotNetPack(s => scope.Apply(s
                     .SetProject(csproj)
                     .SetConfiguration("Release")
                     .SetOutputDirectory(nupkgDir)
                     .EnableNoLogo()
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                    .SetVerbosity(DotNetVerbosity.quiet)));
             }
 
             // 2b. Assert the Apple supplement nuspec declares Runtime as a floor-only range

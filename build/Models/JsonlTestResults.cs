@@ -1,12 +1,16 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+// Self-contained nullable context so this file compiles identically whether built in the Nuke
+// build assembly (Nullable=enable) or link-compiled into the unit-test project (Nullable=disable +
+// warnings-as-errors), where the string? annotations would otherwise raise CS8632.
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using Serilog;
 
 /// <summary>
 /// Parses and aggregates JSONL test result files produced by the runtime test app.
@@ -166,42 +170,115 @@ public class JsonlTestResults
         => $"JSONL: {PassCount} pass, {FailCount} fail, {SkipCount} skip, {CrashCount} crash (done={Done})";
 
     /// <summary>
-    /// Fallback: extracts class names from console output lines like
-    /// "[PASS] ClassName.TestMethod" when JSONL recovery fails.
-    /// Returns all unique class names found, which can be used to skip
-    /// already-completed classes on the next retry attempt.
+    /// Outcome of a console-output scan — the fallback path when JSONL recovery fails.
+    /// <see cref="CompletedClasses"/> is every class that printed a result line
+    /// (<c>[PASS]</c>/<c>[FAIL]</c>/<c>[WARN] SKIP:</c>) and is therefore safe to skip on
+    /// the next retry. <see cref="Failures"/> is the (class, method) identity of every
+    /// <c>[FAIL]</c> line; these must be carried into the verdict so a failure recovered
+    /// from the console cannot be silently dropped from an otherwise-green run.
     /// </summary>
-    public static HashSet<string> ParseClassesFromConsole(string consoleOutput)
+    public sealed record ConsoleScanResult(
+        HashSet<string> CompletedClasses,
+        IReadOnlyList<(string ClassName, string TestName)> Failures);
+
+    /// <summary>
+    /// Fallback: scans console output lines like "[PASS] ClassName.TestMethod" when JSONL
+    /// recovery fails. Returns the set of classes that produced any result line (used to skip
+    /// already-completed classes on the next retry) together with the (class, method) identity
+    /// of every <c>[FAIL]</c> line so the failure survives into the final verdict.
+    /// </summary>
+    public static ConsoleScanResult ParseClassesFromConsole(string consoleOutput)
     {
-        var classes = new HashSet<string>(StringComparer.Ordinal);
-        if (string.IsNullOrEmpty(consoleOutput)) return classes;
+        var completed = new HashSet<string>(StringComparer.Ordinal);
+        var failures = new List<(string ClassName, string TestName)>();
+        var failureKeys = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrEmpty(consoleOutput))
+            return new ConsoleScanResult(completed, failures);
 
         foreach (var line in consoleOutput.Split('\n'))
         {
-            // Match lines like: "[PASS] ClassName.TestMethod (0ms)"
-            // or "[SKIP] ClassName.TestMethod: reason"
-            var idx = line.IndexOf("] ", StringComparison.Ordinal);
-            if (idx < 0) continue;
-
-            var tag = line.AsSpan(0, idx + 1);
-            if (!tag.Contains("[PASS]", StringComparison.Ordinal) &&
-                !tag.Contains("[FAIL]", StringComparison.Ordinal) &&
-                !tag.Contains("[WARN] SKIP:", StringComparison.Ordinal))
+            // Real lines carry a leading "[<elapsed>s] " timestamp (TestLogger), so the status
+            // marker is NOT at the start — locate it anywhere in the line. This mirrors the
+            // Contains-anywhere matching the crash-diagnostic counters use on the same output;
+            // a first-"] "-prefix match would only ever see the timestamp's bracket and match
+            // nothing. Order matters: check [FAIL] before [PASS] so a failure is never mistaken
+            // for a pass.
+            int markerIdx;
+            string marker;
+            var isFail = false;
+            if ((markerIdx = line.IndexOf("[FAIL]", StringComparison.Ordinal)) >= 0)
+            {
+                marker = "[FAIL]";
+                isFail = true;
+            }
+            else if ((markerIdx = line.IndexOf("[PASS]", StringComparison.Ordinal)) >= 0)
+            {
+                marker = "[PASS]";
+            }
+            else if ((markerIdx = line.IndexOf("[WARN] SKIP:", StringComparison.Ordinal)) >= 0)
+            {
+                marker = "[WARN] SKIP:";
+            }
+            else
+            {
                 continue;
+            }
 
-            var after = line.Substring(idx + 2).TrimStart();
-            // For SKIP lines: "SKIP: ClassName.TestMethod: reason"
-            if (after.StartsWith("SKIP: ", StringComparison.Ordinal))
-                after = after.Substring(6);
+            // Text after the marker is "ClassName.TestMethod[: reason][ (Nms)]".
+            var after = line.Substring(markerIdx + marker.Length).TrimStart();
 
             var dot = after.IndexOf('.');
-            if (dot > 0)
+            if (dot <= 0) continue;
+
+            var className = after.Substring(0, dot);
+            // Guard against status-category banner/summary lines ("[PASS] === ALL TESTS PASSED ===",
+            // "[FAIL]   - Class.Method"): a real per-test line starts with an uppercase class name.
+            if (!char.IsUpper(className[0]))
+                continue;
+
+            completed.Add(className);
+
+            // A [FAIL] line is positive evidence the class ran AND failed. Capture the method
+            // identity so the failure can be replayed into the verdict even when JSONL recovery
+            // lost it — that lossy path is the entire reason this console fallback exists.
+            if (isFail)
             {
-                var className = after.Substring(0, dot);
-                if (className.Length > 0 && char.IsUpper(className[0]))
-                    classes.Add(className);
+                var testName = ExtractTestName(after, dot);
+                if (failureKeys.Add($"{className}.{testName}"))
+                    failures.Add((className, testName));
             }
         }
-        return classes;
+        return new ConsoleScanResult(completed, failures);
+    }
+
+    /// <summary>
+    /// Extracts the test-method token after the class dot, stopping at the first whitespace,
+    /// ':' or '(' — so "Foo (3ms)" and "Foo: boom" both yield "Foo". Falls back to a sentinel
+    /// when no token is present.
+    /// </summary>
+    static string ExtractTestName(string after, int dot)
+    {
+        var start = dot + 1;
+        var end = after.Length;
+        for (int i = start; i < after.Length; i++)
+        {
+            var c = after[i];
+            if (char.IsWhiteSpace(c) || c == ':' || c == '(') { end = i; break; }
+        }
+        var name = after.Substring(start, end - start);
+        return name.Length > 0 ? name : "(unknown)";
+    }
+
+    /// <summary>
+    /// Records a test failure recovered from a console "[FAIL]" line — used when JSONL recovery
+    /// fails mid-crash but the failure survived in the console log. Deduplicated by
+    /// ClassName.TestName, so replaying an already-recorded result is a no-op.
+    /// </summary>
+    public void AddConsoleFailure(string className, string testName)
+    {
+        var key = $"{className}.{testName}";
+        if (Tests.Any(t => $"{t.ClassName}.{t.TestName}" == key))
+            return;
+        Tests.Add(new TestEntry(className, testName, "fail", "Recovered from console [FAIL] (JSONL lost)", 0));
     }
 }
