@@ -221,6 +221,7 @@ namespace BindingsGeneration
                 else if (isProjectedAsClass)
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, structDecl);
                 TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, structDecl);
+                TypeAnnotationHelper.EmitSwiftMainActorAnnotation(csWriter, structDecl);
                 if (structDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 if (isProjectedAsClass)

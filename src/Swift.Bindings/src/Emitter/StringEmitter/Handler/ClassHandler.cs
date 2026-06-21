@@ -256,6 +256,7 @@ namespace BindingsGeneration
                 else
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, classDecl);
                 TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, classDecl);
+                TypeAnnotationHelper.EmitSwiftMainActorAnnotation(csWriter, classDecl);
                 if (classDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";

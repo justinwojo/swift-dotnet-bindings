@@ -920,6 +920,89 @@ public class SubscriptWrapperEmitterTests
 
     #endregion
 
+    #region F41 — @MainActor indexer surfacing
+
+    private const string MainActorAttribute = "[global::Swift.Runtime.SwiftMainActor]";
+
+    [Fact]
+    public void EmitSubscripts_OnMainActorParent_SurfacesAttributeAndRemarks()
+    {
+        // A subscript on a @MainActor-isolated type inherits the isolation: the public C# indexer
+        // carries the [SwiftMainActor] marker plus the main-thread <remarks> line — mirroring the
+        // property surfacing and matching the @MainActor @_cdecl wrapper the subscript already gets.
+        var output = EmitMainActorIndexer(isMainActorIsolated: true);
+
+        Assert.Contains("this[", output); // sanity: the indexer actually emitted (not tombstoned)
+        Assert.Contains(MainActorAttribute, output);
+        Assert.Contains("@MainActor", output);
+        Assert.Contains("main thread", output);
+    }
+
+    [Fact]
+    public void EmitSubscripts_OnNonIsolatedParent_OmitsAttribute()
+    {
+        // A subscript on a non-isolated type carries no isolation marker — the same oracle the
+        // wrapper/property paths consult returns false.
+        var output = EmitMainActorIndexer(isMainActorIsolated: false);
+
+        Assert.Contains("this[", output);
+        Assert.DoesNotContain(MainActorAttribute, output);
+    }
+
+    private static string EmitMainActorIndexer(bool isMainActorIsolated)
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        parentDecl.IsMainActorIsolated = isMainActorIsolated;
+
+        // The getter accessor's CSSignature carries [returnType, indexParam] — the @_cdecl wrapper
+        // signature builder reads element 0 as the return type and the rest as the index parameters.
+        var getterMethod = new MethodDecl
+        {
+            Name = "getter:subscript",
+            MangledName = "$s10TestModule_subscriptg",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = new NamedTypeSpec("Swift.String"), Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false, ParentDecl = parentDecl, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = new NamedTypeSpec("Swift.Int"), Name = "index", PrivateName = "index", IsInOut = false, IsGeneric = false, ParentDecl = parentDecl, ModuleDecl = moduleDecl },
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        var getter = new GetAccessorDecl { Method = getterMethod };
+        var subscriptDecl = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.String"),
+            new[] { CreateIndexParam("index", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { getter },
+            parentDecl, moduleDecl);
+        parentDecl.Subscripts.Add(subscriptDecl);
+
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var conductor = new Conductor(Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance);
+        SubscriptHandler.EmitSubscripts(
+            new CSharpWriter(csOut),
+            new SwiftWriter(swiftOut),
+            parentDecl,
+            typeDb,
+            conductor,
+            TypeHandlerContext.Empty,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        return csOut.ToString();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static (SwiftWriter swiftWriter, StringWriter sw, SubscriptDecl subscriptDecl, MethodEnvironment env, ModuleEmissionContext ctx) CreateGetterTestSetup(

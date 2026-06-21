@@ -391,7 +391,8 @@ public class CrossModuleExtensionEmitterTests
         // Swift body reconstructs the enum via guard-let (preconditionFailure on
         // invalid raw, matching CdeclParamMapper) and re-exposes rawValue on return.
         Assert.Contains("guard let statusVal = OrigModule.OrigStatus(rawValue: status)", swiftResult);
-        Assert.Contains("preconditionFailure(\"Invalid raw value", swiftResult);
+        // Emitted traps carry the [SwiftBindings] breadcrumb so a raw-value abort is attributable.
+        Assert.Contains("preconditionFailure(\"[SwiftBindings] Invalid raw value", swiftResult);
         Assert.Contains(".rawValue", swiftResult);
         // The Swift trampoline must NOT declare the Swift enum type in its @_cdecl signature.
         Assert.DoesNotContain("_ status: OrigModule.OrigStatus", swiftResult);
@@ -453,7 +454,8 @@ public class CrossModuleExtensionEmitterTests
         // Swift body reconstructs the enum via guard-let before assigning,
         // matching CdeclParamMapper's preconditionFailure shape.
         Assert.Contains("guard let newValueVal = OrigModule.OrigStatus(rawValue: newValue)", swiftResult);
-        Assert.Contains("preconditionFailure(\"Invalid raw value", swiftResult);
+        // Emitted traps carry the [SwiftBindings] breadcrumb so a raw-value abort is attributable.
+        Assert.Contains("preconditionFailure(\"[SwiftBindings] Invalid raw value", swiftResult);
     }
 
     [Theory]

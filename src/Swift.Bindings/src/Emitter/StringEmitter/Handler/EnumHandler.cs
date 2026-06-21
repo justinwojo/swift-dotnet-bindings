@@ -202,6 +202,7 @@ namespace BindingsGeneration
                 else
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, enumDecl);
                 TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, enumDecl);
+                TypeAnnotationHelper.EmitSwiftMainActorAnnotation(csWriter, enumDecl);
                 if (enumDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";

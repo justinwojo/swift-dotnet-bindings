@@ -179,3 +179,23 @@ To ensure correct memory handling:
  - When a type is marshalled to Swift as a return parameter, `InitWithCopy` should be invoked to create the copy
  - When a type is marshalled from Swift as a return paramter, no reference counters are updated
  - When using a private "copy" constructor on the C# side for marshalling from Swift, `InitWithCopy` should be invoked
+
+## Diagnostics: trap attribution
+
+A Swift runtime trap (`fatalError`, `preconditionFailure`, a failed `as!`, a force-unwrap of `nil`)
+is **uncatchable** — it calls `abort()` and tears the process down, so it cannot be turned into a C#
+exception and the crash log carries only the trap message as attribution. To keep a binding-layer
+abort from masquerading as the consumer's own crash, every trap the generator emits into the Swift
+wrapper carries a `[SwiftBindings]` breadcrumb in its message
+(`preconditionFailure("[SwiftBindings] Invalid raw value …")`). A crash whose message begins with
+`[SwiftBindings]` originates in generated binding code, not in consumer Swift — under the project
+doctrine that every crash is the binding's until proven otherwise, that breadcrumb is the first
+triage signal.
+
+Two mechanisms keep the breadcrumb honest. The trap messages are prefixed at the emitter templates
+themselves (the count is enumerated live at build time, never hardcoded). A read-only lint
+(`EmittedSwiftTrapLint`) then scans each emitted `.Wrapper.swift` / `.SwiftUIBridge.swift` at the
+file-write boundary, warning on any emitted trap that slipped the breadcrumb and reporting the
+residual force-cast (`as!`) surface — those casts are deliberate ABI downcasts and are reported for
+visibility, not rewritten. The public-facing form of this contract lives in the wiki Known
+Limitations.

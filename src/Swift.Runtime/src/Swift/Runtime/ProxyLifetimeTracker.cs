@@ -199,6 +199,13 @@ public static class ProxyLifetimeTracker
     }
 
     /// <summary>
+    /// Diagnostic: the number of EveryProtocol impl roots currently held — strong
+    /// <see cref="GCHandle"/>s rooting Swift-owned C# conformers. Read by
+    /// <see cref="SwiftLeakCensus"/> to surface cross-heap conformer leaks.
+    /// </summary>
+    internal static int ImplRootCount => s_implRoots.Count;
+
+    /// <summary>
     /// Test helper: reports whether a handle is still being tracked (either root present).
     /// </summary>
     internal static bool IsTrackedForTest(IntPtr handle)

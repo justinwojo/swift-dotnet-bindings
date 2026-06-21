@@ -565,7 +565,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         }
         // No variant matched — surface a fatal so the call-site bug (passing the
         // wrong KeyPath family/V) doesn't silently no-op.
-        swiftWriter.WriteLine($"fatalError(\"{ov.CdeclSymbol}: KeyPath value type not in expected variant set [{variantList}]\")");
+        swiftWriter.WriteLine($"fatalError(\"[SwiftBindings] {ov.CdeclSymbol}: KeyPath value type not in expected variant set [{variantList}]\")");
 
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");

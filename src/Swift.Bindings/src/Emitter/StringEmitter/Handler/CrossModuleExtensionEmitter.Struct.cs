@@ -587,7 +587,7 @@ public static partial class CrossModuleExtensionEmitter
         {
             if (p.Kind == ParamKind.SimpleEnum)
             {
-                swiftWriter.WriteLine($"guard let {p.SwiftBindingName}Val = {p.SimpleEnumQualifiedSwiftType}(rawValue: {p.SwiftBindingName}) else {{ preconditionFailure(\"Invalid raw value \\({p.SwiftBindingName}) for {p.SimpleEnumQualifiedSwiftType}\") }}");
+                swiftWriter.WriteLine($"guard let {p.SwiftBindingName}Val = {p.SimpleEnumQualifiedSwiftType}(rawValue: {p.SwiftBindingName}) else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({p.SwiftBindingName}) for {p.SimpleEnumQualifiedSwiftType}\") }}");
             }
         }
 
@@ -722,7 +722,7 @@ public static partial class CrossModuleExtensionEmitter
         swiftWriter.Indent++;
         if (enumLowering is { } el)
         {
-            swiftWriter.WriteLine($"guard let newValueVal = {el.QualifiedSwiftType}(rawValue: newValue) else {{ preconditionFailure(\"Invalid raw value \\(newValue) for {el.QualifiedSwiftType}\") }}");
+            swiftWriter.WriteLine($"guard let newValueVal = {el.QualifiedSwiftType}(rawValue: newValue) else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\(newValue) for {el.QualifiedSwiftType}\") }}");
             swiftWriter.WriteLine($"self_.assumingMemoryBound(to: {origSwiftTypeQualified}.self).pointee.{NameProvider.EscapeSwiftKeyword(property.Name)} = newValueVal");
         }
         else

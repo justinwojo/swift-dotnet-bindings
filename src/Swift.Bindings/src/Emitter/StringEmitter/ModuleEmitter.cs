@@ -151,6 +151,9 @@ namespace BindingsGeneration
                 // by the structurally-aware ModuleEmissionContext (knows which types are nested in
                 // the colliding class so e.g. LoggingLib.Level stays qualified).
                 var swiftOutput = emissionContext.QualifyForWrapperSource(swiftStringWriter.ToString());
+                // Trap-anonymity lint: verify every emitted fatalError/preconditionFailure carries the
+                // [SwiftBindings] breadcrumb and report the force-cast surface. Read-only.
+                EmittedSwiftTrapLint.Validate(swiftOutput, $"{@namespace}.Wrapper.swift", _logger);
                 using (StreamWriter outputFile = new(swiftOutputPath))
                 {
                     outputFile.Write(swiftOutput);

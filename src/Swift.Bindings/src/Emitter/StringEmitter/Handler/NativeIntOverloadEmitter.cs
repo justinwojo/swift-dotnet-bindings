@@ -146,6 +146,16 @@ internal static class NativeIntOverloadEmitter
         var isStatic = methodDecl.MethodType == MethodType.Static;
         var staticModifier = isStatic ? "static " : "";
 
+        // Surface @MainActor isolation on the convenience int/uint forwarder too, keyed on the SAME
+        // decision the primary method's marker uses (WrapperEmitter.NeedsMainActorSurfacing — accessors
+        // are already excluded by the gate above), so both method overloads carry the identical
+        // main-thread contract instead of the marker landing only on the nint form.
+        if (WrapperValidation.NeedsMainActorAnnotation(
+                methodEnv.ParentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated))
+        {
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+        }
+
         // Inherit [SupportedOSPlatform] / [ObsoletedOSPlatform] from the primary method.
         // Without these, CA1416 flags the forwarder as reachable on lower OS versions than
         // the platform-gated target it delegates to (e.g. MakeMockBook(int) reachable on
@@ -224,6 +234,20 @@ internal static class NativeIntOverloadEmitter
 
         var hasGetter = subscriptDecl.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = subscriptDecl.Accessors.OfType<SetAccessorDecl>().Any();
+
+        // Surface @MainActor isolation on the convenience int/uint overload too, keyed on the same
+        // oracle inputs as the primary indexer (SubscriptHandler.EmitIndexer), so both indexer members
+        // carry the identical main-thread contract rather than the marker landing only on the nint form.
+        var isolationAccessor =
+            subscriptDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method
+            ?? subscriptDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault()?.Method;
+        if (WrapperValidation.NeedsMainActorAnnotation(
+                subscriptDecl.ParentDecl,
+                isolationAccessor?.IsMainActorIsolated ?? false,
+                isolationAccessor?.IsNonisolated ?? false))
+        {
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+        }
 
         // Inherit availability attributes from the primary subscript — same CA1416
         // concern as the method overload path above.

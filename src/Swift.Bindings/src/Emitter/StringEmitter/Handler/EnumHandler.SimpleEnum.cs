@@ -682,7 +682,7 @@ namespace BindingsGeneration
                 // Skip @_spi-protected cases — inaccessible without @_spi import
                 if (caseDecl.IsSpiProtected)
                 {
-                    swiftWriter.WriteLine($"case {tag}: fatalError(\"Case at index \\({tag}) is @_spi protected\")");
+                    swiftWriter.WriteLine($"case {tag}: fatalError(\"[SwiftBindings] Case at index \\({tag}) is @_spi protected\")");
                     continue;
                 }
                 var caseName = NameProvider.EscapeSwiftKeyword(caseDecl.Name);
@@ -698,7 +698,7 @@ namespace BindingsGeneration
                     swiftWriter.Indent--;
                     swiftWriter.WriteLine("} else {");
                     swiftWriter.Indent++;
-                    swiftWriter.WriteLine($"fatalError(\"Case {caseDecl.Name} requires a newer OS version\")");
+                    swiftWriter.WriteLine($"fatalError(\"[SwiftBindings] Case {caseDecl.Name} requires a newer OS version\")");
                     swiftWriter.Indent--;
                     swiftWriter.WriteLine("}");
                     swiftWriter.Indent--;
@@ -706,7 +706,7 @@ namespace BindingsGeneration
                 }
                 swiftWriter.WriteLine($"case {tag}: value = .{caseName}");
             }
-            swiftWriter.WriteLine($"default: fatalError(\"Invalid enum tag\")");
+            swiftWriter.WriteLine($"default: fatalError(\"[SwiftBindings] Invalid enum tag\")");
             swiftWriter.WriteLine("}");
         }
 
@@ -729,7 +729,7 @@ namespace BindingsGeneration
             // (the switch is no longer exhaustive on the older deployment target).
             if (enumDecl.Cases.Any(c => GetTighterCaseAvailability(c, enumDecl).Count > 0))
             {
-                swiftWriter.WriteLine("@unknown default: fatalError(\"Unknown enum case\")");
+                swiftWriter.WriteLine("@unknown default: fatalError(\"[SwiftBindings] Unknown enum case\")");
             }
             swiftWriter.WriteLine("}");
         }
@@ -1737,7 +1737,7 @@ namespace BindingsGeneration
                    $"    switch {paramExpr} {{\n" +
                    string.Join("\n", enumDecl.Cases.Select(c =>
                        $"    case {enumDecl.GetCaseTag(c)}: return .{NameProvider.EscapeSwiftKeyword(c.Name)}")) +
-                   $"\n    default: fatalError(\"Invalid enum tag\")\n" +
+                   $"\n    default: fatalError(\"[SwiftBindings] Invalid enum tag\")\n" +
                    $"    }}\n" +
                    $"}}()";
         }

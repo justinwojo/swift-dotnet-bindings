@@ -877,6 +877,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value, context.GetEmissionContext());
         }
         XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
+        // Surface Swift @MainActor isolation on the public property: a <remarks> line plus the
+        // [SwiftMainActor] marker, using the same oracle the wrapper method/constructor paths consult.
+        // The type-level [SwiftMainActor] already carries the signal for a @MainActor type; this also
+        // catches a per-member @MainActor property on an otherwise non-isolated type, and stays silent
+        // for a `nonisolated` property of a @MainActor type (the oracle honors the nonisolated opt-out
+        // and returns false even though the parent type is isolated).
+        if (WrapperValidation.NeedsMainActorAnnotation(
+                propertyDecl.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated))
+        {
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+        }
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
         csWriter.WriteLine($"public {staticModifier}{dispatchModifier}{csTypeName} {propertyName}");
         csWriter.WriteLine("{");

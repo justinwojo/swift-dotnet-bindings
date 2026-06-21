@@ -400,6 +400,52 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when this member maps to a Swift <c>@MainActor</c>-isolated declaration — either by
+        /// its own isolation or inherited from a <c>@MainActor</c> parent type — and is a block-bodied
+        /// member (method or constructor) the guard/attribute can be attached to. Property/subscript
+        /// accessor backing methods are excluded here: the consumer-facing attribute and remarks are
+        /// surfaced on the public property by <c>PropertyHandler</c>, and the accessor's own Debug guard
+        /// is intentionally not emitted — gating it correctly would require the property's per-member
+        /// isolation (including <c>nonisolated</c>, which the parser records only on the property, not on
+        /// its accessor methods) to be propagated onto the accessor method, and that same bit also drives
+        /// the Swift <c>@_cdecl</c> wrapper's <c>@MainActor</c> annotation, so it is out of scope for this
+        /// C#-only surfacing. A @MainActor type still carries the signal via its type-level
+        /// <c>[SwiftMainActor]</c> attribute.
+        /// </summary>
+        private bool NeedsMainActorSurfacing
+            => !_env.MethodDecl.IsAccessor
+               && WrapperValidation.NeedsMainActorAnnotation(
+                   _env.ParentDecl,
+                   _env.MethodDecl.IsMainActorIsolated,
+                   _env.MethodDecl.IsNonisolated);
+
+        /// <summary>
+        /// Emits the <c>[SwiftMainActor]</c> marker attribute and an isolation <c>&lt;remarks&gt;</c>
+        /// doc line for a <c>@MainActor</c>-isolated member. Surfaced per-member (in addition to any
+        /// type-level attribute) so the requirement is visible on the individual member's IntelliSense
+        /// and via reflection. Must run after the member's XML doc summary and before its signature.
+        /// </summary>
+        private void EmitMainActorMemberAnnotation(CSharpWriter csWriter)
+        {
+            if (!NeedsMainActorSurfacing)
+                return;
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the Debug-only main-thread guard as the first statement of a <c>@MainActor</c>-isolated
+        /// member's body. Compiled out in Release (<c>[Conditional("DEBUG")]</c>), so it is purely a
+        /// development-time check and changes no release output. Must run immediately after the opening
+        /// brace.
+        /// </summary>
+        private void EmitMainActorGuard(CSharpWriter csWriter)
+        {
+            if (!NeedsMainActorSurfacing)
+                return;
+            csWriter.WriteLine("global::Swift.Runtime.MainActorGuard.AssertMainThread();");
+        }
+
+        /// <summary>
         /// Emits the constructor wrapper.
         /// </summary>
         /// <param name="writer">The IndentedTextWriter instance.</param>
@@ -428,8 +474,10 @@ namespace BindingsGeneration
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
+            EmitMainActorMemberAnnotation(csWriter);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
+            EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
 
@@ -512,6 +560,13 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            // For an ObjC-rooted @MainActor initializer the Swift init runs in THIS helper, which the
+            // public constructor invokes from its `: base(helper(...))` initializer — i.e. before the
+            // constructor body executes. The main-thread guard must therefore sit at the top of the
+            // helper (ahead of the P/Invoke), not in the constructor body, or it would assert only
+            // after the off-main-thread Swift init had already run.
+            EmitMainActorGuard(csWriter);
+
             // The helper body contains the full P/Invoke call sequence
             EmitSafeHandleAddRef(csWriter);
             EmitBoundGenericArguments(csWriter);
@@ -588,8 +643,11 @@ namespace BindingsGeneration
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
+            EmitMainActorMemberAnnotation(csWriter);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
+            // No main-thread guard here: the Swift init already ran inside the static helper called
+            // from `: base(helper(...))` above, so the guard lives at the top of that helper instead.
             EmitReturnConstructor(csWriter); // Emits DangerousRelease()
             EmitBodyEnd(csWriter);
             AssertRawBufferFixedDepthZero();
@@ -615,6 +673,7 @@ namespace BindingsGeneration
             {
                 XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl);
             }
+            EmitMainActorMemberAnnotation(csWriter);
             EmitReturnTypeOriginalSwiftType(csWriter);
             EmitSignatureMethod(csWriter);
             // PRODUCE-path proxy gate (method body). A return/marshalling construction may attempt
@@ -644,6 +703,7 @@ namespace BindingsGeneration
         private void EmitMethodBody(CSharpWriter csWriter, SwiftWriter swiftWriter)
         {
             EmitBodyStart(csWriter);
+            EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
             EmitConsumedNonCopyableSelfGuard(csWriter);
             // Existential heap variables (`void* xHeap = null;`) must precede EmitAsync.

@@ -601,6 +601,78 @@ public class PropertyHandlerTests
 
     #endregion
 
+    #region F41 — @MainActor property surfacing
+
+    private const string MainActorAttribute = "[global::Swift.Runtime.SwiftMainActor]";
+
+    [Fact]
+    public void Emit_PropertyOnMainActorParent_SurfacesAttributeAndRemarks()
+    {
+        // A property on a @MainActor-isolated type inherits the isolation: the public C# property
+        // carries the [SwiftMainActor] marker plus the main-thread <remarks> line so the consumer
+        // contract is visible without reading Swift source.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("ViewModel", moduleDecl);
+        classDecl.IsMainActorIsolated = true;
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains(MainActorAttribute, csOutput);
+        Assert.Contains("@MainActor", csOutput);
+        Assert.Contains("main thread", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PerMemberMainActorProperty_SurfacesAttribute()
+    {
+        // A per-member @MainActor property on an otherwise non-isolated type is surfaced via the
+        // same oracle the wrapper method/constructor paths consult.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Model", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+        property.IsMainActorIsolated = true;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains(MainActorAttribute, csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonisolatedPropertyOnMainActorParent_OmitsAttribute()
+    {
+        // A nonisolated property opts out of its @MainActor parent's isolation — the oracle returns
+        // false, so no marker is surfaced.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("ViewModel", moduleDecl);
+        classDecl.IsMainActorIsolated = true;
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+        property.IsNonisolated = true;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.DoesNotContain(MainActorAttribute, csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonIsolatedProperty_OmitsAttribute()
+    {
+        // Neither the parent type nor the property is @MainActor-isolated: no marker.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("PlainModel", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.DoesNotContain(MainActorAttribute, csOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(string name, MethodType methodType)

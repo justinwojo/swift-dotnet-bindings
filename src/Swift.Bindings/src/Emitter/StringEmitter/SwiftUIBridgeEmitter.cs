@@ -138,7 +138,10 @@ public static partial class SwiftUIBridgeEmitter
         var swiftPath = Path.Combine(outputDirectory, $"{@namespace}.SwiftUIBridge.swift");
         // Apply module/type-name collision rewrite for parity with the main wrapper file
         // (Pattern 5 used to fix this on every .swift file at compile time).
-        File.WriteAllText(swiftPath, emissionContext?.QualifyForWrapperSource(swiftContent) ?? swiftContent);
+        var bridgeSwift = emissionContext?.QualifyForWrapperSource(swiftContent) ?? swiftContent;
+        // Trap-anonymity lint (read-only): same breadcrumb/force-cast check the wrapper file gets.
+        EmittedSwiftTrapLint.Validate(bridgeSwift, $"{@namespace}.SwiftUIBridge.swift", logger);
+        File.WriteAllText(swiftPath, bridgeSwift);
 
         var csPath = Path.Combine(outputDirectory, $"{@namespace}.SwiftUIBridge.cs");
         File.WriteAllText(csPath, csContent);
@@ -1352,11 +1355,11 @@ public static partial class SwiftUIBridgeEmitter
             // to construct the JSON via the matching EncodeToJson() and so a decode failure
             // here is a programmer error (corrupted bytes, version skew, etc.) not a runtime
             // condition the bridge can recover from.
-            sb.AppendLine($"        guard let {param.Name}Ptr = {param.Name}Ptr, {param.Name}Len > 0 else {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: nil/empty JSON buffer\") }}");
+            sb.AppendLine($"        guard let {param.Name}Ptr = {param.Name}Ptr, {param.Name}Len > 0 else {{ preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: nil/empty JSON buffer\") }}");
             sb.AppendLine($"        let {param.Name}Data = Data(buffer: UnsafeBufferPointer(start: {param.Name}Ptr, count: {param.Name}Len))");
             sb.AppendLine($"        let {param.Name}Converted: {param.BridgeTypeName}");
             sb.AppendLine($"        do {{ {param.Name}Converted = try JSONDecoder().decode({param.BridgeTypeName}.self, from: {param.Name}Data) }}");
-            sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONDecoder failed: \\(error)\") }}");
+            sb.AppendLine($"        catch {{ preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: JSONDecoder failed: \\(error)\") }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
@@ -1559,7 +1562,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("            .fromOpaque(handle).takeUnretainedValue()");
             sb.AppendLine("        let data: Data");
             sb.AppendLine($"        do {{ data = try JSONEncoder().encode(session.state.{param.SwiftName}) }}");
-            sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONEncoder failed in Read: \\(error)\") }}");
+            sb.AppendLine($"        catch {{ preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: JSONEncoder failed in Read: \\(error)\") }}");
             sb.AppendLine("        let len = data.count");
             sb.AppendLine("        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: len)");
             sb.AppendLine("        data.withUnsafeBytes { src in");
@@ -1612,10 +1615,10 @@ public static partial class SwiftUIBridgeEmitter
             // Binding<CodableStruct> Update: decode JSON UTF-8 buffer and assign.
             // Same trap-on-failure contract as the Create path — the C# caller must have
             // produced the buffer via EncodeToJson() so a decode failure is a programmer error.
-            sb.AppendLine($"        guard let newValuePtr = newValuePtr, newValueLen > 0 else {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: nil/empty JSON buffer in Update\") }}");
+            sb.AppendLine($"        guard let newValuePtr = newValuePtr, newValueLen > 0 else {{ preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: nil/empty JSON buffer in Update\") }}");
             sb.AppendLine($"        let newValueData = Data(buffer: UnsafeBufferPointer(start: newValuePtr, count: newValueLen))");
             sb.AppendLine($"        do {{ session.state.{param.SwiftName} = try JSONDecoder().decode({param.BridgeTypeName}.self, from: newValueData) }}");
-            sb.AppendLine($"        catch {{ preconditionFailure(\"Binding<{param.BridgeTypeName}>: JSONDecoder failed in Update: \\(error)\") }}");
+            sb.AppendLine($"        catch {{ preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: JSONDecoder failed in Update: \\(error)\") }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundStruct)
         {
@@ -3429,7 +3432,7 @@ public static partial class SwiftUIBridgeEmitter
                 {
                     BridgeParameterKind.String => "return \"\"",
                     BridgeParameterKind.BoundType =>
-                        $"fatalError(\"SBW: closure callback not provided for non-optional class return\")",
+                        $"fatalError(\"[SwiftBindings] SBW: closure callback not provided for non-optional class return\")",
                     _ when closureReturn.SwiftAbiType is "Double" or "Float" => "return 0.0",
                     _ => "return 0",
                 };
@@ -3573,7 +3576,7 @@ public static partial class SwiftUIBridgeEmitter
                 // Class return: unwrap Unmanaged pointer with ownership transfer
                 var callExpr = $"cb_{param.Name}?({callbackArgStr})";
                 sb.Append($"{currentIndent}guard let retPtr = {callExpr} else {{\n");
-                sb.Append($"{currentIndent}    fatalError(\"SBW: closure returned null for non-optional class return\")\n");
+                sb.Append($"{currentIndent}    fatalError(\"[SwiftBindings] SBW: closure returned null for non-optional class return\")\n");
                 sb.Append($"{currentIndent}}}\n");
                 sb.Append($"{currentIndent}return Unmanaged<{closureReturn.BridgeTypeName}>.fromOpaque(retPtr).takeRetainedValue()\n");
             }

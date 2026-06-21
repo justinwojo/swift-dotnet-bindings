@@ -631,6 +631,42 @@ namespace BindingsGeneration
             csWriter.WriteLine("[global::Swift.SwiftSendable]");
         }
 
+        /// <summary>
+        /// Emits a <c>@MainActor</c> XML doc remark and the <c>[SwiftMainActor]</c> marker
+        /// attribute when the Swift type is <c>@MainActor</c>-isolated. The isolation is a
+        /// compile-time-only constraint on the Swift side (the <c>@_cdecl</c> wrapper carries
+        /// <c>@MainActor</c>), so without this the requirement that members be called on the
+        /// main thread is invisible to a C# consumer. The marker is purely informational; the
+        /// per-member <c>MainActorGuard.AssertMainThread()</c> call enforces it at runtime in
+        /// Debug builds.
+        /// </summary>
+        internal static void EmitSwiftMainActorAnnotation(CSharpWriter csWriter, TypeDecl typeDecl)
+        {
+            if (!typeDecl.IsMainActorIsolated)
+                return;
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine("/// The underlying Swift type is <c>@MainActor</c>-isolated; its members must be");
+            csWriter.WriteLine("/// called on the platform main thread.");
+            csWriter.WriteLine("/// </remarks>");
+            csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
+        }
+
+        /// <summary>
+        /// Emits the per-member <c>@MainActor</c> isolation <c>&lt;remarks&gt;</c> line and the
+        /// <c>[SwiftMainActor]</c> marker attribute. Surfaced on an individual member (in addition to any
+        /// type-level attribute) so the main-thread requirement is visible on that member's IntelliSense
+        /// and via reflection. Emission only — the caller decides whether the member is isolated via
+        /// <see cref="WrapperValidation.NeedsMainActorAnnotation"/> (the single isolation oracle). Must
+        /// run after the member's XML doc summary and before its signature/availability attributes.
+        /// </summary>
+        internal static void EmitSwiftMainActorMemberAnnotation(CSharpWriter csWriter)
+        {
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine("/// Maps to a Swift <c>@MainActor</c>-isolated declaration; call on the platform main thread.");
+            csWriter.WriteLine("/// </remarks>");
+            csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
+        }
+
         private static bool IsSwiftSendable(TypeDecl typeDecl)
         {
             // Sendable is one of the four marker protocols (Sendable / Copyable / Escapable /

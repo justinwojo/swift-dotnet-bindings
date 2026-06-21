@@ -516,7 +516,7 @@ public static class CdeclParamMapper
                     // has the same access level as the type and is always available from
                     // the wrapper module. Guard against invalid raw values from C# (e.g.,
                     // casting an arbitrary integer to the enum type).
-                    conversion = $"guard let {label}Val = {swiftType}(rawValue: {label}) else {{ preconditionFailure(\"Invalid raw value \\({label}) for {swiftType}\") }}";
+                    conversion = $"guard let {label}Val = {swiftType}(rawValue: {label}) else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({label}) for {swiftType}\") }}";
                 }
                 else
                 {

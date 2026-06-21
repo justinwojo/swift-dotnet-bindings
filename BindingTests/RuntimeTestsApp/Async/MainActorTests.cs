@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Threading;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 
@@ -123,6 +124,45 @@ public class MainActorTests : TestBase
         // "Hello" has 5 chars, transform doubles it
         AssertEqual(10, result, "Closure method on @MainActor class should work");
         svc.Dispose();
+    }
+
+    #endregion
+
+    #region MainActorGuard (F41 — Debug-only main-thread guard)
+
+    public void TestMainActorGuard_OnMainThread_DoesNotThrow()
+    {
+        // The runtime harness drives tests on the main thread, so a @MainActor member must succeed —
+        // the emitted MainActorGuard.AssertMainThread() passes and the call returns normally.
+        var vm = new MainActorViewModel("Guard");
+        var result = vm.Increment();
+        AssertEqual(1, result, "@MainActor member should succeed on the main thread with the guard present");
+        vm.Dispose();
+    }
+
+    // The guard is [Conditional("DEBUG")] in Swift.Runtime; the Simulator app builds Debug, so it is
+    // active here, but the NativeAOT device app builds Release and compiles the guard out entirely.
+    [SkipOnDevice("MainActorGuard is [Conditional(\"DEBUG\")]; the device app is a Release build with the guard compiled out, so an off-main-thread call does not throw.")]
+    public void TestMainActorGuard_OffMainThread_Throws()
+    {
+        var vm = new MainActorViewModel("Guard");
+
+        // Drive the @MainActor member from a dedicated background thread and capture whatever it
+        // raises. The guard's pthread_main_np() check must observe the non-main thread and throw.
+        Exception? captured = null;
+        var worker = new Thread(() =>
+        {
+            try { vm.Increment(); }
+            catch (Exception ex) { captured = ex; }
+        });
+        worker.Start();
+        worker.Join();
+
+        AssertNotNull(captured, "Calling a @MainActor member off the main thread should trip the Debug guard");
+        AssertTrue(
+            captured is InvalidOperationException,
+            $"Off-main-thread @MainActor call should throw InvalidOperationException, got {captured?.GetType().Name ?? "null"}");
+        vm.Dispose();
     }
 
     #endregion

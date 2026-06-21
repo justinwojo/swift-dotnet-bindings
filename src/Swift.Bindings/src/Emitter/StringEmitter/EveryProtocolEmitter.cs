@@ -2513,11 +2513,11 @@ public class EveryProtocolEmitter
         writer.Indent++;
         if (hasGetter)
         {
-            writer.WriteLine($"get {{ fatalError(\"EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
         if (hasSetter)
         {
-            writer.WriteLine($"set {{ fatalError(\"EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
         writer.Indent--;
         writer.WriteLine("}");
@@ -2538,11 +2538,11 @@ public class EveryProtocolEmitter
         writer.Indent++;
         if (hasGetter)
         {
-            writer.WriteLine($"get {{ fatalError(\"EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
         if (hasSetter)
         {
-            writer.WriteLine($"set {{ fatalError(\"EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
         writer.Indent--;
         writer.WriteLine("}");
@@ -2657,7 +2657,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for getter of '{property.Name}'\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for getter of '{property.Name}'\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -2745,7 +2745,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for setter of '{property.Name}'\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for setter of '{property.Name}'\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -2913,7 +2913,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for getter of subscript\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for getter of subscript\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -3003,7 +3003,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for setter of subscript\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for setter of subscript\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -3290,7 +3290,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"EveryProtocol: closure method '{method.Name}' cannot be dispatched through vtable\")");
+        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: closure method '{method.Name}' cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -3469,7 +3469,7 @@ public class EveryProtocolEmitter
             writer.WriteLine($"throw NSError(domain: \"SwiftBindings\", code: -1, userInfo: [NSLocalizedDescriptionKey: \"Protocol method with generic parameters is not supported\"])");
         }
         else
-            writer.WriteLine($"fatalError(\"EveryProtocol: method-level generic method '{method.Name}' cannot be dispatched through vtable\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: method-level generic method '{method.Name}' cannot be dispatched through vtable\")");
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -3514,7 +3514,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"EveryProtocol: Self-typed method '{method.Name}' cannot be dispatched through vtable\")");
+        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: Self-typed method '{method.Name}' cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -3574,7 +3574,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"EveryProtocol: method '{method.Name}' with an inout ObjC-bridgeable parameter cannot be dispatched through vtable\")");
+        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: method '{method.Name}' with an inout ObjC-bridgeable parameter cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -3603,11 +3603,11 @@ public class EveryProtocolEmitter
         writer.Indent++;
         if (subscript.HasGetter)
         {
-            writer.WriteLine($"get {{ fatalError(\"EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
         }
         if (subscript.HasSetter)
         {
-            writer.WriteLine($"set {{ fatalError(\"EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
         }
         writer.Indent--;
         writer.WriteLine("}");
@@ -3877,7 +3877,7 @@ public class EveryProtocolEmitter
         }
         writer.WriteLine("else {");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for method {method.Name}\")");
+        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for method {method.Name}\")");
         writer.Indent--;
         writer.WriteLine("}");
 
@@ -4066,7 +4066,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for method {method.Name}\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for method {method.Name}\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -4317,7 +4317,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for closure method {method.Name}\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure method {method.Name}\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -4449,7 +4449,7 @@ public class EveryProtocolEmitter
                 }
                 writer.WriteLine("else {");
                 writer.Indent++;
-                writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for closure property '{property.Name}' getter\")");
+                writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure property '{property.Name}' getter\")");
                 writer.Indent--;
                 writer.WriteLine("}");
             }
@@ -4461,7 +4461,7 @@ public class EveryProtocolEmitter
             if (isOptional)
                 writer.WriteLine("guard let _fnPtr = fnPtrSlot else { return nil }");
             else
-                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
+                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"[SwiftBindings] EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
             writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
             writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
             writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
@@ -4576,7 +4576,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for closure-returning method {method.Name}\")");
+            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure-returning method {method.Name}\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -4585,7 +4585,7 @@ public class EveryProtocolEmitter
             let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
             resultPtr.deallocate()
             """);
-        writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"EveryProtocol: closure-returning method '" + method.Name + "' returned nil function pointer\") }");
+        writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"[SwiftBindings] EveryProtocol: closure-returning method '" + method.Name + "' returned nil function pointer\") }");
         writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
         writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
         writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");

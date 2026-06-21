@@ -671,12 +671,12 @@ namespace BindingsGeneration
                 // Skip @_spi-protected cases — inaccessible without @_spi import
                 if (simpleCases[i].IsSpiProtected)
                 {
-                    sb.AppendLine($"    case {i}: fatalError(\"Case at index \\({i}) is @_spi protected\")");
+                    sb.AppendLine($"    case {i}: fatalError(\"[SwiftBindings] Case at index \\({i}) is @_spi protected\")");
                     continue;
                 }
                 sb.AppendLine($"    case {i}: value = .{simpleCases[i].Name}");
             }
-            sb.AppendLine($"    default: fatalError(\"Invalid case index \\(index) for {enumFullName}\")");
+            sb.AppendLine($"    default: fatalError(\"[SwiftBindings] Invalid case index \\(index) for {enumFullName}\")");
             sb.AppendLine("    }");
             sb.AppendLine($"    let ptr = UnsafeMutablePointer<{enumFullName}>.allocate(capacity: 1)");
             sb.AppendLine("    ptr.initialize(to: value)");
